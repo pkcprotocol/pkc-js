@@ -2,23 +2,25 @@
 
 ## Problem
 
-Currently, a subplebbit has a single `address` field that can be either a raw IPNS key (`12D3KooW...`) or a single domain name (`memes.eth`). This creates several problems:
+Currently, a subplebbit has a single `address` field that can be either a raw IPNS key (`12D3KooW...`) or a single domain name (`memes.bso`). This creates several problems:
 
 ### 1. Publications need both identity and cryptographic linkage
 
-Publications currently carry `subplebbitAddress` only. In this proposal, effective community identity is `name || publicKey` (the `address` value), but clients also need cryptographic linkage for verification/loading flows. If a named community changes from `memes.eth` to `memes.sol`, it creates a new identity string, and old publications remain under the old identity.
+Publications currently carry `subplebbitAddress` only. In this proposal, effective community identity is `name || publicKey` (the `address` value), but clients also need cryptographic linkage for verification/loading flows. If a named community changes its domain name, it creates a new identity string, and old publications remain under the old identity.
 
 Additionally, loading a subplebbit by its IPNS public key currently fails if the record's `address` is a domain name, because validation does a strict string comparison. This blocks the ability to skip blockchain resolution and load directly by public key.
 
 ### 2. `address` is no longer universally resolvable
 
-Once domain resolution moves out of plebbit-js into pkc-js clients (see [#68](https://github.com/plebbit/plebbit-js/issues/68)), the idea of a single `address` field that works across all clients is no longer true. A client that only ships with `.sol` resolvers cannot resolve a `memes.eth` address.
+Once domain resolution moves out of plebbit-js into pkc-js clients (see [#68](https://github.com/plebbit/plebbit-js/issues/68)), the idea of a single `address` field that works across all clients is no longer true. A client without the matching resolver cannot resolve a domain address.
 
 This is an acceptable trade-off for protocol neutrality — pkc-js should not mandate which resolvers clients must implement. The `publicKey` provides a universal fallback key that works regardless of resolver choices.
 
 ## Protocol neutrality
 
-A key design goal is that **pkc-js remains a neutral protocol layer**. Different clients may ship with different resolvers — one client might support `.eth`, another might support `.sol` or a future `.ton`. This is intentional: pkc-js should not force clients to import specific resolver libraries.
+A key design goal is that **pkc-js remains a neutral protocol layer**. Different clients may ship with different resolvers — one client might support `.bso` (ENS-based), another might support a future `.ton`. This is intentional: pkc-js should not force clients to import specific resolver libraries.
+
+Note: `.sol` support has been removed. Only ENS-based resolution (`.bso`) is supported as the primary naming system.
 
 A client that only supports `.ton` is not "forking pkc-js" — it's a legitimate pkc-js client serving a different naming ecosystem. The protocol supports this via:
 
@@ -27,7 +29,7 @@ A client that only supports `.ton` is not "forking pkc-js" — it's a legitimate
 -   `name` as a human-readable convenience (works if you have a matching resolver)
 -   `nameResolved` flag to indicate whether the name has been verified against the publicKey
 
-Specific apps (like bitsocial) can standardize on `.eth` for their ecosystem, but this is an app-level choice, not a protocol requirement.
+Specific apps (like bitsocial) can standardize on `.bso` for their ecosystem, but this is an app-level choice, not a protocol requirement.
 
 ### Resolver integration boundary (issue #68 direction)
 
@@ -44,13 +46,13 @@ pkc-js should treat resolver keys as opaque identifiers and should not require a
 Add a new optional `name` field to the signed SubplebbitIpfs record:
 
 ```ts
-name?: string   // e.g., "memes.eth"
+name?: string   // e.g., "memes.bso"
 ```
 
 -   **Simple string** — resolver selection is implementation-defined (for example via `supports({name})` / `canResolve({name})`); TLD suffixes are common but not required
 -   **Optional** — communities without domain names simply omit this field
 -   **Signed** — part of the SubplebbitIpfs record, included in the subplebbit signature
--   **Editable** — sub owner sets it via `subplebbit.edit({ name: "memes.eth" })`
+-   **Editable** — sub owner sets it via `subplebbit.edit({ name: "memes.bso" })`
 -   **Untrusted until verified** — `name` in SubplebbitIpfs is a claim by the sub owner, not proof of ownership. The sub owner's signature only proves they _claim_ this name, not that it actually resolves to their public key. Name verification happens automatically via async resolution when both `publicKey` and `name` are provided. Until verified (`nameResolved = false`), the name should be treated as an unverified display hint.
 -   **`nameResolved` is runtime-only** — it is not part of SubplebbitIpfs and is not signed on the wire. It exists only on the subplebbit instance.
 
@@ -74,16 +76,16 @@ If a community has a name, that name is its identity string. Changing the name c
 
 Sub owners can set the domain name via either:
 
--   `subplebbit.edit({ name: "memes.eth" })` — preferred, explicit
--   `subplebbit.edit({ address: "memes.eth" })` — backward compatible, sets `name` if address is a domain
+-   `subplebbit.edit({ name: "memes.bso" })` — preferred, explicit
+-   `subplebbit.edit({ address: "memes.bso" })` — backward compatible, sets `name` if address is a domain
 
 | Edit call                                   | Behavior                                                                                  |
 | ------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `edit({ name: "memes.eth" })`               | Sets `name = "memes.eth"`, `address = "memes.eth"`                                        |
+| `edit({ name: "memes.bso" })`               | Sets `name = "memes.bso"`, `address = "memes.bso"`                                        |
 | `edit({ name: undefined })`                 | Clears `name`, `address` reverts to `publicKey`                                           |
-| `edit({ address: "memes.eth" })`            | Same as `edit({ name: "memes.eth" })` — backward compat                                   |
+| `edit({ address: "memes.bso" })`            | Same as `edit({ name: "memes.bso" })` — backward compat                                   |
 | `edit({ address: "12D3KooW..." })`          | If matches `publicKey`: clears `name`, sets `address = publicKey`. Otherwise: throw error |
-| `edit({ name: "a.eth", address: "b.eth" })` | Throw error — conflicting values                                                          |
+| `edit({ name: "a.bso", address: "b.bso" })` | Throw error — conflicting values                                                          |
 
 ### 2. Add `communityPublicKey` and `communityName` to publications
 
@@ -92,33 +94,36 @@ Publications (comments, votes, edits, moderations) currently carry only `subpleb
 Add two non-computable wire fields to publications:
 
 -   `communityPublicKey` — **wire field**, the IPNS key string (`12D3KooW...`), always present
--   `communityName` — **wire field**, optional, the domain name (e.g., `"memes.eth"`) if the community has one
+-   `communityName` — **wire field**, optional, the domain name (e.g., `"memes.bso"`) if the community has one
 -   `communityAddress` — **instance-only**, computed as `communityName || communityPublicKey` (not in wire format)
 
 This follows the same "no computable props" principle: `communityAddress` is derivable from `communityName` and `communityPublicKey`, so it is not included in the protocol.
 
 Identity decisions (resolved):
 
--   `communityName` — wire field (not computable, it's a claim set by the owner)
--   `communityPublicKey` — **instance-only**, computed from `signature.publicKey`
--   `communityAddress` — **instance-only**, computed as `name || publicKey`
+-   `communityName` — **wire field** on publications (not computable, it's a claim set by the owner)
+-   `communityPublicKey` — **wire field** on publications (the community's IPNS key; cannot be derived from the author's `signature.publicKey` since that is the author's key, not the community's)
+-   `communityAddress` — **instance-only**, computed as `communityName || communityPublicKey`
+
+Note: On **community records** (CommunityIpfs), the community's own `publicKey` is instance-only (derived from the community's `signature.publicKey`). On **publications**, `communityPublicKey` must be a wire field because the publication's signature belongs to the author, not the community.
+
 -   ~~Whether `address` should remain in `SubplebbitIpfs` or be instance-only/computed~~ — **Resolved: instance-only** (not in wire format)
 -   ~~Whether `subplebbit.publicKey` should be an explicit signed field in `SubplebbitIpfs` or derived on instance from `signature.publicKey`~~ — **Resolved: instance-only** (derived from `signature.publicKey`)
 -   ~~If explicit `record.publicKey` is adopted~~ — **N/A, not adopted**
 -   ~~Whether `author.publicKey` should be part of protocol/wire files or computed on instance from signature~~ — **Resolved: instance-only** (computed from signature)
 -   ~~Whether to keep `author.address`~~ — **Resolved: yes, instance-only**, computed as `author.name || author.publicKey`
 
-Remaining implementation decisions:
+Implementation decisions (resolved):
 
--   Address stability in `{publicKey}`-only flow when record later includes `name` (start with `address = publicKey`; decide whether `address` can switch to `name`)
--   Subplebbit indexing key strategy for `_updatingSubplebbits` and `_startedSubplebbits`: finalize whether indexing should be by `address` (identity), by `publicKey` (cryptographic key), or dual/composite
--   If `publication.communityPublicKey` and `publication.communityName` are added, add backward-compat tests proving old posts/replies that do not include these fields still load correctly
+-   ~~Address stability in `{publicKey}`-only flow when record later includes `name`~~ — **Resolved:** When caller provides only `publicKey`, `address` stays as `publicKey` even if the fetched record contains `name`. `community.name` IS populated from the record, but `address` remains stable at `publicKey`.
+-   ~~Subplebbit indexing key strategy for `_updatingSubplebbits` and `_startedSubplebbits`~~ — **Resolved:** Index by `publicKey` (cryptographic key). Prevents duplicate entries when the same community is accessed by name and publicKey.
+-   ~~Backward-compat tests for old publications~~ — **Resolved:** Yes, add tests proving old posts/replies that do not include `communityPublicKey`/`communityName` still load correctly.
 
 ### 3. Add `author.name`, `author.publicKey`, and `author.nameResolved`
 
 Add to the Author type:
 
--   `name?: string` — e.g., "vitalik.eth" — **wire field** (in AuthorIpfsType, AuthorPubsubType), a claim set by the author
+-   `name?: string` — e.g., "vitalik.bso" — **wire field** (in AuthorIpfsType, AuthorPubsubType), a claim set by the author
 -   `publicKey: string` — the author's IPNS key — **instance-only** (derived from signature.publicKey via getPlebbitAddressFromPublicKey, not in wire format)
 -   `address: string` — **instance-only** (computed as `name || publicKey`, not in wire format)
 -   `nameResolved: boolean` — **instance-only** (runtime verification flag, not in wire format)
@@ -184,11 +189,12 @@ The identifiers form a hierarchy:
 
 #### When created with `{publicKey}` only and record contains `name`:
 
-1. `address` is initially set to the provided `publicKey`
+1. `address` is set to the provided `publicKey` and **stays as `publicKey`** (caller's intent preserved)
 2. IPNS record is fetched using publicKey
-3. Record contains `name` field (e.g., `"memes.eth"`)
-4. `address` = `name`, `nameResolved` = `false`
-5. Start async name verification in background
+3. Record contains `name` field (e.g., `"memes.bso"`)
+4. `community.name` = record's name, `nameResolved` = `false`
+5. `address` remains `publicKey` — it does NOT switch to `name`
+6. Start async name verification in background
 
 | Outcome                               | Behavior                                                                                        |
 | ------------------------------------- | ----------------------------------------------------------------------------------------------- |
@@ -197,7 +203,7 @@ The identifiers form a hierarchy:
 | Name resolution fails (network error) | Emit `error` event, `nameResolved` stays `false`                                                |
 | No resolver supports this name         | Emit `error`, `nameResolved` stays `false`                                                      |
 
-**Important tradeoff:** When loading a community using publicKey without having the matching resolver, the client can never verify that `sub.name` actually matches the publicKey. pkc-js should emit an error. In this case, `nameResolved` stays `false` and UIs should show appropriate warnings.
+**Important tradeoff:** When loading a community using publicKey without having the matching resolver, the client can never verify that `community.name` actually matches the publicKey. pkc-js should emit an error. In this case, `nameResolved` stays `false` and UIs should show appropriate warnings.
 
 ### UI and client storage recommendations
 
@@ -216,16 +222,16 @@ Each resolver in the `nameResolvers` array has the following shape:
 
 ```ts
 {
-  key: string                                           // unique identifier, e.g. "eth-ethrpc.xyz", "sol-solrpc.xyz", "dns-cloudflare-dns.com"
+  key: string                                           // unique identifier, e.g. "eth-ethrpc.xyz", "dns-cloudflare-dns.com"
   resolve({name, provider}): Promise<string | undefined> // resolves a name to a public key
   canResolve({name}): boolean                            // returns whether this resolver can handle the given name
   provider: string                                       // the provider URL/identifier passed through to resolve()
 }
 ```
 
--   **`key`** — a unique string identifying this resolver instance. Convention is `"{nameSystem}-{providerHostname}"` (e.g., `"eth-ethrpc.xyz"`, `"sol-solrpc.xyz"`, `"dns-cloudflare-dns.com"`). This mirrors the existing `key` convention from `libp2pJsConfig` and viem's optional `key` prop.
+-   **`key`** — a unique string identifying this resolver instance. Convention is `"{nameSystem}-{providerHostname}"` (e.g., `"eth-ethrpc.xyz"`, `"dns-cloudflare-dns.com"`). This mirrors the existing `key` convention from `libp2pJsConfig` and viem's optional `key` prop.
 -   **`resolve`** — async function that attempts to resolve a name to a public key using the given provider. Returns the resolved value or `undefined` if the name doesn't exist.
--   **`canResolve`** — sync function that returns whether this resolver can handle the given name (e.g., an ENS resolver would return `true` for `"memes.eth"` but `false` for `"memes.sol"`).
+-   **`canResolve`** — sync function that returns whether this resolver can handle the given name (e.g., an ENS resolver would return `true` for `"memes.bso"` but `false` for other TLDs).
 -   **`provider`** — the provider URL or identifier (e.g., `"https://ethrpc.xyz"`, `"viem"`, `"ethers.js"`), passed through to the `resolve` function.
 
 **Function-based over class-based:** The API uses plain objects with functions rather than class instances. This is simpler for resolver implementors — they export `resolve` and `canResolve` functions rather than implementing a class interface.
@@ -235,28 +241,17 @@ Each resolver in the `nameResolvers` array has the following shape:
 Resolver composition happens at the client/hook level, not in pkc-js. Here's how a client like bitsocial would wire resolvers from account configuration:
 
 ```js
-import {resolveEns, canResolveEns} from '@bitsocial/ens'
-import {resolveSns, canResolveSns} from '@bitsocial/sns'
+import {resolveEns, canResolveEns} from '@bitsocial/resolver-ens'
 import {resolveDns, canResolveDns} from '@bitsocial/dns-over-https'
 
 const nameResolvers = []
 
-// add eth resolvers
+// add ENS resolvers (for .bso names)
 for (const chainProviderUrl of account.nameResolversChainProviders?.eth?.urls || account.chainProviders?.eth?.urls) {
   nameResolvers.push({
     key: `eth-${new URL(chainProviderUrl).hostname}`,
     resolve: resolveEns,
     canResolve: canResolveEns,
-    provider: chainProviderUrl
-  })
-}
-
-// add sol resolvers
-for (const chainProviderUrl of account.nameResolversChainProviders?.sol?.urls || account.chainProviders?.sol?.urls) {
-  nameResolvers.push({
-    key: `sol-${new URL(chainProviderUrl).hostname}`,
-    resolve: resolveSns,
-    canResolve: canResolveSns,
     provider: chainProviderUrl
   })
 }
@@ -284,18 +279,18 @@ The account JSON supports two levels of chain provider configuration:
 {
   "account": {
     "chainProviders": {
-      "eth": {"urls": ["viem", "ethers.js"], "chainId": 1},
-      "sol": {"urls": ["https://solrpc.xyz"], "chainId": 1}
+      "eth": {"urls": ["viem", "ethers.js"], "chainId": 1}
     },
     "nameResolversChainProviders": {
-      "eth": {"urls": ["https://ethrpc.xyz", "viem", "ethers.js"], "chainId": 1},
-      "sol": {"urls": ["https://solrpc.xyz"], "chainId": 1}
+      "eth": {"urls": ["https://ethrpc.xyz", "viem", "ethers.js"], "chainId": 1}
     }
   }
 }
 ```
 
 `nameResolversChainProviders` takes precedence over `chainProviders` when wiring name resolvers, allowing clients to use different providers for name resolution vs. other chain operations.
+
+Note: `.sol` support has been removed. Only ENS-based resolution (`.bso`) is supported.
 
 #### Resolution algorithm
 
@@ -335,7 +330,6 @@ community.clients.nameResolvers = {
   'eth-ethrpc.xyz': nameResolverClient,
   'eth-viem': nameResolverClient,
   'eth-ethers.js': nameResolverClient,
-  'sol-solrpc.xyz': nameResolverClient,
   'dns-cloudflare-dns.com': nameResolverClient,
   'dns-dns.google': nameResolverClient,
 }
@@ -383,7 +377,7 @@ if (subJson.address !== subInstanceAddress) {
 }
 ```
 
-This means if you call `plebbit.getSubplebbit({ address: "12D3KooW..." })` but the fetched record has `address: "business-and-finance.eth"`, verification fails. The error is marked **non-retriable** — the load stops permanently.
+This means if you call `plebbit.getSubplebbit({ address: "12D3KooW..." })` but the fetched record has `address: "business-and-finance.bso"`, verification fails. The error is marked **non-retriable** — the load stops permanently.
 
 ### Required change
 
@@ -403,32 +397,36 @@ The `createSubplebbit` function accepts multiple ways to identify a community:
 | Parameters                                     | Behavior                                                                                                          |
 | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `{address: "12D3KooW..."}`                     | Use as IPNS key directly, no resolution needed                                                                    |
-| `{address: "memes.eth"}`                       | Resolve domain to publicKey first, then fetch IPNS                                                                |
-| `{address: "memes.eth", publicKey: "12D3..."}` | Use publicKey immediately for IPNS fetch, verify domain async. `address = name`, `nameResolved = false` initially |
+| `{address: "memes.bso"}`                       | Resolve domain to publicKey first, then fetch IPNS                                                                |
+| `{address: "memes.bso", publicKey: "12D3..."}` | Use publicKey immediately for IPNS fetch, verify domain async. `address = name`, `nameResolved = false` initially |
 | `{publicKey: "12D3KooW..."}`                   | Same as `{address: "12D3KooW..."}`                                                                                |
-| `{publicKey: "12D3...", name: "memes.eth"}`    | Use publicKey for IPNS fetch, verify name async. `address = name`, `nameResolved = false` initially               |
+| `{publicKey: "12D3...", name: "memes.bso"}`    | Use publicKey for IPNS fetch, verify name async. `address = name`, `nameResolved = false` initially               |
 
 ### Conflict handling
 
 | Conflict                                                                   | Resolution                                          |
 | -------------------------------------------------------------------------- | --------------------------------------------------- |
 | `{address: "12D3A...", publicKey: "12D3B..."}` (both IPNS keys, different) | **Throw error** — conflicting identities            |
-| `{address: "memes.eth", publicKey: "12D3..."}`                             | Valid — use publicKey for IPNS, verify domain async |
+| `{address: "memes.bso", publicKey: "12D3..."}`                             | Valid — use publicKey for IPNS, verify domain async |
 
 ### Address lifecycle
 
-The `address` property is stable (does not change during verification). The `nameResolved` flag tracks verification state:
+The `address` property is stable — it is set at creation time based on the caller's intent and does not change during verification. The `nameResolved` flag tracks verification state:
 
-| State                                      | `address` value  | `name` value  | `nameResolved`    | Notes                                                      |
-| ------------------------------------------ | ---------------- | ------------- | ----------------- | ---------------------------------------------------------- |
-| Created with publicKey only                | `publicKey`      | `undefined`   | `undefined`       | No name to verify                                          |
-| Created with publicKey + name (unverified) | `name`           | `name`        | `false`           | Verification in progress                                   |
-| Name verified successfully                 | `name`           | `name`        | `true`            | Safe to display name                                       |
-| Name verification failed (mismatch)        | `name`           | `name`        | `false`           | Switched to resolved IPNS (`newPublicKey`), warning logged |
-| Name verification skipped (no resolver)    | `name`           | `name`        | `false`           | Name remains unverified                                    |
-| Loaded from IPNS record                    | `record.address` | `record.name` | `false` initially | Async verification starts                                  |
+| State                                                   | `address` value | `name` value  | `nameResolved`    | Notes                                                         |
+| ------------------------------------------------------- | --------------- | ------------- | ----------------- | ------------------------------------------------------------- |
+| Created with publicKey only, no name in record          | `publicKey`     | `undefined`   | `undefined`       | No name to verify                                             |
+| Created with publicKey only, record has name            | `publicKey`     | record's name | `false` → verified | `address` stays as `publicKey` (caller's intent preserved)   |
+| Created with publicKey + name (unverified)              | `name`          | `name`        | `false`           | Verification in progress                                      |
+| Created with name only                                  | `name`          | `name`        | `false` → `true`  | Resolves name first, then fetches IPNS                        |
+| Name verified successfully                              | (unchanged)     | `name`        | `true`            | Safe to display name                                          |
+| Name verification failed (mismatch, explicit publicKey) | (unchanged)     | `name`        | `false`           | **Critical error**: emit `error`, stop updating               |
+| Name verification skipped (no resolver)                 | (unchanged)     | `name`        | `false`           | Name remains unverified                                       |
 
-**Key principle:** `address` = `name` (if set) or `publicKey`. The `nameResolved` flag indicates verification status. UIs decide their own warning policy for unverified names.
+**Key principles:**
+- When caller provides only `publicKey`: `address = publicKey` and stays stable even if the IPNS record contains `name`. The `name` property is populated from the record but does not change `address`.
+- When caller provides `name` (explicitly or via domain `address`): `address = name`.
+- The `nameResolved` flag indicates verification status. UIs decide their own warning policy for unverified names.
 
 ## Implementation plan (plebbit-js)
 
@@ -516,8 +514,8 @@ This section documents all edge cases for `createSubplebbit`, name resolution, a
 | Scenario                                                                     | Action                                              |
 | ---------------------------------------------------------------------------- | --------------------------------------------------- |
 | `{address: "12D3A...", publicKey: "12D3B..."}` (both IPNS, different values) | **Throw** `ERR_CONFLICTING_ADDRESS_AND_PUBLICKEY`   |
-| `{address: "memes.eth", publicKey: "12D3..."}`                               | Valid — use publicKey for IPNS, verify domain async |
-| `{address: "MEMES.ETH"}` (uppercase domain)                                  | **Throw** `ERR_DOMAIN_ADDRESS_HAS_CAPITAL_LETTER`   |
+| `{address: "memes.bso", publicKey: "12D3..."}`                               | Valid — use publicKey for IPNS, verify domain async |
+| `{address: "MEMES.BSO"}` (uppercase domain)                                  | **Throw** `ERR_DOMAIN_ADDRESS_HAS_CAPITAL_LETTER`   |
 | `{}` (empty options)                                                         | Generate random signer, create local subplebbit     |
 
 ### Error codes

@@ -36,9 +36,16 @@ This document provides a comprehensive checklist for renaming the plebbit-js cod
   - Update repository URLs
 
 ### 1.2 External Dependencies (Document for Later)
-The following dependencies are in the @plebbit namespace and need separate repository work:
+The following dependencies are in the @plebbit namespace and need separate repository work (rename AFTER pkc-js rename):
 - [ ] `@plebbit/plebbit-logger` - Note: Requires separate repo rename
 - [ ] `@plebbit/proper-lockfile` - Note: Requires separate repo rename
+
+### 1.2.1 Web3 Dependencies to Remove
+These dependencies move to external resolver/challenge packages:
+- [ ] Remove `viem` (moves to @bitsocial/resolver-ens and @bitsocial/challenge-evm-contract)
+- [ ] Remove `ethers` (moves to @bitsocial/resolver-ens)
+- [ ] Remove `@bonfida/spl-name-service` if present (no .sol support)
+- [ ] Remove `@solana/web3.js` if present (no .sol support)
 
 ### 1.3 RPC Package Configuration
 - [ ] **rpc/package.json** - Update keywords
@@ -337,21 +344,23 @@ State strings emitted via `statechange` and `publishingstatechange` events:
 ## Phase 8: DNS & Protocol Changes (Breaking)
 
 ### 8.1 DNS TXT Record Names
-- [ ] `"plebbit-author-address"` → `"pkc-author-address"` (src/clients/base-client-manager.ts)
-- [ ] `"subplebbit-address"` → `"pkc-community-address"`
+Replace both `"plebbit-author-address"` and `"subplebbit-address"` with a single `"bitsocial"` TXT record key (see Q2 resolution). Value = IPNS public key.
+- [ ] `"plebbit-author-address"` → removed (replaced by `"bitsocial"` record)
+- [ ] `"subplebbit-address"` → removed (replaced by `"bitsocial"` record)
+- [ ] Add `"bitsocial"` TXT record lookup (src/clients/base-client-manager.ts)
 
 ### 8.2 Wallet Signature Domain Separator
 The EVM contract call challenge uses a domain separator in the message to be signed:
 - [ ] `"plebbit-author-wallet"` → `"pkc-author-wallet"` ([src/runtime/node/subplebbit/challenges/plebbit-js-challenges/evm-contract-call/index.ts:111](src/runtime/node/subplebbit/challenges/plebbit-js-challenges/evm-contract-call/index.ts#L111))
 
 ### 8.3 Migration TODO
-- [ ] **IMPORTANT:** Need to migrate existing DNS TXT records from old names to new names
+- [ ] **IMPORTANT:** Need to migrate existing DNS TXT records from old names (`subplebbit-address`, `plebbit-author-address`) to single `bitsocial` record
 - [ ] Document migration process for users with existing records
 - [ ] Consider supporting both old and new record names during transition period
 
 ### 8.4 Storage Cache Keys
 Domain resolution cache keys (minor - invalidating just causes re-resolution):
-- [ ] `${domainAddress}_subplebbit-address` → `${domainAddress}_community-address` (src/clients/base-client-manager.ts:637)
+- [ ] `${domainAddress}_subplebbit-address` → `${domainAddress}_bitsocial` (src/clients/base-client-manager.ts:637)
 - [ ] Note: Changing this will invalidate existing caches, causing one-time re-resolution
 
 ---
@@ -720,29 +729,21 @@ The following applications will need migration code to rename `subplebbits/` →
 
 ---
 
-### Q2: DNS TXT record format alternative (NOT FINALIZED)
+### Q2: DNS TXT record format (**RESOLVED**)
 
-Current approach uses two TXT record keys:
-- `subplebbit-address` (to be renamed to `pkc-community-address`)
-- `plebbit-author-address` (to be renamed to `pkc-author-address`)
+**Decision:** Use a single `bitsocial` TXT record key. The value is the IPNS public key (e.g., `12D3KooW...`).
 
-**Brainstormed alternative:** use a single Bitsocial TXT record key (name TBD), with two possible value formats:
-- Minimal format: `key`
-- Structured format: `community=12D...; author=12D...`
+This replaces the previous two-key approach (`subplebbit-address` and `plebbit-author-address`). A single lookup retrieves the community's IPNS key.
 
-**Why this might be better:**
-- Resolve one TXT record instead of two
-- Get both community and author-related routing data from one lookup
-- Reduce resolver/network overhead and simplify client flow
+**Format:**
+- TXT record key: `bitsocial`
+- Value (current): `<ipnsB58>` (e.g., `12D3KooWNvSZn...`)
+- Value (future): extensible with `;key=value` pairs (e.g., `12D3KooW...;author=12D3KooW...`)
 
-**Open design questions (not finalized):**
-- Exact TXT record key name to standardize on (`bitsocial` vs `pkc` naming)
-- Whether `key` means only community key or a generic pointer
-- Delimiter/encoding rules for parsing (`;`, spaces, escaping, ordering)
-- Backward compatibility strategy with existing two-record deployments
-- Cache key and migration behavior in clients
-
-**Status:** [ ] Draft idea only, no decision yet
+**Benefits:**
+- One TXT lookup instead of two
+- Simpler client flow
+- Extensible format for future needs
 
 ---
 
@@ -782,18 +783,18 @@ These repositories are outside plebbit-js but will need coordinated updates:
 
 | Repository | Changes Needed | Status |
 |------------|---------------|--------|
-| @plebbit/plebbit-logger | Rename to @pkc/pkc-logger | [ ] Not Started |
-| @plebbit/proper-lockfile | Rename to @pkc/proper-lockfile | [ ] Not Started |
-| plebbit-cli | Directory migration: `.plebbit/` → `.pkc/` and `subplebbits/` → `communities/`, API updates | [ ] Not Started |
-| Desktop apps | Directory migration: `.plebbit/` → `.pkc/` and `subplebbits/` → `communities/`, API updates | [ ] Not Started |
+| @plebbit/plebbit-logger | Rename to @pkc/pkc-logger (after pkc-js rename) | [ ] Not Started |
+| @plebbit/proper-lockfile | Rename to @pkc/proper-lockfile (after pkc-js rename) | [ ] Not Started |
+| plebbit-cli | Directory migration: `.plebbit/` → `.pkc/` and `subplebbits/` → `communities/`, API updates, install name resolvers | [ ] Not Started |
+| Desktop apps | Directory migration: `.plebbit/` → `.pkc/` and `subplebbits/` → `communities/`, API updates, install name resolvers | [ ] Not Started |
 | plebbit-js-benchmarks | Rename repo to pkc-js-benchmarks, update all plebbit/subplebbit references | [ ] Not Started |
-| DNS TXT records | Migrate plebbit-author-address → pkc-author-address, subplebbit-address → pkc-community-address | [ ] Not Started |
+| DNS TXT records | Migrate `subplebbit-address` and `plebbit-author-address` → single `bitsocial` record | [ ] Not Started |
 
 ---
 
 ## Phase 17: Web3 Modularization
 
-Make plebbit-js (pkc-js) a neutral, core library that only handles IPNS/IPFS natively. Name resolution (.eth, .sol) and EVM challenges become external plugins in separate GitHub repos.
+Make plebbit-js (pkc-js) a neutral, core library that only handles IPNS/IPFS natively. Name resolution (.bso, ENS-based) and EVM challenges become external plugins in separate GitHub repos. `.sol` support has been removed entirely.
 
 ### 17.1 Name Resolver Plugin System
 
@@ -840,7 +841,8 @@ import { ChallengeFile, ChallengeFileFactory, Challenge, ChallengeResult } from 
 - [ ] Refactor `src/clients/base-client-manager.ts` resolution flow to use serial `canResolve`/`resolve` algorithm
 - [ ] Remove `chainProviders` from `PKCUserOptionsSchema` (breaking change)
 - [ ] Add `ERR_NO_RESOLVER_FOR_NAME` error when no resolver can handle a name
-- [ ] Remove hardcoded ENS/SNS logic from core
+- [ ] Remove hardcoded ENS logic from core (resolution moves to external @bitsocial/resolver-ens)
+- [ ] Remove all SNS/Solana resolution code (.sol support removed entirely)
 
 **External Challenges:**
 - [ ] Remove `evm-contract-call` from `pkcJsChallenges` in `src/runtime/node/subplebbit/challenges/index.ts`
@@ -848,7 +850,8 @@ import { ChallengeFile, ChallengeFileFactory, Challenge, ChallengeResult } from 
 - [ ] Export challenge types for external packages
 
 **Dependencies:**
-- [ ] Remove web3 dependencies: `viem`, `ethers`, `@bonfida/spl-name-service`, `@solana/web3.js` from pkc-js
+- [ ] Remove web3 dependencies: `viem`, `ethers` from pkc-js (moved to external resolver packages)
+- [ ] Remove Solana dependencies: `@bonfida/spl-name-service`, `@solana/web3.js` if present (.sol support removed entirely)
 
 **Downstream Apps:**
 - [ ] Update plebbit-cli to install and register name resolvers
@@ -862,18 +865,21 @@ import { ChallengeFile, ChallengeFileFactory, Challenge, ChallengeResult } from 
 
 | Repository | Purpose | Dependencies |
 |------------|---------|--------------|
-| @bitsocial/resolver-ens | ENS (.eth) name resolution | viem, ethers |
-| @bitsocial/resolver-sns | Solana Name Service (.sol) resolution | @bonfida/spl-name-service, @solana/web3.js |
+| @bitsocial/resolver-ens | ENS (.bso) name resolution | viem, ethers |
 | @bitsocial/challenge-evm-contract | EVM contract call challenge | viem |
+
+Note: .sol support has been removed. Only ENS-based resolution (.bso) is supported.
 
 ### 17.5 Breaking Changes
 
 - No default name resolvers - pkc-js only handles IPNS/IPFS natively
-- Users must explicitly provide `nameResolvers` config to resolve `.eth`/`.sol` addresses
+- Users must explicitly provide `nameResolvers` config to resolve `.bso` addresses
+- `.sol` support removed entirely - only ENS-based resolution (.bso) is supported
 - `evm-contract-call` challenge no longer built-in
 - `chainProviders` removed from PlebbitOptions - now configured per-resolver in `nameResolvers` config
 - Must register resolvers in `PKC.nameResolvers` static registry before use
 - Challenges fall back to resolver URLs, then to their own hardcoded defaults
+- DNS TXT records: single `bitsocial` key replaces old `subplebbit-address` and `plebbit-author-address` keys
 
 ### 17.6 Challenge System Cleanup
 
