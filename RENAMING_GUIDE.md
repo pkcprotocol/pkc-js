@@ -122,7 +122,7 @@ These dependencies move to external resolver/challenge packages:
 
 ### 3.4 Test File Renaming
 
-**Note:** All test files should use the `.test.ts` TypeScript extension (see `test/TYPESCRIPT_MIGRATION_PROGRESS.md`).
+**Note:** All test files should use the `.test.ts` TypeScript extension.
 
 All test files in test/node/subplebbit/ and test/node-and-browser/subplebbit/:
 - [ ] `*.subplebbit.test.ts` → `*.community.test.ts`
@@ -294,13 +294,28 @@ All test files in test/node/subplebbit/ and test/node-and-browser/subplebbit/:
 - [ ] `SubplebbitAddressRpcParam` → `CommunityAddressRpcParam`
 - [ ] `SubplebbitPageRpcParam` → `CommunityPageRpcParam`
 
-### 6.3 Publication Properties
+### 6.3 Publication Properties (Breaking Change)
 **See [NAMES_AND_PUBLIC_KEY_PROPOSAL.md](./NAMES_AND_PUBLIC_KEY_PROPOSAL.md) for wire format decisions.**
-- [ ] `publication.subplebbitAddress` → replace with wire fields `communityPublicKey` + `communityName`; `communityAddress` is instance-only (computed as `communityName || communityPublicKey`)
+- [ ] `publication.subplebbitAddress` → replace with wire fields `communityPublicKey` (optional, for backward compat) + `communityName` (optional); `communityAddress` is instance-only (computed as `communityName || communityPublicKey`)
 - [ ] `publication.shortSubplebbitAddress` → `publication.shortCommunityAddress`
 
-### 6.3.1 Author Properties (src/schema/schema.ts)
+**Backward compatibility for old publications:**
+- `communityPublicKey` is **optional** in the wire schema. Required for new publications, absent on old ones.
+- When parsing old `CommentIpfs` records that have `subplebbitAddress` but no `communityPublicKey`:
+  - If `subplebbitAddress` is an IPNS key → use it as `communityPublicKey`
+  - If `subplebbitAddress` is a domain → fill `communityPublicKey` from community context (the community serving the page/update knows its own publicKey)
+- Old comments remain loadable.
+
+### 6.3.1 Author Properties (Breaking Change)
 - [ ] `author.subplebbit` → `author.community` (property on AuthorIpfsSchema containing community-specific author data)
+- [ ] `author.address` → changes from **required wire field** to **instance-only** (computed as `author.name || author.publicKey`). This is a breaking change.
+- [ ] Add `author.name` as **wire field** in `AuthorPubsubSchema` and `AuthorIpfsSchema` — a domain name (e.g., `"vitalik.bso"`) pointing to the author's public key, same concept as `community.name`
+- [ ] `author.publicKey` — **instance-only**, derived from `signature.publicKey`
+- [ ] `author.nameResolved` — **instance-only**, runtime verification flag (`boolean | undefined`)
+
+**Backward compatibility for old publications:**
+- Old publications have `author.address` as a signed wire field. When parsing, ignore the wired value and compute instance-only `address = name || publicKey`.
+- `author.displayName` is unrelated to `author.name` — `displayName` is a free-text label, `name` is a domain identity. Both are kept.
 
 ### 6.4 Timeout Keys (src/plebbit/plebbit.ts)
 - [ ] `"subplebbit-ipns"` → `"community-ipns"`
@@ -344,24 +359,24 @@ State strings emitted via `statechange` and `publishingstatechange` events:
 ## Phase 8: DNS & Protocol Changes (Breaking)
 
 ### 8.1 DNS TXT Record Names
-Replace both `"plebbit-author-address"` and `"subplebbit-address"` with a single `"bitsocial"` TXT record key (see Q2 resolution). Value = IPNS public key.
-- [ ] `"plebbit-author-address"` → removed (replaced by `"bitsocial"` record)
-- [ ] `"subplebbit-address"` → removed (replaced by `"bitsocial"` record)
-- [ ] Add `"bitsocial"` TXT record lookup (src/clients/base-client-manager.ts)
+Remove hardcoded DNS TXT record lookups from pkc-js core. The `"bitsocial"` TXT record lookup is handled by `@bitsocial/bso-resolver`, not pkc-js.
+- [ ] Remove `"plebbit-author-address"` TXT record lookup from `src/clients/base-client-manager.ts`
+- [ ] Remove `"subplebbit-address"` TXT record lookup from `src/clients/base-client-manager.ts`
+- [ ] Remove `resolveSubplebbitAddressIfNeeded()` and `resolveAuthorAddressIfNeeded()` methods (resolution is now handled by external `nameResolvers`)
 
-### 8.2 Wallet Signature Domain Separator
-The EVM contract call challenge uses a domain separator in the message to be signed:
-- [ ] `"plebbit-author-wallet"` → `"pkc-author-wallet"` ([src/runtime/node/subplebbit/challenges/plebbit-js-challenges/evm-contract-call/index.ts:111](src/runtime/node/subplebbit/challenges/plebbit-js-challenges/evm-contract-call/index.ts#L111))
+### ~~8.2 Wallet Signature Domain Separator~~ (Removed)
+~~The EVM contract call challenge uses a domain separator in the message to be signed.~~
+Not applicable — the evm-contract-call challenge is being extracted to `@bitsocial/challenge-evm-contract` (see Phase 17). The domain separator rename is that package's responsibility.
 
 ### 8.3 Migration TODO
-- [ ] **IMPORTANT:** Need to migrate existing DNS TXT records from old names (`subplebbit-address`, `plebbit-author-address`) to single `bitsocial` record
+- [ ] **IMPORTANT:** Need to migrate existing DNS TXT records from old names (`subplebbit-address`, `plebbit-author-address`) to single `bitsocial` record — this is documented by `@bitsocial/bso-resolver`, not pkc-js
 - [ ] Document migration process for users with existing records
-- [ ] Consider supporting both old and new record names during transition period
+- [ ] Resolver plugins (e.g., `@bitsocial/bso-resolver`) may choose to support both old and new record names during transition period
 
 ### 8.4 Storage Cache Keys
-Domain resolution cache keys (minor - invalidating just causes re-resolution):
-- [ ] `${domainAddress}_subplebbit-address` → `${domainAddress}_bitsocial` (src/clients/base-client-manager.ts:637)
-- [ ] Note: Changing this will invalidate existing caches, causing one-time re-resolution
+Domain resolution cache keys are removed from pkc-js core (resolution moves to external resolvers):
+- [ ] Remove domain resolution cache logic from `src/clients/base-client-manager.ts` (cache keys like `${domainAddress}_subplebbit-address`)
+- [ ] Note: Resolver plugins manage their own caching
 
 ---
 
@@ -652,10 +667,10 @@ After renaming directories and files, update ALL import statements across the co
 ## Phase 15: Data Migration Code
 
 ### 15.1 Storage Path Migration
-Document migration requirements for user-facing clients:
+- [ ] Change default `dataPath` from `~/.plebbit/` to `~/.pkc/` in pkc-js
 - [ ] Document that `subplebbits/` → `communities/` directory rename is needed
 - [ ] Document that `.plebbit/` → `.pkc/` directory rename is needed
-- [ ] Note: Actual migration code should be implemented in plebbit-cli and desktop apps, NOT in pkc-js
+- [ ] Note: Actual migration of existing directories should be implemented in plebbit-cli and desktop apps, NOT in pkc-js
 - [ ] Create migration documentation for downstream applications
 
 ### 15.2 DNS Record Migration
@@ -843,6 +858,7 @@ import { ChallengeFile, ChallengeFileFactory, Challenge, ChallengeResult } from 
 - [ ] Add `ERR_NO_RESOLVER_FOR_NAME` error when no resolver can handle a name
 - [ ] Remove hardcoded ENS logic from core (resolution moves to external @bitsocial/resolver-bso)
 - [ ] Remove all SNS/Solana resolution code (.sol support removed entirely)
+- [ ] Remove `normalizeEthAliasDomain()` from `src/clients/base-client-manager.ts` (`.bso` → `.eth` normalization belongs in the `@bitsocial/bso-resolver` plugin, not in pkc-js core)
 
 **External Challenges:**
 - [ ] Remove `evm-contract-call` from `pkcJsChallenges` in `src/runtime/node/subplebbit/challenges/index.ts`
@@ -872,22 +888,24 @@ Note: .sol support has been removed. Only ENS-based resolution (.bso) is support
 
 ### 17.5 Breaking Changes
 
-- No default name resolvers - pkc-js only handles IPNS/IPFS natively
-- Users must explicitly provide `nameResolvers` config to resolve `.bso` addresses
-- `.sol` support removed entirely - only ENS-based resolution (.bso) is supported
+- No default name resolvers — pkc-js only handles IPNS/IPFS natively
+- Users must explicitly provide `nameResolvers` in `PkcOptions` to resolve `.bso` addresses (see [NAMES_AND_PUBLIC_KEY_PROPOSAL.md — Name resolving](./NAMES_AND_PUBLIC_KEY_PROPOSAL.md#name-resolving) and [issue #68](https://github.com/plebbit/plebbit-js/issues/68#issuecomment-3900045187))
+- `.sol` support removed entirely — only ENS-based resolution (.bso) is supported
 - `evm-contract-call` challenge no longer built-in
-- `chainProviders` removed from PlebbitOptions - now configured per-resolver in `nameResolvers` config
-- Must register resolvers in `PKC.nameResolvers` static registry before use
+- `chainProviders` removed from PlebbitOptions — now configured per-resolver in `nameResolvers` config
 - Challenges fall back to resolver URLs, then to their own hardcoded defaults
-- DNS TXT records: single `bitsocial` key replaces old `subplebbit-address` and `plebbit-author-address` keys
+- DNS TXT record lookups (`subplebbit-address`, `plebbit-author-address`) removed from pkc-js core — handled by resolver plugins (e.g., `@bitsocial/bso-resolver` uses `bitsocial` TXT record)
+- `author.address` changes from required wire field to instance-only (computed as `author.name || author.publicKey`)
+- `publication.subplebbitAddress` replaced by `communityPublicKey` + `communityName` wire fields (old publications remain loadable via backward compat parsing)
+- Protocol version bumped for new `SubplebbitIpfs` and publication wire formats
 
 ### 17.6 Challenge System Cleanup
 
-**Default Challenge:**
-- [ ] Change default challenge from `publication-match` to `question` (question/answer challenge)
-  - File: `src/runtime/node/subplebbit/local-subplebbit.ts` (line ~193, `_defaultSubplebbitChallenges`)
+**Step 1: Remove `.sol` from default challenge regexp** (separate from default challenge change):
+- [ ] In `_defaultSubplebbitChallenges` (`src/runtime/node/subplebbit/local-subplebbit.ts`), remove `.sol` from the `publication-match` regexp: `\\.(sol|eth|bso)$` → `\\.(eth|bso)$`
+- Note: `.sol` support is being removed entirely
 
-**Remove Built-in Challenges:**
+**Step 2: Remove built-in challenges** (must happen before or at the same time as Step 3):
 - [ ] Remove `mintpass` challenge from `plebbitJsChallenges`
   - Delete directory: `src/runtime/node/subplebbit/challenges/plebbit-js-challenges/mintpass/`
   - Remove import and entry from: `src/runtime/node/subplebbit/challenges/index.ts`
@@ -895,3 +913,7 @@ Note: .sol support has been removed. Only ENS-based resolution (.bso) is support
   - Delete directory: `src/runtime/node/subplebbit/challenges/plebbit-js-challenges/captcha-canvas-v3/`
   - Remove import and entry from: `src/runtime/node/subplebbit/challenges/index.ts`
   - Remove `canvas` and related dependencies from `package.json`
+
+**Step 3: Change default challenge** (depends on Step 2 — old default references `mintpass`):
+- [ ] Change default challenge from `publication-match` to `question` (question/answer challenge)
+  - File: `src/runtime/node/subplebbit/local-subplebbit.ts` (line ~193, `_defaultSubplebbitChallenges`)

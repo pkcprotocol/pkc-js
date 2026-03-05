@@ -93,11 +93,16 @@ Publications (comments, votes, edits, moderations) currently carry only `subpleb
 
 Add two non-computable wire fields to publications:
 
--   `communityPublicKey` — **wire field**, the IPNS key string (`12D3KooW...`), always present
+-   `communityPublicKey` — **wire field**, the IPNS key string (`12D3KooW...`), required for new publications but **optional in the wire schema** for backward compatibility with old publications that only have `subplebbitAddress`
 -   `communityName` — **wire field**, optional, the domain name (e.g., `"memes.bso"`) if the community has one
 -   `communityAddress` — **instance-only**, computed as `communityName || communityPublicKey` (not in wire format)
 
 This follows the same "no computable props" principle: `communityAddress` is derivable from `communityName` and `communityPublicKey`, so it is not included in the protocol.
+
+**Backward compatibility for old publications:** When parsing old `CommentIpfs` records that have `subplebbitAddress` but no `communityPublicKey`:
+-   If `subplebbitAddress` is an IPNS key → use it as `communityPublicKey`
+-   If `subplebbitAddress` is a domain → fill `communityPublicKey` from community context (the community serving the page/update knows its own publicKey)
+-   Old comments remain loadable.
 
 Identity decisions (resolved):
 
@@ -123,10 +128,10 @@ Implementation decisions (resolved):
 
 Add to the Author type:
 
--   `name?: string` — e.g., "vitalik.bso" — **wire field** (in AuthorIpfsType, AuthorPubsubType), a claim set by the author
+-   `name?: string` — e.g., "vitalik.bso" — **wire field** (in AuthorIpfsType, AuthorPubsubType), a domain name pointing to the author's public key (same concept as `community.name`). Unrelated to `author.displayName`, which is a free-text label.
 -   `publicKey: string` — the author's IPNS key — **instance-only** (derived from signature.publicKey via getPlebbitAddressFromPublicKey, not in wire format)
--   `address: string` — **instance-only** (computed as `name || publicKey`, not in wire format)
--   `nameResolved: boolean` — **instance-only** (runtime verification flag, not in wire format)
+-   `address: string` — **instance-only** (computed as `name || publicKey`, not in wire format). **Breaking change:** currently `author.address` is a required wire field in `AuthorPubsubSchema`. Old publications with `author.address` as a signed field remain valid via self-describing signature verification; the wired value is ignored and `address` is recomputed as `name || publicKey`.
+-   `nameResolved?: boolean` — **instance-only** (runtime verification flag, not in wire format). `undefined` when no name is set, `false` when name is set but not yet verified, `true` when verified.
 
 **Verification pattern (conditional on `resolveAuthorAddresses`):**
 
@@ -446,18 +451,24 @@ The `address` property is stable — it is set at creation time based on the cal
 
 ### Publication schema changes (`src/schema/schema.ts`)
 
--   **Add** `communityPublicKey` as wire field (always the IPNS key)
+-   **Add** `communityPublicKey` as optional wire field (IPNS key — required for new publications, optional for backward compat with old records)
 -   **Add** `communityName` as optional wire field (domain name, if set)
 -   `communityAddress` is instance-only, computed as `communityName || communityPublicKey` — not in wire schema
--   For backward compatibility: accept old publications that have `subplebbitAddress` in `signedPropertyNames`
+-   For backward compatibility: accept old publications that have `subplebbitAddress` in `signedPropertyNames`. If `communityPublicKey` is absent, derive from `subplebbitAddress` (if IPNS key) or from community context (if domain).
 
 ### Author schema changes (`src/schema/schema.ts`)
 
--   Add `name: z.string().min(1).optional()` to Author wire types
+-   Add `name: z.string().min(1).optional()` to Author wire types (`AuthorPubsubSchema`, `AuthorIpfsSchema`)
+-   **Remove** `address` from Author wire types — it is now instance-only (computed as `name || publicKey`). **Breaking change.** Old publications with `author.address` as a signed field remain valid via self-describing signature verification.
 -   `publicKey` is instance-only (derived from `signature.publicKey`), not added to wire schema
--   `address` is instance-only (computed as `name || publicKey`), not added to wire schema
--   `nameResolved` is instance-only (runtime verification flag), not added to wire schema
+-   `nameResolved` is instance-only (runtime verification flag, `boolean | undefined`), not added to wire schema
 -   Same async verification pattern as subplebbit
+
+### Protocol version
+
+-   **Bump `protocolVersion`** when these wire format changes are applied (removing `address` from SubplebbitIpfs, adding `name`; adding `communityPublicKey`/`communityName` to publications; removing `author.address` from wire)
+-   SubplebbitIpfs records are short-lived (IPNS), so backward compat is not a major concern — use `.passthrough()` to accept old records with `address` field during transition
+-   Comments are the bigger concern — old `CommentIpfs` records are CID-addressed and immutable, handled by the backward compat rules above
 
 ### RemoteSubplebbit (`src/subplebbit/remote-subplebbit.ts`)
 
