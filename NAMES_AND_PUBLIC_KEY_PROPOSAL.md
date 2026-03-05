@@ -241,7 +241,7 @@ Each resolver in the `nameResolvers` array has the following shape:
 Resolver composition happens at the client/hook level, not in pkc-js. Here's how a client like bitsocial would wire resolvers from account configuration:
 
 ```js
-import {resolveEns, canResolveEns} from '@bitsocial/resolver-ens'
+import {resolveBso, canResolveBso} from '@bitsocial/resolver-bso'
 import {resolveDns, canResolveDns} from '@bitsocial/dns-over-https'
 
 const nameResolvers = []
@@ -250,8 +250,8 @@ const nameResolvers = []
 for (const chainProviderUrl of account.nameResolversChainProviders?.eth?.urls || account.chainProviders?.eth?.urls) {
   nameResolvers.push({
     key: `eth-${new URL(chainProviderUrl).hostname}`,
-    resolve: resolveEns,
-    canResolve: canResolveEns,
+    resolve: resolveBso,
+    canResolve: canResolveBso,
     provider: chainProviderUrl
   })
 }

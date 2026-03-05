@@ -42,8 +42,8 @@ The following dependencies are in the @plebbit namespace and need separate repos
 
 ### 1.2.1 Web3 Dependencies to Remove
 These dependencies move to external resolver/challenge packages:
-- [ ] Remove `viem` (moves to @bitsocial/resolver-ens and @bitsocial/challenge-evm-contract)
-- [ ] Remove `ethers` (moves to @bitsocial/resolver-ens)
+- [ ] Remove `viem` (moves to @bitsocial/resolver-bso and @bitsocial/challenge-evm-contract)
+- [ ] Remove `ethers` (moves to @bitsocial/resolver-bso)
 - [ ] Remove `@bonfida/spl-name-service` if present (no .sol support)
 - [ ] Remove `@solana/web3.js` if present (no .sol support)
 
@@ -841,7 +841,7 @@ import { ChallengeFile, ChallengeFileFactory, Challenge, ChallengeResult } from 
 - [ ] Refactor `src/clients/base-client-manager.ts` resolution flow to use serial `canResolve`/`resolve` algorithm
 - [ ] Remove `chainProviders` from `PKCUserOptionsSchema` (breaking change)
 - [ ] Add `ERR_NO_RESOLVER_FOR_NAME` error when no resolver can handle a name
-- [ ] Remove hardcoded ENS logic from core (resolution moves to external @bitsocial/resolver-ens)
+- [ ] Remove hardcoded ENS logic from core (resolution moves to external @bitsocial/resolver-bso)
 - [ ] Remove all SNS/Solana resolution code (.sol support removed entirely)
 
 **External Challenges:**
@@ -865,7 +865,7 @@ import { ChallengeFile, ChallengeFileFactory, Challenge, ChallengeResult } from 
 
 | Repository | Purpose | Dependencies |
 |------------|---------|--------------|
-| @bitsocial/resolver-ens | ENS (.bso) name resolution | viem, ethers |
+| @bitsocial/resolver-bso | ENS (.bso) name resolution | viem, ethers |
 | @bitsocial/challenge-evm-contract | EVM contract call challenge | viem |
 
 Note: .sol support has been removed. Only ENS-based resolution (.bso) is supported.
