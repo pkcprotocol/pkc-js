@@ -797,60 +797,9 @@ Make plebbit-js (pkc-js) a neutral, core library that only handles IPNS/IPFS nat
 
 ### 17.1 Name Resolver Plugin System
 
-> **See [NAME_RESOLVER_PLAN.md](./NAME_RESOLVER_PLAN.md) for the full detailed design.**
+> **See [NAMES_AND_PUBLIC_KEY_PROPOSAL.md — Name resolving](./NAMES_AND_PUBLIC_KEY_PROPOSAL.md#name-resolving) for the full API design** (resolver shape, resolution algorithm, client state tracking, and design rationale).
 
-**Key Design Points:**
-- No global `chainProviders` - removed from PlebbitOptions entirely
-- `PKC.nameResolvers` static registry (like `Plebbit.challenges`)
-- `chainProviders` passed as arg to `resolve()`, not stored on resolver instance
-- JSON config stores `{ name, chainProviders }` - looked up by name at runtime
-- Challenges fall back to resolver URLs, then to hardcoded defaults
-
-**NameResolver Interface:**
-```typescript
-export interface NameResolverResult {
-  resolvedTextRecordValue: string;
-}
-
-export interface NameResolverInstance {
-  name: string;
-  tlds: string[];  // e.g., ['.eth'] or ['.sol']
-  resolve: (args: {
-    domain: string;
-    txtRecordName: string;
-    chainProviders: ChainProviders;  // passed at resolve time, not stored on instance
-    plebbit: Plebbit;
-  }) => Promise<NameResolverResult>;
-}
-```
-
-**Usage Example:**
-```javascript
-// App startup: register resolvers in static registry
-import PKC from '@pkc/pkc-js';
-import { ensResolver } from '@bitsocial/resolver-ens';
-import { snsResolver } from '@bitsocial/resolver-sns';
-
-PKC.nameResolvers['ens'] = ensResolver;
-PKC.nameResolvers['sns'] = snsResolver;
-
-// Create instance with user config (JSON-serializable)
-const plebbit = await PKC({
-  nameResolvers: [
-    { name: 'ens', chainProviders: { eth: { urls: ['https://ethrpc.xyz'], chainId: 1 } } },
-    { name: 'sns', chainProviders: { sol: { urls: ['https://solana-rpc.com'], chainId: -1 } } }
-  ]
-});
-
-// If user tries to resolve a .eth domain without ensResolver registered:
-// throws ERR_NO_RESOLVER_FOR_TLD
-```
-
-**Behavior:**
-- `nameResolvers` config is optional in PlebbitOptions
-- At resolve time, finds config by TLD, looks up resolver in `PKC.nameResolvers`, passes `chainProviders` to `resolve()`
-- If no matching resolver found, throws `ERR_NO_RESOLVER_FOR_TLD`
-- Challenges merge URLs from all resolver configs with matching chainTicker
+**Summary:** Name resolvers are an ordered array of `{key, resolve, canResolve, provider}` objects passed via `PkcOptions.nameResolvers`. One resolver per provider enables per-provider UI state tracking. Resolver composition (wiring account config to resolver objects) is a client/hook responsibility, not pkc-js.
 
 **RPC-Side Resolution:**
 
@@ -884,19 +833,13 @@ import { ChallengeFile, ChallengeFileFactory, Challenge, ChallengeResult } from 
 
 ### 17.3 TODO Items
 
-> **See [NAME_RESOLVER_PLAN.md](./NAME_RESOLVER_PLAN.md) for detailed implementation steps.**
-
 **Name Resolver System:**
-- [ ] Add `NameResolverInstance` and `NameResolverResult` interfaces to `src/types.ts`
-- [ ] Add `NameResolverConfig` type (`{ name, chainProviders? }`) to `src/types.ts`
-- [ ] Add `NameResolverConfigSchema` to `src/schema.ts`
-- [ ] Add optional `nameResolvers: NameResolverConfig[]` to `PKCUserOptionsSchema`
+- [ ] Add `nameResolvers` option to `PKCUserOptionsSchema` (array of `{key, resolve, canResolve, provider}`)
+- [ ] Add `NameResolverClient` class with `state` and `statechange` event
+- [ ] Add `community.clients.nameResolvers` map (key → NameResolverClient)
+- [ ] Refactor `src/clients/base-client-manager.ts` resolution flow to use serial `canResolve`/`resolve` algorithm
 - [ ] Remove `chainProviders` from `PKCUserOptionsSchema` (breaking change)
-- [ ] Add static `PKC.nameResolvers` registry object
-- [ ] Refactor `src/name-resolver.ts` to use plugin system
-- [ ] Update `src/clients/base-client-manager.ts` resolution flow
-- [ ] Add `ERR_NO_RESOLVER_FOR_TLD` error when no resolver matches
-- [ ] Export `NameResolverInstance` type from `src/index.ts`
+- [ ] Add `ERR_NO_RESOLVER_FOR_NAME` error when no resolver can handle a name
 - [ ] Remove hardcoded ENS/SNS logic from core
 
 **External Challenges:**

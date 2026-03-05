@@ -206,8 +206,169 @@ The identifiers form a hierarchy:
 -   If `nameResolved = true`: the name has been verified — show normally
 -   If `nameResolved = false` and `name` is set: verification is pending, skipped, or failed — UI should show warning based on its policy
 
+### Name resolving
 
+Name resolution is handled by an ordered array of resolver objects passed via `PkcOptions.nameResolvers`. Each resolver targets a single provider, enabling per-provider state tracking so UIs can display messages like "resolving eth address from ethrpc.xyz...".
 
+#### Resolver API
+
+Each resolver in the `nameResolvers` array has the following shape:
+
+```ts
+{
+  key: string                                           // unique identifier, e.g. "eth-ethrpc.xyz", "sol-solrpc.xyz", "dns-cloudflare-dns.com"
+  resolve({name, provider}): Promise<string | undefined> // resolves a name to a public key
+  canResolve({name}): boolean                            // returns whether this resolver can handle the given name
+  provider: string                                       // the provider URL/identifier passed through to resolve()
+}
+```
+
+-   **`key`** — a unique string identifying this resolver instance. Convention is `"{nameSystem}-{providerHostname}"` (e.g., `"eth-ethrpc.xyz"`, `"sol-solrpc.xyz"`, `"dns-cloudflare-dns.com"`). This mirrors the existing `key` convention from `libp2pJsConfig` and viem's optional `key` prop.
+-   **`resolve`** — async function that attempts to resolve a name to a public key using the given provider. Returns the resolved value or `undefined` if the name doesn't exist.
+-   **`canResolve`** — sync function that returns whether this resolver can handle the given name (e.g., an ENS resolver would return `true` for `"memes.eth"` but `false` for `"memes.sol"`).
+-   **`provider`** — the provider URL or identifier (e.g., `"https://ethrpc.xyz"`, `"viem"`, `"ethers.js"`), passed through to the `resolve` function.
+
+**Function-based over class-based:** The API uses plain objects with functions rather than class instances. This is simpler for resolver implementors — they export `resolve` and `canResolve` functions rather than implementing a class interface.
+
+#### Resolver composition (client/hook responsibility)
+
+Resolver composition happens at the client/hook level, not in pkc-js. Here's how a client like bitsocial would wire resolvers from account configuration:
+
+```js
+import {resolveEns, canResolveEns} from '@bitsocial/ens'
+import {resolveSns, canResolveSns} from '@bitsocial/sns'
+import {resolveDns, canResolveDns} from '@bitsocial/dns-over-https'
+
+const nameResolvers = []
+
+// add eth resolvers
+for (const chainProviderUrl of account.nameResolversChainProviders?.eth?.urls || account.chainProviders?.eth?.urls) {
+  nameResolvers.push({
+    key: `eth-${new URL(chainProviderUrl).hostname}`,
+    resolve: resolveEns,
+    canResolve: canResolveEns,
+    provider: chainProviderUrl
+  })
+}
+
+// add sol resolvers
+for (const chainProviderUrl of account.nameResolversChainProviders?.sol?.urls || account.chainProviders?.sol?.urls) {
+  nameResolvers.push({
+    key: `sol-${new URL(chainProviderUrl).hostname}`,
+    resolve: resolveSns,
+    canResolve: canResolveSns,
+    provider: chainProviderUrl
+  })
+}
+
+// add dns resolvers
+const dnsOverHttpsProviders = [
+  'https://cloudflare-dns.com/dns-query',
+  'https://dns.google/dns-query',
+]
+for (const provider of dnsOverHttpsProviders) {
+  nameResolvers.push({
+    key: `dns-${new URL(provider).hostname}`,
+    resolve: resolveDns,
+    canResolve: canResolveDns,
+    provider
+  })
+}
+
+const pkc = await Pkc({nameResolvers})
+```
+
+The account JSON supports two levels of chain provider configuration:
+
+```json
+{
+  "account": {
+    "chainProviders": {
+      "eth": {"urls": ["viem", "ethers.js"], "chainId": 1},
+      "sol": {"urls": ["https://solrpc.xyz"], "chainId": 1}
+    },
+    "nameResolversChainProviders": {
+      "eth": {"urls": ["https://ethrpc.xyz", "viem", "ethers.js"], "chainId": 1},
+      "sol": {"urls": ["https://solrpc.xyz"], "chainId": 1}
+    }
+  }
+}
+```
+
+`nameResolversChainProviders` takes precedence over `chainProviders` when wiring name resolvers, allowing clients to use different providers for name resolution vs. other chain operations.
+
+#### Resolution algorithm
+
+pkc-js resolves names serially through the `nameResolvers` array, stopping on the first successful resolution:
+
+```js
+let value
+for (const nameResolver of pkcOptions.nameResolvers) {
+  if (!nameResolver.canResolve({name: community.name})) {
+    continue
+  }
+  try {
+    // change client ${nameResolver.key} state to resolving...
+    value = await nameResolver.resolve({name: community.name, provider: nameResolver.provider})
+  }
+  catch (e) {}
+  // change client ${nameResolver.key} state to stopped...
+  if (value) {
+    break
+  }
+}
+```
+
+For each resolver:
+1. Check `canResolve({name})` — skip if the resolver doesn't handle this name
+2. Update the resolver's client state to `"resolving"`
+3. Call `resolve({name, provider})` — catch errors (move to next resolver)
+4. Update the resolver's client state to `"stopped"`
+5. If a value was returned, stop iterating
+
+#### Client state tracking (`community.clients.nameResolvers`)
+
+pkc-js exposes per-resolver client instances for state tracking:
+
+```js
+community.clients.nameResolvers = {
+  'eth-ethrpc.xyz': nameResolverClient,
+  'eth-viem': nameResolverClient,
+  'eth-ethers.js': nameResolverClient,
+  'sol-solrpc.xyz': nameResolverClient,
+  'dns-cloudflare-dns.com': nameResolverClient,
+  'dns-dns.google': nameResolverClient,
+}
+```
+
+These are constructed from `pkcOptions.nameResolvers`:
+
+```js
+community.clients.nameResolvers = {}
+for (const nameResolver of pkcOptions.nameResolvers) {
+  community.clients.nameResolvers[nameResolver.key] = new NameResolverClient({
+    resolve: nameResolver.resolve,
+    canResolve: nameResolver.canResolve,
+    provider: nameResolver.provider
+  })
+}
+```
+
+Each `NameResolverClient` emits `statechange` events, enabling UIs to display per-provider resolution status:
+
+```js
+community.clients.nameResolvers['eth-ethrpc.xyz'].on('statechange', (state) => {
+  console.log('current state is', state)
+  // e.g., "resolving eth address from ethrpc.xyz..."
+  console.log('current state is', community.clients.nameResolvers['eth-ethrpc.xyz'].state)
+})
+```
+
+#### Design notes
+
+-   **No `tlds` property** — a resolver does not need a list of TLDs. pkc-js never uses it, and not all name systems have TLDs (or some have hundreds, like DNS). The `canResolve({name})` function handles this responsibility instead.
+-   **`key` over `name`** — `key` is the standard identifier convention, consistent with viem's optional `key` prop and the existing `libp2pJsConfig` pattern in plebbit-js.
+-   **One resolver per provider** — each resolver instance targets a single provider. A single resolver per name system with multiple providers would make it impossible to map individual client states for per-provider UI feedback like "resolving eth address from ethrpc.xyz...".
 
 
 ## Prerequisite: allow loading subplebbits by public key
