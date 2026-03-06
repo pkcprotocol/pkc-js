@@ -1,9 +1,8 @@
 import { Plebbit } from "./plebbit/plebbit.js";
 import assert from "assert";
-import { ChainTicker } from "./types.js";
 import * as remeda from "remeda";
 
-type StatTypes = "ipns" | "ipfs" | "pubsub-publish" | "pubsub-subscribe" | ChainTicker;
+type StatTypes = "ipns" | "ipfs" | "pubsub-publish" | "pubsub-subscribe" | "pubsub-unsubscribe";
 export default class Stats {
     private _plebbit: Pick<Plebbit, "_storage" | "clients">;
     constructor(plebbit: Stats["_plebbit"]) {
@@ -70,12 +69,9 @@ export default class Stats {
                       : remeda.keys.strict(this._plebbit.clients.libp2pJsClients).length > 0
                         ? "libp2pJsClients"
                         : undefined
-                  : "chainProviders";
+                  : undefined;
         assert(gatewayType, "Can't find the gateway type to sort");
-        const gateways =
-            gatewayType === "chainProviders"
-                ? this._plebbit.clients.chainProviders[type].urls
-                : remeda.keys.strict(this._plebbit.clients[gatewayType]);
+        const gateways = remeda.keys.strict(this._plebbit.clients[gatewayType]);
 
         const score = async (gatewayUrl: string) => {
             const failureCounts: number = (await this._plebbit._storage.getItem(this._getFailuresCountKey(gatewayUrl, type))) || 0;

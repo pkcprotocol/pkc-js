@@ -1,8 +1,7 @@
 import { CachedTextRecordResolve, OptionsToLoadFromGateway } from "../../clients/base-client-manager.js";
-import { GenericChainProviderClient } from "../../clients/chain-provider-client.js";
 import type { PageIpfs, PageTypeJson } from "../../pages/types.js";
 import type { SubplebbitIpfsType } from "../../subplebbit/types.js";
-import type { ChainTicker } from "../../types.js";
+import { NameResolverClient } from "../../clients/name-resolver-client.js";
 import { Comment } from "./comment.js";
 import * as remeda from "remeda";
 import type { CommentIpfsType, CommentUpdateType } from "./types.js";
@@ -42,19 +41,16 @@ export class CommentClientsManager extends PublicationClientsManager {
         ipfsGateways: { [ipfsGatewayUrl: string]: CommentIpfsGatewayClient };
         kuboRpcClients: { [ipfsClientUrl: string]: CommentKuboRpcClient };
         pubsubKuboRpcClients: { [pubsubClientUrl: string]: CommentKuboPubsubClient };
-        chainProviders: Record<ChainTicker, { [chainProviderUrl: string]: GenericChainProviderClient }>;
         plebbitRpcClients: Record<string, CommentPlebbitRpcStateClient>;
         libp2pJsClients: { [libp2pJsClientKey: string]: CommentLibp2pJsClient };
+        nameResolvers: { [resolverKey: string]: NameResolverClient };
     };
     private _postForUpdating?: {
         comment: Comment;
         ipfsGatewayListeners?: Record<string, Parameters<Comment["clients"]["ipfsGateways"][string]["on"]>[1]>;
         kuboRpcListeners?: Record<string, Parameters<Comment["clients"]["kuboRpcClients"][string]["on"]>[1]>;
         libp2pJsClientListeners?: Record<string, Parameters<Comment["clients"]["libp2pJsClients"][string]["on"]>[1]>;
-        chainProviderListeners?: Record<
-            ChainTicker,
-            Record<string, Parameters<Comment["clients"]["chainProviders"][ChainTicker][string]["on"]>[1]>
-        >;
+        nameResolverListeners?: Record<string, Parameters<Comment["clients"]["nameResolvers"][string]["on"]>[1]>;
     } & Pick<PublicationEvents, "error" | "updatingstatechange" | "update"> = undefined;
     private _comment: Comment;
     private _parentFirstPageCidsAlreadyLoaded: Set<string>;
@@ -103,15 +99,14 @@ export class CommentClientsManager extends PublicationClientsManager {
     }
 
     // Resolver methods here
-    override preResolveTextRecord(
+    override preResolveNameResolver(
         address: string,
         txtRecordName: "subplebbit-address" | "plebbit-author-address",
-        chain: ChainTicker,
-        chainProviderUrl: string,
+        resolverKey: string,
         staleCache?: CachedTextRecordResolve
     ): void {
-        super.preResolveTextRecord(address, txtRecordName, chain, chainProviderUrl, staleCache);
-        if (this._comment.state === "updating" && !staleCache && txtRecordName === "plebbit-author-address")
+        super.preResolveNameResolver(address, txtRecordName, resolverKey, staleCache);
+        if (this._comment.state === "updating" && !staleCache)
             this._comment._setUpdatingStateWithEmissionIfNewState("resolving-author-address"); // Resolving for CommentIpfs and author.address is a domain
     }
 
@@ -903,12 +898,8 @@ export class CommentClientsManager extends PublicationClientsManager {
         this.updateLibp2pJsClientState(newState, libp2pJsClientKey);
     }
 
-    _handleChainProviderPostState(
-        newState: Comment["clients"]["chainProviders"][ChainTicker][string]["state"],
-        chainTicker: ChainTicker,
-        providerUrl: string
-    ) {
-        this.updateChainProviderState(newState, chainTicker, providerUrl);
+    _handleNameResolverPostState(newState: Comment["clients"]["nameResolvers"][string]["state"], resolverKey: string) {
+        this.updateNameResolverState(newState, resolverKey);
     }
 
     async handleUpdateEventFromPostToFetchReplyCommentUpdate(postInstance: Comment) {
@@ -1026,25 +1017,22 @@ export class CommentClientsManager extends PublicationClientsManager {
             this._postForUpdating.libp2pJsClientListeners = libp2pJsClientListeners;
         }
 
-        // Add chain provider state listeners
-        const chainProviderListeners: Record<
-            ChainTicker,
-            Record<string, Parameters<Comment["clients"]["chainProviders"][ChainTicker][string]["on"]>[1]>
-        > = {};
+        // Add name resolver state listeners
+        if (
+            this._postForUpdating.comment.clients.nameResolvers &&
+            Object.keys(this._postForUpdating.comment.clients.nameResolvers).length > 0
+        ) {
+            const nameResolverListeners: Record<string, Parameters<Comment["clients"]["nameResolvers"][string]["on"]>[1]> = {};
 
-        for (const chainTicker of Object.keys(this._postForUpdating.comment.clients.chainProviders) as ChainTicker[]) {
-            chainProviderListeners[chainTicker] = {};
+            for (const resolverKey of Object.keys(this._postForUpdating.comment.clients.nameResolvers)) {
+                const resolverStateListener = (postNewResolverState: Comment["clients"]["nameResolvers"][string]["state"]) =>
+                    this._handleNameResolverPostState(postNewResolverState, resolverKey);
 
-            for (const providerUrl of Object.keys(this._postForUpdating.comment.clients.chainProviders[chainTicker])) {
-                const chainStateListener = (postNewChainState: Comment["clients"]["chainProviders"][ChainTicker][string]["state"]) =>
-                    this._handleChainProviderPostState(postNewChainState, chainTicker, providerUrl);
-
-                this._postForUpdating.comment.clients.chainProviders[chainTicker][providerUrl].on("statechange", chainStateListener);
-                chainProviderListeners[chainTicker][providerUrl] = chainStateListener;
+                this._postForUpdating.comment.clients.nameResolvers[resolverKey].on("statechange", resolverStateListener);
+                nameResolverListeners[resolverKey] = resolverStateListener;
             }
+            this._postForUpdating.nameResolverListeners = nameResolverListeners;
         }
-
-        this._postForUpdating.chainProviderListeners = chainProviderListeners;
 
         this._postForUpdating.comment.on("update", this._postForUpdating.update);
 
@@ -1090,16 +1078,14 @@ export class CommentClientsManager extends PublicationClientsManager {
             }
         }
 
-        // Clean up chain provider listeners
-        if (this._postForUpdating.chainProviderListeners) {
-            for (const chainTicker of Object.keys(this._postForUpdating.chainProviderListeners) as ChainTicker[]) {
-                for (const providerUrl of Object.keys(this._postForUpdating.chainProviderListeners[chainTicker])) {
-                    this._postForUpdating.comment.clients.chainProviders[chainTicker][providerUrl].removeListener(
-                        "statechange",
-                        this._postForUpdating.chainProviderListeners[chainTicker][providerUrl]
-                    );
-                    this.updateChainProviderState("stopped", chainTicker, providerUrl); // need to reset all chain provider states
-                }
+        // Clean up name resolver listeners
+        if (this._postForUpdating.nameResolverListeners) {
+            for (const resolverKey of Object.keys(this._postForUpdating.nameResolverListeners)) {
+                this._postForUpdating.comment.clients.nameResolvers[resolverKey].removeListener(
+                    "statechange",
+                    this._postForUpdating.nameResolverListeners[resolverKey]
+                );
+                this.updateNameResolverState("stopped", resolverKey); // need to reset all name resolver states
             }
         }
 

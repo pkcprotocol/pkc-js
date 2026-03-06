@@ -102,7 +102,7 @@ export function removeNullUndefinedEmptyObjectsValuesRecursively<T>(obj: T): T {
     return cleanedObj;
 }
 
-export function throwWithErrorCode(code: keyof typeof messages, details?: {}) {
+export function throwWithErrorCode(code: keyof typeof messages, details?: {}): never {
     throw new PlebbitError(code, details);
 }
 

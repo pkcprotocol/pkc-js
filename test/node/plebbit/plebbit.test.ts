@@ -27,9 +27,7 @@ describe("await plebbit()", () => {
         ]);
         expect(plebbit.clients.kuboRpcClients).to.deep.equal({});
         expect(plebbit.kuboRpcClientsOptions).to.be.undefined;
-
-        expect(Object.keys(plebbit.chainProviders).sort()).to.deep.equal(["avax", "eth", "matic", "sol"]);
-        expect(Object.keys(plebbit.clients.chainProviders).sort()).to.deep.equal(["avax", "eth", "matic", "sol"]);
+        expect(plebbit.nameResolvers).to.be.undefined;
 
         expect(plebbit.dataPath).to.match(/\.plebbit$/);
 

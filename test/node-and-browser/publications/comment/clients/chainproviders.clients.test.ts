@@ -19,7 +19,7 @@ const subplebbitAddress = signers[0].address;
 // Helper type for required fields for test utilities
 type CommentWithRequiredFields = Required<Pick<CommentIpfsWithCidDefined, "cid" | "subplebbitAddress" | "parentCid">>;
 
-describeSkipIfRpc(`comment.clients.chainProviders`, async () => {
+describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
     let plebbit: Plebbit;
     beforeAll(async () => {
         plebbit = await mockPlebbitV2({
@@ -32,27 +32,22 @@ describeSkipIfRpc(`comment.clients.chainProviders`, async () => {
     afterAll(async () => {
         await plebbit.destroy();
     });
-    it(`comment.clients.chainProviders[url][chainTicker].state is stopped by default`, async () => {
+    it(`comment.clients.nameResolvers[resolverKey].state is stopped by default`, async () => {
         const mockPost = await generateMockPost(subplebbitAddress, plebbit);
-        expect(Object.keys(mockPost.clients.chainProviders).length).to.be.greaterThanOrEqual(1);
-        for (const chain of Object.keys(mockPost.clients.chainProviders)) {
-            expect(Object.keys(mockPost.clients.chainProviders[chain]).length).to.be.greaterThan(0);
-            for (const chainUrl of Object.keys(mockPost.clients.chainProviders[chain]))
-                expect(mockPost.clients.chainProviders[chain][chainUrl].state).to.equal("stopped");
-        }
+        expect(Object.keys(mockPost.clients.nameResolvers).length).to.be.greaterThanOrEqual(1);
+        for (const resolverKey of Object.keys(mockPost.clients.nameResolvers))
+            expect(mockPost.clients.nameResolvers[resolverKey].state).to.equal("stopped");
     });
 
-    it(`Correct order of chainProviders state when updating a comment whose sub is a domain - uncached`, async () => {
+    it(`Correct order of nameResolvers state when updating a comment whose sub is a domain - uncached`, async () => {
         const mockPost = await publishRandomPost("plebbit.bso", plebbit);
 
         await mockPost.stop();
 
-        // domainResolverPromiseCache.clear();
-
         const differentPlebbit = await mockPlebbitV2({ stubStorage: false, remotePlebbit: true, mockResolve: true }); // using different plebbit to it wouldn't be cached
         await mockCacheOfTextRecord({
             plebbit: differentPlebbit,
-            domain: "plebbit.eth",
+            domain: "plebbit.bso",
             textRecord: "subplebbit-address",
             value: undefined
         });
@@ -62,9 +57,9 @@ describeSkipIfRpc(`comment.clients.chainProviders`, async () => {
 
         const actualStates: string[] = [];
 
-        const chainProviderUrl = Object.keys(updatingPost.clients.chainProviders.eth)[0];
+        const resolverKey = Object.keys(updatingPost.clients.nameResolvers)[0];
 
-        updatingPost.clients.chainProviders["eth"][chainProviderUrl].on("statechange", (newState) => actualStates.push(newState));
+        updatingPost.clients.nameResolvers[resolverKey].on("statechange", (newState: string) => actualStates.push(newState));
 
         await updatingPost.update();
 
@@ -77,7 +72,7 @@ describeSkipIfRpc(`comment.clients.chainProviders`, async () => {
         await differentPlebbit.destroy();
     });
 
-    it(`Correct order of chainProviders state when updating a comment whose sub is a domain - cached`, async () => {
+    it(`Correct order of nameResolvers state when updating a comment whose sub is a domain - cached`, async () => {
         const mockPost = await publishRandomPost("plebbit.bso", plebbit);
 
         await mockPost.stop();
@@ -86,7 +81,7 @@ describeSkipIfRpc(`comment.clients.chainProviders`, async () => {
 
         await mockCacheOfTextRecord({
             plebbit: mockPost._plebbit,
-            domain: "plebbit.eth",
+            domain: "plebbit.bso",
             textRecord: "subplebbit-address",
             value: signers[3].address
         });
@@ -95,9 +90,9 @@ describeSkipIfRpc(`comment.clients.chainProviders`, async () => {
 
         const actualStates: string[] = [];
 
-        const chainProviderUrl = Object.keys(mockPost.clients.chainProviders.eth)[0];
+        const resolverKey = Object.keys(mockPost.clients.nameResolvers)[0];
 
-        updatingPost.clients.chainProviders["eth"][chainProviderUrl].on("statechange", (newState) => actualStates.push(newState));
+        updatingPost.clients.nameResolvers[resolverKey].on("statechange", (newState: string) => actualStates.push(newState));
 
         await updatingPost.update();
 
@@ -108,7 +103,7 @@ describeSkipIfRpc(`comment.clients.chainProviders`, async () => {
         expect(actualStates).to.deep.equal(expectedStates);
     });
 
-    it(`Correct order of chainProviders state when updating a comment whose author address is a domain - uncached`, async () => {
+    it(`Correct order of nameResolvers state when updating a comment whose author address is a domain - uncached`, async () => {
         // Create a post with a domain as author address, signed with the correct signer
         const plebbit: Plebbit = await mockPlebbitV2({ stubStorage: false, remotePlebbit: true, mockResolve: true });
         const mockPost = await publishRandomPost(subplebbitAddress, plebbit, {
@@ -132,9 +127,9 @@ describeSkipIfRpc(`comment.clients.chainProviders`, async () => {
         const expectedStates = ["resolving-author-address", "stopped"];
         const actualStates: string[] = [];
 
-        const chainProviderUrl = Object.keys(updatingPost.clients.chainProviders.eth)[0];
+        const resolverKey = Object.keys(updatingPost.clients.nameResolvers)[0];
 
-        updatingPost.clients.chainProviders["eth"][chainProviderUrl].on("statechange", (newState) => actualStates.push(newState));
+        updatingPost.clients.nameResolvers[resolverKey].on("statechange", (newState: string) => actualStates.push(newState));
 
         await updatingPost.update();
 
@@ -147,7 +142,7 @@ describeSkipIfRpc(`comment.clients.chainProviders`, async () => {
         await differentPlebbit.destroy();
     });
 
-    it(`Correct order of chainProviders state when updating a comment whose author address is a domain - cached`, async () => {
+    it(`Correct order of nameResolvers state when updating a comment whose author address is a domain - cached`, async () => {
         // Create a post with a domain as author address, signed with the correct signer
         const mockPost = await publishRandomPost(subplebbitAddress, plebbit, {
             author: { address: "plebbit.eth" },
@@ -170,9 +165,9 @@ describeSkipIfRpc(`comment.clients.chainProviders`, async () => {
         const expectedStates: string[] = []; // empty because it's cached
         const actualStates: string[] = [];
 
-        const chainProviderUrl = Object.keys(updatingPost.clients.chainProviders.eth)[0];
+        const resolverKey = Object.keys(updatingPost.clients.nameResolvers)[0];
 
-        updatingPost.clients.chainProviders["eth"][chainProviderUrl].on("statechange", (newState) => actualStates.push(newState));
+        updatingPost.clients.nameResolvers[resolverKey].on("statechange", (newState: string) => actualStates.push(newState));
 
         await updatingPost.update();
 
@@ -185,12 +180,12 @@ describeSkipIfRpc(`comment.clients.chainProviders`, async () => {
         await differentPlebbit.destroy();
     });
 
-    it(`correct order of chainProviders state when publishing a comment to a sub with a domain address - uncached`, async () => {
+    it(`correct order of nameResolvers state when publishing a comment to a sub with a domain address - uncached`, async () => {
         const plebbit: Plebbit = await mockPlebbitV2({ stubStorage: false, remotePlebbit: true, mockResolve: true }); // need to use different plebbit so it won't use the memory cache of subplebbit for publishing
         const mockPost = await generateMockPost("plebbit.bso", plebbit);
         await mockCacheOfTextRecord({
             plebbit: mockPost._plebbit,
-            domain: "plebbit.eth",
+            domain: "plebbit.bso",
             textRecord: "subplebbit-address",
             value: undefined
         });
@@ -198,9 +193,9 @@ describeSkipIfRpc(`comment.clients.chainProviders`, async () => {
 
         const actualStates: string[] = [];
 
-        const chainProviderUrl = Object.keys(mockPost.clients.chainProviders.eth)[0];
+        const resolverKey = Object.keys(mockPost.clients.nameResolvers)[0];
 
-        mockPost.clients.chainProviders["eth"][chainProviderUrl].on("statechange", (newState) => actualStates.push(newState));
+        mockPost.clients.nameResolvers[resolverKey].on("statechange", (newState: string) => actualStates.push(newState));
 
         await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });
 
@@ -208,11 +203,11 @@ describeSkipIfRpc(`comment.clients.chainProviders`, async () => {
         await plebbit.destroy();
     });
 
-    it(`correct order of chainProviders state when publishing a comment to a sub with a domain address - cached`, async () => {
+    it(`correct order of nameResolvers state when publishing a comment to a sub with a domain address - cached`, async () => {
         const mockPost = await generateMockPost("plebbit.bso", plebbit);
         await mockCacheOfTextRecord({
             plebbit: mockPost._plebbit,
-            domain: "plebbit.eth",
+            domain: "plebbit.bso",
             textRecord: "subplebbit-address",
             value: signers[3].address
         });
@@ -220,16 +215,16 @@ describeSkipIfRpc(`comment.clients.chainProviders`, async () => {
 
         const actualStates: string[] = [];
 
-        const chainProviderUrl = Object.keys(mockPost.clients.chainProviders.eth)[0];
+        const resolverKey = Object.keys(mockPost.clients.nameResolvers)[0];
 
-        mockPost.clients.chainProviders["eth"][chainProviderUrl].on("statechange", (newState) => actualStates.push(newState));
+        mockPost.clients.nameResolvers[resolverKey].on("statechange", (newState: string) => actualStates.push(newState));
 
         await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });
 
         expect(actualStates).to.deep.equal(expectedStates);
     });
 
-    it(`Correct order of chainProviders state when comment has a reply with author.address as domain - uncached`, async () => {
+    it(`Correct order of nameResolvers state when comment has a reply with author.address as domain - uncached`, async () => {
         const mockPost = await publishRandomPost(subplebbitAddress, plebbit);
         const reply = await publishRandomReply(mockPost as CommentIpfsWithCidDefined, plebbit, {
             author: { address: "plebbit.eth" },
@@ -247,9 +242,9 @@ describeSkipIfRpc(`comment.clients.chainProviders`, async () => {
         const expectedStates = ["resolving-author-address", "stopped"];
         const actualStates: string[] = [];
 
-        const chainProviderUrl = Object.keys(loadedPost.clients.chainProviders.eth)[0];
+        const resolverKey = Object.keys(loadedPost.clients.nameResolvers)[0];
 
-        loadedPost.clients.chainProviders["eth"][chainProviderUrl].on("statechange", (newState) => actualStates.push(newState));
+        loadedPost.clients.nameResolvers[resolverKey].on("statechange", (newState: string) => actualStates.push(newState));
 
         await loadedPost.update();
 
@@ -260,7 +255,7 @@ describeSkipIfRpc(`comment.clients.chainProviders`, async () => {
         expect(actualStates.slice(0, expectedStates.length)).to.deep.equal(expectedStates);
     });
 
-    it(`Correct order of chainProviders state when comment has a reply with author.address as domain - cached`, async () => {
+    it(`Correct order of nameResolvers state when comment has a reply with author.address as domain - cached`, async () => {
         const mockPost = await publishRandomPost(subplebbitAddress, plebbit);
         const reply = await publishRandomReply(mockPost as CommentIpfsWithCidDefined, plebbit, {
             author: { address: "plebbit.eth" },
@@ -279,9 +274,9 @@ describeSkipIfRpc(`comment.clients.chainProviders`, async () => {
         const expectedStates: string[] = [];
         const actualStates: string[] = [];
 
-        const chainProviderUrl = Object.keys(loadedPost.clients.chainProviders.eth)[0];
+        const resolverKey = Object.keys(loadedPost.clients.nameResolvers)[0];
 
-        loadedPost.clients.chainProviders["eth"][chainProviderUrl].on("statechange", (newState: string) => actualStates.push(newState));
+        loadedPost.clients.nameResolvers[resolverKey].on("statechange", (newState: string) => actualStates.push(newState));
 
         await loadedPost.update();
 

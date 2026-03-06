@@ -8,94 +8,16 @@ import {
     publishRandomPost,
     itSkipIfRpc,
     describeSkipIfRpc,
-    mockViemClient,
+    mockNameResolvers,
     resolveWhenConditionIsTrue,
     mockCacheOfTextRecord,
     mockPlebbitV2
 } from "../../dist/node/test/test-util.js";
-import { v4 as uuidV4 } from "uuid";
 import type { Plebbit } from "../../dist/node/plebbit/plebbit.js";
 import type { RemoteSubplebbit } from "../../dist/node/subplebbit/remote-subplebbit.js";
 import type { Comment } from "../../dist/node/publications/comment/comment.js";
 
 const mockComments: Comment[] = [];
-
-// Clients of RPC will trust the response of RPC and won't validate
-// Skip testing for now because they keep failing randomly in github CI tests
-describeSkipIfRpc.skip(`Resolving text records`, async () => {
-    it.skip(`Can resolve correctly with just viem`, async () => {
-        const plebbit = await mockRemotePlebbit({ plebbitOptions: { chainProviders: { eth: { urls: ["viem"], chainId: 1 } } } }); // Should have viem defined
-        plebbit._storage.setItem = plebbit._storage.getItem = () => undefined;
-        expect(plebbit.clients.chainProviders["eth"].urls).to.deep.equal(["viem"]);
-        const resolvedAuthorAddress = await plebbit.resolveAuthorAddress({ address: "estebanabaroa.eth" });
-        expect(resolvedAuthorAddress).to.equal("12D3KooWGC8BJJfNkRXSgBvnPJmUNVYwrvSdtHfcsY3ZXJyK3q1z");
-        await plebbit.destroy();
-    });
-
-    it.skip(`Can resolve correctly with just ethers.js`, async () => {
-        const plebbit = await mockRemotePlebbit({ plebbitOptions: { chainProviders: { eth: { urls: ["ethers.js"], chainId: 1 } } } }); // Should have viem defined
-        plebbit._storage.setItem = plebbit._storage.getItem = () => undefined;
-        expect(plebbit.clients.chainProviders["eth"].urls).to.deep.equal(["ethers.js"]);
-        const resolvedAuthorAddress = await plebbit.resolveAuthorAddress({ address: "estebanabaroa.eth" });
-        expect(resolvedAuthorAddress).to.equal("12D3KooWGC8BJJfNkRXSgBvnPJmUNVYwrvSdtHfcsY3ZXJyK3q1z");
-        await plebbit.destroy();
-    });
-    it.skip(`Can resolve correctly with custom chain provider`, async () => {
-        const plebbit = await mockRemotePlebbit({
-            plebbitOptions: { chainProviders: { eth: { urls: ["https://cloudflare-eth.com/"], chainId: 1 } } }
-        }); // Should have viem defined
-        plebbit._storage.setItem = plebbit._storage.getItem = () => undefined;
-        expect(plebbit.clients.chainProviders["eth"].urls).to.deep.equal(["https://cloudflare-eth.com/"]);
-        const resolvedAuthorAddress = await plebbit.resolveAuthorAddress({ address: "estebanabaroa.eth" });
-        expect(resolvedAuthorAddress).to.equal("12D3KooWGC8BJJfNkRXSgBvnPJmUNVYwrvSdtHfcsY3ZXJyK3q1z");
-        await plebbit.destroy();
-    });
-    it.skip(`Can resolve correctly with viem, ethers.js and a custom chain provider`, async () => {
-        const plebbit = await mockRemotePlebbit({
-            plebbitOptions: { chainProviders: { eth: { urls: ["https://cloudflare-eth.com/", "viem", "ethers.js"], chainId: 1 } } }
-        }); // Should have viem defined
-        plebbit._storage.setItem = plebbit._storage.getItem = () => undefined;
-        expect(plebbit.clients.chainProviders["eth"].urls).to.deep.equal(["https://cloudflare-eth.com/", "viem", "ethers.js"]);
-        const resolvedAuthorAddress = await plebbit.resolveAuthorAddress({ address: "estebanabaroa.eth" });
-        expect(resolvedAuthorAddress).to.equal("12D3KooWGC8BJJfNkRXSgBvnPJmUNVYwrvSdtHfcsY3ZXJyK3q1z");
-        await plebbit.destroy();
-    });
-
-    // We don't need to test resolving solana domains anymore
-    describe.skip(`Resolving solana domains`, async () => {
-        let plebbit: Plebbit;
-        beforeAll(async () => {
-            plebbit = await mockPlebbitV2({
-                plebbitOptions: { chainProviders: { sol: { urls: ["web3.js"], chainId: -1 } } },
-                forceMockPubsub: true,
-                stubStorage: true,
-                mockResolve: false
-            }); // Should not mock resolver
-        });
-
-        afterAll(async () => {
-            await plebbit.destroy();
-        });
-
-        it(`A solana domain that has no subplebbit-address will return null when resolved`, async () => {
-            const subAddress = "randomdomain.sol";
-            const ipnsAddress = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded(subAddress);
-            expect(ipnsAddress).to.be.null;
-        });
-
-        it(`Can resolve A solana domain with correct subplebbit-address subdomain correctly`, async () => {
-            const subAddress = "redditdeath.sol";
-            const ipnsAddress = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded(subAddress);
-            expect(ipnsAddress).to.equal("12D3KooWKuojPWVJRMsQGMHzKKHY8ZVbU84vaetkaiymoqvDMe9z");
-        });
-
-        it(`Can resolve A solana domain with correct plebbit-author-address subdomain correctly`, async () => {
-            const authorAddress = "redditdeath.sol";
-            const ipnsAddress = await plebbit.resolveAuthorAddress({ address: authorAddress });
-            expect(ipnsAddress).to.equal("12D3KooWAszaoiJKCZCSeeKsjycPDrjdYG1zABbFdsgVenxdi9ma");
-        });
-    });
-});
 
 describe("Comments with Authors as domains", async () => {
     let plebbit: Plebbit;
@@ -224,56 +146,44 @@ describe(`Vote with authors as domains`, async () => {
     });
 });
 
-describeSkipIfRpc(`BSO domain resolution`, async () => {
-    it(`.bso subplebbit-address resolves correctly (substitutes to .eth for ENS query)`, async () => {
-        const testEthRpc = `https://testEthRpc${uuidV4()}.com`;
+describeSkipIfRpc(`nameResolver resolution`, async () => {
+    it(`nameResolver receives the original address (no normalization)`, async () => {
         const plebbit = await mockPlebbitV2({
-            plebbitOptions: { chainProviders: { eth: { urls: [testEthRpc], chainId: 1 } } },
             remotePlebbit: true,
             mockResolve: false
         });
 
         const expectedIpns = "12D3KooWJJcSwxH2F3sFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
+        let receivedName: string | undefined;
 
-        mockViemClient({
+        mockNameResolvers({
             plebbit,
-            chainTicker: "eth",
-            url: testEthRpc,
-            mockedViem: {
-                getEnsText: ({ name, key }: { name: string; key: string }) => {
-                    // The resolver should receive .eth, not .bso
-                    expect(name).to.equal("plebbit.eth");
-                    expect(key).to.equal("subplebbit-address");
-                    return expectedIpns;
-                }
+            resolveFunction: async ({ name }: { name: string; provider: string }) => {
+                receivedName = name;
+                return expectedIpns;
             }
         });
 
         const resolved = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("plebbit.bso");
         expect(resolved).to.equal(expectedIpns);
+        // The resolver receives the original address as-is
+        expect(receivedName).to.equal("plebbit.bso");
         await plebbit.destroy();
     });
 
-    it(`.bso plebbit-author-address resolves correctly`, async () => {
-        const testEthRpc = `https://testEthRpc${uuidV4()}.com`;
+    it(`nameResolver resolves plebbit-author-address correctly`, async () => {
         const plebbit = await mockPlebbitV2({
-            plebbitOptions: { chainProviders: { eth: { urls: [testEthRpc], chainId: 1 } } },
             remotePlebbit: true,
             mockResolve: false
         });
 
         const expectedAuthorAddress = "12D3KooWJJcSwMHrFvsFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
 
-        mockViemClient({
+        mockNameResolvers({
             plebbit,
-            chainTicker: "eth",
-            url: testEthRpc,
-            mockedViem: {
-                getEnsText: ({ name, key }: { name: string; key: string }) => {
-                    expect(name).to.equal("testauthor.eth");
-                    expect(key).to.equal("plebbit-author-address");
-                    return expectedAuthorAddress;
-                }
+            resolveFunction: async ({ name }: { name: string; provider: string }) => {
+                if (name === "testauthor.bso") return expectedAuthorAddress;
+                return undefined;
             }
         });
 
@@ -282,35 +192,69 @@ describeSkipIfRpc(`BSO domain resolution`, async () => {
         await plebbit.destroy();
     });
 
-    it(`.bso and .eth aliases share the same cache key`, async () => {
-        const testEthRpc = `https://testEthRpc${uuidV4()}.com`;
+    it(`Serial resolution: first resolver that returns a value wins`, async () => {
         const plebbit = await mockPlebbitV2({
-            plebbitOptions: { chainProviders: { eth: { urls: [testEthRpc], chainId: 1 } } },
             remotePlebbit: true,
-            stubStorage: false,
             mockResolve: false
         });
 
-        const bsoIpns = "12D3KooWJJcSwxH2F3sFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
-        const ethIpns = "12D3KooWNMYPSuNadceoKsJ6oUQcxGcfiAsHNpVTt1RQ1zSrKKpo";
+        const expectedIpns = "12D3KooWJJcSwxH2F3sFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
+        const resolverCalls: string[] = [];
 
-        // .bso/.eth are aliases, so both should read and write the same cache entry
-        await mockCacheOfTextRecord({ plebbit, domain: "plebbit.bso", textRecord: "subplebbit-address", value: bsoIpns });
+        plebbit.nameResolvers = [
+            {
+                key: "resolver-1",
+                canResolve: () => true,
+                resolve: async () => {
+                    resolverCalls.push("resolver-1");
+                    return undefined; // first resolver returns nothing
+                },
+                provider: "provider-1"
+            },
+            {
+                key: "resolver-2",
+                canResolve: () => true,
+                resolve: async () => {
+                    resolverCalls.push("resolver-2");
+                    return expectedIpns; // second resolver returns value
+                },
+                provider: "provider-2"
+            }
+        ];
 
-        const resolvedBsoAfterBsoWrite = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("plebbit.bso");
-        expect(resolvedBsoAfterBsoWrite).to.equal(bsoIpns);
+        const resolved = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("test.bso");
+        expect(resolved).to.equal(expectedIpns);
+        expect(resolverCalls).to.deep.equal(["resolver-1", "resolver-2"]);
+        await plebbit.destroy();
+    });
 
-        const resolvedEthAfterBsoWrite = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("plebbit.eth");
-        expect(resolvedEthAfterBsoWrite).to.equal(bsoIpns);
+    it(`Failing resolver is skipped, next resolver is tried`, async () => {
+        const plebbit = await mockPlebbitV2({
+            remotePlebbit: true,
+            mockResolve: false
+        });
 
-        await mockCacheOfTextRecord({ plebbit, domain: "plebbit.eth", textRecord: "subplebbit-address", value: ethIpns });
+        const expectedIpns = "12D3KooWJJcSwxH2F3sFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
 
-        const resolvedBsoAfterEthWrite = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("plebbit.bso");
-        expect(resolvedBsoAfterEthWrite).to.equal(ethIpns);
+        plebbit.nameResolvers = [
+            {
+                key: "failing-resolver",
+                canResolve: () => true,
+                resolve: async () => {
+                    throw Error("failed to resolve");
+                },
+                provider: "failing-provider"
+            },
+            {
+                key: "working-resolver",
+                canResolve: () => true,
+                resolve: async () => expectedIpns,
+                provider: "working-provider"
+            }
+        ];
 
-        const resolvedEthAfterEthWrite = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("plebbit.eth");
-        expect(resolvedEthAfterEthWrite).to.equal(ethIpns);
-
+        const resolved = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("test.bso");
+        expect(resolved).to.equal(expectedIpns);
         await plebbit.destroy();
     });
 });
@@ -345,41 +289,5 @@ describe("Comments with Authors as .bso domains", async () => {
         expect(mockPost.author.address).to.equal("plebbit.bso");
         await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });
         expect(mockPost.author.address).to.equal("plebbit.bso");
-    });
-});
-
-// This code won't run in rpc clients
-describeSkipIfRpc(`Resolving resiliency`, async () => {
-    it(`Resolver retries four times before throwing error`, async () => {
-        const testEthRpc = `https://testEthRpc${uuidV4()}.com`;
-        const plebbit = await mockPlebbitV2({
-            plebbitOptions: { chainProviders: { eth: { urls: [testEthRpc], chainId: 1 } } },
-            remotePlebbit: true,
-            mockResolve: false
-        });
-
-        let resolveHit = 0;
-
-        const address = "madeupname" + Math.round(Date.now()) + ".bso";
-
-        const subplebbitTextRecordOfAddress = "12D3KooWJJcSwxH2F3sFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y"; // made up ipns
-
-        mockViemClient({
-            plebbit,
-            chainTicker: "eth",
-            url: testEthRpc,
-            mockedViem: {
-                getEnsText: ({ name, key }: { name: string; key: string }) => {
-                    resolveHit++;
-                    if (resolveHit < 4) throw Error("failed to resolve because whatever");
-                    else return subplebbitTextRecordOfAddress;
-                }
-            }
-        });
-
-        const resolvedAuthorAddress = await plebbit.resolveAuthorAddress({ address: address });
-        expect(resolvedAuthorAddress).to.equal(subplebbitTextRecordOfAddress);
-        expect(resolveHit).to.equal(4);
-        await plebbit.destroy();
     });
 });

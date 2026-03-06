@@ -6,7 +6,7 @@ import {
     PublicationLibp2pJsClient
 } from "../publication-clients.js";
 
-import { Comment } from "./comment.js";
+import type { NameResolverClient } from "../../clients/name-resolver-client.js";
 
 type CommentGatewayState = PublicationIpfsGatewayClient["state"] | "fetching-update-ipfs" | "fetching-ipfs";
 
@@ -16,7 +16,7 @@ type CommentPubsubState = PublicationKuboPubsubClient["state"];
 
 type CommentLibp2pJsState = CommentIpfsState | CommentPubsubState | PublicationLibp2pJsClient["state"];
 
-type CommentRpcState = Comment["clients"]["chainProviders"]["eth"][0]["state"] | CommentLibp2pJsState;
+type CommentRpcState = NameResolverClient["state"] | CommentLibp2pJsState | "resolving-author-address" | "resolving-subplebbit-address";
 
 export class CommentLibp2pJsClient extends GenericStateClient<CommentLibp2pJsState> {}
 

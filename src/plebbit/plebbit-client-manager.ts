@@ -1,9 +1,8 @@
 import { Plebbit } from "./plebbit.js";
 import { hideClassPrivateProps, isIpfsCid, isIpfsPath, throwWithErrorCode } from "../util.js";
 import assert from "assert";
-import type { ChainTicker } from "../types.js";
 import * as remeda from "remeda";
-import { GenericChainProviderClient } from "../clients/chain-provider-client.js";
+import { NameResolverClient } from "../clients/name-resolver-client.js";
 
 import { BaseClientsManager, CachedTextRecordResolve, OptionsToLoadFromGateway } from "../clients/base-client-manager.js";
 
@@ -16,8 +15,8 @@ export class PlebbitClientsManager extends BaseClientsManager {
         ipfsGateways: { [ipfsGatewayUrl: string]: PlebbitIpfsGatewayClient };
         kuboRpcClients: { [kuboRpcClientUrl: string]: PlebbitKuboRpcClient };
         pubsubKuboRpcClients: { [pubsubKuboClientUrl: string]: GenericStateClient<string> }; // plebbit will never use this, but we're keeping it for compatibility
-        chainProviders: Record<ChainTicker, { [chainProviderUrl: string]: GenericChainProviderClient }>;
         libp2pJsClients: { [libp2pJsClientKey: string]: PlebbitLibp2pJsClient };
+        nameResolvers: { [resolverKey: string]: NameResolverClient };
     };
 
     constructor(plebbit: Plebbit) {
@@ -28,8 +27,8 @@ export class PlebbitClientsManager extends BaseClientsManager {
         this._initIpfsGateways();
         this._initKuboRpcClients();
         this._initPubsubKuboRpcClients();
-        this._initChainProviders();
         this._initLibp2pJsClients();
+        this._initNameResolvers();
         hideClassPrivateProps(this);
     }
 
@@ -60,12 +59,12 @@ export class PlebbitClientsManager extends BaseClientsManager {
             this.clients.libp2pJsClients = { ...this.clients.libp2pJsClients, [libp2pJsClientKey]: new PlebbitLibp2pJsClient("stopped") };
     }
 
-    protected _initChainProviders() {
-        this.clients.chainProviders = {};
-        for (const [chain, chainProvider] of remeda.entries.strict(this._plebbit.chainProviders)) {
-            this.clients.chainProviders[chain] = {};
-            for (const chainProviderUrl of chainProvider.urls)
-                this.clients.chainProviders[chain][chainProviderUrl] = new GenericChainProviderClient("stopped");
+    protected _initNameResolvers() {
+        this.clients.nameResolvers = {};
+        if (this._plebbit.nameResolvers) {
+            for (const resolver of this._plebbit.nameResolvers) {
+                this.clients.nameResolvers[resolver.key] = new NameResolverClient("stopped");
+            }
         }
     }
 
@@ -98,45 +97,39 @@ export class PlebbitClientsManager extends BaseClientsManager {
         this.postFetchGatewaySuccess(gatewayUrl, loadOpts);
     }
 
-    override preResolveTextRecord(
+    override preResolveNameResolver(
         address: string,
         txtRecordName: "subplebbit-address" | "plebbit-author-address",
-        chain: ChainTicker,
-        chainProviderUrl: string,
+        resolverKey: string,
         staleCache?: CachedTextRecordResolve
     ) {
-        // only update state if there's no cache
         if (!staleCache) {
             const newState = txtRecordName === "subplebbit-address" ? "resolving-subplebbit-address" : "resolving-author-address";
-            this.updateChainProviderState(newState, chain, chainProviderUrl);
+            this.updateNameResolverState(newState, resolverKey);
         }
     }
 
-    override postResolveTextRecordSuccess(
+    override postResolveNameResolverSuccess(
         address: string,
         txtRecordName: "subplebbit-address" | "plebbit-author-address",
-        resolvedTextRecord: string,
-        chain: ChainTicker,
-        chainProviderUrl: string,
+        resolvedValue: string | undefined,
+        resolverKey: string,
         staleCache?: CachedTextRecordResolve
-    ): void {
-        // only update state if there's no cache
+    ) {
         if (!staleCache) {
-            this.updateChainProviderState("stopped", chain, chainProviderUrl);
+            this.updateNameResolverState("stopped", resolverKey);
         }
     }
 
-    override postResolveTextRecordFailure(
+    override postResolveNameResolverFailure(
         address: string,
         txtRecordName: "subplebbit-address" | "plebbit-author-address",
-        chain: ChainTicker,
-        chainProviderUrl: string,
+        resolverKey: string,
         error: Error,
         staleCache?: CachedTextRecordResolve
     ) {
-        // only update state if there's no cache
         if (!staleCache) {
-            this.updateChainProviderState("stopped", chain, chainProviderUrl);
+            this.updateNameResolverState("stopped", resolverKey);
         }
     }
 
@@ -173,11 +166,12 @@ export class PlebbitClientsManager extends BaseClientsManager {
         this.clients.ipfsGateways[gateway].emit("statechange", newState);
     }
 
-    updateChainProviderState(newState: GenericChainProviderClient["state"], chainTicker: ChainTicker, chainProviderUrl: string) {
-        assert(typeof newState === "string", "Can't update chain provider state to undefined");
-        if (this.clients.chainProviders[chainTicker][chainProviderUrl].state === newState) return;
-        this.clients.chainProviders[chainTicker][chainProviderUrl].state = newState;
-        this.clients.chainProviders[chainTicker][chainProviderUrl].emit("statechange", newState);
+    updateNameResolverState(newState: NameResolverClient["state"], resolverKey: string) {
+        assert(typeof newState === "string", "Can't update name resolver state to undefined");
+        if (!this.clients.nameResolvers[resolverKey]) return;
+        if (this.clients.nameResolvers[resolverKey].state === newState) return;
+        this.clients.nameResolvers[resolverKey].state = newState;
+        this.clients.nameResolvers[resolverKey].emit("statechange", newState);
     }
 
     async fetchCid(cid: string): Promise<string> {

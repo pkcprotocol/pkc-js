@@ -79,8 +79,7 @@ describe("Plebbit options", async () => {
         expect(plebbit.plebbitRpcClientsOptions).to.deep.equal([rpcUrl]);
         expect(Object.keys(plebbit.clients.plebbitRpcClients)).to.deep.equal([rpcUrl]);
         expect(plebbit.pubsubKuboRpcClientsOptions).to.be.undefined;
-        expect(plebbit.chainProviders).to.deep.equal({});
-        expect(plebbit.clients.chainProviders).to.deep.equal({});
+        expect(plebbit.nameResolvers).to.be.undefined;
         expect(plebbit.clients.kuboRpcClients).to.deep.equal({});
         expect(plebbit.clients.pubsubKuboRpcClients).to.deep.equal({});
         expect(plebbit.clients.libp2pJsClients).to.deep.equal({});
@@ -176,21 +175,19 @@ describe("Plebbit options", async () => {
         await plebbit.destroy();
     });
 
-    it(`Plebbit({chainProviders: {options}}) will merge chain providers from user input with default chain providers`, async () => {
+    it(`Plebbit({nameResolvers: [...]}) sets plebbit.nameResolvers correctly`, async () => {
+        const mockResolver = {
+            key: "test-resolver",
+            resolve: async (): Promise<string | undefined> => undefined,
+            canResolve: (): boolean => true,
+            provider: "test-provider"
+        };
         const plebbit = await Plebbit({
-            chainProviders: {
-                testNewChain: {
-                    urls: ["https://eth-mainnet.g.alchemy.com/v2/your-api-key"],
-                    chainId: -1
-                }
-            },
+            nameResolvers: [mockResolver],
             httpRoutersOptions: []
         });
-        expect(plebbit.chainProviders.testNewChain.urls).to.deep.equal(["https://eth-mainnet.g.alchemy.com/v2/your-api-key"]);
-        expect(plebbit.chainProviders.eth).to.exist;
-        expect(plebbit.chainProviders.eth.urls.length).to.be.greaterThan(0);
-        expect(plebbit.chainProviders.sol).to.exist;
-        expect(plebbit.chainProviders.sol.urls.length).to.be.greaterThan(0);
+        expect(plebbit.nameResolvers).to.have.lengthOf(1);
+        expect(plebbit.nameResolvers![0].key).to.equal("test-resolver");
         await plebbit.destroy();
     });
 });

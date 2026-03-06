@@ -3243,19 +3243,11 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         const clientKeys = remeda.keys.strict(this.clients);
         for (const clientType of clientKeys)
             if (this.clients[clientType])
-                for (const clientUrl of Object.keys(this.clients[clientType])) {
-                    if (clientType !== "chainProviders") {
-                        if (clientUrl in this._mirroredStartedOrUpdatingSubplebbit.subplebbit.clients[clientType])
-                            this.clients[clientType][clientUrl].mirror(
-                                this._mirroredStartedOrUpdatingSubplebbit.subplebbit.clients[clientType][clientUrl]
-                            );
-                    } else
-                        for (const clientUrlDeeper of Object.keys(this.clients[clientType][clientUrl]))
-                            if (clientUrlDeeper in this._mirroredStartedOrUpdatingSubplebbit.subplebbit.clients[clientType][clientUrl])
-                                this.clients[clientType][clientUrl][clientUrlDeeper].mirror(
-                                    this._mirroredStartedOrUpdatingSubplebbit.subplebbit.clients[clientType][clientUrl][clientUrlDeeper]
-                                );
-                }
+                for (const clientUrl of Object.keys(this.clients[clientType]))
+                    if (clientUrl in this._mirroredStartedOrUpdatingSubplebbit.subplebbit.clients[clientType])
+                        this.clients[clientType][clientUrl].mirror(
+                            this._mirroredStartedOrUpdatingSubplebbit.subplebbit.clients[clientType][clientUrl]
+                        );
         if (startedSubplebbit.updateCid)
             await this.initInternalSubplebbitAfterFirstUpdateNoMerge(startedSubplebbit.toJSONInternalAfterFirstUpdate());
         else await this.initInternalSubplebbitBeforeFirstUpdateNoMerge(startedSubplebbit.toJSONInternalBeforeFirstUpdate());
@@ -3300,11 +3292,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
 
         for (const clientType of clientKeys)
             if (this.clients[clientType])
-                for (const clientUrl of Object.keys(this.clients[clientType]))
-                    if (clientType !== "chainProviders") this.clients[clientType][clientUrl].unmirror();
-                    else
-                        for (const clientUrlDeeper of Object.keys(this.clients[clientType][clientUrl]))
-                            this.clients[clientType][clientUrl][clientUrlDeeper].unmirror();
+                for (const clientUrl of Object.keys(this.clients[clientType])) this.clients[clientType][clientUrl].unmirror();
 
         this._mirroredStartedOrUpdatingSubplebbit = undefined;
     }

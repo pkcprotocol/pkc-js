@@ -1,5 +1,5 @@
 import { GenericStateClient } from "../generic-state-client.js";
-import { RpcRemoteSubplebbit } from "./rpc-remote-subplebbit.js";
+import type { NameResolverClient } from "../clients/name-resolver-client.js";
 
 type SubplebbitGatewayState = "stopped" | "fetching-ipns";
 
@@ -12,10 +12,11 @@ type SubplebbitPubsubState =
     | "publishing-challenge-verification";
 
 type SubplebbitRpcState =
-    | RpcRemoteSubplebbit["clients"]["chainProviders"]["eth"][0]["state"]
-    | RpcRemoteSubplebbit["clients"]["kuboRpcClients"][0]["state"]
-    | RpcRemoteSubplebbit["clients"]["pubsubKuboRpcClients"][0]["state"]
-    | RpcRemoteSubplebbit["clients"]["ipfsGateways"][0]["state"];
+    | NameResolverClient["state"]
+    | SubplebbitIpfsState
+    | SubplebbitPubsubState
+    | SubplebbitGatewayState
+    | "resolving-subplebbit-address";
 
 type SubplebbitLibp2pJsState = SubplebbitIpfsState | SubplebbitPubsubState;
 

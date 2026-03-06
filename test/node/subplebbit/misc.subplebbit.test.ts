@@ -346,7 +346,7 @@ describe.concurrent(`subplebbit.clients (Local)`, async () => {
         });
     });
 
-    describeSkipIfRpc.concurrent(`subplebbit.clients.chainProviders`, async () => {
+    describeSkipIfRpc.concurrent(`subplebbit.clients.nameResolvers`, async () => {
         let mockSub: LocalSubplebbit | RpcLocalSubplebbit;
         beforeAll(async () => {
             mockSub = await createSubWithNoChallenge({}, plebbit);
@@ -355,21 +355,18 @@ describe.concurrent(`subplebbit.clients (Local)`, async () => {
         afterAll(async () => {
             await mockSub.delete();
         });
-        it(`subplebbit.clients.chainProviders[url].state is stopped by default`, async () => {
-            expect(Object.keys(mockSub.clients.chainProviders).length).to.be.greaterThanOrEqual(1);
-            for (const chain of Object.keys(mockSub.clients.chainProviders)) {
-                expect(Object.keys(mockSub.clients.chainProviders[chain]).length).to.be.greaterThan(0);
-                for (const chainUrl of Object.keys(mockSub.clients.chainProviders[chain]))
-                    expect(mockSub.clients.chainProviders[chain][chainUrl].state).to.equal("stopped");
-            }
+        it(`subplebbit.clients.nameResolvers[resolverKey].state is stopped by default`, async () => {
+            expect(Object.keys(mockSub.clients.nameResolvers).length).to.be.greaterThanOrEqual(1);
+            for (const resolverKey of Object.keys(mockSub.clients.nameResolvers))
+                expect(mockSub.clients.nameResolvers[resolverKey].state).to.equal("stopped");
         });
 
-        it(`correct order of chainProviders state when receiving a comment with a domain for author.address`, async () => {
+        it(`correct order of nameResolvers state when receiving a comment with a domain for author.address`, async () => {
             const expectedStates = ["resolving-author-address", "stopped"];
 
             const actualStates: string[] = [];
-            const chainProviderUrl = Object.keys(mockSub.clients.chainProviders["eth"])[0];
-            mockSub.clients.chainProviders["eth"][chainProviderUrl].on("statechange", (newState) => actualStates.push(newState));
+            const resolverKey = Object.keys(mockSub.clients.nameResolvers)[0];
+            mockSub.clients.nameResolvers[resolverKey].on("statechange", (newState: string) => actualStates.push(newState));
 
             await mockSub.start();
 

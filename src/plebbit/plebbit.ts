@@ -7,7 +7,6 @@ import {
 } from "../runtime/node/util.js";
 import type {
     StorageInterface,
-    ChainProvider,
     GatewayClient,
     KuboRpcClient,
     PlebbitEvents,
@@ -131,7 +130,6 @@ import type {
     SubplebbitEditPubsubMessagePublication
 } from "../publications/subplebbit-edit/types.js";
 import { LRUCache } from "lru-cache";
-import { DomainResolver } from "../domain-resolver.js";
 import { PlebbitTypedEmitter } from "../clients/plebbit-typed-emitter.js";
 import type { PageTypeJson } from "../pages/types.js";
 import { createLibp2pJsClientOrUseExistingOne } from "../helia/helia-for-plebbit.js";
@@ -147,7 +145,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
     libp2pJsClientsOptions?: ParsedPlebbitOptions["libp2pJsClientsOptions"];
     dataPath?: ParsedPlebbitOptions["dataPath"];
     resolveAuthorAddresses: ParsedPlebbitOptions["resolveAuthorAddresses"];
-    chainProviders!: ParsedPlebbitOptions["chainProviders"];
+    nameResolvers?: ParsedPlebbitOptions["nameResolvers"];
     parsedPlebbitOptions: ParsedPlebbitOptions;
     publishInterval: ParsedPlebbitOptions["publishInterval"];
     updateInterval: ParsedPlebbitOptions["updateInterval"];
@@ -161,7 +159,6 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         ipfsGateways: { [ipfsGatewayUrl: NonNullable<ParsedPlebbitOptions["ipfsGatewayUrls"]>[number]]: GatewayClient };
         kuboRpcClients: { [kuboRpcClientUrl: string]: KuboRpcClient };
         pubsubKuboRpcClients: { [pubsubKuboClientUrl: string]: PubsubClient };
-        chainProviders: { [chainProviderUrl: string]: ChainProvider };
         plebbitRpcClients: { [plebbitRpcUrl: NonNullable<ParsedPlebbitOptions["plebbitRpcClientsOptions"]>[number]]: PlebbitRpcClient };
         libp2pJsClients: {
             [libp2pJsClientKey: NonNullable<ParsedPlebbitOptions["libp2pJsClientsOptions"]>[number]["key"]]: Libp2pJsClient;
@@ -193,7 +190,6 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
 
     private _storageLRUs: Record<string, LRUStorageInterface> = {}; // Cache name to storage interface
     _memCaches!: PlebbitMemCaches;
-    _domainResolver: DomainResolver;
     _inflightFetchManager: InflightFetchManager;
 
     _timeouts = {
@@ -229,9 +225,6 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
               ? this.parsedPlebbitOptions.pubsubKuboRpcClientsOptions // if not, then we use ipfsHttpClientOptions or defaults
               : this.parsedPlebbitOptions.kuboRpcClientsOptions || this.parsedPlebbitOptions.pubsubKuboRpcClientsOptions;
 
-        this.chainProviders = this.parsedPlebbitOptions.chainProviders = this.plebbitRpcClientsOptions
-            ? {}
-            : this.parsedPlebbitOptions.chainProviders;
         this.libp2pJsClientsOptions = this.parsedPlebbitOptions.libp2pJsClientsOptions;
         if (this.libp2pJsClientsOptions && (this.kuboRpcClientsOptions?.length || this.pubsubKuboRpcClientsOptions?.length))
             throw new PlebbitError("ERR_CAN_NOT_HAVE_BOTH_KUBO_AND_LIBP2P_JS_CLIENTS_DEFINED", {
@@ -249,7 +242,8 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         this.settings = {
             challenges: this.parsedPlebbitOptions.challenges
         };
-        this._domainResolver = new DomainResolver(this);
+        // nameResolvers contains functions that can't be serialized over RPC, so skip for RPC clients
+        this.nameResolvers = this.plebbitRpcClientsOptions ? undefined : this.parsedPlebbitOptions.nameResolvers;
         this.on("subplebbitschange", (newSubs) => {
             this.subplebbits = newSubs;
         });
@@ -263,7 +257,6 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         this._initKuboPubsubClientsIfNeeded();
         this._initRpcClientsIfNeeded();
         this._initIpfsGatewaysIfNeeded();
-        this._initChainProviders();
         this._initMemCaches();
         this._inflightFetchManager = new InflightFetchManager();
 
@@ -341,10 +334,6 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         this.clients.plebbitRpcClients = {};
         if (!this.plebbitRpcClientsOptions) return;
         for (const rpcUrl of this.plebbitRpcClientsOptions) this.clients.plebbitRpcClients[rpcUrl] = new PlebbitRpcClient(rpcUrl);
-    }
-
-    private _initChainProviders() {
-        this.clients.chainProviders = this.chainProviders;
     }
 
     private _initIpfsGatewaysIfNeeded() {
@@ -999,8 +988,6 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
             await this._addressRewriterDestroy();
             this._addressRewriterDestroy = undefined;
         }
-        await this._domainResolver.destroy();
-
         await this._storage.destroy();
         for (const storage of Object.values(this._storageLRUs)) await storage.destroy();
         Object.values(this._memCaches).forEach((cache) => cache.clear());

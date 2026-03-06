@@ -931,13 +931,7 @@ export class Comment
         for (const clientType of clientKeys)
             if (this.clients[clientType])
                 for (const clientUrl of Object.keys(this.clients[clientType]))
-                    if (clientType !== "chainProviders")
-                        this.clients[clientType][clientUrl].mirror(updatingCommentInstance.clients[clientType][clientUrl]);
-                    else
-                        for (const clientUrlDeeper of Object.keys(this.clients[clientType][clientUrl]))
-                            this.clients[clientType][clientUrl][clientUrlDeeper].mirror(
-                                updatingCommentInstance.clients[clientType][clientUrl][clientUrlDeeper]
-                            );
+                    this.clients[clientType][clientUrl].mirror(updatingCommentInstance.clients[clientType][clientUrl]);
         updatingCommentInstance._numOfListenersForUpdatingInstance++;
         this._useUpdatePropsFromUpdatingCommentIfPossible();
     }
@@ -1040,11 +1034,7 @@ export class Comment
 
             for (const clientType of clientKeys)
                 if (this.clients[clientType])
-                    for (const clientUrl of Object.keys(this.clients[clientType]))
-                        if (clientType !== "chainProviders") this.clients[clientType][clientUrl].unmirror();
-                        else
-                            for (const clientUrlDeeper of Object.keys(this.clients[clientType][clientUrl]))
-                                this.clients[clientType][clientUrl][clientUrlDeeper].unmirror();
+                    for (const clientUrl of Object.keys(this.clients[clientType])) this.clients[clientType][clientUrl].unmirror();
 
             this._updatingCommentInstance.comment._numOfListenersForUpdatingInstance--;
             if (

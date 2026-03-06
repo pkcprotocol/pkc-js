@@ -1,9 +1,9 @@
 import retry, { RetryOperation } from "retry";
 import { CachedTextRecordResolve, OptionsToLoadFromGateway } from "../clients/base-client-manager.js";
-import { GenericChainProviderClient } from "../clients/chain-provider-client.js";
 import { PlebbitClientsManager } from "../plebbit/plebbit-client-manager.js";
 import { FailedToFetchSubplebbitFromGatewaysError, PlebbitError } from "../plebbit-error.js";
-import { ChainTicker, ResultOfFetchingSubplebbit } from "../types.js";
+import { ResultOfFetchingSubplebbit } from "../types.js";
+import { NameResolverClient } from "../clients/name-resolver-client.js";
 import { RemoteSubplebbit } from "./remote-subplebbit.js";
 import * as remeda from "remeda";
 import type { SubplebbitIpfsType, SubplebbitJson } from "./types.js";
@@ -48,9 +48,9 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
         ipfsGateways: { [ipfsGatewayUrl: string]: SubplebbitIpfsGatewayClient };
         kuboRpcClients: { [kuboRpcClientUrl: string]: SubplebbitKuboRpcClient };
         pubsubKuboRpcClients: { [pubsubClientUrl: string]: SubplebbitKuboPubsubClient };
-        chainProviders: Record<ChainTicker, { [chainProviderUrl: string]: GenericChainProviderClient }>;
         plebbitRpcClients: Record<string, SubplebbitPlebbitRpcStateClient>;
         libp2pJsClients: { [libp2pJsClientUrl: string]: SubplebbitLibp2pJsClient };
+        nameResolvers: { [resolverKey: string]: NameResolverClient };
     };
     private _subplebbit: RemoteSubplebbit;
     _ipnsLoadingOperation?: RetryOperation = undefined;
@@ -118,31 +118,28 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
         return "fetching-ipns";
     }
 
-    override preResolveTextRecord(
+    override preResolveNameResolver(
         address: string,
         txtRecordName: "subplebbit-address" | "plebbit-author-address",
-        chain: ChainTicker,
-        chainProviderUrl: string,
+        resolverKey: string,
         staleCache?: CachedTextRecordResolve
     ): void {
-        super.preResolveTextRecord(address, txtRecordName, chain, chainProviderUrl, staleCache);
-        if (txtRecordName === "subplebbit-address" && !staleCache)
-            this._subplebbit._setUpdatingStateWithEventEmissionIfNewState("resolving-address");
+        super.preResolveNameResolver(address, txtRecordName, resolverKey, staleCache);
+        if (!staleCache) this._subplebbit._setUpdatingStateWithEventEmissionIfNewState("resolving-address");
     }
 
-    override postResolveTextRecordSuccess(
+    override postResolveNameResolverSuccess(
         address: string,
         txtRecordName: "subplebbit-address" | "plebbit-author-address",
-        resolvedTextRecord: string,
-        chain: ChainTicker,
-        chainProviderUrl: string,
+        resolvedValue: string | undefined,
+        resolverKey: string,
         staleCache?: CachedTextRecordResolve
     ): void {
-        super.postResolveTextRecordSuccess(address, txtRecordName, resolvedTextRecord, chain, chainProviderUrl, staleCache);
-        if (!resolvedTextRecord && this._subplebbit.state === "updating") {
+        super.postResolveNameResolverSuccess(address, txtRecordName, resolvedValue, resolverKey, staleCache);
+        if (!resolvedValue && this._subplebbit.state === "updating") {
             const error = new PlebbitError("ERR_DOMAIN_TXT_RECORD_NOT_FOUND", {
                 subplebbitAddress: address,
-                textRecord: txtRecordName
+                textRecord: "bitsocial"
             });
             this._subplebbit._changeStateEmitEventEmitStateChangeEvent({
                 event: { name: "error", args: [error] },

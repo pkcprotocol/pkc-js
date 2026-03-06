@@ -308,6 +308,7 @@ export enum messages {
     // Resolver errors
     ERR_FAILED_TO_RESOLVE_TEXT_RECORD = "Failed to resolve text record",
     ERR_NO_CHAIN_PROVIDER_FOR_CHAIN_TICKER = "no chain provider options set for chain ticker",
+    ERR_NO_RESOLVER_FOR_NAME = "No name resolver can handle this address",
     ERR_DOMAIN_TXT_RECORD_NOT_FOUND = "Domain resolver did not find the text record",
     ERR_DOMAIN_SUB_ADDRESS_TXT_RECORD_POINT_TO_DIFFERENT_ADDRESS = "subplebbit-address text record of domain is pointing to a different address than subplebbit.signer.address",
     ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS = "Resolved the text record value to a string that is non IPNS",

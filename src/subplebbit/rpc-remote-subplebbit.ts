@@ -144,14 +144,7 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
         for (const clientType of clientKeys)
             if (updatingSubplebbit.clients[clientType])
                 for (const clientUrl of Object.keys(updatingSubplebbit.clients[clientType]))
-                    if (clientType !== "chainProviders")
-                        this.clients[clientType][clientUrl].mirror(updatingSubplebbit.clients[clientType][clientUrl]);
-                    else {
-                        for (const clientDeeperUrl of remeda.keys.strict(updatingSubplebbit.clients[clientType]))
-                            this.clients[clientType][clientUrl][clientDeeperUrl].mirror(
-                                updatingSubplebbit.clients[clientType][clientUrl][clientDeeperUrl]
-                            );
-                    }
+                    this.clients[clientType][clientUrl].mirror(updatingSubplebbit.clients[clientType][clientUrl]);
 
         this._updatingRpcSubInstanceWithListeners.subplebbit._numOfListenersForUpdatingInstance++;
         if (updatingSubplebbit.raw.subplebbitIpfs) {
@@ -262,11 +255,7 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
 
         for (const clientType of clientKeys)
             if (this.clients[clientType])
-                for (const clientUrl of Object.keys(this.clients[clientType]))
-                    if (clientType !== "chainProviders") this.clients[clientType][clientUrl].unmirror();
-                    else
-                        for (const clientDeeperUrl of remeda.keys.strict(this.clients[clientType]))
-                            this.clients[clientType][clientUrl][clientDeeperUrl].unmirror();
+                for (const clientUrl of Object.keys(this.clients[clientType])) this.clients[clientType][clientUrl].unmirror();
         this._updatingRpcSubInstanceWithListeners.subplebbit._numOfListenersForUpdatingInstance--;
 
         if (

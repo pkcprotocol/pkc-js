@@ -12,20 +12,17 @@ import { describe, it } from "vitest";
 
 const subplebbitAddress = signers[9].address;
 
-describeSkipIfRpc(`subplebbit.clients.chainProviders`, async () => {
-    it(`subplebbit.clients.chainProviders[url].state is stopped by default`, async () => {
+describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
+    it(`subplebbit.clients.nameResolvers[resolverKey].state is stopped by default`, async () => {
         const plebbit = await mockPlebbitV2({ stubStorage: true, plebbitOptions: { validatePages: false }, remotePlebbit: true });
         const mockSub = await plebbit.getSubplebbit({ address: subplebbitAddress });
-        expect(Object.keys(mockSub.clients.chainProviders).length).to.be.greaterThanOrEqual(1);
-        for (const chain of Object.keys(mockSub.clients.chainProviders)) {
-            expect(Object.keys(mockSub.clients.chainProviders[chain]).length).to.be.greaterThan(0);
-            for (const chainUrl of Object.keys(mockSub.clients.chainProviders[chain]))
-                expect(mockSub.clients.chainProviders[chain][chainUrl].state).to.equal("stopped");
-        }
+        expect(Object.keys(mockSub.clients.nameResolvers).length).to.be.greaterThanOrEqual(1);
+        for (const resolverKey of Object.keys(mockSub.clients.nameResolvers))
+            expect(mockSub.clients.nameResolvers[resolverKey].state).to.equal("stopped");
         await plebbit.destroy();
     });
 
-    it(`Correct order of chainProviders state when sub pages has comments with author.address as domain - uncached`, async () => {
+    it(`Correct order of nameResolvers state when sub pages has comments with author.address as domain - uncached`, async () => {
         const plebbit = await mockPlebbitV2({ stubStorage: true, plebbitOptions: { validatePages: false }, remotePlebbit: true }); // no storage so it wouldn't be cached
 
         const mockPost = await publishRandomPost(subplebbitAddress, plebbit, {
@@ -44,8 +41,8 @@ describeSkipIfRpc(`subplebbit.clients.chainProviders`, async () => {
         const sub = await differentPlebbit.createSubplebbit({ address: mockPost.subplebbitAddress });
 
         const recordedStates: string[] = [];
-        const chainProviderUrl = Object.keys(sub.clients.chainProviders.eth)[0];
-        sub.clients.chainProviders["eth"][chainProviderUrl].on("statechange", (newState: string) => recordedStates.push(newState));
+        const resolverKey = Object.keys(sub.clients.nameResolvers)[0];
+        sub.clients.nameResolvers[resolverKey].on("statechange", (newState: string) => recordedStates.push(newState));
 
         const updatePromise = new Promise((resolve) => sub.once("update", resolve));
 
@@ -66,7 +63,7 @@ describeSkipIfRpc(`subplebbit.clients.chainProviders`, async () => {
         await differentPlebbit.destroy();
     });
 
-    it(`Correct order of chainProviders state when sub pages has a comment with author.address as domain - cached`, async () => {
+    it(`Correct order of nameResolvers state when sub pages has a comment with author.address as domain - cached`, async () => {
         const differentPlebbit = await mockPlebbitV2({
             stubStorage: false, // make sure storage is enabled so it would be cached
             remotePlebbit: true,
@@ -82,8 +79,8 @@ describeSkipIfRpc(`subplebbit.clients.chainProviders`, async () => {
         });
         const recordedStates: string[] = [];
         const expectedStates: string[] = []; // should be empty cause it's cached
-        const chainProviderUrl = Object.keys(sub.clients.chainProviders.eth)[0];
-        sub.clients.chainProviders["eth"][chainProviderUrl].on("statechange", (newState: string) => recordedStates.push(newState));
+        const resolverKey = Object.keys(sub.clients.nameResolvers)[0];
+        sub.clients.nameResolvers[resolverKey].on("statechange", (newState: string) => recordedStates.push(newState));
 
         const updatePromise = new Promise((resolve) => sub.once("update", resolve));
 
@@ -102,7 +99,7 @@ describeSkipIfRpc(`subplebbit.clients.chainProviders`, async () => {
         await differentPlebbit.destroy();
     });
 
-    it(`Correct order of chainProviders state when updating a subplebbit that was created with plebbit.createSubplebbit({address}) - uncached`, async () => {
+    it(`Correct order of nameResolvers state when updating a subplebbit that was created with plebbit.createSubplebbit({address}) - uncached`, async () => {
         const remotePlebbit = await mockPlebbitV2({
             stubStorage: true, // force no storage so it wouldn't be cached
             remotePlebbit: true,
@@ -114,8 +111,8 @@ describeSkipIfRpc(`subplebbit.clients.chainProviders`, async () => {
 
         const recordedStates: string[] = [];
 
-        const chainProviderUrl = Object.keys(sub.clients.chainProviders.eth)[0];
-        sub.clients.chainProviders["eth"][chainProviderUrl].on("statechange", (newState: string) => recordedStates.push(newState));
+        const resolverKey = Object.keys(sub.clients.nameResolvers)[0];
+        sub.clients.nameResolvers[resolverKey].on("statechange", (newState: string) => recordedStates.push(newState));
 
         const updatePromise = new Promise((resolve) => sub.once("update", resolve));
         await sub.update();
@@ -128,7 +125,7 @@ describeSkipIfRpc(`subplebbit.clients.chainProviders`, async () => {
         await remotePlebbit.destroy();
     });
 
-    it(`Correct order of chainProviders state when updating a subplebbit that was created with plebbit.createSubplebbit({address}) - cached`, async () => {
+    it(`Correct order of nameResolvers state when updating a subplebbit that was created with plebbit.createSubplebbit({address}) - cached`, async () => {
         const plebbit = await mockPlebbitV2({
             stubStorage: false, // make sure storage is enabled so it would be cached
             remotePlebbit: true,
@@ -149,8 +146,8 @@ describeSkipIfRpc(`subplebbit.clients.chainProviders`, async () => {
 
         const expectedStates: string[] = [];
 
-        const chainProviderUrl = Object.keys(sub.clients.chainProviders.eth)[0];
-        sub.clients.chainProviders["eth"][chainProviderUrl].on("statechange", (newState: string) => recordedStates.push(newState));
+        const resolverKey = Object.keys(sub.clients.nameResolvers)[0];
+        sub.clients.nameResolvers[resolverKey].on("statechange", (newState: string) => recordedStates.push(newState));
 
         const updatePromise = new Promise((resolve) => sub.once("update", resolve));
 

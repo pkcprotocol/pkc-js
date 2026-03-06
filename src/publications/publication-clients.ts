@@ -1,6 +1,6 @@
 import { GenericStateClient } from "../generic-state-client.js";
 import { CommentIpfsState, CommentLibp2pJsClient } from "./comment/comment-clients.js";
-import Publication from "./publication.js";
+import type { NameResolverClient } from "../clients/name-resolver-client.js";
 
 type PublicationGatewayState = "stopped" | "fetching-subplebbit-ipns";
 
@@ -17,7 +17,11 @@ type PublicationPubsubState =
 
 type PublicationLibp2pJsState = PublicationIpfsState | PublicationPubsubState | CommentIpfsState;
 
-type PublicationRpcState = Publication["clients"]["chainProviders"]["eth"][0]["state"] | PublicationLibp2pJsState;
+type PublicationRpcState =
+    | NameResolverClient["state"]
+    | PublicationLibp2pJsState
+    | "resolving-subplebbit-address"
+    | "resolving-author-address";
 
 export class PublicationLibp2pJsClient extends GenericStateClient<PublicationLibp2pJsState> {}
 

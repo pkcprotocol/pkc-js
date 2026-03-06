@@ -534,36 +534,32 @@ export async function mockPlebbit(plebbitOptions?: InputPlebbitOptions, forceMoc
     if (plebbitOptions?.plebbitRpcClientsOptions && plebbitOptions?.libp2pJsClientsOptions)
         throw Error("Can't have both libp2p and RPC config. Is this a mistake?");
 
-    const mockEthResolver = `https://mockEthRpc${uuidv4()}.com`;
+    const mockNameResolvers = mockResolve
+        ? [
+              {
+                  key: "mock-resolver",
+                  canResolve: () => true,
+                  resolve: async ({ name }: { name: string; provider: string }) => {
+                      console.log(`Attempting to mock resolve address (${name})`);
+                      if (name === "plebbit.eth")
+                          return "12D3KooWNMYPSuNadceoKsJ6oUQcxGcfiAsHNpVTt1RQ1zSrKKpo"; // signers[3]
+                      else if (name === "rpc-edit-test.eth")
+                          return "12D3KooWMZPQsQdYtrakc4D1XtzGXwN1X3DBnAobcCjcPYYXTB6o"; // signers[7]
+                      else return undefined;
+                  },
+                  provider: "mock"
+              }
+          ]
+        : undefined;
     const plebbit = await PlebbitIndex({
         ...mockDefaultOptionsForNodeAndBrowserTests(),
         resolveAuthorAddresses: true,
         publishInterval: 1000,
         validatePages: false,
         updateInterval: 500,
-        chainProviders: { eth: { urls: [mockEthResolver], chainId: 1 } },
+        nameResolvers: mockNameResolvers,
         ...plebbitOptions
     });
-
-    if (mockResolve) {
-        const mockedViemClient = <any>{
-            //@ts-expect-error
-            getEnsText: async ({ name, key }) => {
-                console.log(`Attempting to mock resolve address (${name}) textRecord (${key}) chainProviderUrl (${mockEthResolver})`);
-                if (name === "plebbit.eth" && key === "subplebbit-address")
-                    return "12D3KooWNMYPSuNadceoKsJ6oUQcxGcfiAsHNpVTt1RQ1zSrKKpo"; // signers[3]
-                else if (name === "plebbit.eth" && key === "plebbit-author-address")
-                    return "12D3KooWJJcSwMHrFvsFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y"; // signers[6]
-                else if (name === "rpc-edit-test.eth" && key === "subplebbit-address")
-                    return "12D3KooWMZPQsQdYtrakc4D1XtzGXwN1X3DBnAobcCjcPYYXTB6o"; // signers[7]
-                else if (name === "different-signer.eth" && key === "subplebbit-address") return (await plebbit.createSigner()).address;
-                else if (name === "estebanabaroa.eth" && key === "plebbit-author-address")
-                    return "12D3KooWGC8BJJfNkRXSgBvnPJmUNVYwrvSdtHfcsY3ZXJyK3q1z";
-                else return null;
-            }
-        };
-        plebbit._domainResolver._createViemClientIfNeeded = () => mockedViemClient;
-    }
 
     if (stubStorage) {
         plebbit._storage.getItem = async () => undefined;
@@ -2299,24 +2295,22 @@ export const itSkipIfRpc = globalThis["it"]?.runIf(!isRpcFlagOn());
 //@ts-expect-error
 export const itIfRpc = globalThis["it"]?.runIf(isRpcFlagOn());
 
-export function mockViemClient({
+export function mockNameResolvers({
     plebbit,
-    chainTicker,
-    url,
-    mockedViem
+    resolveFunction
 }: {
     plebbit: Plebbit;
-    chainTicker: string;
-    url: string;
-    mockedViem: any;
+    resolveFunction: (opts: { name: string; provider: string }) => Promise<string | undefined>;
 }) {
-    if (plebbit._plebbitRpcClient) throw Error("Can't mock viem client with plebbit rpc clients");
-    // Create a unique identifier for the viem client
-    const viemClientKey = chainTicker + url;
-
-    // Access the domain resolver's viem clients and mock the getEnsText method
-
-    plebbit._domainResolver._viemClients[viemClientKey] = mockedViem;
+    if (plebbit._plebbitRpcClient) throw Error("Can't mock name resolvers with plebbit rpc clients");
+    plebbit.nameResolvers = [
+        {
+            key: "mock-resolver",
+            canResolve: () => true,
+            resolve: resolveFunction,
+            provider: "mock"
+        }
+    ];
 }
 
 export function processAllCommentsRecursively(

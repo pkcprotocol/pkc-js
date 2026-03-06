@@ -1,8 +1,7 @@
-import { GenericChainProviderClient } from "../clients/chain-provider-client.js";
 import { PlebbitClientsManager } from "../plebbit/plebbit-client-manager.js";
 import { PlebbitError } from "../plebbit-error.js";
 import { RemoteSubplebbit } from "../subplebbit/remote-subplebbit.js";
-import type { ChainTicker } from "../types.js";
+import { NameResolverClient } from "../clients/name-resolver-client.js";
 import Publication from "./publication.js";
 import * as remeda from "remeda";
 import {
@@ -21,9 +20,9 @@ export class PublicationClientsManager extends PlebbitClientsManager {
         ipfsGateways: { [ipfsGatewayUrl: string]: PublicationIpfsGatewayClient | CommentIpfsGatewayClient };
         kuboRpcClients: { [kuboRpcUrl: string]: PublicationKuboRpcClient | CommentKuboRpcClient };
         pubsubKuboRpcClients: { [kuboRpcUrl: string]: PublicationKuboPubsubClient };
-        chainProviders: Record<ChainTicker, { [chainProviderUrl: string]: GenericChainProviderClient }>;
         plebbitRpcClients: Record<string, PublicationPlebbitRpcStateClient>;
         libp2pJsClients: { [libp2pJsUrl: string]: PublicationLibp2pJsClient };
+        nameResolvers: { [resolverKey: string]: NameResolverClient };
     };
     _publication: Publication;
     _subplebbitForUpdating?: {
@@ -31,10 +30,7 @@ export class PublicationClientsManager extends PlebbitClientsManager {
         ipfsGatewayListeners?: Record<string, Parameters<RemoteSubplebbit["clients"]["ipfsGateways"][string]["on"]>[1]>;
         kuboRpcListeners?: Record<string, Parameters<RemoteSubplebbit["clients"]["kuboRpcClients"][string]["on"]>[1]>;
         libp2pJsListeners?: Record<string, Parameters<RemoteSubplebbit["clients"]["libp2pJsClients"][string]["on"]>[1]>;
-        chainProviderListeners?: Record<
-            ChainTicker,
-            Record<string, Parameters<RemoteSubplebbit["clients"]["chainProviders"][ChainTicker][string]["on"]>[1]>
-        >;
+        nameResolverListeners?: Record<string, Parameters<RemoteSubplebbit["clients"]["nameResolvers"][string]["on"]>[1]>;
     } & Pick<SubplebbitEvents, "updatingstatechange" | "update" | "error"> = undefined;
 
     constructor(publication: Publication) {
@@ -121,12 +117,11 @@ export class PublicationClientsManager extends PlebbitClientsManager {
         );
     }
 
-    handleChainProviderSubplebbitState(
-        subplebbitNewChainState: RemoteSubplebbit["clients"]["chainProviders"][ChainTicker][string]["state"],
-        chainTicker: ChainTicker,
-        providerUrl: string
+    handleNameResolverSubplebbitState(
+        subplebbitNewResolverState: RemoteSubplebbit["clients"]["nameResolvers"][string]["state"],
+        resolverKey: string
     ) {
-        this.updateChainProviderState(subplebbitNewChainState, chainTicker, providerUrl);
+        this.updateNameResolverState(subplebbitNewResolverState, resolverKey);
     }
 
     handleKuboRpcSubplebbitState(
@@ -233,29 +228,22 @@ export class PublicationClientsManager extends PlebbitClientsManager {
             this._subplebbitForUpdating.libp2pJsListeners = libp2pJsListeners;
         }
 
-        // Add chain provider state listeners
-        const chainProviderListeners: Record<
-            ChainTicker,
-            Record<string, Parameters<RemoteSubplebbit["clients"]["chainProviders"][ChainTicker][string]["on"]>[1]>
-        > = {};
+        // Add name resolver state listeners
+        if (
+            this._subplebbitForUpdating.subplebbit.clients.nameResolvers &&
+            Object.keys(this._subplebbitForUpdating.subplebbit.clients.nameResolvers).length > 0
+        ) {
+            const nameResolverListeners: Record<string, Parameters<RemoteSubplebbit["clients"]["nameResolvers"][string]["on"]>[1]> = {};
 
-        for (const chainTicker of Object.keys(this._subplebbitForUpdating.subplebbit.clients.chainProviders) as ChainTicker[]) {
-            chainProviderListeners[chainTicker] = {};
+            for (const resolverKey of Object.keys(this._subplebbitForUpdating.subplebbit.clients.nameResolvers)) {
+                const resolverStateListener = (subplebbitNewResolverState: RemoteSubplebbit["clients"]["nameResolvers"][string]["state"]) =>
+                    this.handleNameResolverSubplebbitState(subplebbitNewResolverState, resolverKey);
 
-            for (const providerUrl of Object.keys(this._subplebbitForUpdating.subplebbit.clients.chainProviders[chainTicker])) {
-                const chainStateListener = (
-                    subplebbitNewChainState: RemoteSubplebbit["clients"]["chainProviders"][ChainTicker][string]["state"]
-                ) => this.handleChainProviderSubplebbitState(subplebbitNewChainState, chainTicker, providerUrl);
-
-                this._subplebbitForUpdating.subplebbit.clients.chainProviders[chainTicker][providerUrl].on(
-                    "statechange",
-                    chainStateListener
-                );
-                chainProviderListeners[chainTicker][providerUrl] = chainStateListener;
+                this._subplebbitForUpdating.subplebbit.clients.nameResolvers[resolverKey].on("statechange", resolverStateListener);
+                nameResolverListeners[resolverKey] = resolverStateListener;
             }
+            this._subplebbitForUpdating.nameResolverListeners = nameResolverListeners;
         }
-
-        this._subplebbitForUpdating.chainProviderListeners = chainProviderListeners;
 
         this._subplebbitForUpdating.subplebbit.on("update", this._subplebbitForUpdating.update);
 
@@ -305,16 +293,14 @@ export class PublicationClientsManager extends PlebbitClientsManager {
             }
         }
 
-        // Clean up chain provider listeners
-        if (this._subplebbitForUpdating.chainProviderListeners) {
-            for (const chainTicker of Object.keys(this._subplebbitForUpdating.chainProviderListeners) as ChainTicker[]) {
-                for (const providerUrl of Object.keys(this._subplebbitForUpdating.chainProviderListeners[chainTicker])) {
-                    this._subplebbitForUpdating.subplebbit.clients.chainProviders[chainTicker][providerUrl].removeListener(
-                        "statechange",
-                        this._subplebbitForUpdating.chainProviderListeners[chainTicker][providerUrl]
-                    );
-                    this.updateChainProviderState("stopped", chainTicker, providerUrl); // need to reset all chain provider states
-                }
+        // Clean up name resolver listeners
+        if (this._subplebbitForUpdating.nameResolverListeners) {
+            for (const resolverKey of Object.keys(this._subplebbitForUpdating.nameResolverListeners)) {
+                this._subplebbitForUpdating.subplebbit.clients.nameResolvers[resolverKey].removeListener(
+                    "statechange",
+                    this._subplebbitForUpdating.nameResolverListeners[resolverKey]
+                );
+                this.updateNameResolverState("stopped", resolverKey); // need to reset all name resolver states
             }
         }
 

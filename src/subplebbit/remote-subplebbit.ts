@@ -521,15 +521,9 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
         for (const clientType of clientKeys)
             if (this.clients[clientType])
                 for (const clientUrl of Object.keys(this.clients[clientType]))
-                    if (clientType !== "chainProviders")
-                        this.clients[clientType][clientUrl].mirror(
-                            this._updatingSubInstanceWithListeners.subplebbit.clients[clientType][clientUrl]
-                        );
-                    else
-                        for (const clientUrlDeeper of Object.keys(this.clients[clientType][clientUrl]))
-                            this.clients[clientType][clientUrl][clientUrlDeeper].mirror(
-                                this._updatingSubInstanceWithListeners.subplebbit.clients[clientType][clientUrl][clientUrlDeeper]
-                            );
+                    this.clients[clientType][clientUrl].mirror(
+                        this._updatingSubInstanceWithListeners.subplebbit.clients[clientType][clientUrl]
+                    );
         this._updatingSubInstanceWithListeners.subplebbit._numOfListenersForUpdatingInstance++;
         if (this._updatingSubInstanceWithListeners.subplebbit.state === "stopped") {
             this._updatingSubInstanceWithListeners.subplebbit._setState("updating");
@@ -574,11 +568,7 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
 
         for (const clientType of clientKeys)
             if (this.clients[clientType])
-                for (const clientUrl of Object.keys(this.clients[clientType]))
-                    if (clientType !== "chainProviders") this.clients[clientType][clientUrl].unmirror();
-                    else
-                        for (const clientUrlDeeper of Object.keys(this.clients[clientType][clientUrl]))
-                            this.clients[clientType][clientUrl][clientUrlDeeper].unmirror();
+                for (const clientUrl of Object.keys(this.clients[clientType])) this.clients[clientType][clientUrl].unmirror();
 
         this._updatingSubInstanceWithListeners.subplebbit._numOfListenersForUpdatingInstance--;
         if (

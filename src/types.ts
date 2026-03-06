@@ -12,7 +12,7 @@ import {
 import { z } from "zod";
 
 import type { DecryptedChallengeRequestPublication } from "./pubsub-messages/types.js";
-import { ChainProviderSchema, ChainTickerSchema, PlebbitParsedOptionsSchema, PlebbitUserOptionsSchema } from "./schema.js";
+import { ChainTickerSchema, NameResolverSchema, PlebbitParsedOptionsSchema, PlebbitUserOptionsSchema } from "./schema.js";
 import PlebbitRpcClient from "./clients/rpc-client/plebbit-rpc-client.js";
 import type { PlebbitWsServerSettingsSerialized } from "./rpc/src/types.js";
 import { LRUCache } from "lru-cache";
@@ -22,7 +22,7 @@ import type { CommentIpfsType } from "./publications/comment/types.js";
 
 export type ProtocolVersion = z.infer<typeof ProtocolVersionSchema>;
 export type ChainTicker = z.infer<typeof ChainTickerSchema>;
-export type ChainProvider = z.infer<typeof ChainProviderSchema>;
+export type NameResolver = z.infer<typeof NameResolverSchema>;
 
 export type InputPlebbitOptions = z.input<typeof PlebbitUserOptionsSchema>;
 export type ParsedPlebbitOptions = z.output<typeof PlebbitParsedOptionsSchema>;

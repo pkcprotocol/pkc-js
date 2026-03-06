@@ -23,12 +23,6 @@ export const Uint8ArraySchema = z.custom<Uint8Array<ArrayBufferLike>>(
     { message: "Expected Uint8Array" }
 );
 
-const LibraryChainProvider = z.enum(["viem", "ethers.js", "web3.js"]);
-export const ChainProviderSchema = z.object({
-    urls: z.url().or(LibraryChainProvider).array(),
-    chainId: z.number().int()
-});
-
 const IpfsGatewayUrlSchema = z.url().startsWith("http", "IPFS gateway URL must start with http:// or https://");
 
 const RpcUrlSchema = z.url().startsWith("ws", "Plebbit RPC URL must start with ws:// or wss://"); // Optional websocket URLs of plebbit RPC servers, required to run a sub from a browser/electron/webview
@@ -37,21 +31,16 @@ const KuboRpcCreateClientOptionSchema = z.custom<KuboRpcClientCreateOption>(); /
 
 const DirectoryPathSchema = z.string(); // TODO add validation for path
 
-const defaultChainProviders = {
-    eth: { urls: ["viem", "ethers.js"], chainId: 1 },
-    avax: {
-        urls: ["https://api.avax.network/ext/bc/C/rpc"],
-        chainId: 43114
-    },
-    matic: {
-        urls: ["https://polygon-rpc.com"],
-        chainId: 137
-    },
-    sol: {
-        urls: ["web3.js", "https://solana.api.onfinality.io/public", "https://solrpc.xyz"],
-        chainId: -1 // no chain ID for solana
-    }
-};
+export const NameResolverSchema = z.object({
+    key: z.string().min(1),
+    resolve: z.custom<(opts: { name: string; provider: string }) => Promise<string | undefined>>((val) => typeof val === "function", {
+        message: "resolve must be a function"
+    }),
+    canResolve: z.custom<(opts: { name: string }) => boolean>((val) => typeof val === "function", {
+        message: "canResolve must be a function"
+    }),
+    provider: z.string().min(1)
+});
 
 const TransformKuboRpcClientOptionsSchema = KuboRpcCreateClientOptionSchema.array().transform((options) =>
     options.map(parseIpfsRawOptionToIpfsOptions)
@@ -71,8 +60,8 @@ export const PlebbitUserOptionBaseSchema = z.object({
     pubsubKuboRpcClientsOptions: TransformKuboRpcClientOptionsSchema.optional(),
     plebbitRpcClientsOptions: RpcUrlSchema.array().nonempty().optional(),
     dataPath: DirectoryPathSchema.optional(),
-    chainProviders: z.record(ChainTickerSchema, ChainProviderSchema),
     resolveAuthorAddresses: z.boolean(),
+    nameResolvers: NameResolverSchema.array().optional(),
     libp2pJsClientsOptions: z
         .object({
             key: z.string().min(1),
@@ -112,10 +101,6 @@ export const PlebbitUserOptionsSchema = PlebbitUserOptionBaseSchema.extend({
         "https://peers.forumindex.com",
         "https://peers.plebpubsub.xyz"
     ]),
-    chainProviders: PlebbitUserOptionBaseSchema.shape.chainProviders
-        .default(defaultChainProviders)
-        .transform((userInput) => ({ ...defaultChainProviders, ...userInput })),
-
     resolveAuthorAddresses: PlebbitUserOptionBaseSchema.shape.resolveAuthorAddresses.default(true),
     publishInterval: PlebbitUserOptionBaseSchema.shape.publishInterval.default(20000),
     updateInterval: PlebbitUserOptionBaseSchema.shape.updateInterval.default(60000),
@@ -137,5 +122,6 @@ export const PlebbitUserOptionsSchema = PlebbitUserOptionBaseSchema.extend({
 export const PlebbitParsedOptionsSchema = PlebbitUserOptionBaseSchema.extend({
     // used to parse responses from rpc when calling getSettings
     kuboRpcClientsOptions: ParsedKuboRpcClientOptionsSchema.optional(),
-    pubsubKuboRpcClientsOptions: ParsedKuboRpcClientOptionsSchema.optional()
+    pubsubKuboRpcClientsOptions: ParsedKuboRpcClientOptionsSchema.optional(),
+    nameResolvers: NameResolverSchema.array().optional()
 }).strict();
