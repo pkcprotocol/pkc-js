@@ -443,6 +443,10 @@ The `address` property is stable — it is set at creation time based on the cal
 - When caller provides `name` (explicitly or via domain `address`): `address = name`.
 - The `nameResolved` flag indicates verification status. UIs decide their own warning policy for unverified names.
 
+## getCommunity behavior
+
+`getCommunity` (currently `getSubplebbit`) performs a one-shot fetch of a community record. It accepts the **same parameter combinations** as `createCommunity` — `{address}`, `{publicKey}`, `{name}`, `{publicKey, name}`, `{address, publicKey}` — and follows the same resolution, conflict handling, and address lifecycle rules described in the `createSubplebbit behavior` section above.
+
 ## Implementation plan (plebbit-js)
 
 ### Allow loading by public key (`src/subplebbit/subplebbit-client-manager.ts`)
@@ -496,7 +500,7 @@ The `address` property is stable — it is set at creation time based on the cal
 
 ### Backward compatibility
 
--   **SubplebbitIpfs**: `address` is removed from the wire schema (instance-only, computed as `name || publicKey`). Old records that include `address` in `signedPropertyNames` remain valid via self-describing signature verification. Use `.passthrough()` to accept old records with `address` field during transition.
+-   **SubplebbitIpfs**: `address` is removed from the wire schema (instance-only, computed as `name || publicKey`). Old records that include `address` in `signedPropertyNames` remain valid via self-describing signature verification. Use `.loose()` (not `.strip()`) to accept old records with `address` field during transition — `.strip()` can remove fields referenced in `signedPropertyNames` and corrupt signature verification.
 -   **Publications**: Non-breaking. Old clients continue to use `subplebbitAddress`. New clients use `communityPublicKey` and `communityName`.
 
 ## Edge cases and error handling
