@@ -258,7 +258,7 @@ Each resolver in the `nameResolvers` array has the following shape:
 Resolver composition happens at the client/hook level, not in pkc-js. Here's how a client like bitsocial would wire resolvers from account configuration:
 
 ```js
-import {resolveBso, canResolveBso} from '@bitsocial/resolver-bso'
+import {resolveBso, canResolveBso} from '@bitsocial/bso-resolver'
 import {resolveDns, canResolveDns} from '@bitsocial/dns-over-https' // hypothetical example for API illustration, not an actual package
 
 const nameResolvers = []
@@ -474,12 +474,6 @@ The `address` property is stable — it is set at creation time based on the cal
 -   `nameResolved` is instance-only (runtime verification flag, `boolean | undefined`), not added to wire schema
 -   Same async verification pattern as subplebbit
 
-### Protocol version
-
--   **Bump `protocolVersion`** when these wire format changes are applied (removing `address` from SubplebbitIpfs, adding `name`; adding `communityPublicKey`/`communityName` to publications; removing `author.address` from wire)
--   SubplebbitIpfs records are short-lived (IPNS), so backward compat is not a major concern — use `.passthrough()` to accept old records with `address` field during transition
--   Comments are the bigger concern — old `CommentIpfs` records are CID-addressed and immutable, handled by the backward compat rules above
-
 ### RemoteSubplebbit (`src/subplebbit/remote-subplebbit.ts`)
 
 -   Add `name`, `publicKey`, and `nameResolved` property declarations
@@ -535,7 +529,7 @@ This section documents all edge cases for `createSubplebbit`, name resolution, a
 | ---------------------------------------------------------------------------- | --------------------------------------------------- |
 | `{address: "12D3A...", publicKey: "12D3B..."}` (both IPNS, different values) | **Throw** `ERR_CONFLICTING_ADDRESS_AND_PUBLICKEY`   |
 | `{address: "memes.bso", publicKey: "12D3..."}`                               | Valid — use publicKey for IPNS, verify domain async |
-| `{address: "MEMES.BSO"}` (uppercase domain)                                  | **Throw** `ERR_DOMAIN_ADDRESS_HAS_CAPITAL_LETTER`   |
+| `{address: "MEMES.BSO"}` (uppercase domain)                                  | **Throw** `ERR_COMMUNITY_NAME_HAS_CAPITAL_LETTER`   |
 | `{}` (empty options)                                                         | Generate random signer, create local subplebbit     |
 
 ### Error codes
@@ -543,6 +537,6 @@ This section documents all edge cases for `createSubplebbit`, name resolution, a
 | Error Code                                 | When                                                           |
 | ------------------------------------------ | -------------------------------------------------------------- |
 | `ERR_CONFLICTING_ADDRESS_AND_PUBLICKEY`    | Both `address` and `publicKey` provided as different IPNS keys |
-| `ERR_DOMAIN_ADDRESS_HAS_CAPITAL_LETTER`    | Domain address contains uppercase letters                      |
+| `ERR_COMMUNITY_NAME_HAS_CAPITAL_LETTER`    | Domain address contains uppercase letters                      |
 | `ERR_NAME_RESOLUTION_FAILED`               | Blockchain RPC resolution failed (network error, timeout)      |
 | `ERR_NO_RESOLVER_FOR_NAME`                 | No resolver registered that supports the provided name          |
