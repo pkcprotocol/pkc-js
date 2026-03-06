@@ -136,6 +136,7 @@ export const CommentsTableRowSchema = CommentIpfsSchema.extend({
     postCid: CidStringSchema,
     insertedAt: PlebbitTimestampSchema,
     authorSignerAddress: SignerWithAddressPublicKeySchema.shape.address,
+    originalCommentSignatureEncoded: CommentPubsubMessagePublicationSchema.shape.signature.shape.signature.optional(),
     extraProps: z.looseObject({}).optional(),
     pendingApproval: z.boolean().optional(),
     number: z.number().int().positive().optional(),

@@ -909,7 +909,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit {
         return commentEditSignedByAlias;
     }
     async storeComment(opts) {
-        const { commentPubsub, pendingApproval, pseudonymityMode } = opts;
+        const { commentPubsub, pendingApproval, pseudonymityMode, originalCommentSignatureEncoded } = opts;
         const log = Logger("plebbit-js:local-subplebbit:handleChallengeExchange:storeComment");
         const commentIpfs = {
             ...commentPubsub,
@@ -933,7 +933,8 @@ export class LocalSubplebbit extends RpcLocalSubplebbit {
         const postCid = commentIpfs.postCid || commentCid; // if postCid is not defined, then we're adding a post to IPFS, so its own cid is the postCid
         const authorSignerAddress = await getPlebbitAddressFromPublicKey(commentPubsub.signature.publicKey);
         const strippedOutCommentIpfs = CommentIpfsSchema.strip().parse(commentIpfs); // remove unknown props
-        const isCommentDuplicate = this._dbHandler.hasCommentWithSignatureEncoded(commentPubsub.signature.signature);
+        const signaturesToCheck = Array.from(new Set([commentPubsub.signature.signature, originalCommentSignatureEncoded].filter((sig) => typeof sig === "string")));
+        const isCommentDuplicate = signaturesToCheck.some((signatureEncoded) => this._dbHandler.hasCommentWithSignatureEncoded(signatureEncoded));
         if (isCommentDuplicate) {
             this._cidsToUnPin.add(commentCid);
             throw new PlebbitError("ERR_DUPLICATE_COMMENT", { file, commentIpfs, commentPubsub });
@@ -951,6 +952,9 @@ export class LocalSubplebbit extends RpcLocalSubplebbit {
             log("Found extra props on Comment", unknownProps, "Will be adding them to extraProps column");
             commentRow.extraProps = remeda.pick(commentPubsub, unknownProps);
         }
+        if (originalCommentSignatureEncoded)
+            commentRow.originalCommentSignatureEncoded = originalCommentSignatureEncoded;
+        // we may need to query comment and verify its signature
         this._dbHandler.createTransaction();
         try {
             if (!pendingApproval) {
@@ -981,11 +985,13 @@ export class LocalSubplebbit extends RpcLocalSubplebbit {
         else if (request.commentModeration)
             return this.storeCommentModeration(request.commentModeration, request.challengeRequestId);
         else if (request.comment) {
+            const originalCommentSignatureEncoded = request.comment.signature.signature;
             const { publication, anonymity } = await this._prepareCommentWithAnonymity(request.comment);
             const storedComment = await this.storeComment({
                 commentPubsub: publication,
                 pendingApproval,
-                pseudonymityMode: anonymity?.mode
+                pseudonymityMode: anonymity?.mode,
+                originalCommentSignatureEncoded: anonymity ? originalCommentSignatureEncoded : undefined
             });
             if (anonymity)
                 this._dbHandler.insertPseudonymityAliases([
@@ -2123,7 +2129,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit {
             await this._addOldPageCidsToCidsToUnpin(purgedCommentAndCommentUpdate?.commentUpdateTableRow?.replies, undefined, true).catch((err) => log.error("Failed to add purged page cids to be unpinned and removed", err));
     }
     async _purgeDisapprovedCommentsOlderThan() {
-        if (typeof this.settings.purgeDisapprovedCommentsOlderThan !== "number")
+        if (typeof this.settings?.purgeDisapprovedCommentsOlderThan !== "number")
             return;
         const log = Logger("plebbit-js:local-subplebbit:_purgeDisapprovedCommentsOlderThan");
         const purgedComments = this._dbHandler.purgeDisapprovedCommentsOlderThan(this.settings.purgeDisapprovedCommentsOlderThan);

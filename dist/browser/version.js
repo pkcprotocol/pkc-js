@@ -5,7 +5,7 @@ const plebbitJsVersion = version;
 const userAgent = UserAgentSchema.parse(`/plebbit-js:${plebbitJsVersion}/`);
 export default {
     PLEBBIT_JS_VERSION: plebbitJsVersion,
-    DB_VERSION: 34,
+    DB_VERSION: 35,
     PROTOCOL_VERSION: protocolVersion,
     USER_AGENT: userAgent
 };

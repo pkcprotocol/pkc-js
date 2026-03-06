@@ -961,6 +961,7 @@ export declare const CommentsTableRowSchema: z.ZodObject<{
     postCid: z.ZodString;
     insertedAt: z.ZodNumber;
     authorSignerAddress: z.ZodString;
+    originalCommentSignatureEncoded: z.ZodOptional<z.ZodString>;
     extraProps: z.ZodOptional<z.ZodObject<{}, z.core.$loose>>;
     pendingApproval: z.ZodOptional<z.ZodBoolean>;
     number: z.ZodOptional<z.ZodNumber>;

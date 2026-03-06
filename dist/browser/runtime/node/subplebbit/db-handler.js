@@ -214,6 +214,7 @@ export class DbHandler {
                 content TEXT NULLABLE,
                 timestamp INTEGER NOT NULL, 
                 signature TEXT NOT NULL, -- JSON
+                originalCommentSignatureEncoded TEXT NULLABLE, -- original publication signature before local anonymization
                 title TEXT NULLABLE,
                 depth INTEGER NOT NULL,
                 linkHtmlTagName TEXT NULLABLE,
@@ -805,8 +806,8 @@ export class DbHandler {
         // Adding a new column to the comments table requires updating this list manually, which is error-prone.
         const stmt = this._db.prepare(`
             INSERT INTO ${TABLES.COMMENTS}
-            (cid, authorSignerAddress, author, link, linkWidth, linkHeight, thumbnailUrl, thumbnailUrlWidth, thumbnailUrlHeight, parentCid, postCid, previousCid, subplebbitAddress, content, timestamp, signature, title, depth, linkHtmlTagName, flairs, spoiler, pendingApproval, number, postNumber, nsfw, pseudonymityMode, quotedCids, extraProps, protocolVersion, insertedAt)
-            VALUES (@cid, @authorSignerAddress, @author, @link, @linkWidth, @linkHeight, @thumbnailUrl, @thumbnailUrlWidth, @thumbnailUrlHeight, @parentCid, @postCid, @previousCid, @subplebbitAddress, @content, @timestamp, @signature, @title, @depth, @linkHtmlTagName, @flairs, @spoiler, @pendingApproval, @number, @postNumber, @nsfw, @pseudonymityMode, @quotedCids, @extraProps, @protocolVersion, @insertedAt)
+            (cid, authorSignerAddress, author, link, linkWidth, linkHeight, thumbnailUrl, thumbnailUrlWidth, thumbnailUrlHeight, parentCid, postCid, previousCid, subplebbitAddress, content, timestamp, signature, originalCommentSignatureEncoded, title, depth, linkHtmlTagName, flairs, spoiler, pendingApproval, number, postNumber, nsfw, pseudonymityMode, quotedCids, extraProps, protocolVersion, insertedAt)
+            VALUES (@cid, @authorSignerAddress, @author, @link, @linkWidth, @linkHeight, @thumbnailUrl, @thumbnailUrlWidth, @thumbnailUrlHeight, @parentCid, @postCid, @previousCid, @subplebbitAddress, @content, @timestamp, @signature, @originalCommentSignatureEncoded, @title, @depth, @linkHtmlTagName, @flairs, @spoiler, @pendingApproval, @number, @postNumber, @nsfw, @pseudonymityMode, @quotedCids, @extraProps, @protocolVersion, @insertedAt)
         `);
         // Create default object with null values for all columns
         const defaults = remeda.mapToObj(columnNames, (column) => [column, null]);
@@ -1095,8 +1096,11 @@ export class DbHandler {
     }
     hasCommentWithSignatureEncoded(signatureEncoded) {
         const row = this._db
-            .prepare(`SELECT 1 FROM ${TABLES.COMMENTS} WHERE json_extract(signature, '$.signature') = ? LIMIT 1`)
-            .get(signatureEncoded);
+            .prepare(`SELECT 1 FROM ${TABLES.COMMENTS}
+                 WHERE json_extract(signature, '$.signature') = ?
+                    OR originalCommentSignatureEncoded = ?
+                 LIMIT 1`)
+            .get(signatureEncoded, signatureEncoded);
         return row !== undefined;
     }
     hasCommentModerationWithSignatureEncoded(signatureEncoded) {
