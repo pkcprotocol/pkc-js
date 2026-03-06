@@ -748,17 +748,18 @@ The following applications will need migration code to rename `subplebbits/` →
 
 **Decision:** Use a single `bitsocial` TXT record key. The value is the IPNS public key (e.g., `12D3KooW...`).
 
-This replaces the previous two-key approach (`subplebbit-address` and `plebbit-author-address`). A single lookup retrieves the community's IPNS key.
+This replaces the previous two-key approach (`subplebbit-address` and `plebbit-author-address`). A single lookup retrieves the community's or author's IPNS key — communities and author profiles are the same IPNS record (see [NAMES_AND_PUBLIC_KEY_PROPOSAL.md — Community/Author interoperability](./NAMES_AND_PUBLIC_KEY_PROPOSAL.md#communityauthor-interoperability)), so one TXT value serves both.
 
 **Format:**
 - TXT record key: `bitsocial`
-- Value (current): `<ipnsB58>` (e.g., `12D3KooWNvSZn...`)
-- Value (future): extensible with `;key=value` pairs (e.g., `12D3KooW...;author=12D3KooW...`)
+- Value: `<ipnsB58>` (e.g., `12D3KooWNvSZn...`)
+
+No `author=12D...` prefix or key-value extensibility is needed — since communities and author profiles share the same IPNS record, a single IPNS key is sufficient. Telling users to set up `author=12D...` instead of just `12D...` would be unnecessarily complex with no protocol benefit.
 
 **Benefits:**
-- One TXT lookup instead of two
+- One TXT lookup instead of two (replaces `subplebbit-address` + `plebbit-author-address`)
 - Simpler client flow
-- Extensible format for future needs
+- Simpler setup for users — just set the IPNS key, no prefixes
 
 ---
 

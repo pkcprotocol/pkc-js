@@ -128,7 +128,7 @@ Implementation decisions (resolved):
 
 Add to the Author type:
 
--   `name?: string` — e.g., "vitalik.bso" — **wire field** (in AuthorIpfsType, AuthorPubsubType), a domain name pointing to the author's public key (same concept as `community.name`). Unrelated to `author.displayName`, which is a free-text label.
+-   `name?: string` — e.g., "vitalik.bso" — **wire field** (in AuthorIpfsType, AuthorPubsubType), a domain name pointing to the author's public key (same concept as `community.name`). Unrelated to `author.displayName`, which is a free-text label. Resolves via the same `bitsocial` TXT record as community names — there is no separate "author address" TXT record (see [Community/Author interoperability](#communityauthor-interoperability)).
 -   `publicKey: string` — the author's IPNS key — **instance-only** (derived from signature.publicKey via getPlebbitAddressFromPublicKey, not in wire format)
 -   `address: string` — **instance-only** (computed as `name || publicKey`, not in wire format). **Breaking change:** currently `author.address` is a required wire field in `AuthorPubsubSchema`. Old publications with `author.address` as a signed field remain valid via self-describing signature verification; the wired value is ignored and `address` is recomputed as `name || publicKey`.
 -   `nameResolved?: boolean` — **instance-only** (runtime verification flag, not in wire format). `undefined` when no name is set, `false` when name is set but not yet verified, `true` when verified.
@@ -150,6 +150,19 @@ The identifiers form a hierarchy:
 | `publicKey` | Yes — direct IPNS key   | No              | No                        |
 | `name`      | No — resolver-dependent | Yes             | Yes (blockchain RPCs)     |
 | `address`   | No — resolver-dependent | Yes (if domain) | Yes (if domain)           |
+
+### Community/Author interoperability
+
+Communities and author profiles are fully interoperable — they share the same IPNS record structure (metadata like title, description, and a feed/pages of posts). There is no protocol-level distinction between a community and an author profile.
+
+**Key points:**
+
+-   A single domain (e.g., `estebanabaroa.eth`) resolves to a single IPNS key via the `bitsocial` TXT record. There is no separate "author address" TXT record — the resolved IPNS key points to a community record regardless of whether it functions as an author profile or a traditional community.
+-   `createCommunity()` works for both community and author-type records without throwing. If an application calls `createCommunity()` on an author profile, everything works correctly — the application gets the same metadata and feed structure.
+-   The distinction between community and author profile is a **frontend/UI concern**, not a protocol concern. For example, a user searches for `estebanabaroa.eth`, the frontend loads it as a community, then checks a UI hint (e.g., `community.suggested.type`) to decide whether to display it at `/community/estebanabaroa.eth` or `/user/estebanabaroa.eth`. The exact mechanism for this hint is outside the scope of this proposal.
+-   Profile history consolidation (how to combine author posts and community-as-author posts in a unified feed) is TBD but is expected to remain compatible with full interoperability.
+
+This interoperability is why the `bitsocial` TXT record value is simply an IPNS key (`12D3KooW...`) with no `author=` prefix or key-value extensibility — since communities and authors are the same record, a single key is sufficient. Requiring users to set up `author=12D...` instead of just `12D...` would add complexity with no protocol benefit.
 
 ### Automatic name verification via async resolution
 
