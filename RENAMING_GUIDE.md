@@ -20,6 +20,19 @@ This document provides a comprehensive checklist for renaming the plebbit-js cod
 
 ---
 
+## Companion Document
+
+**[NAMES_AND_PUBLIC_KEY_PROPOSAL.md](./NAMES_AND_PUBLIC_KEY_PROPOSAL.md)** is a companion document that covers protocol-level changes applied alongside this rename:
+- New schema fields (`name`, `communityPublicKey`, `communityName`)
+- Wire format changes (removing `address` and `author.address` from wire)
+- DB migrations for new columns
+- New error codes (`ERR_CONFLICTING_ADDRESS_AND_PUBLICKEY`, `ERR_NAME_RESOLUTION_FAILED`, `ERR_NO_RESOLVER_FOR_NAME`)
+- Protocol version bump
+- Serialization requirements (`address`, `name`, `publicKey` as enumerable instance properties)
+- Backward compatibility strategy for old publications and records
+
+---
+
 ## Phase 1: Package Configuration & Project Files
 
 ### 1.1 Package Identity
@@ -227,7 +240,7 @@ All test files in test/node/subplebbit/ and test/node-and-browser/subplebbit/:
 ### 5.2 Author Schemas (src/schema/schema.ts)
 - [ ] `SubplebbitAuthorSchema` → `CommunityAuthorSchema`
 
-### 5.4 Subplebbit Schemas (src/subplebbit/schema.ts)
+### 5.3 Subplebbit Schemas (src/subplebbit/schema.ts)
 - [ ] `SubplebbitEncryptionSchema` → `CommunityEncryptionSchema`
 - [ ] `SubplebbitRoleSchema` → `CommunityRoleSchema`
 - [ ] `SubplebbitRoleNames` → `CommunityRoleNames`
@@ -248,11 +261,11 @@ All test files in test/node/subplebbit/ and test/node-and-browser/subplebbit/:
 - [ ] `ChallengeExcludeSubplebbitSchema` → `ChallengeExcludeCommunitySchema`
 - [ ] `RpcRemoteSubplebbitUpdateEventResultSchema` → `RpcRemoteCommunityUpdateEventResultSchema`
 
-### 5.5 RPC Client Schemas (src/clients/rpc-client/schema.ts)
+### 5.4 RPC Client Schemas (src/clients/rpc-client/schema.ts)
 - [ ] `RpcSubplebbitAddressParamSchema` → `RpcCommunityAddressParamSchema`
 - [ ] `RpcSubplebbitPageParamSchema` → `RpcCommunityPageParamSchema`
 
-### 5.6 Schema Parser Functions (src/schema/schema-util.ts)
+### 5.5 Schema Parser Functions (src/schema/schema-util.ts)
 - [ ] All `parse*PlebbitErrorIfItFails` → `parse*PKCErrorIfItFails`
 - [ ] All `parse*SubplebbitSchemaWithPlebbitErrorIfItFails` → `parse*CommunitySchemaWithPKCErrorIfItFails`
 

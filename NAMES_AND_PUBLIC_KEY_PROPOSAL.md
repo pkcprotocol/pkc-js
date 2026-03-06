@@ -159,8 +159,7 @@ Communities and author profiles are fully interoperable — they share the same 
 
 -   A single domain (e.g., `estebanabaroa.eth`) resolves to a single IPNS key via the `bitsocial` TXT record. There is no separate "author address" TXT record — the resolved IPNS key points to a community record regardless of whether it functions as an author profile or a traditional community.
 -   `createCommunity()` works for both community and author-type records without throwing. If an application calls `createCommunity()` on an author profile, everything works correctly — the application gets the same metadata and feed structure.
--   The distinction between community and author profile is a **frontend/UI concern**, not a protocol concern. For example, a user searches for `estebanabaroa.eth`, the frontend loads it as a community, then checks a UI hint (e.g., `community.suggested.type`) to decide whether to display it at `/community/estebanabaroa.eth` or `/user/estebanabaroa.eth`. The exact mechanism for this hint is outside the scope of this proposal.
--   Profile history consolidation (how to combine author posts and community-as-author posts in a unified feed) is TBD but is expected to remain compatible with full interoperability.
+-   The distinction between community and author profile is a **frontend/UI concern**, not a protocol concern.
 
 This interoperability is why the `bitsocial` TXT record value is simply an IPNS key (`12D3KooW...`) with no `author=` prefix or key-value extensibility — since communities and authors are the same record, a single key is sufficient. Requiring users to set up `author=12D...` instead of just `12D...` would add complexity with no protocol benefit.
 
@@ -260,7 +259,7 @@ Resolver composition happens at the client/hook level, not in pkc-js. Here's how
 
 ```js
 import {resolveBso, canResolveBso} from '@bitsocial/resolver-bso'
-import {resolveDns, canResolveDns} from '@bitsocial/dns-over-https'
+import {resolveDns, canResolveDns} from '@bitsocial/dns-over-https' // hypothetical example for API illustration, not an actual package
 
 const nameResolvers = []
 
@@ -291,7 +290,7 @@ for (const provider of dnsOverHttpsProviders) {
 const pkc = await Pkc({nameResolvers})
 ```
 
-The account JSON supports two levels of chain provider configuration:
+Note: `chainProviders` is removed from pkc-js options entirely. Both `chainProviders` and `nameResolversChainProviders` are account-level JSON fields managed by client libraries (e.g., plebbit-react-hooks), not pkc-js. The account JSON supports chain provider configuration for wiring resolvers:
 
 ```json
 {
@@ -306,9 +305,7 @@ The account JSON supports two levels of chain provider configuration:
 }
 ```
 
-`nameResolversChainProviders` takes precedence over `chainProviders` when wiring name resolvers, allowing clients to use different providers for name resolution vs. other chain operations.
-
-Note: `.sol` support has been removed. Only ENS-based resolution (`.bso`) is supported.
+`nameResolversChainProviders` takes precedence over `chainProviders` when wiring name resolvers, allowing clients to use different providers for name resolution vs. other chain operations (e.g., challenges).
 
 #### Resolution algorithm
 
@@ -505,7 +502,7 @@ The `address` property is stable — it is set at creation time based on the cal
 
 ### Backward compatibility
 
--   **SubplebbitIpfs**: if `address` stays in wire schema, old clients remain non-breaking and new `name` is ignored by old clients using `.loose()` parsing. If `address` is removed from wire schema, backward-compat/migration behavior must be defined.
+-   **SubplebbitIpfs**: `address` is removed from the wire schema (instance-only, computed as `name || publicKey`). Old records that include `address` in `signedPropertyNames` remain valid via self-describing signature verification. Use `.passthrough()` to accept old records with `address` field during transition.
 -   **Publications**: Non-breaking. Old clients continue to use `subplebbitAddress`. New clients use `communityPublicKey` and `communityName`.
 
 ## Edge cases and error handling
@@ -528,7 +525,6 @@ This section documents all edge cases for `createSubplebbit`, name resolution, a
 
 | Scenario                                                                                            | Action                                                                                                                            |
 | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| If explicit `record.publicKey` is adopted                                                            | Require `record.publicKey === derived(signature.publicKey)`; otherwise reject record                                               |
 | Loaded by IPNS key, record has domain `address`                                                     | Accept if signature's derived publicKey matches the IPNS key we requested                                                         |
 | Update arrives with different publicKey and caller explicitly provided `publicKey`                  | **Critical error**: emit `error` event, reject update, stop updating                                                              |
 | Update arrives with different publicKey and caller did not explicitly provide `publicKey`           | Clear data, switch to new IPNS                                                                                                    |
