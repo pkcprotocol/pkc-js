@@ -33,7 +33,13 @@ const DirectoryPathSchema = z.string(); // TODO add validation for path
 
 export const NameResolverSchema = z.object({
     key: z.string().min(1),
-    resolve: z.custom<(opts: { name: string; provider: string }) => Promise<string | undefined>>((val) => typeof val === "function", {
+    resolve: z.custom<
+        (opts: {
+            name: string;
+            provider: string;
+            abortSignal?: AbortSignal;
+        }) => Promise<{ publicKey: string; [key: string]: string } | undefined>
+    >((val) => typeof val === "function", {
         message: "resolve must be a function"
     }),
     canResolve: z.custom<(opts: { name: string }) => boolean>((val) => typeof val === "function", {

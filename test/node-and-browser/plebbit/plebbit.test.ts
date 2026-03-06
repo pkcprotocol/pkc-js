@@ -178,7 +178,7 @@ describe("Plebbit options", async () => {
     it(`Plebbit({nameResolvers: [...]}) sets plebbit.nameResolvers correctly`, async () => {
         const mockResolver = {
             key: "test-resolver",
-            resolve: async (): Promise<string | undefined> => undefined,
+            resolve: async (): Promise<{ publicKey: string; [key: string]: string } | undefined> => undefined,
             canResolve: (): boolean => true,
             provider: "test-provider"
         };

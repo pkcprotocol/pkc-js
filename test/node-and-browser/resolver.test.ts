@@ -160,7 +160,7 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
             plebbit,
             resolveFunction: async ({ name }: { name: string; provider: string }) => {
                 receivedName = name;
-                return expectedIpns;
+                return { publicKey: expectedIpns };
             }
         });
 
@@ -182,7 +182,7 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
         mockNameResolvers({
             plebbit,
             resolveFunction: async ({ name }: { name: string; provider: string }) => {
-                if (name === "testauthor.bso") return expectedAuthorAddress;
+                if (name === "testauthor.bso") return { publicKey: expectedAuthorAddress };
                 return undefined;
             }
         });
@@ -216,7 +216,7 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
                 canResolve: () => true,
                 resolve: async () => {
                     resolverCalls.push("resolver-2");
-                    return expectedIpns; // second resolver returns value
+                    return { publicKey: expectedIpns }; // second resolver returns value
                 },
                 provider: "provider-2"
             }
@@ -248,7 +248,7 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
             {
                 key: "working-resolver",
                 canResolve: () => true,
-                resolve: async () => expectedIpns,
+                resolve: async () => ({ publicKey: expectedIpns }),
                 provider: "working-provider"
             }
         ];

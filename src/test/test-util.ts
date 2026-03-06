@@ -542,9 +542,9 @@ export async function mockPlebbit(plebbitOptions?: InputPlebbitOptions, forceMoc
                   resolve: async ({ name }: { name: string; provider: string }) => {
                       console.log(`Attempting to mock resolve address (${name})`);
                       if (name === "plebbit.eth")
-                          return "12D3KooWNMYPSuNadceoKsJ6oUQcxGcfiAsHNpVTt1RQ1zSrKKpo"; // signers[3]
+                          return { publicKey: "12D3KooWNMYPSuNadceoKsJ6oUQcxGcfiAsHNpVTt1RQ1zSrKKpo" }; // signers[3]
                       else if (name === "rpc-edit-test.eth")
-                          return "12D3KooWMZPQsQdYtrakc4D1XtzGXwN1X3DBnAobcCjcPYYXTB6o"; // signers[7]
+                          return { publicKey: "12D3KooWMZPQsQdYtrakc4D1XtzGXwN1X3DBnAobcCjcPYYXTB6o" }; // signers[7]
                       else return undefined;
                   },
                   provider: "mock"
@@ -2300,7 +2300,7 @@ export function mockNameResolvers({
     resolveFunction
 }: {
     plebbit: Plebbit;
-    resolveFunction: (opts: { name: string; provider: string }) => Promise<string | undefined>;
+    resolveFunction: (opts: { name: string; provider: string }) => Promise<{ publicKey: string; [key: string]: string } | undefined>;
 }) {
     if (plebbit._plebbitRpcClient) throw Error("Can't mock name resolvers with plebbit rpc clients");
     plebbit.nameResolvers = [

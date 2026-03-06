@@ -740,7 +740,8 @@ export class BaseClientsManager {
 
             this.preResolveNameResolver(address, txtRecordName, nameResolver.key, staleCache);
             try {
-                value = await nameResolver.resolve({ name: address, provider: nameResolver.provider });
+                const result = await nameResolver.resolve({ name: address, provider: nameResolver.provider });
+                value = result?.publicKey;
             } catch (e) {
                 log.error(`Resolver ${nameResolver.key} failed for ${address}`, e);
                 this.postResolveNameResolverFailure(address, txtRecordName, nameResolver.key, e as Error, staleCache);
