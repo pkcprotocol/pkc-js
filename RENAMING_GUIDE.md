@@ -27,15 +27,151 @@ This document provides a comprehensive checklist for renaming the plebbit-js cod
 - Wire format changes (removing `address` and `author.address` from wire)
 - DB migrations for new columns
 - New error codes (`ERR_CONFLICTING_ADDRESS_AND_PUBLICKEY`, `ERR_NAME_RESOLUTION_FAILED`, `ERR_NO_RESOLVER_FOR_NAME`)
-- Protocol version bump
 - Serialization requirements (`address`, `name`, `publicKey` as enumerable instance properties)
 - Backward compatibility strategy for old publications and records
 
 ---
 
-## Phase 1: Package Configuration & Project Files
+## Phase 1: Web3 Modularization
 
-### 1.1 Package Identity
+Make plebbit-js (pkc-js) a neutral, core library that only handles IPNS/IPFS natively. Name resolution (.bso, ENS-based) and EVM challenges become external plugins in separate GitHub repos. `.sol` support has been removed entirely.
+
+### Execution sub-order within Phase 1
+
+This phase has internal ordering dependencies:
+1. **Create `@bitsocial/bso-resolver`** in a separate git repo — extract ENS resolution code, make installable via git
+2. **Implement `nameResolvers` plugin system** in pkc-js (1.1, 1.3 name resolver items)
+3. **Extract `evm-contract-call`** to `@bitsocial/challenge-evm-contract` repo (1.3 challenge items)
+4. **Remove built-in ENS logic and web3 deps** from pkc-js (1.3 dependency items — last step)
+
+You cannot remove `viem`/`ethers` until `@bitsocial/bso-resolver` exists and the plugin system is implemented.
+
+### 1.1 Name Resolver Plugin System
+
+> **See [NAMES_AND_PUBLIC_KEY_PROPOSAL.md — Name resolving](./NAMES_AND_PUBLIC_KEY_PROPOSAL.md#name-resolving) for the full API design** (resolver shape, resolution algorithm, client state tracking, and design rationale).
+
+**Summary:** Name resolvers are an ordered array of `{key, resolve, canResolve, provider}` objects passed via `PkcOptions.nameResolvers`. One resolver per provider enables per-provider UI state tracking. Resolver composition (wiring account config to resolver objects) is a client/hook responsibility, not pkc-js.
+
+**RPC-Side Resolution:**
+
+Name resolution must happen on the RPC server side, not the client side. This allows RPC clients to resolve domain names even if they have zero resolvers configured locally.
+
+- When an RPC client calls `getCommunity("memes.eth")`, the RPC server performs the resolution using its own registered resolvers
+- RPC clients don't need `nameResolvers` config - they delegate resolution to the server
+- The RPC server returns the resolved IPNS address to the client
+- This is important for lightweight clients (browsers, mobile) that shouldn't need web3 dependencies
+
+**Implementation considerations:**
+- [ ] Ensure `getSubplebbit` / `getCommunity` RPC method resolves names server-side
+- [ ] RPC client should NOT attempt local resolution before calling RPC
+- [ ] `subplebbitUpdateSubscribe` / `communityUpdateSubscribe` should accept domain names and resolve server-side
+- [ ] Document that RPC servers need resolvers configured, not RPC clients
+
+### 1.2 External Challenge Registration
+
+`Plebbit.challenges` already exists as a mutable static object. External challenges:
+```javascript
+import PKC from '@pkc/pkc-js';
+import { evmContractCallChallenge } from '@bitsocial/challenge-evm-contract';
+
+PKC.challenges['evm-contract-call'] = evmContractCallChallenge;
+```
+
+External challenges import types from plebbit-js:
+```typescript
+import { ChallengeFile, ChallengeFileFactory, Challenge, ChallengeResult } from '@pkc/pkc-js';
+```
+
+### 1.3 TODO Items
+
+**Name Resolver System:**
+- [ ] Add `nameResolvers` option to `PKCUserOptionsSchema` (array of `{key, resolve, canResolve, provider}`)
+- [ ] Add `NameResolverClient` class with `state` and `statechange` event
+- [ ] Add `community.clients.nameResolvers` map (key → NameResolverClient)
+- [ ] Refactor `src/clients/base-client-manager.ts` resolution flow to use serial `canResolve`/`resolve` algorithm
+- [ ] Remove `chainProviders` from `PKCUserOptionsSchema` (breaking change)
+- [ ] Add `ERR_NO_RESOLVER_FOR_NAME` error when no resolver can handle a name
+- [ ] Remove hardcoded ENS logic from core (resolution moves to external @bitsocial/resolver-bso)
+- [ ] Remove all SNS/Solana resolution code (.sol support removed entirely)
+- [ ] Remove `normalizeEthAliasDomain()` from `src/clients/base-client-manager.ts` (`.bso` → `.eth` normalization belongs in the `@bitsocial/bso-resolver` plugin, not in pkc-js core)
+
+**External Challenges:**
+- [ ] Remove `evm-contract-call` from `pkcJsChallenges` in `src/runtime/node/subplebbit/challenges/index.ts`
+- [ ] Delete `src/runtime/node/subplebbit/challenges/plebbit-js-challenges/evm-contract-call/` directory
+- [ ] Export challenge types for external packages
+
+**Dependencies (last step — after bso-resolver and plugin system are ready):**
+- [ ] Remove `viem` (moves to @bitsocial/bso-resolver and @bitsocial/challenge-evm-contract)
+- [ ] Remove `ethers` (moves to @bitsocial/bso-resolver)
+- [ ] Remove `@bonfida/spl-name-service` if present (no .sol support)
+- [ ] Remove `@solana/web3.js` if present (no .sol support)
+
+**Downstream Apps:**
+- [ ] Update plebbit-cli to install and register name resolvers
+- [ ] Update desktop apps to install and register name resolvers
+
+**Release & Distribution:**
+- [ ] After rebrand, start publishing `@pkc/pkc-js` to the npm registry
+- [ ] Add GitHub CI job(s) to automate npm publishing for `@pkc/pkc-js`
+
+### 1.4 External Repos to Create
+
+| Repository | Purpose | Dependencies |
+|------------|---------|--------------|
+| @bitsocial/bso-resolver | ENS (.bso) name resolution | viem, ethers |
+| @bitsocial/challenge-evm-contract | EVM contract call challenge | viem |
+
+Note: .sol support has been removed. Only ENS-based resolution (.bso) is supported.
+
+### 1.5 Breaking Changes
+
+- No default name resolvers — pkc-js only handles IPNS/IPFS natively
+- Users must explicitly provide `nameResolvers` in `PkcOptions` to resolve `.bso` addresses (see [NAMES_AND_PUBLIC_KEY_PROPOSAL.md — Name resolving](./NAMES_AND_PUBLIC_KEY_PROPOSAL.md#name-resolving) and [issue #68](https://github.com/plebbit/plebbit-js/issues/68#issuecomment-3900045187))
+- `.sol` support removed entirely — only ENS-based resolution (.bso) is supported
+- `evm-contract-call` challenge no longer built-in
+- `chainProviders` removed from PlebbitOptions — now configured per-resolver in `nameResolvers` config
+- Challenges fall back to resolver URLs, then to their own hardcoded defaults
+- DNS TXT record lookups (`subplebbit-address`, `plebbit-author-address`) removed from pkc-js core — handled by resolver plugins (e.g., `@bitsocial/bso-resolver` uses `bitsocial` TXT record)
+- `author.address` changes from required wire field to instance-only (computed as `author.name || author.publicKey`)
+- `publication.subplebbitAddress` replaced by `communityPublicKey` + `communityName` wire fields (old publications remain loadable via backward compat parsing)
+
+### 1.6 Challenge System Cleanup
+
+**Step 1: Remove `.sol` from default challenge regexp** (separate from default challenge change):
+- [ ] In `_defaultSubplebbitChallenges` (`src/runtime/node/subplebbit/local-subplebbit.ts`), remove `.sol` from the `publication-match` regexp: `\\.(sol|eth|bso)$` → `\\.(eth|bso)$`
+- Note: `.sol` support is being removed entirely
+- [ ] Ensure `author.address` is computed (as `name || publicKey`) and available on the publication instance when the local community processes incoming publications — `publication-match` challenge matches against it. Needs implementation and testing.
+
+**Step 2: Remove built-in challenges** (must happen before or at the same time as Step 3):
+- [ ] Remove `mintpass` challenge from `plebbitJsChallenges`
+  - Delete directory: `src/runtime/node/subplebbit/challenges/plebbit-js-challenges/mintpass/`
+  - Remove import and entry from: `src/runtime/node/subplebbit/challenges/index.ts`
+- [ ] Remove `captcha-canvas-v3` challenge from `plebbitJsChallenges`
+  - Delete directory: `src/runtime/node/subplebbit/challenges/plebbit-js-challenges/captcha-canvas-v3/`
+  - Remove import and entry from: `src/runtime/node/subplebbit/challenges/index.ts`
+  - Remove `canvas` and related dependencies from `package.json`
+
+**Step 3: Change default challenge** (depends on Step 2 — old default references `mintpass`):
+- [ ] Change default challenge from `publication-match` to `question` (question/answer challenge)
+  - File: `src/runtime/node/subplebbit/local-subplebbit.ts` (line ~193, `_defaultSubplebbitChallenges`)
+  - Default `question`: `"Placeholder challenge. Set your own challenges otherwise you risk getting spammed"`
+  - Default `answer`: `"Placeholder answer"`
+  - **Note:** This only affects NEW communities created after the update. Existing communities keep their stored challenge configuration from their DB/internal state.
+
+**Remaining built-in challenges after cleanup:**
+After removing `captcha-canvas-v3`, `mintpass`, and extracting `evm-contract-call`, these challenges remain built-in:
+- `text-math`
+- `fail`
+- `blacklist`
+- `whitelist`
+- `question`
+- `publication-match`
+
+---
+
+## Phase 2: Package Configuration & Project Files
+
+### 2.1 Package Identity
 - [ ] **package.json** - Rename package
   - `"name": "@plebbit/plebbit-js"` → `"name": "@pkc/pkc-js"`
   - Update `"repository"` URL if moving to new GitHub org
@@ -48,23 +184,16 @@ This document provides a comprehensive checklist for renaming the plebbit-js cod
   - `"name": "@plebbit/plebbit-js-rpc"` → `"name": "@pkc/pkc-js-rpc"`
   - Update repository URLs
 
-### 1.2 External Dependencies (Document for Later)
+### 2.2 External Dependencies (Document for Later)
 The following dependencies are in the @plebbit namespace and need separate repository work (rename AFTER pkc-js rename):
 - [ ] `@plebbit/plebbit-logger` - Note: Requires separate repo rename
 - [ ] `@plebbit/proper-lockfile` - Note: Requires separate repo rename
 
-### 1.2.1 Web3 Dependencies to Remove
-These dependencies move to external resolver/challenge packages:
-- [ ] Remove `viem` (moves to @bitsocial/bso-resolver and @bitsocial/challenge-evm-contract)
-- [ ] Remove `ethers` (moves to @bitsocial/bso-resolver)
-- [ ] Remove `@bonfida/spl-name-service` if present (no .sol support)
-- [ ] Remove `@solana/web3.js` if present (no .sol support)
-
-### 1.3 RPC Package Configuration
+### 2.3 RPC Package Configuration
 - [ ] **rpc/package.json** - Update keywords
   - `"keywords": ["plebbit", "subplebbit"]` → `"keywords": ["pkc", "community"]`
 
-### 1.4 Root Files
+### 2.4 Root Files
 - [ ] **README.md** - Complete rewrite
   - Replace all "plebbit" → "pkc" (case-sensitive variations)
   - Replace all "subplebbit" → "community"
@@ -77,9 +206,9 @@ These dependencies move to external resolver/challenge packages:
 
 ---
 
-## Phase 2: Directory Structure Renaming
+## Phase 3: Directory Structure Renaming
 
-### 2.1 Source Directories
+### 3.1 Source Directories
 - [ ] `src/plebbit/` → `src/pkc/`
 - [ ] `src/subplebbit/` → `src/community/`
 - [ ] `src/publications/subplebbit-edit/` → `src/publications/community-edit/`
@@ -88,22 +217,22 @@ These dependencies move to external resolver/challenge packages:
 - [ ] `src/rpc/src/lib/plebbit-js/` → `src/rpc/src/lib/pkc-js/`
 - [ ] `src/runtime/node/subplebbit/challenges/plebbit-js-challenges/` → `src/runtime/node/community/challenges/pkc-js-challenges/`
 
-### 2.2 Test Directories
+### 3.2 Test Directories
 - [ ] `test/node/subplebbit/` → `test/node/community/`
 - [ ] `test/node/plebbit/` → `test/node/pkc/`
 - [ ] `test/node-and-browser/subplebbit/` → `test/node-and-browser/community/`
 - [ ] `test/node-and-browser/plebbit/` → `test/node-and-browser/pkc/`
 - [ ] `test/fixtures/signatures/subplebbit/` → `test/fixtures/signatures/community/`
 
-### 2.3 Data Storage Directories (Breaking Change)
+### 3.3 Data Storage Directories (Breaking Change)
 - [ ] Default data path changes: `subplebbits/` → `communities/`
 - [ ] Note: Migration code for old paths should be implemented in user-facing clients (plebbit-cli, desktop apps), NOT in pkc-js itself
 
 ---
 
-## Phase 3: Source File Renaming
+## Phase 4: Source File Renaming
 
-### 3.1 Plebbit → PKC Files
+### 4.1 Plebbit → PKC Files
 - [ ] `src/plebbit/plebbit.ts` → `src/pkc/pkc.ts`
 - [ ] `src/plebbit/plebbit-with-rpc-client.ts` → `src/pkc/pkc-with-rpc-client.ts`
 - [ ] `src/plebbit/plebbit-client-manager.ts` → `src/pkc/pkc-client-manager.ts`
@@ -116,7 +245,7 @@ These dependencies move to external resolver/challenge packages:
 - [ ] `src/version.ts` - Update USER_AGENT string:
   - `/plebbit-js:${version}/` → `/pkc-js:${version}/`
 
-### 3.2 Subplebbit → Community Files
+### 4.2 Subplebbit → Community Files
 - [ ] `src/subplebbit/remote-subplebbit.ts` → `src/community/remote-community.ts`
 - [ ] `src/subplebbit/rpc-remote-subplebbit.ts` → `src/community/rpc-remote-community.ts`
 - [ ] `src/subplebbit/rpc-local-subplebbit.ts` → `src/community/rpc-local-community.ts`
@@ -128,12 +257,12 @@ These dependencies move to external resolver/challenge packages:
 - [ ] `src/runtime/node/subplebbit/page-generator.ts` → `src/runtime/node/community/page-generator.ts`
 - [ ] `src/runtime/browser/subplebbit/local-subplebbit.ts` → `src/runtime/browser/community/local-community.ts`
 
-### 3.3 Challenge System Files
+### 4.3 Challenge System Files
 - [ ] `src/runtime/node/subplebbit/challenges/plebbit-js-challenges/index.ts` - Export rename:
   - `plebbitJsChallenges` → `pkcJsChallenges`
 - [ ] `src/runtime/browser/subplebbit/challenges/` → `src/runtime/browser/community/challenges/`
 
-### 3.4 Test File Renaming
+### 4.4 Test File Renaming
 
 **Note:** All test files should use the `.test.ts` TypeScript extension.
 
@@ -150,9 +279,29 @@ All test files in test/node/subplebbit/ and test/node-and-browser/subplebbit/:
 
 ---
 
-## Phase 4: Class, Type & Interface Renaming
+## Phase 5: Import Path Updates
 
-### 4.1 Main Classes (src/plebbit/ → src/pkc/)
+After renaming directories and files, update ALL import statements across the codebase:
+
+### 5.1 Core Imports
+- [ ] `from "./plebbit/plebbit.js"` → `from "./pkc/pkc.js"`
+- [ ] `from "./plebbit/plebbit-with-rpc-client.js"` → `from "./pkc/pkc-with-rpc-client.js"`
+- [ ] `from "./plebbit/plebbit-client-manager.js"` → `from "./pkc/pkc-client-manager.js"`
+- [ ] `from "./subplebbit/..."` → `from "./community/..."`
+- [ ] `from "../plebbit-error.js"` → `from "../pkc-error.js"`
+
+### 5.2 Publication Imports
+- [ ] `from "./publications/subplebbit-edit/..."` → `from "./publications/community-edit/..."`
+
+### 5.3 Runtime Imports
+- [ ] `from "./runtime/node/subplebbit/..."` → `from "./runtime/node/community/..."`
+- [ ] `from "./runtime/browser/subplebbit/..."` → `from "./runtime/browser/community/..."`
+
+---
+
+## Phase 6: Class, Type & Interface Renaming
+
+### 6.1 Main Classes (src/plebbit/ → src/pkc/)
 - [ ] Factory function `Plebbit()` → `PKC()` (src/index.ts — async factory function, the default export)
 - [ ] `Plebbit.challenges` → `PKC.challenges` (static property on factory function)
 - [ ] `Plebbit.setNativeFunctions` → `PKC.setNativeFunctions`
@@ -169,7 +318,7 @@ All test files in test/node/subplebbit/ and test/node-and-browser/subplebbit/:
 - [ ] `class PlebbitKuboRpcClient` → `class PKCKuboRpcClient`
 - [ ] `class PlebbitLibp2pJsClient` → `class PKCLibp2pJsClient`
 
-### 4.2 Subplebbit Classes (src/subplebbit/ → src/community/)
+### 6.2 Subplebbit Classes (src/subplebbit/ → src/community/)
 - [ ] `class RemoteSubplebbit` → `class RemoteCommunity`
 - [ ] `class RpcRemoteSubplebbit` → `class RpcRemoteCommunity`
 - [ ] `class RpcLocalSubplebbit` → `class RpcLocalCommunity`
@@ -184,7 +333,7 @@ All test files in test/node/subplebbit/ and test/node-and-browser/subplebbit/:
 - [ ] `class SubplebbitPostsPagesClientsManager` → `class CommunityPostsPagesClientsManager` (src/pages/pages-client-manager.ts)
 - [ ] `class SubplebbitModQueueClientsManager` → `class CommunityModQueueClientsManager` (src/pages/pages-client-manager.ts)
 
-### 4.3 Type Definitions (src/types.ts, src/subplebbit/types.ts)
+### 6.3 Type Definitions (src/types.ts, src/subplebbit/types.ts)
 **Plebbit types:**
 - [ ] `interface PlebbitEvents` → `interface PKCEvents`
 - [ ] `interface PlebbitRpcClientEvents` → `interface PKCRpcClientEvents`
@@ -235,18 +384,22 @@ All test files in test/node/subplebbit/ and test/node-and-browser/subplebbit/:
 
 ---
 
-## Phase 5: Schema Renaming (Zod)
+## Phase 7: Schema Renaming (Zod)
 
-### 5.1 Main Schemas (src/schema.ts)
+### 7.1 Main Schemas (src/schema.ts)
 - [ ] `PlebbitUserOptionBaseSchema` → `PKCUserOptionBaseSchema`
 - [ ] `PlebbitUserOptionsSchema` → `PKCUserOptionsSchema`
 - [ ] `PlebbitParsedOptionsSchema` → `PKCParsedOptionsSchema`
 - [ ] Property: `plebbitRpcClientsOptions` → `pkcRpcClientsOptions`
 
-### 5.2 Author Schemas (src/schema/schema.ts)
+### 7.2 Author Schemas (src/schema/schema.ts)
 - [ ] `SubplebbitAuthorSchema` → `CommunityAuthorSchema`
+- [ ] **Remove** `address` from `AuthorPubsubSchema` — now instance-only, computed as `name || publicKey` (**breaking change**)
+- [ ] **Remove** `address` from `AuthorIpfsSchema` — now instance-only (**breaking change**)
+- [ ] **Add** `name: z.string().min(1).optional()` to `AuthorPubsubSchema` and `AuthorIpfsSchema` (wire field — domain name like `"vitalik.bso"`)
+- [ ] Use `.passthrough()` on author schemas to accept old records with `address` field
 
-### 5.3 Subplebbit Schemas (src/subplebbit/schema.ts)
+### 7.3 Subplebbit Schemas (src/subplebbit/schema.ts)
 - [ ] `SubplebbitEncryptionSchema` → `CommunityEncryptionSchema`
 - [ ] `SubplebbitRoleSchema` → `CommunityRoleSchema`
 - [ ] `SubplebbitRoleNames` → `CommunityRoleNames`
@@ -268,31 +421,43 @@ All test files in test/node/subplebbit/ and test/node-and-browser/subplebbit/:
 - [ ] `ChallengeExcludeSchema` field: `subplebbit` → `community` (the field name referencing `ChallengeExcludeCommunitySchema`)
 - [ ] `ChallengeExcludePublicationTypeSchema` field: `subplebbitEdit` → `communityEdit`
 - [ ] `RpcRemoteSubplebbitUpdateEventResultSchema` → `RpcRemoteCommunityUpdateEventResultSchema`
+- [ ] **Remove** `address` from `SubplebbitIpfsSchema` — instance-only, computed as `name || publicKey` (see [proposal](./NAMES_AND_PUBLIC_KEY_PROPOSAL.md#1-add-name-field-to-subplebbitipfs))
+- [ ] Use `.passthrough()` on `SubplebbitIpfsSchema` to accept old records that include `address` field
 
-### 5.4 RPC Client Schemas (src/clients/rpc-client/schema.ts)
+### 7.4 RPC Client Schemas (src/clients/rpc-client/schema.ts)
 - [ ] `RpcSubplebbitAddressParamSchema` → `RpcCommunityAddressParamSchema`
 - [ ] `RpcSubplebbitPageParamSchema` → `RpcCommunityPageParamSchema`
 
-### 5.5 Schema Parser Functions (src/schema/schema-util.ts)
+### 7.5 Signed Property Names
+
+Update the `signedPropertyNames` arrays to reflect wire format changes:
+- [ ] `SubplebbitSignedPropertyNames`: add `name`, remove `address`
+- [ ] Publication signed property names: add `communityPublicKey` and `communityName`, remove `subplebbitAddress`
+- [ ] Author signed property names: add `name`, remove `address`
+
+**Note:** Old records with old `signedPropertyNames` remain valid — self-describing signature verification reads `signedPropertyNames` from each record. No explicit protocol version field is needed for backward compatibility.
+
+### 7.6 Schema Parser Functions (src/schema/schema-util.ts)
 - [ ] All `parse*PlebbitErrorIfItFails` → `parse*PKCErrorIfItFails`
 - [ ] All `parse*SubplebbitSchemaWithPlebbitErrorIfItFails` → `parse*CommunitySchemaWithPKCErrorIfItFails`
 
 ---
 
-## Phase 6: API Method & Property Renaming
+## Phase 8: API Method & Property Renaming
 
-### 6.1 Plebbit/PKC Class Methods
+### 8.1 Plebbit/PKC Class Methods
 - [ ] `plebbit.createSubplebbit()` → `pkc.createCommunity()`
 - [ ] `plebbit.getSubplebbit()` → `pkc.getCommunity()`
 - [ ] `plebbit.listSubplebbits()` → `pkc.listCommunities()`
 
-### 6.1.1 PlebbitWithRpcClient Internal Methods
+### 8.1.1 PlebbitWithRpcClient Internal Methods
 - [ ] `_initPlebbitRpcClients()` → `_initPKCRpcClients()`
 
-### 6.2 Plebbit/PKC Class Properties
+### 8.2 Plebbit/PKC Class Properties
 - [ ] `plebbit.subplebbits` → `pkc.communities`
 - [ ] `plebbit._updatingSubplebbits` → `pkc._updatingCommunities`
 - [ ] `plebbit._startedSubplebbits` → `pkc._startedCommunities`
+  - **Note:** Index these maps by `publicKey` (not `address`) to prevent duplicate entries when the same community is accessed by name and publicKey (see [proposal](./NAMES_AND_PUBLIC_KEY_PROPOSAL.md#2-add-communitypublickey-and-communityname-to-publications))
 - [ ] `plebbit._subplebbitFsWatchAbort` → `pkc._communityFsWatchAbort`
 - [ ] `plebbit.plebbitRpcClientsOptions` → `pkc.pkcRpcClientsOptions`
 - [ ] `plebbit._plebbitRpcClient` → `pkc._pkcRpcClient`
@@ -300,22 +465,22 @@ All test files in test/node/subplebbit/ and test/node-and-browser/subplebbit/:
 - [ ] `plebbit._memCaches` (type change to PKCMemCaches)
 - [ ] `plebbit.clients.plebbitRpcClients` → `pkc.clients.pkcRpcClients`
 
-### 6.2.1 PlebbitRpcClient Internal Properties
+### 8.2.1 PlebbitRpcClient Internal Properties
 - [ ] `PlebbitRpcClient.subplebbits` → `PKCRpcClient.communities` (array tracking subplebbit addresses received via RPC)
 
-### 6.2.2 Utility Functions (src/runtime/node/util.ts)
+### 8.2.2 Utility Functions (src/runtime/node/util.ts)
 - [ ] `getDefaultSubplebbitDbConfig()` → `getDefaultCommunityDbConfig()`
 - [ ] `deleteOldSubplebbitInWindows()` → `deleteOldCommunityInWindows()`
 
-### 6.2.3 RPC Schema Utility Functions (src/clients/rpc-client/rpc-schema-util.ts)
+### 8.2.3 RPC Schema Utility Functions (src/clients/rpc-client/rpc-schema-util.ts)
 - [ ] `parseRpcSubplebbitAddressParam()` → `parseRpcCommunityAddressParam()`
 - [ ] `parseRpcSubplebbitPageParam()` → `parseRpcCommunityPageParam()`
 
-### 6.2.4 RPC Client Types (src/clients/rpc-client/types.ts)
+### 8.2.4 RPC Client Types (src/clients/rpc-client/types.ts)
 - [ ] `SubplebbitAddressRpcParam` → `CommunityAddressRpcParam`
 - [ ] `SubplebbitPageRpcParam` → `CommunityPageRpcParam`
 
-### 6.3 Publication Properties (Breaking Change)
+### 8.3 Publication Properties (Breaking Change)
 **See [NAMES_AND_PUBLIC_KEY_PROPOSAL.md](./NAMES_AND_PUBLIC_KEY_PROPOSAL.md) for wire format decisions.**
 - [ ] `publication.subplebbitAddress` → replace with wire fields `communityPublicKey` (optional, for backward compat) + `communityName` (optional); `communityAddress` is instance-only (computed as `communityName || communityPublicKey`)
 - [ ] `publication.shortSubplebbitAddress` → `publication.shortCommunityAddress`
@@ -327,7 +492,7 @@ All test files in test/node/subplebbit/ and test/node-and-browser/subplebbit/:
   - If `subplebbitAddress` is a domain → fill `communityPublicKey` from community context (the community serving the page/update knows its own publicKey)
 - Old comments remain loadable.
 
-### 6.3.1 Author Properties (Breaking Change)
+### 8.3.1 Author Properties (Breaking Change)
 - [ ] `author.subplebbit` → `author.community` (property on AuthorIpfsSchema containing community-specific author data)
 - [ ] `author.address` → changes from **required wire field** to **instance-only** (computed as `author.name || author.publicKey`). This is a breaking change.
 - [ ] Add `author.name` as **wire field** in `AuthorPubsubSchema` and `AuthorIpfsSchema` — a domain name (e.g., `"vitalik.bso"`) pointing to the author's public key, same concept as `community.name`
@@ -338,11 +503,11 @@ All test files in test/node/subplebbit/ and test/node-and-browser/subplebbit/:
 - Old publications have `author.address` as a signed wire field. When parsing, ignore the wired value and compute instance-only `address = name || publicKey`.
 - `author.displayName` is unrelated to `author.name` — `displayName` is a free-text label, `name` is a domain identity. Both are kept.
 
-### 6.4 Timeout Keys (src/plebbit/plebbit.ts)
+### 8.4 Timeout Keys (src/plebbit/plebbit.ts)
 - [ ] `"subplebbit-ipns"` → `"community-ipns"`
 - [ ] `"subplebbit-ipfs"` → `"community-ipfs"`
 
-### 6.5 State Machine States (Public API - affects downstream consumers)
+### 8.5 State Machine States (Public API - affects downstream consumers)
 State strings emitted via `statechange` and `publishingstatechange` events:
 - [ ] `"resolving-subplebbit-address"` → `"resolving-community-address"` (src/publications/types.ts, src/publications/comment/types.ts)
 - [ ] `"fetching-subplebbit-ipns"` → `"fetching-community-ipns"`
@@ -353,9 +518,9 @@ State strings emitted via `statechange` and `publishingstatechange` events:
 
 ---
 
-## Phase 7: RPC Method Renaming
+## Phase 9: RPC Method Renaming
 
-### 7.1 RPC Server Methods (src/rpc/src/index.ts)
+### 9.1 RPC Server Methods (src/rpc/src/index.ts)
 - [ ] `getSubplebbitPage` → `getCommunityPage`
 - [ ] `createSubplebbit` → `createCommunity`
 - [ ] `startSubplebbit` → `startCommunity`
@@ -366,46 +531,27 @@ State strings emitted via `statechange` and `publishingstatechange` events:
 - [ ] `subplebbitUpdateSubscribe` → `communityUpdateSubscribe`
 - [ ] `publishSubplebbitEdit` → `publishCommunityEdit`
 
-### 7.2 RPC Event Names
+### 9.2 RPC Event Names
 - [ ] `"subplebbitschange"` → `"communitieschange"`
 - [ ] `"subplebbitUpdateNotification"` → `"communityUpdateNotification"`
 - [ ] `"subplebbitsNotification"` → `"communitiesNotification"`
 - [ ] `"publishSubplebbitEditNotification"` → `"publishCommunityEditNotification"`
 
-### 7.3 RPC Parameter Names (Wire Protocol)
+### 9.3 RPC Parameter Names (Wire Protocol)
 - [ ] `RpcSubplebbitPageParamSchema.subplebbitAddress` → `communityAddress` (src/clients/rpc-client/schema.ts)
 - [ ] `getSubplebbitPage` params: `{ subplebbitAddress }` → `{ communityAddress }` (src/rpc/src/index.ts)
 - [ ] `getCommentPage` params: `{ subplebbitAddress }` → `{ communityAddress }` (src/rpc/src/index.ts)
 
----
-
-## Phase 8: DNS & Protocol Changes (Breaking)
-
-### 8.1 DNS TXT Record Names
-Remove hardcoded DNS TXT record lookups from pkc-js core. The `"bitsocial"` TXT record lookup is handled by `@bitsocial/bso-resolver`, not pkc-js.
-- [ ] Remove `"plebbit-author-address"` TXT record lookup from `src/clients/base-client-manager.ts`
-- [ ] Remove `"subplebbit-address"` TXT record lookup from `src/clients/base-client-manager.ts`
-- [ ] Remove `resolveSubplebbitAddressIfNeeded()` and `resolveAuthorAddressIfNeeded()` methods (resolution is now handled by external `nameResolvers`)
-
-### ~~8.2 Wallet Signature Domain Separator~~ (Removed)
-~~The EVM contract call challenge uses a domain separator in the message to be signed.~~
-Not applicable — the evm-contract-call challenge is being extracted to `@bitsocial/challenge-evm-contract` (see Phase 17). The domain separator rename is that package's responsibility.
-
-### 8.3 Migration TODO
-- [ ] **IMPORTANT:** Need to migrate existing DNS TXT records from old names (`subplebbit-address`, `plebbit-author-address`) to single `bitsocial` record — this is documented by `@bitsocial/bso-resolver`, not pkc-js
-- [ ] Document migration process for users with existing records
-- [ ] Resolver plugins (e.g., `@bitsocial/bso-resolver`) may choose to support both old and new record names during transition period
-
-### 8.4 Storage Cache Keys
-Domain resolution cache keys are removed from pkc-js core (resolution moves to external resolvers):
-- [ ] Remove domain resolution cache logic from `src/clients/base-client-manager.ts` (cache keys like `${domainAddress}_subplebbit-address`)
-- [ ] Note: Resolver plugins manage their own caching
+### 9.4 RPC Name Resolution (Server-Side)
+- [ ] `getCommunity` / `communityUpdateSubscribe` RPC methods must accept domain names — name resolution happens server-side using the RPC server's registered `nameResolvers`
+- [ ] Add error response when server-side name resolution fails (`ERR_NAME_RESOLUTION_FAILED`)
+- [ ] RPC clients don't need `nameResolvers` config — they delegate resolution to the server
 
 ---
 
-## Phase 9: Error Messages & Logging
+## Phase 10: Error Messages & Logging
 
-### 9.1 Error Classes (src/plebbit-error.ts → src/pkc-error.ts)
+### 10.1 Error Classes (src/plebbit-error.ts → src/pkc-error.ts)
 - [ ] `PlebbitError` → `PKCError`
 - [ ] `FailedToFetchSubplebbitFromGatewaysError` → `FailedToFetchCommunityFromGatewaysError`
 - [ ] `FailedToFetchCommentIpfsFromGatewaysError` (keep as is - comment not subplebbit)
@@ -413,7 +559,7 @@ Domain resolution cache keys are removed from pkc-js core (resolution moves to e
 - [ ] `FailedToFetchPageIpfsFromGatewaysError` (keep as is)
 - [ ] `FailedToFetchGenericIpfsFromGatewaysError` (keep as is)
 
-### 9.2 Error Codes (src/errors.ts)
+### 10.2 Error Codes (src/errors.ts)
 
 **SUBPLEBBIT → COMMUNITY error codes:**
 - [ ] `ERR_SUB_SIGNER_NOT_DEFINED` → `ERR_COMMUNITY_SIGNER_NOT_DEFINED`
@@ -512,10 +658,10 @@ Domain resolution cache keys are removed from pkc-js core (resolution moves to e
 - [ ] `ERR_INVALID_CREATE_PLEBBIT_WS_SERVER_OPTIONS_SCHEMA` → `ERR_INVALID_CREATE_PKC_WS_SERVER_OPTIONS_SCHEMA`
 - [ ] `ERR_INVALID_CREATE_PLEBBIT_ARGS_SCHEMA` → `ERR_INVALID_CREATE_PKC_ARGS_SCHEMA`
 
-### 9.3 Index Exports (src/index.ts)
+### 10.3 Index Exports (src/index.ts)
 - [ ] `plebbitJsChallenges` export → `pkcJsChallenges`
 
-### 9.4 Logger Prefixes
+### 10.4 Logger Prefixes
 Replace all logger prefixes:
 - [ ] `Logger("plebbit-js:...")` → `Logger("pkc-js:...")`
 - [ ] Examples:
@@ -525,23 +671,23 @@ Replace all logger prefixes:
 
 ---
 
-## Phase 10: Signer & Signature Functions
+## Phase 11: Signer & Signature Functions
 
-### 10.1 Function Names (src/signer/signatures.ts)
+### 11.1 Function Names (src/signer/signatures.ts)
 - [ ] `signSubplebbitEdit` → `signCommunityEdit`
 - [ ] `verifySubplebbitEdit` → `verifyCommunityEdit`
 - [ ] `verifySubplebbit` → `verifyCommunity`
 - [ ] `signSubplebbit` → `signCommunity`
 
-### 10.2 Type Parameters
+### 11.2 Type Parameters
 - [ ] All function parameters with `plebbit: Plebbit` → `pkc: PKC`
 - [ ] All `subplebbit` parameters → `community`
 
 ---
 
-## Phase 11: Test Files
+## Phase 12: Test Files
 
-### 11.1 Test File Renaming
+### 12.1 Test File Renaming
 Rename all test files with "subplebbit" in the name (48 files total):
 
 **test/node/subplebbit/**
@@ -612,27 +758,80 @@ Rename all test files with "subplebbit" in the name (48 files total):
 **test/node-and-browser/publications/subplebbit-edit/**
 - [ ] `subplebbit.edit.publication.test.ts` → `community.edit.publication.test.ts`
 
-### 11.2 Test Content Updates
+### 12.2 Test Content Updates
 - [ ] Update all test imports to use new module paths
 - [ ] Update all test assertions referencing old names
 - [ ] Update fixture references
 
-### 11.3 Test Fixtures (test/fixtures/)
+### 12.3 Test Fixtures (test/fixtures/)
 - [ ] `test/fixtures/signatures/subplebbit/` → `test/fixtures/signatures/community/`
 - [ ] Update JSON fixture files:
   - `valid_subplebbit_ipfs.json` → `valid_community_ipfs.json`
   - `valid_subplebbit_jsonfied.json` → `valid_community_jsonfied.json`
   - Update content within fixtures to use new property names
 
-### 11.4 Test Configuration
+### 12.4 Test Configuration
 - [ ] `test/run-test-config.js` - Update PLEBBIT_CONFIGS → PKC_CONFIGS
 - [ ] Update environment variable references
 
 ---
 
-## Phase 12: Documentation
+## Phase 13: DNS & Protocol Changes (Breaking)
 
-### 12.1 docs/ Directory
+### 13.1 DNS TXT Record Names
+Remove hardcoded DNS TXT record lookups from pkc-js core. The `"bitsocial"` TXT record lookup is handled by `@bitsocial/bso-resolver`, not pkc-js.
+- [ ] Remove `"plebbit-author-address"` TXT record lookup from `src/clients/base-client-manager.ts`
+- [ ] Remove `"subplebbit-address"` TXT record lookup from `src/clients/base-client-manager.ts`
+- [ ] Remove `resolveSubplebbitAddressIfNeeded()` and `resolveAuthorAddressIfNeeded()` methods (resolution is now handled by external `nameResolvers`)
+
+### ~~13.2 Wallet Signature Domain Separator~~ (Removed)
+~~The EVM contract call challenge uses a domain separator in the message to be signed.~~
+Not applicable — the evm-contract-call challenge is being extracted to `@bitsocial/challenge-evm-contract` (see Phase 1). The domain separator rename is that package's responsibility.
+
+### 13.3 Migration TODO
+- [ ] **IMPORTANT:** Need to migrate existing DNS TXT records from old names (`subplebbit-address`, `plebbit-author-address`) to single `bitsocial` record — this is documented by `@bitsocial/bso-resolver`, not pkc-js
+- [ ] Document migration process for users with existing records
+- [ ] Resolver plugins (e.g., `@bitsocial/bso-resolver`) may choose to support both old and new record names during transition period
+
+### 13.4 Storage Cache Keys
+Domain resolution cache keys are removed from pkc-js core (resolution moves to external resolvers):
+- [ ] Remove domain resolution cache logic from `src/clients/base-client-manager.ts` (cache keys like `${domainAddress}_subplebbit-address`)
+- [ ] Note: Resolver plugins manage their own caching
+
+---
+
+## Phase 14: Data Migration Code
+
+### 14.1 Storage Path Migration
+- [ ] Change default `dataPath` from `~/.plebbit/` to `~/.pkc/` in pkc-js
+- [ ] Document that `subplebbits/` → `communities/` directory rename is needed
+- [ ] Document that `.plebbit/` → `.pkc/` directory rename is needed
+- [ ] Note: Actual migration of existing directories should be implemented in plebbit-cli and desktop apps, NOT in pkc-js
+- [ ] Create migration documentation for downstream applications
+
+### 14.2 DNS Record Migration
+- [ ] Document process for migrating DNS TXT records
+- [ ] Consider adding temporary support for both old and new record names
+
+### 14.3 Database Schema Migration
+- [ ] Add `communityPublicKey` and `communityName` columns to publication tables (keep existing `subplebbitAddress` for backward compat)
+- [ ] Bump DB version, add migration logic
+- [ ] Backfill `communityPublicKey` from `subplebbitAddress` for existing records (IPNS key → `communityPublicKey` directly; domain → from community context)
+- [ ] Add parsing test in `test/node/subplebbit/parsing.db.subplebbit.test.ts` per AGENTS.md
+- [ ] Add integration test for `dbHandler.queryComment` returning proper JSON value (not string) for new columns
+
+### 14.4 External Applications Migration (IMPORTANT)
+The following applications will need migration code to rename `subplebbits/` → `communities/` directory:
+- [ ] **plebbit-cli** - Add directory rename migration on startup
+- [ ] **Desktop apps** (electron apps, etc.) - Add directory rename migration
+- [ ] Any other apps using plebbit-js data directory structure
+- [ ] Document breaking change in release notes for downstream applications
+
+---
+
+## Phase 15: Documentation
+
+### 15.1 docs/ Directory
 Update all documentation files:
 - [ ] `docs/addresses.md`
 - [ ] `docs/building.md`
@@ -645,15 +844,15 @@ Update all documentation files:
 - [ ] `docs/testing.md`
 - [ ] `docs/verifying-publications.md`
 
-### 12.2 RPC Documentation
+### 15.2 RPC Documentation
 - [ ] `src/rpc/README.md`
 - [ ] `src/rpc/EXPORT_SUBPLEBBIT_SPEC.md` → `src/rpc/EXPORT_COMMUNITY_SPEC.md`
 
 ---
 
-## Phase 13: GitHub & CI/CD
+## Phase 16: GitHub & CI/CD
 
-### 13.1 GitHub Workflows (.github/workflows/)
+### 16.1 GitHub Workflows (.github/workflows/)
 - [ ] `CI.yml` - Update references
 - [ ] `CI-build.yml`
 - [ ] `CI-windows-test.yml`
@@ -662,94 +861,28 @@ Update all documentation files:
 - [ ] `CI-plebbit-react-hooks.yml` → Rename if needed
 - [ ] `CI-plebbit-js-benchmarks.yml` → `CI-pkc-js-benchmarks.yml`
 
-### 13.2 Repository Rename (External)
+### 16.2 Repository Rename (External)
 - [ ] GitHub repository: `plebbit/plebbit-js` → Consider new org/repo name
 - [ ] Update all workflow URLs
 
 ---
 
-## Phase 14: Import Path Updates
+## Phase 17: Build & Verification
 
-After renaming directories and files, update ALL import statements across the codebase:
-
-### 14.1 Core Imports
-- [ ] `from "./plebbit/plebbit.js"` → `from "./pkc/pkc.js"`
-- [ ] `from "./plebbit/plebbit-with-rpc-client.js"` → `from "./pkc/pkc-with-rpc-client.js"`
-- [ ] `from "./plebbit/plebbit-client-manager.js"` → `from "./pkc/pkc-client-manager.js"`
-- [ ] `from "./subplebbit/..."` → `from "./community/..."`
-- [ ] `from "../plebbit-error.js"` → `from "../pkc-error.js"`
-
-### 14.2 Publication Imports
-- [ ] `from "./publications/subplebbit-edit/..."` → `from "./publications/community-edit/..."`
-
-### 14.3 Runtime Imports
-- [ ] `from "./runtime/node/subplebbit/..."` → `from "./runtime/node/community/..."`
-- [ ] `from "./runtime/browser/subplebbit/..."` → `from "./runtime/browser/community/..."`
-
----
-
-## Phase 15: Data Migration Code
-
-### 15.1 Storage Path Migration
-- [ ] Change default `dataPath` from `~/.plebbit/` to `~/.pkc/` in pkc-js
-- [ ] Document that `subplebbits/` → `communities/` directory rename is needed
-- [ ] Document that `.plebbit/` → `.pkc/` directory rename is needed
-- [ ] Note: Actual migration of existing directories should be implemented in plebbit-cli and desktop apps, NOT in pkc-js
-- [ ] Create migration documentation for downstream applications
-
-### 15.2 DNS Record Migration
-- [ ] Document process for migrating DNS TXT records
-- [ ] Consider adding temporary support for both old and new record names
-
-### 15.3 External Applications Migration (IMPORTANT)
-The following applications will need migration code to rename `subplebbits/` → `communities/` directory:
-- [ ] **plebbit-cli** - Add directory rename migration on startup
-- [ ] **Desktop apps** (electron apps, etc.) - Add directory rename migration
-- [ ] Any other apps using plebbit-js data directory structure
-- [ ] Document breaking change in release notes for downstream applications
-
----
-
-## Phase 16: Build & Verification
-
-### 16.1 Build Process
+### 17.1 Build Process
 - [ ] Run `npm run build` and fix any compilation errors
 - [ ] Verify browser build succeeds
 - [ ] Verify Node build succeeds
 
-### 16.2 Test Verification
+### 17.2 Test Verification
 - [ ] Run full test suite
 - [ ] Fix any failing tests
 - [ ] Update test expectations where needed
 
-### 16.3 Type Checking
+### 17.3 Type Checking
 - [ ] Run `npm run typecheck:node`
 - [ ] Run `npm run typecheck:browser`
 - [ ] Fix any type errors
-
----
-
-## Execution Order Recommendation
-
-**Phase 17 (Web3 Modularization) should be done BEFORE the rename.** It removes resolver code, ENS logic, `evm-contract-call`, `mintpass`, `captcha-canvas-v3`, and web3 dependencies — resulting in less code to rename. External packages (`@bitsocial/bso-resolver`, `@bitsocial/challenge-evm-contract`) start with new naming from day one, and the `nameResolvers` plugin system is new code written with new naming.
-
-1. **Phase 17:** Web3 modularization (do first — reduces code to rename)
-2. **Phase 1:** Package configuration (package.json files)
-3. **Phase 2:** Directory structure renaming
-4. **Phase 3:** Source file renaming
-5. **Phase 14:** Import path updates (do immediately after file renames)
-6. **Phase 4:** Class, type & interface renaming
-7. **Phase 5:** Schema renaming
-8. **Phase 6:** API method & property renaming
-9. **Phase 7:** RPC method renaming
-10. **Phase 9:** Error messages & logging
-11. **Phase 10:** Signer & signature functions
-12. **Phase 11:** Test files
-13. **Phase 8:** DNS & protocol changes (careful - breaking changes)
-14. **Phase 15:** Data migration code
-15. **Phase 12:** Documentation
-16. **Phase 13:** GitHub & CI/CD
-17. **Phase 16:** Build & verification
 
 ---
 
@@ -798,7 +931,7 @@ No `author=12D...` prefix or key-value extensibility is needed — since communi
 
 ### Q4: Should the `resolveAuthorAddress` RPC method be renamed?
 
-**Open — to be addressed later.** The RPC client has a `resolveAuthorAddress` method (in `src/clients/rpc-client/plebbit-rpc-client.ts`) that is not listed in Phase 7.1's RPC method renaming checklist. Related to Q3 — depends on whether "author address" terminology changes.
+**Open — to be addressed later.** The RPC client has a `resolveAuthorAddress` method (in `src/clients/rpc-client/plebbit-rpc-client.ts`) that is not listed in Phase 9.1's RPC method renaming checklist. Related to Q3 — depends on whether "author address" terminology changes.
 
 ---
 
@@ -811,24 +944,25 @@ Use this section to track overall progress:
 
 | Phase | Status | Notes |
 |-------|--------|-------|
-| Phase 1: Package Config | [ ] Not Started | |
-| Phase 2: Directory Structure | [ ] Not Started | |
-| Phase 3: Source Files | [ ] Not Started | |
-| Phase 4: Classes & Types | [ ] Not Started | |
-| Phase 5: Schemas | [ ] Not Started | |
-| Phase 6: API Methods | [ ] Not Started | |
-| Phase 7: RPC Methods | [ ] Not Started | |
-| Phase 8: DNS & Protocol | [ ] Not Started | Breaking changes |
-| Phase 9: Errors & Logging | [ ] Not Started | |
-| Phase 10: Signer Functions | [ ] Not Started | |
-| Phase 11: Test Files | [ ] Not Started | |
-| Phase 12: Documentation | [ ] Not Started | |
-| Phase 13: GitHub & CI/CD | [ ] Not Started | |
-| Phase 14: Import Paths | [ ] Not Started | |
-| Phase 15: Data Migration | [ ] Not Started | |
-| Phase 15.3: External Apps | [ ] Not Started | plebbit-cli, desktop apps |
-| Phase 16: Build & Verify | [ ] Not Started | |
-| Phase 17: Web3 Modularization | [ ] Not Started | Domain resolvers, EVM challenge extraction |
+| Phase 1: Web3 Modularization | [ ] Not Started | Domain resolvers, EVM challenge extraction |
+| Phase 2: Package Config | [ ] Not Started | |
+| Phase 3: Directory Structure | [ ] Not Started | |
+| Phase 4: Source Files | [ ] Not Started | |
+| Phase 5: Import Paths | [ ] Not Started | |
+| Phase 6: Classes & Types | [ ] Not Started | |
+| Phase 7: Schemas | [ ] Not Started | |
+| Phase 8: API Methods | [ ] Not Started | |
+| Phase 9: RPC Methods | [ ] Not Started | |
+| Phase 10: Errors & Logging | [ ] Not Started | |
+| Phase 11: Signer Functions | [ ] Not Started | |
+| Phase 12: Test Files | [ ] Not Started | |
+| Phase 13: DNS & Protocol | [ ] Not Started | Breaking changes |
+| Phase 14: Data Migration | [ ] Not Started | |
+| Phase 14.3: DB Schema Migration | [ ] Not Started | New columns, version bump |
+| Phase 14.4: External Apps | [ ] Not Started | plebbit-cli, desktop apps |
+| Phase 15: Documentation | [ ] Not Started | |
+| Phase 16: GitHub & CI/CD | [ ] Not Started | |
+| Phase 17: Build & Verify | [ ] Not Started | |
 
 ---
 
@@ -844,128 +978,3 @@ These repositories are outside plebbit-js but will need coordinated updates:
 | Desktop apps | Directory migration: `.plebbit/` → `.pkc/` and `subplebbits/` → `communities/`, API updates, install name resolvers | [ ] Not Started |
 | plebbit-js-benchmarks | Rename repo to pkc-js-benchmarks, update all plebbit/subplebbit references | [ ] Not Started |
 | DNS TXT records | Migrate `subplebbit-address` and `plebbit-author-address` → single `bitsocial` record | [ ] Not Started |
-
----
-
-## Phase 17: Web3 Modularization
-
-Make plebbit-js (pkc-js) a neutral, core library that only handles IPNS/IPFS natively. Name resolution (.bso, ENS-based) and EVM challenges become external plugins in separate GitHub repos. `.sol` support has been removed entirely.
-
-### 17.1 Name Resolver Plugin System
-
-> **See [NAMES_AND_PUBLIC_KEY_PROPOSAL.md — Name resolving](./NAMES_AND_PUBLIC_KEY_PROPOSAL.md#name-resolving) for the full API design** (resolver shape, resolution algorithm, client state tracking, and design rationale).
-
-**Summary:** Name resolvers are an ordered array of `{key, resolve, canResolve, provider}` objects passed via `PkcOptions.nameResolvers`. One resolver per provider enables per-provider UI state tracking. Resolver composition (wiring account config to resolver objects) is a client/hook responsibility, not pkc-js.
-
-**RPC-Side Resolution:**
-
-Name resolution must happen on the RPC server side, not the client side. This allows RPC clients to resolve domain names even if they have zero resolvers configured locally.
-
-- When an RPC client calls `getCommunity("memes.eth")`, the RPC server performs the resolution using its own registered resolvers
-- RPC clients don't need `nameResolvers` config - they delegate resolution to the server
-- The RPC server returns the resolved IPNS address to the client
-- This is important for lightweight clients (browsers, mobile) that shouldn't need web3 dependencies
-
-**Implementation considerations:**
-- [ ] Ensure `getSubplebbit` / `getCommunity` RPC method resolves names server-side
-- [ ] RPC client should NOT attempt local resolution before calling RPC
-- [ ] `subplebbitUpdateSubscribe` / `communityUpdateSubscribe` should accept domain names and resolve server-side
-- [ ] Document that RPC servers need resolvers configured, not RPC clients
-
-### 17.2 External Challenge Registration
-
-`Plebbit.challenges` already exists as a mutable static object. External challenges:
-```javascript
-import PKC from '@pkc/pkc-js';
-import { evmContractCallChallenge } from '@bitsocial/challenge-evm-contract';
-
-PKC.challenges['evm-contract-call'] = evmContractCallChallenge;
-```
-
-External challenges import types from plebbit-js:
-```typescript
-import { ChallengeFile, ChallengeFileFactory, Challenge, ChallengeResult } from '@pkc/pkc-js';
-```
-
-### 17.3 TODO Items
-
-**Name Resolver System:**
-- [ ] Add `nameResolvers` option to `PKCUserOptionsSchema` (array of `{key, resolve, canResolve, provider}`)
-- [ ] Add `NameResolverClient` class with `state` and `statechange` event
-- [ ] Add `community.clients.nameResolvers` map (key → NameResolverClient)
-- [ ] Refactor `src/clients/base-client-manager.ts` resolution flow to use serial `canResolve`/`resolve` algorithm
-- [ ] Remove `chainProviders` from `PKCUserOptionsSchema` (breaking change)
-- [ ] Add `ERR_NO_RESOLVER_FOR_NAME` error when no resolver can handle a name
-- [ ] Remove hardcoded ENS logic from core (resolution moves to external @bitsocial/resolver-bso)
-- [ ] Remove all SNS/Solana resolution code (.sol support removed entirely)
-- [ ] Remove `normalizeEthAliasDomain()` from `src/clients/base-client-manager.ts` (`.bso` → `.eth` normalization belongs in the `@bitsocial/bso-resolver` plugin, not in pkc-js core)
-
-**External Challenges:**
-- [ ] Remove `evm-contract-call` from `pkcJsChallenges` in `src/runtime/node/subplebbit/challenges/index.ts`
-- [ ] Delete `src/runtime/node/subplebbit/challenges/plebbit-js-challenges/evm-contract-call/` directory
-- [ ] Export challenge types for external packages
-
-**Dependencies:**
-- [ ] Remove web3 dependencies: `viem`, `ethers` from pkc-js (moved to external resolver packages)
-- [ ] Remove Solana dependencies: `@bonfida/spl-name-service`, `@solana/web3.js` if present (.sol support removed entirely)
-
-**Downstream Apps:**
-- [ ] Update plebbit-cli to install and register name resolvers
-- [ ] Update desktop apps to install and register name resolvers
-
-**Release & Distribution:**
-- [ ] After rebrand, start publishing `@pkc/pkc-js` to the npm registry
-- [ ] Add GitHub CI job(s) to automate npm publishing for `@pkc/pkc-js`
-
-### 17.4 External Repos to Create
-
-| Repository | Purpose | Dependencies |
-|------------|---------|--------------|
-| @bitsocial/bso-resolver | ENS (.bso) name resolution | viem, ethers |
-| @bitsocial/challenge-evm-contract | EVM contract call challenge | viem |
-
-Note: .sol support has been removed. Only ENS-based resolution (.bso) is supported.
-
-### 17.5 Breaking Changes
-
-- No default name resolvers — pkc-js only handles IPNS/IPFS natively
-- Users must explicitly provide `nameResolvers` in `PkcOptions` to resolve `.bso` addresses (see [NAMES_AND_PUBLIC_KEY_PROPOSAL.md — Name resolving](./NAMES_AND_PUBLIC_KEY_PROPOSAL.md#name-resolving) and [issue #68](https://github.com/plebbit/plebbit-js/issues/68#issuecomment-3900045187))
-- `.sol` support removed entirely — only ENS-based resolution (.bso) is supported
-- `evm-contract-call` challenge no longer built-in
-- `chainProviders` removed from PlebbitOptions — now configured per-resolver in `nameResolvers` config
-- Challenges fall back to resolver URLs, then to their own hardcoded defaults
-- DNS TXT record lookups (`subplebbit-address`, `plebbit-author-address`) removed from pkc-js core — handled by resolver plugins (e.g., `@bitsocial/bso-resolver` uses `bitsocial` TXT record)
-- `author.address` changes from required wire field to instance-only (computed as `author.name || author.publicKey`)
-- `publication.subplebbitAddress` replaced by `communityPublicKey` + `communityName` wire fields (old publications remain loadable via backward compat parsing)
-- Protocol version bumped for new `SubplebbitIpfs` and publication wire formats
-
-### 17.6 Challenge System Cleanup
-
-**Step 1: Remove `.sol` from default challenge regexp** (separate from default challenge change):
-- [ ] In `_defaultSubplebbitChallenges` (`src/runtime/node/subplebbit/local-subplebbit.ts`), remove `.sol` from the `publication-match` regexp: `\\.(sol|eth|bso)$` → `\\.(eth|bso)$`
-- Note: `.sol` support is being removed entirely
-- [ ] **Important:** The `publication-match` challenge matches against `author.address`, which is now instance-only (computed as `name || publicKey`). Ensure `author.address` is properly computed and available on the publication instance when the local community processes incoming publications. This needs implementation and testing.
-
-**Step 2: Remove built-in challenges** (must happen before or at the same time as Step 3):
-- [ ] Remove `mintpass` challenge from `plebbitJsChallenges`
-  - Delete directory: `src/runtime/node/subplebbit/challenges/plebbit-js-challenges/mintpass/`
-  - Remove import and entry from: `src/runtime/node/subplebbit/challenges/index.ts`
-- [ ] Remove `captcha-canvas-v3` challenge from `plebbitJsChallenges`
-  - Delete directory: `src/runtime/node/subplebbit/challenges/plebbit-js-challenges/captcha-canvas-v3/`
-  - Remove import and entry from: `src/runtime/node/subplebbit/challenges/index.ts`
-  - Remove `canvas` and related dependencies from `package.json`
-
-**Step 3: Change default challenge** (depends on Step 2 — old default references `mintpass`):
-- [ ] Change default challenge from `publication-match` to `question` (question/answer challenge)
-  - File: `src/runtime/node/subplebbit/local-subplebbit.ts` (line ~193, `_defaultSubplebbitChallenges`)
-  - Default `question`: `"Placeholder challenge. Set your own challenges otherwise you risk getting spammed"`
-  - Default `answer`: `"Placeholder answer"`
-
-**Remaining built-in challenges after cleanup:**
-After removing `captcha-canvas-v3`, `mintpass`, and extracting `evm-contract-call`, these challenges remain built-in:
-- `text-math`
-- `fail`
-- `blacklist`
-- `whitelist`
-- `question`
-- `publication-match`
