@@ -1,4 +1,4 @@
-import { CachedTextRecordResolve, OptionsToLoadFromGateway } from "../../clients/base-client-manager.js";
+import { OptionsToLoadFromGateway, PreResolveNameResolverOptions } from "../../clients/base-client-manager.js";
 import type { PageIpfs, PageTypeJson } from "../../pages/types.js";
 import type { SubplebbitIpfsType } from "../../subplebbit/types.js";
 import { NameResolverClient } from "../../clients/name-resolver-client.js";
@@ -99,14 +99,9 @@ export class CommentClientsManager extends PublicationClientsManager {
     }
 
     // Resolver methods here
-    override preResolveNameResolver(
-        address: string,
-        txtRecordName: "subplebbit-address" | "plebbit-author-address",
-        resolverKey: string,
-        staleCache?: CachedTextRecordResolve
-    ): void {
-        super.preResolveNameResolver(address, txtRecordName, resolverKey, staleCache);
-        if (this._comment.state === "updating" && !staleCache)
+    override preResolveNameResolver(opts: PreResolveNameResolverOptions): void {
+        super.preResolveNameResolver(opts);
+        if (this._comment.state === "updating" && !opts.staleCache)
             this._comment._setUpdatingStateWithEmissionIfNewState("resolving-author-address"); // Resolving for CommentIpfs and author.address is a domain
     }
 

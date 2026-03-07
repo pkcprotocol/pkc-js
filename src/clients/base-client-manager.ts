@@ -41,6 +41,23 @@ type GenericGatewayFetch = {
 
 export type CachedTextRecordResolve = { timestampSeconds: number; valueOfTextRecord: string };
 
+export type ResolveType = "subplebbit" | "author";
+
+export type PreResolveNameResolverOptions = {
+    address: string;
+    resolveType: ResolveType;
+    resolverKey: string;
+    staleCache?: CachedTextRecordResolve;
+};
+
+export type PostResolveNameResolverSuccessOptions = PreResolveNameResolverOptions & {
+    resolvedValue: string | undefined;
+};
+
+export type PostResolveNameResolverFailureOptions = PreResolveNameResolverOptions & {
+    error: Error;
+};
+
 export type OptionsToLoadFromGateway = {
     recordIpfsType: "ipfs" | "ipns";
     maxFileSizeBytes: number;
@@ -651,12 +668,12 @@ export class BaseClientsManager {
 
     // Resolver methods here
 
-    _getKeyOfCachedDomainTextRecord(domainAddress: string, txtRecord: string) {
-        return `${domainAddress}_${txtRecord}`;
+    _getKeyOfCachedDomainTextRecord(domainAddress: string, resolveType: ResolveType) {
+        return `${domainAddress}_${resolveType}`;
     }
 
-    private async _getCachedTextRecord(address: string, txtRecord: "subplebbit-address" | "plebbit-author-address") {
-        const cacheKey = this._getKeyOfCachedDomainTextRecord(address, txtRecord);
+    private async _getCachedTextRecord(address: string, resolveType: ResolveType) {
+        const cacheKey = this._getKeyOfCachedDomainTextRecord(address, resolveType);
 
         const resolveCache: CachedTextRecordResolve | undefined = await this._plebbit._storage.getItem(cacheKey);
         if (remeda.isPlainObject(resolveCache)) {
@@ -666,63 +683,43 @@ export class BaseClientsManager {
         return undefined;
     }
 
-    private async _resolveTextRecordWithCache(
-        address: string,
-        txtRecord: "subplebbit-address" | "plebbit-author-address"
-    ): Promise<string | null> {
+    private async _resolveTextRecordWithCache(address: string, resolveType: ResolveType): Promise<string | null> {
         const log = Logger("plebbit-js:client-manager:resolveTextRecord");
-        const cachedTextRecord = await this._getCachedTextRecord(address, txtRecord);
+        const cachedTextRecord = await this._getCachedTextRecord(address, resolveType);
         if (cachedTextRecord) {
             if (cachedTextRecord.stale)
-                this._resolveViaNameResolvers({ address, txtRecordName: txtRecord })
+                this._resolveViaNameResolvers({ address, resolveType })
                     .then((newValue) => {
                         if (typeof newValue === "string") {
                             const cache: CachedTextRecordResolve = { timestampSeconds: timestamp(), valueOfTextRecord: newValue };
-                            return this._plebbit._storage.setItem(this._getKeyOfCachedDomainTextRecord(address, txtRecord), cache);
+                            return this._plebbit._storage.setItem(this._getKeyOfCachedDomainTextRecord(address, resolveType), cache);
                         }
                     })
                     .then(() => log.trace(`Updated stale text-record of (${address})`))
                     .catch((err) => log.error(`Failed to update stale text record of (${address})`, err));
             return cachedTextRecord.valueOfTextRecord;
         }
-        const result = await this._resolveViaNameResolvers({ address, txtRecordName: txtRecord });
+        const result = await this._resolveViaNameResolvers({ address, resolveType });
         if (typeof result === "string") {
             if (!isIpns(result)) throwWithErrorCode("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address });
             const cache: CachedTextRecordResolve = { timestampSeconds: timestamp(), valueOfTextRecord: result };
-            await this._plebbit._storage.setItem(this._getKeyOfCachedDomainTextRecord(address, txtRecord), cache);
+            await this._plebbit._storage.setItem(this._getKeyOfCachedDomainTextRecord(address, resolveType), cache);
         }
         return result || null;
     }
 
     // Name resolver hooks — overridden by PlebbitClientsManager and subclass client managers
-    preResolveNameResolver(
-        address: string,
-        txtRecordName: "subplebbit-address" | "plebbit-author-address",
-        resolverKey: string,
-        staleCache?: CachedTextRecordResolve
-    ) {}
-    postResolveNameResolverSuccess(
-        address: string,
-        txtRecordName: "subplebbit-address" | "plebbit-author-address",
-        resolvedValue: string | undefined,
-        resolverKey: string,
-        staleCache?: CachedTextRecordResolve
-    ) {}
-    postResolveNameResolverFailure(
-        address: string,
-        txtRecordName: "subplebbit-address" | "plebbit-author-address",
-        resolverKey: string,
-        error: Error,
-        staleCache?: CachedTextRecordResolve
-    ) {}
+    preResolveNameResolver(opts: PreResolveNameResolverOptions) {}
+    postResolveNameResolverSuccess(opts: PostResolveNameResolverSuccessOptions) {}
+    postResolveNameResolverFailure(opts: PostResolveNameResolverFailureOptions) {}
 
     private async _resolveViaNameResolvers({
         address,
-        txtRecordName,
+        resolveType,
         staleCache
     }: {
         address: string;
-        txtRecordName: "subplebbit-address" | "plebbit-author-address";
+        resolveType: ResolveType;
         staleCache?: CachedTextRecordResolve;
     }): Promise<string | null> {
         const log = Logger("plebbit-js:client-manager:_resolveViaNameResolvers");
@@ -738,16 +735,16 @@ export class BaseClientsManager {
             if (!nameResolver.canResolve({ name: address })) continue;
             anyResolverCanHandle = true;
 
-            this.preResolveNameResolver(address, txtRecordName, nameResolver.key, staleCache);
+            this.preResolveNameResolver({ address, resolveType, resolverKey: nameResolver.key, staleCache });
             try {
                 const result = await nameResolver.resolve({ name: address, provider: nameResolver.provider });
                 value = result?.publicKey;
             } catch (e) {
                 log.error(`Resolver ${nameResolver.key} failed for ${address}`, e);
-                this.postResolveNameResolverFailure(address, txtRecordName, nameResolver.key, e as Error, staleCache);
+                this.postResolveNameResolverFailure({ address, resolveType, resolverKey: nameResolver.key, error: e as Error, staleCache });
                 continue;
             }
-            this.postResolveNameResolverSuccess(address, txtRecordName, value, nameResolver.key, staleCache);
+            this.postResolveNameResolverSuccess({ address, resolveType, resolverKey: nameResolver.key, resolvedValue: value, staleCache });
 
             if (value) break;
         }
@@ -762,17 +759,17 @@ export class BaseClientsManager {
     async resolveSubplebbitAddressIfNeeded(subplebbitAddress: string): Promise<string | null> {
         assert(typeof subplebbitAddress === "string", "subplebbitAddress needs to be a string to be resolved");
         if (!isStringDomain(subplebbitAddress)) return subplebbitAddress;
-        return this._resolveTextRecordWithCache(subplebbitAddress, "subplebbit-address");
+        return this._resolveTextRecordWithCache(subplebbitAddress, "subplebbit");
     }
 
-    async clearDomainCache(domainAddress: string, txtRecordName: "subplebbit-address" | "plebbit-author-address") {
-        const cacheKey = this._getKeyOfCachedDomainTextRecord(domainAddress, txtRecordName);
+    async clearDomainCache(domainAddress: string, resolveType: ResolveType) {
+        const cacheKey = this._getKeyOfCachedDomainTextRecord(domainAddress, resolveType);
         await this._plebbit._storage.removeItem(cacheKey);
     }
 
     async resolveAuthorAddressIfNeeded(authorAddress: string): Promise<string | null> {
         if (!isStringDomain(authorAddress)) throw new PlebbitError("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58", { authorAddress });
-        return this._resolveTextRecordWithCache(authorAddress, "plebbit-author-address");
+        return this._resolveTextRecordWithCache(authorAddress, "author");
     }
 
     // Misc functions

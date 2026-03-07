@@ -1,5 +1,9 @@
 import retry, { RetryOperation } from "retry";
-import { CachedTextRecordResolve, OptionsToLoadFromGateway } from "../clients/base-client-manager.js";
+import {
+    OptionsToLoadFromGateway,
+    PreResolveNameResolverOptions,
+    PostResolveNameResolverSuccessOptions
+} from "../clients/base-client-manager.js";
 import { PlebbitClientsManager } from "../plebbit/plebbit-client-manager.js";
 import { FailedToFetchSubplebbitFromGatewaysError, PlebbitError } from "../plebbit-error.js";
 import { ResultOfFetchingSubplebbit } from "../types.js";
@@ -118,27 +122,16 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
         return "fetching-ipns";
     }
 
-    override preResolveNameResolver(
-        address: string,
-        txtRecordName: "subplebbit-address" | "plebbit-author-address",
-        resolverKey: string,
-        staleCache?: CachedTextRecordResolve
-    ): void {
-        super.preResolveNameResolver(address, txtRecordName, resolverKey, staleCache);
-        if (!staleCache) this._subplebbit._setUpdatingStateWithEventEmissionIfNewState("resolving-address");
+    override preResolveNameResolver(opts: PreResolveNameResolverOptions): void {
+        super.preResolveNameResolver(opts);
+        if (!opts.staleCache) this._subplebbit._setUpdatingStateWithEventEmissionIfNewState("resolving-address");
     }
 
-    override postResolveNameResolverSuccess(
-        address: string,
-        txtRecordName: "subplebbit-address" | "plebbit-author-address",
-        resolvedValue: string | undefined,
-        resolverKey: string,
-        staleCache?: CachedTextRecordResolve
-    ): void {
-        super.postResolveNameResolverSuccess(address, txtRecordName, resolvedValue, resolverKey, staleCache);
-        if (!resolvedValue && this._subplebbit.state === "updating") {
+    override postResolveNameResolverSuccess(opts: PostResolveNameResolverSuccessOptions): void {
+        super.postResolveNameResolverSuccess(opts);
+        if (!opts.resolvedValue && this._subplebbit.state === "updating") {
             const error = new PlebbitError("ERR_DOMAIN_TXT_RECORD_NOT_FOUND", {
-                subplebbitAddress: address,
+                subplebbitAddress: opts.address,
                 textRecord: "bitsocial"
             });
             this._subplebbit._changeStateEmitEventEmitStateChangeEvent({

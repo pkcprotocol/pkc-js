@@ -71,7 +71,7 @@ import { encryptEd25519AesGcm, encryptEd25519AesGcmPublicKeyBuffer } from "../si
 import env from "../version.js";
 import type { CommentModerationPubsubMessagePublication } from "../publications/comment-moderation/types.js";
 import { CommentModeration } from "../publications/comment-moderation/comment-moderation.js";
-import type { CachedTextRecordResolve } from "../clients/base-client-manager.js";
+import type { CachedTextRecordResolve, ResolveType } from "../clients/base-client-manager.js";
 import type { PageIpfs, PageTypeJson, PostsPagesTypeIpfs, RepliesPagesTypeIpfs } from "../pages/types.js";
 import { PlebbitError } from "../plebbit-error.js";
 import { messages } from "../errors.js";
@@ -2256,8 +2256,8 @@ export function mockUpdatingCommentResolvingAuthor(
     updatingComment._clientsManager.resolveAuthorAddressIfNeeded = mockFunction;
 }
 
-export async function mockCacheOfTextRecord(opts: { plebbit: Plebbit; domain: string; textRecord: string; value: string }) {
-    const cacheKey = opts.plebbit._clientsManager._getKeyOfCachedDomainTextRecord(opts.domain, opts.textRecord);
+export async function mockCacheOfTextRecord(opts: { plebbit: Plebbit; domain: string; resolveType: ResolveType; value: string }) {
+    const cacheKey = opts.plebbit._clientsManager._getKeyOfCachedDomainTextRecord(opts.domain, opts.resolveType);
     if (cacheKey.includes("undefined")) throw Error("User provided invalid mocked value for caching text records");
     if (!String(opts.plebbit._storage.getItem).includes("return"))
         throw Error("Can't mock cache of text record because plebbit._storage is stubbed and isn't doing anything");

@@ -4,7 +4,13 @@ import assert from "assert";
 import * as remeda from "remeda";
 import { NameResolverClient } from "../clients/name-resolver-client.js";
 
-import { BaseClientsManager, CachedTextRecordResolve, OptionsToLoadFromGateway } from "../clients/base-client-manager.js";
+import {
+    BaseClientsManager,
+    OptionsToLoadFromGateway,
+    PreResolveNameResolverOptions,
+    PostResolveNameResolverSuccessOptions,
+    PostResolveNameResolverFailureOptions
+} from "../clients/base-client-manager.js";
 
 import Logger from "@plebbit/plebbit-logger";
 import { PlebbitIpfsGatewayClient, PlebbitKuboRpcClient, PlebbitLibp2pJsClient } from "./plebbit-clients.js";
@@ -97,37 +103,20 @@ export class PlebbitClientsManager extends BaseClientsManager {
         this.postFetchGatewaySuccess(gatewayUrl, loadOpts);
     }
 
-    override preResolveNameResolver(
-        address: string,
-        txtRecordName: "subplebbit-address" | "plebbit-author-address",
-        resolverKey: string,
-        staleCache?: CachedTextRecordResolve
-    ) {
+    override preResolveNameResolver({ resolveType, resolverKey, staleCache }: PreResolveNameResolverOptions) {
         if (!staleCache) {
-            const newState = txtRecordName === "subplebbit-address" ? "resolving-subplebbit-address" : "resolving-author-address";
+            const newState = resolveType === "subplebbit" ? "resolving-subplebbit-address" : "resolving-author-address";
             this.updateNameResolverState(newState, resolverKey);
         }
     }
 
-    override postResolveNameResolverSuccess(
-        address: string,
-        txtRecordName: "subplebbit-address" | "plebbit-author-address",
-        resolvedValue: string | undefined,
-        resolverKey: string,
-        staleCache?: CachedTextRecordResolve
-    ) {
+    override postResolveNameResolverSuccess({ resolverKey, staleCache }: PostResolveNameResolverSuccessOptions) {
         if (!staleCache) {
             this.updateNameResolverState("stopped", resolverKey);
         }
     }
 
-    override postResolveNameResolverFailure(
-        address: string,
-        txtRecordName: "subplebbit-address" | "plebbit-author-address",
-        resolverKey: string,
-        error: Error,
-        staleCache?: CachedTextRecordResolve
-    ) {
+    override postResolveNameResolverFailure({ resolverKey, staleCache }: PostResolveNameResolverFailureOptions) {
         if (!staleCache) {
             this.updateNameResolverState("stopped", resolverKey);
         }
