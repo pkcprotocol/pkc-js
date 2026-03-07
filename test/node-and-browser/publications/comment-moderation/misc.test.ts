@@ -30,7 +30,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            commentToMod = await publishRandomPost(subplebbitAddress, plebbit);
+            commentToMod = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
         });
 
         afterAll(async () => {
@@ -124,7 +124,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`A mod publishing multiple mod edit fields and they all should appear on the comment`, async () => {
-            const modPost = await publishRandomPost(subplebbitAddress, plebbit, { signer: roles[2].signer });
+            const modPost = await publishRandomPost({
+                subplebbitAddress: subplebbitAddress,
+                plebbit: plebbit,
+                postProps: { signer: roles[2].signer }
+            });
             const fieldsToChange = {
                 removed: true,
                 pinned: true,
@@ -177,7 +181,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`As a mod`, async () => {
-            const modPost = await publishRandomPost(subplebbitAddress, plebbit, { signer: roles[2].signer });
+            const modPost = await publishRandomPost({
+                subplebbitAddress: subplebbitAddress,
+                plebbit: plebbit,
+                postProps: { signer: roles[2].signer }
+            });
             const fieldsToChange = {
                 removed: true,
                 reason: "Testing removing",
@@ -240,7 +248,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 reason: "Test as an author" + Date.now()
             };
 
-            const authorPost = await publishRandomPost(subplebbitAddress, plebbit); // generate random signer
+            const authorPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit }); // generate random signer
 
             const authorEdit = await plebbit.createCommentEdit({
                 ...authorFieldsToChange,
@@ -307,7 +315,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`Correct value of CommentUpdate after mod edit, then author edit`, async () => {
-            const authorPost = await publishRandomPost(subplebbitAddress, plebbit); // generate random signer
+            const authorPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit }); // generate random signer
 
             const modFieldsToChange = {
                 reason: "Test setting spoiler as mod",

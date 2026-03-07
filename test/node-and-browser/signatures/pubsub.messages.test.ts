@@ -80,7 +80,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`challenge request with outdated timestamp is invalidated`, async () => {
-            const comment = await generateMockPost(signers[0].address, plebbit, false, { signer: signers[5] });
+            const comment = await generateMockPost({
+                subplebbitAddress: signers[0].address,
+                plebbit: plebbit,
+                postProps: { signer: signers[5] }
+            });
             const challengeRequestPromise = new Promise<DecryptedChallengeRequestMessageType>((resolve) =>
                 comment.once("challengerequest", resolve)
             );
@@ -99,7 +103,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`Valid live ChallengeRequest gets validated correctly`, async () => {
-            const comment = await generateMockPost(signers[0].address, plebbit, false, { signer: signers[5] });
+            const comment = await generateMockPost({
+                subplebbitAddress: signers[0].address,
+                plebbit: plebbit,
+                postProps: { signer: signers[5] }
+            });
             const challengeRequestPromise = new Promise<DecryptedChallengeRequestMessageType>((resolve) =>
                 comment.once("challengerequest", resolve)
             );
@@ -112,7 +120,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`Sub responds with error to a challenge request whose comment can't be decrypted`, async () => {
-            const comment = await generateMockPost(signers[0].address, plebbit, false, { content: "Test content" });
+            const comment = await generateMockPost({
+                subplebbitAddress: signers[0].address,
+                plebbit: plebbit,
+                postProps: { content: "Test content" }
+            });
             const originalPublish = comment._clientsManager.pubsubPublishOnProvider.bind(comment._clientsManager);
             comment._clientsManager.pubsubPublishOnProvider = (async () => {}) as typeof comment._clientsManager.pubsubPublishOnProvider;
 
@@ -154,7 +166,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`Sub responds with error to a challenge request with invalid pubsubMessage.encrypted.comment.signature`, async () => {
-            const comment = await generateMockPost(signers[0].address, plebbit);
+            const comment = await generateMockPost({ subplebbitAddress: signers[0].address, plebbit: plebbit });
             const originalPublish = comment._clientsManager.pubsubPublishOnProvider.bind(comment._clientsManager);
             comment._clientsManager.pubsubPublishOnProvider = (async () => {}) as typeof comment._clientsManager.pubsubPublishOnProvider;
 
@@ -219,7 +231,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
         it(`Sub ignores a challenge request with invalid pubsubMessage.signature`, async () => {
             // This test case also includes challengeRequestId not being derived from signer since it's caught by verifyChallengeRequest
-            const comment = await generateMockPost(signers[0].address, plebbit, false, { signer: signers[6] });
+            const comment = await generateMockPost({
+                subplebbitAddress: signers[0].address,
+                plebbit: plebbit,
+                postProps: { signer: signers[6] }
+            });
             const challengeRequestPromise = new Promise<DecryptedChallengeRequestMessageType>((resolve) =>
                 comment.once("challengerequest", resolve)
             );
@@ -297,7 +313,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
             expect(verificaiton).to.deep.equal({ valid: false, reason: messages.ERR_CHALLENGE_MSG_SIGNER_IS_NOT_SUBPLEBBIT });
         });
         it(`Valid live challengemessage gets validated correctly`, async () => {
-            const comment = await generateMockPost(mathCliSubplebbitAddress, plebbit, false, { signer: signers[6] });
+            const comment = await generateMockPost({
+                subplebbitAddress: mathCliSubplebbitAddress,
+                plebbit: plebbit,
+                postProps: { signer: signers[6] }
+            });
             comment.removeAllListeners();
 
             await comment.publish();
@@ -340,7 +360,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`Valid live ChallengeAnswer gets validated correctly`, async () => {
-            const comment = await generateMockPost(mathCliSubplebbitAddress, plebbit, false, { signer: signers[5] });
+            const comment = await generateMockPost({
+                subplebbitAddress: mathCliSubplebbitAddress,
+                plebbit: plebbit,
+                postProps: { signer: signers[5] }
+            });
             comment.removeAllListeners();
             await comment.publish();
 
@@ -359,7 +383,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
         it(`Sub ignores a challenge answer with invalid answer.signature`, async () => {
             // Test includes cases where challengeRequestId is not derived from the signer of the message because verifyChallengeAnswer checks for that too
-            const comment = await generateMockPost(mathCliSubplebbitAddress, plebbit, false, { signer: signers[6] });
+            const comment = await generateMockPost({
+                subplebbitAddress: mathCliSubplebbitAddress,
+                plebbit: plebbit,
+                postProps: { signer: signers[6] }
+            });
 
             comment.removeAllListeners();
             const challengeRequestPromise = new Promise<DecryptedChallengeRequestMessageType>((resolve) =>
@@ -414,7 +442,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
         it(`Sub responds with error to a challenge answer with answers that can't be decrypted`, async () => {
             const tempPlebbit = await config.plebbitInstancePromise();
-            const comment = await generateMockPost(mathCliSubplebbitAddress, tempPlebbit);
+            const comment = await generateMockPost({ subplebbitAddress: mathCliSubplebbitAddress, plebbit: tempPlebbit });
             comment.removeAllListeners("challenge");
 
             const originalPublish = comment._clientsManager.pubsubPublishOnProvider.bind(comment._clientsManager);
@@ -457,7 +485,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`Sub responds with error to challenge answer whose id not registered (no challenge request with same id)`, async () => {
-            const comment = await generateMockPost(mathCliSubplebbitAddress, plebbit, false, { signer: signers[6] });
+            const comment = await generateMockPost({
+                subplebbitAddress: mathCliSubplebbitAddress,
+                plebbit: plebbit,
+                postProps: { signer: signers[6] }
+            });
 
             comment.removeAllListeners();
             await comment.publish();
@@ -535,7 +567,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
             expect(verificaiton).to.deep.equal({ valid: true });
         });
         it(`Valid live challengeverification gets validated correctly`, async () => {
-            const comment = await generateMockPost(signers[0].address, plebbit, false, { signer: signers[6] });
+            const comment = await generateMockPost({
+                subplebbitAddress: signers[0].address,
+                plebbit: plebbit,
+                postProps: { signer: signers[6] }
+            });
             await comment.publish();
 
             const challengeVerification = await new Promise<DecryptedChallengeVerificationMessageType>((resolve) =>

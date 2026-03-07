@@ -32,10 +32,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             plebbit = await mockRemotePlebbit();
             sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
             await sub.update();
-            postToBeArchived = await publishRandomPost(subplebbitAddress, plebbit);
+            postToBeArchived = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
 
             await postToBeArchived.update();
-            replyUnderPostToBeArchived = await publishRandomReply(postToBeArchived as CommentIpfsWithCidDefined, plebbit);
+            replyUnderPostToBeArchived = await publishRandomReply({
+                parentComment: postToBeArchived as CommentIpfsWithCidDefined,
+                plebbit: plebbit
+            });
         });
         afterAll(async () => {
             await plebbit.destroy();

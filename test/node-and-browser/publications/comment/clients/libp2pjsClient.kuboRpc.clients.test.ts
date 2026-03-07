@@ -36,13 +36,13 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
         it(`comment.clients.${clientFieldName} is undefined for gateway plebbit`, async () => {
             const gatewayPlebbit = await mockGatewayPlebbit();
-            const mockPost = await generateMockPost(subplebbitAddress, gatewayPlebbit);
+            const mockPost = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: gatewayPlebbit });
             expect((mockPost.clients as Record<string, unknown>)[clientFieldName]).to.be.undefined;
             await gatewayPlebbit.destroy();
         });
 
         it(`comment.clients.${clientFieldName}[key] is stopped by default`, async () => {
-            const mockPost = await generateMockPost(subplebbitAddress, plebbit);
+            const mockPost = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             expect(Object.keys(mockPost.clients[clientFieldName as keyof typeof mockPost.clients]).length).to.equal(1);
             expect(
                 (Object.values(mockPost.clients[clientFieldName as keyof typeof mockPost.clients])[0] as { state: string }).state
@@ -144,7 +144,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         it(`Correct order of ${clientFieldName} state when updating a reply that was created with plebbit.getComment({cid: cid})`);
 
         it(`Correct order of ${clientFieldName} state when publishing a comment (uncached)`, async () => {
-            const mockPost = await generateMockPost(signers[0].address, plebbit);
+            const mockPost = await generateMockPost({ subplebbitAddress: signers[0].address, plebbit: plebbit });
             mockPost._getSubplebbitCache = () => undefined;
             const expectedStates = ["fetching-subplebbit-ipns", "fetching-subplebbit-ipfs", "stopped"];
 
@@ -162,7 +162,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`Correct order of ${clientFieldName} state when publishing a comment (cached)`, async () => {
-            const mockPost = await generateMockPost(signers[0].address, plebbit);
+            const mockPost = await generateMockPost({ subplebbitAddress: signers[0].address, plebbit: plebbit });
 
             const actualStates: string[] = [];
 

@@ -54,7 +54,7 @@ describeSkipIfRpc("subplebbit.postUpdates", async () => {
     });
 
     it(`subplebbit.postUpdates = {86400} when a post is published`, async () => {
-        const post = await publishRandomPost(subplebbit.address, remotePlebbit);
+        const post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
         await waitTillPostInSubplebbitPages(post as CommentIpfsWithCidDefined, remotePlebbit);
 
         const postRecreated = await remotePlebbit.createComment({ cid: post.cid });
@@ -87,7 +87,10 @@ describeSkipIfRpc("subplebbit.postUpdates", async () => {
 
             await parentCommentInstance.stop(); // seems like this line fixes the flakiness
 
-            const reply = await publishRandomReply(parentCommentInstance as CommentIpfsWithCidDefined, remotePlebbit);
+            const reply = await publishRandomReply({
+                parentComment: parentCommentInstance as CommentIpfsWithCidDefined,
+                plebbit: remotePlebbit
+            });
             const { cleanup } = await forceLocalSubPagesToAlwaysGenerateMultipleChunks({
                 subplebbit,
                 parentComment: parentCommentInstance

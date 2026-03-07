@@ -46,10 +46,18 @@ describeSkipIfRpc("quotedCids with pending approval comments", async () => {
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
         // Publish an approved post (using mod signer bypasses challenge)
-        approvedPost = await publishRandomPost(subplebbit.address, plebbit, { signer: modSigner });
+        approvedPost = await publishRandomPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: plebbit,
+            postProps: { signer: modSigner }
+        });
 
         // Publish an approved reply under the post (mod signer bypasses challenge)
-        approvedReply = await publishRandomReply(approvedPost as CommentIpfsWithCidDefined, plebbit, { signer: modSigner });
+        approvedReply = await publishRandomReply({
+            parentComment: approvedPost as CommentIpfsWithCidDefined,
+            plebbit: plebbit,
+            commentProps: { signer: modSigner }
+        });
 
         // Publish a reply that goes to pending approval (under the same post)
         const pendingReplyComment = await generateMockComment(approvedPost as CommentIpfsWithCidDefined, plebbit, false, {

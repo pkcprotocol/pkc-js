@@ -40,15 +40,18 @@ describeSkipIfRpc(`Migration to a new IPFS repo`, async () => {
             toUpdate: subBeforeMigration,
             predicate: async () => typeof subBeforeMigration.updatedAt === "number"
         });
-        const post = await publishRandomPost(subBeforeMigration.address, plebbit);
-        await publishRandomReply(post as CommentIpfsWithCidDefined, plebbit);
+        const post = await publishRandomPost({ subplebbitAddress: subBeforeMigration.address, plebbit: plebbit });
+        await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
         // publish a post with extra prop here
-        postWithExtraProps = await generateMockPost(subBeforeMigration.address, plebbit);
+        postWithExtraProps = await generateMockPost({ subplebbitAddress: subBeforeMigration.address, plebbit: plebbit });
         const extraProps = { extraProp: "1234" };
         await setExtraPropOnCommentAndSign(postWithExtraProps, extraProps, true);
 
         await publishWithExpectedResult({ publication: postWithExtraProps, expectedChallengeSuccess: true });
-        const replyOfPostWithExtraProps = await publishRandomReply(postWithExtraProps as CommentIpfsWithCidDefined, plebbit);
+        const replyOfPostWithExtraProps = await publishRandomReply({
+            parentComment: postWithExtraProps as CommentIpfsWithCidDefined,
+            plebbit: plebbit
+        });
 
         await subBeforeMigration.stop();
 

@@ -32,7 +32,7 @@ describe.concurrent(`subplebbit.features.noPostUpvotes`, async () => {
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
-        postToVoteOn = await publishRandomPost(subplebbit.address, remotePlebbit);
+        postToVoteOn = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
     });
 
     afterAll(async () => {
@@ -58,7 +58,7 @@ describe.concurrent(`subplebbit.features.noPostUpvotes`, async () => {
     });
 
     it(`Allowed to publish upvotes and downvotes to replies if subplebbit.noPostUpvotes=true`, async () => {
-        const reply = await publishRandomReply(postToVoteOn as CommentIpfsWithCidDefined, plebbit);
+        const reply = await publishRandomReply({ parentComment: postToVoteOn as CommentIpfsWithCidDefined, plebbit: plebbit });
 
         const upvote = await generateMockVote(reply as CommentIpfsWithCidDefined, 1, remotePlebbit);
         const downvote = await generateMockVote(reply as CommentIpfsWithCidDefined, -1, remotePlebbit);

@@ -91,7 +91,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
             const updatePromise = new Promise((resolve) => sub.once("update", resolve));
             await sub.update();
-            await publishRandomPost(sub.address, plebbit); // force an update
+            await publishRandomPost({ subplebbitAddress: sub.address, plebbit: plebbit }); // force an update
             await updatePromise;
             await sub.stop();
 

@@ -444,8 +444,12 @@ async function createValidateCommentTestEnvironment(): Promise<ValidateCommentTe
         predicate: async () => typeof subplebbit.updatedAt === "number"
     });
 
-    const postForInstance = await publishRandomPost(subplebbit.address, publisherPlebbit, {
-        content: `validate-comment-post ${Date.now()}`
+    const postForInstance = await publishRandomPost({
+        subplebbitAddress: subplebbit.address,
+        plebbit: publisherPlebbit,
+        postProps: {
+            content: `validate-comment-post ${Date.now()}`
+        }
     });
     await postForInstance.update();
     await resolveWhenConditionIsTrue({
@@ -453,8 +457,12 @@ async function createValidateCommentTestEnvironment(): Promise<ValidateCommentTe
         predicate: async () => typeof postForInstance.updatedAt === "number"
     });
 
-    const postWithReplies = await publishRandomPost(subplebbit.address, publisherPlebbit, {
-        content: `validate-comment-reply-root ${Date.now()}`
+    const postWithReplies = await publishRandomPost({
+        subplebbitAddress: subplebbit.address,
+        plebbit: publisherPlebbit,
+        postProps: {
+            content: `validate-comment-reply-root ${Date.now()}`
+        }
     });
     await postWithReplies.update();
     await resolveWhenConditionIsTrue({

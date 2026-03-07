@@ -38,13 +38,13 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
             await mockCacheOfTextRecord({
                 plebbit,
                 domain,
-                textRecord: "subplebbit-address",
+                resolveType: "subplebbit",
                 value: subplebbit.signer.address
             });
             await mockCacheOfTextRecord({
                 plebbit: remotePlebbit,
                 domain,
-                textRecord: "subplebbit-address",
+                resolveType: "subplebbit",
                 value: subplebbit.signer.address
             });
         }
@@ -57,7 +57,7 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
         expect(subplebbit.address).to.equal(ethNameAddress);
 
         // Publish a post under the .eth address
-        postPublishedOnEth = await publishRandomPost(ethNameAddress, plebbit);
+        postPublishedOnEth = await publishRandomPost({ subplebbitAddress: ethNameAddress, plebbit: plebbit });
         await resolveWhenConditionIsTrue({
             toUpdate: subplebbit,
             predicate: async () =>
@@ -134,7 +134,7 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
 
         it(`createComment({cid, subplebbitAddress: ".eth"}) works when comment was published under .bso`, async () => {
             expect(subplebbit.address).to.equal(bsoNameAddress);
-            const postOnBso = await publishRandomPost(bsoNameAddress, plebbit);
+            const postOnBso = await publishRandomPost({ subplebbitAddress: bsoNameAddress, plebbit: plebbit });
             await resolveWhenConditionIsTrue({
                 toUpdate: subplebbit,
                 predicate: async () => Boolean(subplebbit?.posts?.pages?.hot?.comments?.some((comment) => comment.cid === postOnBso.cid))

@@ -39,7 +39,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         let commentToMod: Comment;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            commentToMod = await publishRandomPost(signers[0].address, plebbit);
+            commentToMod = await publishRandomPost({ subplebbitAddress: signers[0].address, plebbit: plebbit });
             await commentToMod.update();
             await resolveWhenConditionIsTrue({ toUpdate: commentToMod, predicate: async () => typeof commentToMod.updatedAt === "number" });
         });
@@ -175,7 +175,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             `Publishing CommentModeration with extra props in commentModerationPublication.commentModeration.author field - ${config.name}`,
             async () => {
                 it(`Publishing commentModerationPublication.commentModeration.author.extraProp`, async () => {
-                    const commentToModWithAuthor = await publishRandomPost(commentToMod.subplebbitAddress, plebbit);
+                    const commentToModWithAuthor = await publishRandomPost({
+                        subplebbitAddress: commentToMod.subplebbitAddress,
+                        plebbit: plebbit
+                    });
                     const commentModeration = await plebbit.createCommentModeration({
                         commentCid: commentToModWithAuthor.cid,
                         subplebbitAddress: commentToModWithAuthor.subplebbitAddress,

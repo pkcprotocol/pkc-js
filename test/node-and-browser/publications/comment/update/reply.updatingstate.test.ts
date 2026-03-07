@@ -99,8 +99,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         beforeAll(async () => {
             const tempPlebbit = await config.plebbitInstancePromise();
             const sub = await tempPlebbit.getSubplebbit({ address: subplebbitAddress });
-            const post = await publishRandomPost(sub.address, tempPlebbit);
-            const reply = await publishRandomReply(post as CommentIpfsWithCidDefined, tempPlebbit);
+            const post = await publishRandomPost({ subplebbitAddress: sub.address, plebbit: tempPlebbit });
+            const reply = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: tempPlebbit });
             replyCid = reply.cid;
             await tempPlebbit.destroy();
         });

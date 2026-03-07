@@ -18,7 +18,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         let plebbit: Plebbit, authorPost: Comment;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            authorPost = await publishRandomPost(subplebbitAddress, plebbit);
+            authorPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             expect(authorPost.flairs).to.be.undefined;
             await authorPost.update();
             await resolveWhenConditionIsTrue({ toUpdate: authorPost, predicate: async () => typeof authorPost.updatedAt === "number" });

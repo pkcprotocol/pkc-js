@@ -35,23 +35,25 @@ describe(`subplebbit.start`, async () => {
     afterAll(async () => await plebbit.destroy());
 
     it(`Started Sub can receive publications sequentially`, async () => {
-        await publishRandomPost(subplebbit.address, plebbit);
-        await publishRandomPost(subplebbit.address, plebbit);
-        await publishRandomPost(subplebbit.address, plebbit);
+        await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
+        await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
+        await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
     });
 
     it(`Started Sub can receive publications parallelly`, async () => {
-        await Promise.all(new Array(3).fill(null).map(() => publishRandomPost(subplebbit.address, plebbit)));
+        await Promise.all(
+            new Array(3).fill(null).map(() => publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit }))
+        );
     });
 
     it(`Can start a sub after stopping it`, async () => {
         const newSub = await createSubWithNoChallenge({}, plebbit);
         await newSub.start();
         await resolveWhenConditionIsTrue({ toUpdate: newSub, predicate: async () => typeof newSub.updatedAt === "number" });
-        await publishRandomPost(newSub.address, plebbit);
+        await publishRandomPost({ subplebbitAddress: newSub.address, plebbit: plebbit });
         await newSub.stop();
         await newSub.start();
-        await publishRandomPost(newSub.address, plebbit);
+        await publishRandomPost({ subplebbitAddress: newSub.address, plebbit: plebbit });
         await newSub.stop();
     });
 
@@ -70,7 +72,7 @@ describe(`subplebbit.start`, async () => {
         await new Promise((resolve) => setTimeout(resolve, localSub._plebbit.publishInterval * 2));
         expect(await listedTopics()).to.include(subplebbit.address);
 
-        await publishRandomPost(subplebbit.address, plebbit); // Should receive publication since subscription to pubsub topic has been restored
+        await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit }); // Should receive publication since subscription to pubsub topic has been restored
     });
 
     it(`Subplebbit.start() will publish an update regardless if there's a new data`, async () => {
@@ -97,7 +99,7 @@ describe(`subplebbit.start`, async () => {
         sub._getDbInternalState = async () => {
             throw Error("Mocking a failure in getting db internal state in tests");
         };
-        publishRandomPost(sub.address, plebbit);
+        publishRandomPost({ subplebbitAddress: sub.address, plebbit: plebbit });
         await resolveWhenConditionIsTrue({
             toUpdate: sub,
             predicate: async () => sub.startedState === "failed",
@@ -113,7 +115,7 @@ describe(`subplebbit.start`, async () => {
             predicate: async () => sub.startedState !== "failed",
             eventName: "startedstatechange"
         });
-        const post = await publishRandomPost(sub.address, plebbit);
+        const post = await publishRandomPost({ subplebbitAddress: sub.address, plebbit: plebbit });
         await waitTillPostInSubplebbitPages(post as CommentIpfsWithCidDefined, plebbit);
         await sub.delete();
     });
@@ -128,7 +130,7 @@ describe(`subplebbit.start`, async () => {
         ipfsClient.files.write = () => {
             throw Error("Mocking a failure in copying MFS file in tests");
         };
-        publishRandomPost(sub.address, plebbit);
+        publishRandomPost({ subplebbitAddress: sub.address, plebbit: plebbit });
 
         await resolveWhenConditionIsTrue({
             toUpdate: sub,
@@ -144,7 +146,7 @@ describe(`subplebbit.start`, async () => {
             predicate: async () => sub.startedState !== "failed",
             eventName: "startedstatechange"
         });
-        const post = await publishRandomPost(sub.address, plebbit);
+        const post = await publishRandomPost({ subplebbitAddress: sub.address, plebbit: plebbit });
         await waitTillPostInSubplebbitPages(post as CommentIpfsWithCidDefined, plebbit);
         await sub.delete();
     });
@@ -307,7 +309,7 @@ describe(`Start lock`, async () => {
         await new Promise((resolve) => setTimeout(resolve, 11000)); // Wait for 11s for lock to be considered stale
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
-        const post = await publishRandomPost(sub.address, plebbit);
+        const post = await publishRandomPost({ subplebbitAddress: sub.address, plebbit: plebbit });
         await waitTillPostInSubplebbitPages(post as CommentIpfsWithCidDefined, plebbit);
         await sub.delete();
     });
@@ -366,8 +368,8 @@ describe(`Start lock`, async () => {
             receivedChallengeVerification = true;
         });
 
-        await publishRandomPost(sub1.address, plebbit, {});
-        publishRandomPost(sub1.address, plebbit, {});
+        await publishRandomPost({ subplebbitAddress: sub1.address, plebbit: plebbit });
+        publishRandomPost({ subplebbitAddress: sub1.address, plebbit: plebbit });
 
         await new Promise((resolve) => setTimeout(resolve, plebbit.publishInterval * 2));
 
@@ -431,7 +433,7 @@ describe(`Start lock`, async () => {
         const sub = (await createSubWithNoChallenge({}, plebbit)) as LocalSubplebbit;
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
-        await publishRandomPost(sub.address, plebbit);
+        await publishRandomPost({ subplebbitAddress: sub.address, plebbit: plebbit });
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => sub._cidsToUnPin.size > 0 });
         await sub.stop();
         const recreatedSub = (await plebbit.createSubplebbit({ address: sub.address })) as LocalSubplebbit;
@@ -538,7 +540,7 @@ describe(`Publish loop resiliency`, async () => {
 
         expect(mockPost.author.address).to.equal("plebbit.bso");
 
-        const post = await publishRandomPost(subplebbit.address, plebbit); // Stimulate an update
+        const post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit }); // Stimulate an update
         await waitTillPostInSubplebbitPages(post as CommentIpfsWithCidDefined, plebbit);
 
         for (const resolveAuthorAddresses of [true, false]) {

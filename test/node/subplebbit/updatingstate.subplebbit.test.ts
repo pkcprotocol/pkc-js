@@ -52,7 +52,7 @@ describe.concurrent(`subplebbit.updatingState from a local subplebbit`, async ()
         await localUpdatingSub.update();
         const updatePromise = new Promise((resolve) => localUpdatingSub.once("update", resolve));
 
-        await publishRandomPost(localUpdatingSub.address, plebbit);
+        await publishRandomPost({ subplebbitAddress: localUpdatingSub.address, plebbit: plebbit });
         await updatePromise;
         await localUpdatingSub.stop();
         await startedSubplebbit.delete();
@@ -78,9 +78,9 @@ describe.concurrent(`subplebbit.updatingState from a local subplebbit`, async ()
 
         await updatingSub.update();
 
-        await publishRandomPost(startedSub.address, plebbit); // to trigger an update
+        await publishRandomPost({ subplebbitAddress: startedSub.address, plebbit: plebbit }); // to trigger an update
         await new Promise((resolve) => setTimeout(resolve, 1000));
-        await publishRandomPost(startedSub.address, plebbit);
+        await publishRandomPost({ subplebbitAddress: startedSub.address, plebbit: plebbit });
 
         await resolveWhenConditionIsTrue({ toUpdate: updatingSub, predicate: async () => updates.length >= 2 });
         await startedSub.delete();

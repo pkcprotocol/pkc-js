@@ -43,7 +43,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it("Can publish a post", async () => {
             const title = "Test of ability to publish posts" + Date.now();
-            const post = await publishRandomPost(subplebbitAddress, plebbit, { title });
+            const post = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit, postProps: { title } });
             expect(post.depth).to.equal(0);
             expect(post.title).to.equal(title);
             await waitTillPostInSubplebbitInstancePages(post as CommentIpfsWithCidDefined, sub);
@@ -53,7 +53,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Can Publish a post with only link`, async () => {
             const link = "https://demo.plebbit.eth.limo";
-            const post = await generateMockPost(subplebbitAddress, plebbit, false, { link });
+            const post = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit, postProps: { link } });
             expect(post.link).to.equal(link);
             await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
             await waitTillPostInSubplebbitInstancePages(post as CommentIpfsWithCidDefined, sub);
@@ -71,9 +71,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             await Promise.all(
                 emojiContents.map(async (content) => {
-                    const publishedPostWithEmojiContent = await publishRandomPost(subplebbitAddress, plebbit, {
-                        content,
-                        title: content
+                    const publishedPostWithEmojiContent = await publishRandomPost({
+                        subplebbitAddress: subplebbitAddress,
+                        plebbit: plebbit,
+                        postProps: {
+                            content,
+                            title: content
+                        }
                     });
                     expect(publishedPostWithEmojiContent.content).to.equal(content);
                     expect(publishedPostWithEmojiContent.title).to.equal(content);
@@ -97,7 +101,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`post.author.shortAddress is defined throughout publishing`, async () => {
-            const post = await generateMockPost(subplebbitAddress, plebbit, false);
+            const post = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             expect(post.author.shortAddress).to.be.a("string").with.length.above(0);
             expect(JSON.parse(JSON.stringify(post)).author.shortAddress)
                 .to.be.a("string")
@@ -151,7 +155,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             await Promise.all(
                 spoilerValues.map(async (spoilerValue) => {
-                    const post = await generateMockPost(subplebbitAddress, plebbit, false, { spoiler: spoilerValue });
+                    const post = await generateMockPost({
+                        subplebbitAddress: subplebbitAddress,
+                        plebbit: plebbit,
+                        postProps: { spoiler: spoilerValue }
+                    });
 
                     expect(post.spoiler).to.equal(spoilerValue);
 
@@ -172,7 +180,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             await Promise.all(
                 nsfwValues.map(async (nsfwValue) => {
-                    const post = await generateMockPost(subplebbitAddress, plebbit, false, { nsfw: nsfwValue });
+                    const post = await generateMockPost({
+                        subplebbitAddress: subplebbitAddress,
+                        plebbit: plebbit,
+                        postProps: { nsfw: nsfwValue }
+                    });
 
                     expect(post.nsfw).to.equal(nsfwValue);
 
@@ -196,7 +208,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     signature: { type: "eip191", signature: "0xnotactualsignaturejusttosatisfyschema" }
                 }
             };
-            const post = await generateMockPost(subplebbitAddress, plebbit, false, { author: { wallets } });
+            const post = await generateMockPost({
+                subplebbitAddress: subplebbitAddress,
+                plebbit: plebbit,
+                postProps: { author: { wallets } }
+            });
             expect(post.author.wallets).to.deep.equal(wallets);
             await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
             await waitTillPostInSubplebbitInstancePages(post as CommentIpfsWithCidDefined, sub);
@@ -206,14 +222,14 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can publish a post that was created from another comment instance`, async () => {
-            const comment1 = await generateMockPost(subplebbitAddress, plebbit);
+            const comment1 = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             const commentToPublish = await plebbit.createComment(comment1);
             await publishWithExpectedResult({ publication: commentToPublish, expectedChallengeSuccess: true });
             expect(commentToPublish.toJSONPubsubMessagePublication()).to.deep.equal(comment1.toJSONPubsubMessagePublication());
         });
 
         it(`Can publish a post that was created from jsonfied comment instance`, async () => {
-            const comment1 = await generateMockPost(subplebbitAddress, plebbit);
+            const comment1 = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             const commentToPublish = await plebbit.createComment(JSON.parse(JSON.stringify(comment1)));
             await publishWithExpectedResult({ publication: commentToPublish, expectedChallengeSuccess: true });
             expect(commentToPublish.toJSONPubsubMessagePublication()).to.deep.equal(comment1.toJSONPubsubMessagePublication());
@@ -221,9 +237,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can publish a post with linkHtmlTagName defined`, async () => {
-            const post = await generateMockPost(subplebbitAddress, plebbit, false, {
-                linkHtmlTagName: "img",
-                link: "https://google.com"
+            const post = await generateMockPost({
+                subplebbitAddress: subplebbitAddress,
+                plebbit: plebbit,
+                postProps: {
+                    linkHtmlTagName: "img",
+                    link: "https://google.com"
+                }
             });
             expect(post.linkHtmlTagName).to.equal("img");
             expect(post.link).to.equal("https://google.com");
@@ -238,7 +258,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`A post with author.wallet = {} doesn't cause issues with pages or signatures`, async () => {
-            const post = await generateMockPost(subplebbitAddress, plebbit, false, { author: { wallets: {} } });
+            const post = await generateMockPost({
+                subplebbitAddress: subplebbitAddress,
+                plebbit: plebbit,
+                postProps: { author: { wallets: {} } }
+            });
             // plebbit.createComment will remove empty {}, so author.wallets will be undefined
             expect(post.author.wallets).to.be.undefined;
             await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
@@ -255,7 +279,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         itSkipIfRpc(`publish() can be caught if subplebbit failed to load`, async () => {
             const randomSigner = await plebbit.createSigner();
             const downSubplebbitAddress = randomSigner.address; // an offline sub
-            const post = await generateMockPost(downSubplebbitAddress, plebbit);
+            const post = await generateMockPost({ subplebbitAddress: downSubplebbitAddress, plebbit: plebbit });
             plebbit._timeouts["subplebbit-ipns"] = 100; // need to change time out from 5 minutes to 100ms
 
             try {
@@ -313,12 +337,16 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const title = `Test title on Comment ${Date.now()} ${Math.random()}`;
             const content = "Random Content" + Math.random();
             const link = "https://plebbit.com";
-            const post = await publishRandomPost(subplebbitAddress, plebbit);
+            const post = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             await post.update();
-            const reply = await publishRandomReply(post as CommentIpfsWithCidDefined, plebbit, {
-                title,
-                content,
-                link
+            const reply = await publishRandomReply({
+                parentComment: post as CommentIpfsWithCidDefined,
+                plebbit: plebbit,
+                commentProps: {
+                    title,
+                    content,
+                    link
+                }
             });
             expect(reply.title).to.equal(title);
             expect(reply.content).to.equal(content);

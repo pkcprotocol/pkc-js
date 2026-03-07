@@ -32,8 +32,8 @@ describe.concurrent(`subplebbit.features.noSpoilerReplies`, async () => {
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
         // Publish a post and a reply first (before enabling the feature)
-        publishedPost = await publishRandomPost(subplebbit.address, remotePlebbit);
-        publishedReply = await publishRandomReply(publishedPost as CommentIpfsWithCidDefined, remotePlebbit);
+        publishedPost = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
+        publishedReply = await publishRandomReply({ parentComment: publishedPost as CommentIpfsWithCidDefined, plebbit: remotePlebbit });
     });
 
     afterAll(async () => {
@@ -55,9 +55,13 @@ describe.concurrent(`subplebbit.features.noSpoilerReplies`, async () => {
     });
 
     it(`Can publish a post with spoiler=true (noSpoilerReplies only blocks replies)`, async () => {
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, {
-            content: "Spoiler content",
-            spoiler: true
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                content: "Spoiler content",
+                spoiler: true
+            }
         });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });

@@ -31,11 +31,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             // Create a post
-            post = await publishRandomPost(subplebbitAddress, plebbit);
+            post = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             // Create a reply under the post
-            reply1 = await publishRandomReply(post as CommentIpfsWithCidDefined, plebbit);
+            reply1 = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
             // Create another post for cross-thread testing
-            post2 = await publishRandomPost(subplebbitAddress, plebbit);
+            post2 = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
         });
 
         afterAll(async () => {
@@ -122,8 +122,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         describe("Invalid quotedCids scenarios", () => {
             it("Post with quotedCids is rejected", async () => {
-                const newPost = await generateMockPost(subplebbitAddress, plebbit, false, {
-                    signer: signers[1]
+                const newPost = await generateMockPost({
+                    subplebbitAddress: subplebbitAddress,
+                    plebbit: plebbit,
+                    postProps: {
+                        signer: signers[1]
+                    }
                 });
                 await setExtraPropOnCommentAndSign(newPost, { quotedCids: [post.cid!] }, true);
                 await publishWithExpectedResult({
@@ -195,8 +199,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         describe("Edge case quotedCids scenarios", () => {
             it("Reply quoting a sibling reply (same parent) succeeds", async () => {
                 // Create two sibling replies under the same post, then a third that quotes both
-                const sibling1 = await publishRandomReply(post as CommentIpfsWithCidDefined, plebbit);
-                const sibling2 = await publishRandomReply(post as CommentIpfsWithCidDefined, plebbit);
+                const sibling1 = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
+                const sibling2 = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
 
                 const quotedCids = [sibling1.cid!, sibling2.cid!];
                 const reply = await generateMockComment(post as CommentIpfsWithCidDefined, plebbit, false, {
@@ -213,7 +217,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             it("Reply quoting a deeply nested comment chain succeeds", async () => {
                 // Create a chain: reply1 → reply2 (quotes reply1) → reply3 (quotes both reply1 and reply2)
-                const deepReply1 = await publishRandomReply(post as CommentIpfsWithCidDefined, plebbit);
+                const deepReply1 = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
 
                 // reply2 quotes reply1
                 const deepReply2 = await generateMockComment(post as CommentIpfsWithCidDefined, plebbit, false, {
@@ -240,7 +244,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 // Create multiple replies and quote all of them
                 const replyPromises = [];
                 for (let i = 0; i < 10; i++) {
-                    replyPromises.push(publishRandomReply(post as CommentIpfsWithCidDefined, plebbit));
+                    replyPromises.push(publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit }));
                 }
                 const replies = await Promise.all(replyPromises);
 
@@ -271,10 +275,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             // Create a post
-            post = await publishRandomPost(modSubplebbitAddress, plebbit);
+            post = await publishRandomPost({ subplebbitAddress: modSubplebbitAddress, plebbit: plebbit });
             // Create replies that will be removed/deleted
-            replyToRemove = await publishRandomReply(post as CommentIpfsWithCidDefined, plebbit);
-            replyToDelete = await publishRandomReply(post as CommentIpfsWithCidDefined, plebbit);
+            replyToRemove = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
+            replyToDelete = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
 
             // Remove the first reply (mod action)
             const removeModeration = await plebbit.createCommentModeration({

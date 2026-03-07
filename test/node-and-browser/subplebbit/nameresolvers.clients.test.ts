@@ -25,9 +25,13 @@ describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
     it(`Correct order of nameResolvers state when sub pages has comments with author.address as domain - uncached`, async () => {
         const plebbit = await mockPlebbitV2({ stubStorage: true, plebbitOptions: { validatePages: false }, remotePlebbit: true }); // no storage so it wouldn't be cached
 
-        const mockPost = await publishRandomPost(subplebbitAddress, plebbit, {
-            author: { address: "plebbit.bso" },
-            signer: signers[6]
+        const mockPost = await publishRandomPost({
+            subplebbitAddress: subplebbitAddress,
+            plebbit: plebbit,
+            postProps: {
+                author: { address: "plebbit.bso" },
+                signer: signers[6]
+            }
         });
 
         await waitTillPostInSubplebbitPages(mockPost as Required<Pick<typeof mockPost, "cid" | "subplebbitAddress">>, plebbit);
@@ -74,7 +78,7 @@ describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
         await mockCacheOfTextRecord({
             plebbit: sub._plebbit,
             domain: "plebbit.eth",
-            textRecord: "plebbit-author-address",
+            resolveType: "author",
             value: signers[6].address
         });
         const recordedStates: string[] = [];
@@ -136,7 +140,7 @@ describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
         await mockCacheOfTextRecord({
             plebbit: sub._plebbit,
             domain: sub.address,
-            textRecord: "subplebbit-address",
+            resolveType: "subplebbit",
             value: signers[3].address
         });
 

@@ -31,7 +31,7 @@ describe.concurrent(`subplebbit.features.noNestedReplies`, async () => {
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
         // Pre-publish a post for testing replies
-        publishedPost = await publishRandomPost(subplebbit.address, remotePlebbit);
+        publishedPost = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
     });
 
     afterAll(async () => {
@@ -53,7 +53,7 @@ describe.concurrent(`subplebbit.features.noNestedReplies`, async () => {
     });
 
     it(`Can publish a post`, async () => {
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false);
+        const post = await generateMockPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });
 
@@ -64,7 +64,7 @@ describe.concurrent(`subplebbit.features.noNestedReplies`, async () => {
 
     it(`Can't publish a nested reply (depth > 1)`, async () => {
         // First publish a reply to the post
-        const reply = await publishRandomReply(publishedPost as CommentIpfsWithCidDefined, remotePlebbit);
+        const reply = await publishRandomReply({ parentComment: publishedPost as CommentIpfsWithCidDefined, plebbit: remotePlebbit });
 
         // Now try to reply to that reply (nested reply)
         const nestedReply = await generateMockComment(reply as CommentIpfsWithCidDefined, remotePlebbit, false);

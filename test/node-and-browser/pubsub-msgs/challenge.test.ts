@@ -27,7 +27,9 @@ describe.skip(`Stress test challenge exchange`, async () => {
     });
 
     it(`Initiate ${num} challenge exchange in parallel`, async () => {
-        const promises = new Array(num).fill(null).map(() => publishRandomPost(subplebbit.address, plebbit, {}));
+        const promises = new Array(num)
+            .fill(null)
+            .map(() => publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit }));
         await Promise.all(promises);
     });
 });
@@ -49,7 +51,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
             await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });
         });
         it("Throws an error when user fails to solve mathcli captcha", async function () {
-            const mockPost = await generateMockPost(mathCliSubplebbitAddress, plebbit, false, { signer: signers[0] });
+            const mockPost = await generateMockPost({
+                subplebbitAddress: mathCliSubplebbitAddress,
+                plebbit: plebbit,
+                postProps: { signer: signers[0] }
+            });
             mockPost.removeAllListeners();
             mockPost.once("challenge", (challengeMessage: unknown) => {
                 mockPost.publishChallengeAnswers(["3"]); // wrong answer

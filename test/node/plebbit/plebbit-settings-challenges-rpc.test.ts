@@ -334,14 +334,22 @@ describe("plebbit.settings.challenges over RPC", () => {
         expect(subplebbit.challenges![0].challenge).to.equal("What color is the sky?");
 
         // Publish with correct pre-answer — should succeed
-        const correctPost = await generateMockPost(subplebbit.address, clientPlebbit, false, {
-            challengeRequest: { challengeAnswers: ["blue"] }
+        const correctPost = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: clientPlebbit,
+            postProps: {
+                challengeRequest: { challengeAnswers: ["blue"] }
+            }
         });
         await publishWithExpectedResult({ publication: correctPost, expectedChallengeSuccess: true });
 
         // Publish with wrong pre-answer — should fail
-        const wrongPost = await generateMockPost(subplebbit.address, clientPlebbit, false, {
-            challengeRequest: { challengeAnswers: ["red"] }
+        const wrongPost = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: clientPlebbit,
+            postProps: {
+                challengeRequest: { challengeAnswers: ["red"] }
+            }
         });
         await publishWithExpectedResult({ publication: wrongPost, expectedChallengeSuccess: false });
 

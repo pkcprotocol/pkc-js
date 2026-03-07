@@ -30,7 +30,7 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
         const randomSigner = await gatewayPlebbit.createSigner();
         const offlineSubAddress = randomSigner.address; // offline sub
 
-        const post = await generateMockPost(offlineSubAddress, gatewayPlebbit);
+        const post = await generateMockPost({ subplebbitAddress: offlineSubAddress, plebbit: gatewayPlebbit });
 
         gatewayPlebbit._timeouts["subplebbit-ipns"] = 5000; // reduce timeout or otherwise it's gonna keep retrying for 5 minutes
 
@@ -67,7 +67,7 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
             "http://127.0.0.1:18083",
             "http://127.0.0.1:18080"
         ]);
-        const post = await generateMockPost(subplebbitAddress, gatewayPlebbit);
+        const post = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: gatewayPlebbit });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
         await gatewayPlebbit.destroy();
     });
@@ -92,7 +92,7 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
         };
         // Only pubsubProviders [2] is able to publish/subscribe
 
-        const post = await generateMockPost(subplebbitAddress, tempPlebbit);
+        const post = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: tempPlebbit });
         // Pre-set _subplebbit to skip the network IPNS fetch in _initSubplebbit(),
         // which is flaky in CI. This isolates the test to only exercise the pubsub failure path.
         (post as any)._subplebbit = {
@@ -116,7 +116,7 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
         plebbit.clients.pubsubKuboRpcClients[notRespondingPubsubUrl]._client.pubsub.publish = async () => {};
         plebbit.clients.pubsubKuboRpcClients[notRespondingPubsubUrl]._client.pubsub.subscribe = async () => {};
 
-        const mockPost = await generateMockPost(signers[0].address, plebbit);
+        const mockPost = await generateMockPost({ subplebbitAddress: signers[0].address, plebbit: plebbit });
         // Pre-set _subplebbit to skip the network IPNS fetch in _initSubplebbit(),
         // which is flaky in CI. This isolates the test to only exercise the pubsub failure path.
         (mockPost as any)._subplebbit = {
@@ -151,7 +151,7 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
         const offlinePubsubPlebbit = await mockRemotePlebbit({
             plebbitOptions: { pubsubKuboRpcClientsOptions: offlinePubsubUrls }
         });
-        const mockPost = await generateMockPost(signers[1].address, offlinePubsubPlebbit);
+        const mockPost = await generateMockPost({ subplebbitAddress: signers[1].address, plebbit: offlinePubsubPlebbit });
         // Pre-set _subplebbit to skip the network IPNS fetch in _initSubplebbit(),
         // which is flaky in CI. This isolates the test to only exercise the pubsub failure path.
         (mockPost as any)._subplebbit = {
@@ -186,7 +186,7 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
         const offlinePubsubPlebbit = await mockRemotePlebbit({
             plebbitOptions: { pubsubKuboRpcClientsOptions: [notRespondingPubsubUrl, offlinePubsubUrl] }
         });
-        const mockPost = await generateMockPost(signers[1].address, offlinePubsubPlebbit);
+        const mockPost = await generateMockPost({ subplebbitAddress: signers[1].address, plebbit: offlinePubsubPlebbit });
         // Pre-set _subplebbit to skip the network IPNS fetch in _initSubplebbit(),
         // which is flaky in CI. This isolates the test to only exercise the pubsub failure path.
         (mockPost as any)._subplebbit = {

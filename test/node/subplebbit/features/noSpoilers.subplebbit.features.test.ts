@@ -30,7 +30,7 @@ describe.concurrent(`subplebbit.features.noSpoilers`, async () => {
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
         // Publish a post first (before enabling the feature)
-        publishedPost = await publishRandomPost(subplebbit.address, remotePlebbit);
+        publishedPost = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
     });
 
     afterAll(async () => {
@@ -52,9 +52,13 @@ describe.concurrent(`subplebbit.features.noSpoilers`, async () => {
     });
 
     it(`Can't publish a post with spoiler=true`, async () => {
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, {
-            content: "Spoiler content",
-            spoiler: true
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                content: "Spoiler content",
+                spoiler: true
+            }
         });
         await publishWithExpectedResult({
             publication: post,
@@ -76,16 +80,24 @@ describe.concurrent(`subplebbit.features.noSpoilers`, async () => {
     });
 
     it(`Can publish a post without spoiler`, async () => {
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, {
-            content: "Normal content"
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                content: "Normal content"
+            }
         });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });
 
     it(`Can publish a post with spoiler=false`, async () => {
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, {
-            content: "Normal content",
-            spoiler: false
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                content: "Normal content",
+                spoiler: false
+            }
         });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });

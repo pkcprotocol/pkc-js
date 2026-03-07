@@ -30,7 +30,7 @@ describe.concurrent(`subplebbit.features.noMarkdownAudio`, async () => {
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
         // Publish a post first (before enabling the feature) to test comment edits later
-        publishedPost = await publishRandomPost(subplebbit.address, remotePlebbit);
+        publishedPost = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
     });
 
     afterAll(async () => {
@@ -53,7 +53,11 @@ describe.concurrent(`subplebbit.features.noMarkdownAudio`, async () => {
 
     it(`Can't publish a post with markdown audio syntax (.mp3)`, async () => {
         const contentWithMarkdownAudio = "Here is audio: ![song](https://example.com/song.mp3)";
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, { content: contentWithMarkdownAudio });
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: { content: contentWithMarkdownAudio }
+        });
         await publishWithExpectedResult({
             publication: post,
             expectedChallengeSuccess: false,
@@ -63,7 +67,11 @@ describe.concurrent(`subplebbit.features.noMarkdownAudio`, async () => {
 
     it(`Can't publish a post with HTML audio tag`, async () => {
         const contentWithHtmlAudio = 'Here is audio: <audio src="https://example.com/song.mp3"></audio>';
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, { content: contentWithHtmlAudio });
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: { content: contentWithHtmlAudio }
+        });
         await publishWithExpectedResult({
             publication: post,
             expectedChallengeSuccess: false,
@@ -85,20 +93,32 @@ describe.concurrent(`subplebbit.features.noMarkdownAudio`, async () => {
 
     it(`Can publish a post with plain text content`, async () => {
         const plainContent = "This is just plain text without any audio";
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, { content: plainContent });
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: { content: plainContent }
+        });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });
 
     it(`Can publish a post with markdown image (not audio)`, async () => {
         const contentWithImage = "Here is an image: ![img](https://example.com/photo.jpg)";
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, { content: contentWithImage });
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: { content: contentWithImage }
+        });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });
 
     it(`Can publish a post with direct link field to audio URL (not markdown content)`, async () => {
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, {
-            link: "https://example.com/song.mp3",
-            content: "Just text"
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                link: "https://example.com/song.mp3",
+                content: "Just text"
+            }
         });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });

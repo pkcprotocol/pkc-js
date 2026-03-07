@@ -116,7 +116,7 @@ describe.concurrent(`plebbit._startedSubplebbits`, () => {
         await startedSub.start();
         expect(plebbit._startedSubplebbits[startedSub.address]).to.exist;
 
-        const post = await publishRandomPost(startedSub.address, plebbit);
+        const post = await publishRandomPost({ subplebbitAddress: startedSub.address, plebbit: plebbit });
         const comment = await plebbit.createComment({ cid: post.cid! });
         await comment.update();
         await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });

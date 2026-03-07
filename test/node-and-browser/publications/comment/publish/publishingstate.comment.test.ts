@@ -99,7 +99,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                 "succeeded"
             ];
             const recordedStates: string[] = [];
-            const mockPost = await generateMockPost("plebbit.bso", plebbit);
+            const mockPost = await generateMockPost({ subplebbitAddress: "plebbit.bso", plebbit: plebbit });
             mockPost._getSubplebbitCache = () => undefined;
 
             mockPost.on("publishingstatechange", (newState: string) => recordedStates.push(newState));
@@ -128,7 +128,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                 plebbitOptions: { pubsubKuboRpcClientsOptions: [offlinePubsubUrl] }
             });
             offlinePubsubPlebbit.on("error", () => {});
-            const mockPost = await generateMockPost(signers[1].address, offlinePubsubPlebbit);
+            const mockPost = await generateMockPost({ subplebbitAddress: signers[1].address, plebbit: offlinePubsubPlebbit });
 
             try {
                 await mockPost.publish();
@@ -224,12 +224,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`publishingState is stopped by default`, async () => {
-            const comment = await generateMockPost(subplebbitAddress, plebbit);
+            const comment = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             expect(comment.publishingState).to.equal("stopped");
         });
 
         it(`comment.publishingState = 'failed' if user provide incorrect answer`, async () => {
-            const mockPost = await generateMockPost(mathCliSubplebbitAddress, plebbit);
+            const mockPost = await generateMockPost({ subplebbitAddress: mathCliSubplebbitAddress, plebbit: plebbit });
             mockPost.removeAllListeners("challenge");
 
             mockPost.once("challenge", async (challengeMsg) => {
@@ -248,7 +248,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             await ipnsObj.publishToIpns("<html></html>");
 
-            const mockPost = await generateMockPost(ipnsObj.signer.address, plebbit);
+            const mockPost = await generateMockPost({ subplebbitAddress: ipnsObj.signer.address, plebbit: plebbit });
 
             const recordedPublishingStates: string[] = [];
 
@@ -276,7 +276,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             const mockedSub = await publishSubplebbitRecordWithExtraProp();
 
-            const mockPost = await generateMockPost(mockedSub.ipnsObj.signer.address, plebbit);
+            const mockPost = await generateMockPost({ subplebbitAddress: mockedSub.ipnsObj.signer.address, plebbit: plebbit });
             (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 1;
             (mockPost as unknown as CommentWithInternals)._setProviderFailureThresholdSeconds = 2;
 

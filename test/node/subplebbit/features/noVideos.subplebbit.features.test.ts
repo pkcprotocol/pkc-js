@@ -30,7 +30,7 @@ describe.concurrent(`subplebbit.features.noVideos`, async () => {
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
         // Publish a post first (before enabling the feature)
-        publishedPost = await publishRandomPost(subplebbit.address, remotePlebbit);
+        publishedPost = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
     });
 
     afterAll(async () => {
@@ -52,9 +52,13 @@ describe.concurrent(`subplebbit.features.noVideos`, async () => {
     });
 
     it(`Can't publish a post with video link`, async () => {
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, {
-            link: "https://example.com/video.mp4",
-            content: "Just text"
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                link: "https://example.com/video.mp4",
+                content: "Just text"
+            }
         });
         await publishWithExpectedResult({
             publication: post,
@@ -75,17 +79,25 @@ describe.concurrent(`subplebbit.features.noVideos`, async () => {
     });
 
     it(`Can publish a post with image link (noVideos doesn't block images)`, async () => {
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, {
-            link: "https://example.com/image.png",
-            content: "Just text"
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                link: "https://example.com/image.png",
+                content: "Just text"
+            }
         });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });
 
     it(`Can't publish a post with GIF link`, async () => {
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, {
-            link: "https://example.com/animation.gif",
-            content: "Just text"
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                link: "https://example.com/animation.gif",
+                content: "Just text"
+            }
         });
         await publishWithExpectedResult({
             publication: post,
@@ -95,9 +107,13 @@ describe.concurrent(`subplebbit.features.noVideos`, async () => {
     });
 
     it(`Can't publish a post with APNG link`, async () => {
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, {
-            link: "https://example.com/animation.apng",
-            content: "Just text"
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                link: "https://example.com/animation.apng",
+                content: "Just text"
+            }
         });
         await publishWithExpectedResult({
             publication: post,
@@ -107,8 +123,12 @@ describe.concurrent(`subplebbit.features.noVideos`, async () => {
     });
 
     it(`Can publish a post with plain content (no link)`, async () => {
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, {
-            content: "Just plain text"
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                content: "Just plain text"
+            }
         });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });

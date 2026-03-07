@@ -26,10 +26,13 @@ describe.skip(`Test for maximum depth of ${depth}`, () => {
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
 
         const remotePlebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
-        const post: Comment = await publishRandomPost(sub.address, remotePlebbit);
+        const post: Comment = await publishRandomPost({ subplebbitAddress: sub.address, plebbit: remotePlebbit });
         let lastReply: Comment | undefined;
         for (let i = 0; i < depth; i++) {
-            lastReply = await publishRandomReply((lastReply || post) as CommentIpfsWithCidDefined, remotePlebbit);
+            lastReply = await publishRandomReply({
+                parentComment: (lastReply || post) as CommentIpfsWithCidDefined,
+                plebbit: remotePlebbit
+            });
             expect(lastReply.depth).to.equal(i + 1);
             console.log("Published reply with depth", lastReply.depth);
         }

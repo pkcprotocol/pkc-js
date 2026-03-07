@@ -36,8 +36,12 @@ describe(`subplebbit.features.requirePostFlairs`, async () => {
         });
 
         // Publish a post before enabling requirePostFlairs (with flair since postFlairs is enabled)
-        publishedPost = (await publishRandomPost(subplebbit.address, remotePlebbit, {
-            flairs: [validPostFlair]
+        publishedPost = (await publishRandomPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                flairs: [validPostFlair]
+            }
         })) as unknown as CommentIpfsWithCidDefined;
     });
 
@@ -53,7 +57,7 @@ describe(`subplebbit.features.requirePostFlairs`, async () => {
     });
 
     it(`Can't publish a post without post flairs`, async () => {
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false);
+        const post = await generateMockPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
         await publishWithExpectedResult({
             publication: post,
             expectedChallengeSuccess: false,
@@ -67,16 +71,24 @@ describe(`subplebbit.features.requirePostFlairs`, async () => {
     });
 
     it(`Can publish a post with valid post flair`, async () => {
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, {
-            flairs: [validPostFlair]
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                flairs: [validPostFlair]
+            }
         });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });
 
     it(`Can't publish a post with invalid post flair even when required`, async () => {
         const invalidFlair = { text: "Invalid", backgroundColor: "#ff0000" };
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, {
-            flairs: [invalidFlair]
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                flairs: [invalidFlair]
+            }
         });
         await publishWithExpectedResult({
             publication: post,

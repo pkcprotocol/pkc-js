@@ -43,7 +43,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             plebbit = await config.plebbitInstancePromise();
             subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
 
-            post = await publishRandomPost(subplebbit.address, plebbit);
+            post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
             await post.update();
             await resolveWhenConditionIsTrue({ toUpdate: post, predicate: async () => typeof post.updatedAt === "number" });
             await post.stop();
@@ -243,7 +243,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`Extra props in decryptedVerification.commentUpdate should fail if they're not part of commentUpdate.signature.signedPropertyNames`, async () => {
-            const post = await generateMockPost(subWithNoResponseSigner.address, plebbit);
+            const post = await generateMockPost({ subplebbitAddress: subWithNoResponseSigner.address, plebbit: plebbit });
 
             const commentUpdate = JSON.parse(JSON.stringify(validCommentUpdateFixture));
             const extraProps = { extraProp: 1234 };
@@ -268,7 +268,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await post.stop();
         });
         it(`Extra props in decryptedVerification.commentUpdate should be accepted if they're part of commentUpdate.signature.signedPropertyNames`, async () => {
-            const post = await generateMockPost(subWithNoResponseSigner.address, plebbit);
+            const post = await generateMockPost({ subplebbitAddress: subWithNoResponseSigner.address, plebbit: plebbit });
 
             const mockCommentIpfs = { ...post.raw.pubsubMessageToPublish, depth: 0 };
 
@@ -303,7 +303,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`Extra props in decryptedVerification.commentUpdate.author should be accepted`, async () => {
-            const post = await generateMockPost(subWithNoResponseSigner.address, plebbit);
+            const post = await generateMockPost({ subplebbitAddress: subWithNoResponseSigner.address, plebbit: plebbit });
 
             const mockCommentIpfs = { ...post.raw.pubsubMessageToPublish, depth: 0 };
 

@@ -36,8 +36,12 @@ describe(`subplebbit.features.requireAuthorFlairs`, async () => {
         });
 
         // Publish a post before enabling requireAuthorFlairs (with author flair since authorFlairs is enabled)
-        publishedPost = (await publishRandomPost(subplebbit.address, remotePlebbit, {
-            author: { displayName: "Test", flairs: [validAuthorFlair] }
+        publishedPost = (await publishRandomPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                author: { displayName: "Test", flairs: [validAuthorFlair] }
+            }
         })) as unknown as CommentIpfsWithCidDefined;
     });
 
@@ -53,7 +57,7 @@ describe(`subplebbit.features.requireAuthorFlairs`, async () => {
     });
 
     it(`Can't publish a post without author flairs`, async () => {
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false);
+        const post = await generateMockPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
         await publishWithExpectedResult({
             publication: post,
             expectedChallengeSuccess: false,
@@ -71,8 +75,12 @@ describe(`subplebbit.features.requireAuthorFlairs`, async () => {
     });
 
     it(`Can publish a post with valid author flair`, async () => {
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, {
-            author: { displayName: "Test", flairs: [validAuthorFlair] }
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                author: { displayName: "Test", flairs: [validAuthorFlair] }
+            }
         });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });
@@ -86,8 +94,12 @@ describe(`subplebbit.features.requireAuthorFlairs`, async () => {
 
     it(`Can't publish a post with invalid author flair even when required`, async () => {
         const invalidFlair = { text: "Invalid", backgroundColor: "#ff0000" };
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, {
-            author: { displayName: "Test", flairs: [invalidFlair] }
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                author: { displayName: "Test", flairs: [invalidFlair] }
+            }
         });
         await publishWithExpectedResult({
             publication: post,

@@ -114,12 +114,17 @@ function generateRandomTimestamp(parentTimestamp?: number): number {
     return randomTimestamp;
 }
 
-export async function generateMockPost(
-    subplebbitAddress: string,
-    plebbit: Plebbit,
+export async function generateMockPost({
+    subplebbitAddress,
+    plebbit,
     randomTimestamp = false,
-    postProps: Partial<CreateCommentOptions> = {}
-): Promise<Comment> {
+    postProps = {}
+}: {
+    subplebbitAddress: string;
+    plebbit: Plebbit;
+    randomTimestamp?: boolean;
+    postProps?: Partial<CreateCommentOptions>;
+}): Promise<Comment> {
     const postTimestamp = (randomTimestamp && generateRandomTimestamp()) || timestamp();
     const postStartTestTime = Date.now() / 1000 + Math.random();
     const signer = postProps?.signer || (await plebbit.createSigner());
@@ -272,11 +277,11 @@ async function _startEnsSubplebbit(signers: SignerType[], plebbit: Plebbit): Pro
 }
 
 async function _publishPosts(subplebbitAddress: string, numOfPosts: number, plebbit: Plebbit) {
-    return Promise.all(new Array(numOfPosts).fill(null).map(() => publishRandomPost(subplebbitAddress, plebbit, {})));
+    return Promise.all(new Array(numOfPosts).fill(null).map(() => publishRandomPost({ subplebbitAddress, plebbit })));
 }
 
 async function _publishReplies(parentComment: CommentIpfsWithCidDefined, numOfReplies: number, plebbit: Plebbit) {
-    return Promise.all(new Array(numOfReplies).fill(null).map(() => publishRandomReply(parentComment, plebbit, {})));
+    return Promise.all(new Array(numOfReplies).fill(null).map(() => publishRandomReply({ parentComment, plebbit })));
 }
 
 async function _publishVotesOnOneComment(
@@ -287,7 +292,14 @@ async function _publishVotesOnOneComment(
     return Promise.all(
         new Array(votesPerCommentToPublish)
             .fill(null)
-            .map(() => publishVote(comment.cid, comment.subplebbitAddress, Math.random() > 0.5 ? 1 : -1, plebbit, {}))
+            .map(() =>
+                publishVote({
+                    commentCid: comment.cid,
+                    subplebbitAddress: comment.subplebbitAddress,
+                    vote: Math.random() > 0.5 ? 1 : -1,
+                    plebbit
+                })
+            )
     );
 }
 
@@ -682,11 +694,15 @@ export async function mockGatewayPlebbit(opts?: MockPlebbitOptions) {
     return plebbit;
 }
 
-export async function publishRandomReply(
-    parentComment: CommentIpfsWithCidDefined,
-    plebbit: Plebbit,
-    commentProps?: Partial<CreateCommentOptions>
-): Promise<Comment> {
+export async function publishRandomReply({
+    parentComment,
+    plebbit,
+    commentProps
+}: {
+    parentComment: CommentIpfsWithCidDefined;
+    plebbit: Plebbit;
+    commentProps?: Partial<CreateCommentOptions>;
+}): Promise<Comment> {
     const reply = await generateMockComment(parentComment, plebbit, false, {
         content: `Content ${uuidv4()}`,
         ...commentProps
@@ -695,23 +711,41 @@ export async function publishRandomReply(
     return reply;
 }
 
-export async function publishRandomPost(subplebbitAddress: string, plebbit: Plebbit, postProps?: Partial<CreateCommentOptions>) {
-    const post = await generateMockPost(subplebbitAddress, plebbit, false, {
-        content: `Random post Content ${uuidv4()}`,
-        title: `Random post Title ${uuidv4()}`,
-        ...postProps
+export async function publishRandomPost({
+    subplebbitAddress,
+    plebbit,
+    postProps
+}: {
+    subplebbitAddress: string;
+    plebbit: Plebbit;
+    postProps?: Partial<CreateCommentOptions>;
+}) {
+    const post = await generateMockPost({
+        subplebbitAddress,
+        plebbit,
+        postProps: {
+            content: `Random post Content ${uuidv4()}`,
+            title: `Random post Title ${uuidv4()}`,
+            ...postProps
+        }
     });
     await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     return post;
 }
 
-export async function publishVote(
-    commentCid: string,
-    subplebbitAddress: string,
-    vote: 1 | 0 | -1,
-    plebbit: Plebbit,
-    voteProps?: Partial<CreateVoteOptions>
-) {
+export async function publishVote({
+    commentCid,
+    subplebbitAddress,
+    vote,
+    plebbit,
+    voteProps
+}: {
+    commentCid: string;
+    subplebbitAddress: string;
+    vote: 1 | 0 | -1;
+    plebbit: Plebbit;
+    voteProps?: Partial<CreateVoteOptions>;
+}) {
     const voteObj = await plebbit.createVote({
         commentCid,
         vote,
@@ -973,7 +1007,7 @@ export async function generatePostToAnswerMathQuestion(
     props: Partial<CreateCommentOptions> & Pick<CreateCommentOptions, "subplebbitAddress">,
     plebbit: Plebbit
 ) {
-    const mockPost = await generateMockPost(props.subplebbitAddress, plebbit, false, props);
+    const mockPost = await generateMockPost({ subplebbitAddress: props.subplebbitAddress, plebbit, postProps: props });
     mockPost.removeAllListeners("challenge");
     mockPost.once("challenge", (challengeMessage) => {
         mockPost.publishChallengeAnswers(["2"]);
@@ -1157,11 +1191,15 @@ export async function setExtraPropOnCommentModerationAndSign(
 
     Object.assign(commentModeration, newPubsubPublicationWithExtraProp);
 }
-export async function setExtraPropOnChallengeRequestAndSign(
-    publication: Publication,
-    extraProps: Object,
-    includeExtraPropsInRequestSignedPropertyNames: boolean
-) {
+export async function setExtraPropOnChallengeRequestAndSign({
+    publication,
+    extraProps,
+    includeExtraPropsInRequestSignedPropertyNames
+}: {
+    publication: Publication;
+    extraProps: Object;
+    includeExtraPropsInRequestSignedPropertyNames: boolean;
+}) {
     const log = Logger("plebbit-js:test-util:setExtraPropOnChallengeRequestAndSign");
 
     //@ts-expect-error
@@ -1174,12 +1212,17 @@ export async function setExtraPropOnChallengeRequestAndSign(
     };
 }
 
-export async function publishChallengeAnswerMessageWithExtraProps(
-    publication: Publication,
-    challengeAnswers: string[],
-    extraProps: Object,
-    includeExtraPropsInChallengeSignedPropertyNames: boolean
-) {
+export async function publishChallengeAnswerMessageWithExtraProps({
+    publication,
+    challengeAnswers,
+    extraProps,
+    includeExtraPropsInChallengeSignedPropertyNames
+}: {
+    publication: Publication;
+    challengeAnswers: string[];
+    extraProps: Object;
+    includeExtraPropsInChallengeSignedPropertyNames: boolean;
+}) {
     // we're crafting a challenge answer from scratch here
 
     const log = Logger("plebbit-js:test-util:setExtraPropsOnChallengeAnswerMessageAndSign");
@@ -1210,12 +1253,17 @@ export async function publishChallengeAnswerMessageWithExtraProps(
     await publishOverPubsub(publication._subplebbit.pubsubTopic!, { ...toSignAnswer, signature });
 }
 
-export async function publishChallengeMessageWithExtraProps(
-    publication: Publication,
-    pubsubSigner: SignerType,
-    extraProps: Object,
-    includeExtraPropsInChallengeSignedPropertyNames: boolean
-) {
+export async function publishChallengeMessageWithExtraProps({
+    publication,
+    pubsubSigner,
+    extraProps,
+    includeExtraPropsInChallengeSignedPropertyNames
+}: {
+    publication: Publication;
+    pubsubSigner: SignerType;
+    extraProps: Object;
+    includeExtraPropsInChallengeSignedPropertyNames: boolean;
+}) {
     const log = Logger("plebbit-js:test-util:publishChallengeMessageWithExtraProps");
 
     const encryptedChallenges = await encryptEd25519AesGcmPublicKeyBuffer(
@@ -1248,12 +1296,17 @@ export async function publishChallengeMessageWithExtraProps(
     await publishOverPubsub(pubsubSigner.address, { ...toSignChallenge, signature });
 }
 
-export async function publishChallengeVerificationMessageWithExtraProps(
-    publication: Publication,
-    pubsubSigner: SignerType,
-    extraProps: Object,
-    includeExtraPropsInChallengeSignedPropertyNames: boolean
-) {
+export async function publishChallengeVerificationMessageWithExtraProps({
+    publication,
+    pubsubSigner,
+    extraProps,
+    includeExtraPropsInChallengeSignedPropertyNames
+}: {
+    publication: Publication;
+    pubsubSigner: SignerType;
+    extraProps: Object;
+    includeExtraPropsInChallengeSignedPropertyNames: boolean;
+}) {
     const log = Logger("plebbit-js:test-util:publishChallengeVerificationMessageWithExtraProps");
 
     const toSignChallengeVerification: Omit<ChallengeVerificationMessageType, "signature"> = cleanUpBeforePublishing({
@@ -1972,7 +2025,11 @@ async function ensureParentCommentHasPageCidsForChunking(
             content: commentProps?.content ?? `force pagination reply ${i} ${Date.now()}`
         };
         const publishingPlebbit = publishWithPlebbit ?? parentComment._plebbit;
-        await publishRandomReply(parentComment as CommentIpfsWithCidDefined, publishingPlebbit, replyProps);
+        await publishRandomReply({
+            parentComment: parentComment as CommentIpfsWithCidDefined,
+            plebbit: publishingPlebbit,
+            commentProps: replyProps
+        });
         await parentComment.update();
         await resolveWhenConditionIsTrue({
             toUpdate: parentComment,
@@ -2021,13 +2078,13 @@ export async function findOrPublishCommentWithDepth({
     if (closestCommentFromHot) {
         curComment = await plebbitWithDefault.createComment(closestCommentFromHot);
     } else {
-        curComment = await publishRandomPost(subplebbit.address, plebbitWithDefault);
+        curComment = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbitWithDefault });
     }
 
     if (curComment.depth === depth) return curComment;
 
     while (curComment.depth! < depth) {
-        curComment = await publishRandomReply(curComment as CommentIpfsWithCidDefined, plebbitWithDefault, {});
+        curComment = await publishRandomReply({ parentComment: curComment as CommentIpfsWithCidDefined, plebbit: plebbitWithDefault });
         if (curComment.depth === depth) return curComment;
     }
     throw Error("Failed to find or publish comment with depth");
@@ -2052,9 +2109,9 @@ export async function findOrPublishCommentWithDepthWithHttpServerShortcut({
         return plebbitWithDefault.createComment(commentWithSameDepthOrClosest);
     }
 
-    let curComment = await publishRandomReply(commentWithSameDepthOrClosest, plebbitWithDefault);
+    let curComment = await publishRandomReply({ parentComment: commentWithSameDepthOrClosest, plebbit: plebbitWithDefault });
     while (curComment.depth! < depth) {
-        curComment = await publishRandomReply(curComment as CommentIpfsWithCidDefined, plebbitWithDefault, {});
+        curComment = await publishRandomReply({ parentComment: curComment as CommentIpfsWithCidDefined, plebbit: plebbitWithDefault });
         if (curComment.depth === depth) return curComment;
     }
     throw Error("Failed to find or publish comment with depth");
@@ -2062,13 +2119,16 @@ export async function findOrPublishCommentWithDepthWithHttpServerShortcut({
 
 export async function publishCommentWithDepth({ depth, subplebbit }: { depth: number; subplebbit: RemoteSubplebbit }): Promise<Comment> {
     if (depth === 0) {
-        return publishRandomPost(subplebbit.address, subplebbit._plebbit);
+        return publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: subplebbit._plebbit });
     } else {
         const parentComment = await publishCommentWithDepth({ depth: depth - 1, subplebbit });
-        let curComment = await publishRandomReply(parentComment as CommentIpfsWithCidDefined, subplebbit._plebbit, {});
+        let curComment = await publishRandomReply({
+            parentComment: parentComment as CommentIpfsWithCidDefined,
+            plebbit: subplebbit._plebbit
+        });
         if (curComment.depth === depth) return curComment;
         while (curComment.depth! < depth) {
-            curComment = await publishRandomReply(curComment as CommentIpfsWithCidDefined, subplebbit._plebbit, {});
+            curComment = await publishRandomReply({ parentComment: curComment as CommentIpfsWithCidDefined, plebbit: subplebbit._plebbit });
             if (curComment.depth === depth) return curComment;
         }
         throw Error("Failed to publish comment with depth");
@@ -2102,9 +2162,13 @@ export async function publishCommentToModQueue({
               content: "Pending reply" + " " + Math.random(),
               ...commentProps
           })
-        : await generateMockPost(subplebbit.address, remotePlebbit, false, {
-              content: "Pending post" + " " + Math.random(),
-              ...commentProps
+        : await generateMockPost({
+              subplebbitAddress: subplebbit.address,
+              plebbit: remotePlebbit,
+              postProps: {
+                  content: "Pending post" + " " + Math.random(),
+                  ...commentProps
+              }
           });
 
     pendingComment.once("challenge", async () => {
@@ -2141,10 +2205,16 @@ export async function publishToModQueueWithDepth({
     else {
         // we assume mod can publish comments without mod queue
         const remotePlebbit = plebbit || subplebbit._plebbit;
-        const commentsPublishedByMod = [await publishRandomPost(subplebbit.address, remotePlebbit, modCommentProps)];
+        const commentsPublishedByMod = [
+            await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit, postProps: modCommentProps })
+        ];
         for (let i = 1; i < depth; i++) {
             commentsPublishedByMod.push(
-                await publishRandomReply(commentsPublishedByMod[i - 1] as CommentIpfsWithCidDefined, remotePlebbit, modCommentProps)
+                await publishRandomReply({
+                    parentComment: commentsPublishedByMod[i - 1] as CommentIpfsWithCidDefined,
+                    plebbit: remotePlebbit,
+                    commentProps: modCommentProps
+                })
             );
         }
         // we have created a tree of comments and now we can publish the pending comment underneath it
@@ -2191,10 +2261,18 @@ export async function forceSubplebbitToGenerateAllPostsPages(subplebbit: RemoteS
     const adjustedCommentProps = { ...commentProps, content: paddedContent };
     const numOfCommentsToPublish = Math.round((1024 * 1024 - curRecordSize) / estimatedCommentSize) + 1;
 
-    let lastPublishedPost: Comment = await publishRandomPost(subplebbit.address, subplebbit._plebbit, adjustedCommentProps);
+    let lastPublishedPost: Comment = await publishRandomPost({
+        subplebbitAddress: subplebbit.address,
+        plebbit: subplebbit._plebbit,
+        postProps: adjustedCommentProps
+    });
     await Promise.all(
         new Array(numOfCommentsToPublish).fill(null).map(async () => {
-            const post = await publishRandomPost(subplebbit.address, subplebbit._plebbit, adjustedCommentProps);
+            const post = await publishRandomPost({
+                subplebbitAddress: subplebbit.address,
+                plebbit: subplebbit._plebbit,
+                postProps: adjustedCommentProps
+            });
             lastPublishedPost = post;
         })
     );

@@ -63,16 +63,20 @@ describeSkipIfRpc("Domain-based author bans", () => {
             await mockCacheOfTextRecord({
                 plebbit,
                 domain: testDomain,
-                textRecord: "plebbit-author-address",
+                resolveType: "author",
                 value: domainAuthorSigner.address
             });
         });
 
         it.sequential("should store targetAuthorDomain when banning an author who used a domain address", async () => {
             // Publish a comment with domain address
-            commentWithDomain = await generateMockPost(subplebbit.address, plebbit, false, {
-                author: { address: testDomain },
-                signer: domainAuthorSigner
+            commentWithDomain = await generateMockPost({
+                subplebbitAddress: subplebbit.address,
+                plebbit: plebbit,
+                postProps: {
+                    author: { address: testDomain },
+                    signer: domainAuthorSigner
+                }
             });
             await publishWithExpectedResult({ publication: commentWithDomain, expectedChallengeSuccess: true });
 
@@ -107,8 +111,12 @@ describeSkipIfRpc("Domain-based author bans", () => {
 
         it.sequential("banned author can't publish with same signer", async () => {
             // Try to publish with the same signer - should fail due to public key ban
-            const newComment = await generateMockPost(subplebbit.address, plebbit, false, {
-                signer: domainAuthorSigner
+            const newComment = await generateMockPost({
+                subplebbitAddress: subplebbit.address,
+                plebbit: plebbit,
+                postProps: {
+                    signer: domainAuthorSigner
+                }
             });
             await publishWithExpectedResult({
                 publication: newComment,
@@ -125,14 +133,18 @@ describeSkipIfRpc("Domain-based author bans", () => {
             await mockCacheOfTextRecord({
                 plebbit,
                 domain: testDomain,
-                textRecord: "plebbit-author-address",
+                resolveType: "author",
                 value: newSigner.address
             });
 
             // Try to publish with the new signer but same domain - should fail due to domain ban
-            const newComment = await generateMockPost(subplebbit.address, plebbit, false, {
-                author: { address: testDomain },
-                signer: newSigner
+            const newComment = await generateMockPost({
+                subplebbitAddress: subplebbit.address,
+                plebbit: plebbit,
+                postProps: {
+                    author: { address: testDomain },
+                    signer: newSigner
+                }
             });
             await publishWithExpectedResult({
                 publication: newComment,
@@ -150,8 +162,12 @@ describeSkipIfRpc("Domain-based author bans", () => {
             regularAuthorSigner = await plebbit.createSigner();
 
             // Publish a comment with derived address (no domain)
-            commentWithDerivedAddress = await generateMockPost(subplebbit.address, plebbit, false, {
-                signer: regularAuthorSigner
+            commentWithDerivedAddress = await generateMockPost({
+                subplebbitAddress: subplebbit.address,
+                plebbit: plebbit,
+                postProps: {
+                    signer: regularAuthorSigner
+                }
             });
             await publishWithExpectedResult({ publication: commentWithDerivedAddress, expectedChallengeSuccess: true });
 
@@ -192,14 +208,18 @@ describeSkipIfRpc("Domain-based author bans", () => {
             await mockCacheOfTextRecord({
                 plebbit,
                 domain: newDomain,
-                textRecord: "plebbit-author-address",
+                resolveType: "author",
                 value: regularAuthorSigner.address
             });
 
             // Try to publish with domain - should fail because public key is banned
-            const newComment = await generateMockPost(subplebbit.address, plebbit, false, {
-                author: { address: newDomain },
-                signer: regularAuthorSigner
+            const newComment = await generateMockPost({
+                subplebbitAddress: subplebbit.address,
+                plebbit: plebbit,
+                postProps: {
+                    author: { address: newDomain },
+                    signer: regularAuthorSigner
+                }
             });
             await publishWithExpectedResult({
                 publication: newComment,
@@ -243,7 +263,7 @@ describeSkipIfRpc("Domain bans with pseudonymity mode", () => {
         await mockCacheOfTextRecord({
             plebbit,
             domain: testDomain,
-            textRecord: "plebbit-author-address",
+            resolveType: "author",
             value: domainAuthorSigner.address
         });
     });
@@ -255,9 +275,13 @@ describeSkipIfRpc("Domain bans with pseudonymity mode", () => {
 
     it.sequential("should store originalAuthorDomain in pseudonymityAliases when author uses domain", async () => {
         // Publish a comment with domain address
-        const commentWithDomain = await generateMockPost(subplebbit.address, plebbit, false, {
-            author: { address: testDomain },
-            signer: domainAuthorSigner
+        const commentWithDomain = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: plebbit,
+            postProps: {
+                author: { address: testDomain },
+                signer: domainAuthorSigner
+            }
         });
         await publishWithExpectedResult({ publication: commentWithDomain, expectedChallengeSuccess: true });
 
@@ -270,9 +294,13 @@ describeSkipIfRpc("Domain bans with pseudonymity mode", () => {
 
     it.sequential("banning via pseudonymous comment should store original author's domain", async () => {
         // Create another comment to ban
-        const commentToBan = await generateMockPost(subplebbit.address, plebbit, false, {
-            author: { address: testDomain },
-            signer: domainAuthorSigner
+        const commentToBan = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: plebbit,
+            postProps: {
+                author: { address: testDomain },
+                signer: domainAuthorSigner
+            }
         });
         await publishWithExpectedResult({ publication: commentToBan, expectedChallengeSuccess: true });
 
@@ -306,8 +334,12 @@ describeSkipIfRpc("Domain bans with pseudonymity mode", () => {
         expect(moderation!.targetAuthorDomain).to.equal(testDomain);
 
         // Verify ban works with original signer
-        const newComment = await generateMockPost(subplebbit.address, plebbit, false, {
-            signer: domainAuthorSigner
+        const newComment = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: plebbit,
+            postProps: {
+                signer: domainAuthorSigner
+            }
         });
         await publishWithExpectedResult({
             publication: newComment,

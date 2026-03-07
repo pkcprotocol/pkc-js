@@ -113,7 +113,7 @@ describe.concurrent(`subplebbit.settings.challenges`, async () => {
         const challengeVerificationPromise = new Promise<ChallengeVerificationMessageType>((resolve) =>
             subplebbit.once("challengeverification", resolve)
         );
-        const post = await generateMockPost(subplebbit.address, remotePlebbit);
+        const post = await generateMockPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: false });
         const challengeVerification = await challengeVerificationPromise;
         expect(challengeVerification.challengeSuccess).to.equal(false);
@@ -130,7 +130,7 @@ describe.concurrent(`subplebbit.settings.challenges`, async () => {
         await subplebbit.edit({ settings: { challenges: [] } });
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
-        const post = await publishRandomPost(subplebbit.address, plebbit); // won't get a challenge
+        const post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit }); // won't get a challenge
         await waitTillPostInSubplebbitPages(post as CommentIpfsWithCidDefined, plebbit);
 
         await subplebbit.delete();
@@ -149,7 +149,7 @@ describe.concurrent(`subplebbit.settings.challenges`, async () => {
         expect(subplebbit.settings!.challenges).to.deep.equal([]);
         expect(subplebbit.challenges).to.deep.equal([]);
         expect(subplebbit._usingDefaultChallenge).to.be.true;
-        const post = await publishRandomPost(subplebbit.address, plebbit); // won't get a challenge
+        const post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit }); // won't get a challenge
         await waitTillPostInSubplebbitPages(post as CommentIpfsWithCidDefined, plebbit);
         await subplebbit.delete();
     });
@@ -175,7 +175,11 @@ describe.concurrent(`subplebbit.settings.challenges`, async () => {
             expect(_subplebbit.challenges![0].type).to.equal("text/plain");
         }
 
-        const mockPost = await generateMockPost(subplebbit.address, plebbit, false, { challengeRequest: { challengeAnswers: ["2"] } });
+        const mockPost = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: plebbit,
+            postProps: { challengeRequest: { challengeAnswers: ["2"] } }
+        });
 
         expect(mockPost.challengeRequest!.challengeAnswers).to.deep.equal(["2"]);
 

@@ -32,11 +32,18 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             plebbit = await mockRemotePlebbit();
             sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
             await sub.update();
-            postToBeLocked = await publishRandomPost(subplebbitAddress, plebbit);
-            modPost = await publishRandomPost(subplebbitAddress, plebbit, { signer: roles[2].signer });
+            postToBeLocked = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            modPost = await publishRandomPost({
+                subplebbitAddress: subplebbitAddress,
+                plebbit: plebbit,
+                postProps: { signer: roles[2].signer }
+            });
 
             await postToBeLocked.update();
-            replyUnderPostToBeLocked = await publishRandomReply(postToBeLocked as CommentIpfsWithCidDefined, plebbit);
+            replyUnderPostToBeLocked = await publishRandomReply({
+                parentComment: postToBeLocked as CommentIpfsWithCidDefined,
+                plebbit: plebbit
+            });
             await modPost.update();
         });
         afterAll(async () => {

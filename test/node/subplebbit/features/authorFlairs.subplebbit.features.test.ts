@@ -35,7 +35,7 @@ describe(`subplebbit.features.authorFlairs`, async () => {
         await subplebbit.edit({ flairs: { author: [validAuthorFlair] } });
 
         // Publish a post before enabling the feature
-        publishedPost = await publishRandomPost(subplebbit.address, remotePlebbit);
+        publishedPost = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
     });
 
     afterAll(async () => {
@@ -46,8 +46,12 @@ describe(`subplebbit.features.authorFlairs`, async () => {
 
     it(`Can't publish a post with author flairs when authorFlairs feature is disabled (default)`, async () => {
         expect(subplebbit.features?.authorFlairs).to.be.undefined;
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, {
-            author: { displayName: "Test", flairs: [validAuthorFlair] }
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                author: { displayName: "Test", flairs: [validAuthorFlair] }
+            }
         });
         await publishWithExpectedResult({
             publication: post,
@@ -73,8 +77,12 @@ describe(`subplebbit.features.authorFlairs`, async () => {
     });
 
     it(`Can publish a post with valid author flair when feature is enabled`, async () => {
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, {
-            author: { displayName: "Test", flairs: [validAuthorFlair] }
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                author: { displayName: "Test", flairs: [validAuthorFlair] }
+            }
         });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });
@@ -88,8 +96,12 @@ describe(`subplebbit.features.authorFlairs`, async () => {
 
     it(`Can't publish a post with invalid author flair (not in allowed list)`, async () => {
         const invalidFlair = { text: "Invalid", backgroundColor: "#ff0000" };
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, {
-            author: { displayName: "Test", flairs: [invalidFlair] }
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                author: { displayName: "Test", flairs: [invalidFlair] }
+            }
         });
         await publishWithExpectedResult({
             publication: post,
@@ -100,8 +112,12 @@ describe(`subplebbit.features.authorFlairs`, async () => {
 
     it(`Can't publish a post with author flair that has wrong colors`, async () => {
         const wrongColorFlair = { text: "Verified", backgroundColor: "#ff0000", textColor: "#ffffff" };
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, {
-            author: { displayName: "Test", flairs: [wrongColorFlair] }
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                author: { displayName: "Test", flairs: [wrongColorFlair] }
+            }
         });
         await publishWithExpectedResult({
             publication: post,
@@ -111,14 +127,18 @@ describe(`subplebbit.features.authorFlairs`, async () => {
     });
 
     it(`Can publish a post without author flairs when feature is enabled`, async () => {
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false);
+        const post = await generateMockPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });
 
     it(`Can't publish a post with author flair that has extra properties`, async () => {
         const flairWithExtraProps = { text: "Verified", backgroundColor: "#00ff00", textColor: "#000000", expiresAt: 12345 };
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, {
-            author: { displayName: "Test", flairs: [flairWithExtraProps] }
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                author: { displayName: "Test", flairs: [flairWithExtraProps] }
+            }
         });
         await publishWithExpectedResult({
             publication: post,
@@ -130,8 +150,12 @@ describe(`subplebbit.features.authorFlairs`, async () => {
     it(`Can't publish a post with author flair that is missing properties`, async () => {
         // validAuthorFlair has all 3 props, this one only has text
         const flairMissingProps = { text: "Verified" };
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, {
-            author: { displayName: "Test", flairs: [flairMissingProps] }
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                author: { displayName: "Test", flairs: [flairMissingProps] }
+            }
         });
         await publishWithExpectedResult({
             publication: post,
@@ -159,7 +183,7 @@ describeSkipIfRpc(`subplebbit.features.authorFlairs with pseudonymityMode`, () =
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
-        publishedPost = await publishRandomPost(subplebbit.address, remotePlebbit);
+        publishedPost = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
     });
 
     afterAll(async () => {
@@ -174,8 +198,12 @@ describeSkipIfRpc(`subplebbit.features.authorFlairs with pseudonymityMode`, () =
         expect(subplebbit.features?.authorFlairs).to.be.undefined;
         expect(subplebbit.features?.pseudonymityMode).to.equal("per-author");
 
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, {
-            author: { displayName: "Test", flairs: [validAuthorFlair] }
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                author: { displayName: "Test", flairs: [validAuthorFlair] }
+            }
         });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });
@@ -198,7 +226,7 @@ describeSkipIfRpc(`subplebbit.features.authorFlairs with pseudonymityMode`, () =
 
         // Publishing without author flairs should succeed because pseudonymityMode
         // would strip them anyway, so requiring them is meaningless
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false);
+        const post = await generateMockPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });
 });

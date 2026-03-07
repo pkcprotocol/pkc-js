@@ -55,10 +55,16 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     predicate: async () => typeof commentToPurge.updatedAt === "number"
                 });
 
-                replyOfCommentToPurge = await publishRandomReply(commentToPurge as CommentIpfsWithCidDefined, plebbit);
+                replyOfCommentToPurge = await publishRandomReply({
+                    parentComment: commentToPurge as CommentIpfsWithCidDefined,
+                    plebbit: plebbit
+                });
                 await replyOfCommentToPurge.update();
 
-                replyUnderReplyOfCommentToPurge = await publishRandomReply(replyOfCommentToPurge as CommentIpfsWithCidDefined, plebbit);
+                replyUnderReplyOfCommentToPurge = await publishRandomReply({
+                    parentComment: replyOfCommentToPurge as CommentIpfsWithCidDefined,
+                    plebbit: plebbit
+                });
                 await replyUnderReplyOfCommentToPurge.update();
                 await waitTillReplyInParentPages(replyUnderReplyOfCommentToPurge as ReplyWithRequiredFields, plebbit);
 

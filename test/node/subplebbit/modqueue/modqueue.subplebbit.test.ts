@@ -31,7 +31,7 @@ describe(`Pending approval modqueue functionality`, async () => {
         subplebbit = await createSubWithNoChallenge({}, plebbit);
         await subplebbit.start();
 
-        regularPublishedComment = await publishRandomPost(subplebbit.address, plebbit);
+        regularPublishedComment = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
 
         modSigner = await plebbit.createSigner();
         await subplebbit.edit({

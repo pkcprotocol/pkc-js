@@ -151,7 +151,7 @@ async function createReplyParentPagesTestEnvironment({ replyDepth }: { replyDept
 
         const { cleanup: preloadCleanup } = disablePreloadPagesOnSub({ subplebbit: subplebbit as LocalSubplebbit });
 
-        await publishRandomReply(parentComment as CommentIpfsWithCidDefined, publisherPlebbit); // to force an update
+        await publishRandomReply({ parentComment: parentComment as CommentIpfsWithCidDefined, plebbit: publisherPlebbit }); // to force an update
         // below could timeout
         await resolveWhenConditionIsTrue({
             toUpdate: parentComment,

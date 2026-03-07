@@ -51,7 +51,7 @@ describe(`subplebbit.startedState`, async () => {
         localSub._getDbInternalState = async () => {
             throw Error("Failed to load sub from db ");
         };
-        await publishRandomPost(subplebbit.address, plebbit);
+        await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
         await resolveWhenConditionIsTrue({
             toUpdate: subplebbit,
             predicate: async () => subplebbit.startedState === "failed",

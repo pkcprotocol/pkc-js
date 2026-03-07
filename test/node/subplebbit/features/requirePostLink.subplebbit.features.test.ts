@@ -46,7 +46,7 @@ describe(`subplebbit.features.requirePostLink`, async () => {
 
     it(`Can't publish a post with invalid link`, async () => {
         const invalidUrl = "test.com"; // invalid because it has no protocol
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false);
+        const post = await generateMockPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
         await overrideCommentInstancePropsAndSign(post, { link: invalidUrl } as Parameters<typeof overrideCommentInstancePropsAndSign>[1]);
         expect(post.link).to.equal(invalidUrl);
         await publishWithExpectedResult({
@@ -57,7 +57,11 @@ describe(`subplebbit.features.requirePostLink`, async () => {
     });
     it(`Can publish a post with valid link`, async () => {
         const validUrl = "https://google.com";
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, { link: validUrl });
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: { link: validUrl }
+        });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
         expect(post.link).to.equal(validUrl);
     });

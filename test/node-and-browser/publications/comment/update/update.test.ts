@@ -44,7 +44,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         it.sequential(
             `plebbit.createComment({cid}).update() fetches comment ipfs and update correctly when cid is the cid of a post`,
             async () => {
-                const originalPost = await publishRandomPost(subplebbitAddress, plebbit);
+                const originalPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
 
                 const recreatedPost = await plebbit.createComment({ cid: originalPost.cid });
 
@@ -73,7 +73,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                             post.replyCount > 0 && !post.locked && !post.removed
                     )?.cid || subplebbit.lastPostCid;
 
-                const reply = await publishRandomReply((await plebbit.getComment({ cid: postCid })) as CommentIpfsWithCidDefined, plebbit);
+                const reply = await publishRandomReply({
+                    parentComment: (await plebbit.getComment({ cid: postCid })) as CommentIpfsWithCidDefined,
+                    plebbit: plebbit
+                });
 
                 const recreatedReply = await plebbit.createComment({ cid: reply.cid });
 
@@ -137,7 +140,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
                 await postToStop.update();
 
-                const reply = await publishRandomReply(postToStop as CommentIpfsWithCidDefined, plebbit);
+                const reply = await publishRandomReply({ parentComment: postToStop as CommentIpfsWithCidDefined, plebbit: plebbit });
                 await waitTillReplyInParentPagesInstance(reply as unknown as ReplyWithRequiredFields, postToStop);
                 await postToStop.stop();
             } finally {
@@ -146,7 +149,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`comment.update() is working as expected after comment.publish()`, async () => {
-            const post = await publishRandomPost(subplebbitAddress, plebbit);
+            const post = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             await post.update();
             await resolveWhenConditionIsTrue({ toUpdate: post, predicate: async () => typeof post.updatedAt === "number" });
             expect(post.updatedAt).to.be.a("number");
@@ -154,8 +157,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`reply can receive comment updates`, async () => {
-            const post = await publishRandomPost(subplebbitAddress, plebbit);
-            const reply = await publishRandomReply(post as CommentIpfsWithCidDefined, plebbit);
+            const post = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            const reply = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
             await reply.update();
             await resolveWhenConditionIsTrue({ toUpdate: reply, predicate: async () => typeof reply.updatedAt === "number" });
 
@@ -350,7 +353,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             await Promise.all([
                 resolveWhenConditionIsTrue({ toUpdate: createdComment, predicate: async () => errors.length >= 1, eventName: "error" }),
-                publishRandomPost(subplebbitAddress, plebbit)
+                publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit })
             ]);
 
             expect(createdComment.updatedAt).to.be.undefined; // Make sure it didn't use the props from the invalid CommentUpdate
@@ -396,7 +399,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                         predicate: async () => errors.length === 2,
                         eventName: "error"
                     }),
-                    publishRandomPost(subplebbitAddress, plebbit) // force sub to publish a new update
+                    publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit }) // force sub to publish a new update
                 ]);
 
                 expect(createdComment.updatedAt).to.be.undefined; // Make sure it didn't use the props from the invalid CommentUpdate
@@ -437,7 +440,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             await Promise.all([
                 resolveWhenConditionIsTrue({ toUpdate: createdComment, predicate: async () => errors.length >= 1, eventName: "error" }),
-                publishRandomPost(subplebbitAddress, plebbit) // force sub to publish a new update
+                publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit }) // force sub to publish a new update
             ]);
 
             expect(createdComment.updatedAt).to.be.undefined; // Make sure it didn't use the props from the invalid CommentUpdate

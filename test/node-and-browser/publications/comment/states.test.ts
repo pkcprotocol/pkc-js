@@ -12,7 +12,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         let comment: Comment;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            comment = await generateMockPost(subplebbitAddress, plebbit);
+            comment = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
         });
 
         afterAll(async () => {
@@ -34,7 +34,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`state changes to stop after finishing publishing`, async () => {
-            const newComment = await publishRandomPost(subplebbitAddress, plebbit);
+            const newComment = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             expect(newComment.state).to.equal("stopped");
         });
 
@@ -49,7 +49,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`state changes to updating after calling .update() when publishing`, async () => {
-            const tempComment = await publishRandomPost(subplebbitAddress, plebbit);
+            const tempComment = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             expect(tempComment.state).to.equal("stopped");
             await tempComment.update();
             expect(tempComment.state).to.equal("updating");

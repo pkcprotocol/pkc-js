@@ -119,9 +119,9 @@ describe.concurrent(`plebbit.createSubplebbit (local)`, async () => {
         const sub = await createSubWithNoChallenge(props, plebbit);
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
-        const post = await publishRandomPost(sub.address, plebbit, {});
+        const post = await publishRandomPost({ subplebbitAddress: sub.address, plebbit: plebbit });
         await waitTillPostInSubplebbitPages(post as never, plebbit);
-        await publishRandomReply(post as never, plebbit, {});
+        await publishRandomReply({ parentComment: post as never, plebbit: plebbit });
         expect(sub.posts).to.be.a("object");
         const clonedSub = (await plebbit.createSubplebbit(sub)) as LocalSubplebbit | RpcLocalSubplebbit;
         expect(clonedSub.posts).to.be.a("object");

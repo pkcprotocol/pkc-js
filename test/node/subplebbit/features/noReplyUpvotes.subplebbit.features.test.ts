@@ -33,9 +33,9 @@ describe.concurrent(`subplebbit.features.noReplyUpvotes`, async () => {
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
-        postToVoteOn = await publishRandomPost(subplebbit.address, remotePlebbit);
+        postToVoteOn = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
 
-        replyToVoteOn = await publishRandomReply(postToVoteOn as CommentIpfsWithCidDefined, remotePlebbit);
+        replyToVoteOn = await publishRandomReply({ parentComment: postToVoteOn as CommentIpfsWithCidDefined, plebbit: remotePlebbit });
     });
 
     afterAll(async () => {

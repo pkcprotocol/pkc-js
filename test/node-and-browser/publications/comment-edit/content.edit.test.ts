@@ -26,7 +26,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            commentToBeEdited = await publishRandomPost(subplebbitAddress, plebbit, { content: "original content" });
+            commentToBeEdited = await publishRandomPost({
+                subplebbitAddress: subplebbitAddress,
+                plebbit: plebbit,
+                postProps: { content: "original content" }
+            });
             originalContent = remeda.clone(commentToBeEdited.content);
             await commentToBeEdited.update();
         });
@@ -182,7 +186,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         roles.map((roleTest) =>
             it(`${roleTest.role} role Can modify their own comment content`, async () => {
-                const commentToEdit = await publishRandomPost(subplebbitAddress, plebbit, { signer: roleTest.signer });
+                const commentToEdit = await publishRandomPost({
+                    subplebbitAddress: subplebbitAddress,
+                    plebbit: plebbit,
+                    postProps: { signer: roleTest.signer }
+                });
                 const originalContent = remeda.clone(commentToEdit.content);
                 await commentToEdit.update();
                 const editedText = `${roleTest.role} role testing CommentEdit`;

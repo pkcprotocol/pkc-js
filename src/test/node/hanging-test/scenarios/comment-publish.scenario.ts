@@ -14,7 +14,7 @@ export default defineHangingScenario({
         const subplebbitAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
         const { plebbit, config } = await createScenarioContext(configCode);
 
-        const post = await publishRandomPost(subplebbitAddress, plebbit);
+        const post = await publishRandomPost({ subplebbitAddress, plebbit });
 
         await plebbit.destroy();
     }

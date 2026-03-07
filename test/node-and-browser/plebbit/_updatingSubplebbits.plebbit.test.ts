@@ -218,8 +218,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         );
 
         itSkipIfRpc(`can stop two comments in parallel and remove _updatingSubplebbits entry`, async () => {
-            const post1 = await publishRandomPost(subplebbitAddress, plebbit);
-            const post2 = await publishRandomPost(subplebbitAddress, plebbit);
+            const post1 = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            const post2 = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
 
             const comment1 = await plebbit.createComment({ cid: post1.cid });
             const comment2 = await plebbit.createComment({ cid: post2.cid });
@@ -340,7 +340,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             const baseListenerCount = listenerCountOfSub();
 
-            const post = await publishRandomPost(subplebbitAddress, plebbit);
+            const post = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             const comment = await plebbit.createComment({ cid: post.cid });
             await comment.update();
             await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });

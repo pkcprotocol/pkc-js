@@ -166,7 +166,7 @@ async function createLocalSubplebbitWithPageCids(): Promise<LocalSubplebbitWithP
         toUpdate: publisherSubplebbit,
         predicate: async () => typeof publisherSubplebbit.updatedAt === "number"
     });
-    const latestPost = await publishRandomPost(publisherSubplebbit.address, publisherPlebbit);
+    const latestPost = await publishRandomPost({ subplebbitAddress: publisherSubplebbit.address, plebbit: publisherPlebbit });
     await waitTillPostInSubplebbitPages(latestPost as never, publisherPlebbit);
 
     await forceLocalSubPagesToAlwaysGenerateMultipleChunks({

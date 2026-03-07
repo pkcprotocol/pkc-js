@@ -153,8 +153,12 @@ describe("plebbit.settings.challenges", async () => {
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
         // Publish with correct pre-answer
-        const correctPost = await generateMockPost(subplebbit.address, plebbit, false, {
-            challengeRequest: { challengeAnswers: ["blue"] }
+        const correctPost = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: plebbit,
+            postProps: {
+                challengeRequest: { challengeAnswers: ["blue"] }
+            }
         });
         await publishWithExpectedResult({ publication: correctPost, expectedChallengeSuccess: true });
 
@@ -162,8 +166,12 @@ describe("plebbit.settings.challenges", async () => {
         const challengeVerificationPromise = new Promise<ChallengeVerificationMessageType>((resolve) =>
             subplebbit.once("challengeverification", resolve)
         );
-        const wrongPost = await generateMockPost(subplebbit.address, plebbit, false, {
-            challengeRequest: { challengeAnswers: ["red"] }
+        const wrongPost = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: plebbit,
+            postProps: {
+                challengeRequest: { challengeAnswers: ["red"] }
+            }
         });
         await publishWithExpectedResult({ publication: wrongPost, expectedChallengeSuccess: false });
         const verification = await challengeVerificationPromise;
@@ -193,8 +201,12 @@ describe("plebbit.settings.challenges", async () => {
         expect(subplebbit.challenges![0].challenge).to.equal("What is the answer to life?");
 
         // Verify correct answer works
-        const correctPost = await generateMockPost(subplebbit.address, plebbitWithOverride, false, {
-            challengeRequest: { challengeAnswers: ["42"] }
+        const correctPost = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: plebbitWithOverride,
+            postProps: {
+                challengeRequest: { challengeAnswers: ["42"] }
+            }
         });
         await publishWithExpectedResult({ publication: correctPost, expectedChallengeSuccess: true });
 
@@ -202,8 +214,12 @@ describe("plebbit.settings.challenges", async () => {
         const verificationPromise = new Promise<ChallengeVerificationMessageType>((resolve) =>
             subplebbit.once("challengeverification", resolve)
         );
-        const wrongPost = await generateMockPost(subplebbit.address, plebbitWithOverride, false, {
-            challengeRequest: { challengeAnswers: ["wrong"] }
+        const wrongPost = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: plebbitWithOverride,
+            postProps: {
+                challengeRequest: { challengeAnswers: ["wrong"] }
+            }
         });
         await publishWithExpectedResult({ publication: wrongPost, expectedChallengeSuccess: false });
         const verification = await verificationPromise;

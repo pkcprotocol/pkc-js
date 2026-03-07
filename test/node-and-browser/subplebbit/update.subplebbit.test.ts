@@ -98,7 +98,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(subplebbit.address).to.equal("plebbit.bso");
             const oldUpdatedAt = remeda.clone(subplebbit.updatedAt);
             await subplebbit.update();
-            await publishRandomPost(subplebbit.address, plebbit); // Invoke an update
+            await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit }); // Invoke an update
             await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => oldUpdatedAt !== subplebbit.updatedAt });
             expect(oldUpdatedAt).to.not.equal(subplebbit.updatedAt);
             expect(subplebbit.address).to.equal("plebbit.bso");
@@ -264,7 +264,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             await subplebbit.update();
 
-            await publishRandomPost(subplebbit.address, plebbit);
+            await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
             await new Promise((resolve) => subplebbit.once("update", resolve));
             await subplebbit.stop();
         });

@@ -50,7 +50,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
 
         it(`Correct order of ipfsGateways state when updating a subplebbit that was created with plebbit.getSubplebbit({address: address})`, async () => {
             const sub = await gatewayPlebbit.getSubplebbit({ address: signers[0].address });
-            await publishRandomPost(sub.address, gatewayPlebbit);
+            await publishRandomPost({ subplebbitAddress: sub.address, plebbit: gatewayPlebbit });
 
             const expectedStates = ["fetching-ipns", "stopped"];
 

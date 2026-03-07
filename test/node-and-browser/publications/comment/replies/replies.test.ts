@@ -34,7 +34,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             subplebbit = await plebbit.getSubplebbit({ address: signers[0].address });
-            post = await publishRandomPost(subplebbit.address, plebbit);
+            post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
             await post.update();
             await resolveWhenConditionIsTrue({ toUpdate: post, predicate: async () => typeof post.updatedAt === "number" });
         });
@@ -49,9 +49,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`If all replies fit in a single preloaded page, there should not be any pageCids on CommentUpdate`, async () => {
-            firstLevelReply = await publishRandomReply(post as CommentIpfsWithCidDefined, plebbit);
-            secondLevelReply = await publishRandomReply(firstLevelReply as CommentIpfsWithCidDefined, plebbit);
-            thirdLevelReply = await publishRandomReply(secondLevelReply as CommentIpfsWithCidDefined, plebbit);
+            firstLevelReply = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
+            secondLevelReply = await publishRandomReply({ parentComment: firstLevelReply as CommentIpfsWithCidDefined, plebbit: plebbit });
+            thirdLevelReply = await publishRandomReply({ parentComment: secondLevelReply as CommentIpfsWithCidDefined, plebbit: plebbit });
             await waitTillReplyInParentPagesInstance(firstLevelReply as unknown as ReplyWithRequiredFields, post);
             await post.stop(); // make sure updates are stopped so it does't change props while run our expect statements
             expect(post.replies.pages.best).to.exist;
@@ -90,8 +90,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
-            const post = await publishRandomPost(subplebbitAddress, plebbit);
-            reply = await publishRandomReply(post as CommentIpfsWithCidDefined, plebbit);
+            const post = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            reply = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
             await reply.update();
         });
         afterAll(async () => {
@@ -104,7 +104,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`If all replies fit in a single preloaded page, there should not be any pageCids on CommentUpdate`, async () => {
-            const replyUnderReply = await publishRandomReply(reply as CommentIpfsWithCidDefined, plebbit);
+            const replyUnderReply = await publishRandomReply({ parentComment: reply as CommentIpfsWithCidDefined, plebbit: plebbit });
             await waitTillReplyInParentPagesInstance(replyUnderReply as unknown as ReplyWithRequiredFields, reply);
             expect(reply.replies.pages.best).to.exist;
             expect(reply.replies.pages.best.comments.length).to.equal(1);
@@ -148,7 +148,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         let plebbit: Plebbit, post: Comment;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            post = await publishRandomPost(subplebbitAddress, plebbit);
+            post = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
         });
 
         afterAll(async () => {
@@ -195,9 +195,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: false } });
-            postWithReplies = await publishRandomPost(subplebbitAddress, plebbit);
-            const reply = await publishRandomReply(postWithReplies as CommentIpfsWithCidDefined, plebbit);
-            await publishRandomReply(reply as CommentIpfsWithCidDefined, plebbit);
+            postWithReplies = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            const reply = await publishRandomReply({ parentComment: postWithReplies as CommentIpfsWithCidDefined, plebbit: plebbit });
+            await publishRandomReply({ parentComment: reply as CommentIpfsWithCidDefined, plebbit: plebbit });
 
             await postWithReplies.update();
             await waitTillReplyInParentPagesInstance(reply as unknown as ReplyWithRequiredFields, postWithReplies);

@@ -31,7 +31,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         describe(`Comments with extra props in challengeRequest.encrypted - ${config.name}`, async () => {
             it(`An extra prop in challengeRequest.encrypted should be accepted by the sub`, async () => {
-                const comment = await generateMockPost(subplebbitAddress, plebbit);
+                const comment = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
                 (comment as Comment & { challengeRequest: { extraProp: string } }).challengeRequest = { extraProp: "1234" };
                 const challengeRequestPromise = new Promise((resolve) => comment.once("challengerequest", resolve));
 
@@ -44,7 +44,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         describe.sequential(`Publishing comments with extra props - ${config.name}`, async () => {
             it(`A CommentPubsub with a field not included in signature.signedPropertyNames will be rejected`, async () => {
                 // Skip for rpc because it's gonna throw due to invalid signature
-                const post = await generateMockPost(subplebbitAddress, plebbit);
+                const post = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
                 const extraProps = { extraProp: "1234" };
                 await setExtraPropOnCommentAndSign(post, extraProps, false);
 
@@ -59,7 +59,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             });
 
             it(`A CommentPubsub with an extra field as a reserved field name will be rejected`, async () => {
-                const post = await generateMockPost(subplebbitAddress, plebbit);
+                const post = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
                 const extraProps = { cid: "1234" };
                 await setExtraPropOnCommentAndSign(post, extraProps, true);
 
@@ -75,7 +75,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             });
 
             it(`A CommentPubsub with an extra field included in signature.signedPropertyNames will be accepted`, async () => {
-                const post = await generateMockPost(subplebbitAddress, plebbit);
+                const post = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
                 const extraProps = { extraProp: "1234" };
                 await setExtraPropOnCommentAndSign(post, extraProps, true);
 
@@ -97,7 +97,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             let extraProps: { extraProp: string };
 
             beforeAll(async () => {
-                commentWithExtraProps = await generateMockPost(subplebbitAddress, plebbit);
+                commentWithExtraProps = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
                 extraProps = { extraProp: "1234" };
                 await setExtraPropOnCommentAndSign(commentWithExtraProps, extraProps, true);
                 await publishWithExpectedResult({ publication: commentWithExtraProps, expectedChallengeSuccess: true });
@@ -147,7 +147,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
         describe.sequential(`Publishing comment with extra props in author field - ${config.name}`, async () => {
             it(`Publishing with extra prop for author should fail if it's a reserved field`, async () => {
-                const post = await generateMockPost(subplebbitAddress, plebbit);
+                const post = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
                 await setExtraPropOnCommentAndSign(
                     post,
                     { author: { ...post.raw.pubsubMessageToPublish.author, subplebbit: "random" } },
@@ -165,7 +165,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 expect(challengeRequest.comment?.author?.subplebbit).to.equal("random");
             });
             it(`Publishing with extra prop for author should succeed`, async () => {
-                const post = await generateMockPost(subplebbitAddress, plebbit);
+                const post = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
                 const extraProps = { extraProp: "1234" };
                 await setExtraPropOnCommentAndSign(post, { author: { ...post.raw.pubsubMessageToPublish.author, ...extraProps } }, true);
 
@@ -183,7 +183,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const extraProps = { extraProp: "1234" };
 
             beforeAll(async () => {
-                postWithExtraAuthorProp = await generateMockPost(subplebbitAddress, plebbit);
+                postWithExtraAuthorProp = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
                 await setExtraPropOnCommentAndSign(
                     postWithExtraAuthorProp,
                     { author: { ...postWithExtraAuthorProp.raw.pubsubMessageToPublish.author, ...extraProps } },

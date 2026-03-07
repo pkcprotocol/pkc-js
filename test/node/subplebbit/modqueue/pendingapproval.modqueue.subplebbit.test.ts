@@ -129,7 +129,11 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
             });
 
         it.sequential("pending approval comments do not affect number/postNumber for later approved posts", async () => {
-            const approvedPost = await publishRandomPost(subplebbit.address, remotePlebbit, { signer: modSigner });
+            const approvedPost = await publishRandomPost({
+                subplebbitAddress: subplebbit.address,
+                plebbit: remotePlebbit,
+                postProps: { signer: modSigner }
+            });
             const approvedPostWithUpdate = await getCommentWithCommentUpdateProps({ cid: approvedPost.cid!, plebbit });
             const expectedCommentNumber = commentInPendingApprovalDepth + 1;
             const expectedPostNumber = commentInPendingApprovalDepth === 0 ? 1 : 2;

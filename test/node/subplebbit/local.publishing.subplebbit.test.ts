@@ -111,7 +111,7 @@ describeSkipIfRpc("Local publishing to subplebbit", async () => {
         await subplebbit.start();
         expect(subplebbit.updatedAt).to.be.undefined;
 
-        await publishRandomPost(subplebbit.address, plebbit);
+        await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
         await subplebbit.delete();
     });
 });

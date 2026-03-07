@@ -63,7 +63,7 @@ describe("Comments with Authors as domains", async () => {
         await mockCacheOfTextRecord({
             plebbit: tempPlebbit,
             domain: authorAddress,
-            textRecord: "plebbit-author-address",
+            resolveType: "author",
             value: signers[6].address
         });
 
@@ -112,7 +112,7 @@ describe(`Vote with authors as domains`, async () => {
     beforeAll(async () => {
         plebbit = await mockRemotePlebbit();
         subplebbit = await plebbit.getSubplebbit({ address: signers[0].address });
-        comment = await publishRandomPost(subplebbit.address, plebbit, {});
+        comment = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
     });
 
     afterAll(async () => {
@@ -125,7 +125,7 @@ describe(`Vote with authors as domains`, async () => {
         await mockCacheOfTextRecord({
             plebbit: tempPlebbit,
             domain: authorAddress,
-            textRecord: "plebbit-author-address",
+            resolveType: "author",
             value: signers[6].address
         });
 
@@ -276,7 +276,7 @@ describe("Comments with Authors as .bso domains", async () => {
         await mockCacheOfTextRecord({
             plebbit,
             domain: "plebbit.bso",
-            textRecord: "plebbit-author-address",
+            resolveType: "author",
             value: signers[6].address
         });
 
@@ -370,7 +370,7 @@ describeSkipIfRpc(`nameResolver canResolve filtering`, async () => {
 
         resolverCalls.length = 0;
         // clear cache so next resolve goes through resolvers again
-        await plebbit._clientsManager.clearDomainCache("test.ton", "subplebbit-address");
+        await plebbit._clientsManager.clearDomainCache("test.ton", "subplebbit");
         const resolvedTon = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("test.ton");
         expect(resolvedTon).to.equal(tonIpns);
         expect(resolverCalls).to.deep.equal(["ton-resolver"]);
@@ -665,7 +665,7 @@ describeSkipIfRpc(`nameResolver caching behavior`, async () => {
         expect(callCount).to.equal(1);
 
         // Clear the cache
-        await plebbit._clientsManager.clearDomainCache("cached.bso", "subplebbit-address");
+        await plebbit._clientsManager.clearDomainCache("cached.bso", "subplebbit");
 
         // Third resolution should call the resolver again
         const resolved3 = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("cached.bso");
@@ -695,7 +695,7 @@ describeSkipIfRpc(`nameResolver caching behavior`, async () => {
         });
 
         // Manually insert a stale cache entry (timestampSeconds set to > 1 hour ago)
-        const cacheKey = plebbit._clientsManager._getKeyOfCachedDomainTextRecord("stale.bso", "subplebbit-address");
+        const cacheKey = plebbit._clientsManager._getKeyOfCachedDomainTextRecord("stale.bso", "subplebbit");
         const staleTimestamp = Math.round(Date.now() / 1000) - 3601; // 1 hour + 1 second ago
         const staleCacheEntry: CachedTextRecordResolve = { timestampSeconds: staleTimestamp, valueOfTextRecord: oldIpns };
         await plebbit._storage.setItem(cacheKey, staleCacheEntry);
@@ -738,7 +738,7 @@ describeSkipIfRpc(`nameResolver caching behavior`, async () => {
         });
 
         // Insert a fresh cache entry (current timestamp)
-        const cacheKey = plebbit._clientsManager._getKeyOfCachedDomainTextRecord("fresh.bso", "subplebbit-address");
+        const cacheKey = plebbit._clientsManager._getKeyOfCachedDomainTextRecord("fresh.bso", "subplebbit");
         const freshTimestamp = Math.round(Date.now() / 1000);
         const freshCacheEntry: CachedTextRecordResolve = { timestampSeconds: freshTimestamp, valueOfTextRecord: cachedIpns };
         await plebbit._storage.setItem(cacheKey, freshCacheEntry);
@@ -898,7 +898,7 @@ describeSkipIfRpc(`nameResolver runtime modification`, async () => {
         expect(resolved1).to.equal(firstIpns);
 
         // Clear cache so next resolve goes through resolvers
-        await plebbit._clientsManager.clearDomainCache("runtime.bso", "subplebbit-address");
+        await plebbit._clientsManager.clearDomainCache("runtime.bso", "subplebbit");
 
         // Swap resolvers at runtime
         plebbit.nameResolvers = [
@@ -966,9 +966,13 @@ describeSkipIfRpc(`CommentEdit with author as domain`, async () => {
     beforeAll(async () => {
         plebbit = await mockRemotePlebbit();
         // Publish a post with author.address as domain
-        postToEdit = await publishRandomPost(signers[0].address, plebbit, {
-            author: { address: "plebbit.bso" },
-            signer: signers[6]
+        postToEdit = await publishRandomPost({
+            subplebbitAddress: signers[0].address,
+            plebbit: plebbit,
+            postProps: {
+                author: { address: "plebbit.bso" },
+                signer: signers[6]
+            }
         });
     });
 

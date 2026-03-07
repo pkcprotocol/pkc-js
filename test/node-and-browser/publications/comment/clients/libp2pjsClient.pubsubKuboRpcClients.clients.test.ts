@@ -38,13 +38,13 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`comment.clients.${clientFieldName}[url].state is stopped by default`, async () => {
-            const mockPost = await generateMockPost(subplebbitAddress, plebbit);
+            const mockPost = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             for (const client of Object.values(mockPost.clients[clientFieldName as keyof typeof mockPost.clients]))
                 expect((client as { state: string }).state).to.equal("stopped");
         });
 
         it(`correct order of ${clientFieldName} state when publishing a comment with a sub that skips challenge`, async () => {
-            const mockPost = await generateMockPost(signers[0].address, plebbit);
+            const mockPost = await generateMockPost({ subplebbitAddress: signers[0].address, plebbit: plebbit });
 
             const pubsubUrls = Object.keys((plebbit.clients as Record<string, Record<string, unknown>>)[clientFieldName]);
             // Only first pubsub url is used for subscription. For publishing we use all providers
@@ -133,7 +133,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                     }
                 });
 
-                const mockPost = await generateMockPost(signers[1].address, offlinePubsubPlebbit);
+                const mockPost = await generateMockPost({ subplebbitAddress: signers[1].address, plebbit: offlinePubsubPlebbit });
 
                 const actualStates: string[] = [];
 
@@ -165,7 +165,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
                 plebbit.clients.pubsubKuboRpcClients[upPubsubUrl]._client = createMockPubsubClient(); // Use mock pubsub to be on the same pubsub as the sub
 
-                const mockPost = await generateMockPost(signers[0].address, plebbit);
+                const mockPost = await generateMockPost({ subplebbitAddress: signers[0].address, plebbit: plebbit });
 
                 const expectedStates = {
                     [offlinePubsubUrl]: ["subscribing-pubsub", "stopped"],
@@ -198,7 +198,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
                 plebbit.clients.pubsubKuboRpcClients[upPubsubUrl]._client = createMockPubsubClient(); // Use mock pubsub to be on the same pubsub as the sub
 
-                const mockPost = await generateMockPost(signers[0].address, plebbit);
+                const mockPost = await generateMockPost({ subplebbitAddress: signers[0].address, plebbit: plebbit });
                 (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 5;
 
                 const expectedStates = {

@@ -56,7 +56,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             if (!subplebbitPage || subplebbitPage.comments.length < 10) {
                 await Promise.all(
                     new Array(5).fill(null).map(async (_x) => {
-                        const post = await publishRandomPost(subplebbit.address, plebbit);
+                        const post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
                         await waitTillPostInSubplebbitInstancePages(post as CommentIpfsWithCidDefined, subplebbit);
                         return post;
                     })
@@ -69,8 +69,16 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await populateSub(sub);
             await sub.update();
 
-            postToPin = await publishRandomPost(subplebbitAddress, plebbit, { timestamp: Math.round(Date.now() / 1000) - 110 });
-            secondPostToPin = await publishRandomPost(subplebbitAddress, plebbit, { timestamp: Math.round(Date.now() / 1000) - 100 });
+            postToPin = await publishRandomPost({
+                subplebbitAddress: subplebbitAddress,
+                plebbit: plebbit,
+                postProps: { timestamp: Math.round(Date.now() / 1000) - 110 }
+            });
+            secondPostToPin = await publishRandomPost({
+                subplebbitAddress: subplebbitAddress,
+                plebbit: plebbit,
+                postProps: { timestamp: Math.round(Date.now() / 1000) - 100 }
+            });
 
             await postToPin.update();
             await secondPostToPin.update();
@@ -302,7 +310,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         const populatePost = async () => {
             if (post.replyCount < 5) {
-                await Promise.all(new Array(10).fill(null).map((_x) => publishRandomReply(post as CommentIpfsWithCidDefined, plebbit)));
+                await Promise.all(
+                    new Array(10)
+                        .fill(null)
+                        .map((_x) => publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit }))
+                );
                 await resolveWhenConditionIsTrue({ toUpdate: post, predicate: async () => post.replyCount > 5 });
             }
         };
@@ -315,7 +327,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await post.update();
             await populatePost();
             expect(post.replyCount).to.be.greaterThan(5); // Arbitary number
-            replyToPin = await publishRandomReply(post as CommentIpfsWithCidDefined, plebbit);
+            replyToPin = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
             await removeAllPins(
                 post.replies.pageCids.best
                     ? await loadAllPages(post.replies.pageCids.best, post.replies)

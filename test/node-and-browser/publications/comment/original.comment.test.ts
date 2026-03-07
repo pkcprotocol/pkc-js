@@ -20,7 +20,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`comment.original after publishing a comment successfully`, async () => {
-            const post = await publishRandomPost(signers[0].address, plebbit);
+            const post = await publishRandomPost({ subplebbitAddress: signers[0].address, plebbit: plebbit });
             expect(post.original.author.address).to.equal(post.author.address);
             expect(post.original.author.subplebbit).to.be.undefined;
             expect(post.original.content).to.equal(post.content);
@@ -44,7 +44,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`comment.original from comment.update() after CommentUpdate`, async () => {
-            const originalComment = await publishRandomPost(signers[0].address, plebbit);
+            const originalComment = await publishRandomPost({ subplebbitAddress: signers[0].address, plebbit: plebbit });
             const cid = originalComment.cid;
             const comment = await plebbit.createComment({ cid });
             await comment.update();

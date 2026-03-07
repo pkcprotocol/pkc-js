@@ -31,8 +31,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: false } });
             signer = await plebbit.createSigner();
-            postToVote = await publishRandomPost(subplebbitAddress, plebbit, { signer });
-            replyToVote = await publishRandomReply(postToVote as CommentIpfsWithCidDefined, plebbit, { signer });
+            postToVote = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit, postProps: { signer } });
+            replyToVote = await publishRandomReply({
+                parentComment: postToVote as CommentIpfsWithCidDefined,
+                plebbit: plebbit,
+                commentProps: { signer }
+            });
             await postToVote.update();
             await replyToVote.update();
             await resolveWhenConditionIsTrue({ toUpdate: postToVote, predicate: async () => typeof postToVote.updatedAt === "number" });

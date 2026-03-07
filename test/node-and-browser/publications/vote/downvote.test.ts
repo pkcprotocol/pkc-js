@@ -25,8 +25,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             signer = await plebbit.createSigner();
-            postToVote = await publishRandomPost(subplebbitAddress, plebbit, { signer });
-            replyToVote = await publishRandomReply(postToVote as unknown as CommentIpfsWithCidDefined, plebbit, { signer });
+            postToVote = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit, postProps: { signer } });
+            replyToVote = await publishRandomReply({
+                parentComment: postToVote as unknown as CommentIpfsWithCidDefined,
+                plebbit: plebbit,
+                commentProps: { signer }
+            });
             await Promise.all([postToVote.update(), replyToVote.update()]);
             await resolveWhenConditionIsTrue({ toUpdate: postToVote, predicate: async () => typeof postToVote.updatedAt === "number" });
             await resolveWhenConditionIsTrue({ toUpdate: replyToVote, predicate: async () => typeof replyToVote.updatedAt === "number" });

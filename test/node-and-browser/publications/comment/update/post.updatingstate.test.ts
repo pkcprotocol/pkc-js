@@ -217,7 +217,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                     eventName: "error"
                 });
 
-                await publishRandomPost(subplebbitAddress, dedicatedPlebbit); // force subplebbit to publish a new update which will increase loading attempts
+                await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: dedicatedPlebbit }); // force subplebbit to publish a new update which will increase loading attempts
                 await resolveWhenConditionIsTrue({
                     toUpdate: createdComment,
                     predicate: async () => errors.length >= 2,
@@ -348,7 +348,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
 
                 await createErrorPromise();
 
-                await publishRandomPost(subplebbitAddress, dedicatedPlebbit); // force subplebbit to publish a new update which will increase loading attempts
+                await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: dedicatedPlebbit }); // force subplebbit to publish a new update which will increase loading attempts
                 await createErrorPromise();
 
                 await createdComment.stop();

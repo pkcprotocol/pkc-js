@@ -13,6 +13,7 @@ import signers from "../../fixtures/signers.js";
 import type { Plebbit } from "../../../dist/node/plebbit/plebbit.js";
 import type { RemoteSubplebbit } from "../../../dist/node/subplebbit/remote-subplebbit.js";
 import type { PlebbitError } from "../../../dist/node/plebbit-error.js";
+import type { CommentIpfsWithCidDefined } from "../../../dist/node/publications/comment/types.js";
 
 const subplebbitAddress = signers[0].address;
 
@@ -234,8 +235,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         itSkipIfRpc(
             `Stopping the first updating comment shouldn't tear down _updatingSubplebbits while another comment from the same sub is still updating`,
             async () => {
-                const firstPost = await publishRandomPost(subplebbitAddress, plebbit);
-                const secondPost = await publishRandomPost(subplebbitAddress, plebbit);
+                const firstPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+                const secondPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
 
                 const firstComment = await plebbit.createComment({ cid: firstPost.cid });
                 const secondComment = await plebbit.createComment({ cid: secondPost.cid });
@@ -300,7 +301,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`Calling comment.stop() and update() should behave as normal with plebbit._updatingComments`, async () => {
-            const comment = await publishRandomPost(subplebbitAddress, plebbit);
+            const comment = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             const postCommentCid = comment.cid;
 
             const postComment1 = await plebbit.createComment({ cid: postCommentCid });
@@ -321,7 +322,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             const initialReplyCount = postComment2.replyCount;
 
-            await publishRandomReply(postComment2 as Parameters<typeof publishRandomReply>[0], plebbit);
+            await publishRandomReply({ parentComment: postComment2 as CommentIpfsWithCidDefined, plebbit: plebbit });
 
             // we don't know if another test might publish a reply to postComment2, so we wait until we see a reply count increase
             await resolveWhenConditionIsTrue({
@@ -339,7 +340,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it("fails (for now) when an updating comment mirrors itself from _updatingComments", async () => {
-            const post = await publishRandomPost(subplebbitAddress, plebbit);
+            const post = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             const selfUpdatingComment = await plebbit.createComment({ cid: post.cid });
 
             // Simulate the CI case where _updatingComments already holds the same instance before update()

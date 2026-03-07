@@ -41,14 +41,14 @@ describe(`subplebbit.{lastPostCid, lastCommentCid}`, async () => {
     it(`subplebbit.lastPostCid and lastCommentCid reflects latest post published`, async () => {
         expect(sub.lastPostCid).to.be.undefined;
         expect(sub.lastCommentCid).to.be.undefined;
-        const post = await publishRandomPost(sub.address, plebbit);
+        const post = await publishRandomPost({ subplebbitAddress: sub.address, plebbit: plebbit });
         await waitTillPostInSubplebbitPages(post as CommentIpfsWithCidDefined, plebbit);
         expect(sub.lastPostCid).to.equal(post.cid);
         expect(sub.lastCommentCid).to.equal(post.cid);
     });
 
     it(`subplebbit.lastPostCid doesn't reflect latest reply`, async () => {
-        await publishRandomReply(sub.posts.pages.hot!.comments[0], plebbit);
+        await publishRandomReply({ parentComment: sub.posts.pages.hot!.comments[0], plebbit: plebbit });
         expect(sub.lastPostCid).to.equal(sub.posts.pages.hot!.comments[0].cid);
     });
 
@@ -88,7 +88,7 @@ describeSkipIfRpc(`Create a sub with basic auth urls`, async () => {
         const sub = await createSubWithNoChallenge({}, plebbit);
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
-        await publishRandomPost(sub.address, plebbit);
+        await publishRandomPost({ subplebbitAddress: sub.address, plebbit: plebbit });
         await sub.delete();
         await plebbit.destroy();
     });
@@ -105,7 +105,7 @@ describeSkipIfRpc(`Create a sub with basic auth urls`, async () => {
         const sub = await createSubWithNoChallenge({}, plebbit);
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
-        await publishRandomPost(sub.address, plebbit);
+        await publishRandomPost({ subplebbitAddress: sub.address, plebbit: plebbit });
         await sub.delete();
         await plebbit.destroy();
     });
@@ -134,7 +134,7 @@ describe(`subplebbit.pubsubTopic`, async () => {
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
         expect(subplebbit.pubsubTopic).to.be.undefined;
 
-        const post = await publishRandomPost(subplebbit.address, plebbit, {});
+        const post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
         // _subplebbit is private, use type assertion to access it for testing
         expect((post as Comment & { _subplebbit?: Pick<SubplebbitIpfsType, "pubsubTopic"> })._subplebbit?.pubsubTopic).to.be.undefined;
     });
@@ -162,7 +162,7 @@ describe.skip(`comment.link`, async () => {
     describe.skip(`comment.thumbnailUrl`, async () => {
         it(`comment.thumbnailUrl is generated for youtube video with thumbnailUrlWidth and thumbnailUrlHeight`, async () => {
             const url = "https://www.youtube.com/watch?v=TLysAkFM4cA";
-            const post = await publishRandomPost(subplebbit.address, plebbit, { link: url });
+            const post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit, postProps: { link: url } });
             const expectedThumbnailUrl = "https://i.ytimg.com/vi/TLysAkFM4cA/maxresdefault.jpg";
             expect(post.thumbnailUrl).to.equal(expectedThumbnailUrl);
             expect(post.thumbnailUrlWidth).to.equal(1280);
@@ -172,7 +172,7 @@ describe.skip(`comment.link`, async () => {
         it(`generates thumbnail url for html page with thumbnailUrlWidth and thumbnailUrlHeight`, async () => {
             const url =
                 "https://www.correiobraziliense.com.br/politica/2023/06/5101828-moraes-determina-novo-bloqueio-das-redes-sociais-e-canais-de-monark.html";
-            const post = await publishRandomPost(subplebbit.address, plebbit, { link: url });
+            const post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit, postProps: { link: url } });
             const expectedThumbnailUrl =
                 "https://midias.correiobraziliense.com.br/_midias/jpg/2022/03/23/675x450/1_monark-7631489.jpg?20230614170105?20230614170105";
             expect(post.thumbnailUrl).to.equal(expectedThumbnailUrl);
@@ -183,7 +183,7 @@ describe.skip(`comment.link`, async () => {
         it(`Generates thumbnail url for html page with no ogWidth and ogHeight correctly with thumbnailUrlWidth and thumbnailUrlHeight`, async () => {
             const url =
                 "https://pleb.bz/p/reddit-screenshots.eth/c/QmUBqbdaVNNCaPUYZjqizYYL42wgr4YBfxDAcjxLJ59vid?redirect=plebones.eth.limo";
-            const post = await publishRandomPost(subplebbit.address, plebbit, { link: url });
+            const post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit, postProps: { link: url } });
             const expectedThumbnailUrl = "https://i.imgur.com/6Ogacyq.png";
             expect(post.thumbnailUrl).to.equal(expectedThumbnailUrl);
             expect(post.thumbnailUrlWidth).to.equal(512);
@@ -192,7 +192,7 @@ describe.skip(`comment.link`, async () => {
 
         it.skip(`Generates thumbnail url for twitter urls correctly`, async () => {
             const url = "https://fxtwitter.com/deedydas/status/1914714739432939999";
-            const post = await publishRandomPost(subplebbit.address, plebbit, { link: url });
+            const post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit, postProps: { link: url } });
             const expectedThumbnailUrl = "https://pbs.twimg.com/media/F3iniP-XcAA1TVU.jpg:large";
             expect(post.thumbnailUrl).to.equal(expectedThumbnailUrl);
             expect(post.thumbnailUrlWidth).to.equal(1125);
@@ -201,7 +201,7 @@ describe.skip(`comment.link`, async () => {
 
         it(`comment.thumbnailUrl and width and height is defined if comment.link is a link of a jpg`, async () => {
             const link = "https://i.ytimg.com/vi/TLysAkFM4cA/maxresdefault.jpg";
-            const post = await publishRandomPost(subplebbit.address, plebbit, { link });
+            const post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit, postProps: { link } });
             expect(post.link).to.equal(link);
             expect(post.thumbnailUrl).to.equal(link);
             expect(post.thumbnailUrlWidth).to.equal(1280);
@@ -210,7 +210,7 @@ describe.skip(`comment.link`, async () => {
 
         it.skip(`comment.thumbnailUrl and width and height is defined is undefined if comment.link is a link of a gif`, async () => {
             const link = "https://files.catbox.moe/nlsfav.gif";
-            const post = await publishRandomPost(subplebbit.address, plebbit, { link });
+            const post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit, postProps: { link } });
             expect(post.link).to.equal(link);
             expect(post.thumbnailUrl).to.equal(link);
             expect(post.thumbnailUrlWidth).to.be.undefined;
@@ -222,7 +222,11 @@ describe.skip(`comment.link`, async () => {
         const link = "https://i.ytimg.com/vi/TLysAkFM4cA/maxresdefault.jpg";
         const linkWidth = 200;
         const linkHeight = 200;
-        const post = await publishRandomPost(subplebbit.address, plebbit, { link, linkWidth, linkHeight });
+        const post = await publishRandomPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: plebbit,
+            postProps: { link, linkWidth, linkHeight }
+        });
         expect(post.link).to.equal(link);
         expect(post.linkHeight).to.equal(linkHeight);
         expect(post.linkWidth).to.equal(linkWidth);
@@ -302,7 +306,7 @@ describe.concurrent(`subplebbit.clients (Local)`, async () => {
             await resolveWhenConditionIsTrue({ toUpdate: mockSub, predicate: async () => typeof mockSub.updatedAt === "number" });
 
             const challengeVerificationPromise = new Promise((resolve) => mockSub.once("challengeverification", resolve));
-            await publishRandomPost(mockSub.address, plebbit);
+            await publishRandomPost({ subplebbitAddress: mockSub.address, plebbit: plebbit });
 
             await challengeVerificationPromise;
 
@@ -332,7 +336,7 @@ describe.concurrent(`subplebbit.clients (Local)`, async () => {
 
             await resolveWhenConditionIsTrue({ toUpdate: mockSub, predicate: async () => typeof mockSub.updatedAt === "number" });
 
-            const post = await generateMockPost(mockSub.address, plebbit);
+            const post = await generateMockPost({ subplebbitAddress: mockSub.address, plebbit: plebbit });
             post.once("challenge", async () => {
                 await post.publishChallengeAnswers(["2"]);
             });
@@ -373,7 +377,11 @@ describe.concurrent(`subplebbit.clients (Local)`, async () => {
             await new Promise((resolve) => mockSub.once("update", resolve));
 
             const challengeVerificationPromise = new Promise((resolve) => mockSub.once("challengeverification", resolve));
-            await publishRandomPost(mockSub.address, plebbit, { author: { address: "plebbit.bso" }, signer: signers[6] });
+            await publishRandomPost({
+                subplebbitAddress: mockSub.address,
+                plebbit: plebbit,
+                postProps: { author: { address: "plebbit.bso" }, signer: signers[6] }
+            });
 
             await challengeVerificationPromise;
 
@@ -424,7 +432,7 @@ describe.concurrent(`subplebbit.clients (Local)`, async () => {
 
             await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
 
-            const post = await publishRandomPost(sub.address, plebbit, {});
+            const post = await publishRandomPost({ subplebbitAddress: sub.address, plebbit: plebbit });
             await waitTillPostInSubplebbitPages(post as CommentIpfsWithCidDefined, plebbit);
             if (recordedStates[recordedStates.length - 1] === "stopped")
                 expect(recordedStates).to.deep.equal([...expectedStates, "stopped"]);
@@ -457,7 +465,7 @@ describe.concurrent(`subplebbit.clients (Local)`, async () => {
 
             await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
 
-            const mockPost = await generateMockPost(sub.address, plebbit);
+            const mockPost = await generateMockPost({ subplebbitAddress: sub.address, plebbit: plebbit });
 
             mockPost.once("challenge", async () => {
                 await mockPost.publishChallengeAnswers(["2"]);

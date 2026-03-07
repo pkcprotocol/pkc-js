@@ -29,7 +29,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbi
             await plebbit.getSubplebbit({ address: mathCliSubplebbitAddress }); // Do this to cache subplebbit so we won't get fetching-subplebbit-ipns
 
             const rpcUrl = Object.keys(plebbit.clients.plebbitRpcClients)[0];
-            const mockPost = await generateMockPost(mathCliSubplebbitAddress, plebbit);
+            const mockPost = await generateMockPost({ subplebbitAddress: mathCliSubplebbitAddress, plebbit: plebbit });
             mockPost.removeAllListeners();
 
             const expectedStates = [
@@ -56,7 +56,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbi
         });
 
         it(`Correct order of comment.clients.plebbitRpcClients states when updating a comment`, async () => {
-            const mockPost = await publishRandomPost(subplebbitAddress, plebbit);
+            const mockPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             await waitTillPostInSubplebbitPages(mockPost as CommentIpfsWithCidDefined, plebbit);
             const postToUpdate = await plebbit.createComment({ cid: mockPost.cid });
 

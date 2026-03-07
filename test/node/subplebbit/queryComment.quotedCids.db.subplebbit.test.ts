@@ -38,12 +38,16 @@ describeSkipIfRpc("dbHandler.queryComment returns quotedCids as array", async ()
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
         // Publish a post to quote
-        post = await publishRandomPost(subplebbit.address, plebbit, { signer: modSigner });
+        post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit, postProps: { signer: modSigner } });
 
         // Publish a reply that quotes the post
-        replyWithQuotedCids = await publishRandomReply(post as CommentIpfsWithCidDefined, plebbit, {
-            signer: modSigner,
-            quotedCids: [post.cid!]
+        replyWithQuotedCids = await publishRandomReply({
+            parentComment: post as CommentIpfsWithCidDefined,
+            plebbit: plebbit,
+            commentProps: {
+                signer: modSigner,
+                quotedCids: [post.cid!]
+            }
         });
     });
 

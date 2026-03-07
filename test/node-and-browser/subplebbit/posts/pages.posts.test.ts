@@ -33,7 +33,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         let plebbit: PlebbitType, newPost: Comment, subplebbit: RemoteSubplebbit;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            newPost = await publishRandomPost(subplebbitAddress, plebbit); // After publishing this post it should appear on all pages
+            newPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit }); // After publishing this post it should appear on all pages
             await waitTillPostInSubplebbitPages(newPost as CommentIpfsWithCidDefined, plebbit);
             subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
         });
@@ -168,8 +168,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             beforeAll(async () => {
                 plebbit = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: false } });
-                newPost = await publishRandomPost(subplebbitAddress, plebbit);
-                await publishRandomReply(newPost as CommentIpfsWithCidDefined, plebbit);
+                newPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+                await publishRandomReply({ parentComment: newPost as CommentIpfsWithCidDefined, plebbit: plebbit });
                 await waitTillPostInSubplebbitPages(newPost as CommentIpfsWithCidDefined, plebbit);
                 subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
                 validPageJson = remeda.clone(subplebbit.posts.pages.hot); // PageTypeJson, not PageIpfs

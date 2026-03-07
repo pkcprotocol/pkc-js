@@ -38,7 +38,11 @@ describe.sequential("Validate props of subplebbit Pubsub messages", async () => 
     });
 
     it(`Validate props of challengerequest`, async () => {
-        const comment = await generateMockPost(subplebbit.address, plebbit, false, { signer: commentSigner });
+        const comment = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: plebbit,
+            postProps: { signer: commentSigner }
+        });
         const challengeRequestPromise = new Promise<DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor>((resolve) =>
             subplebbit.once("challengerequest", resolve)
         );
@@ -69,7 +73,11 @@ describe.sequential("Validate props of subplebbit Pubsub messages", async () => 
     });
 
     it(`Validate props of challenge`, async () => {
-        const comment = await generateMockPost(subplebbit.address, plebbit, false, { signer: commentSigner });
+        const comment = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: plebbit,
+            postProps: { signer: commentSigner }
+        });
         const challengePromise = new Promise<DecryptedChallengeMessageType>((resolve) => subplebbit.once("challenge", resolve));
 
         await comment.publish();
@@ -138,7 +146,11 @@ describe.sequential("Validate props of subplebbit Pubsub messages", async () => 
 
     it(`Validate props of challengeverification (challengeSuccess=false)`, async () => {
         // Use generateMockPost instead of generatePostToAnswerMathQuestion so we can provide a wrong answer
-        const comment = await generateMockPost(subplebbit.address, plebbit, false, { signer: commentSigner });
+        const comment = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: plebbit,
+            postProps: { signer: commentSigner }
+        });
 
         // Set up to answer with a wrong answer
         comment.once("challenge", async () => {

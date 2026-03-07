@@ -31,10 +31,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             [postToDelete, modPostToDelete] = await Promise.all([
-                publishRandomPost(subplebbitAddress, plebbit),
-                publishRandomPost(subplebbitAddress, plebbit, { signer: roles[2].signer })
+                publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit }),
+                publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit, postProps: { signer: roles[2].signer } })
             ]);
-            postReply = await publishRandomReply(postToDelete as CommentIpfsWithCidDefined, plebbit);
+            postReply = await publishRandomReply({ parentComment: postToDelete as CommentIpfsWithCidDefined, plebbit: plebbit });
             await postToDelete.update();
             await modPostToDelete.update();
             await postReply.update();
@@ -217,9 +217,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            post = await publishRandomPost(subplebbitAddress, plebbit);
-            replyToDelete = await publishRandomReply(post as CommentIpfsWithCidDefined, plebbit);
-            replyUnderDeletedReply = await publishRandomReply(replyToDelete as CommentIpfsWithCidDefined, plebbit);
+            post = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            replyToDelete = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
+            replyUnderDeletedReply = await publishRandomReply({
+                parentComment: replyToDelete as CommentIpfsWithCidDefined,
+                plebbit: plebbit
+            });
             await Promise.all([replyToDelete.update(), post.update()]);
         });
         afterAll(async () => {

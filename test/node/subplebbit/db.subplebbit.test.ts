@@ -64,7 +64,7 @@ const generateRandomSub = async (): Promise<LocalSubplebbit | RpcLocalSubplebbit
     await sub.start();
     await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => Boolean(sub.updatedAt) });
 
-    const post: Comment = await publishRandomPost(sub.address, plebbit);
+    const post: Comment = await publishRandomPost({ subplebbitAddress: sub.address, plebbit: plebbit });
     await waitTillPostInSubplebbitInstancePages(post as CommentIpfsWithCidDefined, sub);
 
     await sub.stop();
@@ -123,7 +123,7 @@ describeSkipIfRpc.sequential(`DB importing`, async () => {
         const currentDbVersion = await localSub._dbHandler.getDbVersion();
         expect(currentDbVersion).to.equal(plebbitVersion.DB_VERSION);
 
-        const mockPost: Comment = await generateMockPost(subplebbit.address, tempPlebbit);
+        const mockPost: Comment = await generateMockPost({ subplebbitAddress: subplebbit.address, plebbit: tempPlebbit });
         mockPost.once("challenge", async () => {
             await mockPost.publishChallengeAnswers(["2"]); // hardcode answer here
         });
@@ -178,7 +178,7 @@ describeSkipIfRpc.sequential(`DB importing`, async () => {
         await regularPlebbit.destroy();
         await tempPlebbit.destroy();
 
-        // const mockPost = await generateMockPost(subplebbit.address, tempPlebbit);
+        // const mockPost = await generateMockPost({ subplebbitAddress: subplebbit.address, plebbit: tempPlebbit });
         // mockPost.once("challenge", async (challengeMsg) => {
         //     await mockPost.publishChallengeAnswers(["2"]); // hardcode answer here
         // });
@@ -216,7 +216,7 @@ describeSkipIfRpc.sequential("DB Migration", () => {
 
             await new Promise<void>((resolve) => subplebbit.once("update", () => resolve())); // Ensure IPNS is published
             await subplebbit.edit({ settings: { ...subplebbit.settings, challenges: [] } });
-            const mockPost: Comment = await publishRandomPost(subplebbit.address, plebbit);
+            const mockPost: Comment = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
 
             await mockPost.update();
             await resolveWhenConditionIsTrue({ toUpdate: mockPost, predicate: async () => Boolean(mockPost.updatedAt) });

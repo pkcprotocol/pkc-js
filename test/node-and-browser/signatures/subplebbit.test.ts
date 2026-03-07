@@ -122,7 +122,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
             plebbit: tempPlebbit,
             domain: "plebbit.eth",
             value: signers[4].address,
-            textRecord: "subplebbit-address"
+            resolveType: "subplebbit"
         });
         const sub = await plebbit.createSubplebbit({ address: "plebbit.bso" });
         await sub.update();

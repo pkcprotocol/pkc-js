@@ -33,14 +33,14 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
         await plebbit.destroy();
     });
     it(`comment.clients.nameResolvers[resolverKey].state is stopped by default`, async () => {
-        const mockPost = await generateMockPost(subplebbitAddress, plebbit);
+        const mockPost = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
         expect(Object.keys(mockPost.clients.nameResolvers).length).to.be.greaterThanOrEqual(1);
         for (const resolverKey of Object.keys(mockPost.clients.nameResolvers))
             expect(mockPost.clients.nameResolvers[resolverKey].state).to.equal("stopped");
     });
 
     it(`Correct order of nameResolvers state when updating a comment whose sub is a domain - uncached`, async () => {
-        const mockPost = await publishRandomPost("plebbit.bso", plebbit);
+        const mockPost = await publishRandomPost({ subplebbitAddress: "plebbit.bso", plebbit: plebbit });
 
         await mockPost.stop();
 
@@ -48,7 +48,7 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
         await mockCacheOfTextRecord({
             plebbit: differentPlebbit,
             domain: "plebbit.bso",
-            textRecord: "subplebbit-address",
+            resolveType: "subplebbit",
             value: undefined
         });
         const updatingPost = await differentPlebbit.createComment({ cid: mockPost.cid });
@@ -73,7 +73,7 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
     });
 
     it(`Correct order of nameResolvers state when updating a comment whose sub is a domain - cached`, async () => {
-        const mockPost = await publishRandomPost("plebbit.bso", plebbit);
+        const mockPost = await publishRandomPost({ subplebbitAddress: "plebbit.bso", plebbit: plebbit });
 
         await mockPost.stop();
 
@@ -82,7 +82,7 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
         await mockCacheOfTextRecord({
             plebbit: mockPost._plebbit,
             domain: "plebbit.bso",
-            textRecord: "subplebbit-address",
+            resolveType: "subplebbit",
             value: signers[3].address
         });
 
@@ -106,9 +106,13 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
     it(`Correct order of nameResolvers state when updating a comment whose author address is a domain - uncached`, async () => {
         // Create a post with a domain as author address, signed with the correct signer
         const plebbit: Plebbit = await mockPlebbitV2({ stubStorage: false, remotePlebbit: true, mockResolve: true });
-        const mockPost = await publishRandomPost(subplebbitAddress, plebbit, {
-            author: { address: "plebbit.eth" },
-            signer: signers[6]
+        const mockPost = await publishRandomPost({
+            subplebbitAddress: subplebbitAddress,
+            plebbit: plebbit,
+            postProps: {
+                author: { address: "plebbit.eth" },
+                signer: signers[6]
+            }
         });
 
         // Create a new plebbit instance to avoid caching
@@ -118,7 +122,7 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
         await mockCacheOfTextRecord({
             plebbit: differentPlebbit,
             domain: "plebbit.eth",
-            textRecord: "plebbit-author-address",
+            resolveType: "author",
             value: undefined
         });
 
@@ -144,9 +148,13 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
 
     it(`Correct order of nameResolvers state when updating a comment whose author address is a domain - cached`, async () => {
         // Create a post with a domain as author address, signed with the correct signer
-        const mockPost = await publishRandomPost(subplebbitAddress, plebbit, {
-            author: { address: "plebbit.eth" },
-            signer: signers[6]
+        const mockPost = await publishRandomPost({
+            subplebbitAddress: subplebbitAddress,
+            plebbit: plebbit,
+            postProps: {
+                author: { address: "plebbit.eth" },
+                signer: signers[6]
+            }
         });
 
         // Create a new plebbit instance to avoid caching
@@ -156,7 +164,7 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
         await mockCacheOfTextRecord({
             plebbit: differentPlebbit,
             domain: "plebbit.eth",
-            textRecord: "plebbit-author-address",
+            resolveType: "author",
             value: signers[6].address
         });
 
@@ -182,11 +190,11 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
 
     it(`correct order of nameResolvers state when publishing a comment to a sub with a domain address - uncached`, async () => {
         const plebbit: Plebbit = await mockPlebbitV2({ stubStorage: false, remotePlebbit: true, mockResolve: true }); // need to use different plebbit so it won't use the memory cache of subplebbit for publishing
-        const mockPost = await generateMockPost("plebbit.bso", plebbit);
+        const mockPost = await generateMockPost({ subplebbitAddress: "plebbit.bso", plebbit: plebbit });
         await mockCacheOfTextRecord({
             plebbit: mockPost._plebbit,
             domain: "plebbit.bso",
-            textRecord: "subplebbit-address",
+            resolveType: "subplebbit",
             value: undefined
         });
         const expectedStates = ["resolving-subplebbit-address", "stopped"];
@@ -204,11 +212,11 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
     });
 
     it(`correct order of nameResolvers state when publishing a comment to a sub with a domain address - cached`, async () => {
-        const mockPost = await generateMockPost("plebbit.bso", plebbit);
+        const mockPost = await generateMockPost({ subplebbitAddress: "plebbit.bso", plebbit: plebbit });
         await mockCacheOfTextRecord({
             plebbit: mockPost._plebbit,
             domain: "plebbit.bso",
-            textRecord: "subplebbit-address",
+            resolveType: "subplebbit",
             value: signers[3].address
         });
         const expectedStates: string[] = []; // empty because it's cached
@@ -225,10 +233,14 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
     });
 
     it(`Correct order of nameResolvers state when comment has a reply with author.address as domain - uncached`, async () => {
-        const mockPost = await publishRandomPost(subplebbitAddress, plebbit);
-        const reply = await publishRandomReply(mockPost as CommentIpfsWithCidDefined, plebbit, {
-            author: { address: "plebbit.eth" },
-            signer: signers[6]
+        const mockPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+        const reply = await publishRandomReply({
+            parentComment: mockPost as CommentIpfsWithCidDefined,
+            plebbit: plebbit,
+            commentProps: {
+                author: { address: "plebbit.eth" },
+                signer: signers[6]
+            }
         });
         await waitTillReplyInParentPages(reply as CommentWithRequiredFields, plebbit); // make sure until reply is in mockPost.replies
 
@@ -256,10 +268,14 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
     });
 
     it(`Correct order of nameResolvers state when comment has a reply with author.address as domain - cached`, async () => {
-        const mockPost = await publishRandomPost(subplebbitAddress, plebbit);
-        const reply = await publishRandomReply(mockPost as CommentIpfsWithCidDefined, plebbit, {
-            author: { address: "plebbit.eth" },
-            signer: signers[6]
+        const mockPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+        const reply = await publishRandomReply({
+            parentComment: mockPost as CommentIpfsWithCidDefined,
+            plebbit: plebbit,
+            commentProps: {
+                author: { address: "plebbit.eth" },
+                signer: signers[6]
+            }
         });
         await waitTillReplyInParentPages(reply as CommentWithRequiredFields, plebbit); // make sure until reply is in mockPost.replies
 
@@ -267,7 +283,7 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
         await mockCacheOfTextRecord({
             plebbit: plebbit,
             domain: "plebbit.eth",
-            textRecord: "plebbit-author-address",
+            resolveType: "author",
             value: signers[3].address
         });
         const loadedPost = await differentPlebbit.createComment({ cid: mockPost.cid });

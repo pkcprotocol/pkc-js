@@ -27,7 +27,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
         });
         // All tests below use Plebbit instance that doesn't have clients.kuboRpcClients
         it(`comment.clients.ipfsGateways[url] is stopped by default`, async () => {
-            const mockPost = await generateMockPost(subplebbitAddress, plebbit);
+            const mockPost = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             expect(Object.keys(mockPost.clients.ipfsGateways).length).to.equal(1);
             expect(Object.values(mockPost.clients.ipfsGateways)[0].state).to.equal("stopped");
         });
@@ -82,7 +82,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
         });
 
         it.sequential(`Correct order of ipfsGateways state when publishing a comment (uncached subplebbit)`, async () => {
-            const mockPost = await generateMockPost(signers[0].address, plebbit);
+            const mockPost = await generateMockPost({ subplebbitAddress: signers[0].address, plebbit: plebbit });
 
             mockPost._getSubplebbitCache = () => undefined;
 
@@ -99,7 +99,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
         });
 
         it(`Correct order of ipfsGateways state when publishing a comment (cached subplebbit)`, async () => {
-            const mockPost = await generateMockPost(signers[0].address, plebbit);
+            const mockPost = await generateMockPost({ subplebbitAddress: signers[0].address, plebbit: plebbit });
 
             const expectedStates: string[] = []; // Should be empty since we're using cached subplebbit
 

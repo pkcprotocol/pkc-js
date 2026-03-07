@@ -43,13 +43,13 @@ describeSkipIfRpc(`subplebbit.edit`, async () => {
         await mockCacheOfTextRecord({
             plebbit,
             domain: bsoNameAddress,
-            textRecord: "subplebbit-address",
+            resolveType: "subplebbit",
             value: subplebbit.signer.address
         });
         await mockCacheOfTextRecord({
             plebbit: remotePlebbit,
             domain: bsoNameAddress,
-            textRecord: "subplebbit-address",
+            resolveType: "subplebbit",
             value: subplebbit.signer.address
         });
 
@@ -59,7 +59,7 @@ describeSkipIfRpc(`subplebbit.edit`, async () => {
         await plebbit.resolveAuthorAddress({ address: "esteban.bso" });
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
-        await publishRandomPost(subplebbit.address, plebbit);
+        await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
     });
     afterAll(async () => {
         await subplebbit.stop();
@@ -154,7 +154,7 @@ describeSkipIfRpc(`subplebbit.edit`, async () => {
     });
 
     it(`Started Sub can receive publications on new ENS address`, async () => {
-        postToPublishAfterEdit = await publishRandomPost(bsoNameAddress, plebbit);
+        postToPublishAfterEdit = await publishRandomPost({ subplebbitAddress: bsoNameAddress, plebbit: plebbit });
     });
 
     it(`Posts submitted to new sub address are shown in subplebbit.posts`, async () => {
@@ -199,25 +199,25 @@ describeSkipIfRpc(`subplebbit.edit .eth -> .bso transition`, async () => {
         await mockCacheOfTextRecord({
             plebbit,
             domain: ethAddress,
-            textRecord: "subplebbit-address",
+            resolveType: "subplebbit",
             value: subplebbit.signer.address
         });
         await mockCacheOfTextRecord({
             plebbit,
             domain: bsoAddress,
-            textRecord: "subplebbit-address",
+            resolveType: "subplebbit",
             value: subplebbit.signer.address
         });
         await mockCacheOfTextRecord({
             plebbit: remotePlebbit,
             domain: ethAddress,
-            textRecord: "subplebbit-address",
+            resolveType: "subplebbit",
             value: subplebbit.signer.address
         });
         await mockCacheOfTextRecord({
             plebbit: remotePlebbit,
             domain: bsoAddress,
-            textRecord: "subplebbit-address",
+            resolveType: "subplebbit",
             value: subplebbit.signer.address
         });
 
@@ -227,7 +227,7 @@ describeSkipIfRpc(`subplebbit.edit .eth -> .bso transition`, async () => {
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
-        const publishedPost = await publishRandomPost(subplebbit.address, plebbit); // ensure posts are non-empty before edits
+        const publishedPost = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit }); // ensure posts are non-empty before edits
         await waitTillPostInSubplebbitPages(publishedPost as CommentIpfsWithCidDefined, plebbit);
     });
 
@@ -245,7 +245,7 @@ describeSkipIfRpc(`subplebbit.edit .eth -> .bso transition`, async () => {
         await new Promise((resolve) => subplebbit.once("update", resolve));
         expect(subplebbit.address).to.equal(ethAddress);
 
-        const postPublishedOnEth = await publishRandomPost(ethAddress, plebbit);
+        const postPublishedOnEth = await publishRandomPost({ subplebbitAddress: ethAddress, plebbit: plebbit });
         await resolveWhenConditionIsTrue({
             toUpdate: subplebbit,
             predicate: async () =>
@@ -290,7 +290,7 @@ describeSkipIfRpc(`subplebbit.edit .eth -> .bso transition`, async () => {
     });
 
     it(`started sub keeps accepting publications on the new .bso address`, async () => {
-        postPublishedOnBso = await publishRandomPost(bsoAddress, plebbit);
+        postPublishedOnBso = await publishRandomPost({ subplebbitAddress: bsoAddress, plebbit: plebbit });
 
         await resolveWhenConditionIsTrue({
             toUpdate: subplebbit,
@@ -397,7 +397,7 @@ describeSkipIfRpc(`Concurrency with subplebbit.edit`, async () => {
                 await mockCacheOfTextRecord({
                     plebbit,
                     domain: editArgs.address,
-                    textRecord: "subplebbit-address",
+                    resolveType: "subplebbit",
                     value: subplebbitInstance.signer.address
                 });
                 plebbit._storage.removeItem = () => Promise.resolve(false); // stop clearing cache when editing subplebbit address
@@ -512,7 +512,7 @@ describeSkipIfRpc(`Concurrency with subplebbit.edit`, async () => {
         const signer = await customPlebbit.createSigner();
         const domain = `edit-before-start-${uuidV4()}.bso`;
 
-        await mockCacheOfTextRecord({ plebbit: customPlebbit, domain, textRecord: "subplebbit-address", value: signer.address });
+        await mockCacheOfTextRecord({ plebbit: customPlebbit, domain, resolveType: "subplebbit", value: signer.address });
 
         const sub = await createSubWithNoChallenge({ signer }, customPlebbit);
         await sub.edit({ address: domain });
@@ -529,7 +529,7 @@ describeSkipIfRpc(`Concurrency with subplebbit.edit`, async () => {
         expect(await localSub._dbHandler.isSubStartLocked(sub.signer.address)).to.be.false;
         expect(await localSub._dbHandler.isSubStartLocked(domain)).to.be.true;
 
-        const post = await publishRandomPost(sub.address, customPlebbit);
+        const post = await publishRandomPost({ subplebbitAddress: sub.address, plebbit: customPlebbit });
         await waitTillPostInSubplebbitPages(post as Required<Pick<Comment, "cid" | "subplebbitAddress">>, customPlebbit);
         await sub.stop();
         await customPlebbit.destroy();
@@ -805,13 +805,13 @@ describeSkipIfRpc(`.eth <-> .bso alias address transitions`, async () => {
             await mockCacheOfTextRecord({
                 plebbit,
                 domain,
-                textRecord: "subplebbit-address",
+                resolveType: "subplebbit",
                 value: subplebbit.signer.address
             });
             await mockCacheOfTextRecord({
                 plebbit: remotePlebbit,
                 domain,
-                textRecord: "subplebbit-address",
+                resolveType: "subplebbit",
                 value: subplebbit.signer.address
             });
         }
@@ -824,7 +824,7 @@ describeSkipIfRpc(`.eth <-> .bso alias address transitions`, async () => {
         expect(subplebbit.address).to.equal(ethNameAddress);
 
         // Publish a post under the .eth address
-        postPublishedOnEth = await publishRandomPost(ethNameAddress, plebbit);
+        postPublishedOnEth = await publishRandomPost({ subplebbitAddress: ethNameAddress, plebbit: plebbit });
         await resolveWhenConditionIsTrue({
             toUpdate: subplebbit,
             predicate: async () =>

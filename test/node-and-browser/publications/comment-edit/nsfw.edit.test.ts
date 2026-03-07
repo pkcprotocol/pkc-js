@@ -25,7 +25,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         let plebbit: Plebbit, authorPost: Comment;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            authorPost = await publishRandomPost(subplebbitAddress, plebbit);
+            authorPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             await authorPost.update();
         });
 
@@ -150,7 +150,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            modPost = await publishRandomPost(subplebbitAddress, plebbit, { signer: roles[2].signer });
+            modPost = await publishRandomPost({
+                subplebbitAddress: subplebbitAddress,
+                plebbit: plebbit,
+                postProps: { signer: roles[2].signer }
+            });
             await modPost.update();
         });
 

@@ -30,7 +30,7 @@ describe.concurrent(`subplebbit.features.noVideoReplies`, async () => {
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
         // Publish a post first (before enabling the feature)
-        publishedPost = await publishRandomPost(subplebbit.address, remotePlebbit);
+        publishedPost = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
     });
 
     afterAll(async () => {
@@ -52,9 +52,13 @@ describe.concurrent(`subplebbit.features.noVideoReplies`, async () => {
     });
 
     it(`Can publish a post with video link (noVideoReplies only blocks replies)`, async () => {
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, {
-            link: "https://example.com/video.mp4",
-            content: "Just text"
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                link: "https://example.com/video.mp4",
+                content: "Just text"
+            }
         });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });

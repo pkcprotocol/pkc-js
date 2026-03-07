@@ -42,7 +42,11 @@ describe("Ban then purge", () => {
             predicate: async () => subplebbit.roles?.[moderatorSigner.address]?.role === "moderator"
         });
 
-        commentToBeBanned = await publishRandomPost(subplebbit.address, plebbit, { signer: authorSigner });
+        commentToBeBanned = await publishRandomPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: plebbit,
+            postProps: { signer: authorSigner }
+        });
         await commentToBeBanned.update();
         await resolveWhenConditionIsTrue({
             toUpdate: commentToBeBanned,
@@ -70,8 +74,12 @@ describe("Ban then purge", () => {
     });
 
     it.sequential(`Banned author can't publish`, async () => {
-        const newCommentByBannedAuthor = await generateMockPost(subplebbit.address, plebbit, false, {
-            signer: authorSigner
+        const newCommentByBannedAuthor = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: plebbit,
+            postProps: {
+                signer: authorSigner
+            }
         });
         await publishWithExpectedResult({
             publication: newCommentByBannedAuthor,
@@ -94,8 +102,12 @@ describe("Ban then purge", () => {
         // The ban should persist even after the comment is purged because the
         // targetAuthorSignerAddress column in commentModerations stores the banned
         // author's address directly, allowing lookup without going through comments table.
-        const newCommentByBannedAuthor = await generateMockPost(subplebbit.address, plebbit, false, {
-            signer: authorSigner
+        const newCommentByBannedAuthor = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: plebbit,
+            postProps: {
+                signer: authorSigner
+            }
         });
         await publishWithExpectedResult({
             publication: newCommentByBannedAuthor,
@@ -132,7 +144,11 @@ describeSkipIfRpc("Ban then purge with per-post pseudonymity mode", () => {
             predicate: async () => subplebbit.roles?.[moderatorSigner.address]?.role === "moderator"
         });
 
-        commentToBeBanned = await publishRandomPost(subplebbit.address, plebbit, { signer: authorSigner });
+        commentToBeBanned = await publishRandomPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: plebbit,
+            postProps: { signer: authorSigner }
+        });
         await commentToBeBanned.update();
         await resolveWhenConditionIsTrue({
             toUpdate: commentToBeBanned,
@@ -165,8 +181,12 @@ describeSkipIfRpc("Ban then purge with per-post pseudonymity mode", () => {
     });
 
     it.sequential(`Banned author can't publish (using original signer)`, async () => {
-        const newCommentByBannedAuthor = await generateMockPost(subplebbit.address, plebbit, false, {
-            signer: authorSigner
+        const newCommentByBannedAuthor = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: plebbit,
+            postProps: {
+                signer: authorSigner
+            }
         });
         await publishWithExpectedResult({
             publication: newCommentByBannedAuthor,
@@ -188,8 +208,12 @@ describeSkipIfRpc("Ban then purge with per-post pseudonymity mode", () => {
     it.sequential(`Author ban persists after purging the anonymized comment`, async () => {
         // The ban should persist because targetAuthorSignerAddress stores the original
         // author's address (resolved from pseudonymityAliases.originalAuthorSignerPublicKey)
-        const newCommentByBannedAuthor = await generateMockPost(subplebbit.address, plebbit, false, {
-            signer: authorSigner
+        const newCommentByBannedAuthor = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: plebbit,
+            postProps: {
+                signer: authorSigner
+            }
         });
         await publishWithExpectedResult({
             publication: newCommentByBannedAuthor,
@@ -226,7 +250,11 @@ describeSkipIfRpc("Ban then purge with per-author pseudonymity mode", () => {
             predicate: async () => subplebbit.roles?.[moderatorSigner.address]?.role === "moderator"
         });
 
-        commentToBeBanned = await publishRandomPost(subplebbit.address, plebbit, { signer: authorSigner });
+        commentToBeBanned = await publishRandomPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: plebbit,
+            postProps: { signer: authorSigner }
+        });
         await commentToBeBanned.update();
         await resolveWhenConditionIsTrue({
             toUpdate: commentToBeBanned,
@@ -260,8 +288,12 @@ describeSkipIfRpc("Ban then purge with per-author pseudonymity mode", () => {
     });
 
     it.sequential(`Banned author can't publish (using original signer)`, async () => {
-        const newCommentByBannedAuthor = await generateMockPost(subplebbit.address, plebbit, false, {
-            signer: authorSigner
+        const newCommentByBannedAuthor = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: plebbit,
+            postProps: {
+                signer: authorSigner
+            }
         });
         await publishWithExpectedResult({
             publication: newCommentByBannedAuthor,
@@ -281,8 +313,12 @@ describeSkipIfRpc("Ban then purge with per-author pseudonymity mode", () => {
     });
 
     it.sequential(`Author ban persists after purging the per-author anonymized comment`, async () => {
-        const newCommentByBannedAuthor = await generateMockPost(subplebbit.address, plebbit, false, {
-            signer: authorSigner
+        const newCommentByBannedAuthor = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: plebbit,
+            postProps: {
+                signer: authorSigner
+            }
         });
         await publishWithExpectedResult({
             publication: newCommentByBannedAuthor,

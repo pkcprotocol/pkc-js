@@ -24,7 +24,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            commentToEdit = await publishRandomPost(subplebbitAddress, plebbit);
+            commentToEdit = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             expect(commentToEdit.cid).to.be.a("string");
         });
 
@@ -121,7 +121,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`An author publishing multiple author edit fields`, async () => {
-            const authorPost = await publishRandomPost(subplebbitAddress, plebbit); // random signer
+            const authorPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit }); // random signer
 
             const fieldsToChange = {
                 deleted: true,
@@ -179,7 +179,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 reason: "Test as an author" + Date.now()
             };
 
-            const authorPost = await publishRandomPost(subplebbitAddress, plebbit); // generate random signer
+            const authorPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit }); // generate random signer
 
             const edit1 = await plebbit.createCommentEdit({
                 ...firstEditProps,

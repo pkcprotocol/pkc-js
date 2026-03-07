@@ -22,7 +22,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            randomPost = await publishRandomPost(subplebbitAddress, plebbit);
+            randomPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             await randomPost.update();
         });
 

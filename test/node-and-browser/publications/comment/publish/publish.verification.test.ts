@@ -31,7 +31,11 @@ describe.sequential(`Client side verification`, async () => {
     });
 
     it(".publish() throws if publication has invalid signature", async () => {
-        const mockComment = await generateMockPost(subplebbitAddress, plebbit, false, { signer: signers[0] });
+        const mockComment = await generateMockPost({
+            subplebbitAddress: subplebbitAddress,
+            plebbit: plebbit,
+            postProps: { signer: signers[0] }
+        });
         const pubsubPublication = JSON.parse(JSON.stringify(mockComment.toJSONPubsubMessagePublication()));
         pubsubPublication.timestamp += 1; // corrupts signature
         mockComment.toJSONPubsubMessagePublication = () => pubsubPublication;
@@ -47,7 +51,7 @@ describe.sequential(`Client side verification`, async () => {
     itSkipIfRpc.sequential(`.publish() throws if fetched subplebbit has an invalid signature`, async () => {
         // this test is flaky in CI for some reason
         const { commentCid, subplebbitAddress } = await createStaticSubplebbitRecordForComment({ invalidateSubplebbitSignature: true });
-        const mockPost = await generateMockPost(subplebbitAddress, plebbit);
+        const mockPost = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
         mockPost._getSubplebbitCache = () => undefined;
 
         try {
@@ -66,7 +70,7 @@ describe.concurrent("Subplebbit rejection of incorrect values of fields", async 
     let plebbit: Plebbit, post: Comment;
     beforeAll(async () => {
         plebbit = await mockRemotePlebbit();
-        post = await publishRandomPost(subplebbitAddress, plebbit);
+        post = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
     });
 
     afterAll(async () => {
@@ -107,7 +111,7 @@ describe.concurrent("Subplebbit rejection of incorrect values of fields", async 
     });
 
     it("Throws an error when publishing a duplicate post", async function () {
-        const newPost = await generateMockPost(subplebbitAddress, plebbit);
+        const newPost = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
         newPost.toJSONPubsubMessagePublication = () => post.toJSONPubsubMessagePublication();
         await publishWithExpectedResult({
             publication: newPost,
@@ -118,7 +122,11 @@ describe.concurrent("Subplebbit rejection of incorrect values of fields", async 
 
     it(`Throws an error when comment is over size`, async () => {
         const veryLongString = "Hello".repeat(10000);
-        const mockPost = await generateMockPost(signers[0].address, plebbit, false, { content: veryLongString });
+        const mockPost = await generateMockPost({
+            subplebbitAddress: signers[0].address,
+            plebbit: plebbit,
+            postProps: { content: veryLongString }
+        });
         // Size of post should be ~50kb now
 
         await publishWithExpectedResult({
@@ -131,18 +139,22 @@ describe.concurrent("Subplebbit rejection of incorrect values of fields", async 
     itSkipIfRpc(`Throws an error when a comment has no title, link or content`, async () => {
         // should fail both locally in plebbit.createComment, and when we publish to the sub
         try {
-            await generateMockPost(subplebbitAddress, plebbit, false, {
-                link: undefined,
-                content: undefined,
-                title: undefined
-            } as Partial<Parameters<typeof generateMockPost>[3]>);
+            await generateMockPost({
+                subplebbitAddress: subplebbitAddress,
+                plebbit: plebbit,
+                postProps: {
+                    link: undefined,
+                    content: undefined,
+                    title: undefined
+                } as Parameters<typeof generateMockPost>[0]["postProps"]
+            });
             expect.fail("Should fail if no link, content and title are defined");
         } catch (e) {
             expect((e as PlebbitError).code).to.equal("ERR_INVALID_CREATE_COMMENT_ARGS_SCHEMA");
             expect((e as PlebbitError).details.zodError.issues[0].message).to.equal(messages.ERR_COMMENT_HAS_NO_CONTENT_LINK_TITLE);
         }
 
-        const mockPost = await generateMockPost(subplebbitAddress, plebbit); // regular post with everything defined
+        const mockPost = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit }); // regular post with everything defined
         // @ts-expect-error - intentionally testing invalid props to verify error handling
         await overrideCommentInstancePropsAndSign(mockPost, {
             link: undefined,
@@ -169,12 +181,16 @@ describe.concurrent("Subplebbit rejection of incorrect values of fields", async 
                 type: "eip191"
             }
         };
-        const mockPost = await generateMockPost(subplebbitAddress, plebbit, false, { author: { avatar: test } });
+        const mockPost = await generateMockPost({
+            subplebbitAddress: subplebbitAddress,
+            plebbit: plebbit,
+            postProps: { author: { avatar: test } }
+        });
         await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: false, expectedReason: "zxc" });
     });
 
     itSkipIfRpc(`Subs respond with error if an author submits an encrypted field with invalid json`, async () => {
-        const post = await generateMockPost(subplebbitAddress, plebbit, false);
+        const post = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
         // @ts-expect-error - intentionally returning invalid type to test error handling
         post.toJSONPubsubRequestToEncrypt = () => "<html>dwad"; // Publication will encrypt this invalid json
         disableValidationOfSignatureBeforePublishing(post);
@@ -220,7 +236,7 @@ describe.concurrent(`Posts with forbidden fields are rejected during challenge e
     });
 
     it(`Can't publish a post to sub with signer being part of CommentPubsubMessage`, async () => {
-        const post = await generateMockPost(subplebbitAddress, plebbit, false);
+        const post = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
         await setExtraPropOnCommentAndSign(post, { signer: { privateKey: post.signer.privateKey } }, true);
         await publishWithExpectedResult({
             publication: post,
@@ -248,7 +264,7 @@ describe.concurrent(`Posts with forbidden fields are rejected during challenge e
     ];
     forbiddenFieldsWithValue.map((forbiddenType) =>
         itSkipIfRpc(`comment.${Object.keys(forbiddenType)[0]} is rejected by sub`, async () => {
-            const post = await generateMockPost(subplebbitAddress, plebbit, false);
+            const post = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             await setExtraPropOnCommentAndSign(post, forbiddenType, true);
             await publishWithExpectedResult({
                 publication: post,

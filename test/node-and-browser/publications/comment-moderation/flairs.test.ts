@@ -23,7 +23,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            randomPost = await publishRandomPost(subplebbitAddress, plebbit);
+            randomPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             await randomPost.update();
         });
 
@@ -76,7 +76,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            randomPost = await publishRandomPost(subplebbitAddress, plebbit);
+            randomPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             await randomPost.update();
         });
 
@@ -125,8 +125,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             // Author publishes post with flairs
-            authorPost = await publishRandomPost(subplebbitAddress, plebbit, {
-                flairs: [{ text: "Author Flair" }]
+            authorPost = await publishRandomPost({
+                subplebbitAddress: subplebbitAddress,
+                plebbit: plebbit,
+                postProps: {
+                    flairs: [{ text: "Author Flair" }]
+                }
             });
             await authorPost.update();
         });

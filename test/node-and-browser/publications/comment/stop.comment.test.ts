@@ -23,7 +23,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) =>
         });
 
         it(`comment.stop() after update() should complete within 10s`, async () => {
-            const post = await publishRandomPost(subplebbitAddress, plebbit);
+            const post = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
 
             const recreatedPost = await plebbit.createComment({ cid: post.cid });
             await recreatedPost.update();

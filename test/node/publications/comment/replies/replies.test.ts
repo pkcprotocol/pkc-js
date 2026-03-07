@@ -216,7 +216,7 @@ async function createLocalCommentWithPaginatedReplies(): Promise<LocalCommentWit
         predicate: async () => typeof subplebbit.updatedAt === "number"
     });
 
-    const post = await publishRandomPost(subplebbit.address, plebbit);
+    const post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
     await forceLocalSubPagesToAlwaysGenerateMultipleChunks({
         subplebbit,
         parentComment: post,
@@ -224,8 +224,12 @@ async function createLocalCommentWithPaginatedReplies(): Promise<LocalCommentWit
         parentCommentReplyProps: { content: "pagination coverage reply" }
     });
 
-    const replies = await Promise.all(new Array(10).fill(null).map(() => publishRandomReply(post as CommentIpfsWithCidDefined, plebbit)));
-    await Promise.all(new Array(10).fill(null).map(() => publishRandomReply(replies[0] as CommentIpfsWithCidDefined, plebbit)));
+    const replies = await Promise.all(
+        new Array(10).fill(null).map(() => publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit }))
+    );
+    await Promise.all(
+        new Array(10).fill(null).map(() => publishRandomReply({ parentComment: replies[0] as CommentIpfsWithCidDefined, plebbit: plebbit }))
+    );
     await post.update();
 
     await resolveWhenConditionIsTrue({
@@ -242,7 +246,7 @@ async function createLocalCommentWithPaginatedReplies(): Promise<LocalCommentWit
         parentCommentReplyProps: { content: "pagination coverage nested reply" }
     });
 
-    await publishRandomReply(reply as CommentIpfsWithCidDefined, plebbit); // to force new update
+    await publishRandomReply({ parentComment: reply as CommentIpfsWithCidDefined, plebbit: plebbit }); // to force new update
 
     await resolveWhenConditionIsTrue({
         toUpdate: reply,

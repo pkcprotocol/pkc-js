@@ -76,7 +76,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                     remotePlebbit: true
                 });
 
-                const mockPost = await generateMockPost(subplebbitWithMathCliChallenge, testPlebbit);
+                const mockPost = await generateMockPost({ subplebbitAddress: subplebbitWithMathCliChallenge, plebbit: testPlebbit });
                 (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 2; // Speed up test
                 (mockPost as unknown as CommentWithInternals)._setProviderFailureThresholdSeconds = 5; // Speed up test
 
@@ -116,7 +116,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                 remotePlebbit: true
             });
 
-            const mockPost = await generateMockPost(subplebbitWithNoChallenge, testPlebbit);
+            const mockPost = await generateMockPost({ subplebbitAddress: subplebbitWithNoChallenge, plebbit: testPlebbit });
             (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 2; // Speed up test
             (mockPost as unknown as CommentWithInternals)._setProviderFailureThresholdSeconds = 5; // Speed up test
 
@@ -324,7 +324,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                     plebbitOptions: { pubsubKuboRpcClientsOptions: [offlinePubsubUrl] }
                 });
 
-                const mockPost = await generateMockPost(subplebbitWithNoChallenge, testPlebbit);
+                const mockPost = await generateMockPost({ subplebbitAddress: subplebbitWithNoChallenge, plebbit: testPlebbit });
 
                 // Track subscription state
                 const numOfPubsubProvidersBefore = Object.keys(
@@ -382,7 +382,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                     plebbitOptions: { pubsubKuboRpcClientsOptions: [pubsubMockedWithError] }
                 });
 
-                const mockPost = await generateMockPost(subplebbitWithNoChallenge, testPlebbit);
+                const mockPost = await generateMockPost({ subplebbitAddress: subplebbitWithNoChallenge, plebbit: testPlebbit });
 
                 const errors = [];
 

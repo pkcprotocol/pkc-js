@@ -35,7 +35,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await mockCacheOfTextRecord({
                     plebbit,
                     domain: testDomain,
-                    textRecord: "subplebbit-address",
+                    resolveType: "subplebbit",
                     value: nonExistantIpnsAddress
                 });
 
@@ -98,7 +98,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await mockCacheOfTextRecord({
                 plebbit,
                 domain: testDomain,
-                textRecord: "subplebbit-address",
+                resolveType: "subplebbit",
                 value: nonExistantIpnsAddress
             });
 
@@ -143,7 +143,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await mockCacheOfTextRecord({
                 plebbit,
                 domain: testDomain,
-                textRecord: "subplebbit-address",
+                resolveType: "subplebbit",
                 value: nonExistantIpnsAddress
             });
 

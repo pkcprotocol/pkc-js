@@ -590,7 +590,7 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
         instance: Publication;
     }> {
         const signer = await plebbit.createSigner();
-        const commentInstance = await generateMockPost(subplebbit.address, plebbit, false, { signer });
+        const commentInstance = await generateMockPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit, postProps: { signer } });
         const publication = commentInstance.toJSONPubsubMessagePublication();
         return { signer, publication, instance: commentInstance as unknown as Publication };
     }

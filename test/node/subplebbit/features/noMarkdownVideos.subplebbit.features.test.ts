@@ -30,7 +30,7 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
         // Publish a post first (before enabling the feature) to test comment edits later
-        publishedPost = await publishRandomPost(subplebbit.address, remotePlebbit);
+        publishedPost = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
     });
 
     afterAll(async () => {
@@ -53,7 +53,11 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
 
     it(`Can't publish a post with markdown video syntax (video extension)`, async () => {
         const contentWithMarkdownVideo = "Here is a video: ![video](https://example.com/video.mp4)";
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, { content: contentWithMarkdownVideo });
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: { content: contentWithMarkdownVideo }
+        });
         await publishWithExpectedResult({
             publication: post,
             expectedChallengeSuccess: false,
@@ -63,7 +67,11 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
 
     it(`Can't publish a post with HTML video tag`, async () => {
         const contentWithHtmlVideo = 'Here is a video: <video src="https://example.com/video.mp4"></video>';
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, { content: contentWithHtmlVideo });
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: { content: contentWithHtmlVideo }
+        });
         await publishWithExpectedResult({
             publication: post,
             expectedChallengeSuccess: false,
@@ -73,7 +81,11 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
 
     it(`Can't publish a post with HTML iframe tag`, async () => {
         const contentWithIframe = 'Embedded video: <iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ"></iframe>';
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, { content: contentWithIframe });
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: { content: contentWithIframe }
+        });
         await publishWithExpectedResult({
             publication: post,
             expectedChallengeSuccess: false,
@@ -95,13 +107,21 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
 
     it(`Can publish a post with plain text content`, async () => {
         const plainContent = "This is just plain text without any videos";
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, { content: plainContent });
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: { content: plainContent }
+        });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });
 
     it(`Can't publish a post with markdown GIF`, async () => {
         const contentWithGif = "Here is a gif: ![gif](https://example.com/animation.gif)";
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, { content: contentWithGif });
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: { content: contentWithGif }
+        });
         await publishWithExpectedResult({
             publication: post,
             expectedChallengeSuccess: false,
@@ -112,14 +132,22 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
     it(`Can publish a post with markdown image (not video)`, async () => {
         // noMarkdownVideos should not block images
         const contentWithImage = "Here is an image: ![img](https://example.com/photo.jpg)";
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, { content: contentWithImage });
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: { content: contentWithImage }
+        });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });
 
     it(`Can publish a post with direct link field to video (not markdown content)`, async () => {
-        const post = await generateMockPost(subplebbit.address, remotePlebbit, false, {
-            link: "https://example.com/video.mp4",
-            content: "Just text"
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: {
+                link: "https://example.com/video.mp4",
+                content: "Just text"
+            }
         });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });

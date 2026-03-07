@@ -38,7 +38,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         let commentToEdit: Comment;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            commentToEdit = await publishRandomPost(signers[0].address, plebbit);
+            commentToEdit = await publishRandomPost({ subplebbitAddress: signers[0].address, plebbit: plebbit });
             await commentToEdit.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: commentToEdit,
