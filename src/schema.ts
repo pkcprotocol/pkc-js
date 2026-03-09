@@ -46,7 +46,7 @@ export const NameResolverSchema = z.object({
         message: "canResolve must be a function"
     }),
     provider: z.string().min(1),
-    dataPath: z.string().optional()
+    dataPath: z.string().optional() // Optional filesystem path for persistent cache storage. Resolvers can use this to store cached resolution results across restarts.
 });
 
 const TransformKuboRpcClientOptionsSchema = KuboRpcCreateClientOptionSchema.array().transform((options) =>
