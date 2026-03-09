@@ -9,8 +9,8 @@ import browserNativeFunctions from "./runtime/browser/native-functions.js";
 import { shortifyAddress, shortifyCid } from "./util.js";
 import { plebbitJsChallenges } from "./runtime/node/subplebbit/challenges/index.js";
 import { PlebbitWithRpcClient } from "./plebbit/plebbit-with-rpc-client.js";
-import type { AuthorAddressRpcParam, CidRpcParam } from "./clients/rpc-client/types.js";
-import { parseRpcAuthorAddressParam, parseRpcCidParam } from "./clients/rpc-client/rpc-schema-util.js";
+import type { AuthorNameRpcParam, CidRpcParam } from "./clients/rpc-client/types.js";
+import { parseRpcAuthorNameParam, parseRpcCidParam } from "./clients/rpc-client/rpc-schema-util.js";
 
 const Plebbit = async function Plebbit(plebbitOptions: InputPlebbitOptions = {}): Promise<PlebbitClass.Plebbit> {
     const plebbit = plebbitOptions.plebbitRpcClientsOptions
@@ -20,8 +20,8 @@ const Plebbit = async function Plebbit(plebbitOptions: InputPlebbitOptions = {})
     return plebbit;
 };
 
-const getShortAddressValue = (params: AuthorAddressRpcParam) => {
-    const parsed = parseRpcAuthorAddressParam(params);
+const getShortAddressValue = (params: AuthorNameRpcParam) => {
+    const parsed = parseRpcAuthorNameParam(params);
     return shortifyAddress(parsed.address);
 };
 const getShortCidValue = (params: CidRpcParam) => {

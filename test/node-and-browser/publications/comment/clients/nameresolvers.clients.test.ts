@@ -48,12 +48,12 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
         await mockCacheOfTextRecord({
             plebbit: differentPlebbit,
             domain: "plebbit.bso",
-            resolveType: "subplebbit",
+            resolveType: "community",
             value: undefined
         });
         const updatingPost = await differentPlebbit.createComment({ cid: mockPost.cid });
 
-        const expectedStates = ["resolving-subplebbit-address", "stopped"];
+        const expectedStates = ["resolving-community-name", "stopped"];
 
         const actualStates: string[] = [];
 
@@ -82,7 +82,7 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
         await mockCacheOfTextRecord({
             plebbit: mockPost._plebbit,
             domain: "plebbit.bso",
-            resolveType: "subplebbit",
+            resolveType: "community",
             value: signers[3].address
         });
 
@@ -128,7 +128,7 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
 
         const updatingPost = await differentPlebbit.createComment({ cid: mockPost.cid });
 
-        const expectedStates = ["resolving-author-address", "stopped"];
+        const expectedStates = ["resolving-author-name", "stopped"];
         const actualStates: string[] = [];
 
         const resolverKey = Object.keys(updatingPost.clients.nameResolvers)[0];
@@ -194,10 +194,10 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
         await mockCacheOfTextRecord({
             plebbit: mockPost._plebbit,
             domain: "plebbit.bso",
-            resolveType: "subplebbit",
+            resolveType: "community",
             value: undefined
         });
-        const expectedStates = ["resolving-subplebbit-address", "stopped"];
+        const expectedStates = ["resolving-community-name", "stopped"];
 
         const actualStates: string[] = [];
 
@@ -216,7 +216,7 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
         await mockCacheOfTextRecord({
             plebbit: mockPost._plebbit,
             domain: "plebbit.bso",
-            resolveType: "subplebbit",
+            resolveType: "community",
             value: signers[3].address
         });
         const expectedStates: string[] = []; // empty because it's cached
@@ -251,7 +251,7 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
             plebbitOptions: { validatePages: true } // it needs to validate page to resolve author address
         });
         const loadedPost = await differentPlebbit.createComment({ cid: mockPost.cid });
-        const expectedStates = ["resolving-author-address", "stopped"];
+        const expectedStates = ["resolving-author-name", "stopped"];
         const actualStates: string[] = [];
 
         const resolverKey = Object.keys(loadedPost.clients.nameResolvers)[0];

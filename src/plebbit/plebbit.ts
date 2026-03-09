@@ -134,8 +134,8 @@ import { PlebbitTypedEmitter } from "../clients/plebbit-typed-emitter.js";
 import type { PageTypeJson } from "../pages/types.js";
 import { createLibp2pJsClientOrUseExistingOne } from "../helia/helia-for-plebbit.js";
 import { Libp2pJsClient } from "../helia/libp2pjsClient.js";
-import { AuthorAddressRpcParam, CidRpcParam, SubplebbitAddressRpcParam } from "../clients/rpc-client/types.js";
-import { parseRpcAuthorAddressParam, parseRpcCidParam, parseRpcSubplebbitAddressParam } from "../clients/rpc-client/rpc-schema-util.js";
+import { AuthorNameRpcParam, CidRpcParam, SubplebbitAddressRpcParam } from "../clients/rpc-client/types.js";
+import { parseRpcAuthorNameParam, parseRpcCidParam, parseRpcSubplebbitAddressParam } from "../clients/rpc-client/rpc-schema-util.js";
 
 export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements ParsedPlebbitOptions {
     ipfsGatewayUrls: ParsedPlebbitOptions["ipfsGatewayUrls"];
@@ -144,7 +144,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
     plebbitRpcClientsOptions?: ParsedPlebbitOptions["plebbitRpcClientsOptions"];
     libp2pJsClientsOptions?: ParsedPlebbitOptions["libp2pJsClientsOptions"];
     dataPath?: ParsedPlebbitOptions["dataPath"];
-    resolveAuthorAddresses: ParsedPlebbitOptions["resolveAuthorAddresses"];
+    resolveAuthorNames: ParsedPlebbitOptions["resolveAuthorNames"];
     nameResolvers?: ParsedPlebbitOptions["nameResolvers"];
     parsedPlebbitOptions: ParsedPlebbitOptions;
     publishInterval: ParsedPlebbitOptions["publishInterval"];
@@ -232,7 +232,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
                 kuboRpcClientsOptions: this.kuboRpcClientsOptions,
                 pubsubKuboRpcClientsOptions: this.pubsubKuboRpcClientsOptions
             });
-        this.resolveAuthorAddresses = this.parsedPlebbitOptions.resolveAuthorAddresses;
+        this.resolveAuthorNames = this.parsedPlebbitOptions.resolveAuthorNames;
         this.publishInterval = this.parsedPlebbitOptions.publishInterval;
         this.updateInterval = this.parsedPlebbitOptions.updateInterval;
         this.noData = this.parsedPlebbitOptions.noData;
@@ -905,9 +905,9 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         delete this._pubsubSubscriptions[parsedTopic];
     }
 
-    async resolveAuthorAddress(resolveAuthorAddressArgs: AuthorAddressRpcParam) {
-        const parsedArgs = parseRpcAuthorAddressParam(resolveAuthorAddressArgs);
-        const resolved = await this._clientsManager.resolveAuthorAddressIfNeeded(parsedArgs.address);
+    async resolveAuthorName(resolveAuthorAddressArgs: AuthorNameRpcParam) {
+        const parsedArgs = parseRpcAuthorNameParam(resolveAuthorAddressArgs);
+        const resolved = await this._clientsManager.resolveAuthorNameIfNeeded(parsedArgs.address);
         return resolved;
     }
 
@@ -923,7 +923,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
 
         const commentIpfsVerificationOpts = {
             comment: commentIpfs,
-            resolveAuthorAddresses: this.resolveAuthorAddresses,
+            resolveAuthorNames: this.resolveAuthorNames,
             clientsManager: this._clientsManager,
             overrideAuthorAddressIfInvalid: false,
             calculatedCommentCid: commentCid
@@ -940,7 +940,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         };
         const commentUpdateVerificationOpts = {
             update: commentUpdate,
-            resolveAuthorAddresses: this.resolveAuthorAddresses,
+            resolveAuthorNames: this.resolveAuthorNames,
             clientsManager: this._clientsManager,
             subplebbit,
             overrideAuthorAddressIfInvalid: false,

@@ -28,7 +28,7 @@ describe.skip("plebbit.browserLibp2pJsPublish", () => {
     });
 
     it.skip(`Can publish a post to online sub and complete a challenge exchange`, async () => {
-        const onlinePlebbit = await createOnlinePlebbit({ browserLibp2pJsPublish: true, resolveAuthorAddresses: false } as any);
+        const onlinePlebbit = await createOnlinePlebbit({ browserLibp2pJsPublish: true, resolveAuthorNames: false } as any);
         const post = await generatePostToAnswerMathQuestion({ subplebbitAddress: subs.onlineSub as unknown as string }, onlinePlebbit);
 
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });

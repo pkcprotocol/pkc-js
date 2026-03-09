@@ -91,7 +91,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
         it(`publishing states is in correct order upon publishing a comment to plebbit.bso with IPFS client (uncached)`, async () => {
             const expectedStates = [
-                "resolving-subplebbit-address",
+                "resolving-community-name",
                 "fetching-subplebbit-ipns",
                 "fetching-subplebbit-ipfs",
                 "publishing-challenge-request",

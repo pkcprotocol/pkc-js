@@ -16,7 +16,7 @@ type SubplebbitRpcState =
     | SubplebbitIpfsState
     | SubplebbitPubsubState
     | SubplebbitGatewayState
-    | "resolving-subplebbit-address";
+    | "resolving-community-name";
 
 type SubplebbitLibp2pJsState = SubplebbitIpfsState | SubplebbitPubsubState;
 

@@ -66,7 +66,7 @@ export const PlebbitUserOptionBaseSchema = z.object({
     pubsubKuboRpcClientsOptions: TransformKuboRpcClientOptionsSchema.optional(),
     plebbitRpcClientsOptions: RpcUrlSchema.array().nonempty().optional(),
     dataPath: DirectoryPathSchema.optional(),
-    resolveAuthorAddresses: z.boolean(),
+    resolveAuthorNames: z.boolean(),
     nameResolvers: NameResolverSchema.array().optional(),
     libp2pJsClientsOptions: z
         .object({
@@ -107,7 +107,7 @@ export const PlebbitUserOptionsSchema = PlebbitUserOptionBaseSchema.extend({
         "https://peers.forumindex.com",
         "https://peers.plebpubsub.xyz"
     ]),
-    resolveAuthorAddresses: PlebbitUserOptionBaseSchema.shape.resolveAuthorAddresses.default(true),
+    resolveAuthorNames: PlebbitUserOptionBaseSchema.shape.resolveAuthorNames.default(true),
     publishInterval: PlebbitUserOptionBaseSchema.shape.publishInterval.default(20000),
     updateInterval: PlebbitUserOptionBaseSchema.shape.updateInterval.default(60000),
     noData: PlebbitUserOptionBaseSchema.shape.noData.default(false),

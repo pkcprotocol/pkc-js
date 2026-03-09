@@ -879,7 +879,7 @@ export class DbHandler {
             ]) as CommentEditPubsubMessagePublication;
             const validRes = await verifyCommentEdit({
                 edit: commentEditPubsub,
-                resolveAuthorAddresses: false,
+                resolveAuthorNames: false,
                 clientsManager: this._subplebbit._clientsManager,
                 overrideAuthorAddressIfInvalid: false
             });
@@ -918,7 +918,7 @@ export class DbHandler {
             }
             const validRes = await verifyCommentIpfs({
                 comment: { ...commentRecord, ...commentRecord.extraProps },
-                resolveAuthorAddresses: false,
+                resolveAuthorNames: false,
                 calculatedCommentCid: commentRecord.cid,
                 clientsManager: this._subplebbit._clientsManager,
                 overrideAuthorAddressIfInvalid: false

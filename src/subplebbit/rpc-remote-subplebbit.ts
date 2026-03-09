@@ -51,7 +51,7 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
             "fetching-ipns": ["fetching-ipns"],
             "waiting-retry": ["stopped"],
             "publishing-ipns": ["publishing-ipns"],
-            "resolving-address": ["resolving-subplebbit-address"],
+            "resolving-name": ["resolving-community-name"],
             stopped: ["stopped"],
             succeeded: ["stopped"]
         };

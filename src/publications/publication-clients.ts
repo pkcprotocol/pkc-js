@@ -17,11 +17,7 @@ type PublicationPubsubState =
 
 type PublicationLibp2pJsState = PublicationIpfsState | PublicationPubsubState | CommentIpfsState;
 
-type PublicationRpcState =
-    | NameResolverClient["state"]
-    | PublicationLibp2pJsState
-    | "resolving-subplebbit-address"
-    | "resolving-author-address";
+type PublicationRpcState = NameResolverClient["state"] | PublicationLibp2pJsState | "resolving-community-name" | "resolving-author-name";
 
 export class PublicationLibp2pJsClient extends GenericStateClient<PublicationLibp2pJsState> {}
 

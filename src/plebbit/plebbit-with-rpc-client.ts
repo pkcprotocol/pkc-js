@@ -8,8 +8,8 @@ import { RpcRemoteSubplebbit } from "../subplebbit/rpc-remote-subplebbit.js";
 import type { RpcLocalSubplebbitJson, RpcRemoteSubplebbitJson, SubplebbitIpfsType } from "../subplebbit/types.js";
 import { z } from "zod";
 import { PlebbitError } from "../plebbit-error.js";
-import type { AuthorAddressRpcParam, CidRpcParam } from "../clients/rpc-client/types.js";
-import { parseRpcAuthorAddressParam, parseRpcCidParam } from "../clients/rpc-client/rpc-schema-util.js";
+import type { AuthorNameRpcParam, CidRpcParam } from "../clients/rpc-client/types.js";
+import { parseRpcAuthorNameParam, parseRpcCidParam } from "../clients/rpc-client/rpc-schema-util.js";
 
 // This is a helper class for separating RPC-client logic from main Plebbit
 // Not meant to be used with end users
@@ -54,9 +54,9 @@ export class PlebbitWithRpcClient extends Plebbit {
         return this._plebbitRpcClient.fetchCid({ cid: parsedCid });
     }
 
-    override async resolveAuthorAddress(args: AuthorAddressRpcParam) {
-        const parsedArgs = parseRpcAuthorAddressParam(args);
-        return this._plebbitRpcClient.resolveAuthorAddress(parsedArgs);
+    override async resolveAuthorName(args: AuthorNameRpcParam) {
+        const parsedArgs = parseRpcAuthorNameParam(args);
+        return this._plebbitRpcClient.resolveAuthorName(parsedArgs);
     }
 
     override async destroy() {

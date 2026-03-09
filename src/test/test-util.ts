@@ -290,16 +290,14 @@ async function _publishVotesOnOneComment(
     plebbit: Plebbit
 ) {
     return Promise.all(
-        new Array(votesPerCommentToPublish)
-            .fill(null)
-            .map(() =>
-                publishVote({
-                    commentCid: comment.cid,
-                    subplebbitAddress: comment.subplebbitAddress,
-                    vote: Math.random() > 0.5 ? 1 : -1,
-                    plebbit
-                })
-            )
+        new Array(votesPerCommentToPublish).fill(null).map(() =>
+            publishVote({
+                commentCid: comment.cid,
+                subplebbitAddress: comment.subplebbitAddress,
+                vote: Math.random() > 0.5 ? 1 : -1,
+                plebbit
+            })
+        )
     );
 }
 
@@ -553,9 +551,9 @@ export async function mockPlebbit(plebbitOptions?: InputPlebbitOptions, forceMoc
                   canResolve: () => true,
                   resolve: async ({ name }: { name: string; provider: string }) => {
                       console.log(`Attempting to mock resolve address (${name})`);
-                      if (name === "plebbit.eth")
+                      if (name === "plebbit.eth" || "plebbit.bso")
                           return { publicKey: "12D3KooWNMYPSuNadceoKsJ6oUQcxGcfiAsHNpVTt1RQ1zSrKKpo" }; // signers[3]
-                      else if (name === "rpc-edit-test.eth")
+                      else if (name === "rpc-edit-test.eth" || "rpc-edit-test.bso")
                           return { publicKey: "12D3KooWMZPQsQdYtrakc4D1XtzGXwN1X3DBnAobcCjcPYYXTB6o" }; // signers[7]
                       else return undefined;
                   },
@@ -565,7 +563,7 @@ export async function mockPlebbit(plebbitOptions?: InputPlebbitOptions, forceMoc
         : undefined;
     const plebbit = await PlebbitIndex({
         ...mockDefaultOptionsForNodeAndBrowserTests(),
-        resolveAuthorAddresses: true,
+        resolveAuthorNames: true,
         publishInterval: 1000,
         validatePages: false,
         updateInterval: 500,
@@ -2325,13 +2323,13 @@ export function mockReplyToUseParentPagesForUpdates(reply: Comment) {
 
 export function mockUpdatingCommentResolvingAuthor(
     comment: Comment,
-    mockFunction: Comment["_clientsManager"]["resolveAuthorAddressIfNeeded"]
+    mockFunction: Comment["_clientsManager"]["resolveAuthorNameIfNeeded"]
 ) {
     const updatingComment = comment._plebbit._updatingComments[comment.cid!];
     if (!updatingComment) throw Error("Comment should be updating before starting to mock");
 
     if (comment._plebbit._plebbitRpcClient) throw Error("Can't mock cache with plebbit rpc clients");
-    updatingComment._clientsManager.resolveAuthorAddressIfNeeded = mockFunction;
+    updatingComment._clientsManager.resolveAuthorNameIfNeeded = mockFunction;
 }
 
 export async function mockCacheOfTextRecord(opts: { plebbit: Plebbit; domain: string; resolveType: ResolveType; value: string }) {

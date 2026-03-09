@@ -36,7 +36,7 @@ const verifyPageJsonAlongWithObject = async (
         pageCid: uuidV4(),
         pageSortName: "hot",
         page: JSON.parse(JSON.stringify(pageJson)),
-        resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+        resolveAuthorNames: plebbit.resolveAuthorNames,
         clientsManager: plebbit._clientsManager,
         subplebbit: subplebbit,
         parentComment,
@@ -48,7 +48,7 @@ const verifyPageJsonAlongWithObject = async (
         pageCid: uuidV4(),
         pageSortName: "hot",
         page: pageJson,
-        resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+        resolveAuthorNames: plebbit.resolveAuthorNames,
         clientsManager: plebbit._clientsManager,
         subplebbit: subplebbit,
         parentComment,
@@ -96,7 +96,7 @@ describeSkipIfRpc(`verify pages`, async () => {
 
         const tempPlebbit: PlebbitType = await mockRemotePlebbit();
 
-        tempPlebbit._clientsManager.resolveAuthorAddressIfNeeded = async (authorAddress) =>
+        tempPlebbit._clientsManager.resolveAuthorNameIfNeeded = async (authorAddress) =>
             authorAddress === invalidPage.comments[commentWithDomainAddressIndex].comment.author.address
                 ? signers[3].address
                 : authorAddress; // Resolve to wrong address intentionally. Correct address would be signers[6].address
@@ -117,7 +117,7 @@ describeSkipIfRpc(`verify pages`, async () => {
 
         const tempPlebbit: PlebbitType = await mockRemotePlebbit();
 
-        tempPlebbit._clientsManager.resolveAuthorAddressIfNeeded = async (authorAddress) =>
+        tempPlebbit._clientsManager.resolveAuthorNameIfNeeded = async (authorAddress) =>
             authorAddress === invalidPage.comments[commentWithDomainAddressIndex].comment.author.address
                 ? signers[3].address
                 : authorAddress; // Resolve to wrong address intentionally. Correct address would be signers[6].address

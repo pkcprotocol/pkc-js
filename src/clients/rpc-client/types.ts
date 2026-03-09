@@ -1,6 +1,6 @@
 import { z } from "zod";
 import {
-    RpcAuthorAddressParamSchema,
+    RpcAuthorNameParamSchema,
     RpcCidParamSchema,
     RpcCommentRepliesPageParamSchema,
     RpcSubplebbitAddressParamSchema,
@@ -9,6 +9,6 @@ import {
 
 export type CidRpcParam = z.infer<typeof RpcCidParamSchema>;
 export type SubplebbitAddressRpcParam = z.infer<typeof RpcSubplebbitAddressParamSchema>;
-export type AuthorAddressRpcParam = z.infer<typeof RpcAuthorAddressParamSchema>;
+export type AuthorNameRpcParam = z.infer<typeof RpcAuthorNameParamSchema>;
 export type CommentPageRpcParam = z.infer<typeof RpcCommentRepliesPageParamSchema>;
 export type SubplebbitPageRpcParam = z.infer<typeof RpcSubplebbitPageParamSchema>;

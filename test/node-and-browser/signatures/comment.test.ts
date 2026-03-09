@@ -83,7 +83,7 @@ describe("sign comment", async () => {
         const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer"]) };
         const verificaiton = await verifyCommentPubsubMessage({
             comment: signedComment,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false
         });
@@ -103,7 +103,7 @@ describe("sign comment", async () => {
         expect(signedComment.signature.publicKey).to.be.equal(signers[1].publicKey, "Generated public key should be same as provided");
         const verificaiton = await verifyCommentPubsubMessage({
             comment: signedComment,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false
         });
@@ -173,7 +173,7 @@ describe("sign comment", async () => {
         const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer"]) };
         const res = await verifyCommentPubsubMessage({
             comment: signedComment,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false
         });
@@ -197,7 +197,7 @@ describeSkipIfRpc("verify Comment", async () => {
         const fixtureWithSignature = { ...fixtureComment, signature: fixtureSignature } as CommentPubsubMessagePublication;
         const verification = await verifyCommentPubsubMessage({
             comment: fixtureWithSignature,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false
         });
@@ -212,7 +212,7 @@ describeSkipIfRpc("verify Comment", async () => {
         const wronglySignedPublication = { ...fixtureComment, signature: invalidSignature } as CommentPubsubMessagePublication;
         const verification = await verifyCommentPubsubMessage({
             comment: wronglySignedPublication,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false
         });
@@ -225,7 +225,7 @@ describeSkipIfRpc("verify Comment", async () => {
         const verification = await verifyCommentIpfs({
             comment,
             clientsManager: plebbit._clientsManager,
-            resolveAuthorAddresses: false,
+            resolveAuthorNames: false,
             calculatedCommentCid: "QmTest",
             overrideAuthorAddressIfInvalid: false
         });
@@ -237,7 +237,7 @@ describeSkipIfRpc("verify Comment", async () => {
         const verification = await verifyCommentIpfs({
             comment,
             clientsManager: plebbit._clientsManager,
-            resolveAuthorAddresses: true,
+            resolveAuthorNames: true,
             calculatedCommentCid: "QmTest",
             overrideAuthorAddressIfInvalid: false
         });
@@ -250,7 +250,7 @@ describeSkipIfRpc("verify Comment", async () => {
         comment.author.address = "gibbresish"; // Not a domain or IPNS
         const verification = await verifyCommentPubsubMessage({
             comment,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false
         });
@@ -262,7 +262,7 @@ describeSkipIfRpc("verify Comment", async () => {
         (comment.author as { address: string | undefined }).address = undefined; // Not a domain or IPNS
         const verification = await verifyCommentPubsubMessage({
             comment,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false
         });
@@ -285,7 +285,7 @@ describeSkipIfRpc("verify Comment", async () => {
         const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(commentToSign, ["signer"]) };
         const verification = await verifyCommentPubsubMessage({
             comment: signedComment,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false
         });
@@ -311,7 +311,7 @@ describeSkipIfRpc("verify Comment", async () => {
         signedComment.author.flairs = [{ text: "Tampered" }];
         const verification = await verifyCommentPubsubMessage({
             comment: signedComment,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false
         });
@@ -338,7 +338,7 @@ describeSkipIfRpc("verify Comment", async () => {
         signedComment.flairs = [{ text: "Mod Changed" }];
         const verification = await verifyCommentPubsubMessage({
             comment: signedComment,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false
         });
@@ -350,7 +350,7 @@ describeSkipIfRpc("verify Comment", async () => {
 describeSkipIfRpc(`Comment with author.address as domain`, async () => {
     it(`verifyCommentPubsubMessage corrects author.address(domain) if it resolves to a different author (overrideAuthorAddressIfInvalid=true)`, async () => {
         const tempPlebbit = await mockRemotePlebbit();
-        tempPlebbit._clientsManager.resolveAuthorAddressIfNeeded = async (authorAddress: string) =>
+        tempPlebbit._clientsManager.resolveAuthorNameIfNeeded = async (authorAddress: string) =>
             authorAddress === "testDomain.eth" ? fixtureComment.author.address : authorAddress;
         const commentWithInvalidDomain = remeda.clone(fixtureComment);
         commentWithInvalidDomain.author.address = "testDomain.eth";
@@ -360,12 +360,12 @@ describeSkipIfRpc(`Comment with author.address as domain`, async () => {
             ...remeda.omit(commentToSign, ["signer"]),
             signature: await signComment({ comment: commentToSign, plebbit: tempPlebbit })
         } as CommentPubsubMessagePublication;
-        tempPlebbit._clientsManager.resolveAuthorAddressIfNeeded = async (authorAddress: string) =>
+        tempPlebbit._clientsManager.resolveAuthorNameIfNeeded = async (authorAddress: string) =>
             authorAddress === "testDomain.eth" ? signers[6].address : authorAddress; // testDomain.eth no longer points to the same author
 
         const verificaiton = await verifyCommentPubsubMessage({
             comment: signedPublication,
-            resolveAuthorAddresses: tempPlebbit.resolveAuthorAddresses,
+            resolveAuthorNames: tempPlebbit.resolveAuthorNames,
             clientsManager: tempPlebbit._clientsManager,
             overrideAuthorAddressIfInvalid: true
         });
@@ -376,12 +376,12 @@ describeSkipIfRpc(`Comment with author.address as domain`, async () => {
     it(`Comment with invalid author domain address will will be invalidated (overrideAuthorAddressIfInvalid=false)`, async () => {
         const comment = remeda.clone(validCommentAuthorAddressDomainFixture) as CommentIpfsType;
         const tempPlebbit = await mockRemotePlebbit();
-        tempPlebbit._clientsManager.resolveAuthorAddressIfNeeded = async (authorAddress: string) =>
+        tempPlebbit._clientsManager.resolveAuthorNameIfNeeded = async (authorAddress: string) =>
             authorAddress === "plebbit.eth" ? signers[7].address : authorAddress; // This would invalidate the fixture author address. Should be corrected
 
         const verification = await verifyCommentIpfs({
             comment,
-            resolveAuthorAddresses: tempPlebbit.resolveAuthorAddresses,
+            resolveAuthorNames: tempPlebbit.resolveAuthorNames,
             clientsManager: tempPlebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false,
             calculatedCommentCid: "QmTest"
@@ -424,7 +424,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
         expect(
             await verifyCommentUpdate({
                 update: commentUpdateRecord,
-                resolveAuthorAddresses: true,
+                resolveAuthorNames: true,
                 clientsManager: comment._clientsManager,
                 subplebbit: subplebbit,
                 comment: commentForVerify,
@@ -446,7 +446,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
         update.signature = await signCommentUpdate({ update, signer: signers[0] }); // Same signer as the subplebbit that signed the CommentUpdate
         const verification = await verifyCommentUpdate({
             update,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: subplebbit._clientsManager,
             subplebbit: subplebbit,
             comment: commentForVerify,
@@ -467,7 +467,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
         };
         const verification = await verifyCommentUpdate({
             update,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: subplebbit._clientsManager,
             subplebbit: subplebbit,
             comment: commentForVerify,
@@ -489,7 +489,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
         update.signature = await signCommentUpdate({ update, signer: signers[6] }); // A different signer than subplebbit
         const verification = await verifyCommentUpdate({
             update,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: subplebbit._clientsManager,
             subplebbit: subplebbit,
             comment: commentForVerify,
@@ -513,7 +513,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
         expect(
             await verifyCommentUpdate({
                 update: update as CommentUpdateType,
-                resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+                resolveAuthorNames: plebbit.resolveAuthorNames,
                 clientsManager: subplebbit._clientsManager,
                 subplebbit: subplebbit,
                 comment: commentForVerify,
@@ -529,7 +529,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
         });
         const verification = await verifyCommentUpdate({
             update: update as CommentUpdateType,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: subplebbit._clientsManager,
             subplebbit: subplebbit,
             comment: commentForVerify,
@@ -551,7 +551,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
         expect(
             await verifyCommentUpdate({
                 update: update as CommentUpdateType,
-                resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+                resolveAuthorNames: plebbit.resolveAuthorNames,
                 clientsManager: subplebbit._clientsManager,
                 subplebbit: subplebbit,
                 comment: commentForVerify,
@@ -565,7 +565,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
 
         const verification = await verifyCommentUpdate({
             update: update as CommentUpdateType,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: subplebbit._clientsManager,
             subplebbit: subplebbit,
             comment: commentForVerify,

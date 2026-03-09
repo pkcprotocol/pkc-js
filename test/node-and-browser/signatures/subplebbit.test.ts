@@ -59,7 +59,7 @@ describeSkipIfRpc.concurrent("Sign subplebbit", async () => {
         const verification = await verifySubplebbit({
             subplebbit: subplebbitToSign as SubplebbitIpfsType,
             subplebbitIpnsName: signers[0].address,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false,
             validatePages: true,
@@ -93,7 +93,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
             await verifySubplebbit({
                 subplebbit: loadedSubplebbit.toJSONIpfs(),
                 subplebbitIpnsName: signers[0].address,
-                resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+                resolveAuthorNames: plebbit.resolveAuthorNames,
                 clientsManager: plebbit._clientsManager,
                 overrideAuthorAddressIfInvalid: false,
                 validatePages: true,
@@ -107,7 +107,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
             await verifySubplebbit({
                 subplebbit: sub,
                 subplebbitIpnsName: signers[0].address,
-                resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+                resolveAuthorNames: plebbit.resolveAuthorNames,
                 clientsManager: plebbit._clientsManager,
                 overrideAuthorAddressIfInvalid: false,
                 validatePages: true,
@@ -122,7 +122,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
             plebbit: tempPlebbit,
             domain: "plebbit.eth",
             value: signers[4].address,
-            resolveType: "subplebbit"
+            resolveType: "community"
         });
         const sub = await plebbit.createSubplebbit({ address: "plebbit.bso" });
         await sub.update();
@@ -130,7 +130,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
         const verification = await verifySubplebbit({
             subplebbit: sub.toJSONIpfs(),
             subplebbitIpnsName: signers[4].address,
-            resolveAuthorAddresses: tempPlebbit.resolveAuthorAddresses,
+            resolveAuthorNames: tempPlebbit.resolveAuthorNames,
             clientsManager: tempPlebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false,
             validatePages: true,
@@ -155,7 +155,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
             await verifySubplebbit({
                 subplebbit: subJson,
                 subplebbitIpnsName: signers[0].address,
-                resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+                resolveAuthorNames: plebbit.resolveAuthorNames,
                 clientsManager: plebbit._clientsManager,
                 overrideAuthorAddressIfInvalid: false,
                 validatePages: false
@@ -169,7 +169,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
             await verifySubplebbit({
                 subplebbit: subJson,
                 subplebbitIpnsName: signers[0].address,
-                resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+                resolveAuthorNames: plebbit.resolveAuthorNames,
                 clientsManager: plebbit._clientsManager,
                 overrideAuthorAddressIfInvalid: false,
                 validatePages: false
@@ -193,8 +193,8 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
 
         const tempPlebbit = await mockRemotePlebbit();
 
-        const originalResolveAuthor = plebbit._clientsManager.resolveAuthorAddressIfNeeded;
-        tempPlebbit._clientsManager.resolveAuthorAddressIfNeeded = async (authorAddress) =>
+        const originalResolveAuthor = plebbit._clientsManager.resolveAuthorNameIfNeeded;
+        tempPlebbit._clientsManager.resolveAuthorNameIfNeeded = async (authorAddress) =>
             authorAddress === "plebbit.eth" ? signers[7].address : originalResolveAuthor(authorAddress);
 
         expect(getLatestComment().comment.author.address).to.equal("plebbit.eth");
@@ -202,7 +202,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
             await verifySubplebbit({
                 subplebbit: subIpfs,
                 subplebbitIpnsName: signers[0].address,
-                resolveAuthorAddresses: tempPlebbit.resolveAuthorAddresses,
+                resolveAuthorNames: tempPlebbit.resolveAuthorNames,
                 clientsManager: tempPlebbit._clientsManager,
                 overrideAuthorAddressIfInvalid: true,
                 validatePages: true
@@ -236,7 +236,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
         const validation = await verifySubplebbit({
             subplebbit: subFixtureClone as SubplebbitIpfsType,
             subplebbitIpnsName: signers[0].address,
-            resolveAuthorAddresses: tempPlebbit.resolveAuthorAddresses,
+            resolveAuthorNames: tempPlebbit.resolveAuthorNames,
             clientsManager: tempPlebbit._clientsManager,
             overrideAuthorAddressIfInvalid: true,
             validatePages: true
@@ -262,7 +262,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
         const validation = await verifySubplebbit({
             subplebbit: subFixtureClone as SubplebbitIpfsType,
             subplebbitIpnsName: signers[0].address,
-            resolveAuthorAddresses: tempPlebbit.resolveAuthorAddresses,
+            resolveAuthorNames: tempPlebbit.resolveAuthorNames,
             clientsManager: tempPlebbit._clientsManager,
             overrideAuthorAddressIfInvalid: true,
             validatePages: true

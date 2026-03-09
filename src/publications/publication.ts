@@ -565,7 +565,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             "fetching-subplebbit-ipns": ["fetching-subplebbit-ipns"],
             "publishing-challenge-answer": ["publishing-challenge-answer"],
             "publishing-challenge-request": ["subscribing-pubsub", "publishing-challenge-request"],
-            "resolving-subplebbit-address": ["resolving-subplebbit-address"],
+            "resolving-community-name": ["resolving-community-name"],
             stopped: ["stopped"],
             succeeded: ["stopped"],
             "waiting-challenge": ["waiting-challenge"],

@@ -186,7 +186,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
             expect(
                 await verifyCommentPubsubMessage({
                     comment: commentObjToEncrypt.comment,
-                    resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+                    resolveAuthorNames: plebbit.resolveAuthorNames,
                     clientsManager: comment._clientsManager,
                     overrideAuthorAddressIfInvalid: true
                 })
@@ -197,7 +197,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
             expect(
                 await verifyCommentPubsubMessage({
                     comment: commentObjToEncrypt.comment,
-                    resolveAuthorAddresses: false,
+                    resolveAuthorNames: false,
                     clientsManager: comment._clientsManager,
                     overrideAuthorAddressIfInvalid: false
                 })

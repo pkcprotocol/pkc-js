@@ -50,7 +50,7 @@ describe("Sign commentedit", async () => {
         };
         const verification = await verifyCommentEdit({
             edit: editWithSignature,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false
         });
@@ -90,7 +90,7 @@ describeSkipIfRpc("Verify CommentEdit", async () => {
         const edit = remeda.clone(validCommentEditFixture) as CommentEditPubsubMessagePublication;
         const verification = await verifyCommentEdit({
             edit,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false
         });
@@ -102,7 +102,7 @@ describeSkipIfRpc("Verify CommentEdit", async () => {
         edit.reason += "1234"; // Should invalidate comment edit
         const verification = await verifyCommentEdit({
             edit,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false
         });
@@ -114,7 +114,7 @@ describeSkipIfRpc("Verify CommentEdit", async () => {
         edit.author.address = "gibbresish"; // Not a domain or IPNS
         const verification = await verifyCommentEdit({
             edit,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false
         });
@@ -125,7 +125,7 @@ describeSkipIfRpc("Verify CommentEdit", async () => {
         (edit.author as { address: string | undefined }).address = undefined; // Not a domain or IPNS
         const verification = await verifyCommentEdit({
             edit,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false
         });

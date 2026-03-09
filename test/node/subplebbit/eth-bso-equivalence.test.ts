@@ -38,13 +38,13 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
             await mockCacheOfTextRecord({
                 plebbit,
                 domain,
-                resolveType: "subplebbit",
+                resolveType: "community",
                 value: subplebbit.signer.address
             });
             await mockCacheOfTextRecord({
                 plebbit: remotePlebbit,
                 domain,
-                resolveType: "subplebbit",
+                resolveType: "community",
                 value: subplebbit.signer.address
             });
         }
@@ -92,7 +92,7 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
             const verification = await verifyCommentIpfs({
                 comment: pageComment.raw.comment,
                 clientsManager: plebbit._clientsManager,
-                resolveAuthorAddresses: false,
+                resolveAuthorNames: false,
                 calculatedCommentCid: pageComment.cid!,
                 overrideAuthorAddressIfInvalid: false,
                 subplebbitAddressFromInstance: bsoNameAddress
@@ -107,7 +107,7 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
             const verification = await verifyCommentIpfs({
                 comment: pageComment.raw.comment,
                 clientsManager: plebbit._clientsManager,
-                resolveAuthorAddresses: false,
+                resolveAuthorNames: false,
                 calculatedCommentCid: pageComment.cid!,
                 overrideAuthorAddressIfInvalid: false,
                 subplebbitAddressFromInstance: pageComment.subplebbitAddress.endsWith(".eth")

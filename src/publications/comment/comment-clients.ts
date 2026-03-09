@@ -16,7 +16,7 @@ type CommentPubsubState = PublicationKuboPubsubClient["state"];
 
 type CommentLibp2pJsState = CommentIpfsState | CommentPubsubState | PublicationLibp2pJsClient["state"];
 
-type CommentRpcState = NameResolverClient["state"] | CommentLibp2pJsState | "resolving-author-address" | "resolving-subplebbit-address";
+type CommentRpcState = NameResolverClient["state"] | CommentLibp2pJsState | "resolving-author-name" | "resolving-community-name";
 
 export class CommentLibp2pJsClient extends GenericStateClient<CommentLibp2pJsState> {}
 

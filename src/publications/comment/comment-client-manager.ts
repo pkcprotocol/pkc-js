@@ -102,7 +102,7 @@ export class CommentClientsManager extends PublicationClientsManager {
     override preResolveNameResolver(opts: PreResolveNameResolverOptions): void {
         super.preResolveNameResolver(opts);
         if (this._comment.state === "updating" && !opts.staleCache)
-            this._comment._setUpdatingStateWithEmissionIfNewState("resolving-author-address"); // Resolving for CommentIpfs and author.address is a domain
+            this._comment._setUpdatingStateWithEmissionIfNewState("resolving-author-name"); // Resolving for CommentIpfs and author.address is a domain
     }
 
     _calculatePathForPostCommentUpdate(folderCid: string, postCid: string) {
@@ -207,7 +207,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         if (!this._comment.postCid) throw Error("can't validate comment update when postCid is not defined");
         const verifyOptions = {
             update: commentUpdate,
-            resolveAuthorAddresses: this._plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: this._plebbit.resolveAuthorNames,
             clientsManager: this,
             subplebbit: subplebbitIpfs,
             comment: { ...this._comment.raw.comment, cid: this._comment.cid, postCid: this._comment.postCid },
@@ -417,7 +417,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         // Can potentially throw if resolver if not working
         const verificationOpts = {
             comment: commentIpfs,
-            resolveAuthorAddresses: this._plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: this._plebbit.resolveAuthorNames,
             clientsManager: this,
             calculatedCommentCid: commentCid,
             overrideAuthorAddressIfInvalid: true,
@@ -837,7 +837,7 @@ export class CommentClientsManager extends PublicationClientsManager {
             failed: "failed",
             "fetching-ipfs": "fetching-subplebbit-ipfs",
             "fetching-ipns": "fetching-subplebbit-ipns",
-            "resolving-address": "resolving-subplebbit-address",
+            "resolving-name": "resolving-community-name",
             "waiting-retry": "waiting-retry",
             stopped: "stopped",
             succeeded: undefined,
@@ -863,12 +863,12 @@ export class CommentClientsManager extends PublicationClientsManager {
             failed: "failed",
             "fetching-subplebbit-ipfs": "fetching-subplebbit-ipfs",
             "fetching-subplebbit-ipns": "fetching-subplebbit-ipns",
-            "resolving-subplebbit-address": "resolving-subplebbit-address",
+            "resolving-community-name": "resolving-community-name",
             "waiting-retry": "waiting-retry",
             stopped: undefined,
             succeeded: undefined,
             "fetching-ipfs": undefined,
-            "resolving-author-address": undefined,
+            "resolving-author-name": undefined,
             "fetching-update-ipfs": undefined
         };
         const replyState = postUpdatingStateToReplyUpdatingState[newState];

@@ -70,7 +70,7 @@ import { sanitizeRpcNotificationResult } from "./json-rpc-util.js";
 import type { ModQueuePageIpfs, PageIpfs } from "../../pages/types.js";
 import {
     parseRpcSubplebbitAddressParam,
-    parseRpcAuthorAddressParam,
+    parseRpcAuthorNameParam,
     parseRpcCidParam,
     parseRpcCommentRepliesPageParam,
     parseRpcSubplebbitPageParam
@@ -198,7 +198,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
         this.rpcWebsocketsRegister("settingsSubscribe", this.settingsSubscribe.bind(this));
 
         this.rpcWebsocketsRegister("fetchCid", this.fetchCid.bind(this));
-        this.rpcWebsocketsRegister("resolveAuthorAddress", this.resolveAuthorAddress.bind(this));
+        this.rpcWebsocketsRegister("resolveAuthorName", this.resolveAuthorName.bind(this));
         this.rpcWebsocketsRegister("setSettings", this.setSettings.bind(this));
         // JSON RPC pubsub methods
         this.rpcWebsocketsRegister("commentUpdateSubscribe", this.commentUpdateSubscribe.bind(this));
@@ -1380,10 +1380,10 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
         return true;
     }
 
-    async resolveAuthorAddress(params: any) {
-        const parsedArgs = parseRpcAuthorAddressParam(params[0]);
+    async resolveAuthorName(params: any) {
+        const parsedArgs = parseRpcAuthorNameParam(params[0]);
         const plebbit = await this._getPlebbitInstance();
-        const resolvedAuthorAddress = await plebbit.resolveAuthorAddress(parsedArgs);
+        const resolvedAuthorAddress = await plebbit.resolveAuthorName(parsedArgs);
         return resolvedAuthorAddress;
     }
 

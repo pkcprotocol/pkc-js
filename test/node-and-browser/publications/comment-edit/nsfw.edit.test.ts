@@ -93,7 +93,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             const commentIpfsValidity = await verifyCommentIpfs({
                 comment: recreatedPost.toJSONIpfs(),
-                resolveAuthorAddresses: true,
+                resolveAuthorNames: true,
                 clientsManager: recreatedPost._clientsManager,
                 overrideAuthorAddressIfInvalid: false,
                 calculatedCommentCid: recreatedPost.cid
@@ -102,7 +102,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             const commentUpdateValidity = await verifyCommentUpdate({
                 update: recreatedPost.raw.commentUpdate,
-                resolveAuthorAddresses: true,
+                resolveAuthorNames: true,
                 clientsManager: recreatedPost._clientsManager,
                 subplebbit: { address: recreatedPost.subplebbitAddress },
                 comment: recreatedPost as unknown as Pick<CommentIpfsWithCidPostCidDefined, "signature" | "cid" | "depth" | "postCid">,

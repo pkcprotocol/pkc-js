@@ -32,7 +32,7 @@ describe("Comments with Authors as domains", async () => {
     });
 
     it(`Sub accepts posts with author.address as a domain that resolves to comment signer `, async () => {
-        // I've mocked plebbit.resolver.resolveAuthorAddressIfNeeded to return signers[6] address for plebbit.bso
+        // I've mocked plebbit.resolver.resolveAuthorNameIfNeeded to return signers[6] address for plebbit.bso
         const mockPost = await plebbit.createComment({
             author: { displayName: `Mock Author - ${Date.now()}`, address: "plebbit.bso" },
             signer: signers[6],
@@ -40,7 +40,7 @@ describe("Comments with Authors as domains", async () => {
             title: "Mock post title",
             subplebbitAddress: signers[0].address
         });
-        const resolvedAuthorAddress = await plebbit.resolveAuthorAddress({ address: mockPost.author.address });
+        const resolvedAuthorAddress = await plebbit.resolveAuthorName({ address: mockPost.author.address });
         expect(resolvedAuthorAddress).to.equal(signers[6].address);
 
         expect(mockPost.author.address).to.equal("plebbit.bso");
@@ -91,7 +91,7 @@ describe("Comments with Authors as domains", async () => {
         async () => {
             const tempPlebbit = await mockRemotePlebbit();
             const comment = await tempPlebbit.createComment({ cid: mockComments[mockComments.length - 1].cid });
-            const originalResolvingFunction = comment._clientsManager.resolveAuthorAddressIfNeeded.bind(comment._clientsManager);
+            const originalResolvingFunction = comment._clientsManager.resolveAuthorNameIfNeeded.bind(comment._clientsManager);
             // verifyComment in comment.update should overwrite author.address to derived address
             await comment.update();
             mockUpdatingCommentResolvingAuthor(comment, async (authorAddress: string) =>
@@ -166,7 +166,7 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
             }
         });
 
-        const resolved = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("plebbit.bso");
+        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded("plebbit.bso");
         expect(resolved).to.equal(expectedIpns);
         // The resolver receives the original address as-is
         expect(receivedName).to.equal("plebbit.bso");
@@ -189,7 +189,7 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
             }
         });
 
-        const resolved = await plebbit.resolveAuthorAddress({ address: "testauthor.bso" });
+        const resolved = await plebbit.resolveAuthorName({ address: "testauthor.bso" });
         expect(resolved).to.equal(expectedAuthorAddress);
         await plebbit.destroy();
     });
@@ -224,7 +224,7 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
             }
         ];
 
-        const resolved = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("test.bso");
+        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded("test.bso");
         expect(resolved).to.equal(expectedIpns);
         expect(resolverCalls).to.deep.equal(["resolver-1", "resolver-2"]);
         await plebbit.destroy();
@@ -255,7 +255,7 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
             }
         ];
 
-        const resolved = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("test.bso");
+        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded("test.bso");
         expect(resolved).to.equal(expectedIpns);
         await plebbit.destroy();
     });
@@ -326,7 +326,7 @@ describeSkipIfRpc(`nameResolver canResolve filtering`, async () => {
             }
         });
 
-        const resolved = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("test.bso");
+        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded("test.bso");
         expect(resolved).to.equal(expectedIpns);
         expect(resolverCalls).to.deep.equal(["active-resolver"]);
         await plebbit.destroy();
@@ -364,14 +364,14 @@ describeSkipIfRpc(`nameResolver canResolve filtering`, async () => {
             }
         });
 
-        const resolvedEth = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("test.eth");
+        const resolvedEth = await plebbit._clientsManager.resolveCommunityNameIfNeeded("test.eth");
         expect(resolvedEth).to.equal(ethIpns);
         expect(resolverCalls).to.deep.equal(["eth-resolver"]);
 
         resolverCalls.length = 0;
         // clear cache so next resolve goes through resolvers again
-        await plebbit._clientsManager.clearDomainCache("test.ton", "subplebbit");
-        const resolvedTon = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("test.ton");
+        await plebbit._clientsManager.clearDomainCache("test.ton", "community");
+        const resolvedTon = await plebbit._clientsManager.resolveCommunityNameIfNeeded("test.ton");
         expect(resolvedTon).to.equal(tonIpns);
         expect(resolverCalls).to.deep.equal(["ton-resolver"]);
         await plebbit.destroy();
@@ -394,7 +394,7 @@ describeSkipIfRpc(`nameResolver canResolve filtering`, async () => {
         });
 
         try {
-            await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("test.ton");
+            await plebbit._clientsManager.resolveCommunityNameIfNeeded("test.ton");
             expect.fail("Should have thrown");
         } catch (e: any) {
             expect(e.code).to.equal("ERR_NO_RESOLVER_FOR_NAME");
@@ -412,7 +412,7 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
         });
 
         try {
-            await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("test.bso");
+            await plebbit._clientsManager.resolveCommunityNameIfNeeded("test.bso");
             expect.fail("Should have thrown");
         } catch (e: any) {
             expect(e.code).to.equal("ERR_NO_RESOLVER_FOR_NAME");
@@ -424,7 +424,7 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
         const plebbit = await mockPlebbitV2({ remotePlebbit: true, mockResolve: false });
 
         try {
-            await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("test.bso");
+            await plebbit._clientsManager.resolveCommunityNameIfNeeded("test.bso");
             expect.fail("Should have thrown");
         } catch (e: any) {
             expect(e.code).to.equal("ERR_NO_RESOLVER_FOR_NAME");
@@ -449,7 +449,7 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
         });
 
         try {
-            await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("test.bso");
+            await plebbit._clientsManager.resolveCommunityNameIfNeeded("test.bso");
             expect.fail("Should have thrown");
         } catch (e: any) {
             expect(e.code).to.equal("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS");
@@ -483,7 +483,7 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
             }
         });
 
-        const resolved = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("test.bso");
+        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded("test.bso");
         expect(resolved).to.be.null;
         await plebbit.destroy();
     });
@@ -510,7 +510,7 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
             }
         });
 
-        const resolved = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("test.bso");
+        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded("test.bso");
         expect(resolved).to.be.null;
         await plebbit.destroy();
     });
@@ -539,7 +539,7 @@ describeSkipIfRpc(`nameResolver provider argument passthrough`, async () => {
             }
         });
 
-        await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("test.bso");
+        await plebbit._clientsManager.resolveCommunityNameIfNeeded("test.bso");
         expect(receivedProvider).to.equal("my-custom-provider-url");
         await plebbit.destroy();
     });
@@ -567,7 +567,7 @@ describeSkipIfRpc(`nameResolver abortSignal support`, async () => {
             }
         });
 
-        await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("test.bso");
+        await plebbit._clientsManager.resolveCommunityNameIfNeeded("test.bso");
         // The resolver should have been called (signal may or may not be passed depending on call site)
         // The important thing is that the resolver type accepts abortSignal and doesn't break
         expect(receivedSignal === undefined || receivedSignal instanceof AbortSignal).to.be.true;
@@ -576,7 +576,7 @@ describeSkipIfRpc(`nameResolver abortSignal support`, async () => {
 });
 
 describeSkipIfRpc(`nameResolver caching behavior`, async () => {
-    it(`resolveSubplebbitAddressIfNeeded returns IPNS address as-is without calling resolvers`, async () => {
+    it(`resolveCommunityNameIfNeeded returns IPNS address as-is without calling resolvers`, async () => {
         let resolverCalled = false;
 
         const plebbit = await mockPlebbitV2({
@@ -598,13 +598,13 @@ describeSkipIfRpc(`nameResolver caching behavior`, async () => {
         });
 
         const ipnsAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
-        const resolved = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded(ipnsAddress);
+        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded(ipnsAddress);
         expect(resolved).to.equal(ipnsAddress);
         expect(resolverCalled).to.be.false;
         await plebbit.destroy();
     });
 
-    it(`resolveAuthorAddressIfNeeded throws ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58 for non-domain address`, async () => {
+    it(`resolveAuthorNameIfNeeded throws ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58 for non-domain address`, async () => {
         const plebbit = await mockPlebbitV2({
             remotePlebbit: true,
             mockResolve: false,
@@ -621,8 +621,8 @@ describeSkipIfRpc(`nameResolver caching behavior`, async () => {
         });
 
         try {
-            // An IPNS address is not a domain, so resolveAuthorAddressIfNeeded should throw
-            await plebbit._clientsManager.resolveAuthorAddressIfNeeded("12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR");
+            // An IPNS address is not a domain, so resolveAuthorNameIfNeeded should throw
+            await plebbit._clientsManager.resolveAuthorNameIfNeeded("12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR");
             expect.fail("Should have thrown");
         } catch (e: any) {
             expect(e.code).to.equal("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58");
@@ -655,20 +655,20 @@ describeSkipIfRpc(`nameResolver caching behavior`, async () => {
         });
 
         // First resolution should call the resolver and cache the result
-        const resolved1 = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("cached.bso");
+        const resolved1 = await plebbit._clientsManager.resolveCommunityNameIfNeeded("cached.bso");
         expect(resolved1).to.equal(firstIpns);
         expect(callCount).to.equal(1);
 
         // Second resolution should return cached value (resolver not called again)
-        const resolved2 = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("cached.bso");
+        const resolved2 = await plebbit._clientsManager.resolveCommunityNameIfNeeded("cached.bso");
         expect(resolved2).to.equal(firstIpns);
         expect(callCount).to.equal(1);
 
         // Clear the cache
-        await plebbit._clientsManager.clearDomainCache("cached.bso", "subplebbit");
+        await plebbit._clientsManager.clearDomainCache("cached.bso", "community");
 
         // Third resolution should call the resolver again
-        const resolved3 = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("cached.bso");
+        const resolved3 = await plebbit._clientsManager.resolveCommunityNameIfNeeded("cached.bso");
         expect(resolved3).to.equal(secondIpns);
         expect(callCount).to.equal(2);
         await plebbit.destroy();
@@ -695,13 +695,13 @@ describeSkipIfRpc(`nameResolver caching behavior`, async () => {
         });
 
         // Manually insert a stale cache entry (timestampSeconds set to > 1 hour ago)
-        const cacheKey = plebbit._clientsManager._getKeyOfCachedDomainTextRecord("stale.bso", "subplebbit");
+        const cacheKey = plebbit._clientsManager._getKeyOfCachedDomainTextRecord("stale.bso", "community");
         const staleTimestamp = Math.round(Date.now() / 1000) - 3601; // 1 hour + 1 second ago
         const staleCacheEntry: CachedTextRecordResolve = { timestampSeconds: staleTimestamp, valueOfTextRecord: oldIpns };
         await plebbit._storage.setItem(cacheKey, staleCacheEntry);
 
         // Resolution should return the old (stale) value immediately
-        const resolved = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("stale.bso");
+        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded("stale.bso");
         expect(resolved).to.equal(oldIpns);
 
         // Wait a bit for the background refresh to complete
@@ -738,13 +738,13 @@ describeSkipIfRpc(`nameResolver caching behavior`, async () => {
         });
 
         // Insert a fresh cache entry (current timestamp)
-        const cacheKey = plebbit._clientsManager._getKeyOfCachedDomainTextRecord("fresh.bso", "subplebbit");
+        const cacheKey = plebbit._clientsManager._getKeyOfCachedDomainTextRecord("fresh.bso", "community");
         const freshTimestamp = Math.round(Date.now() / 1000);
         const freshCacheEntry: CachedTextRecordResolve = { timestampSeconds: freshTimestamp, valueOfTextRecord: cachedIpns };
         await plebbit._storage.setItem(cacheKey, freshCacheEntry);
 
         // Resolution with fresh cache should NOT trigger resolver
-        await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("fresh.bso");
+        await plebbit._clientsManager.resolveCommunityNameIfNeeded("fresh.bso");
         expect(resolverCallCount).to.equal(0);
 
         // Now set the cache to be stale (> 1 hour old)
@@ -753,7 +753,7 @@ describeSkipIfRpc(`nameResolver caching behavior`, async () => {
         await plebbit._storage.setItem(cacheKey, staleCacheEntry);
 
         // Resolution with stale cache should return cached value but trigger background refresh
-        const resolved = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("fresh.bso");
+        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded("fresh.bso");
         expect(resolved).to.equal(cachedIpns);
 
         // Wait for background refresh to complete
@@ -867,7 +867,7 @@ describeSkipIfRpc(`nameResolver returning extra properties`, async () => {
             }
         });
 
-        const resolved = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("test.bso");
+        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded("test.bso");
         expect(resolved).to.equal(expectedIpns);
         await plebbit.destroy();
     });
@@ -894,11 +894,11 @@ describeSkipIfRpc(`nameResolver runtime modification`, async () => {
             }
         });
 
-        const resolved1 = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("runtime.bso");
+        const resolved1 = await plebbit._clientsManager.resolveCommunityNameIfNeeded("runtime.bso");
         expect(resolved1).to.equal(firstIpns);
 
         // Clear cache so next resolve goes through resolvers
-        await plebbit._clientsManager.clearDomainCache("runtime.bso", "subplebbit");
+        await plebbit._clientsManager.clearDomainCache("runtime.bso", "community");
 
         // Swap resolvers at runtime
         plebbit.nameResolvers = [
@@ -910,7 +910,7 @@ describeSkipIfRpc(`nameResolver runtime modification`, async () => {
             }
         ];
 
-        const resolved2 = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("runtime.bso");
+        const resolved2 = await plebbit._clientsManager.resolveCommunityNameIfNeeded("runtime.bso");
         expect(resolved2).to.equal(secondIpns);
         await plebbit.destroy();
     });
@@ -936,7 +936,7 @@ describeSkipIfRpc(`nameResolver runtime modification`, async () => {
 
         // .ton should fail since no resolver handles it
         try {
-            await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("test.ton");
+            await plebbit._clientsManager.resolveCommunityNameIfNeeded("test.ton");
             expect.fail("Should have thrown");
         } catch (e: any) {
             expect(e.code).to.equal("ERR_NO_RESOLVER_FOR_NAME");
@@ -953,7 +953,7 @@ describeSkipIfRpc(`nameResolver runtime modification`, async () => {
             }
         ];
 
-        const resolved = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded("test.ton");
+        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded("test.ton");
         expect(resolved).to.equal(tonIpns);
         await plebbit.destroy();
     });

@@ -28,7 +28,7 @@ import { messages } from "../../errors.js";
 import type { SubplebbitAddressRpcParam, CidRpcParam, CommentPageRpcParam, SubplebbitPageRpcParam } from "./types.js";
 import {
     parseRpcSubplebbitAddressParam,
-    parseRpcAuthorAddressParam,
+    parseRpcAuthorNameParam,
     parseRpcCidParam,
     parseRpcCommentRepliesPageParam,
     parseRpcSubplebbitPageParam
@@ -431,11 +431,11 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
         return res;
     }
 
-    async resolveAuthorAddress(parsedAuthorAddress: SubplebbitAddressRpcParam) {
-        const resolveAuthorAddressArgs = parseRpcAuthorAddressParam(parsedAuthorAddress);
-        const res = <string | null>await this._webSocketClient.call("resolveAuthorAddress", [resolveAuthorAddressArgs]);
+    async resolveAuthorName(parsedAuthorAddress: SubplebbitAddressRpcParam) {
+        const resolveAuthorAddressArgs = parseRpcAuthorNameParam(parsedAuthorAddress);
+        const res = <string | null>await this._webSocketClient.call("resolveAuthorName", [resolveAuthorAddressArgs]);
         if (typeof res !== "string" && res !== null)
-            throw Error("RPC function resolveAuthorAddress should either respond with string or null");
+            throw Error("RPC function resolveAuthorName should either respond with string or null");
         return res;
     }
 

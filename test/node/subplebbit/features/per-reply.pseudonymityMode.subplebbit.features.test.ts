@@ -720,7 +720,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-reply"', () => {
             });
             await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, post);
 
-            const resolvedAddress = await context.publisherPlebbit.resolveAuthorAddress({ address: domainAddress });
+            const resolvedAddress = await context.publisherPlebbit.resolveAuthorName({ address: domainAddress });
             expect(resolvedAddress).to.equal(domainSigner.address);
 
             const domainReply = await context.publisherPlebbit.createComment({

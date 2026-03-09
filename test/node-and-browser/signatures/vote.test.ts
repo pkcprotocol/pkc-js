@@ -38,7 +38,7 @@ describe.concurrent("Sign Vote", async () => {
     it(`Can sign and validate Vote correctly`, async () => {
         const verification = await verifyVote({
             vote: { ...voteProps, signature: voteSignature } as VotePubsubMessagePublication,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false
         });
@@ -82,7 +82,7 @@ describeSkipIfRpc.concurrent("Verify vote", async () => {
         const vote = remeda.clone(validVoteFixture) as VotePubsubMessagePublication;
         const verification = await verifyVote({
             vote,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false
         });
@@ -94,7 +94,7 @@ describeSkipIfRpc.concurrent("Verify vote", async () => {
         vote.commentCid += "1234"; // Should invalidate signature
         const verification = await verifyVote({
             vote,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false
         });
@@ -106,7 +106,7 @@ describeSkipIfRpc.concurrent("Verify vote", async () => {
         vote.author.address = "gibbresish"; // Not a domain or IPNS
         const verification = await verifyVote({
             vote,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false
         });
@@ -117,7 +117,7 @@ describeSkipIfRpc.concurrent("Verify vote", async () => {
         (vote.author as { address: string | undefined }).address = undefined; // Not a domain or IPNS
         const verification = await verifyVote({
             vote,
-            resolveAuthorAddresses: plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false
         });

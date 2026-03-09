@@ -89,7 +89,7 @@ export class PublicationClientsManager extends PlebbitClientsManager {
             failed: "failed",
             "fetching-ipfs": "fetching-subplebbit-ipfs",
             "fetching-ipns": "fetching-subplebbit-ipns",
-            "resolving-address": "resolving-subplebbit-address"
+            "resolving-name": "resolving-community-name"
         };
         const translatedState = mapper[newUpdatingState];
         if (translatedState) this._publication._updatePublishingStateWithEmission(translatedState);

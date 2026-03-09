@@ -366,7 +366,7 @@ describe.concurrent(`subplebbit.clients (Local)`, async () => {
         });
 
         it(`correct order of nameResolvers state when receiving a comment with a domain for author.address`, async () => {
-            const expectedStates = ["resolving-author-address", "stopped"];
+            const expectedStates = ["resolving-author-name", "stopped"];
 
             const actualStates: string[] = [];
             const resolverKey = Object.keys(mockSub.clients.nameResolvers)[0];

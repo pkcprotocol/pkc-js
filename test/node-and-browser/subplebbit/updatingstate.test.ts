@@ -59,11 +59,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`subplebbit.updatingState is in correct order upon updating with IPFS client and subplebbit address is an ENS`, async () => {
-            await plebbit._clientsManager.clearDomainCache("plebbit.eth", "subplebbit");
-            await plebbit._clientsManager.clearDomainCache("plebbit.bso", "subplebbit");
+            await plebbit._clientsManager.clearDomainCache("plebbit.eth", "community");
+            await plebbit._clientsManager.clearDomainCache("plebbit.bso", "community");
             const subplebbit = await plebbit.createSubplebbit({ address: "plebbit.eth" });
             const recordedStates: string[] = [];
-            const expectedStates = ["resolving-address", "fetching-ipns", "fetching-ipfs", "succeeded", "stopped"];
+            const expectedStates = ["resolving-name", "fetching-ipns", "fetching-ipfs", "succeeded", "stopped"];
             subplebbit.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
 
             const updatePromise = new Promise((resolve) => subplebbit.once("update", resolve));

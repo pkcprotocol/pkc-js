@@ -105,7 +105,7 @@ export class PlebbitClientsManager extends BaseClientsManager {
 
     override preResolveNameResolver({ resolveType, resolverKey, staleCache }: PreResolveNameResolverOptions) {
         if (!staleCache) {
-            const newState = resolveType === "subplebbit" ? "resolving-subplebbit-address" : "resolving-author-address";
+            const newState = resolveType === "community" ? "resolving-community-name" : "resolving-author-name";
             this.updateNameResolverState(newState, resolverKey);
         }
     }

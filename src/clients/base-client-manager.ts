@@ -41,7 +41,7 @@ type GenericGatewayFetch = {
 
 export type CachedTextRecordResolve = { timestampSeconds: number; valueOfTextRecord: string };
 
-export type ResolveType = "subplebbit" | "author";
+export type ResolveType = "community" | "author";
 
 export type PreResolveNameResolverOptions = {
     address: string;
@@ -756,10 +756,10 @@ export class BaseClientsManager {
         return value || null;
     }
 
-    async resolveSubplebbitAddressIfNeeded(subplebbitAddress: string): Promise<string | null> {
+    async resolveCommunityNameIfNeeded(subplebbitAddress: string): Promise<string | null> {
         assert(typeof subplebbitAddress === "string", "subplebbitAddress needs to be a string to be resolved");
         if (!isStringDomain(subplebbitAddress)) return subplebbitAddress;
-        return this._resolveTextRecordWithCache(subplebbitAddress, "subplebbit");
+        return this._resolveTextRecordWithCache(subplebbitAddress, "community");
     }
 
     async clearDomainCache(domainAddress: string, resolveType: ResolveType) {
@@ -767,7 +767,7 @@ export class BaseClientsManager {
         await this._plebbit._storage.removeItem(cacheKey);
     }
 
-    async resolveAuthorAddressIfNeeded(authorAddress: string): Promise<string | null> {
+    async resolveAuthorNameIfNeeded(authorAddress: string): Promise<string | null> {
         if (!isStringDomain(authorAddress)) throw new PlebbitError("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58", { authorAddress });
         return this._resolveTextRecordWithCache(authorAddress, "author");
     }

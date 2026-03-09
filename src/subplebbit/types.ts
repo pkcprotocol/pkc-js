@@ -153,7 +153,7 @@ export type SubplebbitStartedState = "stopped" | "publishing-ipns" | "failed" | 
 export type SubplebbitUpdatingState =
     | SubplebbitStartedState
     | "stopped"
-    | "resolving-address"
+    | "resolving-name"
     | "fetching-ipns"
     | "fetching-ipfs"
     | "failed"

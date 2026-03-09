@@ -64,7 +64,7 @@ export class CommentEdit extends Publication implements CommentEditPubsubMessage
         const editObj = JSON.parse(JSON.stringify(this.toJSONPubsubMessagePublication()));
         const signatureValidity = await verifyCommentEdit({
             edit: editObj,
-            resolveAuthorAddresses: this._plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: this._plebbit.resolveAuthorNames,
             clientsManager: this._clientsManager,
             overrideAuthorAddressIfInvalid: true
         }); // If author domain is not resolving to signer, then don't throw an error

@@ -124,7 +124,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
 
     override preResolveNameResolver(opts: PreResolveNameResolverOptions): void {
         super.preResolveNameResolver(opts);
-        if (!opts.staleCache) this._subplebbit._setUpdatingStateWithEventEmissionIfNewState("resolving-address");
+        if (!opts.staleCache) this._subplebbit._setUpdatingStateWithEventEmissionIfNewState("resolving-name");
     }
 
     override postResolveNameResolverSuccess(opts: PostResolveNameResolverSuccessOptions): void {
@@ -280,7 +280,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
 
     async fetchNewUpdateForSubplebbit(subAddress: SubplebbitIpfsType["address"]): Promise<ResultOfFetchingSubplebbit> {
         return this._withInflightSubplebbitFetch(subAddress, async () => {
-            const ipnsName = await this.resolveSubplebbitAddressIfNeeded(subAddress);
+            const ipnsName = await this.resolveCommunityNameIfNeeded(subAddress);
             // if ipnsAddress is undefined then it will be handled in postResolveTextRecordSuccess
 
             if (!ipnsName) throw Error("Failed to resolve subplebbit address to an IPNS name");
@@ -653,7 +653,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
         const verificationOpts = {
             subplebbit: subJson,
             subplebbitIpnsName: ipnsNameOfSub,
-            resolveAuthorAddresses: this._plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: this._plebbit.resolveAuthorNames,
             clientsManager: this,
             overrideAuthorAddressIfInvalid: true,
             validatePages: this._plebbit.validatePages

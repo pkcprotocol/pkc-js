@@ -351,7 +351,7 @@ export class Comment
 
         const commentIpfsValidity = await verifyCommentIpfs({
             comment: decryptedVerification.comment,
-            resolveAuthorAddresses: this._plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: this._plebbit.resolveAuthorNames,
             clientsManager: this._clientsManager,
             overrideAuthorAddressIfInvalid: false,
             calculatedCommentCid: calculatedCid
@@ -371,7 +371,7 @@ export class Comment
             comment: { ...decryptedVerification.comment, cid: calculatedCid, postCid },
             subplebbit: this._subplebbit!,
             overrideAuthorAddressIfInvalid: false,
-            resolveAuthorAddresses: this._plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: this._plebbit.resolveAuthorNames,
             validateUpdateSignature: true,
             validatePages: true
         });
@@ -708,8 +708,8 @@ export class Comment
             "fetching-subplebbit-ipfs": "fetching-subplebbit-ipfs",
             "fetching-subplebbit-ipns": "fetching-subplebbit-ipns",
             "fetching-update-ipfs": "fetching-update-ipfs",
-            "resolving-author-address": "resolving-author-address",
-            "resolving-subplebbit-address": "resolving-subplebbit-address",
+            "resolving-author-name": "resolving-author-name",
+            "resolving-community-name": "resolving-community-name",
             stopped: "stopped"
         };
 
@@ -1067,7 +1067,7 @@ export class Comment
         const commentObj = JSON.parse(JSON.stringify(this.toJSONPubsubMessagePublication())); // Stringify so it resembles messages from pubsub
         const signatureValidity = await verifyCommentPubsubMessage({
             comment: commentObj,
-            resolveAuthorAddresses: this._plebbit.resolveAuthorAddresses,
+            resolveAuthorNames: this._plebbit.resolveAuthorNames,
             clientsManager: this._clientsManager,
             overrideAuthorAddressIfInvalid: true
         }); // If author domain is not resolving to signer, then don't throw an error

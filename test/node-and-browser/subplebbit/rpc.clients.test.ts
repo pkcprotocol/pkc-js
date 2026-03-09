@@ -61,7 +61,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbi
             const sub = await plebbit.createSubplebbit({ address: "plebbit.bso" });
             const rpcUrl = Object.keys(plebbit.clients.plebbitRpcClients)[0];
             const recordedStates: string[] = [];
-            const expectedStates = ["resolving-subplebbit-address", "fetching-ipns", "fetching-ipfs", "stopped"];
+            const expectedStates = ["resolving-community-name", "fetching-ipns", "fetching-ipfs", "stopped"];
 
             sub.clients.plebbitRpcClients[rpcUrl].on("statechange", (newState: string) => recordedStates.push(newState));
 

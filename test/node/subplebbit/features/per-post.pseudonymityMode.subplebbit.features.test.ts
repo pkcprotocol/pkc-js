@@ -203,7 +203,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
             const domainSigner = await context.publisherPlebbit.createSigner(signers[6]);
             const domainAddress = "plebbit.bso";
 
-            const resolvedAddress = await context.publisherPlebbit.resolveAuthorAddress({ address: domainAddress });
+            const resolvedAddress = await context.publisherPlebbit.resolveAuthorName({ address: domainAddress });
             expect(resolvedAddress).to.equal(domainSigner.address);
 
             const domainPost = await context.publisherPlebbit.createComment({

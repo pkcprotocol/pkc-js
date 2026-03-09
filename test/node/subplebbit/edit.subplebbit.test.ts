@@ -43,20 +43,20 @@ describeSkipIfRpc(`subplebbit.edit`, async () => {
         await mockCacheOfTextRecord({
             plebbit,
             domain: bsoNameAddress,
-            resolveType: "subplebbit",
+            resolveType: "community",
             value: subplebbit.signer.address
         });
         await mockCacheOfTextRecord({
             plebbit: remotePlebbit,
             domain: bsoNameAddress,
-            resolveType: "subplebbit",
+            resolveType: "community",
             value: subplebbit.signer.address
         });
 
-        const resolvedSubAddress = await remotePlebbit._clientsManager.resolveSubplebbitAddressIfNeeded(bsoNameAddress);
+        const resolvedSubAddress = await remotePlebbit._clientsManager.resolveCommunityNameIfNeeded(bsoNameAddress);
         expect(resolvedSubAddress).to.equal(subplebbit.signer.address);
 
-        await plebbit.resolveAuthorAddress({ address: "esteban.bso" });
+        await plebbit.resolveAuthorName({ address: "esteban.bso" });
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
         await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
@@ -199,30 +199,30 @@ describeSkipIfRpc(`subplebbit.edit .eth -> .bso transition`, async () => {
         await mockCacheOfTextRecord({
             plebbit,
             domain: ethAddress,
-            resolveType: "subplebbit",
+            resolveType: "community",
             value: subplebbit.signer.address
         });
         await mockCacheOfTextRecord({
             plebbit,
             domain: bsoAddress,
-            resolveType: "subplebbit",
+            resolveType: "community",
             value: subplebbit.signer.address
         });
         await mockCacheOfTextRecord({
             plebbit: remotePlebbit,
             domain: ethAddress,
-            resolveType: "subplebbit",
+            resolveType: "community",
             value: subplebbit.signer.address
         });
         await mockCacheOfTextRecord({
             plebbit: remotePlebbit,
             domain: bsoAddress,
-            resolveType: "subplebbit",
+            resolveType: "community",
             value: subplebbit.signer.address
         });
 
-        expect(await remotePlebbit._clientsManager.resolveSubplebbitAddressIfNeeded(ethAddress)).to.equal(subplebbit.signer.address);
-        expect(await remotePlebbit._clientsManager.resolveSubplebbitAddressIfNeeded(bsoAddress)).to.equal(subplebbit.signer.address);
+        expect(await remotePlebbit._clientsManager.resolveCommunityNameIfNeeded(ethAddress)).to.equal(subplebbit.signer.address);
+        expect(await remotePlebbit._clientsManager.resolveCommunityNameIfNeeded(bsoAddress)).to.equal(subplebbit.signer.address);
 
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
@@ -397,12 +397,12 @@ describeSkipIfRpc(`Concurrency with subplebbit.edit`, async () => {
                 await mockCacheOfTextRecord({
                     plebbit,
                     domain: editArgs.address,
-                    resolveType: "subplebbit",
+                    resolveType: "community",
                     value: subplebbitInstance.signer.address
                 });
                 plebbit._storage.removeItem = () => Promise.resolve(false); // stop clearing cache when editing subplebbit address
 
-                const resolvedSubAddress = await plebbit._clientsManager.resolveSubplebbitAddressIfNeeded(editArgs.address);
+                const resolvedSubAddress = await plebbit._clientsManager.resolveCommunityNameIfNeeded(editArgs.address);
                 expect(resolvedSubAddress).to.equal(subplebbitInstance.signer.address);
             }
 
@@ -512,7 +512,7 @@ describeSkipIfRpc(`Concurrency with subplebbit.edit`, async () => {
         const signer = await customPlebbit.createSigner();
         const domain = `edit-before-start-${uuidV4()}.bso`;
 
-        await mockCacheOfTextRecord({ plebbit: customPlebbit, domain, resolveType: "subplebbit", value: signer.address });
+        await mockCacheOfTextRecord({ plebbit: customPlebbit, domain, resolveType: "community", value: signer.address });
 
         const sub = await createSubWithNoChallenge({ signer }, customPlebbit);
         await sub.edit({ address: domain });
@@ -593,7 +593,7 @@ describe(`Edit misc`, async () => {
         const customPlebbit = await mockPlebbitV2({ stubStorage: false, mockResolve: true });
         const newSub = (await customPlebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
         if (!customPlebbit._plebbitRpcClient) {
-            const resolvedSubAddress = await customPlebbit._clientsManager.resolveSubplebbitAddressIfNeeded("no-sub-address.bso");
+            const resolvedSubAddress = await customPlebbit._clientsManager.resolveCommunityNameIfNeeded("no-sub-address.bso");
             expect(resolvedSubAddress).to.equal(null);
         }
 
@@ -805,13 +805,13 @@ describeSkipIfRpc(`.eth <-> .bso alias address transitions`, async () => {
             await mockCacheOfTextRecord({
                 plebbit,
                 domain,
-                resolveType: "subplebbit",
+                resolveType: "community",
                 value: subplebbit.signer.address
             });
             await mockCacheOfTextRecord({
                 plebbit: remotePlebbit,
                 domain,
-                resolveType: "subplebbit",
+                resolveType: "community",
                 value: subplebbit.signer.address
             });
         }

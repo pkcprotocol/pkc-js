@@ -63,7 +63,7 @@ describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
 
         expect(commentsWithDomainAuthor.length).to.be.greaterThan(0);
         expect(recordedStates.length).to.equal(commentsWithDomainAuthor.length * 2);
-        expect(recordedStates).to.deep.equal(Array(commentsWithDomainAuthor.length).fill(["resolving-author-address", "stopped"]).flat());
+        expect(recordedStates).to.deep.equal(Array(commentsWithDomainAuthor.length).fill(["resolving-author-name", "stopped"]).flat());
         await differentPlebbit.destroy();
     });
 
@@ -111,7 +111,7 @@ describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
         });
         const sub = await remotePlebbit.createSubplebbit({ address: "plebbit.bso" });
 
-        const expectedStates = ["resolving-subplebbit-address", "stopped"];
+        const expectedStates = ["resolving-community-name", "stopped"];
 
         const recordedStates: string[] = [];
 
@@ -140,7 +140,7 @@ describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
         await mockCacheOfTextRecord({
             plebbit: sub._plebbit,
             domain: sub.address,
-            resolveType: "subplebbit",
+            resolveType: "community",
             value: signers[3].address
         });
 

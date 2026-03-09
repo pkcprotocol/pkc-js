@@ -145,7 +145,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`updating state of post is set to failed if sub has an invalid Subplebbit record`, async () => {
-            const plebbit = await config.plebbitInstancePromise({ plebbitOptions: { resolveAuthorAddresses: false } }); // set resolve to false so it wouldn't show up in states
+            const plebbit = await config.plebbitInstancePromise({ plebbitOptions: { resolveAuthorNames: false } }); // set resolve to false so it wouldn't show up in states
             try {
                 const { commentCid, subplebbitAddress: subAddress } = await createStaticSubplebbitRecordForComment({
                     plebbit,
@@ -539,5 +539,5 @@ describe("comment.updatingState", async () => {
     // Which will change the expected states
     // We should probably add a test for state when a comment with ENS for author address is in pages
 
-    it(`Add a test for updatingState with resolving-author-address`);
+    it(`Add a test for updatingState with resolving-author-name`);
 });

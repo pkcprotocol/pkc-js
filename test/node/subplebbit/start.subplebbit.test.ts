@@ -533,25 +533,25 @@ describe(`Publish loop resiliency`, async () => {
             console.log(err);
         });
         const localSub = subplebbit as LocalSubplebbit;
-        localSub._plebbit.resolveAuthorAddresses = false; // So the post gets accepted
+        localSub._plebbit.resolveAuthorNames = false; // So the post gets accepted
 
         await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });
-        localSub._plebbit.resolveAuthorAddresses = true;
+        localSub._plebbit.resolveAuthorNames = true;
 
         expect(mockPost.author.address).to.equal("plebbit.bso");
 
         const post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit }); // Stimulate an update
         await waitTillPostInSubplebbitPages(post as CommentIpfsWithCidDefined, plebbit);
 
-        for (const resolveAuthorAddresses of [true, false]) {
+        for (const resolveAuthorNames of [true, false]) {
             const remotePlebbitInstance = await mockPlebbitNoDataPathWithOnlyKuboClient({
-                plebbitOptions: { resolveAuthorAddresses, validatePages: true }
+                plebbitOptions: { resolveAuthorNames, validatePages: true }
             }); // we need to enable validatePages so subplebbit.posts can be validated and override author.address
             const loadedSub = await remotePlebbitInstance.getSubplebbit({ address: subplebbit.address });
             const mockPostInPage = loadedSub.posts!.pages.hot!.comments.find((comment) => comment.cid === mockPost.cid);
             // if we're resolving author address, plebbit-js should pick up that it's pointing to the wrong signer address
             // once it does that plebbit-js override author.address to point to signer.address
-            if (resolveAuthorAddresses) expect(mockPostInPage!.author.address).to.equal(mockPost.signer!.address);
+            if (resolveAuthorNames) expect(mockPostInPage!.author.address).to.equal(mockPost.signer!.address);
             else expect(mockPostInPage!.author.address).to.equal("plebbit.bso");
         }
     });

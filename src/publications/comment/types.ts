@@ -95,10 +95,10 @@ export type CommentState = PublicationState | "updating";
 
 export type CommentUpdatingState =
     | "stopped"
-    | "resolving-author-address"
+    | "resolving-author-name"
     | "fetching-ipfs"
     | "fetching-update-ipfs"
-    | "resolving-subplebbit-address"
+    | "resolving-community-name"
     | "fetching-subplebbit-ipns"
     | "fetching-subplebbit-ipfs"
     | "failed"

@@ -892,7 +892,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         const verificationOpts = {
             subplebbit: recordToPublishRaw,
             subplebbitIpnsName: this.signer.address,
-            resolveAuthorAddresses: false,
+            resolveAuthorNames: false,
             clientsManager: this._clientsManager,
             overrideAuthorAddressIfInvalid: false,
             validatePages: true,
@@ -1402,35 +1402,35 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         if (request.comment)
             validity = await verifyCommentPubsubMessage({
                 comment: request.comment,
-                resolveAuthorAddresses: this._plebbit.resolveAuthorAddresses,
+                resolveAuthorNames: this._plebbit.resolveAuthorNames,
                 clientsManager: this._clientsManager,
                 overrideAuthorAddressIfInvalid: false
             });
         else if (request.commentEdit)
             validity = await verifyCommentEdit({
                 edit: request.commentEdit,
-                resolveAuthorAddresses: this._plebbit.resolveAuthorAddresses,
+                resolveAuthorNames: this._plebbit.resolveAuthorNames,
                 clientsManager: this._clientsManager,
                 overrideAuthorAddressIfInvalid: false
             });
         else if (request.vote)
             validity = await verifyVote({
                 vote: request.vote,
-                resolveAuthorAddresses: this._plebbit.resolveAuthorAddresses,
+                resolveAuthorNames: this._plebbit.resolveAuthorNames,
                 clientsManager: this._clientsManager,
                 overrideAuthorAddressIfInvalid: false
             });
         else if (request.commentModeration)
             validity = await verifyCommentModeration({
                 moderation: request.commentModeration,
-                resolveAuthorAddresses: this._plebbit.resolveAuthorAddresses,
+                resolveAuthorNames: this._plebbit.resolveAuthorNames,
                 clientsManager: this._clientsManager,
                 overrideAuthorAddressIfInvalid: false
             });
         else if (request.subplebbitEdit)
             validity = await verifySubplebbitEdit({
                 subplebbitEdit: request.subplebbitEdit,
-                resolveAuthorAddresses: this._plebbit.resolveAuthorAddresses,
+                resolveAuthorNames: this._plebbit.resolveAuthorNames,
                 clientsManager: this._clientsManager,
                 overrideAuthorAddressIfInvalid: false
             });
@@ -1634,9 +1634,9 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         const signerAddress = await getPlebbitAddressFromPublicKey(publication.signature.publicKey);
         if (rolesToCheckAgainst.includes(this.roles[signerAddress]?.role as SubplebbitRoleNameUnion)) return true;
 
-        if (this._plebbit.resolveAuthorAddresses) {
+        if (this._plebbit.resolveAuthorNames) {
             const resolvedSignerAddress = isStringDomain(publication.author.address)
-                ? await this._plebbit.resolveAuthorAddress({ address: publication.author.address })
+                ? await this._plebbit.resolveAuthorName({ address: publication.author.address })
                 : publication.author.address;
             if (resolvedSignerAddress !== signerAddress) return false;
             if (rolesToCheckAgainst.includes(this.roles[publication.author.address]?.role as SubplebbitRoleNameUnion)) return true;
@@ -2415,7 +2415,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         // This function should be deleted at some point, once the protocol ossifies
         const verificationOpts = {
             update: newCommentUpdate,
-            resolveAuthorAddresses: false,
+            resolveAuthorNames: false,
             clientsManager: this._clientsManager,
             subplebbit: this,
             comment,
@@ -2868,8 +2868,8 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
 
     private async _assertDomainResolvesCorrectly(newAddressAsDomain: string) {
         if (isStringDomain(newAddressAsDomain)) {
-            await this._clientsManager.clearDomainCache(newAddressAsDomain, "subplebbit");
-            const resolvedIpnsFromNewDomain = await this._clientsManager.resolveSubplebbitAddressIfNeeded(newAddressAsDomain);
+            await this._clientsManager.clearDomainCache(newAddressAsDomain, "community");
+            const resolvedIpnsFromNewDomain = await this._clientsManager.resolveCommunityNameIfNeeded(newAddressAsDomain);
             if (resolvedIpnsFromNewDomain !== this.signer.address)
                 throw new PlebbitError("ERR_DOMAIN_SUB_ADDRESS_TXT_RECORD_POINT_TO_DIFFERENT_ADDRESS", {
                     currentSubplebbitAddress: this.address,
@@ -2960,7 +2960,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             if (isStringDomain(roleAddress)) {
                 let resolved: string | null;
                 try {
-                    resolved = await this._clientsManager.resolveAuthorAddressIfNeeded(roleAddress);
+                    resolved = await this._clientsManager.resolveAuthorNameIfNeeded(roleAddress);
                 } catch {
                     resolved = null;
                 }
