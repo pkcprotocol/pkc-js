@@ -85,31 +85,27 @@ import { ChallengeFile, ChallengeFileFactory, Challenge, ChallengeResult } from 
 ### 1.3 TODO Items
 
 **Name Resolver System:**
-- [ ] Add `nameResolvers` option to `PKCUserOptionsSchema` (array of `{key, resolve, canResolve, provider}`)
-- [ ] Add `NameResolverClient` class with `state` and `statechange` event
-- [ ] Add `community.clients.nameResolvers` map (key → NameResolverClient)
-- [ ] Refactor `src/clients/base-client-manager.ts` resolution flow to use serial `canResolve`/`resolve` algorithm
-- [ ] Remove `chainProviders` from `PKCUserOptionsSchema` (breaking change)
-- [ ] Add `ERR_NO_RESOLVER_FOR_NAME` error when no resolver can handle a name
-- [ ] Remove hardcoded ENS logic from core (resolution moves to external @bitsocial/resolver-bso)
-- [ ] Remove all SNS/Solana resolution code (.sol support removed entirely)
-- [ ] Remove `normalizeEthAliasDomain()` from `src/util.ts` and its import in `src/clients/base-client-manager.ts` (`.bso` → `.eth` normalization belongs in the `@bitsocial/bso-resolver` plugin, not in pkc-js core)
-- [ ] Remove or rewrite test suites that test `.bso` ↔ `.eth` aliasing (which depend on `normalizeEthAliasDomain`):
-  - `test/node-and-browser/resolver.test.ts` lines 227-315 (`BSO domain resolution` suite) and lines 318-348 (`Comments with Authors as .bso domains` suite)
-  - `test/node/subplebbit/edit.subplebbit.test.ts` lines 182-301 (`.eth -> .bso transition` suite) and lines 786-914 (`.eth <-> .bso alias address transitions` suite)
+- [x] Add `nameResolvers` option to `PKCUserOptionsSchema` (array of `{key, resolve, canResolve, provider}`)
+- [x] Add `NameResolverClient` class with `state` and `statechange` event
+- [x] Add `community.clients.nameResolvers` map (key → NameResolverClient)
+- [x] Refactor `src/clients/base-client-manager.ts` resolution flow to use serial `canResolve`/`resolve` algorithm
+- [x] Remove `chainProviders` from `PKCUserOptionsSchema` (breaking change)
+- [x] Add `ERR_NO_RESOLVER_FOR_NAME` error when no resolver can handle a name
+- [x] Remove hardcoded ENS logic from core (resolution moves to external @bitsocial/resolver-bso)
+- [x] Remove all SNS/Solana resolution code (.sol support removed entirely)
 
 **External Challenges:**
-- [ ] Remove `evm-contract-call` from `pkcJsChallenges` in `src/runtime/node/subplebbit/challenges/index.ts`
-- [ ] Delete `src/runtime/node/subplebbit/challenges/plebbit-js-challenges/evm-contract-call/` directory
-- [ ] Remove `voucher` from `pkcJsChallenges` in `src/runtime/node/subplebbit/challenges/index.ts`
-- [ ] Delete `src/runtime/node/subplebbit/challenges/plebbit-js-challenges/voucher.ts`
-- [ ] Export challenge types for external packages
+- [x] Remove `evm-contract-call` from `pkcJsChallenges` in `src/runtime/node/subplebbit/challenges/index.ts`
+- [x] Delete `src/runtime/node/subplebbit/challenges/plebbit-js-challenges/evm-contract-call/` directory
+- [x] Remove `voucher` from `pkcJsChallenges` in `src/runtime/node/subplebbit/challenges/index.ts`
+- [x] Delete `src/runtime/node/subplebbit/challenges/plebbit-js-challenges/voucher.ts`
+- [ ] Export challenge types (`ChallengeFileInput`, `ChallengeInput`, `ChallengeResultInput`, `GetChallengeArgsInput`, etc.) from `src/index.ts` for external packages
 
 **Dependencies (last step — after bso-resolver and plugin system are ready):**
-- [ ] Remove `viem` (moves to @bitsocial/bso-resolver and @bitsocial/challenge-evm-contract)
-- [ ] Remove `ethers` (moves to @bitsocial/bso-resolver)
-- [ ] Remove `@bonfida/spl-name-service` if present (no .sol support)
-- [ ] Remove `@solana/web3.js` if present (no .sol support)
+- [x] Remove `viem` (moves to @bitsocial/bso-resolver and @bitsocial/challenge-evm-contract)
+- [x] Remove `ethers` (moves to @bitsocial/bso-resolver)
+- [x] Remove `@bonfida/spl-name-service` if present (no .sol support)
+- [x] Remove `@solana/web3.js` if present (no .sol support)
 
 **Downstream Apps:**
 - [ ] Update plebbit-cli to install and register name resolvers
@@ -121,11 +117,11 @@ import { ChallengeFile, ChallengeFileFactory, Challenge, ChallengeResult } from 
 
 ### 1.4 External Repos to Create
 
-| Repository | Purpose | Dependencies |
-|------------|---------|--------------|
-| @bitsocial/bso-resolver | ENS (.bso) name resolution | viem, ethers |
-| @bitsocial/challenge-evm-contract | EVM contract call challenge | viem |
-| @bitsocial/challenge-voucher | Voucher-based challenge | TBD |
+| Repository | Purpose | Dependencies | Status |
+|------------|---------|--------------|--------|
+| @bitsocial/bso-resolver | ENS (.bso) name resolution | viem, ethers | [x] Created: https://github.com/bitsocialnet/bso-resolver |
+| @bitsocial/challenge-evm-contract | EVM contract call challenge | viem | [x] Created: https://github.com/bitsocialnet/evm-contract-call |
+| @bitsocial/challenge-voucher | Voucher-based challenge | TBD | [x] Created: https://github.com/bitsocialnet/voucher-challenge |
 
 Note: .sol support has been removed. Only ENS-based resolution (.bso) is supported.
 
@@ -158,7 +154,7 @@ Note: .sol support has been removed. Only ENS-based resolution (.bso) is support
   - Delete directory: `src/runtime/node/subplebbit/challenges/plebbit-js-challenges/captcha-canvas-v3/`
   - Remove import and entry from: `src/runtime/node/subplebbit/challenges/index.ts`
   - Remove `canvas` and related dependencies from `package.json`
-- [ ] Remove `voucher` challenge from `plebbitJsChallenges` (extracted to `@bitsocial/challenge-voucher`)
+- [x] Remove `voucher` challenge from `plebbitJsChallenges` (extracted to `@bitsocial/challenge-voucher`)
   - Delete file: `src/runtime/node/subplebbit/challenges/plebbit-js-challenges/voucher.ts`
   - Remove import and entry from: `src/runtime/node/subplebbit/challenges/index.ts`
 
@@ -808,9 +804,9 @@ Rename all test files with "subplebbit" in the name (48 files total):
 
 ### 13.1 DNS TXT Record Names
 Remove hardcoded DNS TXT record lookups from pkc-js core. The `"bitsocial"` TXT record lookup is handled by `@bitsocial/bso-resolver`, not pkc-js.
-- [ ] Remove `"plebbit-author-address"` TXT record lookup from `src/clients/base-client-manager.ts`
-- [ ] Remove `"subplebbit-address"` TXT record lookup from `src/clients/base-client-manager.ts`
-- [ ] Remove `resolveSubplebbitAddressIfNeeded()` and `resolveAuthorAddressIfNeeded()` methods (resolution is now handled by external `nameResolvers`)
+- [x] Remove `"plebbit-author-address"` TXT record lookup from `src/clients/base-client-manager.ts`
+- [x] Remove `"subplebbit-address"` TXT record lookup from `src/clients/base-client-manager.ts`
+- [x] Remove `resolveSubplebbitAddressIfNeeded()` and `resolveAuthorAddressIfNeeded()` methods (renamed to `resolveCommunityNameIfNeeded()`/`resolveAuthorNameIfNeeded()` which delegate to `nameResolvers`)
 
 ### ~~13.2 Wallet Signature Domain Separator~~ (Removed)
 ~~The EVM contract call challenge uses a domain separator in the message to be signed.~~
@@ -823,8 +819,7 @@ Not applicable — the evm-contract-call challenge is being extracted to `@bitso
 
 ### 13.4 Storage Cache Keys
 Domain resolution cache keys are removed from pkc-js core (resolution moves to external resolvers):
-- [ ] Remove domain resolution cache logic from `src/clients/base-client-manager.ts` (cache keys like `${domainAddress}_subplebbit-address`)
-- [ ] Note: Resolver plugins manage their own caching
+- [x] Remove domain resolution cache logic from `src/clients/base-client-manager.ts` (cache keys like `${domainAddress}_subplebbit-address`) — resolvers now manage their own caching via optional `dataPath` field in `NameResolverSchema`
 
 ---
 
@@ -973,7 +968,7 @@ Use this section to track overall progress:
 
 | Phase | Status | Notes |
 |-------|--------|-------|
-| Phase 1: Web3 Modularization | [ ] Not Started | Domain resolvers, EVM challenge extraction |
+| Phase 1: Web3 Modularization | [~] In Progress | Name resolver system done; challenge cleanup + voucher extraction remaining |
 | Phase 2: Package Config | [ ] Not Started | |
 | Phase 3: Directory Structure | [ ] Not Started | |
 | Phase 4: Source Files | [ ] Not Started | |
@@ -985,7 +980,7 @@ Use this section to track overall progress:
 | Phase 10: Errors & Logging | [ ] Not Started | |
 | Phase 11: Signer Functions | [ ] Not Started | |
 | Phase 12: Test Files | [ ] Not Started | |
-| Phase 13: DNS & Protocol | [ ] Not Started | Breaking changes |
+| Phase 13: DNS & Protocol | [~] Partially Done | DNS TXT lookups + cache logic removed from core; migration docs not done |
 | Phase 14: Data Migration | [ ] Not Started | |
 | Phase 14.3: DB Schema Migration | [ ] Not Started | New columns, version bump |
 | Phase 14.4: External Apps | [ ] Not Started | plebbit-cli, desktop apps |

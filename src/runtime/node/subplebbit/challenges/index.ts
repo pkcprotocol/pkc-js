@@ -12,7 +12,6 @@ import fail from "./plebbit-js-challenges/fail.js";
 import blacklist from "./plebbit-js-challenges/blacklist.js";
 import whitelist from "./plebbit-js-challenges/whitelist.js";
 import question from "./plebbit-js-challenges/question.js";
-import voucher from "./plebbit-js-challenges/voucher.js";
 import publicationMatch from "./plebbit-js-challenges/publication-match.js";
 import mintpass from "@mintpass/challenge";
 import type {
@@ -63,8 +62,7 @@ const plebbitJsChallenges: Record<string, ChallengeFileFactoryInput> = {
     blacklist: blacklist,
     whitelist: whitelist,
     question: question,
-    "publication-match": publicationMatch,
-    mintpass: mintpass
+    "publication-match": publicationMatch
 };
 
 const validateChallengeFileFactory = (challengeFileFactory: ChallengeFileFactory, challengeIndex: number, subplebbit: LocalSubplebbit) => {
