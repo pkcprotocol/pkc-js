@@ -16,7 +16,7 @@ This document provides a comprehensive checklist for renaming the plebbit-js cod
 
 ## Pre-Phase: Guide Refresh
 
-- [ ] Re-review the current codebase and update this guide before starting Phase 1, since this document was written a while ago and likely misses newer changes.
+- [x] Re-review the current codebase and update this guide before starting Phase 1, since this document was written a while ago and likely misses newer changes. *(Refreshed: 2026-03-09 — added missing test files, types/schemas, source files, resolved Q3/Q4)*
 
 ---
 
@@ -227,9 +227,14 @@ The following dependencies are in the @plebbit namespace and need separate repos
 
 ### 3.2 Test Directories
 - [ ] `test/node/subplebbit/` → `test/node/community/`
+- [ ] `test/node/subplebbit/challenges/` → `test/node/community/challenges/`
+- [ ] `test/node/subplebbit/pubsub-msgs/` → `test/node/community/pubsub-msgs/`
 - [ ] `test/node/plebbit/` → `test/node/pkc/`
 - [ ] `test/node-and-browser/subplebbit/` → `test/node-and-browser/community/`
+- [ ] `test/node-and-browser/subplebbit/posts/` → `test/node-and-browser/community/posts/`
+- [ ] `test/node-and-browser/subplebbit/modqueue/` → `test/node-and-browser/community/modqueue/`
 - [ ] `test/node-and-browser/plebbit/` → `test/node-and-browser/pkc/`
+- [ ] `test/node-and-browser/publications/subplebbit-edit/` → `test/node-and-browser/publications/community-edit/`
 - [ ] `test/fixtures/signatures/subplebbit/` → `test/fixtures/signatures/community/`
 
 ### 3.3 Data Storage Directories (Breaking Change)
@@ -249,9 +254,14 @@ The following dependencies are in the @plebbit namespace and need separate repos
 - [ ] `src/clients/plebbit-typed-emitter.ts` → `src/clients/pkc-typed-emitter.ts`
 - [ ] `src/plebbit-error.ts` → `src/pkc-error.ts`
 - [ ] `src/helia/helia-for-plebbit.ts` → `src/helia/helia-for-pkc.ts`
+- [ ] `src/rpc/src/lib/plebbit-js/index.ts` → `src/rpc/src/lib/pkc-js/index.ts` (rename internal symbols: `PlebbitJs` → `PKCJs`, `setPlebbitJs` → `setPKCJs`, `restorePlebbitJs` → `restorePKCJs`)
 - [ ] `src/rpc/src/lib/plebbit-js/plebbit-js-mock.ts` → `src/rpc/src/lib/pkc-js/pkc-js-mock.ts`
 - [ ] `src/version.ts` - Update USER_AGENT string:
   - `/plebbit-js:${version}/` → `/pkc-js:${version}/`
+- [ ] `src/test/node/hanging-test/scenarios/subplebbit-start.scenario.ts` → `src/test/node/hanging-test/scenarios/community-start.scenario.ts`
+- [ ] `src/test/node/hanging-test/scenarios/subplebbit-update.scenario.ts` → `src/test/node/hanging-test/scenarios/community-update.scenario.ts`
+- [ ] `src/rpc/test/node-and-browser/edgecases.plebbit.rpc.test.ts` → `src/rpc/test/node-and-browser/edgecases.pkc.rpc.test.ts`
+- [ ] `src/rpc/test/node-and-browser/concurrency.plebbit.rpc.test.ts` → `src/rpc/test/node-and-browser/concurrency.pkc.rpc.test.ts`
 
 ### 4.2 Subplebbit → Community Files
 - [ ] `src/subplebbit/remote-subplebbit.ts` → `src/community/remote-community.ts`
@@ -263,6 +273,9 @@ The following dependencies are in the @plebbit namespace and need separate repos
 - [ ] `src/runtime/node/subplebbit/local-subplebbit.ts` → `src/runtime/node/community/local-community.ts`
 - [ ] `src/runtime/node/subplebbit/db-handler.ts` → `src/runtime/node/community/db-handler.ts`
 - [ ] `src/runtime/node/subplebbit/page-generator.ts` → `src/runtime/node/community/page-generator.ts`
+- [ ] `src/runtime/node/subplebbit/db-handler-types.ts` → `src/runtime/node/community/db-handler-types.ts` (contains `SubplebbitIpfsType` imports)
+- [ ] `src/runtime/node/subplebbit/db-row-parser.ts` → `src/runtime/node/community/db-row-parser.ts`
+- [ ] `src/runtime/node/subplebbit/keyv-better-sqlite3.ts` → `src/runtime/node/community/keyv-better-sqlite3.ts` (imports `PlebbitError`)
 - [ ] `src/runtime/browser/subplebbit/local-subplebbit.ts` → `src/runtime/browser/community/local-community.ts`
 
 ### 4.3 Challenge System Files
@@ -325,6 +338,10 @@ After renaming directories and files, update ALL import statements across the co
 - [ ] `class PlebbitIpfsGatewayClient` → `class PKCIpfsGatewayClient`
 - [ ] `class PlebbitKuboRpcClient` → `class PKCKuboRpcClient`
 - [ ] `class PlebbitLibp2pJsClient` → `class PKCLibp2pJsClient`
+- [ ] `class PublicationPlebbitRpcStateClient` → `class PublicationPKCRpcStateClient` (src/publications/publication-clients.ts)
+- [ ] `class CommentPlebbitRpcStateClient` → `class CommentPKCRpcStateClient` (src/publications/comment/comment-clients.ts)
+- [ ] `class PublicationClientsManager` → rename only if base class `PlebbitClientsManager` rename propagates (src/publications/publication-client-manager.ts)
+- [ ] `class PlebbitWsServer` → `class PKCWsServer` (src/rpc/src/index.ts — non-exported, but internal RPC server class)
 
 ### 6.2 Subplebbit Classes (src/subplebbit/ → src/community/)
 - [ ] `class RemoteSubplebbit` → `class RemoteCommunity`
@@ -340,6 +357,7 @@ After renaming directories and files, update ALL import statements across the co
 - [ ] `class SubplebbitEdit` → `class CommunityEdit`
 - [ ] `class SubplebbitPostsPagesClientsManager` → `class CommunityPostsPagesClientsManager` (src/pages/pages-client-manager.ts)
 - [ ] `class SubplebbitModQueueClientsManager` → `class CommunityModQueueClientsManager` (src/pages/pages-client-manager.ts)
+- [ ] `class PagesPlebbitRpcStateClient` → `class PagesPKCRpcStateClient` (src/pages/pages-clients.ts)
 
 ### 6.3 Type Definitions (src/types.ts, src/subplebbit/types.ts)
 **Plebbit types:**
@@ -389,6 +407,29 @@ After renaming directories and files, update ALL import statements across the co
 - [ ] `type RpcInternalSubplebbitRecordBeforeFirstUpdateType` → `type RpcInternalCommunityRecordBeforeFirstUpdateType` (src/subplebbit/types.ts)
 - [ ] `type RpcInternalSubplebbitRecordAfterFirstUpdateType` → `type RpcInternalCommunityRecordAfterFirstUpdateType` (src/subplebbit/types.ts)
 - [ ] `type RpcLocalSubplebbitUpdateResultType` → `type RpcLocalCommunityUpdateResultType` (src/subplebbit/types.ts)
+- [ ] `type SubplebbitEventArgs` → `type CommunityEventArgs` (src/subplebbit/types.ts)
+- [ ] `type SubplebbitRpcErrorToTransmit` → `type CommunityRpcErrorToTransmit` (src/subplebbit/types.ts)
+
+**SubplebbitEdit types (src/publications/subplebbit-edit/types.ts):**
+- [ ] `type CreateSubplebbitEditPublicationOptions` → `type CreateCommunityEditPublicationOptions`
+- [ ] `type SubplebbitEditChallengeRequestToEncryptType` → `type CommunityEditChallengeRequestToEncryptType`
+- [ ] `type SubplebbitEditJson` → `type CommunityEditJson`
+- [ ] `interface SubplebbitEditPublicationOptionsToSign` → `interface CommunityEditPublicationOptionsToSign`
+- [ ] `interface SubplebbitEditPublicationSignature` → `interface CommunityEditPublicationSignature`
+- [ ] `type SubplebbitEditPubsubMessagePublication` → `type CommunityEditPubsubMessagePublication`
+- [ ] `interface SubplebbitEditPublicationPubsubMessageWithSubplebbitAuthor` → `interface CommunityEditPublicationPubsubMessageWithCommunityAuthor`
+
+**SubplebbitEdit schemas (src/publications/subplebbit-edit/schema.ts):**
+- [ ] `CreateSubplebbitEditPublicationOptionsSchema` → `CreateCommunityEditPublicationOptionsSchema`
+- [ ] `SubplebbitEditPubsubMessagePublicationSchema` → `CommunityEditPubsubMessagePublicationSchema`
+- [ ] `SubplebbitEditPublicationChallengeRequestToEncryptSchema` → `CommunityEditPublicationChallengeRequestToEncryptSchema`
+- [ ] `SubplebbitEditPublicationPubsubReservedFields` → `CommunityEditPublicationPubsubReservedFields`
+
+**Subplebbit schema constants (src/subplebbit/schema.ts):**
+- [ ] `SubplebbitIpfsReservedFields` → `CommunityIpfsReservedFields`
+
+**RPC types (src/rpc/src/types.ts):**
+- [ ] `interface RpcSubplebbitState` → `interface RpcCommunityState`
 
 ---
 
@@ -400,7 +441,9 @@ After renaming directories and files, update ALL import statements across the co
 - [ ] `PlebbitParsedOptionsSchema` → `PKCParsedOptionsSchema`
 - [ ] Property: `plebbitRpcClientsOptions` → `pkcRpcClientsOptions`
 
-### 7.2 Author Schemas (src/schema/schema.ts)
+### 7.2 Author & Shared Schemas (src/schema/schema.ts)
+- [ ] `SubplebbitAddressSchema` → `CommunityAddressSchema`
+- [ ] `PlebbitTimestampSchema` → `PKCTimestampSchema`
 - [ ] `SubplebbitAuthorSchema` → `CommunityAuthorSchema`
 - [ ] **Remove** `address` from `AuthorPubsubSchema` — now instance-only, computed as `name || publicKey` (**breaking change**)
 - [ ] **Remove** `address` from `AuthorIpfsSchema` — now instance-only (**breaking change**)
@@ -431,10 +474,27 @@ After renaming directories and files, update ALL import statements across the co
 - [ ] `RpcRemoteSubplebbitUpdateEventResultSchema` → `RpcRemoteCommunityUpdateEventResultSchema`
 - [ ] **Remove** `address` from `SubplebbitIpfsSchema` — instance-only, computed as `name || publicKey` (see [proposal](./NAMES_AND_PUBLIC_KEY_PROPOSAL.md#1-add-name-field-to-subplebbitipfs))
 - [ ] Use `.loose()` on `SubplebbitIpfsSchema` to accept old records that include `address` field (do NOT use `.strip()` — stripping can remove fields referenced in `signedPropertyNames` and corrupt signature verification)
+- [ ] `CreateRpcSubplebbitFunctionArgumentSchema` → `CreateRpcCommunityFunctionArgumentSchema` (src/subplebbit/schema.ts)
+- [ ] `ListOfSubplebbitsSchema` → `ListOfCommunitiesSchema` (src/subplebbit/schema.ts)
 
 ### 7.4 RPC Client Schemas (src/clients/rpc-client/schema.ts)
 - [ ] `RpcSubplebbitAddressParamSchema` → `RpcCommunityAddressParamSchema`
 - [ ] `RpcSubplebbitPageParamSchema` → `RpcCommunityPageParamSchema`
+
+### 7.4.1 RPC Server Schemas (src/rpc/src/schema.ts)
+- [ ] `CreatePlebbitWsServerOptionsSchema` → `CreatePKCWsServerOptionsSchema`
+- [ ] `SetNewSettingsPlebbitWsServerSchema` → `SetNewSettingsPKCWsServerSchema`
+- [ ] `PlebbitWsServerSettingsSerializedSchema` → `PKCWsServerSettingsSerializedSchema`
+
+### 7.4.2 RPC Server Types (src/rpc/src/types.ts)
+- [ ] `type CreatePlebbitWsServerOptions` → `type CreatePKCWsServerOptions`
+- [ ] `type SetNewSettingsPlebbitWsServer` → `type SetNewSettingsPKCWsServer`
+
+### 7.4.3 SubplebbitEdit Schemas (src/publications/subplebbit-edit/schema.ts)
+- [ ] `SubplebbitEditPublicationSignedPropertyNames` → `CommunityEditPublicationSignedPropertyNames`
+
+### 7.4.4 Publication Comment Types (src/publications/comment/types.ts)
+- [ ] `type SubplebbitAuthor` → `type CommunityAuthor`
 
 ### 7.5 Signed Property Names
 
@@ -554,7 +614,7 @@ State strings emitted via `statechange` and `publishingstatechange` events:
 - [ ] `subplebbitsSubscribe` → `communitiesSubscribe`
 - [ ] `subplebbitUpdateSubscribe` → `communityUpdateSubscribe`
 - [ ] `publishSubplebbitEdit` → `publishCommunityEdit`
-- [ ] `resolveAuthorAddress` → TBD (see Q3/Q4 in Open Questions — rename decision deferred, but method must be listed here; currently defined in `src/clients/rpc-client/plebbit-rpc-client.ts:434`)
+- [x] `resolveAuthorAddress` → `resolveAuthorName` (already renamed in both RPC server `src/rpc/src/index.ts:201` and client `src/clients/rpc-client/plebbit-rpc-client.ts:434`)
 
 ### 9.2 RPC Event Names
 - [ ] `"subplebbitschange"` → `"communitieschange"`
@@ -688,11 +748,13 @@ State strings emitted via `statechange` and `publishingstatechange` events:
 
 ### 10.4 Logger Prefixes
 Replace all logger prefixes:
-- [ ] `Logger("plebbit-js:...")` → `Logger("pkc-js:...")`
+- [ ] `Logger("plebbit-js:...")` → `Logger("pkc-js:...")` (48+ prefixes across src/)
+- [ ] `Logger("plebbit-js-rpc:...")` → `Logger("pkc-js-rpc:...")` (RPC server uses a different prefix than the main codebase)
 - [ ] Examples:
   - `"plebbit-js:PlebbitRpcClient"` → `"pkc-js:PKCRpcClient"`
   - `"plebbit-js:plebbit:client-manager"` → `"pkc-js:pkc:client-manager"`
   - `"plebbit-js:listSubplebbitsSync"` → `"pkc-js:listCommunitiesSync"`
+  - `"plebbit-js-rpc:plebbit-ws-server"` → `"pkc-js-rpc:pkc-ws-server"`
 
 ---
 
@@ -713,13 +775,14 @@ Replace all logger prefixes:
 ## Phase 12: Test Files
 
 ### 12.1 Test File Renaming
-Rename all test files with "subplebbit" in the name (48 files total):
+Rename all test files with "subplebbit" or "plebbit" in the name. Files without "subplebbit"/"plebbit" in the filename only need content updates (Phase 12.2), not file renaming — they are listed for completeness under their directory.
 
-**test/node/subplebbit/**
+**test/node/subplebbit/** (34 files — directory moves to test/node/community/)
 - [ ] `create.subplebbit.test.ts` → `create.community.test.ts`
 - [ ] `delete.subplebbit.test.ts` → `delete.community.test.ts`
 - [ ] `edit.subplebbit.test.ts` → `edit.community.test.ts`
 - [ ] `start.subplebbit.test.ts` → `start.community.test.ts`
+- [ ] `stop.subplebbit.test.ts` → `stop.community.test.ts`
 - [ ] `state.subplebbit.test.ts` → `state.community.test.ts`
 - [ ] `update.subplebbit.test.ts` → `update.community.test.ts`
 - [ ] `editable.subplebbit.test.ts` → `editable.community.test.ts`
@@ -731,6 +794,8 @@ Rename all test files with "subplebbit" in the name (48 files total):
 - [ ] `db.subplebbit.test.ts` → `db.community.test.ts`
 - [ ] `commentsToUpdate.db.subplebbit.test.ts` → `commentsToUpdate.db.community.test.ts`
 - [ ] `parsing.db.subplebbit.test.ts` → `parsing.db.community.test.ts`
+- [ ] `authorPublicationCounts.db.subplebbit.test.ts` → `authorPublicationCounts.db.community.test.ts`
+- [ ] `queryComment.quotedCids.db.subplebbit.test.ts` → `queryComment.quotedCids.db.community.test.ts`
 - [ ] `startedState.subplebbit.test.ts` → `startedState.community.test.ts`
 - [ ] `stats.subplebbit.test.ts` → `stats.community.test.ts`
 - [ ] `updatingstate.subplebbit.test.ts` → `updatingstate.community.test.ts`
@@ -740,6 +805,13 @@ Rename all test files with "subplebbit" in the name (48 files total):
 - [ ] `commentUpdate.fields.db.subplebbit.test.ts` → `commentUpdate.fields.db.community.test.ts`
 - [ ] `unique.publishing.subplebbit.test.ts` → `unique.publishing.community.test.ts`
 - [ ] `garbage.collection.subplebbit.test.ts` → `garbage.collection.community.test.ts`
+- [ ] `quotedCids.pendingApproval.subplebbit.test.ts` → `quotedCids.pendingApproval.community.test.ts`
+- [ ] `eth-bso-equivalence.test.ts` (content updates only — no "subplebbit" in filename)
+- [ ] `malformed-gateway-headers.test.ts` (content updates only)
+- [ ] `maximum.depth.test.ts` (content updates only)
+- [ ] `mirror-client-mismatch.test.ts` (content updates only)
+- [ ] `multiplegateways.update.test.ts` (content updates only)
+- [ ] `unsupported-tld-rejection.test.ts` (content updates only)
 
 **test/node/subplebbit/ipns/**
 - [ ] `resolve.ipns.subplebbit.test.ts` → `resolve.ipns.community.test.ts`
@@ -757,31 +829,110 @@ Rename all test files with "subplebbit" in the name (48 files total):
 - [ ] `chunking.page.generation.subplebbit.test.ts` → `chunking.page.generation.community.test.ts`
 - [ ] `edgecases.page.generation.subplebbit.test.ts` → `edgecases.page.generation.community.test.ts`
 
-**test/node/subplebbit/features/**
-- [ ] `features.subplebbit.test.ts` → `features.community.test.ts`
+**test/node/subplebbit/challenges/** (directory moves to test/node/community/challenges/)
+- [ ] `challenges.settings.test.ts` (content updates only)
+- [ ] `path.challenge.test.ts` (content updates only)
+- [ ] `pseudonymity-challenge-exclusion.test.ts` (content updates only)
+
+**test/node/subplebbit/pubsub-msgs/** (directory moves to test/node/community/pubsub-msgs/)
+- [ ] `properties.pubsub.test.ts` (content updates only)
+
+**test/node/subplebbit/features/** (31 files — directory moves to test/node/community/features/)
 - [ ] `per-post.pseudonymityMode.subplebbit.features.test.ts` → `per-post.pseudonymityMode.community.features.test.ts`
 - [ ] `per-reply.pseudonymityMode.subplebbit.features.test.ts` → `per-reply.pseudonymityMode.community.features.test.ts`
 - [ ] `per-author.pseudonymityMode.subplebbit.features.test.ts` → `per-author.pseudonymityMode.community.features.test.ts`
+- [ ] `authorFlairs.subplebbit.features.test.ts` → `authorFlairs.community.features.test.ts`
+- [ ] `noAudio.subplebbit.features.test.ts` → `noAudio.community.features.test.ts`
+- [ ] `noAudioReplies.subplebbit.features.test.ts` → `noAudioReplies.community.features.test.ts`
+- [ ] `noDownvotes.subplebbit.features.test.ts` → `noDownvotes.community.features.test.ts`
+- [ ] `noImages.subplebbit.features.test.ts` → `noImages.community.features.test.ts`
+- [ ] `noImageReplies.subplebbit.features.test.ts` → `noImageReplies.community.features.test.ts`
+- [ ] `noMarkdownAudio.subplebbit.features.test.ts` → `noMarkdownAudio.community.features.test.ts`
+- [ ] `noMarkdownImages.subplebbit.features.test.ts` → `noMarkdownImages.community.features.test.ts`
+- [ ] `noMarkdownVideos.subplebbit.features.test.ts` → `noMarkdownVideos.community.features.test.ts`
+- [ ] `noNestedReplies.subplebbit.features.test.ts` → `noNestedReplies.community.features.test.ts`
+- [ ] `noPostDownvotes.subplebbit.features.test.ts` → `noPostDownvotes.community.features.test.ts`
+- [ ] `noPostUpvotes.subplebbit.features.test.ts` → `noPostUpvotes.community.features.test.ts`
+- [ ] `noReplyDownvotes.subplebbit.features.test.ts` → `noReplyDownvotes.community.features.test.ts`
+- [ ] `noReplyUpvotes.subplebbit.features.test.ts` → `noReplyUpvotes.community.features.test.ts`
+- [ ] `noSpoilers.subplebbit.features.test.ts` → `noSpoilers.community.features.test.ts`
+- [ ] `noSpoilerReplies.subplebbit.features.test.ts` → `noSpoilerReplies.community.features.test.ts`
+- [ ] `noUpvotes.subplebbit.features.test.ts` → `noUpvotes.community.features.test.ts`
+- [ ] `noVideos.subplebbit.features.test.ts` → `noVideos.community.features.test.ts`
+- [ ] `noVideoReplies.subplebbit.features.test.ts` → `noVideoReplies.community.features.test.ts`
+- [ ] `postFlairs.subplebbit.features.test.ts` → `postFlairs.community.features.test.ts`
+- [ ] `requireAuthorFlairs.subplebbit.features.test.ts` → `requireAuthorFlairs.community.features.test.ts`
+- [ ] `requirePostFlairs.subplebbit.features.test.ts` → `requirePostFlairs.community.features.test.ts`
+- [ ] `requirePostLink.subplebbit.features.test.ts` → `requirePostLink.community.features.test.ts`
+- [ ] `requirePostLinkIsMedia.subplebbit.features.test.ts` → `requirePostLinkIsMedia.community.features.test.ts`
+- [ ] `requireReplyLink.subplebbit.features.test.ts` → `requireReplyLink.community.features.test.ts`
+- [ ] `requireReplyLinkIsMedia.subplebbit.features.test.ts` → `requireReplyLinkIsMedia.community.features.test.ts`
+- [ ] `safeForWork.subplebbit.features.test.ts` → `safeForWork.community.features.test.ts`
 
-**test/node/plebbit/**
+**test/node/plebbit/** (directory to be renamed to test/node/pkc/)
+- [ ] `plebbit.test.ts` → `pkc.test.ts`
+- [ ] `validatecomment.plebbit.test.ts` → `validatecomment.pkc.test.ts`
 - [ ] `started-subplebbits.test.ts` → `started-communities.test.ts`
+- [ ] `plebbit-settings-challenges.test.ts` → `pkc-settings-challenges.test.ts`
+- [ ] `plebbit-settings-challenges-rpc.test.ts` → `pkc-settings-challenges-rpc.test.ts`
+- [ ] `hanging.plebbit.test.ts` → `hanging.pkc.test.ts`
 
-**test/node-and-browser/subplebbit/**
+**test/node-and-browser/subplebbit/** (13 files — directory moves to test/node-and-browser/community/)
 - [ ] `state.subplebbit.test.ts` → `state.community.test.ts`
 - [ ] `backward.compatibility.subplebbit.test.ts` → `backward.compatibility.community.test.ts`
 - [ ] `updateCid.subplebbit.test.ts` → `updateCid.community.test.ts`
 - [ ] `getsubplebbit.plebbit.test.ts` → `getcommunity.pkc.test.ts`
 - [ ] `createsubplebbit.plebbit.test.ts` → `createcommunity.pkc.test.ts`
 - [ ] `update.subplebbit.test.ts` → `update.community.test.ts`
+- [ ] `stop.subplebbit.test.ts` → `stop.community.test.ts`
+- [ ] `ipfsgateways.clients.test.ts` (content updates only)
+- [ ] `libp2pjs.kuboRpc.clients.test.ts` (content updates only)
+- [ ] `nameresolvers.clients.test.ts` (content updates only)
+- [ ] `rpc.clients.test.ts` (content updates only)
+- [ ] `updatingstate.test.ts` (content updates only)
+- [ ] `waiting-retry.update.test.ts` (content updates only)
 
 **test/node-and-browser/subplebbit/ipns/**
 - [ ] `ipns.fields.subplebbit.test.ts` → `ipns.fields.community.test.ts`
 
+**test/node-and-browser/subplebbit/posts/** (directory moves to test/node-and-browser/community/posts/)
+- [ ] `pages.posts.test.ts` (content updates only)
+- [ ] `ipfsgateways.clients.posts.test.ts` (content updates only)
+- [ ] `rpc.clients.posts.test.ts` (content updates only)
+- [ ] `libp2pjs.kuboRpc.clients.posts.test.ts` (content updates only)
+
+**test/node-and-browser/subplebbit/modqueue/** (directory moves to test/node-and-browser/community/modqueue/)
+- [ ] `pages.modqueue.test.ts` (content updates only)
+- [ ] `ipfsgateways.clients.modqueue.test.ts` (content updates only)
+- [ ] `rpc.clients.modqueue.test.ts` (content updates only)
+- [ ] `libp2pjs.kuboRpc.clients.modqueue.test.ts` (content updates only)
+
+**test/node-and-browser/plebbit/** (directory to be renamed to test/node-and-browser/pkc/)
+- [ ] `plebbit.test.ts` → `pkc.test.ts`
+- [ ] `_updatingSubplebbits.plebbit.test.ts` → `_updatingCommunities.pkc.test.ts`
+- [ ] `_updatingComments.plebbit.test.ts` → `_updatingComments.pkc.test.ts`
+- [ ] `fetchCid.plebbit.test.ts` → `fetchCid.pkc.test.ts`
+- [ ] `test.configs.plebbit.test.ts` → `test.configs.pkc.test.ts`
+
 **test/node-and-browser/signatures/**
 - [ ] `subplebbit.test.ts` → `community.test.ts`
+- [ ] `pubsub.messages.test.ts` (content updates only)
+- [ ] `comment.test.ts` (content updates only)
+- [ ] `edit.comment.test.ts` (content updates only)
+- [ ] `vote.test.ts` (content updates only)
+- [ ] `pages.test.ts` (content updates only)
 
-**test/node-and-browser/publications/subplebbit-edit/**
+**test/node-and-browser/publications/subplebbit-edit/** (directory moves to test/node-and-browser/publications/community-edit/)
 - [ ] `subplebbit.edit.publication.test.ts` → `community.edit.publication.test.ts`
+
+**test/node-and-browser/publications/comment/**
+- [ ] `getcomment.plebbit.test.ts` → `getcomment.pkc.test.ts`
+
+**test/browser/**
+- [ ] `plebbit.test.ts` → `pkc.test.ts`
+
+**test/server/**
+- [ ] `plebbit-ws-server.js` → `pkc-ws-server.js`
 
 ### 12.2 Test Content Updates
 - [ ] Update all test imports to use new module paths
@@ -948,15 +1099,15 @@ No `author=12D...` prefix or key-value extensibility is needed — since communi
 
 ---
 
-### Q3: Should `resolveAuthorAddresses` be renamed to `resolveAuthorNames`?
+### Q3: Should `resolveAuthorAddresses` be renamed to `resolveAuthorNames`? (**RESOLVED**)
 
-**Open — to be addressed later.** The `resolveAuthorAddresses` option exists in `PlebbitUserOptionBaseSchema` (src/schema.ts). Since `author.address` is now instance-only (computed as `name || publicKey`), what's actually being "resolved" is the `author.name` domain. Should this option be renamed to `resolveAuthorNames`?
+**Decision: Yes.** The RPC method has already been renamed from `resolveAuthorAddress` → `resolveAuthorName` in both the RPC server (`src/rpc/src/index.ts:201`) and client (`src/clients/rpc-client/plebbit-rpc-client.ts:434`). The `resolveAuthorAddresses` option in `PlebbitUserOptionBaseSchema` should similarly be renamed to `resolveAuthorNames` during the Phase 7/8 rename.
 
 ---
 
-### Q4: Should the `resolveAuthorAddress` RPC method be renamed?
+### Q4: Should the `resolveAuthorAddress` RPC method be renamed? (**RESOLVED**)
 
-**Open — to be addressed later.** The RPC client has a `resolveAuthorAddress` method (in `src/clients/rpc-client/plebbit-rpc-client.ts`) that is not listed in Phase 9.1's RPC method renaming checklist. Related to Q3 — depends on whether "author address" terminology changes.
+**Decision: Already done.** The RPC method was renamed to `resolveAuthorName` in both the server and client. See Phase 9.1 where this is now marked as `[x]`.
 
 ---
 
@@ -969,7 +1120,7 @@ Use this section to track overall progress:
 
 | Phase | Status | Notes |
 |-------|--------|-------|
-| Phase 1: Web3 Modularization | [~] In Progress | Name resolver system done; challenge cleanup + voucher extraction remaining |
+| Phase 1: Web3 Modularization | [~] In Progress | Name resolver done; challenge cleanup done; `resolveAuthorName` renamed; remaining: export challenge types, `author.address` computation |
 | Phase 2: Package Config | [ ] Not Started | |
 | Phase 3: Directory Structure | [ ] Not Started | |
 | Phase 4: Source Files | [ ] Not Started | |
