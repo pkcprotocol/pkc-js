@@ -99,7 +99,7 @@ import { ChallengeFile, ChallengeFileFactory, Challenge, ChallengeResult } from 
 - [x] Delete `src/runtime/node/subplebbit/challenges/plebbit-js-challenges/evm-contract-call/` directory
 - [x] Remove `voucher` from `pkcJsChallenges` in `src/runtime/node/subplebbit/challenges/index.ts`
 - [x] Delete `src/runtime/node/subplebbit/challenges/plebbit-js-challenges/voucher.ts`
-- [ ] Export challenge types (`ChallengeFileInput`, `ChallengeInput`, `ChallengeResultInput`, `GetChallengeArgsInput`, etc.) from `src/index.ts` for external packages
+- [x] Export the minimal external challenge authoring types via the `./challenges` package subpath (`ChallengeFileInput`, `ChallengeInput`, `ChallengeResultInput`, `GetChallengeArgsInput`, `SubplebbitChallengeSetting`) for external packages like captcha challenge
 
 **Dependencies (last step — after bso-resolver and plugin system are ready):**
 - [x] Remove `viem` (moves to @bitsocial/bso-resolver and @bitsocial/challenge-evm-contract)

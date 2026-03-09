@@ -49,6 +49,11 @@
             "import": "./dist/node/index.js",
             "require": "./dist/node/index.js"
         },
+        "./challenges": {
+            "types": "./dist/node/challenges.d.ts",
+            "browser": null,
+            "import": "./dist/node/challenges.js"
+        },
         "./rpc": {
             "types": "./dist/node/rpc/src/index.d.ts",
             "browser": null,
