@@ -1,6 +1,6 @@
 import { Plebbit } from "../plebbit/plebbit.js";
 import assert from "assert";
-import { calculateIpfsCidV0, hideClassPrivateProps, isIpns, isStringDomain, throwWithErrorCode, timestamp } from "../util.js";
+import { calculateIpfsCidV0, hideClassPrivateProps, isIpns, isStringDomain, throwWithErrorCode } from "../util.js";
 import { nativeFunctions } from "../runtime/node/util.js";
 import pLimit from "p-limit";
 import {
@@ -39,15 +39,12 @@ type GenericGatewayFetch = {
     };
 };
 
-export type CachedTextRecordResolve = { timestampSeconds: number; valueOfTextRecord: string };
-
 export type ResolveType = "community" | "author";
 
 export type PreResolveNameResolverOptions = {
     address: string;
     resolveType: ResolveType;
     resolverKey: string;
-    staleCache?: CachedTextRecordResolve;
 };
 
 export type PostResolveNameResolverSuccessOptions = PreResolveNameResolverOptions & {
@@ -668,46 +665,6 @@ export class BaseClientsManager {
 
     // Resolver methods here
 
-    _getKeyOfCachedDomainTextRecord(domainAddress: string, resolveType: ResolveType) {
-        return `${domainAddress}_${resolveType}`;
-    }
-
-    private async _getCachedTextRecord(address: string, resolveType: ResolveType) {
-        const cacheKey = this._getKeyOfCachedDomainTextRecord(address, resolveType);
-
-        const resolveCache: CachedTextRecordResolve | undefined = await this._plebbit._storage.getItem(cacheKey);
-        if (remeda.isPlainObject(resolveCache)) {
-            const stale = timestamp() - resolveCache.timestampSeconds > 3600; // Only resolve again if cache was stored over an hour ago
-            return { stale, ...resolveCache };
-        }
-        return undefined;
-    }
-
-    private async _resolveTextRecordWithCache(address: string, resolveType: ResolveType): Promise<string | null> {
-        const log = Logger("plebbit-js:client-manager:resolveTextRecord");
-        const cachedTextRecord = await this._getCachedTextRecord(address, resolveType);
-        if (cachedTextRecord) {
-            if (cachedTextRecord.stale)
-                this._resolveViaNameResolvers({ address, resolveType })
-                    .then((newValue) => {
-                        if (typeof newValue === "string") {
-                            const cache: CachedTextRecordResolve = { timestampSeconds: timestamp(), valueOfTextRecord: newValue };
-                            return this._plebbit._storage.setItem(this._getKeyOfCachedDomainTextRecord(address, resolveType), cache);
-                        }
-                    })
-                    .then(() => log.trace(`Updated stale text-record of (${address})`))
-                    .catch((err) => log.error(`Failed to update stale text record of (${address})`, err));
-            return cachedTextRecord.valueOfTextRecord;
-        }
-        const result = await this._resolveViaNameResolvers({ address, resolveType });
-        if (typeof result === "string") {
-            if (!isIpns(result)) throwWithErrorCode("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address });
-            const cache: CachedTextRecordResolve = { timestampSeconds: timestamp(), valueOfTextRecord: result };
-            await this._plebbit._storage.setItem(this._getKeyOfCachedDomainTextRecord(address, resolveType), cache);
-        }
-        return result || null;
-    }
-
     // Name resolver hooks — overridden by PlebbitClientsManager and subclass client managers
     preResolveNameResolver(opts: PreResolveNameResolverOptions) {}
     postResolveNameResolverSuccess(opts: PostResolveNameResolverSuccessOptions) {}
@@ -715,12 +672,10 @@ export class BaseClientsManager {
 
     private async _resolveViaNameResolvers({
         address,
-        resolveType,
-        staleCache
+        resolveType
     }: {
         address: string;
         resolveType: ResolveType;
-        staleCache?: CachedTextRecordResolve;
     }): Promise<string | null> {
         const log = Logger("plebbit-js:client-manager:_resolveViaNameResolvers");
         const nameResolvers = this._plebbit.nameResolvers;
@@ -735,16 +690,16 @@ export class BaseClientsManager {
             if (!nameResolver.canResolve({ name: address })) continue;
             anyResolverCanHandle = true;
 
-            this.preResolveNameResolver({ address, resolveType, resolverKey: nameResolver.key, staleCache });
+            this.preResolveNameResolver({ address, resolveType, resolverKey: nameResolver.key });
             try {
                 const result = await nameResolver.resolve({ name: address, provider: nameResolver.provider });
                 value = result?.publicKey;
             } catch (e) {
                 log.error(`Resolver ${nameResolver.key} failed for ${address}`, e);
-                this.postResolveNameResolverFailure({ address, resolveType, resolverKey: nameResolver.key, error: e as Error, staleCache });
+                this.postResolveNameResolverFailure({ address, resolveType, resolverKey: nameResolver.key, error: e as Error });
                 continue;
             }
-            this.postResolveNameResolverSuccess({ address, resolveType, resolverKey: nameResolver.key, resolvedValue: value, staleCache });
+            this.postResolveNameResolverSuccess({ address, resolveType, resolverKey: nameResolver.key, resolvedValue: value });
 
             if (value) break;
         }
@@ -759,17 +714,18 @@ export class BaseClientsManager {
     async resolveCommunityNameIfNeeded(subplebbitAddress: string): Promise<string | null> {
         assert(typeof subplebbitAddress === "string", "subplebbitAddress needs to be a string to be resolved");
         if (!isStringDomain(subplebbitAddress)) return subplebbitAddress;
-        return this._resolveTextRecordWithCache(subplebbitAddress, "community");
-    }
-
-    async clearDomainCache(domainAddress: string, resolveType: ResolveType) {
-        const cacheKey = this._getKeyOfCachedDomainTextRecord(domainAddress, resolveType);
-        await this._plebbit._storage.removeItem(cacheKey);
+        const result = await this._resolveViaNameResolvers({ address: subplebbitAddress, resolveType: "community" });
+        if (typeof result === "string" && !isIpns(result))
+            throwWithErrorCode("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: subplebbitAddress });
+        return result;
     }
 
     async resolveAuthorNameIfNeeded(authorAddress: string): Promise<string | null> {
         if (!isStringDomain(authorAddress)) throw new PlebbitError("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58", { authorAddress });
-        return this._resolveTextRecordWithCache(authorAddress, "author");
+        const result = await this._resolveViaNameResolvers({ address: authorAddress, resolveType: "author" });
+        if (typeof result === "string" && !isIpns(result))
+            throwWithErrorCode("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: authorAddress });
+        return result;
     }
 
     // Misc functions

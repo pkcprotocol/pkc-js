@@ -101,8 +101,7 @@ export class CommentClientsManager extends PublicationClientsManager {
     // Resolver methods here
     override preResolveNameResolver(opts: PreResolveNameResolverOptions): void {
         super.preResolveNameResolver(opts);
-        if (this._comment.state === "updating" && !opts.staleCache)
-            this._comment._setUpdatingStateWithEmissionIfNewState("resolving-author-name"); // Resolving for CommentIpfs and author.address is a domain
+        if (this._comment.state === "updating") this._comment._setUpdatingStateWithEmissionIfNewState("resolving-author-name"); // Resolving for CommentIpfs and author.address is a domain
     }
 
     _calculatePathForPostCommentUpdate(folderCid: string, postCid: string) {

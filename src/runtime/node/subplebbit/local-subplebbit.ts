@@ -2868,7 +2868,6 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
 
     private async _assertDomainResolvesCorrectly(newAddressAsDomain: string) {
         if (isStringDomain(newAddressAsDomain)) {
-            await this._clientsManager.clearDomainCache(newAddressAsDomain, "community");
             const resolvedIpnsFromNewDomain = await this._clientsManager.resolveCommunityNameIfNeeded(newAddressAsDomain);
             if (resolvedIpnsFromNewDomain !== this.signer.address)
                 throw new PlebbitError("ERR_DOMAIN_SUB_ADDRESS_TXT_RECORD_POINT_TO_DIFFERENT_ADDRESS", {

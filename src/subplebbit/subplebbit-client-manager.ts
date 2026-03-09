@@ -124,7 +124,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
 
     override preResolveNameResolver(opts: PreResolveNameResolverOptions): void {
         super.preResolveNameResolver(opts);
-        if (!opts.staleCache) this._subplebbit._setUpdatingStateWithEventEmissionIfNewState("resolving-name");
+        this._subplebbit._setUpdatingStateWithEventEmissionIfNewState("resolving-name");
     }
 
     override postResolveNameResolverSuccess(opts: PostResolveNameResolverSuccessOptions): void {

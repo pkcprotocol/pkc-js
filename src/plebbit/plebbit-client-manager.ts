@@ -103,23 +103,17 @@ export class PlebbitClientsManager extends BaseClientsManager {
         this.postFetchGatewaySuccess(gatewayUrl, loadOpts);
     }
 
-    override preResolveNameResolver({ resolveType, resolverKey, staleCache }: PreResolveNameResolverOptions) {
-        if (!staleCache) {
-            const newState = resolveType === "community" ? "resolving-community-name" : "resolving-author-name";
-            this.updateNameResolverState(newState, resolverKey);
-        }
+    override preResolveNameResolver({ resolveType, resolverKey }: PreResolveNameResolverOptions) {
+        const newState = resolveType === "community" ? "resolving-community-name" : "resolving-author-name";
+        this.updateNameResolverState(newState, resolverKey);
     }
 
-    override postResolveNameResolverSuccess({ resolverKey, staleCache }: PostResolveNameResolverSuccessOptions) {
-        if (!staleCache) {
-            this.updateNameResolverState("stopped", resolverKey);
-        }
+    override postResolveNameResolverSuccess({ resolverKey }: PostResolveNameResolverSuccessOptions) {
+        this.updateNameResolverState("stopped", resolverKey);
     }
 
-    override postResolveNameResolverFailure({ resolverKey, staleCache }: PostResolveNameResolverFailureOptions) {
-        if (!staleCache) {
-            this.updateNameResolverState("stopped", resolverKey);
-        }
+    override postResolveNameResolverFailure({ resolverKey }: PostResolveNameResolverFailureOptions) {
+        this.updateNameResolverState("stopped", resolverKey);
     }
 
     // State methods here

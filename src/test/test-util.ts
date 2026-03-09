@@ -71,7 +71,7 @@ import { encryptEd25519AesGcm, encryptEd25519AesGcmPublicKeyBuffer } from "../si
 import env from "../version.js";
 import type { CommentModerationPubsubMessagePublication } from "../publications/comment-moderation/types.js";
 import { CommentModeration } from "../publications/comment-moderation/comment-moderation.js";
-import type { CachedTextRecordResolve, ResolveType } from "../clients/base-client-manager.js";
+import type { ResolveType } from "../clients/base-client-manager.js";
 import type { PageIpfs, PageTypeJson, PostsPagesTypeIpfs, RepliesPagesTypeIpfs } from "../pages/types.js";
 import { PlebbitError } from "../plebbit-error.js";
 import { messages } from "../errors.js";
@@ -544,6 +544,7 @@ export async function mockPlebbit(plebbitOptions?: InputPlebbitOptions, forceMoc
     if (plebbitOptions?.plebbitRpcClientsOptions && plebbitOptions?.libp2pJsClientsOptions)
         throw Error("Can't have both libp2p and RPC config. Is this a mistake?");
 
+    const domainMappings = new Map<string, string>();
     const mockNameResolvers = mockResolve
         ? [
               {
@@ -551,9 +552,14 @@ export async function mockPlebbit(plebbitOptions?: InputPlebbitOptions, forceMoc
                   canResolve: () => true,
                   resolve: async ({ name }: { name: string; provider: string }) => {
                       console.log(`Attempting to mock resolve address (${name})`);
-                      if (name === "plebbit.eth" || "plebbit.bso")
+                      // Check per-instance domain mappings first (set via mockCacheOfTextRecord)
+                      if (domainMappings.has(name)) {
+                          const value = domainMappings.get(name)!;
+                          return value ? { publicKey: value } : undefined;
+                      }
+                      if (name === "plebbit.eth" || name === "plebbit.bso")
                           return { publicKey: "12D3KooWNMYPSuNadceoKsJ6oUQcxGcfiAsHNpVTt1RQ1zSrKKpo" }; // signers[3]
-                      else if (name === "rpc-edit-test.eth" || "rpc-edit-test.bso")
+                      else if (name === "rpc-edit-test.eth" || name === "rpc-edit-test.bso")
                           return { publicKey: "12D3KooWMZPQsQdYtrakc4D1XtzGXwN1X3DBnAobcCjcPYYXTB6o" }; // signers[7]
                       else return undefined;
                   },
@@ -570,6 +576,9 @@ export async function mockPlebbit(plebbitOptions?: InputPlebbitOptions, forceMoc
         nameResolvers: mockNameResolvers,
         ...plebbitOptions
     });
+
+    // Store domain mappings on the plebbit instance for test utility access
+    (plebbit as any)._testDomainMappings = domainMappings;
 
     if (stubStorage) {
         plebbit._storage.getItem = async () => undefined;
@@ -2332,18 +2341,12 @@ export function mockUpdatingCommentResolvingAuthor(
     updatingComment._clientsManager.resolveAuthorNameIfNeeded = mockFunction;
 }
 
-export async function mockCacheOfTextRecord(opts: { plebbit: Plebbit; domain: string; resolveType: ResolveType; value: string }) {
-    const cacheKey = opts.plebbit._clientsManager._getKeyOfCachedDomainTextRecord(opts.domain, opts.resolveType);
-    if (cacheKey.includes("undefined")) throw Error("User provided invalid mocked value for caching text records");
-    if (!String(opts.plebbit._storage.getItem).includes("return"))
-        throw Error("Can't mock cache of text record because plebbit._storage is stubbed and isn't doing anything");
-
-    if (opts.plebbit._plebbitRpcClient) throw Error("Can't mock cache with plebbit rpc clients");
-    if (!opts.value) await opts.plebbit._storage.removeItem(cacheKey);
-    else {
-        const valueInCache = <CachedTextRecordResolve>{ timestampSeconds: timestamp(), valueOfTextRecord: opts.value };
-        await opts.plebbit._storage.setItem(cacheKey, valueInCache);
-    }
+export async function mockResponseOfNameResolver(opts: { plebbit: Plebbit; domain: string; resolveType: ResolveType; value: string }) {
+    if (opts.plebbit._plebbitRpcClient) throw Error("Can't mock resolver with plebbit rpc clients");
+    const mappings = (opts.plebbit as any)._testDomainMappings as Map<string, string> | undefined;
+    if (!mappings) throw Error("This plebbit instance was not created with mockPlebbit or mockResolve was false");
+    if (!opts.value) mappings.delete(opts.domain);
+    else mappings.set(opts.domain, opts.value);
 }
 
 export async function getRandomPostCidFromSub(subplebbitAddress: string, plebbit: Plebbit) {

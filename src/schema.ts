@@ -45,7 +45,8 @@ export const NameResolverSchema = z.object({
     canResolve: z.custom<(opts: { name: string }) => boolean>((val) => typeof val === "function", {
         message: "canResolve must be a function"
     }),
-    provider: z.string().min(1)
+    provider: z.string().min(1),
+    dataPath: z.string().optional()
 });
 
 const TransformKuboRpcClientOptionsSchema = KuboRpcCreateClientOptionSchema.array().transform((options) =>
