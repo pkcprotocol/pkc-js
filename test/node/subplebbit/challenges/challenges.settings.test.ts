@@ -21,51 +21,17 @@ import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publicatio
 describe.concurrent(`subplebbit.settings.challenges`, async () => {
     let plebbit: PlebbitType;
     let remotePlebbit: PlebbitType;
-    const defaultMatches = JSON.stringify([{ propertyName: "author.address", regexp: "\\.(sol|eth|bso)$" }]);
     const defaultSettingsChallenges: SubplebbitChallengeSetting[] = [
         {
-            name: "publication-match",
+            name: "question",
             options: {
-                matches: defaultMatches,
-                error: "Posting in this community requires a username (author address) that ends with .bso, .sol, or .eth. Go to the settings to set your username."
-            },
-            exclude: [
-                { role: ["moderator", "admin", "owner"] },
-                {
-                    firstCommentTimestamp: 60 * 60 * 24 * 30,
-                    postScore: 3,
-                    rateLimit: 2,
-                    replyScore: 0
-                },
-                { challenges: [1] },
-                { challenges: [2] }
-            ]
-        },
-        {
-            name: "whitelist",
-            options: {
-                urls: "https://raw.githubusercontent.com/plebbit/lists/refs/heads/master/whitelist-challenge.json",
-                error: "Or posting in this community requires being whitelisted. Go to https://t.me/plebbit and ask to be whitelisted. Or"
-            },
-            exclude: [{ challenges: [0] }, { challenges: [2] }]
-        },
-        {
-            name: "mintpass",
-            options: {
-                contractAddress: "0xcb60e1dd6944dfc94920e28a277a51a06e9f20d2",
-                chainTicker: "eth",
-                rpcUrl: "https://sepolia.base.org"
-            },
-            exclude: [{ challenges: [0] }, { challenges: [1] }]
+                question: "Placeholder challenge. Set your own challenges otherwise you risk getting spammed",
+                answer: "Placeholder answer"
+            }
         }
     ];
-    const defaultChallengeDescriptions = [
-        "Match publication properties against regex patterns.",
-        "Whitelist author addresses.",
-        "Verify that the author owns a MintPass NFT of the required type, with transfer cooldown protection."
-    ];
-    const defaultChallengeTypes = ["text/plain", "text/plain", "url/iframe"];
-    const mintpassMissingWalletError = "Author wallet address is not defined. Please set your wallet address in settings.";
+    const defaultChallengeDescriptions = ["Ask a question, like 'What is the password?'"];
+    const defaultChallengeTypes = ["text/plain"];
 
     beforeAll(async () => {
         plebbit = await mockPlebbit();
@@ -96,16 +62,13 @@ describe.concurrent(`subplebbit.settings.challenges`, async () => {
                 expect(challenge.description).to.equal(defaultChallengeDescriptions[index]);
                 expect(challenge.exclude).to.deep.equal(defaultSettingsChallenges[index].exclude);
             });
-            expect(_subplebbit.challenges![0].challenge).to.be.undefined;
-            expect(_subplebbit.challenges![1].challenge).to.be.undefined;
-            expect(_subplebbit.challenges![2].challenge).to.be.undefined;
+            expect(_subplebbit.challenges![0].challenge).to.equal(defaultSettingsChallenges[0].options!.question);
         }
         // clean up
         await subplebbit.delete();
     });
 
-    it(`Default challenges reject authors without an allowed address`, async () => {
-        // skip this test for now till we update mintpass
+    it(`Default challenges reject authors with wrong answer`, async () => {
         const subplebbit = (await plebbit.createSubplebbit({})) as LocalSubplebbit | RpcLocalSubplebbit;
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
@@ -113,15 +76,17 @@ describe.concurrent(`subplebbit.settings.challenges`, async () => {
         const challengeVerificationPromise = new Promise<ChallengeVerificationMessageType>((resolve) =>
             subplebbit.once("challengeverification", resolve)
         );
-        const post = await generateMockPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
+        const post = await generateMockPost({
+            subplebbitAddress: subplebbit.address,
+            plebbit: remotePlebbit,
+            postProps: { challengeRequest: { challengeAnswers: ["wrong answer"] } }
+        });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: false });
         const challengeVerification = await challengeVerificationPromise;
         expect(challengeVerification.challengeSuccess).to.equal(false);
         expect(challengeVerification.challengeErrors).to.not.equal(undefined);
-        expect(Object.keys(challengeVerification.challengeErrors!)).to.have.members(["0", "1", "2"]);
-        expect(challengeVerification.challengeErrors?.["0"]).to.equal(defaultSettingsChallenges[0].options!.error);
-        expect(challengeVerification.challengeErrors?.["1"]).to.equal(defaultSettingsChallenges[1].options!.error);
-        expect(challengeVerification.challengeErrors?.["2"]).to.equal(mintpassMissingWalletError);
+        expect(Object.keys(challengeVerification.challengeErrors!)).to.have.members(["0"]);
+        expect(challengeVerification.challengeErrors?.["0"]).to.equal("Wrong answer.");
         await subplebbit.delete();
     });
 

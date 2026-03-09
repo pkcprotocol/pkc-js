@@ -254,26 +254,6 @@ const blacklistChallengeSubplebbit: MockSubplebbit = {
 //     ]
 //   }
 // }
-const evmContractCallChallengeSubplebbit: MockSubplebbit = {
-    title: "evm contract call challenge subplebbit",
-    settings: {
-        challenges: [
-            {
-                name: "evm-contract-call",
-                options: {
-                    chainTicker: "eth",
-                    // contract address
-                    address: "0x...",
-                    // abi of the contract method
-                    abi: '{"constant":true,"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"balanceOf","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"}',
-                    condition: ">1000",
-                    // error to display to the user if condition fails
-                    error: "PLEB token balance must be greater than 1000."
-                }
-            }
-        ]
-    }
-};
 const passwordChallengeSubplebbit: MockSubplebbit = {
     title: "password challenge subplebbit",
     settings: {
@@ -553,13 +533,6 @@ results[blacklistChallengeSubplebbit.title] = {
 //     challengeErrors: {"0": "Author doesn't have wallet (eth) set." }
 //   }
 // }
-results[evmContractCallChallengeSubplebbit.title] = {
-    "high-karma.bso": { challengeSuccess: true },
-    "low-karma.bso": {
-        challengeSuccess: false,
-        challengeErrors: { 0: "Author doesn't have a wallet set." }
-    }
-};
 results[passwordChallengeSubplebbit.title] = {
     "high-karma.bso": { challengeSuccess: true },
     "low-karma.bso": { challengeSuccess: false, challengeErrors: { 0: "Wrong answer." } }

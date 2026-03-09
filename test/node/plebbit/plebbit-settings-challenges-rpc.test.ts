@@ -202,7 +202,6 @@ describe("plebbit.settings.challenges over RPC", () => {
         const challenges = rpcClient.settings!.challenges;
 
         // Built-in challenges should still be present
-        expect(challenges["captcha-canvas-v3"]).to.be.an("object");
         expect(challenges["text-math"]).to.be.an("object");
         expect(challenges["question"]).to.be.an("object");
 

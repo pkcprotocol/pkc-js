@@ -197,39 +197,11 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
 
     private _defaultSubplebbitChallenges: SubplebbitChallengeSetting[] = [
         {
-            name: "publication-match",
+            name: "question",
             options: {
-                matches: JSON.stringify([{ propertyName: "author.address", regexp: "\\.(sol|eth|bso)$" }]),
-                error: "Posting in this community requires a username (author address) that ends with .bso, .sol, or .eth. Go to the settings to set your username."
-            },
-            exclude: [
-                { role: ["moderator", "admin", "owner"] },
-                {
-                    firstCommentTimestamp: 60 * 60 * 24 * 30,
-                    postScore: 3,
-                    rateLimit: 2,
-                    replyScore: 0
-                },
-                { challenges: [1] },
-                { challenges: [2] }
-            ]
-        },
-        {
-            name: "whitelist",
-            options: {
-                urls: "https://raw.githubusercontent.com/plebbit/lists/refs/heads/master/whitelist-challenge.json",
-                error: "Or posting in this community requires being whitelisted. Go to https://t.me/plebbit and ask to be whitelisted. Or"
-            },
-            exclude: [{ challenges: [0] }, { challenges: [2] }]
-        },
-        {
-            name: "mintpass",
-            options: {
-                contractAddress: "0xcb60e1dd6944dfc94920e28a277a51a06e9f20d2",
-                chainTicker: "eth",
-                rpcUrl: "https://sepolia.base.org"
-            },
-            exclude: [{ challenges: [0] }, { challenges: [1] }]
+                question: "Placeholder challenge. Set your own challenges otherwise you risk getting spammed",
+                answer: "Placeholder answer"
+            }
         }
     ];
 

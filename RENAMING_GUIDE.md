@@ -140,27 +140,28 @@ Note: .sol support has been removed. Only ENS-based resolution (.bso) is support
 ### 1.6 Challenge System Cleanup
 
 **Step 1: Remove `.sol` from default challenge regexp** (separate from default challenge change):
-- [ ] In `_defaultSubplebbitChallenges` (`src/runtime/node/subplebbit/local-subplebbit.ts`), remove `.sol` from the `publication-match` regexp: `\\.(sol|eth|bso)$` → `\\.(eth|bso)$`
-- Note: `.sol` support is being removed entirely
+- [x] In `_defaultSubplebbitChallenges` (`src/runtime/node/subplebbit/local-subplebbit.ts`), remove `.sol` from the `publication-match` regexp: `\\.(sol|eth|bso)$` → `\\.(eth|bso)$`
+- Note: `.sol` support is being removed entirely. The entire publication-match default has been replaced by the `question` challenge in Step 3.
 - [ ] Ensure `author.address` is computed (as `name || publicKey`) and available on the publication instance when the local community processes incoming publications — `publication-match` challenge matches against it. Needs implementation and testing.
 - [ ] Add tests verifying `author.address` is computed and available when challenges process incoming publications (e.g., `publication-match` receives the computed `author.address`, not the raw wire field)
 - Note: With `author.address = name || publicKey`, authors without a domain name will have a base58 key as `address` which never matches `\.(eth|bso)$` — effectively auto-passing the `publication-match` check. This is expected since the default challenge is changing to `question` in Step 3.
 
 **Step 2: Remove built-in challenges** (must happen before or at the same time as Step 3):
-- [ ] Remove `mintpass` challenge from `plebbitJsChallenges`
+- [x] Remove `mintpass` challenge from `plebbitJsChallenges`
   - Delete directory: `src/runtime/node/subplebbit/challenges/plebbit-js-challenges/mintpass/`
   - Remove import and entry from: `src/runtime/node/subplebbit/challenges/index.ts`
-- [ ] Remove `captcha-canvas-v3` challenge from `plebbitJsChallenges`
+  - Remove `@mintpass/challenge` dependency from `package.json`
+- [x] Remove `captcha-canvas-v3` challenge from `plebbitJsChallenges` (extracted to `@bitsocial/captcha-canvas-challenge`)
   - Delete directory: `src/runtime/node/subplebbit/challenges/plebbit-js-challenges/captcha-canvas-v3/`
   - Remove import and entry from: `src/runtime/node/subplebbit/challenges/index.ts`
-  - Remove `canvas` and related dependencies from `package.json`
+  - Remove `captcha-canvas` and `skia-canvas` dependencies from `package.json`
 - [x] Remove `voucher` challenge from `plebbitJsChallenges` (extracted to `@bitsocial/challenge-voucher`)
   - Delete file: `src/runtime/node/subplebbit/challenges/plebbit-js-challenges/voucher.ts`
   - Remove import and entry from: `src/runtime/node/subplebbit/challenges/index.ts`
 
 **Step 3: Change default challenge** (depends on Step 2 — old default references `mintpass`):
-- [ ] Change default challenge from `publication-match` to `question` (question/answer challenge)
-  - File: `src/runtime/node/subplebbit/local-subplebbit.ts` (line ~193, `_defaultSubplebbitChallenges`)
+- [x] Change default challenge from `publication-match` to `question` (question/answer challenge)
+  - File: `src/runtime/node/subplebbit/local-subplebbit.ts` (line ~198, `_defaultSubplebbitChallenges`)
   - Default `question`: `"Placeholder challenge. Set your own challenges otherwise you risk getting spammed"`
   - Default `answer`: `"Placeholder answer"`
   - **Note:** This only affects NEW communities created after the update. Existing communities keep their stored challenge configuration from their DB/internal state.

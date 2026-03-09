@@ -7,7 +7,6 @@ import {
 
 // all challenges included with plebbit-js, in Plebbit.challenges
 import textMath from "./plebbit-js-challenges/text-math.js";
-import captchaCanvasV3 from "./plebbit-js-challenges/captcha-canvas-v3/index.js";
 import fail from "./plebbit-js-challenges/fail.js";
 import blacklist from "./plebbit-js-challenges/blacklist.js";
 import whitelist from "./plebbit-js-challenges/whitelist.js";
@@ -56,7 +55,6 @@ const resolveChallengeFactoryByName = (name: string, plebbit?: PlebbitWithSettin
 
 const plebbitJsChallenges: Record<string, ChallengeFileFactoryInput> = {
     "text-math": textMath,
-    "captcha-canvas-v3": captchaCanvasV3,
     fail: fail,
     blacklist: blacklist,
     whitelist: whitelist,

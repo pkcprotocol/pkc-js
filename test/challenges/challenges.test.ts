@@ -37,13 +37,11 @@ const getRandomAddress = () => String(Math.random());
 
 describe("plebbitJsChallenges", () => {
     let TextMathFactory = plebbitJsChallenges["text-math"];
-    let CaptchaCanvasV3Factory = plebbitJsChallenges["text-math"];
 
     it("returns challenges", () => {
         expect(plebbitJsChallenges).to.not.equal(undefined);
         expect(typeof plebbitJsChallenges).to.equal("object");
         expect(typeof TextMathFactory).to.equal("function");
-        expect(typeof CaptchaCanvasV3Factory).to.equal("function");
     });
 
     it("text-math challenge answer can be eval", async () => {
@@ -56,18 +54,6 @@ describe("plebbitJsChallenges", () => {
         // the challenge can be eval
         expect(await verify(String(eval(challenge)))).to.deep.equal({ success: true });
         expect(await verify("wrong")).to.deep.equal({ success: false, error: "Wrong answer." });
-    });
-
-    it("captcha-canvas-v3 challenge is string", async () => {
-        const captchaCanvasV3 = CaptchaCanvasV3Factory({} as Parameters<typeof CaptchaCanvasV3Factory>[0]);
-        const getChallengeResult = await captchaCanvasV3.getChallenge({} as Parameters<typeof captchaCanvasV3.getChallenge>[0]);
-        const { challenge, verify } = getChallengeResult as {
-            challenge: string;
-            verify: (answer: string) => Promise<{ success: boolean; error?: string }>;
-        };
-        // the challenge can be eval
-        expect(typeof challenge).to.equal("string");
-        expect(typeof verify).to.equal("function");
     });
 });
 
