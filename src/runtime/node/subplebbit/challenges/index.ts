@@ -13,7 +13,6 @@ import blacklist from "./plebbit-js-challenges/blacklist.js";
 import whitelist from "./plebbit-js-challenges/whitelist.js";
 import question from "./plebbit-js-challenges/question.js";
 import publicationMatch from "./plebbit-js-challenges/publication-match.js";
-import mintpass from "@mintpass/challenge";
 import type {
     ChallengeVerificationMessageType,
     DecryptedChallengeAnswer,
