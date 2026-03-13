@@ -18,7 +18,7 @@ import type {
 } from "../publications/subplebbit-edit/types.js";
 import type { VotePubsubMessagePublication, VotePubsubMessageWithSubplebbitAuthor } from "../publications/vote/types.js";
 import type { PubsubSignature } from "../signer/types.js";
-import type { AuthorTypeWithCommentUpdate } from "../types.js";
+import type { RuntimeAuthorWithCommentUpdateType } from "../types.js";
 import {
     ChallengeAnswerMessageSchema,
     ChallengeAnswerMessageSignedPropertyNames,
@@ -65,7 +65,7 @@ export type PublicationFromDecryptedChallengeRequest = NonNullable<
 >;
 
 export type PublicationWithSubplebbitAuthorFromDecryptedChallengeRequest = PublicationFromDecryptedChallengeRequest & {
-    author: AuthorTypeWithCommentUpdate;
+    author: RuntimeAuthorWithCommentUpdateType;
 };
 
 export interface DecryptedChallengeRequestMessageWithReplySubplebbitAuthor

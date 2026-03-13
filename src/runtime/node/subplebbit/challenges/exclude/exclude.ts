@@ -226,13 +226,16 @@ const shouldExcludeChallengeCommentCids = async (
         let cachedCommentUpdate = <CommentUpdateCacheType | null>commentUpdateCache.get(commentCid);
         if (!cachedCommentUpdate) {
             const commentUpdate = comment || (await plebbit.createComment({ cid: commentCid }));
-            const commentUpdatePromise = new Promise((resolve) =>
-                commentUpdate.on("update", () => typeof commentUpdate.updatedAt === "number" && resolve(1))
-            );
+            const onUpdate = () => typeof commentUpdate.updatedAt === "number" && resolveUpdate(1);
+            let resolveUpdate!: (value: number) => void;
+            const commentUpdatePromise = new Promise<number>((resolve) => {
+                resolveUpdate = resolve;
+                commentUpdate.on("update", onUpdate);
+            });
             await commentUpdate.update();
             await commentUpdatePromise;
             await commentUpdate.stop();
-            commentUpdate.removeAllListeners("update");
+            commentUpdate.removeListener("update", onUpdate);
             // only cache useful values
             if (commentUpdate?.author?.subplebbit) {
                 cachedCommentUpdate = { author: { subplebbit: commentUpdate?.author?.subplebbit } };

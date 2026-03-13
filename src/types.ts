@@ -31,6 +31,10 @@ export type AuthorPubsubType = z.infer<typeof AuthorPubsubSchema>;
 
 export type AuthorTypeWithCommentUpdate = z.infer<typeof AuthorWithOptionalCommentUpdateSchema>;
 
+export type RuntimeAuthorType = AuthorPubsubType & { address: string; publicKey: string };
+
+export type RuntimeAuthorWithCommentUpdateType = AuthorTypeWithCommentUpdate & { address: string; publicKey: string };
+
 // creating a new local publication
 export type CreatePublicationOptions = z.infer<typeof CreatePublicationUserOptionsSchema>;
 
@@ -40,9 +44,9 @@ export type CreatePublicationOptions = z.infer<typeof CreatePublicationUserOptio
 
 export type Nft = z.infer<typeof AuthorAvatarNftSchema>;
 
-export type AuthorPubsubJsonType = AuthorPubsubType & { shortAddress: string };
+export type AuthorPubsubJsonType = RuntimeAuthorType & { shortAddress: string };
 
-export type AuthorWithOptionalCommentUpdateJson = AuthorTypeWithCommentUpdate & { shortAddress: string };
+export type AuthorWithOptionalCommentUpdateJson = RuntimeAuthorWithCommentUpdateType & { shortAddress: string };
 
 export type PublicationTypeName = keyof DecryptedChallengeRequestPublication; // Publications published by authors over pubsub, not subplebbits
 

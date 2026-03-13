@@ -136,6 +136,7 @@ import { createLibp2pJsClientOrUseExistingOne } from "../helia/helia-for-plebbit
 import { Libp2pJsClient } from "../helia/libp2pjsClient.js";
 import { AuthorNameRpcParam, CidRpcParam, SubplebbitAddressRpcParam } from "../clients/rpc-client/types.js";
 import { parseRpcAuthorNameParam, parseRpcCidParam, parseRpcSubplebbitAddressParam } from "../clients/rpc-client/rpc-schema-util.js";
+import { cleanWireAuthor } from "../publications/publication-author.js";
 
 export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements ParsedPlebbitOptions {
     ipfsGatewayUrls: ParsedPlebbitOptions["ipfsGatewayUrls"];
@@ -451,23 +452,16 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
     ): Promise<CommentOptionsToSign | VoteOptionsToSign | CommentEditOptionsToSign | SubplebbitEditPublicationOptionsToSign> {
         const finalOptions = remeda.clone(pubOptions);
         if (!finalOptions.signer) throw Error("User did not provide a signer to create a local publication");
-        if (finalOptions.author) {
-            // make sure reserved fields like subplebbit, shortAddress are removed
-            finalOptions.author = remeda.omit(finalOptions.author, AuthorReservedFields);
-        }
+        const cleanedAuthor = cleanWireAuthor(finalOptions.author);
         const filledTimestamp = typeof finalOptions.timestamp !== "number" ? timestamp() : finalOptions.timestamp;
         const filledSigner = await this.createSigner(finalOptions.signer);
-        const filledAuthor = <AuthorPubsubType>{
-            ...finalOptions.author,
-            address: finalOptions.author?.address || filledSigner.address
-        };
         const filledProtocolVersion = finalOptions.protocolVersion || env.PROTOCOL_VERSION;
 
         return {
             ...finalOptions,
             timestamp: filledTimestamp,
             signer: filledSigner,
-            author: filledAuthor,
+            author: cleanedAuthor,
             protocolVersion: filledProtocolVersion
         };
     }

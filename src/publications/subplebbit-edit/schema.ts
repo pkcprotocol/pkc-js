@@ -19,7 +19,7 @@ const subplebbitEditPublicationPickOptions = <Record<(typeof SubplebbitEditPubli
 export const SubplebbitEditPubsubMessagePublicationSchema = CreateSubplebbitEditPublicationOptionsSchema.merge(PublicationBaseBeforeSigning)
     .extend({
         signature: JsonSignatureSchema,
-        author: PublicationBaseBeforeSigning.shape.author.loose()
+        author: PublicationBaseBeforeSigning.shape.author.unwrap().loose().optional()
     })
     .pick(subplebbitEditPublicationPickOptions)
     .strict();

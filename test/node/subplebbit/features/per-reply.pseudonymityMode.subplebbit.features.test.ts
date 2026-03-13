@@ -2492,7 +2492,6 @@ async function buildSignedReplyPublication({
 }): Promise<CommentPubsubMessagePublication> {
     const base = {
         signer,
-        author: { address: signer.address },
         subplebbitAddress,
         timestamp: timestamp(),
         protocolVersion: PROTOCOL_VERSION,
@@ -2515,7 +2514,6 @@ async function buildSignedPostPublication({
 }): Promise<CommentPubsubMessagePublication> {
     const base = {
         signer,
-        author: { address: signer.address },
         subplebbitAddress,
         timestamp: timestamp(),
         protocolVersion: PROTOCOL_VERSION,

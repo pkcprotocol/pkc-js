@@ -6,7 +6,7 @@ import {
     SubplebbitEditPubsubMessagePublicationSchema
 } from "./schema.js";
 import type { JsonSignature, SignerType } from "../../signer/types.js";
-import type { AuthorTypeWithCommentUpdate, JsonOfClass } from "../../types.js";
+import type { JsonOfClass, RuntimeAuthorWithCommentUpdateType } from "../../types.js";
 import SubplebbitEdit from "./subplebbit-edit.js";
 
 export type CreateSubplebbitEditPublicationOptions = z.infer<typeof CreateSubplebbitEditPublicationOptionsSchema>;
@@ -26,5 +26,5 @@ export interface SubplebbitEditPublicationSignature extends JsonSignature {
 export type SubplebbitEditPubsubMessagePublication = z.infer<typeof SubplebbitEditPubsubMessagePublicationSchema>;
 
 export interface SubplebbitEditPublicationPubsubMessageWithSubplebbitAuthor extends SubplebbitEditPubsubMessagePublication {
-    author: AuthorTypeWithCommentUpdate;
+    author: RuntimeAuthorWithCommentUpdateType;
 }

@@ -47,7 +47,7 @@ const commentModerationPickOptions = <Record<(typeof CommentModerationSignedProp
 export const CommentModerationPubsubMessagePublicationSchema = CreateCommentModerationOptionsSchema.merge(PublicationBaseBeforeSigning)
     .extend({
         signature: JsonSignatureSchema,
-        author: PublicationBaseBeforeSigning.shape.author.loose()
+        author: PublicationBaseBeforeSigning.shape.author.unwrap().loose().optional()
     })
     .pick(commentModerationPickOptions)
     .strict();

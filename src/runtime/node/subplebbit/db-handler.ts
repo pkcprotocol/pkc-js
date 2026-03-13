@@ -64,6 +64,7 @@ import {
 import { ZodError } from "zod";
 import { messages } from "../../../errors.js";
 import type { PseudonymityAliasRow, CommentCidWithReplies, PurgedCommentTableRows } from "./db-handler-types.js";
+import { getAuthorDomainFromWire } from "../../../publications/publication-author.js";
 
 const TABLES = Object.freeze({
     COMMENTS: "comments",
@@ -668,12 +669,9 @@ export class DbHandler {
                 if (mod.originalAuthorDomain) {
                     targetDomain = mod.originalAuthorDomain;
                 } else if (mod.commentAuthor) {
-                    // Parse the author JSON and check if address is a domain
                     try {
-                        const author = JSON.parse(mod.commentAuthor) as { address?: string };
-                        if (author.address && isStringDomain(author.address)) {
-                            targetDomain = author.address;
-                        }
+                        const author = JSON.parse(mod.commentAuthor) as { address?: string; name?: string };
+                        targetDomain = getAuthorDomainFromWire(author) || null;
                     } catch {
                         // Ignore parse errors
                     }

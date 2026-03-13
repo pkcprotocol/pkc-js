@@ -48,7 +48,8 @@ describe("publication-match challenge", () => {
     const createChallengeRequestMessage = (overrides: ChallengeRequestOverrides = {}): Record<string, unknown> => {
         const defaultPublication = {
             author: {
-                address: "author.bso"
+                address: "author.bso",
+                publicKey: "12D3KooWJJcSwMHrFvsFL7YCNDLD93kBczEfkHpPNdxcjZwR2X2Y"
             },
             content: "content",
             timestamp: 1234567890,
@@ -145,6 +146,18 @@ describe("publication-match challenge", () => {
     // Test with matching author address (.eth)
     it("publication-match challenge with matching author address .bso", async () => {
         const subplebbit = createSubplebbit();
+        const challengeRequestMessage = createChallengeRequestMessage();
+
+        const result = await testGetPendingChallengesOrChallengeVerification(challengeRequestMessage, subplebbit);
+        expect(result.challengeSuccess).to.be.true;
+    });
+
+    it("publication-match challenge can match runtime author.publicKey", async () => {
+        const subplebbit = createSubplebbit({
+            matches: JSON.stringify([{ propertyName: "author.publicKey", regexp: "^12D3KooW" }]),
+            error: "Author public key must start with 12D3KooW"
+        });
+
         const challengeRequestMessage = createChallengeRequestMessage();
 
         const result = await testGetPendingChallengesOrChallengeVerification(challengeRequestMessage, subplebbit);

@@ -587,6 +587,17 @@ Class-level events (not RPC — those are in Phase 9.2):
 - `author.displayName` is unrelated to `author.name` — `displayName` is a free-text label, `name` is a domain identity. Both are kept.
 - `author.subplebbit` → `author.community`: **No backward compatibility concern.** The `author.subplebbit` key appears inside the `author` field of `CommentUpdate` records (not `CommentIpfs`). `CommentUpdate` records are re-signed by the community on every update cycle, so old wire format is naturally replaced — no need to support parsing old `CommentUpdate` records with the `subplebbit` key.
 
+**Deferred follow-up after the `author.address` migration is complete:**
+- Remove `overrideAuthorAddressIfInvalid` from public verifier APIs. It is transitional and should not remain as the long-term API.
+- Replacement runtime behavior:
+  - Keep `author.address = author.name || author.publicKey`
+  - Never mutate runtime `author.address` based on failed or mismatched name resolution
+  - Add runtime-only `author.nameResolved?: boolean`
+  - Set `author.nameResolved = false` when a claimed `author.name` fails to resolve or resolves to a signer mismatch
+  - Set `author.nameResolved = true` when a claimed `author.name` resolves to the signer
+  - Leave `author.nameResolved` as `undefined` when there is no `author.name` claim
+- This follow-up is intentionally out of scope for the current `author.address` migration.
+
 ### 8.4 Timeout Keys (src/plebbit/plebbit.ts)
 - [ ] `"subplebbit-ipns"` → `"community-ipns"`
 - [ ] `"subplebbit-ipfs"` → `"community-ipfs"`

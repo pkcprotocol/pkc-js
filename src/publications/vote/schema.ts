@@ -27,7 +27,7 @@ const votePickOptions = <Record<(typeof VoteSignedPropertyNames)[number] | "sign
 
 // Will be used by the sub when parsing request.publication
 export const VotePubsubMessagePublicationSchema = CreateVoteUserOptionsSchema.merge(PublicationBaseBeforeSigning)
-    .extend({ signature: JsonSignatureSchema, author: PublicationBaseBeforeSigning.shape.author.loose() })
+    .extend({ signature: JsonSignatureSchema, author: PublicationBaseBeforeSigning.shape.author.unwrap().loose().optional() })
     .pick(votePickOptions)
     .strict();
 

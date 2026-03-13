@@ -77,6 +77,7 @@ import { PlebbitError } from "../plebbit-error.js";
 import { messages } from "../errors.js";
 import { MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE } from "../publications/comment/comment-client-manager.js";
 import last from "it-last";
+import { buildRuntimeAuthor } from "../publications/publication-author.js";
 
 interface MockPlebbitOptions {
     plebbitOptions?: InputPlebbitOptions;
@@ -608,6 +609,22 @@ export async function mockRemotePlebbit(opts?: MockPlebbitOptions) {
     return plebbit;
 }
 
+export async function mockCacheOfTextRecord({
+    plebbit,
+    domain,
+    resolveType,
+    value
+}: {
+    plebbit: Plebbit;
+    domain: string;
+    resolveType: ResolveType;
+    value: string;
+}) {
+    const domainMappings = (plebbit as Plebbit & { _testDomainMappings?: Map<string, string> })._testDomainMappings;
+    if (!domainMappings) throw new Error("mockCacheOfTextRecord requires a mockPlebbit instance with test domain mappings");
+    domainMappings.set(domain, value);
+}
+
 export async function createOnlinePlebbit(plebbitOptions?: InputPlebbitOptions) {
     const plebbit = await PlebbitIndex({
         kuboRpcClientsOptions: ["http://localhost:15003/api/v0"],
@@ -1132,7 +1149,12 @@ export async function setExtraPropOnCommentAndSign(comment: Comment, extraProps:
 
     disableValidationOfSignatureBeforePublishing(comment);
 
-    Object.assign(comment, publicationWithExtraProp);
+    Object.assign(comment, publicationWithExtraProp, {
+        author: buildRuntimeAuthor({
+            author: publicationWithExtraProp.author,
+            signaturePublicKey: publicationWithExtraProp.signature.publicKey
+        })
+    });
 }
 
 export async function setExtraPropOnVoteAndSign(vote: Vote, extraProps: Object, includeExtraPropInSignedPropertyNames: boolean) {

@@ -22,6 +22,7 @@ import { RemoteSubplebbit } from "../subplebbit/remote-subplebbit.js";
 import { BaseClientsManager } from "../clients/base-client-manager.js";
 import { parseJsonWithPlebbitErrorIfFails, parsePageIpfsSchemaWithPlebbitErrorIfItFails } from "../schema/schema-util.js";
 import type { SubplebbitIpfsType } from "../subplebbit/types.js";
+import { buildRuntimeAuthor } from "../publications/publication-author.js";
 
 export const TIMEFRAMES_TO_SECONDS: Record<Timeframe, number> = Object.freeze({
     HOUR: 3600, // 60 * 60
@@ -139,16 +140,19 @@ export function mapModqueuePageIpfsCommentToModQueuePageJsonComment(
 ): CommentWithinModQueuePageJson {
     const postCid = pageComment.comment.postCid ?? (pageComment.comment.depth === 0 ? pageComment.commentUpdate.cid : undefined);
     if (!postCid) throw Error("Failed to infer postCid from pageIpfs.comments.comment");
+    const runtimeAuthor = buildRuntimeAuthor({
+        author: { ...(pageComment.comment.author || {}), ...(pageComment.commentUpdate.author || {}) },
+        signaturePublicKey: pageComment.comment.signature.publicKey
+    });
 
     return {
         ...pageComment.comment,
         ...pageComment.commentUpdate,
         signature: pageComment.comment.signature,
         author: {
-            ...pageComment.comment.author,
-            ...pageComment.commentUpdate.author,
-            shortAddress: shortifyAddress(pageComment.comment.author.address),
-            flairs: pageComment.commentUpdate?.author?.subplebbit?.flairs || pageComment.comment.author.flairs
+            ...runtimeAuthor,
+            shortAddress: shortifyAddress(runtimeAuthor.address),
+            flairs: pageComment.commentUpdate?.author?.subplebbit?.flairs || runtimeAuthor.flairs
         },
         shortCid: shortifyCid(pageComment.commentUpdate.cid),
         shortSubplebbitAddress: shortifyAddress(pageComment.comment.subplebbitAddress),
@@ -165,6 +169,10 @@ export function mapPageIpfsCommentToPageJsonComment(pageComment: PageIpfs["comme
     const parsedPages = pageComment.commentUpdate.replies ? parsePagesIpfs(pageComment.commentUpdate.replies) : undefined;
     const postCid = pageComment.comment.postCid ?? (pageComment.comment.depth === 0 ? pageComment.commentUpdate.cid : undefined);
     if (!postCid) throw Error("Failed to infer postCid from pageIpfs.comments.comment");
+    const runtimeAuthor = buildRuntimeAuthor({
+        author: { ...(pageComment.comment.author || {}), ...(pageComment.commentUpdate.author || {}) },
+        signaturePublicKey: pageComment.comment.signature.publicKey
+    });
 
     const spoiler =
         typeof pageComment.commentUpdate.spoiler === "boolean"
@@ -185,13 +193,12 @@ export function mapPageIpfsCommentToPageJsonComment(pageComment: PageIpfs["comme
         ...pageComment.commentUpdate,
         signature: pageComment.comment.signature,
         author: {
-            ...pageComment.comment.author,
-            ...pageComment.commentUpdate.author,
-            shortAddress: shortifyAddress(pageComment.comment.author.address),
+            ...runtimeAuthor,
+            shortAddress: shortifyAddress(runtimeAuthor.address),
             flairs:
                 pageComment.commentUpdate?.author?.subplebbit?.flairs ||
                 pageComment.commentUpdate?.edit?.author?.flairs ||
-                pageComment.comment.author.flairs
+                runtimeAuthor.flairs
         },
         shortCid: shortifyCid(pageComment.commentUpdate.cid),
         shortSubplebbitAddress: shortifyAddress(pageComment.comment.subplebbitAddress),

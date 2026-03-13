@@ -33,6 +33,13 @@ import type { Comment } from "../../../dist/node/publications/comment/comment.js
 // Protocol version constant
 const PROTOCOL_VERSION = "1.0.0";
 
+type LegacyCommentPublication = CommentPubsubMessagePublication & {
+    author: {
+        address?: string;
+        name?: string;
+    };
+};
+
 const fixtureSignature = {
     signature: "RTBNJ8bEnvEENOAxzk3pqxc9I3a0M9H7qlXsL5yu2frEEbJKqf789eFVnmyccmB99hyBb1Hyw5Soqma+RIxIAw",
     publicKey: "CFhuD55tmzZjWZ113tZbDw/AsuNDkgSdvCCbPeqiF10",
@@ -43,14 +50,14 @@ const fixtureSignature = {
 // Helper to create a comment with all required fields for signing
 function createCommentToSign(opts: {
     subplebbitAddress: string;
-    author: { address: string };
+    author?: CommentOptionsToSign["author"];
     signer: (typeof signers)[0];
     title?: string;
     content?: string;
 }): CommentOptionsToSign {
     return {
         subplebbitAddress: opts.subplebbitAddress,
-        author: opts.author,
+        ...(opts.author === undefined ? undefined : { author: opts.author }),
         timestamp: timestamp(),
         protocolVersion: PROTOCOL_VERSION,
         title: opts.title ?? "Test post signature",
@@ -75,7 +82,6 @@ describe("sign comment", async () => {
 
         const comment = createCommentToSign({
             subplebbitAddress: signers[0].address,
-            author: { address: signer.address },
             signer
         });
         const signature = await signComment({ comment, plebbit });
@@ -95,7 +101,6 @@ describe("sign comment", async () => {
         const signer = await plebbit.createSigner({ privateKey: signers[1].privateKey, type: "ed25519" });
         const comment = createCommentToSign({
             subplebbitAddress: signers[0].address,
-            author: { address: signer.address },
             signer
         });
         const signature = await signComment({ comment, plebbit });
@@ -113,7 +118,7 @@ describe("sign comment", async () => {
     it("signComment author signature is correct", async () => {
         // Note: fixtureComment doesn't have protocolVersion, and the expected signature was computed without it
         // We cast to CommentOptionsToSign to satisfy types while testing with historical fixture
-        const commentToSign = { ...fixtureComment, signer: signers[1] } as CommentOptionsToSign;
+        const commentToSign = { ...fixtureComment, signer: signers[1] } as unknown as CommentOptionsToSign;
         const authorSignature = await signComment({ comment: commentToSign, plebbit });
         expect(authorSignature).to.exist;
         expect(authorSignature.signature).to.equal(fixtureSignature.signature);
@@ -122,47 +127,61 @@ describe("sign comment", async () => {
         expect(authorSignature.signedPropertyNames.sort()).to.deep.equal(fixtureSignature.signedPropertyNames);
     });
 
-    it(`signComment throws with invalid author`, async () => {
-        const randomSigner = signers[3];
-        // Trying to sign a publication with author.address !== randomSigner.address
-        // should throw an error
-        try {
-            const commentToSign = { ...fixtureComment, signer: randomSigner } as CommentOptionsToSign;
-            await signComment({ comment: commentToSign, plebbit });
-            expect.fail("Should have thrown");
-        } catch (e) {
-            expect((e as { code: string }).code).to.equal("ERR_AUTHOR_ADDRESS_NOT_MATCHING_SIGNER");
-        }
-    });
-
-    it(`signComment throws with author.address not being an IPNS or domain`, async () => {
-        const cloneComment = remeda.clone(signedCommentClone);
-        (cloneComment as { signature?: unknown }).signature = undefined;
-        cloneComment.author.address = "gibbreish";
+    it(`signComment throws with author.name not being a domain`, async () => {
+        const cloneComment = remeda.clone(signedCommentClone) as CommentPubsubMessagePublication;
+        delete (cloneComment as { signature?: unknown }).signature;
+        cloneComment.author = { name: "gibbreish" };
         try {
             const commentToSign: CommentOptionsToSign = { ...cloneComment, protocolVersion: PROTOCOL_VERSION, signer: signers[7] };
             await signComment({ comment: commentToSign, plebbit });
+            expect.fail("Should have thrown");
         } catch (e) {
-            expect((e as { code: string }).code).to.equal("ERR_AUTHOR_ADDRESS_NOT_MATCHING_SIGNER");
+            expect((e as { code: string }).code).to.equal("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58");
         }
     });
-    it(`signComment throws with author.address=undefined`, async () => {
-        const cloneComment = remeda.clone(signedCommentClone);
-        (cloneComment as { signature?: unknown }).signature = undefined;
-        (cloneComment.author as { address: string | undefined }).address = undefined;
-        try {
-            const commentToSign = { ...cloneComment, protocolVersion: PROTOCOL_VERSION, signer: signers[7] } as CommentOptionsToSign;
-            await signComment({ comment: commentToSign, plebbit });
-        } catch (e) {
-            expect((e as { code: string }).code).to.equal("ERR_AUTHOR_ADDRESS_UNDEFINED");
-        }
+    it("can sign a comment without author", async () => {
+        const signer = signers[7];
+        const comment = createCommentToSign({
+            subplebbitAddress: signer.address,
+            signer,
+            title: "comment title",
+            content: "comment content"
+        });
+        const signature = await signComment({ comment, plebbit });
+        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer"]) };
+        const res = await verifyCommentPubsubMessage({
+            comment: signedComment,
+            resolveAuthorNames: plebbit.resolveAuthorNames,
+            clientsManager: plebbit._clientsManager,
+            overrideAuthorAddressIfInvalid: false
+        });
+        expect(res).to.deep.equal({ valid: true });
+    });
+    it("can sign a comment with author.name as domain", async () => {
+        const signer = signers[4];
+
+        const comment = createCommentToSign({
+            subplebbitAddress: signer.address,
+            author: { name: "plebbit.eth" },
+            signer,
+            title: "comment title",
+            content: "comment content"
+        });
+        const signature = await signComment({ comment, plebbit });
+        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer"]) };
+        const res = await verifyCommentPubsubMessage({
+            comment: signedComment,
+            resolveAuthorNames: false,
+            clientsManager: plebbit._clientsManager,
+            overrideAuthorAddressIfInvalid: false
+        });
+        expect(res).to.deep.equal({ valid: true });
     });
     it("can sign a comment with author.displayName = undefined", async () => {
         const signer = signers[4];
 
         const comment = createCommentToSign({
             subplebbitAddress: signer.address,
-            author: { address: signer.address },
             signer,
             title: "comment title",
             content: "comment content"
@@ -194,7 +213,7 @@ describeSkipIfRpc("verify Comment", async () => {
 
     it(`Valid signature fixture is validated correctly`, async () => {
         // Note: fixtureComment doesn't have protocolVersion, and the fixtureSignature was computed without it
-        const fixtureWithSignature = { ...fixtureComment, signature: fixtureSignature } as CommentPubsubMessagePublication;
+        const fixtureWithSignature = { ...fixtureComment, signature: fixtureSignature } as unknown as CommentPubsubMessagePublication;
         const verification = await verifyCommentPubsubMessage({
             comment: fixtureWithSignature,
             resolveAuthorNames: plebbit.resolveAuthorNames,
@@ -209,7 +228,7 @@ describeSkipIfRpc("verify Comment", async () => {
         invalidSignature.signature += "1";
 
         // Note: fixtureComment doesn't have protocolVersion
-        const wronglySignedPublication = { ...fixtureComment, signature: invalidSignature } as CommentPubsubMessagePublication;
+        const wronglySignedPublication = { ...fixtureComment, signature: invalidSignature } as unknown as CommentPubsubMessagePublication;
         const verification = await verifyCommentPubsubMessage({
             comment: wronglySignedPublication,
             resolveAuthorNames: plebbit.resolveAuthorNames,
@@ -244,36 +263,42 @@ describeSkipIfRpc("verify Comment", async () => {
         expect(verification).to.deep.equal({ valid: true });
     });
 
-    it(`verifyCommentPubsubMessage invalidates a comment with author.address not a domain or IPNS`, async () => {
-        // Note: fixtureComment doesn't have protocolVersion
-        const comment = remeda.clone({ ...fixtureComment, signature: fixtureSignature }) as CommentPubsubMessagePublication;
-        comment.author.address = "gibbresish"; // Not a domain or IPNS
+    it(`verifyCommentPubsubMessage invalidates a comment with author.name not a domain`, async () => {
+        const comment = remeda.clone({ ...fixtureComment, signature: fixtureSignature }) as unknown as LegacyCommentPublication;
+        comment.author.name = "gibbresish";
         const verification = await verifyCommentPubsubMessage({
-            comment,
+            comment: comment as unknown as CommentPubsubMessagePublication,
             resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58 });
     });
-    it("verifyCommentPubsubMessage invalidates a comment with author.address = undefined", async () => {
-        // Note: fixtureComment doesn't have protocolVersion
-        const comment = remeda.clone({ ...fixtureComment, signature: fixtureSignature }) as CommentPubsubMessagePublication;
-        (comment.author as { address: string | undefined }).address = undefined; // Not a domain or IPNS
+    it("verifyCommentPubsubMessage validates a comment without author", async () => {
+        const signer = await plebbit.createSigner();
+        const commentToSign = createCommentToSign({
+            subplebbitAddress: signers[0].address,
+            signer,
+            title: "Authorless verification",
+            content: "some content"
+        });
+        const comment: CommentPubsubMessagePublication = {
+            ...remeda.omit(commentToSign, ["signer"]),
+            signature: await signComment({ comment: commentToSign, plebbit })
+        };
         const verification = await verifyCommentPubsubMessage({
             comment,
             resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false
         });
-        expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_AUTHOR_ADDRESS_UNDEFINED });
+        expect(verification).to.deep.equal({ valid: true });
     });
 
     it(`Can sign and verify a comment with flairs`, async () => {
         const signer = await plebbit.createSigner();
         const commentToSign: CommentOptionsToSign = {
             subplebbitAddress: signers[0].address,
-            author: { address: signer.address },
             timestamp: timestamp(),
             protocolVersion: PROTOCOL_VERSION,
             title: "Post with flairs",
@@ -297,7 +322,7 @@ describeSkipIfRpc("verify Comment", async () => {
         const signer = await plebbit.createSigner();
         const commentToSign: CommentOptionsToSign = {
             subplebbitAddress: signers[0].address,
-            author: { address: signer.address, flairs: [{ text: "Original" }] },
+            author: { flairs: [{ text: "Original" }] },
             timestamp: timestamp(),
             protocolVersion: PROTOCOL_VERSION,
             title: "Post with author flairs",
@@ -323,7 +348,6 @@ describeSkipIfRpc("verify Comment", async () => {
         const signer = await plebbit.createSigner();
         const commentToSign: CommentOptionsToSign = {
             subplebbitAddress: signers[0].address,
-            author: { address: signer.address },
             timestamp: timestamp(),
             protocolVersion: PROTOCOL_VERSION,
             title: "Post to be mod-flaired",
@@ -347,19 +371,19 @@ describeSkipIfRpc("verify Comment", async () => {
 });
 
 // Clients of RPC will trust the response of RPC and won't validate
-describeSkipIfRpc(`Comment with author.address as domain`, async () => {
-    it(`verifyCommentPubsubMessage corrects author.address(domain) if it resolves to a different author (overrideAuthorAddressIfInvalid=true)`, async () => {
+describeSkipIfRpc(`Comment with author.name as domain`, async () => {
+    it(`verifyCommentPubsubMessage uses derived signer address if author.name resolves to a different author (overrideAuthorAddressIfInvalid=true)`, async () => {
         const tempPlebbit = await mockRemotePlebbit();
-        tempPlebbit._clientsManager.resolveAuthorNameIfNeeded = async (authorAddress: string) =>
-            authorAddress === "testDomain.eth" ? fixtureComment.author.address : authorAddress;
-        const commentWithInvalidDomain = remeda.clone(fixtureComment);
-        commentWithInvalidDomain.author.address = "testDomain.eth";
-        // Note: fixtureComment doesn't have protocolVersion
-        const commentToSign = { ...commentWithInvalidDomain, signer: signers[1] } as CommentOptionsToSign;
+        const commentToSign = createCommentToSign({
+            subplebbitAddress: signers[0].address,
+            author: { name: "testDomain.eth" },
+            signer: signers[1],
+            content: "domain identity claim"
+        });
         const signedPublication = {
             ...remeda.omit(commentToSign, ["signer"]),
             signature: await signComment({ comment: commentToSign, plebbit: tempPlebbit })
-        } as CommentPubsubMessagePublication;
+        } satisfies CommentPubsubMessagePublication;
         tempPlebbit._clientsManager.resolveAuthorNameIfNeeded = async (authorAddress: string) =>
             authorAddress === "testDomain.eth" ? signers[6].address : authorAddress; // testDomain.eth no longer points to the same author
 
@@ -370,7 +394,7 @@ describeSkipIfRpc(`Comment with author.address as domain`, async () => {
             overrideAuthorAddressIfInvalid: true
         });
         expect(verificaiton).to.deep.equal({ valid: true, derivedAddress: signers[1].address });
-        expect(signedPublication.author.address).to.equal(fixtureComment.author.address); // It has been corrected to the original signer even though resolver is resolving to signers[6]
+        expect(signedPublication.author?.name).to.equal("testDomain.eth");
         await tempPlebbit.destroy();
     });
     it(`Comment with invalid author domain address will will be invalidated (overrideAuthorAddressIfInvalid=false)`, async () => {
@@ -502,7 +526,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
 
     it(`A commentUpdate with an edit signed by other than original author will be rejected`, async () => {
         const update = remeda.clone(validCommentUpdateWithAuthorEditFixture) as CommentUpdateType & {
-            edit: { author: { address: string }; signature?: unknown; signer?: unknown };
+            edit: { author?: { name?: string }; signature?: unknown; signer?: unknown };
         };
         const commentForVerify: Pick<CommentIpfsWithCidPostCidDefined, "signature" | "postCid" | "depth" | "cid"> = {
             cid: update.cid,
@@ -522,7 +546,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
                 validateUpdateSignature: true
             })
         ).to.deep.equal({ valid: true });
-        update.edit.author.address = signers[7].address;
+        update.edit.author = { name: "attacker.eth" };
         update.edit.signature = await signCommentEdit({
             edit: { ...update.edit, signer: signers[7] } as Parameters<typeof signCommentEdit>[0]["edit"],
             plebbit

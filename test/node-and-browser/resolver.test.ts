@@ -17,7 +17,6 @@ import type { Plebbit } from "../../dist/node/plebbit/plebbit.js";
 import type { RemoteSubplebbit } from "../../dist/node/subplebbit/remote-subplebbit.js";
 import type { Comment } from "../../dist/node/publications/comment/comment.js";
 import { NameResolverSchema } from "../../dist/node/schema.js";
-import type { CachedTextRecordResolve } from "../../dist/node/clients/base-client-manager.js";
 
 const mockComments: Comment[] = [];
 
@@ -31,17 +30,17 @@ describe("Comments with Authors as domains", async () => {
         await plebbit.destroy();
     });
 
-    it(`Sub accepts posts with author.address as a domain that resolves to comment signer `, async () => {
-        // I've mocked plebbit.resolver.resolveAuthorNameIfNeeded to return signers[6] address for plebbit.bso
+    it(`Sub accepts posts with author.name as a domain that resolves to comment signer `, async () => {
+        // mockRemotePlebbit resolves plebbit.bso to signers[3]
         const mockPost = await plebbit.createComment({
-            author: { displayName: `Mock Author - ${Date.now()}`, address: "plebbit.bso" },
-            signer: signers[6],
+            author: { displayName: `Mock Author - ${Date.now()}`, name: "plebbit.bso" },
+            signer: signers[3],
             content: `Mock post - ${Date.now()}`,
             title: "Mock post title",
             subplebbitAddress: signers[0].address
         });
         const resolvedAuthorAddress = await plebbit.resolveAuthorName({ address: mockPost.author.address });
-        expect(resolvedAuthorAddress).to.equal(signers[6].address);
+        expect(resolvedAuthorAddress).to.equal(signers[3].address);
 
         expect(mockPost.author.address).to.equal("plebbit.bso");
 
@@ -53,9 +52,9 @@ describe("Comments with Authors as domains", async () => {
         mockComments.push(mockPost);
     });
 
-    itSkipIfRpc(`Subplebbit rejects a comment if plebbit-author-address points to a different address than signer`, async () => {
-        // There are two mocks of resovleAuthorAddressIfNeeded, one return null on testgibbreish.bso (server side) and this one returns signers[6]
-        // The purpose is to test whether server rejects publications that has different plebbit-author-address and signer address
+    itSkipIfRpc(`Subplebbit rejects a comment if author.name resolves to a different address than signer`, async () => {
+        // There are two mocks of resolveAuthorNameIfNeeded, one returns null on testgibbreish.bso (server side) and this one returns signers[6]
+        // The purpose is to test whether server rejects publications whose claimed author.name resolves to another signer
 
         const authorAddress = "testgibbreish.bso";
         const tempPlebbit = await mockPlebbitV2({ stubStorage: false, remotePlebbit: true });
@@ -68,7 +67,7 @@ describe("Comments with Authors as domains", async () => {
         });
 
         const mockPost = await tempPlebbit.createComment({
-            author: { displayName: `Mock Author - ${Date.now()}`, address: authorAddress },
+            author: { displayName: `Mock Author - ${Date.now()}`, name: authorAddress },
             signer: signers[6],
             content: `Mock comment - ${Date.now()}`,
             title: "Mock post Title",
@@ -86,23 +85,20 @@ describe("Comments with Authors as domains", async () => {
         await tempPlebbit.destroy();
     });
 
-    itSkipIfRpc(
-        `comment.update() corrects author.address to derived address in case plebbit-author-address points to another address`,
-        async () => {
-            const tempPlebbit = await mockRemotePlebbit();
-            const comment = await tempPlebbit.createComment({ cid: mockComments[mockComments.length - 1].cid });
-            const originalResolvingFunction = comment._clientsManager.resolveAuthorNameIfNeeded.bind(comment._clientsManager);
-            // verifyComment in comment.update should overwrite author.address to derived address
-            await comment.update();
-            mockUpdatingCommentResolvingAuthor(comment, async (authorAddress: string) =>
-                authorAddress === "plebbit.bso" ? signers[7].address : originalResolvingFunction(authorAddress)
-            );
-            await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => Boolean(comment.author?.address) });
-            await comment.stop();
-            expect(comment.author.address).to.equal(signers[6].address);
-            await tempPlebbit.destroy();
-        }
-    );
+    itSkipIfRpc(`comment.update() corrects author.address to derived address in case author.name resolves to another address`, async () => {
+        const tempPlebbit = await mockRemotePlebbit();
+        const comment = await tempPlebbit.createComment({ cid: mockComments[mockComments.length - 1].cid });
+        const originalResolvingFunction = comment._clientsManager.resolveAuthorNameIfNeeded.bind(comment._clientsManager);
+        // verifyComment in comment.update should overwrite author.address to the derived signer address
+        await comment.update();
+        mockUpdatingCommentResolvingAuthor(comment, async (authorAddress: string) =>
+            authorAddress === "plebbit.bso" ? signers[7].address : originalResolvingFunction(authorAddress)
+        );
+        await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => Boolean(comment.author?.address) });
+        await comment.stop();
+        expect(comment.author.address).to.equal(signers[3].address);
+        await tempPlebbit.destroy();
+    });
 });
 
 describe(`Vote with authors as domains`, async () => {
@@ -119,7 +115,7 @@ describe(`Vote with authors as domains`, async () => {
         await plebbit.destroy();
     });
 
-    itSkipIfRpc(`Subplebbit rejects a Vote with author.address (domain) that resolves to a different signer`, async () => {
+    itSkipIfRpc(`Subplebbit rejects a Vote with author.name (domain) that resolves to a different signer`, async () => {
         const tempPlebbit = await mockPlebbitV2({ stubStorage: false, remotePlebbit: true });
         const authorAddress = "testgibbreish.bso";
         await mockCacheOfTextRecord({
@@ -130,7 +126,7 @@ describe(`Vote with authors as domains`, async () => {
         });
 
         const vote = await tempPlebbit.createVote({
-            author: { address: authorAddress },
+            author: { name: authorAddress },
             signer: signers[6],
             commentCid: comment.cid!,
             vote: -1,
@@ -271,7 +267,7 @@ describe("Comments with Authors as .bso domains", async () => {
         await plebbit.destroy();
     });
 
-    itSkipIfRpc(`Sub accepts posts with author.address as .bso domain that resolves to comment signer`, async () => {
+    itSkipIfRpc(`Sub accepts posts with author.name as .bso domain that resolves to comment signer`, async () => {
         // Mock the cache so plebbit.bso resolves to signers[6] address (same as plebbit.eth mock)
         await mockCacheOfTextRecord({
             plebbit,
@@ -281,7 +277,7 @@ describe("Comments with Authors as .bso domains", async () => {
         });
 
         const mockPost = await plebbit.createComment({
-            author: { displayName: `Mock Author - ${Date.now()}`, address: "plebbit.bso" },
+            author: { displayName: `Mock Author - ${Date.now()}`, name: "plebbit.bso" },
             signer: signers[6],
             content: `Mock post - ${Date.now()}`,
             title: "Mock post title .bso",
@@ -369,8 +365,6 @@ describeSkipIfRpc(`nameResolver canResolve filtering`, async () => {
         expect(resolverCalls).to.deep.equal(["eth-resolver"]);
 
         resolverCalls.length = 0;
-        // clear cache so next resolve goes through resolvers again
-        await plebbit._clientsManager.clearDomainCache("test.ton", "community");
         const resolvedTon = await plebbit._clientsManager.resolveCommunityNameIfNeeded("test.ton");
         expect(resolvedTon).to.equal(tonIpns);
         expect(resolverCalls).to.deep.equal(["ton-resolver"]);
@@ -575,7 +569,7 @@ describeSkipIfRpc(`nameResolver abortSignal support`, async () => {
     });
 });
 
-describeSkipIfRpc(`nameResolver caching behavior`, async () => {
+describeSkipIfRpc(`nameResolver resolution behavior`, async () => {
     it(`resolveCommunityNameIfNeeded returns IPNS address as-is without calling resolvers`, async () => {
         let resolverCalled = false;
 
@@ -630,7 +624,7 @@ describeSkipIfRpc(`nameResolver caching behavior`, async () => {
         await plebbit.destroy();
     });
 
-    it(`clearDomainCache removes cached entry and forces re-resolution`, async () => {
+    it(`resolveCommunityNameIfNeeded re-resolves on each call`, async () => {
         const firstIpns = "12D3KooWJJcSwxH2F3sFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
         const secondIpns = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
         let callCount = 0;
@@ -654,112 +648,13 @@ describeSkipIfRpc(`nameResolver caching behavior`, async () => {
             }
         });
 
-        // First resolution should call the resolver and cache the result
         const resolved1 = await plebbit._clientsManager.resolveCommunityNameIfNeeded("cached.bso");
         expect(resolved1).to.equal(firstIpns);
         expect(callCount).to.equal(1);
 
-        // Second resolution should return cached value (resolver not called again)
         const resolved2 = await plebbit._clientsManager.resolveCommunityNameIfNeeded("cached.bso");
-        expect(resolved2).to.equal(firstIpns);
-        expect(callCount).to.equal(1);
-
-        // Clear the cache
-        await plebbit._clientsManager.clearDomainCache("cached.bso", "community");
-
-        // Third resolution should call the resolver again
-        const resolved3 = await plebbit._clientsManager.resolveCommunityNameIfNeeded("cached.bso");
-        expect(resolved3).to.equal(secondIpns);
+        expect(resolved2).to.equal(secondIpns);
         expect(callCount).to.equal(2);
-        await plebbit.destroy();
-    });
-
-    it(`Stale cache returns old value immediately while refreshing in background`, async () => {
-        const oldIpns = "12D3KooWJJcSwxH2F3sFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
-        const newIpns = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
-
-        const plebbit = await mockPlebbitV2({
-            remotePlebbit: true,
-            mockResolve: false,
-            stubStorage: false,
-            plebbitOptions: {
-                nameResolvers: [
-                    {
-                        key: "fresh-resolver",
-                        canResolve: () => true,
-                        resolve: async () => ({ publicKey: newIpns }),
-                        provider: "provider"
-                    }
-                ]
-            }
-        });
-
-        // Manually insert a stale cache entry (timestampSeconds set to > 1 hour ago)
-        const cacheKey = plebbit._clientsManager._getKeyOfCachedDomainTextRecord("stale.bso", "community");
-        const staleTimestamp = Math.round(Date.now() / 1000) - 3601; // 1 hour + 1 second ago
-        const staleCacheEntry: CachedTextRecordResolve = { timestampSeconds: staleTimestamp, valueOfTextRecord: oldIpns };
-        await plebbit._storage.setItem(cacheKey, staleCacheEntry);
-
-        // Resolution should return the old (stale) value immediately
-        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded("stale.bso");
-        expect(resolved).to.equal(oldIpns);
-
-        // Wait a bit for the background refresh to complete
-        await new Promise((resolve) => setTimeout(resolve, 500));
-
-        // The background refresh should have updated the cache
-        const updatedCache = await plebbit._storage.getItem(cacheKey);
-        expect(updatedCache).to.not.be.undefined;
-        expect((updatedCache as CachedTextRecordResolve).valueOfTextRecord).to.equal(newIpns);
-        await plebbit.destroy();
-    });
-
-    it(`Cache entry older than 1 hour is considered stale`, async () => {
-        const cachedIpns = "12D3KooWJJcSwxH2F3sFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
-        let resolverCallCount = 0;
-
-        const plebbit = await mockPlebbitV2({
-            remotePlebbit: true,
-            mockResolve: false,
-            stubStorage: false,
-            plebbitOptions: {
-                nameResolvers: [
-                    {
-                        key: "ttl-resolver",
-                        canResolve: () => true,
-                        resolve: async () => {
-                            resolverCallCount++;
-                            return { publicKey: cachedIpns };
-                        },
-                        provider: "provider"
-                    }
-                ]
-            }
-        });
-
-        // Insert a fresh cache entry (current timestamp)
-        const cacheKey = plebbit._clientsManager._getKeyOfCachedDomainTextRecord("fresh.bso", "community");
-        const freshTimestamp = Math.round(Date.now() / 1000);
-        const freshCacheEntry: CachedTextRecordResolve = { timestampSeconds: freshTimestamp, valueOfTextRecord: cachedIpns };
-        await plebbit._storage.setItem(cacheKey, freshCacheEntry);
-
-        // Resolution with fresh cache should NOT trigger resolver
-        await plebbit._clientsManager.resolveCommunityNameIfNeeded("fresh.bso");
-        expect(resolverCallCount).to.equal(0);
-
-        // Now set the cache to be stale (> 1 hour old)
-        const staleTimestamp = Math.round(Date.now() / 1000) - 7200; // 2 hours ago
-        const staleCacheEntry: CachedTextRecordResolve = { timestampSeconds: staleTimestamp, valueOfTextRecord: cachedIpns };
-        await plebbit._storage.setItem(cacheKey, staleCacheEntry);
-
-        // Resolution with stale cache should return cached value but trigger background refresh
-        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded("fresh.bso");
-        expect(resolved).to.equal(cachedIpns);
-
-        // Wait for background refresh to complete
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        // The resolver should have been called once by the background refresh
-        expect(resolverCallCount).to.equal(1);
         await plebbit.destroy();
     });
 });
@@ -897,9 +792,6 @@ describeSkipIfRpc(`nameResolver runtime modification`, async () => {
         const resolved1 = await plebbit._clientsManager.resolveCommunityNameIfNeeded("runtime.bso");
         expect(resolved1).to.equal(firstIpns);
 
-        // Clear cache so next resolve goes through resolvers
-        await plebbit._clientsManager.clearDomainCache("runtime.bso", "community");
-
         // Swap resolvers at runtime
         plebbit.nameResolvers = [
             {
@@ -965,12 +857,12 @@ describeSkipIfRpc(`CommentEdit with author as domain`, async () => {
 
     beforeAll(async () => {
         plebbit = await mockRemotePlebbit();
-        // Publish a post with author.address as domain
+        // Publish a post with author.name as domain
         postToEdit = await publishRandomPost({
             subplebbitAddress: signers[0].address,
             plebbit: plebbit,
             postProps: {
-                author: { address: "plebbit.bso" },
+                author: { name: "plebbit.bso" },
                 signer: signers[6]
             }
         });
@@ -980,7 +872,7 @@ describeSkipIfRpc(`CommentEdit with author as domain`, async () => {
         await plebbit.destroy();
     });
 
-    it(`Sub accepts CommentEdit from author with domain address`, async () => {
+    it(`Sub accepts CommentEdit from author with domain name`, async () => {
         const commentEdit = await plebbit.createCommentEdit({
             subplebbitAddress: postToEdit.subplebbitAddress,
             commentCid: postToEdit.cid!,

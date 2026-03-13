@@ -145,7 +145,7 @@ describeSkipIfRpc("db-handler duplicate signature purge during migration", funct
         const editToInsert: CommentEditsTableRowInsert = {
             commentCid,
             authorSignerAddress,
-            author: { address: authorSignerAddress },
+            author: {},
             signature: makeSignature(signatureValue),
             protocolVersion,
             subplebbitAddress,

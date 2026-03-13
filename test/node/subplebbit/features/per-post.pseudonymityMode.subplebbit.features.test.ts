@@ -2067,7 +2067,6 @@ async function buildSignedReplyPublication({
 }) {
     const base = {
         signer,
-        author: { address: signer.address },
         subplebbitAddress,
         timestamp: timestamp(),
         protocolVersion: PROTOCOL_VERSION,
@@ -2090,7 +2089,6 @@ async function buildSignedPostPublication({
 }) {
     const base = {
         signer,
-        author: { address: signer.address },
         subplebbitAddress,
         timestamp: timestamp(),
         protocolVersion: PROTOCOL_VERSION,

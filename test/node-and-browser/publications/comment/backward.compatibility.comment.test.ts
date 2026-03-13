@@ -6,16 +6,21 @@ import {
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
     iterateThroughPagesToFindCommentInParentPagesInstance,
-    waitTillPostInSubplebbitPages
+    waitTillPostInSubplebbitPages,
+    addStringToIpfs
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { _signJson } from "../../../../dist/node/signer/signatures.js";
+import { getPlebbitAddressFromPublicKeySync } from "../../../../dist/node/signer/util.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
+import validPageIpfsFixture from "../../../fixtures/valid_page.json" with { type: "json" };
 import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
+import type { CommentWithinRepliesPostsPageJson } from "../../../../dist/node/publications/comment/types.js";
 
 type CommentWithExtraProp = Comment & { extraProp?: string };
 type AuthorWithExtraProp = { extraProp?: string };
+type LegacyRawAuthor = { address?: string; name?: string; publicKey?: string };
 
 const subplebbitAddress = signers[0].address;
 
@@ -233,6 +238,54 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
                 for (const shape of shapes) expect((shape!.author as AuthorWithExtraProp).extraProp).to.equal(extraProps.extraProp);
             });
+        });
+    });
+
+    describe.sequential(`Loading legacy pages with old author.address wire field - ${config.name}`, async () => {
+        let plebbit: Plebbit;
+
+        beforeAll(async () => {
+            plebbit = await config.plebbitInstancePromise();
+        });
+
+        afterAll(async () => {
+            await plebbit.destroy();
+        });
+
+        it(`loads a legacy page and computes runtime author fields without rewriting raw wire author`, async () => {
+            const pageCid = await addStringToIpfs(JSON.stringify(validPageIpfsFixture));
+            const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const loadedPage = await subplebbit.posts.getPage({ cid: pageCid });
+
+            const legacyDomainComment = loadedPage.comments.find(
+                (comment) =>
+                    typeof (comment.raw.comment.author as LegacyRawAuthor | undefined)?.address === "string" &&
+                    (comment.raw.comment.author as LegacyRawAuthor).address!.includes(".")
+            ) as CommentWithinRepliesPostsPageJson | undefined;
+            const legacyBase58Comment = loadedPage.comments.find(
+                (comment) =>
+                    typeof (comment.raw.comment.author as LegacyRawAuthor | undefined)?.address === "string" &&
+                    !(comment.raw.comment.author as LegacyRawAuthor).address!.includes(".")
+            ) as CommentWithinRepliesPostsPageJson | undefined;
+
+            expect(legacyDomainComment).to.exist;
+            expect(legacyBase58Comment).to.exist;
+
+            const expectedDomainPublicKey = getPlebbitAddressFromPublicKeySync(legacyDomainComment!.raw.comment.signature.publicKey);
+            expect(legacyDomainComment!.author.publicKey).to.equal(expectedDomainPublicKey);
+            expect(legacyDomainComment!.author.name).to.equal("plebbit.eth");
+            expect(legacyDomainComment!.author.address).to.equal("plebbit.eth");
+            expect((legacyDomainComment!.raw.comment.author as LegacyRawAuthor).address).to.equal("plebbit.eth");
+            expect((legacyDomainComment!.raw.comment.author as LegacyRawAuthor).name).to.be.undefined;
+            expect((legacyDomainComment!.raw.comment.author as LegacyRawAuthor).publicKey).to.be.undefined;
+
+            const expectedBase58PublicKey = getPlebbitAddressFromPublicKeySync(legacyBase58Comment!.raw.comment.signature.publicKey);
+            expect(legacyBase58Comment!.author.publicKey).to.equal(expectedBase58PublicKey);
+            expect(legacyBase58Comment!.author.name).to.be.undefined;
+            expect(legacyBase58Comment!.author.address).to.equal(expectedBase58PublicKey);
+            expect((legacyBase58Comment!.raw.comment.author as LegacyRawAuthor).address).to.equal(expectedBase58PublicKey);
+            expect((legacyBase58Comment!.raw.comment.author as LegacyRawAuthor).name).to.be.undefined;
+            expect((legacyBase58Comment!.raw.comment.author as LegacyRawAuthor).publicKey).to.be.undefined;
         });
     });
 });

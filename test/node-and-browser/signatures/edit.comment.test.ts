@@ -23,7 +23,7 @@ describe("Sign commentedit", async () => {
         plebbit = await mockRemotePlebbit();
         subplebbit = await plebbit.getSubplebbit({ address: signers[0].address });
         editProps = {
-            author: { address: signers[7].address },
+            author: { displayName: "Editor" },
             subplebbitAddress: subplebbit.address,
             commentCid: subplebbit.lastPostCid!,
             reason: "New comment edit",
@@ -57,25 +57,22 @@ describe("Sign commentedit", async () => {
         expect(verification).to.deep.equal({ valid: true });
     });
 
-    it(`signCommentEdit throws with author.address not being an IPNS or domain`, async () => {
+    it(`signCommentEdit throws with author.name not being a domain`, async () => {
         const cloneEdit = remeda.clone(editProps);
-        cloneEdit.author.address = "gibbreish";
+        cloneEdit.author = { name: "gibbreish" };
         try {
             await signCommentEdit({ edit: { ...cloneEdit, signer: signers[7] }, plebbit });
             expect.fail("Should have thrown");
         } catch (e) {
-            expect((e as { code: string }).code).to.equal("ERR_AUTHOR_ADDRESS_NOT_MATCHING_SIGNER");
+            expect((e as { code: string }).code).to.equal("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58");
         }
     });
-    it(`SignCommentEdit throws with author.address=undefined`, async () => {
-        const cloneEdit = remeda.clone(editProps);
-        (cloneEdit.author as { address: string | undefined }).address = undefined;
-        try {
-            await signCommentEdit({ edit: { ...cloneEdit, signer: signers[7] } as CommentEditOptionsToSign, plebbit });
-            expect.fail("Should have thrown");
-        } catch (e) {
-            expect((e as { code: string }).code).to.equal("ERR_AUTHOR_ADDRESS_UNDEFINED");
-        }
+    it(`signCommentEdit allows author to be omitted`, async () => {
+        const signature = await signCommentEdit({
+            edit: { ...remeda.omit(editProps, ["author"]), signer: signers[7] } as CommentEditOptionsToSign,
+            plebbit
+        });
+        expect(signature.publicKey).to.equal(signers[7].publicKey);
     });
 });
 
@@ -84,7 +81,7 @@ describeSkipIfRpc("Verify CommentEdit", async () => {
     let plebbit: PlebbitType;
     beforeAll(async () => {
         plebbit = await mockRemotePlebbit();
-        await plebbit.createCommentEdit(validCommentEditFixture); // should throw if it has an invalid schema
+        await plebbit.createCommentEdit(validCommentEditFixture as unknown as CommentEditPubsubMessagePublication); // should throw if it has an invalid schema
     });
     it(`Valid CommentEdit signature fixture is validated correctly`, async () => {
         const edit = remeda.clone(validCommentEditFixture) as CommentEditPubsubMessagePublication;
@@ -109,9 +106,9 @@ describeSkipIfRpc("Verify CommentEdit", async () => {
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
 
-    it(`verifyCommentEdit invalidates a commentEdit with author.address not a domain or IPNS`, async () => {
+    it(`verifyCommentEdit invalidates a commentEdit with author.name not a domain`, async () => {
         const edit = remeda.clone(validCommentEditFixture) as CommentEditPubsubMessagePublication;
-        edit.author.address = "gibbresish"; // Not a domain or IPNS
+        edit.author = { ...(edit.author || {}), name: "gibbresish" };
         const verification = await verifyCommentEdit({
             edit,
             resolveAuthorNames: plebbit.resolveAuthorNames,
@@ -120,15 +117,15 @@ describeSkipIfRpc("Verify CommentEdit", async () => {
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58 });
     });
-    it("verifyCommentEdit invalidates a commentEdit with author.address = undefined", async () => {
+    it("verifyCommentEdit invalidates a legacy commentEdit with author removed because the signature changes", async () => {
         const edit = remeda.clone(validCommentEditFixture) as CommentEditPubsubMessagePublication;
-        (edit.author as { address: string | undefined }).address = undefined; // Not a domain or IPNS
+        delete edit.author;
         const verification = await verifyCommentEdit({
             edit,
             resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
             overrideAuthorAddressIfInvalid: false
         });
-        expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_AUTHOR_ADDRESS_UNDEFINED });
+        expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
 });

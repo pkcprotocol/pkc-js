@@ -89,43 +89,41 @@ describeSkipIfRpc(`verify pages`, async () => {
     it(`verifyPage will validate a page with comment.author.address (domain) that resolves to address different than author's. It will also override the domain with actual address (overrideAuthorAddress=true)`, async () => {
         // verifyPage would override the incorrect domain
         const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
-        const commentWithDomainAddressIndex = invalidPage.comments.findIndex((pageComment) =>
-            pageComment.comment.author.address.includes(".")
+        const commentWithDomainAddressIndex = invalidPage.comments.findIndex(
+            (pageComment) => typeof (pageComment.comment.author as { address?: unknown }).address === "string"
         );
         expect(commentWithDomainAddressIndex).to.be.greaterThanOrEqual(0);
+        const domainAddress = (invalidPage.comments[commentWithDomainAddressIndex].comment.author as { address: string }).address;
 
         const tempPlebbit: PlebbitType = await mockRemotePlebbit();
 
         tempPlebbit._clientsManager.resolveAuthorNameIfNeeded = async (authorAddress) =>
-            authorAddress === invalidPage.comments[commentWithDomainAddressIndex].comment.author.address
-                ? signers[3].address
-                : authorAddress; // Resolve to wrong address intentionally. Correct address would be signers[6].address
+            authorAddress === domainAddress ? signers[3].address : authorAddress; // Resolve to wrong address intentionally. Correct address would be signers[6].address
 
         const overrideAuthorAddress = true;
         const verification = await verifyPageJsonAlongWithObject(invalidPage, tempPlebbit, subplebbit, undefined, overrideAuthorAddress); // comments[commentWithDomainAddressIndex] author address should be modified after
         expect(verification).to.deep.equal({ valid: true });
-        expect(invalidPage.comments[commentWithDomainAddressIndex].comment.author.address).to.equal(signers[6].address);
+        expect((invalidPage.comments[commentWithDomainAddressIndex].comment.author as { address: string }).address).to.equal(domainAddress);
         await tempPlebbit.destroy();
     });
 
     it(`verifyPage will invalidate validate a page with comment.author.address (domain) that resolves to address different than author's (overrideAuthorAddress=false)`, async () => {
         const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
-        const commentWithDomainAddressIndex = invalidPage.comments.findIndex((pageComment) =>
-            pageComment.comment.author.address.includes(".")
+        const commentWithDomainAddressIndex = invalidPage.comments.findIndex(
+            (pageComment) => typeof (pageComment.comment.author as { address?: unknown }).address === "string"
         );
         expect(commentWithDomainAddressIndex).to.be.greaterThanOrEqual(0);
+        const domainAddress = (invalidPage.comments[commentWithDomainAddressIndex].comment.author as { address: string }).address;
 
         const tempPlebbit: PlebbitType = await mockRemotePlebbit();
 
         tempPlebbit._clientsManager.resolveAuthorNameIfNeeded = async (authorAddress) =>
-            authorAddress === invalidPage.comments[commentWithDomainAddressIndex].comment.author.address
-                ? signers[3].address
-                : authorAddress; // Resolve to wrong address intentionally. Correct address would be signers[6].address
+            authorAddress === domainAddress ? signers[3].address : authorAddress; // Resolve to wrong address intentionally. Correct address would be signers[6].address
 
         const overrideAuthorAddress = false;
         const verification = await verifyPageJsonAlongWithObject(invalidPage, tempPlebbit, subplebbit, undefined, overrideAuthorAddress); // comments[commentWithDomainAddressIndex] author address should be modified after
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_AUTHOR_NOT_MATCHING_SIGNATURE });
-        expect(invalidPage.comments[commentWithDomainAddressIndex].comment.author.address).to.equal("plebbit.eth");
+        expect((invalidPage.comments[commentWithDomainAddressIndex].comment.author as { address: string }).address).to.equal(domainAddress);
         await tempPlebbit.destroy();
     });
 
@@ -223,7 +221,8 @@ describeSkipIfRpc(`verify pages`, async () => {
         });
         it(`comment.author.address (ed25519)`, async () => {
             const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
-            invalidPage.comments[0].comment.author.address = "12D3KooWJJcSwMHrFvsFL7YCNDLD93kBczEfkHpPNdxcjZwR2X2Y"; // Random address
+            (invalidPage.comments[0].comment.author as { address: string }).address =
+                "12D3KooWJJcSwMHrFvsFL7YCNDLD93kBczEfkHpPNdxcjZwR2X2Y"; // Random address
             const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_AUTHOR_NOT_MATCHING_SIGNATURE });
         });

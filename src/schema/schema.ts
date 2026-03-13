@@ -69,7 +69,7 @@ export const FlairSchema = z.looseObject({
 // When author creates their publication, this is publication.author
 export const AuthorPubsubSchema = z
     .object({
-        address: AuthorAddressSchema,
+        name: z.string().min(1).optional(),
         previousCommentCid: CidStringSchema.optional(),
         displayName: z.string().optional(),
         wallets: AuthorWalletsSchema.optional(),
@@ -107,7 +107,7 @@ export const JsonSignatureSchema = z.object({
 export const PublicationBaseBeforeSigning = z.object({
     signer: SignerWithAddressPublicKeySchema,
     timestamp: PlebbitTimestampSchema,
-    author: AuthorPubsubSchema,
+    author: AuthorPubsubSchema.optional(),
     protocolVersion: ProtocolVersionSchema
 });
 
@@ -150,6 +150,6 @@ export const AuthorWithOptionalCommentUpdateSchema = AuthorPubsubSchema.extend({
 });
 
 export const AuthorReservedFields = remeda.difference(
-    [...remeda.keys.strict(AuthorWithOptionalCommentUpdateSchema.shape), "shortAddress"],
+    [...remeda.keys.strict(AuthorWithOptionalCommentUpdateSchema.shape), "address", "publicKey", "shortAddress"],
     remeda.keys.strict(AuthorPubsubSchema.shape)
 );

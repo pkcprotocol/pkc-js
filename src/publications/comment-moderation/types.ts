@@ -6,7 +6,7 @@ import {
     CommentModerationSignedPropertyNames,
     CommentModerationsTableRowSchema
 } from "./schema.js";
-import type { AuthorTypeWithCommentUpdate, JsonOfClass } from "../../types.js";
+import type { JsonOfClass, RuntimeAuthorWithCommentUpdateType } from "../../types.js";
 import type { CommentModeration } from "./comment-moderation.js";
 import type { JsonSignature, SignerType } from "../../signer/types.js";
 
@@ -27,7 +27,7 @@ export interface CommentModerationSignature extends JsonSignature {
 export type CommentModerationPubsubMessagePublication = z.infer<typeof CommentModerationPubsubMessagePublicationSchema>;
 
 export interface CommentModerationPubsubMessagePublicationWithSubplebbitAuthor extends CommentModerationPubsubMessagePublication {
-    author: AuthorTypeWithCommentUpdate;
+    author: RuntimeAuthorWithCommentUpdateType;
 }
 
 export type CommentModerationTableRow = z.infer<typeof CommentModerationsTableRowSchema>;

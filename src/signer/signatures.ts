@@ -90,6 +90,7 @@ import { SubplebbitEditPublicationSignedPropertyNames } from "../publications/su
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { RemoteSubplebbit } from "../subplebbit/remote-subplebbit.js";
+import { getAuthorNameFromWire } from "../publications/publication-author.js";
 
 export type ValidationResult = { valid: true } | { valid: false; reason: string };
 
@@ -129,20 +130,14 @@ export const verifyBufferEd25519 = async (bufferToSign: Uint8Array, bufferSignat
 };
 
 async function _validateAuthorAddressBeforeSigning(author: CommentOptionsToSign["author"], signer: SignerType, plebbit: Plebbit) {
-    if (!author?.address)
-        throwWithErrorCode("ERR_AUTHOR_ADDRESS_UNDEFINED", { authorAddress: author.address, signerAddress: signer.address });
-    if (isStringDomain(author.address)) {
-        // As of now do nothing to verify authors with domain as addresses
-        // This may change in the future
-    } else {
-        const derivedAddress = await getPlebbitAddressFromPrivateKey(signer.privateKey);
-        if (derivedAddress !== author.address)
-            throwWithErrorCode("ERR_AUTHOR_ADDRESS_NOT_MATCHING_SIGNER", {
-                authorAddress: author.address,
-                signerAddress: derivedAddress,
-                author
-            });
-    }
+    const authorName = getAuthorNameFromWire(author);
+    if (!authorName) return;
+    if (isStringDomain(authorName)) return;
+    throwWithErrorCode("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58", {
+        authorAddress: authorName,
+        signerAddress: signer.address,
+        author
+    });
 }
 
 export async function _signJson(
@@ -389,15 +384,15 @@ const _verifyAuthorDomainResolvesToSignatureAddress = async (
 ): Promise<VerifyAuthorRes> => {
     const log = Logger("plebbit-js:signatures:verifyAuthor");
     const derivedAddress = await getPlebbitAddressFromPublicKey(publicationJson.signature.publicKey);
+    const authorName = getAuthorNameFromWire(publicationJson.author);
 
-    if (!publicationJson.author?.address) return { useDerivedAddress: true, reason: messages.ERR_AUTHOR_ADDRESS_UNDEFINED, derivedAddress };
+    if (!authorName) return { useDerivedAddress: false };
 
-    // Is it a domain?
-    if (publicationJson.author.address.includes(".")) {
+    if (authorName.includes(".")) {
         if (!resolveAuthorNames) return { useDerivedAddress: false };
         let resolvedAuthorAddress: string | null;
         try {
-            resolvedAuthorAddress = await clientsManager.resolveAuthorNameIfNeeded(publicationJson.author.address);
+            resolvedAuthorAddress = await clientsManager.resolveAuthorNameIfNeeded(authorName);
         } catch (e) {
             log.error("Failed to resolve author address to verify author", e);
             return { useDerivedAddress: true, derivedAddress, reason: messages.ERR_FAILED_TO_RESOLVE_AUTHOR_DOMAIN };
@@ -406,14 +401,14 @@ const _verifyAuthorDomainResolvesToSignatureAddress = async (
             // Means plebbit-author-address text record is resolving to another address (outdated?)
             // Will always use address derived from publication.signature.publicKey as truth
             log.error(
-                `author address (${publicationJson.author.address}) resolved address (${resolvedAuthorAddress}) does not match signature address (${derivedAddress}). `
+                `author address (${authorName}) resolved address (${resolvedAuthorAddress}) does not match signature address (${derivedAddress}). `
             );
             return { useDerivedAddress: true, derivedAddress, reason: messages.ERR_AUTHOR_NOT_MATCHING_SIGNATURE };
         }
     } else {
         let authorPeerId: PeerId, signaturePeerId: PeerId;
         try {
-            authorPeerId = PeerId.createFromB58String(publicationJson.author.address);
+            authorPeerId = PeerId.createFromB58String(authorName);
         } catch {
             return { useDerivedAddress: true, reason: messages.ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58, derivedAddress };
         }
@@ -486,14 +481,11 @@ const _verifyPublicationSignatureAndAuthor = async (
     // Validate signature
     const signatureValidity = await _verifyJsonSignature(publicationJson);
     if (!signatureValidity) return { valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID };
-
-    if (overrideAuthorAddressIfInvalid && authorSignatureValidity.useDerivedAddress) {
+    if (overrideAuthorAddressIfInvalid && authorSignatureValidity.useDerivedAddress)
         log.trace(
-            `Will override publication.author.address (${publicationJson.author.address}) with signer address (${authorSignatureValidity.derivedAddress})`,
+            `Publication author identity claim did not resolve to the signer address, but overrideAuthorAddressIfInvalid=true`,
             publicationJson
         );
-        publicationJson.author.address = authorSignatureValidity.derivedAddress;
-    }
 
     const res: ValidationResult & { derivedAddress?: string } = { valid: true };
     if (authorSignatureValidity.useDerivedAddress) res.derivedAddress = authorSignatureValidity.derivedAddress;

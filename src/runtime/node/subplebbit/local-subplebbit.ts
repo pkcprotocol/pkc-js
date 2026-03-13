@@ -119,6 +119,12 @@ import env from "../../../version.js";
 import { getIpfsKeyFromPrivateKey, getPlebbitAddressFromPublicKey, getPublicKeyFromPrivateKey } from "../../../signer/util.js";
 import { RpcLocalSubplebbit } from "../../../subplebbit/rpc-local-subplebbit.js";
 import * as remeda from "remeda";
+import {
+    buildRuntimeAuthor,
+    cleanWireAuthor,
+    getAuthorDomainFromWire,
+    getAuthorNameFromWire
+} from "../../../publications/publication-author.js";
 
 import type {
     CommentEditOptionsToSign,
@@ -969,10 +975,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
                 targetAuthorDomain = aliasInfo.originalAuthorDomain || undefined;
             } else {
                 targetAuthorSignerAddress = commentToBeEdited.authorSignerAddress;
-                // Check if the comment author used a domain address
-                if (isStringDomain(commentToBeEdited.author.address)) {
-                    targetAuthorDomain = commentToBeEdited.author.address;
-                }
+                targetAuthorDomain = getAuthorDomainFromWire(commentToBeEdited.author);
             }
         }
 
@@ -1084,11 +1087,12 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         const log = Logger("plebbit-js:local-subplebbit:storeSubplebbitEdit");
 
         const authorSignerAddress = await getPlebbitAddressFromPublicKey(editProps.signature.publicKey);
+        const authorIdentity = getAuthorNameFromWire(editProps.author) || authorSignerAddress;
         log(
             "Received subplebbit edit",
             editProps.subplebbitEdit,
             "from author",
-            editProps.author.address,
+            authorIdentity,
             "with signer address",
             authorSignerAddress,
             "Will be using these props to edit the sub props"
@@ -1190,10 +1194,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         });
         const aliasSigner = await this._plebbit.createSigner({ privateKey: aliasPrivateKey, type: "ed25519" });
         const displayName = originalComment.author?.displayName;
-        const sanitizedAuthor = {
-            address: aliasSigner.address,
-            ...(displayName !== undefined ? { displayName } : {})
-        } as CommentPubsubMessagePublication["author"];
+        const sanitizedAuthor = cleanWireAuthor(displayName !== undefined ? { displayName } : undefined);
 
         const anonymizedComment = remeda.clone(originalComment);
 
@@ -1220,7 +1221,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             type: "ed25519"
         });
         const commentEditSignedByAlias = remeda.clone(originalEdit);
-        commentEditSignedByAlias.author = { address: aliasSigner.address };
+        commentEditSignedByAlias.author = undefined;
         commentEditSignedByAlias.signature = await signCommentEdit({
             edit: { ...commentEditSignedByAlias, signer: aliasSigner },
             plebbit: this._plebbit
@@ -1341,9 +1342,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
                         commentCid: storedComment.cid,
                         aliasPrivateKey: anonymity.aliasPrivateKey,
                         originalAuthorSignerPublicKey: anonymity.originalAuthorSignerPublicKey,
-                        originalAuthorDomain: isStringDomain(anonymity.originalComment.author.address)
-                            ? anonymity.originalComment.author.address
-                            : null,
+                        originalAuthorDomain: getAuthorDomainFromWire(anonymity.originalComment.author) || null,
                         mode: anonymity.mode,
                         insertedAt: timestamp()
                     }
@@ -1503,9 +1502,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         const commentAfterAddingToIpfs = await this.storePublication(request, pendingApproval);
         if (!commentAfterAddingToIpfs) return undefined;
         const authorSignerAddress = await getPlebbitAddressFromPublicKey(commentAfterAddingToIpfs.comment.signature.publicKey);
-        const authorDomain = isStringDomain(commentAfterAddingToIpfs.comment.author.address)
-            ? commentAfterAddingToIpfs.comment.author.address
-            : undefined;
+        const authorDomain = getAuthorDomainFromWire(commentAfterAddingToIpfs.comment.author);
 
         const authorSubplebbit = this._dbHandler.querySubplebbitAuthor(authorSignerAddress, authorDomain);
         if (!authorSubplebbit) throw Error("author.subplebbit can never be undefined after adding a comment");
@@ -1606,13 +1603,14 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         const signerAddress = await getPlebbitAddressFromPublicKey(publication.signature.publicKey);
         if (rolesToCheckAgainst.includes(this.roles[signerAddress]?.role as SubplebbitRoleNameUnion)) return true;
 
-        if (this._plebbit.resolveAuthorNames) {
-            const resolvedSignerAddress = isStringDomain(publication.author.address)
-                ? await this._plebbit.resolveAuthorName({ address: publication.author.address })
-                : publication.author.address;
-            if (resolvedSignerAddress !== signerAddress) return false;
-            if (rolesToCheckAgainst.includes(this.roles[publication.author.address]?.role as SubplebbitRoleNameUnion)) return true;
-            if (rolesToCheckAgainst.includes(this.roles[resolvedSignerAddress]?.role as SubplebbitRoleNameUnion)) return true;
+        const authorName = getAuthorNameFromWire(publication.author);
+        if (typeof authorName === "string") {
+            if (rolesToCheckAgainst.includes(this.roles[authorName]?.role as SubplebbitRoleNameUnion)) return true;
+            if (this._plebbit.resolveAuthorNames && isStringDomain(authorName)) {
+                const resolvedSignerAddress = await this._plebbit.resolveAuthorName({ address: authorName });
+                if (resolvedSignerAddress !== signerAddress) return false;
+                if (rolesToCheckAgainst.includes(this.roles[resolvedSignerAddress]?.role as SubplebbitRoleNameUnion)) return true;
+            }
         }
         return false;
     }
@@ -1633,7 +1631,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         if (typeof authorSubplebbit?.banExpiresAt === "number" && authorSubplebbit.banExpiresAt > timestamp())
             return messages.ERR_AUTHOR_IS_BANNED;
 
-        if (remeda.intersection(remeda.keys.strict(publication.author), AuthorReservedFields).length > 0)
+        if (publication.author && remeda.intersection(remeda.keys.strict(publication.author), AuthorReservedFields).length > 0)
             return messages.ERR_PUBLICATION_AUTHOR_HAS_RESERVED_FIELD;
 
         if ("commentCid" in publication || "parentCid" in publication) {
@@ -2027,6 +2025,62 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         return decryptedJson;
     }
 
+    private _buildRuntimeChallengeRequestPublication({
+        publication,
+        authorSubplebbit
+    }: {
+        publication: PublicationFromDecryptedChallengeRequest;
+        authorSubplebbit?: PublicationWithSubplebbitAuthorFromDecryptedChallengeRequest["author"]["subplebbit"];
+    }): PublicationWithSubplebbitAuthorFromDecryptedChallengeRequest {
+        return {
+            ...publication,
+            author: buildRuntimeAuthor({
+                author: publication.author,
+                signaturePublicKey: publication.signature.publicKey,
+                subplebbit: authorSubplebbit
+            })
+        };
+    }
+
+    private _buildRuntimeChallengeRequest({
+        request,
+        authorSubplebbit
+    }: {
+        request: DecryptedChallengeRequestMessageType;
+        authorSubplebbit?: PublicationWithSubplebbitAuthorFromDecryptedChallengeRequest["author"]["subplebbit"];
+    }): DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor {
+        // This function needs to be updated everytime we add a new publication type
+        const runtimeRequest = remeda.clone(request) as DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor;
+
+        if (request.comment)
+            runtimeRequest.comment = this._buildRuntimeChallengeRequestPublication({
+                publication: request.comment,
+                authorSubplebbit
+            }) as DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor["comment"];
+        if (request.vote)
+            runtimeRequest.vote = this._buildRuntimeChallengeRequestPublication({
+                publication: request.vote,
+                authorSubplebbit
+            }) as DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor["vote"];
+        if (request.commentEdit)
+            runtimeRequest.commentEdit = this._buildRuntimeChallengeRequestPublication({
+                publication: request.commentEdit,
+                authorSubplebbit
+            }) as DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor["commentEdit"];
+        if (request.commentModeration)
+            runtimeRequest.commentModeration = this._buildRuntimeChallengeRequestPublication({
+                publication: request.commentModeration,
+                authorSubplebbit
+            }) as DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor["commentModeration"];
+        if (request.subplebbitEdit)
+            runtimeRequest.subplebbitEdit = this._buildRuntimeChallengeRequestPublication({
+                publication: request.subplebbitEdit,
+                authorSubplebbit
+            }) as DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor["subplebbitEdit"];
+
+        return runtimeRequest;
+    }
+
     async handleChallengeRequest(request: ChallengeRequestMessageType, isLocalPublisher: boolean) {
         const log = Logger("plebbit-js:local-subplebbit:handleChallengeRequest");
 
@@ -2071,19 +2125,14 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             );
 
         const authorSignerAddress = await getPlebbitAddressFromPublicKey(publication.signature.publicKey);
-        const authorDomain = isStringDomain(publication.author.address) ? publication.author.address : undefined;
+        const authorDomain = getAuthorDomainFromWire(publication.author);
 
         // Check publication props validity
         const subplebbitAuthor = this._dbHandler.querySubplebbitAuthor(authorSignerAddress, authorDomain);
         const decryptedRequestMsg = <DecryptedChallengeRequestMessageType>{ ...request, ...decryptedRequest };
-        const decryptedRequestWithSubplebbitAuthor = <DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor>(
-            remeda.clone(decryptedRequestMsg)
-        );
-
-        // set author.subplebbit for all publication fields (vote, comment, commentEdit, commentModeration) if they exist
-        publicationFieldNames.forEach((pubField) => {
-            if (pubField in decryptedRequestWithSubplebbitAuthor && decryptedRequestWithSubplebbitAuthor[pubField])
-                decryptedRequestWithSubplebbitAuthor[pubField].author.subplebbit = subplebbitAuthor;
+        const decryptedRequestWithSubplebbitAuthor = this._buildRuntimeChallengeRequest({
+            request: decryptedRequestMsg,
+            authorSubplebbit: subplebbitAuthor
         });
 
         try {
@@ -2289,7 +2338,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         // This comment will have the local new CommentUpdate, which we will publish to IPFS fiels
         // It includes new author.subplebbit as well as updated values in CommentUpdate (except for replies field)
         const storedCommentUpdate = this._dbHandler.queryStoredCommentUpdate(comment);
-        const authorDomain = isStringDomain(comment.author.address) ? comment.author.address : undefined;
+        const authorDomain = getAuthorDomainFromWire(comment.author);
         const calculatedCommentUpdate = this._dbHandler.queryCalculatedCommentUpdate({ comment, authorDomain });
         log.trace(
             "Calculated comment update for comment",

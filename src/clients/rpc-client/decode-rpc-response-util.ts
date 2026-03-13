@@ -6,10 +6,20 @@ import type {
     DecryptedChallengeVerificationMessageType,
     EncodedDecryptedChallengeAnswerMessageType,
     EncodedDecryptedChallengeMessageType,
+    EncodedDecryptedChallengeRequestMessageType,
     EncodedDecryptedChallengeRequestMessageTypeWithSubplebbitAuthor,
     EncodedDecryptedChallengeVerificationMessageType
 } from "../../pubsub-messages/types.js";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
+
+type EncodedChallengeRequestMessage =
+    | EncodedDecryptedChallengeRequestMessageType
+    | EncodedDecryptedChallengeRequestMessageTypeWithSubplebbitAuthor;
+
+type DecodedChallengeRequestMessage<T extends EncodedChallengeRequestMessage> =
+    T extends EncodedDecryptedChallengeRequestMessageTypeWithSubplebbitAuthor
+        ? DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor
+        : DecryptedChallengeRequestMessageType;
 
 function _decodeChallengeRequestId(
     requestId: EncodedDecryptedChallengeRequestMessageTypeWithSubplebbitAuthor["challengeRequestId"]
@@ -38,15 +48,13 @@ function _decodeSignature(
     };
 }
 
-export function decodeRpcChallengeRequestPubsubMsg(
-    msg: EncodedDecryptedChallengeRequestMessageTypeWithSubplebbitAuthor
-): DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor | DecryptedChallengeRequestMessageType {
+export function decodeRpcChallengeRequestPubsubMsg<T extends EncodedChallengeRequestMessage>(msg: T): DecodedChallengeRequestMessage<T> {
     return {
         ...msg,
         challengeRequestId: _decodeChallengeRequestId(msg.challengeRequestId),
         encrypted: _decodeEncryption(msg.encrypted),
         signature: _decodeSignature(msg.signature)
-    };
+    } as DecodedChallengeRequestMessage<T>;
 }
 
 export function decodeRpcChallengePubsubMsg(msg: EncodedDecryptedChallengeMessageType): DecryptedChallengeMessageType {

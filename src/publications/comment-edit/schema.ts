@@ -44,7 +44,7 @@ export const CommentEditPubsubMessagePublicationSchema = CreateCommentEditOption
     .strict();
 
 export const CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema = CommentEditPubsubMessagePublicationSchema.extend({
-    author: CommentEditPubsubMessagePublicationSchema.shape.author.loose()
+    author: CommentEditPubsubMessagePublicationSchema.shape.author.unwrap().loose().optional()
 }).loose();
 
 export const CommentEditsTableRowSchema = CommentEditPubsubMessagePublicationSchema.extend({

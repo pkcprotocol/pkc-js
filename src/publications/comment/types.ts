@@ -16,7 +16,7 @@ import {
 } from "./schema.js";
 import { SubplebbitAuthorSchema } from "../../schema/schema.js";
 import { RpcCommentEventResultSchema, RpcCommentUpdateResultSchema } from "../../clients/rpc-client/schema.js";
-import type { AuthorTypeWithCommentUpdate, JsonOfClass } from "../../types.js";
+import type { JsonOfClass, RuntimeAuthorWithCommentUpdateType } from "../../types.js";
 import { Comment } from "./comment.js";
 import type { RepliesPagesTypeJson } from "../../pages/types.js";
 import type { PublicationRpcErrorToTransmit, PublicationState } from "../types.js";
@@ -59,7 +59,7 @@ export interface CommentRawField extends Omit<Required<Publication["raw"]>, "pub
 
 export type CommentJson = JsonOfClass<Comment>;
 
-type AuthorWithShortSubplebbitAddress = AuthorTypeWithCommentUpdate & { shortAddress: string };
+type AuthorWithShortSubplebbitAddress = RuntimeAuthorWithCommentUpdateType & { shortAddress: string };
 
 export interface CommentIpfsWithCidDefined extends CommentIpfsType {
     cid: string;
@@ -108,7 +108,7 @@ export type CommentUpdatingState =
 // Native types here
 
 export interface CommentPubsubMessageWithSubplebbitAuthor extends CommentPubsubMessagePublication {
-    author: AuthorTypeWithCommentUpdate;
+    author: RuntimeAuthorWithCommentUpdateType;
 }
 
 export interface PostPubsubMessageWithSubplebbitAuthor extends CommentPubsubMessageWithSubplebbitAuthor {

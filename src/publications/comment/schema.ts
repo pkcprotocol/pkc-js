@@ -69,7 +69,7 @@ export const CommentPubsubMessagePublicationSchema = CreateCommentOptionsSchema.
     .strict();
 
 export const CommentPubsubMessageWithFlexibleAuthorSchema = CommentPubsubMessagePublicationSchema.merge(
-    z.object({ author: AuthorPubsubSchema.loose() })
+    z.object({ author: AuthorPubsubSchema.loose().optional() })
 ).strict();
 
 // This is used by the subplebbit when parsing request.comment
@@ -111,6 +111,7 @@ export const CommentIpfsWithRefinmentSchema = CommentIpfsSchema.refine(
 // Comment update schemas
 
 export const AuthorWithCommentUpdateSchema = CommentPubsubMessagePublicationSchema.shape.author
+    .unwrap()
     .extend({
         subplebbit: SubplebbitAuthorSchema.optional()
     })

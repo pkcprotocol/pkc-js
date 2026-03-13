@@ -7,7 +7,7 @@ import {
     VoteTablesRowSchema
 } from "./schema.js";
 import Vote from "./vote.js";
-import type { AuthorTypeWithCommentUpdate, JsonOfClass } from "../../types.js";
+import type { JsonOfClass, RuntimeAuthorWithCommentUpdateType } from "../../types.js";
 import type { JsonSignature, SignerType } from "../../signer/types.js";
 
 export type CreateVoteOptions = z.infer<typeof CreateVoteUserOptionsSchema>;
@@ -27,7 +27,7 @@ export interface VoteSignature extends JsonSignature {
 export type VotePubsubMessagePublication = z.infer<typeof VotePubsubMessagePublicationSchema>;
 
 export interface VotePubsubMessageWithSubplebbitAuthor extends VotePubsubMessagePublication {
-    author: AuthorTypeWithCommentUpdate;
+    author: RuntimeAuthorWithCommentUpdateType;
 }
 
 export type VotesTableRow = z.infer<typeof VoteTablesRowSchema>;

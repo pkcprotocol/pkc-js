@@ -452,8 +452,14 @@ export function derivePublicationFromChallengeRequest<
 ): T extends DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor
     ? PublicationWithSubplebbitAuthorFromDecryptedChallengeRequest
     : PublicationFromDecryptedChallengeRequest {
-    const publicationFieldNames = remeda.keys.strict(DecryptedChallengeRequestPublicationSchema.shape);
-    for (const pubName of publicationFieldNames) if (request[pubName]) return request[pubName];
+    const publicationFieldNames = remeda.keys.strict(DecryptedChallengeRequestPublicationSchema.shape) as (keyof T)[];
+    for (const pubName of publicationFieldNames) {
+        const publication = request[pubName];
+        if (publication)
+            return publication as T extends DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor
+                ? PublicationWithSubplebbitAuthorFromDecryptedChallengeRequest
+                : PublicationFromDecryptedChallengeRequest;
+    }
 
     throw Error("Failed to find publication on ChallengeRequest");
 }

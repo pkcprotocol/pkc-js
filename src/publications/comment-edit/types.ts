@@ -8,7 +8,7 @@ import {
     CommentEditsTableRowSchema
 } from "./schema.js";
 import { CommentAuthorSchema } from "../../schema/schema.js";
-import type { AuthorTypeWithCommentUpdate, JsonOfClass } from "../../types.js";
+import type { JsonOfClass, RuntimeAuthorWithCommentUpdateType } from "../../types.js";
 import type { CommentEdit } from "./comment-edit.js";
 import type { JsonSignature, SignerType } from "../../signer/types.js";
 
@@ -35,7 +35,7 @@ export interface CommentEditSignature extends JsonSignature {
 export type CommentEditPubsubMessagePublication = z.infer<typeof CommentEditPubsubMessagePublicationSchema>;
 
 export interface CommentEditPubsubMessagePublicationWithSubplebbitAuthor extends CommentEditPubsubMessagePublication {
-    author: AuthorTypeWithCommentUpdate;
+    author: RuntimeAuthorWithCommentUpdateType;
 }
 
 export type CommentEditsTableRow = z.infer<typeof CommentEditsTableRowSchema>;

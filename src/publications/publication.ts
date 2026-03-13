@@ -69,6 +69,7 @@ import type { SignerType } from "../signer/types.js";
 import PlebbitRpcClient from "../clients/rpc-client/plebbit-rpc-client.js";
 import { PublicationClientsManager } from "./publication-client-manager.js";
 import { LocalSubplebbit } from "../runtime/node/subplebbit/local-subplebbit.js";
+import { buildRuntimeAuthor } from "./publication-author.js";
 
 class Publication extends TypedEmitter<PublicationEvents> {
     // Only publication props
@@ -147,7 +148,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
         this.setSubplebbitAddress(props.subplebbitAddress);
         this.timestamp = props.timestamp;
         this.signature = props.signature;
-        this.author = { ...props.author, shortAddress: shortifyAddress(props.author.address) };
+        const runtimeAuthor = buildRuntimeAuthor({
+            author: props.author,
+            signaturePublicKey: props.signature.publicKey
+        });
+        this.author = { ...runtimeAuthor, shortAddress: shortifyAddress(runtimeAuthor.address) };
         this.protocolVersion = props.protocolVersion;
     }
 
@@ -668,7 +673,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
     private _handleIncomingChallengeRequestFromRpc(args: any) {
         const encodedRequest: EncodedDecryptedChallengeRequestMessageType = args.params.result;
-        const request = <DecryptedChallengeRequestMessageType>decodeRpcChallengeRequestPubsubMsg(encodedRequest);
+        const request = decodeRpcChallengeRequestPubsubMsg(encodedRequest);
         this._challengeExchanges[request.challengeRequestId.toString()] = {
             ...this._challengeExchanges[request.challengeRequestId.toString()],
             challengeRequest: request,

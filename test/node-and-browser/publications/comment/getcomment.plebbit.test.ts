@@ -9,12 +9,15 @@ import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { describe, it, beforeAll, afterAll, vi } from "vitest";
 import { CID } from "kubo-rpc-client";
 import validCommentFixture from "../../../fixtures/signatures/comment/commentUpdate/valid_comment_ipfs.json" with { type: "json" };
+import validCommentAuthorAddressDomainFixture from "../../../fixtures/signatures/comment/valid_comment_author_address_as_domain.json" with { type: "json" };
 import { messages } from "../../../../dist/node/errors.js";
+import { getPlebbitAddressFromPublicKeySync } from "../../../../dist/node/signer/util.js";
 import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
 import type { PlebbitError } from "../../../../dist/node/plebbit-error.js";
 
 // Helper type for accessing internal methods on Comment
 type CommentWithInternals = { updateOnce: () => Promise<void>; _setUpdatingState: () => Promise<void> };
+type LegacyRawAuthor = { address?: string; name?: string; publicKey?: string };
 
 const subplebbitSigner = signers[0];
 
@@ -95,9 +98,15 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const expectedPostProps = JSON.parse(await plebbit.fetchCid({ cid: subplebbit.lastPostCid }));
             const loadedPost = await plebbit.getComment({ cid: subplebbit.lastPostCid });
             expect(loadedPost.author.subplebbit).to.be.undefined;
+            expect(loadedPost.author.publicKey).to.be.a("string");
 
             // make sure these generated props are the same as the instance one
-            expectedPostProps.author.shortAddress = loadedPost.author.shortAddress;
+            expectedPostProps.author = {
+                ...(expectedPostProps.author || {}),
+                address: loadedPost.author.address,
+                publicKey: loadedPost.author.publicKey,
+                shortAddress: loadedPost.author.shortAddress
+            };
             expectedPostProps.cid = loadedPost.cid;
 
             for (const key of Object.keys(expectedPostProps))
@@ -119,21 +128,54 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(expectedReplyProps.timestamp).to.be.a("number");
             expect(expectedReplyProps.signature).to.be.a("object");
             expect(expectedReplyProps.author).to.be.a("object");
-            expect(expectedReplyProps.author.address).to.be.a("string");
             expect(expectedReplyProps.protocolVersion).to.be.a("string");
             expectedReplyProps.cid = reply.cid;
-            if (!expectedReplyProps.author.address.includes("."))
-                // only shorten address when it's not a domain
-                expectedReplyProps.author.shortAddress = expectedReplyProps.author.address.slice(8).slice(0, 12);
-            else expectedReplyProps.author.shortAddress = expectedReplyProps.author.address;
 
             const loadedReply = await plebbit.getComment({ cid: reply.cid });
             expect(loadedReply.constructor.name).to.equal("Comment");
+            expect(loadedReply.author.publicKey).to.be.a("string");
+            expectedReplyProps.author = {
+                ...(expectedReplyProps.author || {}),
+                address: loadedReply.author.address,
+                publicKey: loadedReply.author.publicKey,
+                shortAddress: loadedReply.author.shortAddress
+            };
             if (loadedReply.author.subplebbit) delete loadedReply.author.subplebbit; // If it's running on RPC then it will fetch both CommentIpfs and CommentUpdate
             for (const key of Object.keys(expectedReplyProps))
                 expect(deterministicStringify(expectedReplyProps[key])).to.equal(
                     deterministicStringify((loadedReply as unknown as Record<string, unknown>)[key])
                 );
+        });
+
+        it("loads a legacy comment fixture with base58 wire author.address and computes runtime author.publicKey", async () => {
+            // Use a byte-distinct payload so this test does not warm caches for later tests that reuse the raw fixture CID.
+            const legacyCommentCid = await addStringToIpfs(JSON.stringify(validCommentFixture, null, 2));
+            const loadedComment = await plebbit.getComment({ cid: legacyCommentCid });
+            const expectedPublicKey = getPlebbitAddressFromPublicKeySync(validCommentFixture.signature.publicKey);
+
+            expect(loadedComment.author.publicKey).to.equal(expectedPublicKey);
+            expect(loadedComment.author.name).to.be.undefined;
+            expect(loadedComment.author.address).to.equal(expectedPublicKey);
+
+            const rawAuthor = loadedComment.raw.comment.author as LegacyRawAuthor;
+            expect(rawAuthor.address).to.equal(validCommentFixture.author.address);
+            expect(rawAuthor.name).to.be.undefined;
+            expect(rawAuthor.publicKey).to.be.undefined;
+        });
+
+        it("loads a legacy comment fixture with domain wire author.address and computes runtime author.name", async () => {
+            const legacyCommentCid = await addStringToIpfs(JSON.stringify(validCommentAuthorAddressDomainFixture));
+            const loadedComment = await plebbit.getComment({ cid: legacyCommentCid });
+            const expectedPublicKey = getPlebbitAddressFromPublicKeySync(validCommentAuthorAddressDomainFixture.signature.publicKey);
+
+            expect(loadedComment.author.publicKey).to.equal(expectedPublicKey);
+            expect(loadedComment.author.name).to.equal("plebbit.eth");
+            expect(loadedComment.author.address).to.equal("plebbit.eth");
+
+            const rawAuthor = loadedComment.raw.comment.author as LegacyRawAuthor;
+            expect(rawAuthor.address).to.equal("plebbit.eth");
+            expect(rawAuthor.name).to.be.undefined;
+            expect(rawAuthor.publicKey).to.be.undefined;
         });
 
         it(`plebbit.getComment is not fetching comment updates in background after fulfilling its promise`, async () => {
