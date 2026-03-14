@@ -13,6 +13,7 @@ import * as ed from "@noble/ed25519";
 import PeerId from "peer-id";
 import {
     areEquivalentSubplebbitAddresses,
+    isAbortError,
     isStringDomain,
     removeNullUndefinedEmptyObjectsValuesRecursively,
     throwWithErrorCode,
@@ -380,7 +381,8 @@ type VerifyAuthorRes = { useDerivedAddress: false; reason?: string } | { useDeri
 const _verifyAuthorDomainResolvesToSignatureAddress = async (
     publicationJson: PublicationFromDecryptedChallengeRequest,
     resolveAuthorNames: boolean,
-    clientsManager: BaseClientsManager
+    clientsManager: BaseClientsManager,
+    abortSignal?: AbortSignal
 ): Promise<VerifyAuthorRes> => {
     const log = Logger("plebbit-js:signatures:verifyAuthor");
     const derivedAddress = await getPlebbitAddressFromPublicKey(publicationJson.signature.publicKey);
@@ -393,8 +395,9 @@ const _verifyAuthorDomainResolvesToSignatureAddress = async (
         const nameResolvedCacheKey = sha256(authorName + publicationJson.signature.publicKey);
         let resolvedAuthorAddress: string | null;
         try {
-            resolvedAuthorAddress = await clientsManager.resolveAuthorNameIfNeeded(authorName);
+            resolvedAuthorAddress = await clientsManager.resolveAuthorNameIfNeeded(authorName, abortSignal);
         } catch (e) {
+            if (isAbortError(e)) throw e;
             log.error("Failed to resolve author address to verify author", e);
             return { useDerivedAddress: true, derivedAddress, reason: messages.ERR_FAILED_TO_RESOLVE_AUTHOR_DOMAIN };
         }
@@ -466,14 +469,16 @@ const _verifyPubsubSignature = async (msg: PubsubMessage): Promise<boolean> => {
 const _verifyPublicationSignatureAndAuthor = async (
     publicationJson: PublicationFromDecryptedChallengeRequest,
     resolveAuthorNames: boolean,
-    clientsManager: BaseClientsManager
+    clientsManager: BaseClientsManager,
+    abortSignal?: AbortSignal
 ): Promise<ValidationResult> => {
     // Validate author
     const log = Logger("plebbit-js:signatures:verifyPublicationWithAUthor");
     const authorSignatureValidity = await _verifyAuthorDomainResolvesToSignatureAddress(
         publicationJson,
         resolveAuthorNames,
-        clientsManager
+        clientsManager,
+        abortSignal
     );
 
     if (authorSignatureValidity.useDerivedAddress)
@@ -557,15 +562,17 @@ export async function verifyCommentModeration({
 export async function verifyCommentPubsubMessage({
     comment,
     resolveAuthorNames,
-    clientsManager
+    clientsManager,
+    abortSignal
 }: {
     comment: CommentPubsubMessagePublication;
     resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
+    abortSignal?: AbortSignal;
 }) {
     if (!_allFieldsOfRecordInSignedPropertyNames(comment))
         return { valid: false, reason: messages.ERR_COMMENT_PUBSUB_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
-    const validation = await _verifyPublicationSignatureAndAuthor(comment, resolveAuthorNames, clientsManager);
+    const validation = await _verifyPublicationSignatureAndAuthor(comment, resolveAuthorNames, clientsManager, abortSignal);
     if (!validation.valid) return validation;
 
     return validation;
@@ -577,6 +584,7 @@ export async function verifyCommentIpfs(opts: {
     resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
     subplebbitAddressFromInstance?: CommentIpfsType["subplebbitAddress"];
+    abortSignal?: AbortSignal;
 }): ReturnType<typeof verifyCommentPubsubMessage> {
     const cacheKey = sha256(opts.calculatedCommentCid + Number(opts.resolveAuthorNames) + opts.subplebbitAddressFromInstance || "");
     if (opts.clientsManager._plebbit._memCaches.commentVerificationCache.get(cacheKey)) return { valid: true };
@@ -592,7 +600,8 @@ export async function verifyCommentIpfs(opts: {
     const validRes = await verifyCommentPubsubMessage({
         comment: remeda.pick(opts.comment, ["signature", ...keysCasted]),
         resolveAuthorNames: opts.resolveAuthorNames,
-        clientsManager: opts.clientsManager
+        clientsManager: opts.clientsManager,
+        abortSignal: opts.abortSignal
     });
 
     if (!validRes.valid) return validRes;
@@ -620,7 +629,8 @@ export async function verifySubplebbit({
     resolveAuthorNames,
     clientsManager,
     validatePages,
-    cacheIfValid
+    cacheIfValid,
+    abortSignal
 }: {
     subplebbit: SubplebbitIpfsType;
     subplebbitIpnsName: string;
@@ -628,6 +638,7 @@ export async function verifySubplebbit({
     clientsManager: BaseClientsManager;
     validatePages: boolean;
     cacheIfValid?: boolean;
+    abortSignal?: AbortSignal;
 }): Promise<ValidationResult> {
     const log = Logger("plebbit-js:signatures:verifySubplebbit");
     if (!_allFieldsOfRecordInSignedPropertyNames(subplebbit))
@@ -654,7 +665,8 @@ export async function verifySubplebbit({
                 subplebbit,
                 parentComment: { cid: undefined, depth: -1, postCid: undefined },
                 validatePages,
-                validateUpdateSignature: false // no need because we already verified subplebbit signature
+                validateUpdateSignature: false, // no need because we already verified subplebbit signature
+                abortSignal
             });
 
             if (!pageValidity.valid) {
@@ -700,7 +712,8 @@ export async function verifyCommentUpdate({
     subplebbit,
     comment,
     validatePages,
-    validateUpdateSignature
+    validateUpdateSignature,
+    abortSignal
 }: {
     update: CommentUpdateType | CommentUpdateForChallengeVerification | ModQueuePageIpfs["comments"][0]["commentUpdate"];
     resolveAuthorNames: boolean;
@@ -709,6 +722,7 @@ export async function verifyCommentUpdate({
     comment: Pick<CommentIpfsWithCidPostCidDefined, "signature" | "cid" | "depth" | "postCid">;
     validatePages: boolean;
     validateUpdateSignature: boolean;
+    abortSignal?: AbortSignal;
 }): Promise<ValidationResult> {
     if (!_allFieldsOfRecordInSignedPropertyNames(update))
         return { valid: false, reason: messages.ERR_COMMENT_UPDATE_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
@@ -757,7 +771,8 @@ export async function verifyCommentUpdate({
                 subplebbit,
                 parentComment: comment,
                 validatePages,
-                validateUpdateSignature
+                validateUpdateSignature,
+                abortSignal
             });
             if (!validity.valid) return validity;
         }
@@ -880,7 +895,8 @@ export async function verifyPageComment({
     resolveAuthorNames,
     clientsManager,
     validatePages,
-    validateUpdateSignature
+    validateUpdateSignature,
+    abortSignal
 }: {
     pageComment: (PageIpfs | ModQueuePageIpfs)["comments"][0];
     subplebbit: SubplebbitForVerifyingPages;
@@ -889,6 +905,7 @@ export async function verifyPageComment({
     clientsManager: BaseClientsManager;
     validatePages: boolean;
     validateUpdateSignature: boolean;
+    abortSignal?: AbortSignal;
 }): Promise<ValidationResult> {
     // we need to account for multiple cases:
     // when we're verifying a page from a subplebbit.posts, that means there's no parent comment cid or any of its props
@@ -919,7 +936,8 @@ export async function verifyPageComment({
         comment: pageComment.comment,
         resolveAuthorNames,
         clientsManager,
-        calculatedCommentCid
+        calculatedCommentCid,
+        abortSignal
     });
     if (!commentSignatureValidity.valid) return commentSignatureValidity;
     const postCid =
@@ -938,7 +956,8 @@ export async function verifyPageComment({
             postCid
         },
         validatePages,
-        validateUpdateSignature
+        validateUpdateSignature,
+        abortSignal
     });
     if (!commentUpdateSignatureValidity.valid) return commentUpdateSignatureValidity;
 
@@ -955,7 +974,8 @@ export async function verifyPage({
     parentComment,
     validatePages,
 
-    validateUpdateSignature
+    validateUpdateSignature,
+    abortSignal
 }: {
     pageCid: string | undefined;
     pageSortName: string | undefined;
@@ -966,6 +986,7 @@ export async function verifyPage({
     parentComment: ParentCommentForVerifyingPages;
     validatePages: boolean;
     validateUpdateSignature: boolean;
+    abortSignal?: AbortSignal;
 }): Promise<ValidationResult> {
     const cacheKey =
         pageCid &&
@@ -988,7 +1009,8 @@ export async function verifyPage({
             clientsManager,
             parentComment,
             validatePages,
-            validateUpdateSignature
+            validateUpdateSignature,
+            abortSignal
         });
         if (!verifyRes.valid) return verifyRes;
     }
@@ -1006,7 +1028,8 @@ export async function verifyModQueuePage({
     subplebbit,
     validatePages,
 
-    validateUpdateSignature
+    validateUpdateSignature,
+    abortSignal
 }: {
     pageCid: string | undefined;
     page: ModQueuePageIpfs;
@@ -1015,6 +1038,7 @@ export async function verifyModQueuePage({
     subplebbit: SubplebbitForVerifyingPages;
     validatePages: boolean;
     validateUpdateSignature: boolean;
+    abortSignal?: AbortSignal;
 }): Promise<ValidationResult> {
     const cacheKey =
         pageCid &&
@@ -1031,7 +1055,8 @@ export async function verifyModQueuePage({
             clientsManager,
             parentComment: undefined,
             validatePages,
-            validateUpdateSignature
+            validateUpdateSignature,
+            abortSignal
         });
         if (!verifyRes.valid) return verifyRes;
     }

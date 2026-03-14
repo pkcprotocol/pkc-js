@@ -1,6 +1,14 @@
 import { Plebbit } from "../plebbit/plebbit.js";
 import assert from "assert";
-import { calculateIpfsCidV0, hideClassPrivateProps, isIpns, isStringDomain, throwWithErrorCode } from "../util.js";
+import {
+    calculateIpfsCidV0,
+    hideClassPrivateProps,
+    isAbortError,
+    isIpns,
+    isStringDomain,
+    throwIfAbortSignalAborted,
+    throwWithErrorCode
+} from "../util.js";
 import { nativeFunctions } from "../runtime/node/util.js";
 import pLimit from "p-limit";
 import {
@@ -672,16 +680,20 @@ export class BaseClientsManager {
 
     private async _resolveViaNameResolvers({
         address,
-        resolveType
+        resolveType,
+        abortSignal
     }: {
         address: string;
         resolveType: ResolveType;
+        abortSignal?: AbortSignal;
     }): Promise<string | null> {
         const log = Logger("plebbit-js:client-manager:_resolveViaNameResolvers");
         const nameResolvers = this._plebbit.nameResolvers;
         if (!nameResolvers || nameResolvers.length === 0) {
             throwWithErrorCode("ERR_NO_RESOLVER_FOR_NAME", { address });
         }
+
+        throwIfAbortSignalAborted(abortSignal);
 
         let value: string | undefined;
         let anyResolverCanHandle = false;
@@ -692,11 +704,16 @@ export class BaseClientsManager {
 
             this.preResolveNameResolver({ address, resolveType, resolverKey: nameResolver.key });
             try {
-                const result = await nameResolver.resolve({ name: address, provider: nameResolver.provider });
+                throwIfAbortSignalAborted(abortSignal);
+                const result = await nameResolver.resolve({ name: address, provider: nameResolver.provider, abortSignal });
+                throwIfAbortSignalAborted(abortSignal);
                 value = result?.publicKey;
             } catch (e) {
-                log.error(`Resolver ${nameResolver.key} failed for ${address}`, e);
-                this.postResolveNameResolverFailure({ address, resolveType, resolverKey: nameResolver.key, error: e as Error });
+                const error = isAbortError(e) ? e : (e as Error);
+                this.postResolveNameResolverFailure({ address, resolveType, resolverKey: nameResolver.key, error });
+                if (abortSignal?.aborted) throwIfAbortSignalAborted(abortSignal);
+                if (isAbortError(error)) throw error;
+                log.error(`Resolver ${nameResolver.key} failed for ${address}`, error);
                 continue;
             }
             this.postResolveNameResolverSuccess({ address, resolveType, resolverKey: nameResolver.key, resolvedValue: value });
@@ -711,18 +728,18 @@ export class BaseClientsManager {
         return value || null;
     }
 
-    async resolveCommunityNameIfNeeded(subplebbitAddress: string): Promise<string | null> {
+    async resolveCommunityNameIfNeeded(subplebbitAddress: string, abortSignal?: AbortSignal): Promise<string | null> {
         assert(typeof subplebbitAddress === "string", "subplebbitAddress needs to be a string to be resolved");
         if (!isStringDomain(subplebbitAddress)) return subplebbitAddress;
-        const result = await this._resolveViaNameResolvers({ address: subplebbitAddress, resolveType: "community" });
+        const result = await this._resolveViaNameResolvers({ address: subplebbitAddress, resolveType: "community", abortSignal });
         if (typeof result === "string" && !isIpns(result))
             throwWithErrorCode("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: subplebbitAddress });
         return result;
     }
 
-    async resolveAuthorNameIfNeeded(authorAddress: string): Promise<string | null> {
+    async resolveAuthorNameIfNeeded(authorAddress: string, abortSignal?: AbortSignal): Promise<string | null> {
         if (!isStringDomain(authorAddress)) throw new PlebbitError("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58", { authorAddress });
-        const result = await this._resolveViaNameResolvers({ address: authorAddress, resolveType: "author" });
+        const result = await this._resolveViaNameResolvers({ address: authorAddress, resolveType: "author", abortSignal });
         if (typeof result === "string" && !isIpns(result))
             throwWithErrorCode("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: authorAddress });
         return result;

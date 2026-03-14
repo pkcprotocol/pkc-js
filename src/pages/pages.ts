@@ -15,7 +15,9 @@ import { Plebbit } from "../plebbit/plebbit.js";
 import { parsePageCidParams } from "./schema-util.js";
 
 type BaseProps = {
-    subplebbit: Pick<RemoteSubplebbit, "address" | "signature">;
+    subplebbit: Pick<RemoteSubplebbit, "address" | "signature"> & {
+        _getStopAbortSignal?: () => AbortSignal | undefined;
+    };
     plebbit: Plebbit;
 };
 
@@ -193,7 +195,8 @@ export class RepliesPages extends BasePages {
             parentComment: isUniformDepth ? this._parentComment : { postCid: this._parentComment.postCid }, // if it's a flat page, we don't need to verify the parent comment. Only the post
 
             validatePages: this._clientsManager._plebbit.validatePages,
-            validateUpdateSignature: false // no need because we verified that page cid matches its content
+            validateUpdateSignature: false, // no need because we verified that page cid matches its content
+            abortSignal: this._parentComment._getStopAbortSignal()
         };
         const signatureValidity = await verifyPage(verificationOpts);
         if (!signatureValidity.valid)
@@ -255,7 +258,8 @@ export class PostsPages extends BasePages {
             parentComment: { cid: undefined, postCid: undefined, depth: -1 },
 
             validatePages: this._clientsManager._plebbit.validatePages,
-            validateUpdateSignature: false // no need because we verified that page cid matches its content
+            validateUpdateSignature: false, // no need because we verified that page cid matches its content
+            abortSignal: this._subplebbit._getStopAbortSignal?.()
         };
         const signatureValidity = await verifyPage(verificationOpts);
         if (!signatureValidity.valid)
@@ -313,7 +317,8 @@ export class ModQueuePages extends BasePages {
             parentComment: { cid: undefined, postCid: undefined, depth: -1 },
 
             validatePages: this._clientsManager._plebbit.validatePages,
-            validateUpdateSignature: false // no need because we verified that page cid matches its content
+            validateUpdateSignature: false, // no need because we verified that page cid matches its content
+            abortSignal: this._subplebbit._getStopAbortSignal?.()
         };
         const signatureValidity = await verifyModQueuePage(verificationOpts);
         if (!signatureValidity.valid)

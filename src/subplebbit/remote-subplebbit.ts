@@ -1,4 +1,5 @@
 import {
+    createAbortError,
     doesDomainAddressHaveCapitalLetter,
     hideClassPrivateProps,
     ipnsNameToIpnsOverPubsubTopic,
@@ -89,6 +90,7 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
     protected _ipnsName?: string;
     protected _ipnsPubsubTopic?: string;
     protected _ipnsPubsubTopicRoutingCid?: string;
+    protected _stopAbortController?: AbortController;
 
     // Add a private property to store the actual updatingState value
     protected _updatingState!: SubplebbitUpdatingState;
@@ -118,6 +120,28 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
         });
         this.modQueue = new ModQueuePages({ pageCids: {}, plebbit: this._plebbit, subplebbit: this, pages: undefined });
         hideClassPrivateProps(this);
+    }
+
+    _createStopAbortController() {
+        if (!this._stopAbortController || this._stopAbortController.signal.aborted) this._stopAbortController = new AbortController();
+        return this._stopAbortController;
+    }
+
+    _getStopAbortSignal() {
+        return this._stopAbortController?.signal;
+    }
+
+    _isStopAbortRequested() {
+        return Boolean(this._stopAbortController?.signal.aborted);
+    }
+
+    _abortStopOperations(reason: string) {
+        if (!this._stopAbortController || this._stopAbortController.signal.aborted) return;
+        this._stopAbortController.abort(createAbortError(reason));
+    }
+
+    _clearStopAbortController() {
+        this._stopAbortController = undefined;
     }
 
     protected _defineEnumerableUpdatingState() {
@@ -586,6 +610,7 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
         if (this.state !== "updating") throw new PlebbitError("ERR_CALLED_SUBPLEBBIT_STOP_WITHOUT_UPDATE", { address: this.address });
 
         const log = Logger("plebbit-js:remote-subplebbit:stop");
+        this._abortStopOperations(`Aborting subplebbit operations for ${this.address} because subplebbit.stop() was called`);
 
         if (this._updatingSubInstanceWithListeners) await this._cleanUpUpdatingSubInstanceWithListeners();
         else {

@@ -17,6 +17,7 @@ import {
     areEquivalentSubplebbitAddresses,
     hideClassPrivateProps,
     ipnsNameToIpnsOverPubsubTopic,
+    isAbortError,
     pubsubTopicToDhtKey,
     timestamp
 } from "../util.js";
@@ -155,7 +156,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
 
     private async _retryLoadingSubplebbitAddress(
         subplebbitAddress: SubplebbitIpfsType["address"]
-    ): Promise<ResultOfFetchingSubplebbit | { criticalError: Error | PlebbitError }> {
+    ): Promise<ResultOfFetchingSubplebbit | { criticalError: Error | PlebbitError } | { aborted: true }> {
         const log = Logger("plebbit-js:remote-subplebbit:update:_retryLoadingSubplebbitIpns");
 
         return new Promise((resolve) => {
@@ -167,6 +168,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                     resolve(update);
                 } catch (e) {
                     const error = <Error | PlebbitError>e;
+                    if (error.name === "AbortError") return resolve({ aborted: true });
                     //@ts-expect-error
                     error.details = {
                         //@ts-expect-error
@@ -208,7 +210,9 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
         const subLoadingRes = await this._retryLoadingSubplebbitAddress(this._subplebbit.address); // will return undefined if no new sub CID is found
         this._ipnsLoadingOperation.stop();
 
-        if (subLoadingRes && "criticalError" in subLoadingRes) {
+        if (subLoadingRes && "aborted" in subLoadingRes) {
+            return;
+        } else if (subLoadingRes && "criticalError" in subLoadingRes) {
             // Log individual gateway errors separately to avoid Node.js [Object] truncation
             if (subLoadingRes.criticalError instanceof FailedToFetchSubplebbitFromGatewaysError) {
                 for (const [gatewayUrl, gatewayError] of Object.entries(subLoadingRes.criticalError.details.gatewayToError)) {
@@ -253,6 +257,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
 
     async startUpdatingLoop() {
         const log = Logger("plebbit-js:remote-subplebbit:update");
+        this._subplebbit._createStopAbortController();
 
         const areWeConnectedToKuboOrHelia =
             Object.keys(this._plebbit.clients.kuboRpcClients).length > 0 || Object.keys(this._plebbit.clients.libp2pJsClients).length > 0;
@@ -274,13 +279,14 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
     async stopUpdatingLoop() {
         this._ipnsLoadingOperation?.stop();
         this._updateCidsAlreadyLoaded.clear();
+        this._subplebbit._clearStopAbortController();
     }
 
     // fetching subplebbit ipns here
 
     async fetchNewUpdateForSubplebbit(subAddress: SubplebbitIpfsType["address"]): Promise<ResultOfFetchingSubplebbit> {
         return this._withInflightSubplebbitFetch(subAddress, async () => {
-            const ipnsName = await this.resolveCommunityNameIfNeeded(subAddress);
+            const ipnsName = await this.resolveCommunityNameIfNeeded(subAddress, this._subplebbit._getStopAbortSignal());
             // if ipnsAddress is undefined then it will be handled in postResolveTextRecordSuccess
 
             if (!ipnsName) throw Error("Failed to resolve subplebbit address to an IPNS name");
@@ -655,7 +661,8 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
             subplebbitIpnsName: ipnsNameOfSub,
             resolveAuthorNames: this._plebbit.resolveAuthorNames,
             clientsManager: this,
-            validatePages: this._plebbit.validatePages
+            validatePages: this._plebbit.validatePages,
+            abortSignal: this._subplebbit._getStopAbortSignal()
         };
         const updateValidity = await verifySubplebbit(verificationOpts);
         if (!updateValidity.valid) {

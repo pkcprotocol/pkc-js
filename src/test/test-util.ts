@@ -551,7 +551,7 @@ export async function mockPlebbit(plebbitOptions?: InputPlebbitOptions, forceMoc
               {
                   key: "mock-resolver",
                   canResolve: () => true,
-                  resolve: async ({ name }: { name: string; provider: string }) => {
+                  resolve: async ({ name }: { name: string; provider: string; abortSignal?: AbortSignal }) => {
                       console.log(`Attempting to mock resolve address (${name})`);
                       // Check per-instance domain mappings first (set via mockCacheOfTextRecord)
                       if (domainMappings.has(name)) {
@@ -2396,19 +2396,19 @@ export const itSkipIfRpc = globalThis["it"]?.runIf(!isRpcFlagOn());
 //@ts-expect-error
 export const itIfRpc = globalThis["it"]?.runIf(isRpcFlagOn());
 
-export function mockNameResolvers({
+export function mockNameResolvers<T extends { name: string; provider: string }>({
     plebbit,
     resolveFunction
 }: {
     plebbit: Plebbit;
-    resolveFunction: (opts: { name: string; provider: string }) => Promise<{ publicKey: string; [key: string]: string } | undefined>;
+    resolveFunction: (opts: T) => Promise<{ publicKey: string; [key: string]: string } | undefined>;
 }) {
     if (plebbit._plebbitRpcClient) throw Error("Can't mock name resolvers with plebbit rpc clients");
     plebbit.nameResolvers = [
         {
             key: "mock-resolver",
             canResolve: () => true,
-            resolve: resolveFunction,
+            resolve: (opts) => resolveFunction(opts as T),
             provider: "mock"
         }
     ];

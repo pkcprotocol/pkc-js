@@ -1,7 +1,10 @@
 import signers from "../../fixtures/signers.js";
 
 import {
+    describeSkipIfRpc,
     getAvailablePlebbitConfigsToTestAgainst,
+    isRpcFlagOn,
+    mockRemotePlebbit,
     mockPlebbitNoDataPathWithOnlyKuboClient,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
@@ -13,29 +16,75 @@ import type { RemoteSubplebbit } from "../../../dist/node/subplebbit/remote-subp
 
 const subplebbitAddress = signers[0].address;
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) =>
-    describe(`subplebbit.stop() timing - Remote - ${config.name}`, async () => {
-        let plebbit: PlebbitType;
+function createAbortError(message: string) {
+    const error = new Error(message);
+    error.name = "AbortError";
+    return error;
+}
 
-        afterAll(async () => {
-            await plebbit.destroy();
-        });
+function createBlockedNameResolver(key: string) {
+    let receivedName: string | undefined;
+    let receivedSignal: AbortSignal | undefined;
+    let resolverCalled!: () => void;
+    const waitUntilCalled = new Promise<void>((resolve) => {
+        resolverCalled = resolve;
+    });
 
-        it(`Remote subplebbit stop() after update() should complete within 10s`, async () => {
-            plebbit = await config.plebbitInstancePromise();
-            const sub = (await plebbit.createSubplebbit({ address: subplebbitAddress })) as RemoteSubplebbit;
-            await sub.update();
-            await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => typeof sub.updatedAt === "number"
+    return {
+        waitUntilCalled,
+        getReceivedName: () => receivedName,
+        getReceivedSignal: () => receivedSignal,
+        resolver: {
+            key,
+            canResolve: () => true,
+            provider: `${key}-provider`,
+            resolve: async ({ name, abortSignal }: { name: string; provider: string; abortSignal?: AbortSignal }) => {
+                receivedName = name;
+                receivedSignal = abortSignal;
+                resolverCalled();
+                if (!abortSignal) throw new Error("Expected abortSignal to be passed to the resolver");
+                await new Promise<never>((_, reject) => {
+                    const rejectWithAbort = () =>
+                        reject(abortSignal.reason instanceof Error ? abortSignal.reason : createAbortError("The operation was aborted"));
+
+                    if (abortSignal.aborted) {
+                        rejectWithAbort();
+                        return;
+                    }
+
+                    abortSignal.addEventListener("abort", rejectWithAbort, { once: true });
+                });
+                throw new Error("Blocked resolver should only finish by aborting");
+            }
+        }
+    };
+}
+
+getAvailablePlebbitConfigsToTestAgainst()
+    .filter((config) => isRpcFlagOn() || config.testConfigCode !== "remote-plebbit-rpc")
+    .map((config) =>
+        describe(`subplebbit.stop() timing - Remote - ${config.name}`, async () => {
+            let plebbit: PlebbitType;
+
+            afterAll(async () => {
+                await plebbit.destroy();
             });
-            const startMs = Date.now();
-            await sub.stop();
-            const elapsed = Date.now() - startMs;
-            expect(elapsed).to.be.lessThan(10000);
-        });
-    })
-);
+
+            it(`Remote subplebbit stop() after update() should complete within 10s`, async () => {
+                plebbit = await config.plebbitInstancePromise();
+                const sub = (await plebbit.createSubplebbit({ address: subplebbitAddress })) as RemoteSubplebbit;
+                await sub.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: sub,
+                    predicate: async () => typeof sub.updatedAt === "number"
+                });
+                const startMs = Date.now();
+                await sub.stop();
+                const elapsed = Date.now() - startMs;
+                expect(elapsed).to.be.lessThan(10000);
+            });
+        })
+    );
 
 describe(`subplebbit.stop() idempotency`, async () => {
     it(`subplebbit.stop() should be a no-op when state is already "stopped"`, async () => {
@@ -45,5 +94,39 @@ describe(`subplebbit.stop() idempotency`, async () => {
         await sub.stop(); // should not throw
         expect(sub.state).to.equal("stopped");
         await plebbit.destroy();
+    });
+});
+
+describeSkipIfRpc(`subplebbit.stop() aborts verification`, async () => {
+    it(`subplebbit.stop() aborts community-name resolution without emitting a failure`, async () => {
+        const blockedResolver = createBlockedNameResolver("sub-blocked-resolver");
+        const plebbit = await mockRemotePlebbit({
+            mockResolve: false,
+            plebbitOptions: { nameResolvers: [blockedResolver.resolver] }
+        });
+
+        try {
+            const sub = await plebbit.createSubplebbit({ address: "blocked-sub.bso" });
+            const errors: Error[] = [];
+            sub.on("error", (error) => errors.push(error as Error));
+
+            await sub.update();
+            await blockedResolver.waitUntilCalled;
+
+            expect(blockedResolver.getReceivedName()).to.equal("blocked-sub.bso");
+            expect(sub.clients.nameResolvers["sub-blocked-resolver"].state).to.equal("resolving-community-name");
+
+            await sub.stop();
+
+            expect(sub.state).to.equal("stopped");
+            expect(sub.updatingState).to.equal("stopped");
+            expect(sub.clients.nameResolvers["sub-blocked-resolver"].state).to.equal("stopped");
+            expect(blockedResolver.getReceivedSignal()!.aborted).to.equal(true);
+            expect(sub.updatedAt).to.be.undefined;
+            expect(sub.raw.subplebbitIpfs).to.be.undefined;
+            expect(errors).to.have.length(0);
+        } finally {
+            await plebbit.destroy();
+        }
     });
 });

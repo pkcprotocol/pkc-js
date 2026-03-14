@@ -1,5 +1,13 @@
 import retry, { RetryOperation } from "retry";
-import { hideClassPrivateProps, removeUndefinedValuesRecursively, retryKuboIpfsAdd, shortifyCid, throwWithErrorCode } from "../../util.js";
+import {
+    createAbortError,
+    hideClassPrivateProps,
+    isAbortError,
+    removeUndefinedValuesRecursively,
+    retryKuboIpfsAdd,
+    shortifyCid,
+    throwWithErrorCode
+} from "../../util.js";
 import Publication from "../publication.js";
 import type { DecryptedChallengeVerification } from "../../pubsub-messages/types.js";
 import type { AuthorWithOptionalCommentUpdateJson, PublicationTypeName } from "../../types.js";
@@ -117,6 +125,7 @@ export class Comment
     private _commentIpfsloadingOperation?: RetryOperation = undefined;
     override _clientsManager!: CommentClientsManager;
     private _updateRpcSubscriptionId?: number = undefined;
+    private _stopAbortController?: AbortController = undefined;
     override challengeRequest?: CreateCommentOptions["challengeRequest"];
 
     private _subplebbitForUpdating?: CommentClientsManager["_subplebbitForUpdating"];
@@ -149,6 +158,28 @@ export class Comment
     override _initClients() {
         this._clientsManager = new CommentClientsManager(this);
         this.clients = this._clientsManager.clients;
+    }
+
+    _createStopAbortController() {
+        if (!this._stopAbortController || this._stopAbortController.signal.aborted) this._stopAbortController = new AbortController();
+        return this._stopAbortController;
+    }
+
+    _getStopAbortSignal() {
+        return this._stopAbortController?.signal;
+    }
+
+    _isStopAbortRequested() {
+        return Boolean(this._stopAbortController?.signal.aborted);
+    }
+
+    _abortStopOperations(reason: string) {
+        if (!this._stopAbortController || this._stopAbortController.signal.aborted) return;
+        this._stopAbortController.abort(createAbortError(reason));
+    }
+
+    _clearStopAbortController() {
+        this._stopAbortController = undefined;
     }
 
     private _setOriginalFieldBeforeModifying() {
@@ -546,7 +577,7 @@ export class Comment
         return true;
     }
 
-    private async _retryLoadingCommentIpfs(cid: string, log: Logger): Promise<CommentIpfsType | PlebbitError> {
+    private async _retryLoadingCommentIpfs(cid: string, log: Logger): Promise<CommentIpfsType | PlebbitError | Error> {
         return new Promise((resolve) => {
             this._commentIpfsloadingOperation!.attempt(async (curAttempt) => {
                 if (this.raw.comment) return resolve(this.raw.comment);
@@ -562,6 +593,7 @@ export class Comment
                     }
                 } catch (e) {
                     const error = <PlebbitError | Error>e;
+                    if (error.name === "AbortError") return resolve(error);
                     if (error instanceof PlebbitError && error.details)
                         error.details = { ...error.details, commentCid: this.cid, retryCount: curAttempt };
                     if (this._isCommentIpfsErrorRetriable(<PlebbitError>error)) {
@@ -594,6 +626,7 @@ export class Comment
             const newCommentIpfsOrNonRetriableError = await this._retryLoadingCommentIpfs(this.cid, log); // Will keep retrying to load until comment.stop() is called
 
             if (newCommentIpfsOrNonRetriableError instanceof Error) {
+                if (isAbortError(newCommentIpfsOrNonRetriableError) && (this.state === "stopped" || this._isStopAbortRequested())) return;
                 // This is a non-retriable error, it should stop the comment from updating
                 log.error(
                     `Encountered a non retriable error while loading CommentIpfs (${this.cid}), will stop the update loop`,
@@ -653,11 +686,16 @@ export class Comment
 
     async loadCommentIpfsAndStartCommentUpdateSubscription() {
         const log = Logger("plebbit-js:update:loadCommentIpfsAndStartCommentUpdateSubscription");
+        this._createStopAbortController();
         await this._attemptInfintelyToLoadCommentIpfs();
-        if (!this.raw.comment) throw Error("Failed to load comment ipfs, user needs to check error event");
+        if (!this.raw.comment) {
+            if (this.state === "stopped" || this._isStopAbortRequested()) return;
+            throw Error("Failed to load comment ipfs, user needs to check error event");
+        }
         try {
             await this.startCommentUpdateSubplebbitSubscription(); // can only proceed if commentIpfs has been loaded successfully
         } catch (e) {
+            if (isAbortError(e) && (this.state === "stopped" || this._isStopAbortRequested())) return;
             log.error("Failed to start comment update subscription to subplebbit", e);
         }
     }
@@ -1066,9 +1104,13 @@ export class Comment
             }
             this._updatingCommentInstance = undefined;
         }
+        this._clearStopAbortController();
     }
 
     override async stop() {
+        this._abortStopOperations(
+            `Aborting comment operations for ${this.cid || this.author?.address || "comment"} because comment.stop() was called`
+        );
         if (this.state === "publishing") await super.stop();
         this._setStateWithEmission("stopped");
         await this._stopUpdateLoop();
@@ -1077,13 +1119,19 @@ export class Comment
     }
 
     private async _validateSignature() {
+        const stopAbortController = this._createStopAbortController();
         const commentObj = JSON.parse(JSON.stringify(this.toJSONPubsubMessagePublication())); // Stringify so it resembles messages from pubsub
-        const signatureValidity = await verifyCommentPubsubMessage({
-            comment: commentObj,
-            resolveAuthorNames: this._plebbit.resolveAuthorNames,
-            clientsManager: this._clientsManager
-        });
-        if (!signatureValidity.valid) throw new PlebbitError("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
+        try {
+            const signatureValidity = await verifyCommentPubsubMessage({
+                comment: commentObj,
+                resolveAuthorNames: this._plebbit.resolveAuthorNames,
+                clientsManager: this._clientsManager,
+                abortSignal: stopAbortController.signal
+            });
+            if (!signatureValidity.valid) throw new PlebbitError("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
+        } finally {
+            if (this.state !== "updating") this._clearStopAbortController();
+        }
     }
 
     override async publish(): Promise<void> {

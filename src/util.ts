@@ -49,6 +49,26 @@ export function timestamp() {
     return Math.round(Date.now() / 1000);
 }
 
+export function createAbortError(message = "The operation was aborted") {
+    const error = new Error(message);
+    error.name = "AbortError";
+    return error;
+}
+
+export function isAbortError(error: unknown): error is Error {
+    return error instanceof Error && error.name === "AbortError";
+}
+
+export function throwIfAbortSignalAborted(signal?: AbortSignal): void {
+    if (!signal?.aborted) return;
+    if (signal.reason instanceof Error) {
+        signal.reason.name = signal.reason.name || "AbortError";
+        throw signal.reason;
+    }
+    if (typeof signal.reason === "string" && signal.reason.length > 0) throw createAbortError(signal.reason);
+    throw createAbortError();
+}
+
 export function replaceXWithY(obj: Record<string, any>, x: any, y: any): any {
     // obj is a JS object
     if (!remeda.isPlainObject(obj)) return obj;

@@ -13,7 +13,7 @@ import {
 import { FailedToFetchCommentUpdateFromGatewaysError, PlebbitError } from "../../plebbit-error.js";
 import { verifyCommentIpfs, verifyCommentUpdate } from "../../signer/signatures.js";
 import Logger from "@plebbit/plebbit-logger";
-import { getPostUpdateTimestampRange, hideClassPrivateProps, resolveWhenPredicateIsTrue } from "../../util.js";
+import { getPostUpdateTimestampRange, hideClassPrivateProps, isAbortError, resolveWhenPredicateIsTrue } from "../../util.js";
 import { PublicationClientsManager } from "../publication-client-manager.js";
 import { RemoteSubplebbit } from "../../subplebbit/remote-subplebbit.js";
 import { findCommentInPageInstance, findCommentInPageInstanceRecursively, findCommentInParsedPages } from "../../pages/util.js";
@@ -211,7 +211,8 @@ export class CommentClientsManager extends PublicationClientsManager {
             subplebbit: subplebbitIpfs,
             comment: { ...this._comment.raw.comment, cid: this._comment.cid, postCid: this._comment.postCid },
             validatePages: this._plebbit.validatePages,
-            validateUpdateSignature: true
+            validateUpdateSignature: true,
+            abortSignal: this._comment._getStopAbortSignal()
         };
         const signatureValidity = await verifyCommentUpdate(verifyOptions);
         if (!signatureValidity.valid)
@@ -346,6 +347,7 @@ export class CommentClientsManager extends PublicationClientsManager {
             }
         } catch (e) {
             if (e instanceof Error) {
+                if (isAbortError(e)) return;
                 if (this._shouldWeFetchCommentUpdateFromNextTimestamp(<PlebbitError>e)) {
                     // this is a retriable error
                     // could be problems loading from the network or gateways
@@ -418,7 +420,8 @@ export class CommentClientsManager extends PublicationClientsManager {
             resolveAuthorNames: this._plebbit.resolveAuthorNames,
             clientsManager: this,
             calculatedCommentCid: commentCid,
-            subplebbitAddressFromInstance: this._comment.subplebbitAddress
+            subplebbitAddressFromInstance: this._comment.subplebbitAddress,
+            abortSignal: this._comment._getStopAbortSignal()
         };
         const commentIpfsValidation = await verifyCommentIpfs(verificationOpts);
         if (!commentIpfsValidation.valid)
@@ -610,6 +613,7 @@ export class CommentClientsManager extends PublicationClientsManager {
                 // this is only for posts with depth === 0
                 await this.useSubplebbitPostUpdatesToFetchCommentUpdateForPost(sub.raw.subplebbitIpfs);
             } catch (e) {
+                if (isAbortError(e)) return;
                 log.error("Failed to use subplebbit update to fetch new CommentUpdate", e);
                 this._comment._changeCommentStateEmitEventEmitStateChangeEvent({
                     newUpdatingState: "failed",
@@ -731,6 +735,7 @@ export class CommentClientsManager extends PublicationClientsManager {
             try {
                 pageLoaded = await parentCommentInstance.replies.getPage({ cid: curPageCid });
             } catch (e) {
+                if (isAbortError(e)) throw e;
                 pageCidsSearchedForNewUpdate.push({ pageCid: curPageCid, error: e as Error });
                 break;
             }
@@ -933,6 +938,7 @@ export class CommentClientsManager extends PublicationClientsManager {
 
         this._fetchingUpdateForReplyUsingPageCidsPromise = this.usePageCidsOfParentToFetchCommentUpdateForReply(postInstance)
             .catch((error) => {
+                if (isAbortError(error)) return;
                 log.error("Failed to fetch reply commentUpdate update from parent pages", error);
                 this._comment._changeCommentStateEmitEventEmitStateChangeEvent({
                     newUpdatingState: "failed",
