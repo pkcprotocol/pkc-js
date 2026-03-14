@@ -25,3 +25,5 @@
 -   In tests, prefer `createSubplebbit()` + `update()` over `getSubplebbit()`, since `getSubplebbit` does a one-shot fetch that fails randomly in CI
 -   When creating a Plebbit instance pointing at the local test Kubo (`http://localhost:15001/api/v0`), always pass `httpRoutersOptions: []` to prevent the Zod default from adding production routers, which triggers a Kubo shutdown/restart and breaks parallel tests with ECONNREFUSED
 -   Use `npx ipfs` not systemwide `ipfs` binary
+-   `author.address` and `subplebbit.address` are immutable — never override or fall back to a derived address; use `author.nameResolved` to indicate whether a domain resolved correctly
+-   You should not run `npm run test:server:node` yourself instead ask me to do it
