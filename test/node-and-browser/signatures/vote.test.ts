@@ -39,8 +39,7 @@ describe.concurrent("Sign Vote", async () => {
         const verification = await verifyVote({
             vote: { ...voteProps, signature: voteSignature } as VotePubsubMessagePublication,
             resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false
+            clientsManager: plebbit._clientsManager
         });
         expect(verification).to.deep.equal({ valid: true });
     });
@@ -80,8 +79,7 @@ describeSkipIfRpc.concurrent("Verify vote", async () => {
         const verification = await verifyVote({
             vote,
             resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false
+            clientsManager: plebbit._clientsManager
         });
         expect(verification).to.deep.equal({ valid: true });
     });
@@ -92,8 +90,7 @@ describeSkipIfRpc.concurrent("Verify vote", async () => {
         const verification = await verifyVote({
             vote,
             resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false
+            clientsManager: plebbit._clientsManager
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
@@ -104,8 +101,7 @@ describeSkipIfRpc.concurrent("Verify vote", async () => {
         const verification = await verifyVote({
             vote,
             resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false
+            clientsManager: plebbit._clientsManager
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58 });
     });
@@ -126,8 +122,7 @@ describeSkipIfRpc.concurrent("Verify vote", async () => {
         const verification = await verifyVote({
             vote,
             resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false
+            clientsManager: plebbit._clientsManager
         });
         expect(verification).to.deep.equal({ valid: true });
     });

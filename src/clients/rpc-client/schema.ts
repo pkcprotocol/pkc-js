@@ -3,7 +3,10 @@ import { CommentIpfsSchema, CommentUpdateSchema } from "../../publications/comme
 import { AuthorAddressSchema, CidStringSchema, SubplebbitAddressSchema } from "../../schema/schema.js";
 export const SubscriptionIdSchema = z.number().positive().int();
 
-export const RpcCommentEventResultSchema = CommentIpfsSchema.loose();
+export const RpcCommentEventResultSchema = z.object({
+    comment: CommentIpfsSchema,
+    nameResolved: z.boolean().optional()
+});
 export const RpcCommentUpdateResultSchema = CommentUpdateSchema;
 
 export const RpcCidParamSchema = z.object({ cid: CidStringSchema }).loose();

@@ -173,14 +173,16 @@ export function parseRpcCommentUpdateEventWithPlebbitErrorIfItFails(
     else return updateResult;
 }
 
-export function parseRpcCommentEventWithPlebbitErrorIfItFails(updateResult: z.infer<typeof RpcCommentEventResultSchema>): CommentIpfsType {
+export function parseRpcCommentEventWithPlebbitErrorIfItFails(
+    updateResult: z.input<typeof RpcCommentEventResultSchema>
+): z.infer<typeof RpcCommentEventResultSchema> {
     const parseRes = RpcCommentEventResultSchema.safeParse(updateResult);
     if (!parseRes.success)
         throw new PlebbitError("ERR_INVALID_RPC_COMMENT_SCHEMA", {
             zodError: parseRes.error,
             updateResult
         });
-    else return updateResult;
+    else return parseRes.data;
 }
 
 export function parseSubplebbitEditPubsubMessagePublicationSchemaWithPlebbitErrorIfItFails(args: SubplebbitEditPubsubMessagePublication) {

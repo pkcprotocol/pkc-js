@@ -51,8 +51,7 @@ describe("Sign commentedit", async () => {
         const verification = await verifyCommentEdit({
             edit: editWithSignature,
             resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false
+            clientsManager: plebbit._clientsManager
         });
         expect(verification).to.deep.equal({ valid: true });
     });
@@ -88,8 +87,7 @@ describeSkipIfRpc("Verify CommentEdit", async () => {
         const verification = await verifyCommentEdit({
             edit,
             resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false
+            clientsManager: plebbit._clientsManager
         });
         expect(verification).to.deep.equal({ valid: true });
     });
@@ -100,8 +98,7 @@ describeSkipIfRpc("Verify CommentEdit", async () => {
         const verification = await verifyCommentEdit({
             edit,
             resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false
+            clientsManager: plebbit._clientsManager
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
@@ -112,8 +109,7 @@ describeSkipIfRpc("Verify CommentEdit", async () => {
         const verification = await verifyCommentEdit({
             edit,
             resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false
+            clientsManager: plebbit._clientsManager
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58 });
     });
@@ -123,8 +119,7 @@ describeSkipIfRpc("Verify CommentEdit", async () => {
         const verification = await verifyCommentEdit({
             edit,
             resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false
+            clientsManager: plebbit._clientsManager
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });

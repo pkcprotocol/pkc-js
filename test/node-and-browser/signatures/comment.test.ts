@@ -90,8 +90,7 @@ describe("sign comment", async () => {
         const verificaiton = await verifyCommentPubsubMessage({
             comment: signedComment,
             resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false
+            clientsManager: plebbit._clientsManager
         });
         expect(verificaiton).to.deep.equal({ valid: true });
         signedCommentClone = remeda.clone(signedComment);
@@ -109,8 +108,7 @@ describe("sign comment", async () => {
         const verificaiton = await verifyCommentPubsubMessage({
             comment: signedComment,
             resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false
+            clientsManager: plebbit._clientsManager
         });
         expect(verificaiton).to.deep.equal({ valid: true });
     });
@@ -152,8 +150,7 @@ describe("sign comment", async () => {
         const res = await verifyCommentPubsubMessage({
             comment: signedComment,
             resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false
+            clientsManager: plebbit._clientsManager
         });
         expect(res).to.deep.equal({ valid: true });
     });
@@ -172,8 +169,7 @@ describe("sign comment", async () => {
         const res = await verifyCommentPubsubMessage({
             comment: signedComment,
             resolveAuthorNames: false,
-            clientsManager: plebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false
+            clientsManager: plebbit._clientsManager
         });
         expect(res).to.deep.equal({ valid: true });
     });
@@ -193,8 +189,7 @@ describe("sign comment", async () => {
         const res = await verifyCommentPubsubMessage({
             comment: signedComment,
             resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false
+            clientsManager: plebbit._clientsManager
         });
         expect(res).to.deep.equal({ valid: true });
     });
@@ -217,8 +212,7 @@ describeSkipIfRpc("verify Comment", async () => {
         const verification = await verifyCommentPubsubMessage({
             comment: fixtureWithSignature,
             resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false
+            clientsManager: plebbit._clientsManager
         });
         expect(verification).to.deep.equal({ valid: true });
     });
@@ -232,8 +226,7 @@ describeSkipIfRpc("verify Comment", async () => {
         const verification = await verifyCommentPubsubMessage({
             comment: wronglySignedPublication,
             resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false
+            clientsManager: plebbit._clientsManager
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
@@ -245,8 +238,7 @@ describeSkipIfRpc("verify Comment", async () => {
             comment,
             clientsManager: plebbit._clientsManager,
             resolveAuthorNames: false,
-            calculatedCommentCid: "QmTest",
-            overrideAuthorAddressIfInvalid: false
+            calculatedCommentCid: "QmTest"
         });
         expect(verification).to.deep.equal({ valid: true });
     });
@@ -257,8 +249,7 @@ describeSkipIfRpc("verify Comment", async () => {
             comment,
             clientsManager: plebbit._clientsManager,
             resolveAuthorNames: true,
-            calculatedCommentCid: "QmTest",
-            overrideAuthorAddressIfInvalid: false
+            calculatedCommentCid: "QmTest"
         });
         expect(verification).to.deep.equal({ valid: true });
     });
@@ -269,8 +260,7 @@ describeSkipIfRpc("verify Comment", async () => {
         const verification = await verifyCommentPubsubMessage({
             comment: comment as unknown as CommentPubsubMessagePublication,
             resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false
+            clientsManager: plebbit._clientsManager
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58 });
     });
@@ -289,8 +279,7 @@ describeSkipIfRpc("verify Comment", async () => {
         const verification = await verifyCommentPubsubMessage({
             comment,
             resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false
+            clientsManager: plebbit._clientsManager
         });
         expect(verification).to.deep.equal({ valid: true });
     });
@@ -311,8 +300,7 @@ describeSkipIfRpc("verify Comment", async () => {
         const verification = await verifyCommentPubsubMessage({
             comment: signedComment,
             resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false
+            clientsManager: plebbit._clientsManager
         });
         expect(verification).to.deep.equal({ valid: true });
         expect(signedComment.signature.signedPropertyNames).to.include("flairs");
@@ -337,8 +325,7 @@ describeSkipIfRpc("verify Comment", async () => {
         const verification = await verifyCommentPubsubMessage({
             comment: signedComment,
             resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false
+            clientsManager: plebbit._clientsManager
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
@@ -363,8 +350,7 @@ describeSkipIfRpc("verify Comment", async () => {
         const verification = await verifyCommentPubsubMessage({
             comment: signedComment,
             resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false
+            clientsManager: plebbit._clientsManager
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
@@ -372,7 +358,7 @@ describeSkipIfRpc("verify Comment", async () => {
 
 // Clients of RPC will trust the response of RPC and won't validate
 describeSkipIfRpc(`Comment with author.name as domain`, async () => {
-    it(`verifyCommentPubsubMessage uses derived signer address if author.name resolves to a different author (overrideAuthorAddressIfInvalid=true)`, async () => {
+    it(`verifyCommentPubsubMessage uses derived signer address if author.name resolves to a different author`, async () => {
         const tempPlebbit = await mockRemotePlebbit();
         const commentToSign = createCommentToSign({
             subplebbitAddress: signers[0].address,
@@ -390,14 +376,13 @@ describeSkipIfRpc(`Comment with author.name as domain`, async () => {
         const verificaiton = await verifyCommentPubsubMessage({
             comment: signedPublication,
             resolveAuthorNames: tempPlebbit.resolveAuthorNames,
-            clientsManager: tempPlebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: true
+            clientsManager: tempPlebbit._clientsManager
         });
         expect(verificaiton).to.deep.equal({ valid: true, derivedAddress: signers[1].address });
         expect(signedPublication.author?.name).to.equal("testDomain.eth");
         await tempPlebbit.destroy();
     });
-    it(`Comment with invalid author domain address will will be invalidated (overrideAuthorAddressIfInvalid=false)`, async () => {
+    it(`Comment with invalid author domain address will be invalidated`, async () => {
         const comment = remeda.clone(validCommentAuthorAddressDomainFixture) as CommentIpfsType;
         const tempPlebbit = await mockRemotePlebbit();
         tempPlebbit._clientsManager.resolveAuthorNameIfNeeded = async (authorAddress: string) =>
@@ -407,7 +392,6 @@ describeSkipIfRpc(`Comment with author.name as domain`, async () => {
             comment,
             resolveAuthorNames: tempPlebbit.resolveAuthorNames,
             clientsManager: tempPlebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false,
             calculatedCommentCid: "QmTest"
         });
 
@@ -452,7 +436,6 @@ describeSkipIfRpc(`commentupdate`, async () => {
                 clientsManager: comment._clientsManager,
                 subplebbit: subplebbit,
                 comment: commentForVerify,
-                overrideAuthorAddressIfInvalid: false,
                 validatePages: true,
                 validateUpdateSignature: true
             })
@@ -474,7 +457,6 @@ describeSkipIfRpc(`commentupdate`, async () => {
             clientsManager: subplebbit._clientsManager,
             subplebbit: subplebbit,
             comment: commentForVerify,
-            overrideAuthorAddressIfInvalid: false,
             validatePages: true,
             validateUpdateSignature: true
         });
@@ -495,7 +477,6 @@ describeSkipIfRpc(`commentupdate`, async () => {
             clientsManager: subplebbit._clientsManager,
             subplebbit: subplebbit,
             comment: commentForVerify,
-            overrideAuthorAddressIfInvalid: false,
             validatePages: true,
             validateUpdateSignature: true
         });
@@ -517,7 +498,6 @@ describeSkipIfRpc(`commentupdate`, async () => {
             clientsManager: subplebbit._clientsManager,
             subplebbit: subplebbit,
             comment: commentForVerify,
-            overrideAuthorAddressIfInvalid: false,
             validatePages: true,
             validateUpdateSignature: true
         });
@@ -541,7 +521,6 @@ describeSkipIfRpc(`commentupdate`, async () => {
                 clientsManager: subplebbit._clientsManager,
                 subplebbit: subplebbit,
                 comment: commentForVerify,
-                overrideAuthorAddressIfInvalid: false,
                 validatePages: false,
                 validateUpdateSignature: true
             })
@@ -557,7 +536,6 @@ describeSkipIfRpc(`commentupdate`, async () => {
             clientsManager: subplebbit._clientsManager,
             subplebbit: subplebbit,
             comment: commentForVerify,
-            overrideAuthorAddressIfInvalid: false,
             validatePages: true,
             validateUpdateSignature: true
         });
@@ -579,7 +557,6 @@ describeSkipIfRpc(`commentupdate`, async () => {
                 clientsManager: subplebbit._clientsManager,
                 subplebbit: subplebbit,
                 comment: commentForVerify,
-                overrideAuthorAddressIfInvalid: false,
                 validatePages: true,
                 validateUpdateSignature: true
             })
@@ -593,7 +570,6 @@ describeSkipIfRpc(`commentupdate`, async () => {
             clientsManager: subplebbit._clientsManager,
             subplebbit: subplebbit,
             comment: commentForVerify,
-            overrideAuthorAddressIfInvalid: false,
             validatePages: true,
             validateUpdateSignature: true
         });

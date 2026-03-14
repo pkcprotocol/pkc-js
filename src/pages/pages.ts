@@ -191,7 +191,7 @@ export class RepliesPages extends BasePages {
             clientsManager: this._clientsManager,
             subplebbit: this._subplebbit,
             parentComment: isUniformDepth ? this._parentComment : { postCid: this._parentComment.postCid }, // if it's a flat page, we don't need to verify the parent comment. Only the post
-            overrideAuthorAddressIfInvalid: true,
+
             validatePages: this._clientsManager._plebbit.validatePages,
             validateUpdateSignature: false // no need because we verified that page cid matches its content
         };
@@ -253,7 +253,7 @@ export class PostsPages extends BasePages {
             clientsManager: this._clientsManager,
             subplebbit: this._subplebbit,
             parentComment: { cid: undefined, postCid: undefined, depth: -1 },
-            overrideAuthorAddressIfInvalid: true,
+
             validatePages: this._clientsManager._plebbit.validatePages,
             validateUpdateSignature: false // no need because we verified that page cid matches its content
         };
@@ -311,7 +311,7 @@ export class ModQueuePages extends BasePages {
             clientsManager: this._clientsManager,
             subplebbit: this._subplebbit,
             parentComment: { cid: undefined, postCid: undefined, depth: -1 },
-            overrideAuthorAddressIfInvalid: true,
+
             validatePages: this._clientsManager._plebbit.validatePages,
             validateUpdateSignature: false // no need because we verified that page cid matches its content
         };

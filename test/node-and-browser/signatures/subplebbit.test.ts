@@ -61,7 +61,6 @@ describeSkipIfRpc.concurrent("Sign subplebbit", async () => {
             subplebbitIpnsName: signers[0].address,
             resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false,
             validatePages: true,
             cacheIfValid: false
         });
@@ -95,7 +94,6 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
                 subplebbitIpnsName: signers[0].address,
                 resolveAuthorNames: plebbit.resolveAuthorNames,
                 clientsManager: plebbit._clientsManager,
-                overrideAuthorAddressIfInvalid: false,
                 validatePages: true,
                 cacheIfValid: false
             })
@@ -109,7 +107,6 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
                 subplebbitIpnsName: signers[0].address,
                 resolveAuthorNames: plebbit.resolveAuthorNames,
                 clientsManager: plebbit._clientsManager,
-                overrideAuthorAddressIfInvalid: false,
                 validatePages: true,
                 cacheIfValid: false
             })
@@ -132,7 +129,6 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
             subplebbitIpnsName: signers[4].address,
             resolveAuthorNames: tempPlebbit.resolveAuthorNames,
             clientsManager: tempPlebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: false,
             validatePages: true,
             cacheIfValid: false
         });
@@ -157,7 +153,6 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
                 subplebbitIpnsName: signers[0].address,
                 resolveAuthorNames: plebbit.resolveAuthorNames,
                 clientsManager: plebbit._clientsManager,
-                overrideAuthorAddressIfInvalid: false,
                 validatePages: false
             })
         ).to.deep.equal({
@@ -171,7 +166,6 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
                 subplebbitIpnsName: signers[0].address,
                 resolveAuthorNames: plebbit.resolveAuthorNames,
                 clientsManager: plebbit._clientsManager,
-                overrideAuthorAddressIfInvalid: false,
                 validatePages: false
             })
         ).to.deep.equal({
@@ -180,7 +174,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
         });
     });
 
-    it(`subplebbit signature is valid if subplebbit.posts has a comment.author.address who resolves to an invalid address (overrideAuthorAddressIfInvalid=true)`, async () => {
+    it(`subplebbit signature is valid if subplebbit.posts has a comment.author.address who resolves to an invalid address`, async () => {
         // Publish a comment with ENS domain here
 
         const subIpfs = remeda.clone(validSubplebbitFixture) as SubplebbitIpfsType; // This json has only one comment with plebbit.eth
@@ -204,7 +198,6 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
                 subplebbitIpnsName: signers[0].address,
                 resolveAuthorNames: tempPlebbit.resolveAuthorNames,
                 clientsManager: tempPlebbit._clientsManager,
-                overrideAuthorAddressIfInvalid: true,
                 validatePages: true
             })
         ).to.deep.equal({
@@ -238,7 +231,6 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
             subplebbitIpnsName: signers[0].address,
             resolveAuthorNames: tempPlebbit.resolveAuthorNames,
             clientsManager: tempPlebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: true,
             validatePages: true
         });
         expect(validation).to.deep.equal({
@@ -264,7 +256,6 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
             subplebbitIpnsName: signers[0].address,
             resolveAuthorNames: tempPlebbit.resolveAuthorNames,
             clientsManager: tempPlebbit._clientsManager,
-            overrideAuthorAddressIfInvalid: true,
             validatePages: true
         });
         expect(validation).to.deep.equal({

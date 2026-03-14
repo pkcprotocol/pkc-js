@@ -3,7 +3,7 @@ import type { AuthorPubsubType, RuntimeAuthorType, RuntimeAuthorWithCommentUpdat
 import { getPlebbitAddressFromPublicKeySync } from "../signer/util.js";
 import { isStringDomain } from "../util.js";
 
-const runtimeOnlyAuthorFields = ["address", "publicKey", "shortAddress", "subplebbit"] as const;
+const runtimeOnlyAuthorFields = ["address", "publicKey", "shortAddress", "subplebbit", "nameResolved"] as const;
 
 type LooseAuthor = Partial<RuntimeAuthorWithCommentUpdateType> & Record<string, unknown>;
 

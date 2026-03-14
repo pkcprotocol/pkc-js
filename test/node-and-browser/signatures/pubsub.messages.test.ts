@@ -187,8 +187,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                 await verifyCommentPubsubMessage({
                     comment: commentObjToEncrypt.comment,
                     resolveAuthorNames: plebbit.resolveAuthorNames,
-                    clientsManager: comment._clientsManager,
-                    overrideAuthorAddressIfInvalid: true
+                    clientsManager: comment._clientsManager
                 })
             ).to.deep.equal({
                 valid: true
@@ -198,8 +197,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                 await verifyCommentPubsubMessage({
                     comment: commentObjToEncrypt.comment,
                     resolveAuthorNames: false,
-                    clientsManager: comment._clientsManager,
-                    overrideAuthorAddressIfInvalid: false
+                    clientsManager: comment._clientsManager
                 })
             ).to.deep.equal({
                 valid: false,

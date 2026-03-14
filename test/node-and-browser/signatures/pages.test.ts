@@ -27,8 +27,7 @@ const verifyPageJsonAlongWithObject = async (
     pageJson: PageIpfs,
     plebbit: PlebbitType,
     subplebbit: RemoteSubplebbit,
-    parentCid: string | undefined,
-    overrideAuthorAddressIsInvalid?: boolean
+    parentCid: string | undefined
 ) => {
     // randomize pageCid so that we don't rely on cache
     const parentComment = getParentComment(parentCid);
@@ -40,7 +39,6 @@ const verifyPageJsonAlongWithObject = async (
         clientsManager: plebbit._clientsManager,
         subplebbit: subplebbit,
         parentComment,
-        overrideAuthorAddressIfInvalid: overrideAuthorAddressIsInvalid,
         validatePages: true,
         validateUpdateSignature: true
     });
@@ -52,7 +50,6 @@ const verifyPageJsonAlongWithObject = async (
         clientsManager: plebbit._clientsManager,
         subplebbit: subplebbit,
         parentComment,
-        overrideAuthorAddressIfInvalid: overrideAuthorAddressIsInvalid,
         validatePages: true,
         validateUpdateSignature: true
     });
@@ -100,8 +97,7 @@ describeSkipIfRpc(`verify pages`, async () => {
         tempPlebbit._clientsManager.resolveAuthorNameIfNeeded = async (authorAddress) =>
             authorAddress === domainAddress ? signers[3].address : authorAddress; // Resolve to wrong address intentionally. Correct address would be signers[6].address
 
-        const overrideAuthorAddress = true;
-        const verification = await verifyPageJsonAlongWithObject(invalidPage, tempPlebbit, subplebbit, undefined, overrideAuthorAddress); // comments[commentWithDomainAddressIndex] author address should be modified after
+        const verification = await verifyPageJsonAlongWithObject(invalidPage, tempPlebbit, subplebbit, undefined); // comments[commentWithDomainAddressIndex] author address should be modified after
         expect(verification).to.deep.equal({ valid: true });
         expect((invalidPage.comments[commentWithDomainAddressIndex].comment.author as { address: string }).address).to.equal(domainAddress);
         await tempPlebbit.destroy();
@@ -120,8 +116,7 @@ describeSkipIfRpc(`verify pages`, async () => {
         tempPlebbit._clientsManager.resolveAuthorNameIfNeeded = async (authorAddress) =>
             authorAddress === domainAddress ? signers[3].address : authorAddress; // Resolve to wrong address intentionally. Correct address would be signers[6].address
 
-        const overrideAuthorAddress = false;
-        const verification = await verifyPageJsonAlongWithObject(invalidPage, tempPlebbit, subplebbit, undefined, overrideAuthorAddress); // comments[commentWithDomainAddressIndex] author address should be modified after
+        const verification = await verifyPageJsonAlongWithObject(invalidPage, tempPlebbit, subplebbit, undefined); // comments[commentWithDomainAddressIndex] author address should be modified after
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_AUTHOR_NOT_MATCHING_SIGNATURE });
         expect((invalidPage.comments[commentWithDomainAddressIndex].comment.author as { address: string }).address).to.equal(domainAddress);
         await tempPlebbit.destroy();

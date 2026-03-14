@@ -56,9 +56,8 @@ class Vote extends Publication implements VotePubsubMessagePublication {
         const signatureValidity = await verifyVote({
             vote: voteObj,
             resolveAuthorNames: this._plebbit.resolveAuthorNames,
-            clientsManager: this._clientsManager,
-            overrideAuthorAddressIfInvalid: true
-        }); // If author domain is not resolving to signer, then don't throw an error
+            clientsManager: this._clientsManager
+        });
         if (!signatureValidity.valid) throwWithErrorCode("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
     }
 

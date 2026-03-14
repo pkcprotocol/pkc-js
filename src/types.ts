@@ -33,7 +33,11 @@ export type AuthorTypeWithCommentUpdate = z.infer<typeof AuthorWithOptionalComme
 
 export type RuntimeAuthorType = AuthorPubsubType & { address: string; publicKey: string };
 
-export type RuntimeAuthorWithCommentUpdateType = AuthorTypeWithCommentUpdate & { address: string; publicKey: string };
+export type RuntimeAuthorWithCommentUpdateType = AuthorTypeWithCommentUpdate & {
+    address: string;
+    publicKey: string;
+    nameResolved?: boolean;
+};
 
 // creating a new local publication
 export type CreatePublicationOptions = z.infer<typeof CreatePublicationUserOptionsSchema>;
@@ -191,4 +195,5 @@ export type PlebbitMemCaches = {
     subplebbitForPublishing: LRUCache<SubplebbitIpfsType["address"], NonNullable<Publication["_subplebbit"]>>;
     pageCidToSortTypes: LRUCache<NonNullable<PageIpfs["nextCid"]>, string[]>; // page cid => sort types
     pagesMaxSize: LRUCache<NonNullable<PageIpfs["nextCid"]>, number>; // page cid => max file size (number of bytes )
+    nameResolvedCache: LRUCache<string, boolean>; // key: sha256(domain + signaturePublicKey), value: true|false
 };

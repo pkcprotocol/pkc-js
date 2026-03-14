@@ -45,6 +45,8 @@ import { CommentClientsManager } from "./comment-client-manager.js";
 import type { SubplebbitIpfsType } from "../../subplebbit/types.js";
 import { CID } from "kubo-rpc-client";
 import type { PublicationEventArgs, PublicationEvents } from "../types.js";
+import { getAuthorDomainFromRuntime } from "../publication-author.js";
+import { sha256 } from "js-sha256";
 
 export class Comment
     extends Publication
@@ -183,6 +185,14 @@ export class Comment
             log("Found unknown props on loaded CommentIpfs", unknownProps, "Will set them on the Comment instance");
             Object.assign(this, remeda.pick(props, unknownProps));
         }
+        this._setAuthorNameResolvedFromCache();
+    }
+
+    private _setAuthorNameResolvedFromCache() {
+        const domain = getAuthorDomainFromRuntime(this.author);
+        if (!domain) return; // no domain → nameResolved stays undefined
+        const cached = this._plebbit._memCaches.nameResolvedCache.get(sha256(domain + this.signature.publicKey));
+        if (typeof cached === "boolean") this.author.nameResolved = cached;
     }
 
     _initProps(props: CommentIpfsType | CommentPubsubMessagePublication) {
@@ -270,6 +280,7 @@ export class Comment
         this.approved = props.approved;
         this.number = props.number;
         this.postNumber = props.postNumber;
+        this._setAuthorNameResolvedFromCache();
     }
 
     _updateRepliesPostsInstance(
@@ -353,7 +364,6 @@ export class Comment
             comment: decryptedVerification.comment,
             resolveAuthorNames: this._plebbit.resolveAuthorNames,
             clientsManager: this._clientsManager,
-            overrideAuthorAddressIfInvalid: false,
             calculatedCommentCid: calculatedCid
         });
         if (!commentIpfsValidity.valid) {
@@ -370,7 +380,6 @@ export class Comment
             clientsManager: this._clientsManager,
             comment: { ...decryptedVerification.comment, cid: calculatedCid, postCid },
             subplebbit: this._subplebbit!,
-            overrideAuthorAddressIfInvalid: false,
             resolveAuthorNames: this._plebbit.resolveAuthorNames,
             validateUpdateSignature: true,
             validatePages: true
@@ -729,16 +738,19 @@ export class Comment
 
     private _handleCommentEventFromRpc(args: any) {
         const log = Logger("plebbit-js:comment:_handleCommentEventFromRpc");
-        let newComment: RpcCommentResultType;
+        let parsed: RpcCommentResultType;
         try {
-            newComment = parseRpcCommentEventWithPlebbitErrorIfItFails(args.params.result) as RpcCommentResultType;
+            parsed = parseRpcCommentEventWithPlebbitErrorIfItFails(args.params.result);
         } catch (e) {
             log.error("Failed to parse the rpc comment event of", this.cid, e);
             this.emit("error", <PlebbitError>e);
             throw e;
         }
         log(`Received new CommentIpfs (${this.cid}) from RPC`);
-        this._initIpfsProps(newComment);
+        this._initIpfsProps(parsed.comment);
+        if (typeof parsed.nameResolved === "boolean") {
+            this.author.nameResolved = parsed.nameResolved;
+        }
 
         this.emit("update", this);
     }
@@ -1068,9 +1080,8 @@ export class Comment
         const signatureValidity = await verifyCommentPubsubMessage({
             comment: commentObj,
             resolveAuthorNames: this._plebbit.resolveAuthorNames,
-            clientsManager: this._clientsManager,
-            overrideAuthorAddressIfInvalid: true
-        }); // If author domain is not resolving to signer, then don't throw an error
+            clientsManager: this._clientsManager
+        });
         if (!signatureValidity.valid) throw new PlebbitError("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
     }
 

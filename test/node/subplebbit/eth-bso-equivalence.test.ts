@@ -94,7 +94,6 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
                 clientsManager: plebbit._clientsManager,
                 resolveAuthorNames: false,
                 calculatedCommentCid: pageComment.cid!,
-                overrideAuthorAddressIfInvalid: false,
                 subplebbitAddressFromInstance: bsoNameAddress
             });
             expect(verification.valid).to.be.true;
@@ -109,7 +108,6 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
                 clientsManager: plebbit._clientsManager,
                 resolveAuthorNames: false,
                 calculatedCommentCid: pageComment.cid!,
-                overrideAuthorAddressIfInvalid: false,
                 subplebbitAddressFromInstance: pageComment.subplebbitAddress.endsWith(".eth")
                     ? pageComment.subplebbitAddress.slice(0, -4) + ".bso"
                     : pageComment.subplebbitAddress.slice(0, -4) + ".eth"

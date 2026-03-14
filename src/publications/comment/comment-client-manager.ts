@@ -210,7 +210,6 @@ export class CommentClientsManager extends PublicationClientsManager {
             clientsManager: this,
             subplebbit: subplebbitIpfs,
             comment: { ...this._comment.raw.comment, cid: this._comment.cid, postCid: this._comment.postCid },
-            overrideAuthorAddressIfInvalid: true,
             validatePages: this._plebbit.validatePages,
             validateUpdateSignature: true
         };
@@ -419,7 +418,6 @@ export class CommentClientsManager extends PublicationClientsManager {
             resolveAuthorNames: this._plebbit.resolveAuthorNames,
             clientsManager: this,
             calculatedCommentCid: commentCid,
-            overrideAuthorAddressIfInvalid: true,
             subplebbitAddressFromInstance: this._comment.subplebbitAddress
         };
         const commentIpfsValidation = await verifyCommentIpfs(verificationOpts);

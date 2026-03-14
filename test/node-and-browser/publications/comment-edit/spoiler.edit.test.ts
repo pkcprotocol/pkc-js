@@ -95,7 +95,6 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 comment: recreatedPost.toJSONIpfs(),
                 resolveAuthorNames: true,
                 clientsManager: recreatedPost._clientsManager,
-                overrideAuthorAddressIfInvalid: false,
                 calculatedCommentCid: recreatedPost.cid
             });
             expect(commentIpfsValidity).to.deep.equal({ valid: true });
@@ -106,7 +105,6 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 clientsManager: recreatedPost._clientsManager,
                 subplebbit: { address: recreatedPost.subplebbitAddress },
                 comment: recreatedPost as unknown as Pick<CommentIpfsWithCidPostCidDefined, "signature" | "cid" | "depth" | "postCid">,
-                overrideAuthorAddressIfInvalid: false,
                 validatePages: true,
                 validateUpdateSignature: true
             });

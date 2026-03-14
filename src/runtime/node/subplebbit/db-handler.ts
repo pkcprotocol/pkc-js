@@ -878,8 +878,7 @@ export class DbHandler {
             const validRes = await verifyCommentEdit({
                 edit: commentEditPubsub,
                 resolveAuthorNames: false,
-                clientsManager: this._subplebbit._clientsManager,
-                overrideAuthorAddressIfInvalid: false
+                clientsManager: this._subplebbit._clientsManager
             });
             if (!validRes.valid && validRes.reason === messages.ERR_SIGNATURE_IS_INVALID) {
                 log.error(
@@ -918,8 +917,7 @@ export class DbHandler {
                 comment: { ...commentRecord, ...commentRecord.extraProps },
                 resolveAuthorNames: false,
                 calculatedCommentCid: commentRecord.cid,
-                clientsManager: this._subplebbit._clientsManager,
-                overrideAuthorAddressIfInvalid: false
+                clientsManager: this._subplebbit._clientsManager
             });
             if (!validRes.valid) {
                 log.error(`Comment ${commentRecord.cid} in DB has invalid signature due to ${validRes.reason}. Will be purged.`);

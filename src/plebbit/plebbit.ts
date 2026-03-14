@@ -278,7 +278,8 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
                 ttl: 600000
             }),
             pageCidToSortTypes: new LRUCache<string, string[]>({ max: 5000 }),
-            pagesMaxSize: new LRUCache<string, number>({ max: 50000 })
+            pagesMaxSize: new LRUCache<string, number>({ max: 50000 }),
+            nameResolvedCache: new LRUCache<string, boolean>({ max: 5000 })
         };
     }
 
@@ -919,7 +920,6 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
             comment: commentIpfs,
             resolveAuthorNames: this.resolveAuthorNames,
             clientsManager: this._clientsManager,
-            overrideAuthorAddressIfInvalid: false,
             calculatedCommentCid: commentCid
         };
         const commentIpfsValidity = await verifyCommentIpfs(commentIpfsVerificationOpts);
@@ -937,7 +937,6 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
             resolveAuthorNames: this.resolveAuthorNames,
             clientsManager: this._clientsManager,
             subplebbit,
-            overrideAuthorAddressIfInvalid: false,
             validatePages: typeof opts?.validateReplies === "boolean" ? opts.validateReplies : this.validatePages,
             comment: { ...commentIpfs, cid: commentCid, postCid },
             validateUpdateSignature: true

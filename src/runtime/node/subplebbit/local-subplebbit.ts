@@ -872,7 +872,6 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             subplebbitIpnsName: this.signer.address,
             resolveAuthorNames: false,
             clientsManager: this._clientsManager,
-            overrideAuthorAddressIfInvalid: false,
             validatePages: true,
             cacheIfValid: false
         };
@@ -1374,36 +1373,31 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             validity = await verifyCommentPubsubMessage({
                 comment: request.comment,
                 resolveAuthorNames: this._plebbit.resolveAuthorNames,
-                clientsManager: this._clientsManager,
-                overrideAuthorAddressIfInvalid: false
+                clientsManager: this._clientsManager
             });
         else if (request.commentEdit)
             validity = await verifyCommentEdit({
                 edit: request.commentEdit,
                 resolveAuthorNames: this._plebbit.resolveAuthorNames,
-                clientsManager: this._clientsManager,
-                overrideAuthorAddressIfInvalid: false
+                clientsManager: this._clientsManager
             });
         else if (request.vote)
             validity = await verifyVote({
                 vote: request.vote,
                 resolveAuthorNames: this._plebbit.resolveAuthorNames,
-                clientsManager: this._clientsManager,
-                overrideAuthorAddressIfInvalid: false
+                clientsManager: this._clientsManager
             });
         else if (request.commentModeration)
             validity = await verifyCommentModeration({
                 moderation: request.commentModeration,
                 resolveAuthorNames: this._plebbit.resolveAuthorNames,
-                clientsManager: this._clientsManager,
-                overrideAuthorAddressIfInvalid: false
+                clientsManager: this._clientsManager
             });
         else if (request.subplebbitEdit)
             validity = await verifySubplebbitEdit({
                 subplebbitEdit: request.subplebbitEdit,
                 resolveAuthorNames: this._plebbit.resolveAuthorNames,
-                clientsManager: this._clientsManager,
-                overrideAuthorAddressIfInvalid: false
+                clientsManager: this._clientsManager
             });
         else throw Error("Can't detect the type of publication");
 
@@ -2440,7 +2434,6 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             clientsManager: this._clientsManager,
             subplebbit: this,
             comment,
-            overrideAuthorAddressIfInvalid: false,
             validatePages: this._plebbit.validatePages,
             validateUpdateSignature: true
         };
