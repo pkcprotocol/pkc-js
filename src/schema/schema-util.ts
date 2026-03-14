@@ -162,15 +162,15 @@ export function parseCidStringSchemaWithPlebbitErrorIfItFails(cidString: z.infer
 }
 
 export function parseRpcCommentUpdateEventWithPlebbitErrorIfItFails(
-    updateResult: z.infer<typeof RpcCommentUpdateResultSchema>
-): CommentUpdateType {
+    updateResult: z.input<typeof RpcCommentUpdateResultSchema>
+): z.infer<typeof RpcCommentUpdateResultSchema> {
     const parseRes = RpcCommentUpdateResultSchema.safeParse(updateResult);
     if (!parseRes.success)
         throw new PlebbitError("ERR_INVALID_RPC_COMMENT_UPDATE_SCHEMA", {
             zodError: parseRes.error,
             updateResult
         });
-    else return updateResult;
+    else return parseRes.data;
 }
 
 export function parseRpcCommentEventWithPlebbitErrorIfItFails(

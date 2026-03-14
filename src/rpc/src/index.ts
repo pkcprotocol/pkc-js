@@ -837,7 +837,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
                 sentCommentIpfsUpdateEvent = true;
             }
             if (comment.raw.commentUpdate) {
-                sendEvent("update", comment.raw.commentUpdate);
+                sendEvent("update", { commentUpdate: comment.raw.commentUpdate });
             }
         };
         const updateListener = () => sendUpdate();

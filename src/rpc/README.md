@@ -167,11 +167,13 @@ The notification format is the same as seen in the plebbit-js [Comment Events](h
   "method": "commentUpdateNotification",
   "params": {
     "result": {
-      "cid": "Qm...",
-      "upvoteCount": 1,
-      "downvoteCount": 0,
-      "replyCount": 0,
-      "updatedAt": 1689886478
+      "commentUpdate": {
+        "cid": "Qm...",
+        "upvoteCount": 1,
+        "downvoteCount": 0,
+        "replyCount": 0,
+        "updatedAt": 1689886478
+      }
     },
     "event": "update",
     "subscription": 23784

@@ -7,7 +7,7 @@ export const RpcCommentEventResultSchema = z.object({
     comment: CommentIpfsSchema,
     nameResolved: z.boolean().optional()
 });
-export const RpcCommentUpdateResultSchema = CommentUpdateSchema;
+export const RpcCommentUpdateResultSchema = z.object({ commentUpdate: CommentUpdateSchema });
 
 export const RpcCidParamSchema = z.object({ cid: CidStringSchema }).loose();
 export const RpcSubplebbitAddressParamSchema = z.object({ address: SubplebbitAddressSchema });

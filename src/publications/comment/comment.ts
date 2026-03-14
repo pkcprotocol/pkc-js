@@ -757,14 +757,15 @@ export class Comment
 
     private _handleUpdateEventFromRpc(args: any) {
         const log = Logger("plebbit-js:comment:_handleUpdateEventFromRpc");
-        let newUpdate: RpcCommentUpdateResultType;
+        let parsed: RpcCommentUpdateResultType;
         try {
-            newUpdate = parseRpcCommentUpdateEventWithPlebbitErrorIfItFails(args.params.result) as RpcCommentUpdateResultType;
+            parsed = parseRpcCommentUpdateEventWithPlebbitErrorIfItFails(args.params.result) as RpcCommentUpdateResultType;
         } catch (e) {
             log.error("Failed to parse the rpc update event of", this.cid, e);
             this.emit("error", <PlebbitError>e);
             throw e;
         }
+        const newUpdate = parsed.commentUpdate;
         if ((this.updatedAt || 0) <= newUpdate.updatedAt) {
             log(`Received new CommentUpdate (${this.cid}) from RPC`);
             this._initCommentUpdate(newUpdate as any);
