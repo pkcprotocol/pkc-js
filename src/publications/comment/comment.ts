@@ -775,13 +775,13 @@ export class Comment
     }
 
     private _handleUpdatingStateChangeFromRpc(args: any) {
-        const updateState: Comment["updatingState"] = args.params.result; // optimistic, rpc server could transmit an updating state that is not known to us
+        const updateState: Comment["updatingState"] = args.params.result.state; // optimistic, rpc server could transmit an updating state that is not known to us
         this._setUpdatingStateWithEmissionIfNewState(updateState);
         this._updateRpcClientStateFromUpdatingState(updateState);
     }
 
     private _handleStateChangeFromRpc(args: any) {
-        const commentState: Comment["state"] = args.params.result;
+        const commentState: Comment["state"] = args.params.result.state;
         this._setStateWithEmission(commentState);
     }
 

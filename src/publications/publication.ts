@@ -718,14 +718,14 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     private _handleIncomingPublishingStateFromRpc(args: any) {
-        const publishState: Publication["publishingState"] = args.params.result; // we're optimistic that RPC server transmitted a correct string
+        const publishState: Publication["publishingState"] = args.params.result.state; // we're optimistic that RPC server transmitted a correct string
         if (publishState === this.publishingState) this.emit("publishingstatechange", publishState);
         else this._updatePublishingStateWithEmission(publishState);
         this._updateRpcClientStateFromPublishingState(publishState);
     }
 
     private _handleIncomingStateFromRpc(args: any) {
-        const state: Publication["state"] = args.params.result; // optimistic here, we're not validating it via schema
+        const state: Publication["state"] = args.params.result.state; // optimistic here, we're not validating it via schema
     }
 
     private async _handleIncomingErrorFromRpc(args: any) {

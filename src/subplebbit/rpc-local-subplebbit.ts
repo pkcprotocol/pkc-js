@@ -148,7 +148,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit implements RpcIntern
     private _handleRpcStartedStateChangeEvent(args: any) {
         const log = Logger("plebbit-js:rpc-local-subplebbit:_handleRpcStartedStateChangeEvent");
 
-        const newStartedState: RpcLocalSubplebbit["startedState"] = args.params.result; // we're being optimistic that the rpc server transmitted a valid string here
+        const newStartedState: RpcLocalSubplebbit["startedState"] = args.params.result.state; // we're being optimistic that the rpc server transmitted a valid string here
         log("Received a startedstatechange for sub " + this.address, "new started state is", newStartedState);
 
         if (newStartedState !== this.startedState) this._setStartedStateWithEmission(newStartedState);

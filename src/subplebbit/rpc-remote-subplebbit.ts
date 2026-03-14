@@ -82,7 +82,7 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
     }
 
     private _handleUpdatingStateChangeFromRpcUpdate(args: any) {
-        const newUpdatingState: RpcRemoteSubplebbit["updatingState"] = args.params.result; // we're being optimistic that RPC server sent an appropiate updating state string
+        const newUpdatingState: RpcRemoteSubplebbit["updatingState"] = args.params.result.state; // we're being optimistic that RPC server sent an appropiate updating state string
 
         this._setUpdatingStateWithEventEmissionIfNewState(newUpdatingState);
         this._updateRpcClientStateFromUpdatingState(newUpdatingState);

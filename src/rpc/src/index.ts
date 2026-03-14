@@ -37,8 +37,6 @@ import { hideClassPrivateProps, replaceXWithY, throwWithErrorCode } from "../../
 import * as remeda from "remeda";
 import type { IncomingMessage } from "http";
 import type { CommentChallengeRequestToEncryptType, CommentIpfsType, CommentRpcErrorToTransmit } from "../../publications/comment/types.js";
-import { SubplebbitAddressSchema } from "../../schema/schema.js";
-import { SubscriptionIdSchema } from "../../clients/rpc-client/schema.js";
 import type {
     RpcInternalSubplebbitRecordAfterFirstUpdateType,
     RpcInternalSubplebbitRecordBeforeFirstUpdateType,
@@ -73,7 +71,10 @@ import {
     parseRpcAuthorNameParam,
     parseRpcCidParam,
     parseRpcCommentRepliesPageParam,
-    parseRpcSubplebbitPageParam
+    parseRpcSubplebbitPageParam,
+    parseRpcEditSubplebbitParam,
+    parseRpcPublishChallengeAnswersParam,
+    parseRpcUnsubscribeParam
 } from "../../clients/rpc-client/rpc-schema-util.js";
 import { SubplebbitAddressRpcParam } from "../../clients/rpc-client/types.js";
 
@@ -484,7 +485,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
         subplebbit.on("update", updateListener);
         this._trackSubplebbitListener(subplebbit, "update", updateListener);
 
-        const startedStateListener = () => sendEvent("startedstatechange", subplebbit.startedState);
+        const startedStateListener = () => sendEvent("startedstatechange", { state: subplebbit.startedState });
         subplebbit.on("startedstatechange", startedStateListener);
         this._trackSubplebbitListener(subplebbit, "startedstatechange", startedStateListener);
 
@@ -632,8 +633,8 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
     }
 
     async editSubplebbit(params: any) {
-        const address = SubplebbitAddressSchema.parse(params[0]);
-        const replacedProps = replaceXWithY(params[1], null, undefined);
+        const { address, editOptions } = parseRpcEditSubplebbitParam(params[0]);
+        const replacedProps = replaceXWithY(editOptions, null, undefined);
         const editSubplebbitOptions = parseSubplebbitEditOptionsSchemaWithPlebbitErrorIfItFails(replacedProps);
         const plebbit = await this._getPlebbitInstance();
 
@@ -700,7 +701,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
             });
         };
 
-        const plebbitSubscribeEvent = (newSubs: string[]) => sendEvent("subplebbitschange", newSubs);
+        const plebbitSubscribeEvent = (newSubs: string[]) => sendEvent("subplebbitschange", { subplebbits: newSubs });
 
         const plebbit = await this._getPlebbitInstance();
         plebbit.on("subplebbitschange", plebbitSubscribeEvent);
@@ -709,7 +710,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
             plebbit.removeListener("subplebbitschange", plebbitSubscribeEvent);
         };
 
-        sendEvent("subplebbitschange", plebbit.subplebbits);
+        sendEvent("subplebbitschange", { subplebbits: plebbit.subplebbits });
 
         return subscriptionId;
     }
@@ -719,7 +720,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
         const plebbit = await this._getPlebbitInstance();
         const res = await plebbit.fetchCid(parsedArgs);
         if (typeof res !== "string") throw Error("Result of fetchCid should be a string");
-        return res;
+        return { content: res };
     }
 
     private _serializeSettingsFromPlebbit(plebbit: Plebbit): PlebbitWsServerSettingsSerialized {
@@ -843,10 +844,10 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
         const updateListener = () => sendUpdate();
         comment.on("update", updateListener);
 
-        const updatingStateListener = () => sendEvent("updatingstatechange", comment.updatingState);
+        const updatingStateListener = () => sendEvent("updatingstatechange", { state: comment.updatingState });
         comment.on("updatingstatechange", updatingStateListener);
 
-        const stateListener = () => sendEvent("statechange", comment.state);
+        const stateListener = () => sendEvent("statechange", { state: comment.state });
         comment.on("statechange", stateListener);
 
         const errorListener = (error: PlebbitError | Error) => {
@@ -933,11 +934,11 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
         const updateListener = () => sendSubJson();
         subplebbit.on("update", updateListener);
 
-        const updatingStateListener = () => sendEvent("updatingstatechange", subplebbit.updatingState);
+        const updatingStateListener = () => sendEvent("updatingstatechange", { state: subplebbit.updatingState });
         subplebbit.on("updatingstatechange", updatingStateListener);
 
         // listener for startestatechange
-        const startedStateListener = () => sendEvent("updatingstatechange", subplebbit.startedState);
+        const startedStateListener = () => sendEvent("updatingstatechange", { state: subplebbit.startedState });
         if (isSubStarted) {
             subplebbit.on("startedstatechange", startedStateListener);
         }
@@ -1032,11 +1033,11 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
         comment.on("challengeverification", challengeVerificationListener);
 
         const publishingStateListener = () => {
-            sendEvent("publishingstatechange", comment.publishingState);
+            sendEvent("publishingstatechange", { state: comment.publishingState });
         };
         comment.on("publishingstatechange", publishingStateListener);
 
-        const stateListener = () => sendEvent("statechange", comment.state);
+        const stateListener = () => sendEvent("statechange", { state: comment.state });
         comment.on("statechange", stateListener);
 
         const errorListener = (error: PlebbitError | Error) => {
@@ -1109,7 +1110,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
         const challengeVerificationListener = (challengeVerification: DecryptedChallengeVerificationMessageType) =>
             sendEvent("challengeverification", encodeChallengeVerificationMessage(challengeVerification));
         vote.on("challengeverification", challengeVerificationListener);
-        const publishingStateListener = () => sendEvent("publishingstatechange", vote.publishingState);
+        const publishingStateListener = () => sendEvent("publishingstatechange", { state: vote.publishingState });
         vote.on("publishingstatechange", publishingStateListener);
 
         const errorListener = (error: PlebbitError | Error) => {
@@ -1180,7 +1181,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
         const challengeVerificationListener = (challengeVerification: DecryptedChallengeVerificationMessageType) =>
             sendEvent("challengeverification", encodeChallengeVerificationMessage(challengeVerification));
         subplebbitEdit.on("challengeverification", challengeVerificationListener);
-        const publishingStateListener = () => sendEvent("publishingstatechange", subplebbitEdit.publishingState);
+        const publishingStateListener = () => sendEvent("publishingstatechange", { state: subplebbitEdit.publishingState });
         subplebbitEdit.on("publishingstatechange", publishingStateListener);
 
         const errorListener = (error: PlebbitError | Error) => {
@@ -1250,7 +1251,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
         const challengeVerificationListener = (challengeVerification: DecryptedChallengeVerificationMessageType) =>
             sendEvent("challengeverification", encodeChallengeVerificationMessage(challengeVerification));
         commentEdit.on("challengeverification", challengeVerificationListener);
-        const publishingStateListener = () => sendEvent("publishingstatechange", commentEdit.publishingState);
+        const publishingStateListener = () => sendEvent("publishingstatechange", { state: commentEdit.publishingState });
         commentEdit.on("publishingstatechange", publishingStateListener);
 
         const errorListener = (error: PlebbitError | Error) => {
@@ -1324,7 +1325,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
         const challengeVerificationListener = (challengeVerification: DecryptedChallengeVerificationMessageType) =>
             sendEvent("challengeverification", encodeChallengeVerificationMessage(challengeVerification));
         commentMod.on("challengeverification", challengeVerificationListener);
-        const publishingStateListener = () => sendEvent("publishingstatechange", commentMod.publishingState);
+        const publishingStateListener = () => sendEvent("publishingstatechange", { state: commentMod.publishingState });
         commentMod.on("publishingstatechange", publishingStateListener);
 
         const errorListener = (error: PlebbitError | Error) => {
@@ -1364,8 +1365,11 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
     }
 
     async publishChallengeAnswers(params: any) {
-        const subscriptionId = SubscriptionIdSchema.parse(params[0]);
-        const decryptedChallengeAnswers = parseDecryptedChallengeAnswerWithPlebbitErrorIfItFails(params[1]);
+        const parsed = parseRpcPublishChallengeAnswersParam(params[0]);
+        const subscriptionId = parsed.subscriptionId;
+        const decryptedChallengeAnswers = parseDecryptedChallengeAnswerWithPlebbitErrorIfItFails({
+            challengeAnswers: parsed.challengeAnswers
+        });
 
         const record = this.publishing[subscriptionId];
         if (!record?.publication) {
@@ -1384,11 +1388,11 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
         const parsedArgs = parseRpcAuthorNameParam(params[0]);
         const plebbit = await this._getPlebbitInstance();
         const resolvedAuthorAddress = await plebbit.resolveAuthorName(parsedArgs);
-        return resolvedAuthorAddress;
+        return { resolvedAddress: resolvedAuthorAddress };
     }
 
     async unsubscribe(params: any, connectionId: string) {
-        const subscriptionId = SubscriptionIdSchema.parse(params[0]);
+        const { subscriptionId } = parseRpcUnsubscribeParam(params[0]);
 
         log("Received unsubscribe", { connectionId, subscriptionId });
         const connectionCleanups = this.subscriptionCleanups[connectionId];

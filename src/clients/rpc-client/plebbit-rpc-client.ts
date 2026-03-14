@@ -13,7 +13,6 @@ import type {
 } from "../../subplebbit/types.js";
 import type { ModQueuePageIpfs, PageIpfs } from "../../pages/types.js";
 import { SubscriptionIdSchema } from "./schema.js";
-import { SubplebbitAddressSchema } from "../../schema/schema.js";
 import type { DecryptedChallengeAnswer, DecryptedChallengeRequest } from "../../pubsub-messages/types.js";
 import type { PlebbitWsServerSettingsSerialized } from "../../rpc/src/types.js";
 import { parseSetNewSettingsPlebbitWsServerSchemaWithPlebbitErrorIfItFails } from "../../schema/schema-util.js";
@@ -242,7 +241,7 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
     }
 
     async unsubscribe(subscriptionId: number) {
-        await this._webSocketClient.call("unsubscribe", [subscriptionId]);
+        await this._webSocketClient.call("unsubscribe", [{ subscriptionId }]);
         if (this._subscriptionEvents[subscriptionId]) this._subscriptionEvents[subscriptionId].removeAllListeners();
         delete this._subscriptionEvents[subscriptionId];
         delete this._pendingSubscriptionMsgs[subscriptionId];
@@ -362,10 +361,9 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
         subplebbitAddress: string,
         subplebbitEditOptions: SubplebbitEditOptions
     ): Promise<RpcLocalSubplebbitUpdateResultType> {
-        const parsedAddress = SubplebbitAddressSchema.parse(subplebbitAddress);
         const propsAfterReplacing = replaceXWithY(subplebbitEditOptions, undefined, null);
         const rawRes = <RpcLocalSubplebbitUpdateResultType>(
-            await this._webSocketClient.call("editSubplebbit", [parsedAddress, propsAfterReplacing])
+            await this._webSocketClient.call("editSubplebbit", [{ address: subplebbitAddress, editOptions: propsAfterReplacing }])
         );
         return rawRes;
     }
@@ -426,24 +424,24 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
 
     async publishChallengeAnswers(subscriptionId: number, challengeAnswers: DecryptedChallengeAnswer["challengeAnswers"]) {
         const parsedId = SubscriptionIdSchema.parse(subscriptionId);
-        const res = <boolean>await this._webSocketClient.call("publishChallengeAnswers", [parsedId, { challengeAnswers }]);
+        const res = <boolean>await this._webSocketClient.call("publishChallengeAnswers", [{ subscriptionId: parsedId, challengeAnswers }]);
         if (res !== true) throw Error("RPC function publishChallengeAnswers should either return true or throw");
         return res;
     }
 
     async resolveAuthorName(parsedAuthorAddress: SubplebbitAddressRpcParam) {
         const resolveAuthorAddressArgs = parseRpcAuthorNameParam(parsedAuthorAddress);
-        const res = <string | null>await this._webSocketClient.call("resolveAuthorName", [resolveAuthorAddressArgs]);
-        if (typeof res !== "string" && res !== null)
-            throw Error("RPC function resolveAuthorName should either respond with string or null");
-        return res;
+        const res = <{ resolvedAddress: string | null }>await this._webSocketClient.call("resolveAuthorName", [resolveAuthorAddressArgs]);
+        if (typeof res?.resolvedAddress !== "string" && res?.resolvedAddress !== null)
+            throw Error("RPC function resolveAuthorName should respond with { resolvedAddress: string | null }");
+        return res.resolvedAddress;
     }
 
     async initalizeSubplebbitschangeEvent() {
         const subscriptionId = SubscriptionIdSchema.parse(await this._webSocketClient.call("subplebbitsSubscribe", []));
         this._initSubscriptionEvent(subscriptionId);
         this.getSubscription(subscriptionId).on("subplebbitschange", (res) => {
-            this.emit("subplebbitschange", <string[]>res.params.result);
+            this.emit("subplebbitschange", <string[]>res.params.result.subplebbits);
         });
         this.emitAllPendingMessages(subscriptionId);
     }
@@ -459,9 +457,9 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
 
     async fetchCid(args: CidRpcParam): Promise<string> {
         const parsedFetchCidArgs = parseRpcCidParam(args);
-        const res = <string>await this._webSocketClient.call("fetchCid", [parsedFetchCidArgs]);
-        if (typeof res !== "string") throw Error("RPC function fetchCid did not respond with string");
-        return res;
+        const res = <{ content: string }>await this._webSocketClient.call("fetchCid", [parsedFetchCidArgs]);
+        if (typeof res?.content !== "string") throw Error("RPC function fetchCid did not respond with { content: string }");
+        return res.content;
     }
 
     async setSettings(settings: z.input<typeof SetNewSettingsPlebbitWsServerSchema>) {

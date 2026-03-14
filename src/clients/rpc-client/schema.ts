@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CommentIpfsSchema, CommentUpdateSchema } from "../../publications/comment/schema.js";
-import { AuthorAddressSchema, CidStringSchema, SubplebbitAddressSchema } from "../../schema/schema.js";
+import { AuthorAddressSchema, ChallengeAnswersSchema, CidStringSchema, SubplebbitAddressSchema } from "../../schema/schema.js";
+import { SubplebbitEditOptionsSchema } from "../../subplebbit/schema.js";
 export const SubscriptionIdSchema = z.number().positive().int();
 
 export const RpcCommentEventResultSchema = z.object({
@@ -18,3 +19,20 @@ export const RpcSubplebbitPageParamSchema = RpcCidParamSchema.extend({
     pageMaxSize: z.number().positive().int()
 });
 export const RpcCommentRepliesPageParamSchema = RpcSubplebbitPageParamSchema.omit({ type: true }).extend({ commentCid: CidStringSchema });
+
+// Params for methods that previously used multiple positional args
+export const RpcEditSubplebbitParamSchema = z.object({
+    address: SubplebbitAddressSchema,
+    editOptions: SubplebbitEditOptionsSchema
+});
+export const RpcPublishChallengeAnswersParamSchema = z.object({
+    subscriptionId: SubscriptionIdSchema,
+    challengeAnswers: ChallengeAnswersSchema
+});
+export const RpcUnsubscribeParamSchema = z.object({ subscriptionId: SubscriptionIdSchema });
+
+// Result schemas for events that were previously bare values
+export const RpcStateChangeEventResultSchema = z.object({ state: z.string() });
+export const RpcSubplebbitsChangeEventResultSchema = z.object({ subplebbits: z.array(z.string()) });
+export const RpcFetchCidResultSchema = z.object({ content: z.string() });
+export const RpcResolveAuthorNameResultSchema = z.object({ resolvedAddress: z.string().nullable() });
