@@ -226,6 +226,10 @@ export class Comment
         if (typeof cached === "boolean") this.author.nameResolved = cached;
     }
 
+    private _copyNameResolvedFromComment(sourceComment?: Pick<Comment, "author">) {
+        if (typeof sourceComment?.author?.nameResolved === "boolean") this.author.nameResolved = sourceComment.author.nameResolved;
+    }
+
     _initProps(props: CommentIpfsType | CommentPubsubMessagePublication) {
         // Initializing CommentPubsubMessage
         super._initBaseRemoteProps(props);
@@ -486,7 +490,7 @@ export class Comment
         this.postNumber = commentUpdate.postNumber;
     }
 
-    private _updateCommentPropsFromDecryptedChallengeVerification(decryptedVerification: DecryptedChallengeVerification) {
+    private async _updateCommentPropsFromDecryptedChallengeVerification(decryptedVerification: DecryptedChallengeVerification) {
         const log = Logger("plebbit-js:comment:publish:_updateCommentPropsFromDecryptedChallengeVerification");
 
         this._setOriginalFieldBeforeModifying();
@@ -522,7 +526,7 @@ export class Comment
             if (errorInVerificationProps) return;
         }
 
-        this._updateCommentPropsFromDecryptedChallengeVerification(decryptedVerification);
+        await this._updateCommentPropsFromDecryptedChallengeVerification(decryptedVerification);
 
         // Add the comment to IPFS network in the background
         if (Object.keys(this._plebbit.clients.kuboRpcClients).length > 0 || Object.keys(this._plebbit.clients.libp2pJsClients).length > 0)
@@ -914,6 +918,7 @@ export class Comment
             // TODO maybe we should just copy props with Object.assign? not sure
             if (!this.raw.comment && updatingCommentInstance.raw.comment) {
                 this._initIpfsProps(updatingCommentInstance.raw.comment);
+                this._copyNameResolvedFromComment(updatingCommentInstance);
                 this.emit("update", this);
             }
             if (updatingCommentInstance.raw.commentUpdate && (this.updatedAt || 0) < updatingCommentInstance.raw.commentUpdate.updatedAt) {
@@ -922,6 +927,7 @@ export class Comment
                     updatingCommentInstance._subplebbitForUpdating?.subplebbit?.raw.subplebbitIpfs
                 );
                 this._commentUpdateIpfsPath = updatingCommentInstance._commentUpdateIpfsPath;
+                this._copyNameResolvedFromComment(updatingCommentInstance);
                 this.emit("update", this);
             }
         } else {
