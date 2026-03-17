@@ -44,8 +44,7 @@ export const testCommentFieldsInPageJson = (
 
     expect(comment.downvoteCount).to.be.a("number");
     expect(comment.upvoteCount).to.be.a("number");
-    expect(comment.original.author.address).to.be.a("string");
-    if (!comment.link) expect(comment.original.content).to.be.a("string");
+    if (!comment.link) expect(comment.raw.comment.content).to.be.a("string");
     // TODO verify flairs here when implemented
 
     if (comment.edit) {
@@ -102,8 +101,7 @@ export const testCommentFieldsInModQueuePageJson = (comment: Record<string, any>
 
     expect(comment.downvoteCount).to.be.undefined;
     expect(comment.upvoteCount).to.be.undefined;
-    expect(comment.original.author.address).to.be.a("string");
-    if (!comment.link) expect(comment.original.content).to.be.a("string");
+    if (!comment.link) expect(comment.raw.comment.content).to.be.a("string");
     // TODO verify flairs here when implemented
 
     expect(comment.edit).to.be.undefined;

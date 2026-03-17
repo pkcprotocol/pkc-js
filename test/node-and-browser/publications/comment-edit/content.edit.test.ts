@@ -77,7 +77,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(commentToBeEdited.raw.commentUpdate.edit.reason).to.equal(editReason);
 
             expect(commentToBeEdited.content).to.equal(editedText);
-            expect(commentToBeEdited.original?.content).to.equal(originalContent);
+            expect((commentToBeEdited.raw.comment ?? commentToBeEdited.raw.pubsubMessageToPublish)?.content).to.equal(originalContent);
             expect(commentToBeEdited.edit.reason).to.equal(editReason);
             expect(commentToBeEdited.author.subplebbit.postScore).to.equal(0);
             expect(commentToBeEdited.author.subplebbit.replyScore).to.equal(0);
@@ -106,7 +106,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             ]) {
                 expect(commentJson.content.startsWith("edit test")).to.be.true;
                 expect(commentJson.edit.content.startsWith("edit test")).to.be.true;
-                expect(commentJson.original.content).to.equal(originalContent);
+                expect(commentJson.raw.comment.content).to.equal(originalContent);
                 expect(commentJson.edit.reason.startsWith("To test editing content")).to.be.true;
                 expect(commentJson.reason).to.be.undefined;
             }
@@ -125,7 +125,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 // Should reflect the new content, and also have original.content
                 expect(editedCommentInPage.content.startsWith("edit test")).to.be.true;
                 expect(editedCommentInPage.edit.content.startsWith("edit test")).to.be.true;
-                expect(editedCommentInPage.original.content).to.equal(originalContent);
+                expect(editedCommentInPage.raw.comment.content).to.equal(originalContent);
                 expect(editedCommentInPage.reason).to.be.undefined;
                 expect(editedCommentInPage.edit.reason.startsWith("To test editing content")).to.be.true;
             }
@@ -153,7 +153,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 expect(editedCommentInPage).to.be.a("object");
                 expect(editedCommentInPage.content.startsWith("edit test")).to.be.true;
                 expect(editedCommentInPage.edit.content.startsWith("edit test")).to.be.true;
-                expect(editedCommentInPage.original.content.startsWith("original content")).to.be.true;
+                expect(editedCommentInPage.raw.comment.content.startsWith("original content")).to.be.true;
                 expect(editedCommentInPage.reason).to.be.undefined;
                 expect(editedCommentInPage.edit.reason.startsWith("To test editing content")).to.be.true;
             }
@@ -162,7 +162,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         it.sequential(`Author can modify content again, while preserving comment.originalContent`, async () => {
             const editedText = "Double edit test";
             const editReason = "To test double editing a comment";
-            const originalContent = commentToBeEdited.original.content;
+            const originalContent = (commentToBeEdited.raw.comment ?? commentToBeEdited.raw.pubsubMessageToPublish)?.content;
             const commentEdit = await plebbit.createCommentEdit({
                 subplebbitAddress: commentToBeEdited.subplebbitAddress,
                 commentCid: commentToBeEdited.cid,
@@ -177,7 +177,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             });
             expect(commentToBeEdited.edit.content).to.equal(editedText);
             expect(commentToBeEdited.content).to.equal(editedText);
-            expect(commentToBeEdited.original?.content).to.equal(originalContent);
+            expect((commentToBeEdited.raw.comment ?? commentToBeEdited.raw.pubsubMessageToPublish)?.content).to.equal(originalContent);
             expect(commentToBeEdited.edit.reason).to.equal(editReason);
             expect(commentToBeEdited.author.subplebbit.postScore).to.equal(0);
             expect(commentToBeEdited.author.subplebbit.replyScore).to.equal(0);
@@ -209,7 +209,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 });
                 expect(commentToEdit.edit.content).to.equal(editedText);
                 expect(commentToEdit.content).to.equal(editedText);
-                expect(commentToEdit.original?.content).to.equal(originalContent);
+                expect((commentToEdit.raw.comment ?? commentToEdit.raw.pubsubMessageToPublish)?.content).to.equal(originalContent);
                 expect(commentToEdit.edit.reason).to.equal(editReason);
                 await commentToEdit.stop();
             })

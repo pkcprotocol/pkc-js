@@ -1,13 +1,5 @@
 import retry, { RetryOperation } from "retry";
-import {
-    createAbortError,
-    hideClassPrivateProps,
-    isAbortError,
-    removeUndefinedValuesRecursively,
-    retryKuboIpfsAdd,
-    shortifyCid,
-    throwWithErrorCode
-} from "../../util.js";
+import { createAbortError, hideClassPrivateProps, isAbortError, retryKuboIpfsAdd, shortifyCid, throwWithErrorCode } from "../../util.js";
 import Publication from "../publication.js";
 import type { DecryptedChallengeVerification } from "../../pubsub-messages/types.js";
 import type { AuthorWithOptionalCommentUpdateJson, PublicationTypeName } from "../../types.js";
@@ -38,12 +30,7 @@ import type {
 } from "./types.js";
 import { RepliesPages } from "../../pages/pages.js";
 import { findCommentInPageInstanceRecursively, parseRawPages } from "../../pages/util.js";
-import {
-    CommentIpfsSchema,
-    CommentUpdateForChallengeVerificationSchema,
-    CommentUpdateSchema,
-    OriginalCommentFieldsBeforeCommentUpdateSchema
-} from "./schema.js";
+import { CommentIpfsSchema, CommentUpdateForChallengeVerificationSchema, CommentUpdateSchema } from "./schema.js";
 import {
     parseRpcCommentEventWithPlebbitErrorIfItFails,
     parseRpcCommentUpdateEventWithPlebbitErrorIfItFails
@@ -89,7 +76,6 @@ export class Comment
     linkHtmlTagName?: CommentPubsubMessagePublication["linkHtmlTagName"];
 
     // CommentEdit and CommentUpdate props
-    original?: CommentWithinRepliesPostsPageJson["original"];
     upvoteCount?: CommentUpdateType["upvoteCount"];
     downvoteCount?: CommentUpdateType["downvoteCount"];
     replyCount?: CommentUpdateType["replyCount"];
@@ -182,14 +168,6 @@ export class Comment
         this._stopAbortController = undefined;
     }
 
-    private _setOriginalFieldBeforeModifying() {
-        // Need to make sure we have the props first
-        if (!this.original)
-            this.original = OriginalCommentFieldsBeforeCommentUpdateSchema.parse(
-                removeUndefinedValuesRecursively(this.raw.comment || this.raw.pubsubMessageToPublish)
-            );
-    }
-
     _initLocalProps(props: {
         comment: CommentPubsubMessagePublication;
         signer?: SignerType;
@@ -260,12 +238,10 @@ export class Comment
 
     _initCommentUpdate(props: CommentUpdateType | CommentWithinRepliesPostsPageJson, subplebbit?: Pick<SubplebbitIpfsType, "signature">) {
         const log = Logger("plebbit-js:comment:_initCommentUpdate");
-        if ("depth" in props)
-            // CommentWithinPageJson
-            this.original = props.original;
-        else {
+        if ("depth" in props) {
+            // CommentWithinPageJson — no extra setup needed
+        } else {
             // CommentUpdate
-            this._setOriginalFieldBeforeModifying();
             this.raw.commentUpdate = props;
 
             const unknownProps = remeda.difference(remeda.keys.strict(props), remeda.keys.strict(CommentUpdateSchema.shape));
@@ -480,7 +456,6 @@ export class Comment
     }
 
     _initCommentUpdateFromChallengeVerificationProps(commentUpdate: CommentUpdateForChallengeVerification) {
-        this._setOriginalFieldBeforeModifying();
         this.raw.commentUpdateFromChallengeVerification = commentUpdate;
         if (commentUpdate.author) Object.assign(this.author, commentUpdate.author);
         this.protocolVersion = commentUpdate.protocolVersion;
@@ -493,7 +468,6 @@ export class Comment
     private async _updateCommentPropsFromDecryptedChallengeVerification(decryptedVerification: DecryptedChallengeVerification) {
         const log = Logger("plebbit-js:comment:publish:_updateCommentPropsFromDecryptedChallengeVerification");
 
-        this._setOriginalFieldBeforeModifying();
         this.setCid(decryptedVerification.commentUpdate.cid);
         this._initIpfsProps(decryptedVerification.comment);
         this._initCommentUpdateFromChallengeVerificationProps(decryptedVerification.commentUpdate);

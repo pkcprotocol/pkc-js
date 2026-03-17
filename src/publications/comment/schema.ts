@@ -16,7 +16,7 @@ import * as remeda from "remeda";
 import { messages } from "../../errors.js";
 import { keysToOmitFromSignedPropertyNames } from "../../signer/constants.js";
 import { RepliesPagesIpfsSchema } from "../../pages/schema.js";
-import type { CommentJson, CommentPubsubMessagePublication, CommentUpdateType } from "./types.js";
+import type { CommentJson, CommentPubsubMessagePublication } from "./types.js";
 
 // Comment schemas here
 
@@ -184,23 +184,6 @@ export const CommentUpdateForChallengeVerificationSchema = CommentUpdateSchema.p
 export const CommentUpdateForChallengeVerificationSignedPropertyNames = remeda.keys.strict(
     remeda.omit(CommentUpdateForChallengeVerificationSchema.shape, ["signature"])
 );
-
-type OverlapCommentPubsubAndCommentUpdate =
-    | (keyof CommentPubsubMessagePublication & keyof Omit<CommentUpdateType, "signature">)
-    | "content"
-    | "signature";
-
-const originalFields = <OverlapCommentPubsubAndCommentUpdate[]>remeda
-    .intersection(
-        remeda.keys.strict(CommentPubsubMessagePublicationSchema.shape),
-        remeda.keys.strict(remeda.omit(CommentUpdateSchema.shape, ["signature"]))
-    )
-    .concat("content")
-    .concat("signature"); // have to hard code this here because Comment.content uses CommentUpdate.edit.content
-
-const originalFieldsObj = <Record<OverlapCommentPubsubAndCommentUpdate, true>>remeda.fromKeys(originalFields, () => true);
-
-export const OriginalCommentFieldsBeforeCommentUpdateSchema = CommentPubsubMessageWithFlexibleAuthorSchema.pick(originalFieldsObj).strip();
 
 // Comment table here
 

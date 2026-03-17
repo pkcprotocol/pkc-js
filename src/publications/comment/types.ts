@@ -11,8 +11,7 @@ import {
     CommentUpdateSchema,
     CommentUpdateSignedPropertyNames,
     CommentUpdateTableRowSchema,
-    CreateCommentOptionsSchema,
-    OriginalCommentFieldsBeforeCommentUpdateSchema
+    CreateCommentOptionsSchema
 } from "./schema.js";
 import { SubplebbitAuthorSchema } from "../../schema/schema.js";
 import { RpcCommentEventResultSchema, RpcCommentUpdateResultSchema } from "../../clients/rpc-client/schema.js";
@@ -46,8 +45,6 @@ export type CommentChallengeRequestToEncryptType = z.infer<typeof CommentChallen
 export type RpcCommentUpdateResultType = z.infer<typeof RpcCommentUpdateResultSchema>;
 export type RpcCommentResultType = z.infer<typeof RpcCommentEventResultSchema>;
 
-type CommentOriginalField = z.infer<typeof OriginalCommentFieldsBeforeCommentUpdateSchema>;
-
 export interface CommentRawField extends Omit<Required<Publication["raw"]>, "pubsubMessageToPublish"> {
     comment?: CommentIpfsType;
     commentUpdate?: CommentUpdateType;
@@ -71,7 +68,6 @@ export interface CommentIpfsWithCidPostCidDefined extends CommentIpfsWithCidDefi
 
 // subplebbit.posts.pages.hot.comments[0] will have this shape
 export interface CommentWithinRepliesPostsPageJson extends CommentIpfsWithCidPostCidDefined, Omit<CommentUpdateType, "replies"> {
-    original: CommentOriginalField;
     shortCid: string;
     shortSubplebbitAddress: string;
     author: AuthorWithShortSubplebbitAddress;
@@ -81,7 +77,6 @@ export interface CommentWithinRepliesPostsPageJson extends CommentIpfsWithCidPos
 }
 
 export interface CommentWithinModQueuePageJson extends CommentIpfsWithCidPostCidDefined, CommentUpdateForChallengeVerification {
-    original: CommentOriginalField;
     shortCid: string;
     shortSubplebbitAddress: string;
     author: AuthorWithShortSubplebbitAddress;

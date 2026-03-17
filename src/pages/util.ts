@@ -17,7 +17,6 @@ import { BasePages, PostsPages, RepliesPages } from "./pages.js";
 import * as remeda from "remeda";
 import type { CommentWithinModQueuePageJson, CommentWithinRepliesPostsPageJson, CommentUpdateType } from "../publications/comment/types.js";
 import { shortifyAddress, shortifyCid } from "../util.js";
-import { OriginalCommentFieldsBeforeCommentUpdateSchema } from "../publications/comment/schema.js";
 import { RemoteSubplebbit } from "../subplebbit/remote-subplebbit.js";
 import { BaseClientsManager } from "../clients/base-client-manager.js";
 import { parseJsonWithPlebbitErrorIfFails, parsePageIpfsSchemaWithPlebbitErrorIfItFails } from "../schema/schema-util.js";
@@ -157,7 +156,6 @@ export function mapModqueuePageIpfsCommentToModQueuePageJsonComment(
         },
         shortCid: shortifyCid(pageComment.commentUpdate.cid),
         shortSubplebbitAddress: shortifyAddress(pageComment.comment.subplebbitAddress),
-        original: OriginalCommentFieldsBeforeCommentUpdateSchema.parse(pageComment.comment),
         postCid,
         raw: {
             comment: pageComment.comment,
@@ -204,7 +202,6 @@ export function mapPageIpfsCommentToPageJsonComment(pageComment: PageIpfs["comme
         },
         shortCid: shortifyCid(pageComment.commentUpdate.cid),
         shortSubplebbitAddress: shortifyAddress(pageComment.comment.subplebbitAddress),
-        original: OriginalCommentFieldsBeforeCommentUpdateSchema.parse(pageComment.comment),
         deleted: pageComment.commentUpdate.edit?.deleted,
         replies: parsedPages,
         content: pageComment.commentUpdate.edit?.content || pageComment.comment.content,
