@@ -586,7 +586,13 @@ export async function verifyCommentIpfs(opts: {
     subplebbitAddressFromInstance?: CommentIpfsType["subplebbitAddress"];
     abortSignal?: AbortSignal;
 }): ReturnType<typeof verifyCommentPubsubMessage> {
-    const cacheKey = sha256(opts.calculatedCommentCid + Number(opts.resolveAuthorNames) + opts.subplebbitAddressFromInstance || "");
+    const cacheKey = sha256(
+        opts.comment.signature.signature +
+            opts.comment.signature.publicKey +
+            opts.calculatedCommentCid +
+            Number(opts.resolveAuthorNames) +
+            opts.subplebbitAddressFromInstance || ""
+    );
     if (opts.clientsManager._plebbit._memCaches.commentVerificationCache.get(cacheKey)) return { valid: true };
 
     if (

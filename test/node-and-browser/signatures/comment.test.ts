@@ -354,6 +354,31 @@ describeSkipIfRpc("verify Comment", async () => {
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
+
+    it(`verifyCommentIpfs rejects a tampered signature even after the same CID was previously verified as valid`, async () => {
+        const validComment = remeda.clone(validCommentFixture) as CommentIpfsType;
+        const calculatedCommentCid = "QmCacheBugTest";
+
+        // First call: valid signature, populates the cache
+        const validVerification = await verifyCommentIpfs({
+            comment: validComment,
+            clientsManager: plebbit._clientsManager,
+            resolveAuthorNames: false,
+            calculatedCommentCid
+        });
+        expect(validVerification).to.deep.equal({ valid: true });
+
+        // Second call: same CID but tampered signature — must NOT return cached { valid: true }
+        const tamperedComment = remeda.clone(validCommentFixture) as CommentIpfsType;
+        tamperedComment.signature.signature += "invalid";
+        const tamperedVerification = await verifyCommentIpfs({
+            comment: tamperedComment,
+            clientsManager: plebbit._clientsManager,
+            resolveAuthorNames: false,
+            calculatedCommentCid
+        });
+        expect(tamperedVerification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
+    });
 });
 
 // Clients of RPC will trust the response of RPC and won't validate
