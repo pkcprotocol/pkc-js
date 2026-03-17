@@ -580,7 +580,7 @@ Class-level events (not RPC — those are in Phase 9.2):
 - [x] `author.address` → changes from **required wire field** to **instance-only** (computed as `author.name || author.publicKey`). This is a breaking change.
 - [x] Add `author.name` as **wire field** in `AuthorPubsubSchema` and `AuthorIpfsSchema` — a domain name (e.g., `"vitalik.bso"`) pointing to the author's public key, same concept as `community.name`
 - [x] `author.publicKey` — **instance-only**, derived from `signature.publicKey`
-- [ ] `author.nameResolved` — **instance-only**, runtime verification flag (`boolean | undefined`)
+- [x] `author.nameResolved` — **instance-only**, runtime verification flag (`boolean | undefined`). Tested extensively in `test/node-and-browser/publications/comment/author-name-resolved.test.ts`
 
 **Backward compatibility for old publications:**
 - Old publications have `author.address` as a signed wire field. When parsing, ignore the wired value and compute instance-only `address = name || publicKey`.
@@ -588,14 +588,15 @@ Class-level events (not RPC — those are in Phase 9.2):
 - `author.subplebbit` → `author.community`: **No backward compatibility concern.** The `author.subplebbit` key appears inside the `author` field of `CommentUpdate` records (not `CommentIpfs`). `CommentUpdate` records are re-signed by the community on every update cycle, so old wire format is naturally replaced — no need to support parsing old `CommentUpdate` records with the `subplebbit` key.
 
 **Completed follow-up after the `author.address` migration:**
-- [ ] Remove `overrideAuthorAddressIfInvalid` from public verifier APIs.
-- Runtime behavior:
+- [x] Remove `overrideAuthorAddressIfInvalid` from public verifier APIs.
+- [x] Runtime behavior:
   - Keep `author.address = author.name || author.publicKey`
   - Never mutate runtime `author.address` based on failed or mismatched name resolution
   - Add runtime-only `author.nameResolved?: boolean`
   - Set `author.nameResolved = false` when a claimed `author.name` fails to resolve or resolves to a signer mismatch
   - Set `author.nameResolved = true` when a claimed `author.name` resolves to the signer
   - Leave `author.nameResolved` as `undefined` when there is no `author.name` claim
+- [x] RPC `challengeverification` event wraps `nameResolved` in a separate wrapper object (not injected into the pubsub message type)
 
 ### 8.4 Timeout Keys (src/plebbit/plebbit.ts)
 - [ ] `"subplebbit-ipns"` → `"community-ipns"`
@@ -1130,7 +1131,7 @@ Use this section to track overall progress:
 
 | Phase | Status | Notes |
 |-------|--------|-------|
-| Phase 1: Web3 Modularization | [~] In Progress | Name resolver done; challenge cleanup done; `resolveAuthorName` renamed; exported challenge types done; runtime author computation and `author.nameResolved` follow-up done |
+| Phase 1: Web3 Modularization | [~] In Progress | Name resolver done; challenge cleanup done; `resolveAuthorName` renamed; exported challenge types done; runtime author computation and `author.nameResolved` follow-up done; `nameResolved` tests added; RPC challenge verification wrapper refactored |
 | Phase 2: Package Config | [ ] Not Started | |
 | Phase 3: Directory Structure | [ ] Not Started | |
 | Phase 4: Source Files | [ ] Not Started | |
