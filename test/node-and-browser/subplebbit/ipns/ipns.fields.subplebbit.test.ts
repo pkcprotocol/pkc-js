@@ -1,8 +1,8 @@
 import { beforeAll, afterAll } from "vitest";
 import {
+    createMockNameResolver,
     getAvailablePlebbitConfigsToTestAgainst,
     resolveWhenConditionIsTrue,
-    mockCacheOfTextRecord,
     describeSkipIfRpc
 } from "../../../../dist/node/test/test-util.js";
 import signers from "../../../fixtures/signers.js";
@@ -16,6 +16,10 @@ const ipnsB58 = signers[0].address;
 const expectedIpnsPubsubTopic = "/record/L2lwbnMvACQIARIgtkPPciAVI7kfzmSHjazd0ekx8z9bCt9RlE5RnEpFRGo";
 const expectedIpnsPubsubTopicRoutingCid = "bafkreiftvi7wgbdhbxnenslhu5sytlid73siolkd2syhdnjhnvn3mksggi";
 const expectedPubsubTopicRoutingCid = "bafkreidwoelrflsx5dgll7s6jfkhsj6ffkfplde2j5dyino6t7m4ijutem";
+
+function setMockResolverRecords(plebbit: PlebbitType, records: Map<string, string | undefined>) {
+    plebbit.nameResolvers = [createMockNameResolver({ includeDefaultRecords: true, records })];
+}
 
 // Test for domain address that resolves to b58 IPNS but fails to load IPNS record
 // The ipnsPubsubTopic and ipnsPubsubTopicRoutingCid should still be set
@@ -31,13 +35,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 const expectedIpnsPubsubTopicRoutingCidForNonExistent = pubsubTopicToDhtKey(expectedIpnsPubsubTopicForNonExistent);
                 plebbit._timeouts["subplebbit-ipns"] = 1000;
 
-                // Mock the domain to resolve to the IPNS address
-                await mockCacheOfTextRecord({
-                    plebbit,
-                    domain: testDomain,
-                    resolveType: "community",
-                    value: nonExistantIpnsAddress
-                });
+                setMockResolverRecords(plebbit, new Map([[testDomain, nonExistantIpnsAddress]]));
 
                 const errors: PlebbitError[] = [];
 
@@ -95,12 +93,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const expectedIpnsPubsubTopicRoutingCidForNonExistent = pubsubTopicToDhtKey(expectedIpnsPubsubTopicForNonExistent);
             plebbit._timeouts["subplebbit-ipns"] = 1000;
 
-            await mockCacheOfTextRecord({
-                plebbit,
-                domain: testDomain,
-                resolveType: "community",
-                value: nonExistantIpnsAddress
-            });
+            setMockResolverRecords(plebbit, new Map([[testDomain, nonExistantIpnsAddress]]));
 
             const subplebbit = await plebbit.createSubplebbit({ address: testDomain });
             const errors: PlebbitError[] = [];
@@ -140,12 +133,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const expectedIpnsPubsubTopicRoutingCidForNonExistent = pubsubTopicToDhtKey(expectedIpnsPubsubTopicForNonExistent);
             plebbit._timeouts["subplebbit-ipns"] = 1000;
 
-            await mockCacheOfTextRecord({
-                plebbit,
-                domain: testDomain,
-                resolveType: "community",
-                value: nonExistantIpnsAddress
-            });
+            setMockResolverRecords(plebbit, new Map([[testDomain, nonExistantIpnsAddress]]));
 
             const subplebbitA = await plebbit.createSubplebbit({ address: testDomain });
             const errorsA: PlebbitError[] = [];

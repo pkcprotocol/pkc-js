@@ -1,10 +1,10 @@
 import { beforeAll, afterAll } from "vitest";
 import signers from "../../fixtures/signers.js";
 import {
+    createMockNameResolver,
     mockRemotePlebbit,
     describeSkipIfRpc,
     resolveWhenConditionIsTrue,
-    mockCacheOfTextRecord,
     mockPlebbitV2
 } from "../../../dist/node/test/test-util.js";
 import { messages } from "../../../dist/node/errors.js";
@@ -114,12 +114,12 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
     });
     it(`Subplebbit with domain that does not match public key will get invalidated`, async () => {
         // plebbit.eth -> signers[3], so we will intentionally set it to a different address
-        const tempPlebbit = await mockPlebbitV2({ stubStorage: false });
-        await mockCacheOfTextRecord({
-            plebbit: tempPlebbit,
-            domain: "plebbit.eth",
-            value: signers[4].address,
-            resolveType: "community"
+        const tempPlebbit = await mockPlebbitV2({
+            stubStorage: false,
+            mockResolve: false,
+            plebbitOptions: {
+                nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: { "plebbit.eth": signers[4].address } })]
+            }
         });
         const sub = await plebbit.createSubplebbit({ address: "plebbit.bso" });
         await sub.update();

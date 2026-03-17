@@ -2,6 +2,7 @@ import { beforeAll, afterAll, describe, it } from "vitest";
 import signers from "../fixtures/signers.js";
 import { messages } from "../../dist/node/errors.js";
 import {
+    createMockNameResolver,
     mockRemotePlebbit,
     mockUpdatingCommentResolvingAuthor,
     publishWithExpectedResult,
@@ -10,7 +11,6 @@ import {
     describeSkipIfRpc,
     mockNameResolvers,
     resolveWhenConditionIsTrue,
-    mockCacheOfTextRecord,
     mockPlebbitV2
 } from "../../dist/node/test/test-util.js";
 import type { Plebbit } from "../../dist/node/plebbit/plebbit.js";
@@ -57,13 +57,13 @@ describe("Comments with Authors as domains", async () => {
         // The purpose is to test whether server rejects publications whose claimed author.name resolves to another signer
 
         const authorAddress = "testgibbreish.bso";
-        const tempPlebbit = await mockPlebbitV2({ stubStorage: false, remotePlebbit: true });
-
-        await mockCacheOfTextRecord({
-            plebbit: tempPlebbit,
-            domain: authorAddress,
-            resolveType: "author",
-            value: signers[6].address
+        const tempPlebbit = await mockPlebbitV2({
+            stubStorage: false,
+            remotePlebbit: true,
+            mockResolve: false,
+            plebbitOptions: {
+                nameResolvers: [createMockNameResolver({ records: { [authorAddress]: signers[6].address } })]
+            }
         });
 
         const mockPost = await tempPlebbit.createComment({
@@ -116,13 +116,14 @@ describe(`Vote with authors as domains`, async () => {
     });
 
     itSkipIfRpc(`Subplebbit rejects a Vote with author.name (domain) that resolves to a different signer`, async () => {
-        const tempPlebbit = await mockPlebbitV2({ stubStorage: false, remotePlebbit: true });
         const authorAddress = "testgibbreish.bso";
-        await mockCacheOfTextRecord({
-            plebbit: tempPlebbit,
-            domain: authorAddress,
-            resolveType: "author",
-            value: signers[6].address
+        const tempPlebbit = await mockPlebbitV2({
+            stubStorage: false,
+            remotePlebbit: true,
+            mockResolve: false,
+            plebbitOptions: {
+                nameResolvers: [createMockNameResolver({ records: { [authorAddress]: signers[6].address } })]
+            }
         });
 
         const vote = await tempPlebbit.createVote({
@@ -260,7 +261,14 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
 describe("Comments with Authors as .bso domains", async () => {
     let plebbit: Plebbit;
     beforeAll(async () => {
-        plebbit = await mockPlebbitV2({ stubStorage: false, remotePlebbit: true });
+        plebbit = await mockPlebbitV2({
+            stubStorage: false,
+            remotePlebbit: true,
+            mockResolve: false,
+            plebbitOptions: {
+                nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: { "plebbit.bso": signers[6].address } })]
+            }
+        });
     });
 
     afterAll(async () => {
@@ -268,14 +276,6 @@ describe("Comments with Authors as .bso domains", async () => {
     });
 
     itSkipIfRpc(`Sub accepts posts with author.name as .bso domain that resolves to comment signer`, async () => {
-        // Mock the cache so plebbit.bso resolves to signers[6] address (same as plebbit.eth mock)
-        await mockCacheOfTextRecord({
-            plebbit,
-            domain: "plebbit.bso",
-            resolveType: "author",
-            value: signers[6].address
-        });
-
         const mockPost = await plebbit.createComment({
             author: { displayName: `Mock Author - ${Date.now()}`, name: "plebbit.bso" },
             signer: signers[6],

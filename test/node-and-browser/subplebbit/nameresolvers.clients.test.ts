@@ -1,9 +1,9 @@
 import signers from "../../fixtures/signers.js";
 
 import {
+    createMockNameResolver,
     describeSkipIfRpc,
     processAllCommentsRecursively,
-    mockCacheOfTextRecord,
     publishRandomPost,
     mockPlebbitV2,
     waitTillPostInSubplebbitPages
@@ -12,9 +12,31 @@ import { describe, it } from "vitest";
 
 const subplebbitAddress = signers[9].address;
 
+async function createRemotePlebbitWithMockResolver({
+    records = new Map<string, string | undefined>(),
+    stubStorage = true,
+    validatePages = false
+}: {
+    records?: Map<string, string | undefined>;
+    stubStorage?: boolean;
+    validatePages?: boolean;
+} = {}) {
+    const plebbit = await mockPlebbitV2({
+        stubStorage,
+        remotePlebbit: true,
+        mockResolve: false,
+        plebbitOptions: {
+            validatePages,
+            nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records })]
+        }
+    });
+
+    return { plebbit, records };
+}
+
 describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
     it(`subplebbit.clients.nameResolvers[resolverKey].state is stopped by default`, async () => {
-        const plebbit = await mockPlebbitV2({ stubStorage: true, plebbitOptions: { validatePages: false }, remotePlebbit: true });
+        const { plebbit } = await createRemotePlebbitWithMockResolver();
         const mockSub = await plebbit.getSubplebbit({ address: subplebbitAddress });
         expect(Object.keys(mockSub.clients.nameResolvers).length).to.be.greaterThanOrEqual(1);
         for (const resolverKey of Object.keys(mockSub.clients.nameResolvers))
@@ -36,11 +58,9 @@ describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
 
         await waitTillPostInSubplebbitPages(mockPost as Required<Pick<typeof mockPost, "cid" | "subplebbitAddress">>, plebbit);
 
-        const differentPlebbit = await mockPlebbitV2({
-            stubStorage: true, // no storage so it wouldn't be cached
-            remotePlebbit: true,
-            mockResolve: true,
-            plebbitOptions: { validatePages: true }
+        const { plebbit: differentPlebbit } = await createRemotePlebbitWithMockResolver({
+            stubStorage: true,
+            validatePages: true
         });
         const sub = await differentPlebbit.createSubplebbit({ address: mockPost.subplebbitAddress });
 
@@ -68,19 +88,12 @@ describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
     });
 
     it(`Correct order of nameResolvers state when sub pages has a comment with author.address as domain - cached`, async () => {
-        const differentPlebbit = await mockPlebbitV2({
-            stubStorage: false, // make sure storage is enabled so it would be cached
-            remotePlebbit: true,
-            mockResolve: true
-        }); // using different plebbit to it wouldn't be cached
+        const { plebbit: differentPlebbit, records } = await createRemotePlebbitWithMockResolver({
+            stubStorage: false
+        });
         const sub = await differentPlebbit.createSubplebbit({ address: subplebbitAddress });
 
-        await mockCacheOfTextRecord({
-            plebbit: sub._plebbit,
-            domain: "plebbit.eth",
-            resolveType: "author",
-            value: signers[6].address
-        });
+        records.set("plebbit.eth", signers[6].address);
         const recordedStates: string[] = [];
         const expectedStates: string[] = []; // should be empty cause it's cached
         const resolverKey = Object.keys(sub.clients.nameResolvers)[0];
@@ -104,10 +117,8 @@ describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
     });
 
     it(`Correct order of nameResolvers state when updating a subplebbit that was created with plebbit.createSubplebbit({address}) - uncached`, async () => {
-        const remotePlebbit = await mockPlebbitV2({
-            stubStorage: true, // force no storage so it wouldn't be cached
-            remotePlebbit: true,
-            mockResolve: true
+        const { plebbit: remotePlebbit } = await createRemotePlebbitWithMockResolver({
+            stubStorage: true
         });
         const sub = await remotePlebbit.createSubplebbit({ address: "plebbit.bso" });
 
@@ -130,19 +141,12 @@ describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
     });
 
     it(`Correct order of nameResolvers state when updating a subplebbit that was created with plebbit.createSubplebbit({address}) - cached`, async () => {
-        const plebbit = await mockPlebbitV2({
-            stubStorage: false, // make sure storage is enabled so it would be cached
-            remotePlebbit: true,
-            mockResolve: true
-        }); // using different plebbit to it wouldn't be cached
+        const { plebbit, records } = await createRemotePlebbitWithMockResolver({
+            stubStorage: false
+        });
         const sub = await plebbit.createSubplebbit({ address: "plebbit.bso" });
 
-        await mockCacheOfTextRecord({
-            plebbit: sub._plebbit,
-            domain: sub.address,
-            resolveType: "community",
-            value: signers[3].address
-        });
+        records.set(sub.address, signers[3].address);
 
         // should be cached now
 

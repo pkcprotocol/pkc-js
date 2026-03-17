@@ -1,10 +1,10 @@
 import { beforeAll, afterAll, describe, it } from "vitest";
 import {
+    createMockNameResolver,
     publishRandomPost,
     createSubWithNoChallenge,
     resolveWhenConditionIsTrue,
     describeSkipIfRpc,
-    mockCacheOfTextRecord,
     mockPlebbitV2
 } from "../../../dist/node/test/test-util.js";
 import { verifyCommentIpfs } from "../../../dist/node/signer/signatures.js";
@@ -23,10 +23,27 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
     let ethNameAddress: string;
     let bsoNameAddress: string;
     let postPublishedOnEth: Comment;
+    let plebbitResolverRecords: Map<string, string | undefined>;
+    let remoteResolverRecords: Map<string, string | undefined>;
 
     beforeAll(async () => {
-        plebbit = await mockPlebbitV2({ stubStorage: false, mockResolve: true });
-        remotePlebbit = await mockPlebbitV2({ stubStorage: false, mockResolve: true, remotePlebbit: true });
+        plebbitResolverRecords = new Map();
+        remoteResolverRecords = new Map();
+        plebbit = await mockPlebbitV2({
+            stubStorage: false,
+            mockResolve: false,
+            plebbitOptions: {
+                nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: plebbitResolverRecords })]
+            }
+        });
+        remotePlebbit = await mockPlebbitV2({
+            stubStorage: false,
+            mockResolve: false,
+            remotePlebbit: true,
+            plebbitOptions: {
+                nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: remoteResolverRecords })]
+            }
+        });
 
         subplebbit = await createSubWithNoChallenge({}, plebbit);
         const domainBase = `test-equiv-${uuidV4()}`;
@@ -35,18 +52,8 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
 
         // Mock both .eth and .bso domains to resolve to the same signer address
         for (const domain of [ethNameAddress, bsoNameAddress]) {
-            await mockCacheOfTextRecord({
-                plebbit,
-                domain,
-                resolveType: "community",
-                value: subplebbit.signer.address
-            });
-            await mockCacheOfTextRecord({
-                plebbit: remotePlebbit,
-                domain,
-                resolveType: "community",
-                value: subplebbit.signer.address
-            });
+            plebbitResolverRecords.set(domain, subplebbit.signer.address);
+            remoteResolverRecords.set(domain, subplebbit.signer.address);
         }
 
         // Start with .eth domain, publish a post, then transition to .bso

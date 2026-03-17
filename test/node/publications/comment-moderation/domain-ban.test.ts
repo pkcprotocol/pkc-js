@@ -1,11 +1,11 @@
 import signers from "../../../fixtures/signers.js";
 import {
+    createMockNameResolver,
     generateMockPost,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
     createSubWithNoChallenge,
     mockPlebbitV2,
-    mockCacheOfTextRecord,
     describeSkipIfRpc
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
@@ -21,13 +21,25 @@ import type { SignerType } from "../../../../dist/node/signer/types.js";
 // we store both targetAuthorSignerAddress AND targetAuthorDomain
 // so that bans can be enforced by either public key OR domain
 
+async function createPlebbitWithMockResolver(records: Map<string, string | undefined>) {
+    return mockPlebbitV2({
+        stubStorage: false,
+        mockResolve: false,
+        plebbitOptions: {
+            nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records })]
+        }
+    });
+}
+
 describeSkipIfRpc("Domain-based author bans", () => {
     let plebbit: Plebbit;
     let subplebbit: LocalSubplebbit;
     let moderatorSigner: SignerType;
+    let resolverRecords: Map<string, string | undefined>;
 
     beforeAll(async () => {
-        plebbit = await mockPlebbitV2({ stubStorage: false, mockResolve: true });
+        resolverRecords = new Map();
+        plebbit = await createPlebbitWithMockResolver(resolverRecords);
         subplebbit = (await createSubWithNoChallenge({}, plebbit)) as LocalSubplebbit;
         await subplebbit.start();
         await resolveWhenConditionIsTrue({
@@ -60,12 +72,7 @@ describeSkipIfRpc("Domain-based author bans", () => {
             domainAuthorSigner = signers[6];
 
             // Mock the domain resolution: testbanneduser.eth -> signers[6].address
-            await mockCacheOfTextRecord({
-                plebbit,
-                domain: testDomain,
-                resolveType: "author",
-                value: domainAuthorSigner.address
-            });
+            resolverRecords.set(testDomain, domainAuthorSigner.address);
         });
 
         it.sequential("should store targetAuthorDomain when banning an author who used a domain address", async () => {
@@ -130,12 +137,7 @@ describeSkipIfRpc("Domain-based author bans", () => {
             const newSigner = await plebbit.createSigner();
 
             // Mock the domain to now resolve to the new signer's address
-            await mockCacheOfTextRecord({
-                plebbit,
-                domain: testDomain,
-                resolveType: "author",
-                value: newSigner.address
-            });
+            resolverRecords.set(testDomain, newSigner.address);
 
             // Try to publish with the new signer but same domain - should fail due to domain ban
             const newComment = await generateMockPost({
@@ -205,12 +207,7 @@ describeSkipIfRpc("Domain-based author bans", () => {
             // The author was banned by public key (no domain stored)
             // Now they get a domain pointing to their public key
             const newDomain = "newlybanned.bso";
-            await mockCacheOfTextRecord({
-                plebbit,
-                domain: newDomain,
-                resolveType: "author",
-                value: regularAuthorSigner.address
-            });
+            resolverRecords.set(newDomain, regularAuthorSigner.address);
 
             // Try to publish with domain - should fail because public key is banned
             const newComment = await generateMockPost({
@@ -236,9 +233,11 @@ describeSkipIfRpc("Domain bans with pseudonymity mode", () => {
     let moderatorSigner: SignerType;
     const testDomain = "pseudonymuser.bso";
     let domainAuthorSigner: SignerType;
+    let resolverRecords: Map<string, string | undefined>;
 
     beforeAll(async () => {
-        plebbit = await mockPlebbitV2({ stubStorage: false, mockResolve: true });
+        resolverRecords = new Map();
+        plebbit = await createPlebbitWithMockResolver(resolverRecords);
         subplebbit = (await createSubWithNoChallenge({}, plebbit)) as LocalSubplebbit;
 
         // Enable per-post pseudonymity mode
@@ -260,12 +259,7 @@ describeSkipIfRpc("Domain bans with pseudonymity mode", () => {
         domainAuthorSigner = signers[6];
 
         // Mock the domain resolution
-        await mockCacheOfTextRecord({
-            plebbit,
-            domain: testDomain,
-            resolveType: "author",
-            value: domainAuthorSigner.address
-        });
+        resolverRecords.set(testDomain, domainAuthorSigner.address);
     });
 
     afterAll(async () => {

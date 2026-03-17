@@ -1,5 +1,6 @@
 import { beforeAll, afterAll, describe, it, beforeEach } from "vitest";
 import {
+    createMockNameResolver,
     publishRandomPost,
     mockPlebbit,
     createSubWithNoChallenge,
@@ -8,7 +9,6 @@ import {
     describeSkipIfRpc,
     describeIfRpc,
     waitTillPostInSubplebbitPages,
-    mockCacheOfTextRecord,
     mockPlebbitV2
 } from "../../../dist/node/test/test-util.js";
 import { timestamp } from "../../../dist/node/util.js";
@@ -33,25 +33,32 @@ describeSkipIfRpc(`subplebbit.edit`, async () => {
     let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
     let postToPublishAfterEdit: Comment;
     let bsoNameAddress: string;
+    let plebbitResolverRecords: Map<string, string | undefined>;
+    let remoteResolverRecords: Map<string, string | undefined>;
     beforeAll(async () => {
-        plebbit = await mockPlebbitV2({ stubStorage: false, mockResolve: true });
-        remotePlebbit = await mockPlebbitV2({ stubStorage: false, mockResolve: true, remotePlebbit: true });
+        plebbitResolverRecords = new Map();
+        remoteResolverRecords = new Map();
+        plebbit = await mockPlebbitV2({
+            stubStorage: false,
+            mockResolve: false,
+            plebbitOptions: {
+                nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: plebbitResolverRecords })]
+            }
+        });
+        remotePlebbit = await mockPlebbitV2({
+            stubStorage: false,
+            remotePlebbit: true,
+            mockResolve: false,
+            plebbitOptions: {
+                nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: remoteResolverRecords })]
+            }
+        });
 
         subplebbit = await createSubWithNoChallenge({}, plebbit);
         bsoNameAddress = `test-edit-${uuidV4()}.bso`;
 
-        await mockCacheOfTextRecord({
-            plebbit,
-            domain: bsoNameAddress,
-            resolveType: "community",
-            value: subplebbit.signer.address
-        });
-        await mockCacheOfTextRecord({
-            plebbit: remotePlebbit,
-            domain: bsoNameAddress,
-            resolveType: "community",
-            value: subplebbit.signer.address
-        });
+        plebbitResolverRecords.set(bsoNameAddress, subplebbit.signer.address);
+        remoteResolverRecords.set(bsoNameAddress, subplebbit.signer.address);
 
         const resolvedSubAddress = await remotePlebbit._clientsManager.resolveCommunityNameIfNeeded(bsoNameAddress);
         expect(resolvedSubAddress).to.equal(subplebbit.signer.address);
@@ -186,40 +193,37 @@ describeSkipIfRpc(`subplebbit.edit .eth -> .bso transition`, async () => {
     let ethAddress: string;
     let bsoAddress: string;
     let postPublishedOnBso: Comment;
+    let plebbitResolverRecords: Map<string, string | undefined>;
+    let remoteResolverRecords: Map<string, string | undefined>;
 
     beforeAll(async () => {
-        plebbit = await mockPlebbitV2({ stubStorage: false, mockResolve: true });
-        remotePlebbit = await mockPlebbitV2({ stubStorage: false, mockResolve: true, remotePlebbit: true });
+        plebbitResolverRecords = new Map();
+        remoteResolverRecords = new Map();
+        plebbit = await mockPlebbitV2({
+            stubStorage: false,
+            mockResolve: false,
+            plebbitOptions: {
+                nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: plebbitResolverRecords })]
+            }
+        });
+        remotePlebbit = await mockPlebbitV2({
+            stubStorage: false,
+            remotePlebbit: true,
+            mockResolve: false,
+            plebbitOptions: {
+                nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: remoteResolverRecords })]
+            }
+        });
         subplebbit = await createSubWithNoChallenge({}, plebbit);
 
         const domainPrefix = `test-edit-${uuidV4()}`;
         ethAddress = `${domainPrefix}.eth`;
         bsoAddress = `${domainPrefix}.bso`;
 
-        await mockCacheOfTextRecord({
-            plebbit,
-            domain: ethAddress,
-            resolveType: "community",
-            value: subplebbit.signer.address
-        });
-        await mockCacheOfTextRecord({
-            plebbit,
-            domain: bsoAddress,
-            resolveType: "community",
-            value: subplebbit.signer.address
-        });
-        await mockCacheOfTextRecord({
-            plebbit: remotePlebbit,
-            domain: ethAddress,
-            resolveType: "community",
-            value: subplebbit.signer.address
-        });
-        await mockCacheOfTextRecord({
-            plebbit: remotePlebbit,
-            domain: bsoAddress,
-            resolveType: "community",
-            value: subplebbit.signer.address
-        });
+        plebbitResolverRecords.set(ethAddress, subplebbit.signer.address);
+        plebbitResolverRecords.set(bsoAddress, subplebbit.signer.address);
+        remoteResolverRecords.set(ethAddress, subplebbit.signer.address);
+        remoteResolverRecords.set(bsoAddress, subplebbit.signer.address);
 
         expect(await remotePlebbit._clientsManager.resolveCommunityNameIfNeeded(ethAddress)).to.equal(subplebbit.signer.address);
         expect(await remotePlebbit._clientsManager.resolveCommunityNameIfNeeded(bsoAddress)).to.equal(subplebbit.signer.address);
@@ -302,9 +306,17 @@ describeSkipIfRpc(`subplebbit.edit .eth -> .bso transition`, async () => {
 
 describeSkipIfRpc(`Concurrency with subplebbit.edit`, async () => {
     let plebbit: PlebbitType;
+    let plebbitResolverRecords: Map<string, string | undefined>;
     beforeEach(async () => {
         if (plebbit) await plebbit.destroy();
-        plebbit = await mockPlebbitV2({ stubStorage: false, mockResolve: true });
+        plebbitResolverRecords = new Map();
+        plebbit = await mockPlebbitV2({
+            stubStorage: false,
+            mockResolve: false,
+            plebbitOptions: {
+                nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: plebbitResolverRecords })]
+            }
+        });
     });
 
     afterAll(async () => {
@@ -394,12 +406,7 @@ describeSkipIfRpc(`Concurrency with subplebbit.edit`, async () => {
             const subplebbitInstance = (await plebbit.createSubplebbit({ title: subplebbitTitle })) as LocalSubplebbit | RpcLocalSubplebbit;
             const editKeys = Object.keys(editArgs) as (keyof SubplebbitEditOptions)[];
             if (editArgs.address) {
-                await mockCacheOfTextRecord({
-                    plebbit,
-                    domain: editArgs.address,
-                    resolveType: "community",
-                    value: subplebbitInstance.signer.address
-                });
+                plebbitResolverRecords.set(editArgs.address, subplebbitInstance.signer.address);
                 plebbit._storage.removeItem = () => Promise.resolve(false); // stop clearing cache when editing subplebbit address
 
                 const resolvedSubAddress = await plebbit._clientsManager.resolveCommunityNameIfNeeded(editArgs.address);
@@ -508,11 +515,18 @@ describeSkipIfRpc(`Concurrency with subplebbit.edit`, async () => {
     );
 
     it(`Can edit a local sub address, then start it`, async () => {
-        const customPlebbit = await mockPlebbitV2({ stubStorage: false, mockResolve: true });
+        const customResolverRecords = new Map<string, string | undefined>();
+        const customPlebbit = await mockPlebbitV2({
+            stubStorage: false,
+            mockResolve: false,
+            plebbitOptions: {
+                nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: customResolverRecords })]
+            }
+        });
         const signer = await customPlebbit.createSigner();
         const domain = `edit-before-start-${uuidV4()}.bso`;
 
-        await mockCacheOfTextRecord({ plebbit: customPlebbit, domain, resolveType: "community", value: signer.address });
+        customResolverRecords.set(domain, signer.address);
 
         const sub = await createSubWithNoChallenge({ signer }, customPlebbit);
         await sub.edit({ address: domain });
@@ -790,10 +804,27 @@ describeSkipIfRpc(`.eth <-> .bso alias address transitions`, async () => {
     let ethNameAddress: string;
     let bsoNameAddress: string;
     let postPublishedOnEth: Comment;
+    let plebbitResolverRecords: Map<string, string | undefined>;
+    let remoteResolverRecords: Map<string, string | undefined>;
 
     beforeAll(async () => {
-        plebbit = await mockPlebbitV2({ stubStorage: false, mockResolve: true });
-        remotePlebbit = await mockPlebbitV2({ stubStorage: false, mockResolve: true, remotePlebbit: true });
+        plebbitResolverRecords = new Map();
+        remoteResolverRecords = new Map();
+        plebbit = await mockPlebbitV2({
+            stubStorage: false,
+            mockResolve: false,
+            plebbitOptions: {
+                nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: plebbitResolverRecords })]
+            }
+        });
+        remotePlebbit = await mockPlebbitV2({
+            stubStorage: false,
+            remotePlebbit: true,
+            mockResolve: false,
+            plebbitOptions: {
+                nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: remoteResolverRecords })]
+            }
+        });
 
         subplebbit = await createSubWithNoChallenge({}, plebbit);
         const domainBase = `test-alias-${uuidV4()}`;
@@ -802,18 +833,8 @@ describeSkipIfRpc(`.eth <-> .bso alias address transitions`, async () => {
 
         // Mock both .eth and .bso domains to resolve to the same signer address
         for (const domain of [ethNameAddress, bsoNameAddress]) {
-            await mockCacheOfTextRecord({
-                plebbit,
-                domain,
-                resolveType: "community",
-                value: subplebbit.signer.address
-            });
-            await mockCacheOfTextRecord({
-                plebbit: remotePlebbit,
-                domain,
-                resolveType: "community",
-                value: subplebbit.signer.address
-            });
+            plebbitResolverRecords.set(domain, subplebbit.signer.address);
+            remoteResolverRecords.set(domain, subplebbit.signer.address);
         }
 
         // First, edit to .eth domain

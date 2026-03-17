@@ -4,7 +4,7 @@ import { Comment } from "../publications/comment/comment.js";
 import { Plebbit } from "../plebbit/plebbit.js";
 import Vote from "../publications/vote/vote.js";
 import { RemoteSubplebbit } from "../subplebbit/remote-subplebbit.js";
-import type { InputPlebbitOptions } from "../types.js";
+import type { InputPlebbitOptions, NameResolver } from "../types.js";
 import assert from "assert";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import Publication from "../publications/publication.js";
@@ -71,7 +71,6 @@ import { encryptEd25519AesGcm, encryptEd25519AesGcmPublicKeyBuffer } from "../si
 import env from "../version.js";
 import type { CommentModerationPubsubMessagePublication } from "../publications/comment-moderation/types.js";
 import { CommentModeration } from "../publications/comment-moderation/comment-moderation.js";
-import type { ResolveType } from "../clients/base-client-manager.js";
 import type { PageIpfs, PageTypeJson, PostsPagesTypeIpfs, RepliesPagesTypeIpfs } from "../pages/types.js";
 import { PlebbitError } from "../plebbit-error.js";
 import { messages } from "../errors.js";
@@ -85,6 +84,54 @@ interface MockPlebbitOptions {
     stubStorage?: boolean;
     mockResolve?: boolean;
     remotePlebbit?: boolean;
+}
+
+type MockResolverRecords = Map<string, string | undefined> | Record<string, string | undefined>;
+
+const defaultMockResolverRecords = new Map<string, string>([
+    ["plebbit.eth", "12D3KooWNMYPSuNadceoKsJ6oUQcxGcfiAsHNpVTt1RQ1zSrKKpo"],
+    ["plebbit.bso", "12D3KooWNMYPSuNadceoKsJ6oUQcxGcfiAsHNpVTt1RQ1zSrKKpo"],
+    ["rpc-edit-test.eth", "12D3KooWMZPQsQdYtrakc4D1XtzGXwN1X3DBnAobcCjcPYYXTB6o"],
+    ["rpc-edit-test.bso", "12D3KooWMZPQsQdYtrakc4D1XtzGXwN1X3DBnAobcCjcPYYXTB6o"]
+]);
+
+function getMockResolverRecord(records: MockResolverRecords | undefined, name: string): { found: boolean; value: string | undefined } {
+    if (records instanceof Map) return { found: records.has(name), value: records.get(name) };
+    if (records && Object.prototype.hasOwnProperty.call(records, name)) return { found: true, value: records[name] };
+    return { found: false, value: undefined };
+}
+
+export function createMockNameResolver({
+    records,
+    includeDefaultRecords = false,
+    key = "mock-resolver",
+    provider = "mock",
+    canResolve,
+    resolveFunction
+}: {
+    records?: MockResolverRecords;
+    includeDefaultRecords?: boolean;
+    key?: string;
+    provider?: string;
+    canResolve?: NameResolver["canResolve"];
+    resolveFunction?: NameResolver["resolve"];
+} = {}): NameResolver {
+    return {
+        key,
+        canResolve: canResolve || (() => true),
+        resolve:
+            resolveFunction ||
+            (async ({ name }) => {
+                console.log(`Attempting to mock resolve address (${name})`);
+                const record = getMockResolverRecord(records, name);
+                if (record.found) return record.value ? { publicKey: record.value } : undefined;
+
+                const defaultRecord = includeDefaultRecords ? getMockResolverRecord(defaultMockResolverRecords, name) : undefined;
+                if (defaultRecord?.found) return defaultRecord.value ? { publicKey: defaultRecord.value } : undefined;
+                return undefined;
+            }),
+        provider
+    };
 }
 
 export function createPendingApprovalChallenge(overrides: Partial<SubplebbitChallengeSetting> = {}): SubplebbitChallengeSetting {
@@ -545,29 +592,7 @@ export async function mockPlebbit(plebbitOptions?: InputPlebbitOptions, forceMoc
     if (plebbitOptions?.plebbitRpcClientsOptions && plebbitOptions?.libp2pJsClientsOptions)
         throw Error("Can't have both libp2p and RPC config. Is this a mistake?");
 
-    const domainMappings = new Map<string, string>();
-    const mockNameResolvers = mockResolve
-        ? [
-              {
-                  key: "mock-resolver",
-                  canResolve: () => true,
-                  resolve: async ({ name }: { name: string; provider: string; abortSignal?: AbortSignal }) => {
-                      console.log(`Attempting to mock resolve address (${name})`);
-                      // Check per-instance domain mappings first (set via mockCacheOfTextRecord)
-                      if (domainMappings.has(name)) {
-                          const value = domainMappings.get(name)!;
-                          return value ? { publicKey: value } : undefined;
-                      }
-                      if (name === "plebbit.eth" || name === "plebbit.bso")
-                          return { publicKey: "12D3KooWNMYPSuNadceoKsJ6oUQcxGcfiAsHNpVTt1RQ1zSrKKpo" }; // signers[3]
-                      else if (name === "rpc-edit-test.eth" || name === "rpc-edit-test.bso")
-                          return { publicKey: "12D3KooWMZPQsQdYtrakc4D1XtzGXwN1X3DBnAobcCjcPYYXTB6o" }; // signers[7]
-                      else return undefined;
-                  },
-                  provider: "mock"
-              }
-          ]
-        : undefined;
+    const mockNameResolvers = mockResolve ? [createMockNameResolver({ includeDefaultRecords: true })] : undefined;
     const plebbit = await PlebbitIndex({
         ...mockDefaultOptionsForNodeAndBrowserTests(),
         resolveAuthorNames: true,
@@ -577,9 +602,6 @@ export async function mockPlebbit(plebbitOptions?: InputPlebbitOptions, forceMoc
         nameResolvers: mockNameResolvers,
         ...plebbitOptions
     });
-
-    // Store domain mappings on the plebbit instance for test utility access
-    (plebbit as any)._testDomainMappings = domainMappings;
 
     if (stubStorage) {
         plebbit._storage.getItem = async () => undefined;
@@ -607,22 +629,6 @@ export async function mockRemotePlebbit(opts?: MockPlebbitOptions) {
     const plebbit = await mockPlebbitV2({ ...opts, plebbitOptions: { dataPath: undefined, ...opts?.plebbitOptions } });
     plebbit._canCreateNewLocalSub = () => false;
     return plebbit;
-}
-
-export async function mockCacheOfTextRecord({
-    plebbit,
-    domain,
-    resolveType,
-    value
-}: {
-    plebbit: Plebbit;
-    domain: string;
-    resolveType: ResolveType;
-    value: string;
-}) {
-    const domainMappings = (plebbit as Plebbit & { _testDomainMappings?: Map<string, string> })._testDomainMappings;
-    if (!domainMappings) throw new Error("mockCacheOfTextRecord requires a mockPlebbit instance with test domain mappings");
-    domainMappings.set(domain, value);
 }
 
 export async function createOnlinePlebbit(plebbitOptions?: InputPlebbitOptions) {
@@ -2363,14 +2369,6 @@ export function mockUpdatingCommentResolvingAuthor(
     updatingComment._clientsManager.resolveAuthorNameIfNeeded = mockFunction;
 }
 
-export async function mockResponseOfNameResolver(opts: { plebbit: Plebbit; domain: string; resolveType: ResolveType; value: string }) {
-    if (opts.plebbit._plebbitRpcClient) throw Error("Can't mock resolver with plebbit rpc clients");
-    const mappings = (opts.plebbit as any)._testDomainMappings as Map<string, string> | undefined;
-    if (!mappings) throw Error("This plebbit instance was not created with mockPlebbit or mockResolve was false");
-    if (!opts.value) mappings.delete(opts.domain);
-    else mappings.set(opts.domain, opts.value);
-}
-
 export async function getRandomPostCidFromSub(subplebbitAddress: string, plebbit: Plebbit) {
     const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
     await sub.update();
@@ -2404,14 +2402,7 @@ export function mockNameResolvers<T extends { name: string; provider: string }>(
     resolveFunction: (opts: T) => Promise<{ publicKey: string; [key: string]: string } | undefined>;
 }) {
     if (plebbit._plebbitRpcClient) throw Error("Can't mock name resolvers with plebbit rpc clients");
-    plebbit.nameResolvers = [
-        {
-            key: "mock-resolver",
-            canResolve: () => true,
-            resolve: (opts) => resolveFunction(opts as T),
-            provider: "mock"
-        }
-    ];
+    plebbit.nameResolvers = [createMockNameResolver({ resolveFunction: (opts) => resolveFunction(opts as T) })];
 }
 
 export function processAllCommentsRecursively(
