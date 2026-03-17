@@ -1,0 +1,113 @@
+import { beforeAll, afterAll, describe, it, expect } from "vitest";
+import signers from "../../fixtures/signers.js";
+import { getAvailablePlebbitConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
+import type { Plebbit } from "../../../dist/node/plebbit/plebbit.js";
+
+const subplebbitAddress = signers[0].address;
+const domainAddress = "plebbit.bso";
+// Use a fake CID for publications that require commentCid (not publishing, just creating locally)
+const fakeCid = "QmYHzA8euDgUpNy3fh7JGFnCEKVjjHGPMNUCbgnmc3cGRv";
+
+getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+    describe(`author.address domain normalization - ${config.name}`, () => {
+        let plebbit: Plebbit;
+
+        beforeAll(async () => {
+            plebbit = await config.plebbitInstancePromise();
+        });
+
+        afterAll(async () => {
+            await plebbit?.destroy();
+        });
+
+        it("createComment copies author.address domain to author.name and excludes address from wire", async () => {
+            const comment = await plebbit.createComment({
+                subplebbitAddress,
+                content: "test",
+                title: "test",
+                author: { address: domainAddress },
+                signer: signers[3]
+            });
+
+            expect(comment.author.name).to.equal(domainAddress);
+            expect(comment.author.address).to.equal(domainAddress);
+            expect(comment.raw.pubsubMessageToPublish!.author).to.not.have.property("address");
+            expect(comment.raw.pubsubMessageToPublish!.author!.name).to.equal(domainAddress);
+        });
+
+        it("createVote copies author.address domain to author.name and excludes address from wire", async () => {
+            const vote = await plebbit.createVote({
+                subplebbitAddress,
+                commentCid: fakeCid,
+                vote: 1,
+                author: { address: domainAddress },
+                signer: signers[3]
+            });
+
+            expect(vote.author.name).to.equal(domainAddress);
+            expect(vote.author.address).to.equal(domainAddress);
+            expect(vote.raw.pubsubMessageToPublish!.author).to.not.have.property("address");
+            expect(vote.raw.pubsubMessageToPublish!.author!.name).to.equal(domainAddress);
+        });
+
+        it("createCommentEdit copies author.address domain to author.name and excludes address from wire", async () => {
+            const edit = await plebbit.createCommentEdit({
+                subplebbitAddress,
+                commentCid: fakeCid,
+                content: "edited",
+                author: { address: domainAddress },
+                signer: signers[3]
+            });
+
+            expect(edit.author.name).to.equal(domainAddress);
+            expect(edit.author.address).to.equal(domainAddress);
+            expect(edit.raw.pubsubMessageToPublish!.author).to.not.have.property("address");
+            expect(edit.raw.pubsubMessageToPublish!.author!.name).to.equal(domainAddress);
+        });
+
+        it("createCommentModeration copies author.address domain to author.name and excludes address from wire", async () => {
+            const mod = await plebbit.createCommentModeration({
+                subplebbitAddress,
+                commentCid: fakeCid,
+                commentModeration: { removed: true },
+                author: { address: domainAddress },
+                signer: signers[3]
+            });
+
+            expect(mod.author.name).to.equal(domainAddress);
+            expect(mod.author.address).to.equal(domainAddress);
+            expect(mod.raw.pubsubMessageToPublish!.author).to.not.have.property("address");
+            expect(mod.raw.pubsubMessageToPublish!.author!.name).to.equal(domainAddress);
+        });
+
+        it("createSubplebbitEdit copies author.address domain to author.name and excludes address from wire", async () => {
+            const subEdit = await plebbit.createSubplebbitEdit({
+                subplebbitAddress,
+                subplebbitEdit: { title: "new title" },
+                author: { address: domainAddress },
+                signer: signers[3]
+            });
+
+            expect(subEdit.author.name).to.equal(domainAddress);
+            expect(subEdit.author.address).to.equal(domainAddress);
+            expect(subEdit.raw.pubsubMessageToPublish!.author).to.not.have.property("address");
+            expect(subEdit.raw.pubsubMessageToPublish!.author!.name).to.equal(domainAddress);
+        });
+
+        it("createComment preserves existing author.name when author.address is also a domain", async () => {
+            const comment = await plebbit.createComment({
+                subplebbitAddress,
+                content: "test",
+                title: "test",
+                author: { address: domainAddress, name: "custom.eth" },
+                signer: signers[3]
+            });
+
+            // Existing name should NOT be overwritten
+            expect(comment.author.name).to.equal("custom.eth");
+            expect(comment.author.address).to.equal("custom.eth");
+            expect(comment.raw.pubsubMessageToPublish!.author).to.not.have.property("address");
+            expect(comment.raw.pubsubMessageToPublish!.author!.name).to.equal("custom.eth");
+        });
+    });
+});
