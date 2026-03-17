@@ -176,7 +176,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-author"', () => {
         });
 
         it.sequential("Spec: author.address domains resolve and are anonymized consistently", async () => {
-            const domainAuthorSigner = await context.publisherPlebbit.createSigner(signers[6]);
+            const domainAuthorSigner = await context.publisherPlebbit.createSigner(signers[3]);
             const domainAddress = "plebbit.bso";
 
             const resolvedAddress = await context.publisherPlebbit.resolveAuthorName({ address: domainAddress });
@@ -1773,12 +1773,12 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-author"', () => {
 
             // Mod should use real address
             const storedMod = (modContext.subplebbit as LocalSubplebbit)._dbHandler.queryComment(modPost.cid) as StoredComment;
-            expect(storedMod?.author?.address).to.equal(modSigner.address);
+            expect(storedMod?.author?.address).to.be.undefined;
             expect(storedMod?.signature?.publicKey).to.equal(modSigner.publicKey);
 
             // Regular user should be pseudonymized
             const storedRegular = (modContext.subplebbit as LocalSubplebbit)._dbHandler.queryComment(regularPost.cid) as StoredComment;
-            expect(storedRegular?.author?.address).to.not.equal(regularSigner.address);
+            expect(storedRegular?.author?.address).to.be.undefined;
             expect(storedRegular?.signature?.publicKey).to.not.equal(regularSigner.publicKey);
 
             const aliasRow = (modContext.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasForAuthor(
