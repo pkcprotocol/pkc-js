@@ -922,6 +922,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     ): Promise<undefined> {
         const log = Logger("plebbit-js:local-subplebbit:storeCommentEdit");
         const strippedOutEditPublication = CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema.strip().parse(commentEditRaw); // we strip out here so we don't store any extra props in commentedits table
+        strippedOutEditPublication.author = cleanWireAuthor(strippedOutEditPublication.author); // strip runtime-only author fields (address, publicKey, etc.)
         const commentToBeEdited = this._dbHandler.queryComment(commentEditRaw.commentCid); // We assume commentToBeEdited to be defined because we already tested for its existence above
         if (!commentToBeEdited) throw Error("The comment to edit doesn't exist"); // unlikely error to happen, but always a good idea to verify
         const editSignedByOriginalAuthor = commentEditRaw.signature.publicKey === commentToBeEdited.signature.publicKey;
@@ -958,6 +959,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     ): Promise<undefined> {
         const log = Logger("plebbit-js:local-subplebbit:storeCommentModeration");
         const strippedOutModPublication = CommentModerationPubsubMessagePublicationSchema.strip().parse(commentModRaw); // we strip out here so we don't store any extra props in commentedits table
+        strippedOutModPublication.author = cleanWireAuthor(strippedOutModPublication.author); // strip runtime-only author fields (address, publicKey, etc.)
         const commentToBeEdited = this._dbHandler.queryComment(commentModRaw.commentCid); // We assume commentToBeEdited to be defined because we already tested for its existence above
         if (!commentToBeEdited) throw Error("The comment to edit doesn't exist"); // unlikely error to happen, but always a good idea to verify
 
@@ -1264,6 +1266,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         const authorSignerAddress = await getPlebbitAddressFromPublicKey(commentPubsub.signature.publicKey);
 
         const strippedOutCommentIpfs = CommentIpfsSchema.strip().parse(commentIpfs); // remove unknown props
+        strippedOutCommentIpfs.author = cleanWireAuthor(strippedOutCommentIpfs.author); // strip runtime-only author fields (address, publicKey, etc.)
 
         const signaturesToCheck = Array.from(
             new Set(
