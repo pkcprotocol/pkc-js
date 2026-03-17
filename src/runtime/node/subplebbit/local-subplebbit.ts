@@ -1199,7 +1199,11 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
 
         const anonymizedComment = remeda.clone(originalComment);
 
-        anonymizedComment.author = sanitizedAuthor;
+        if (sanitizedAuthor !== undefined) {
+            anonymizedComment.author = sanitizedAuthor;
+        } else {
+            delete anonymizedComment.author;
+        }
         anonymizedComment.signature = await signComment({ comment: { ...anonymizedComment, signer: aliasSigner }, plebbit: this._plebbit });
 
         return {
@@ -1222,7 +1226,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             type: "ed25519"
         });
         const commentEditSignedByAlias = remeda.clone(originalEdit);
-        commentEditSignedByAlias.author = undefined;
+        delete commentEditSignedByAlias.author;
         commentEditSignedByAlias.signature = await signCommentEdit({
             edit: { ...commentEditSignedByAlias, signer: aliasSigner },
             plebbit: this._plebbit
