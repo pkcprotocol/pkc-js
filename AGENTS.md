@@ -1,29 +1,72 @@
--   You don't need to run build if you're modifying files outside src/
--   Make sure to run npm run build if you're modifying files inside src/, and make sure it passes with no errors
--   each http router keep provider announcement for only 24 hours
--   If you're gonna edit schema make sure to check for docs relevant to the local zod version by checking package.json
--   Run every automated test suite through `node test/run-test-config.js --plebbit-config ${plebbit-config} ${testPath}` so our Vitest setup enforces bail/allowOnly/timeouts automatically. you need to supply test path to run-test-config.js. You also need to choose plebbit-config. If the test is inside test/node then choose "local-kubo-rpc,remote-plebbit-rpc". For tests inside test/node-and-browser, choose "remote-kubo-rpc,remote-plebbit-rpc".
--   If RPC tests are failing, consider the rpc server may be outdated and carrying old dist/.
--   When running RPC tests (e.g. remove.test.js), set `USE_RPC=1` in the environment
--   You should never use removeAllListeners because it removes error listener initialized in constructor which may cause process to crash
--   If you need to troubleshoot or debug anything related to a local subplebbit, you can run sqlite queries against its database at `${plebbitDataPath}/subplebbits/${subplebbitAddress}`
--   You can't add code that only works in node under src/, it has to be under src/runtime/node, or otherwise it will fail browser build
--   Tests that use `LocalSubplebbit` or other Node-only types must be placed under `test/node/`, not `test/node-and-browser/`. The `test/node-and-browser/` directory is for tests that can run in both environments.
--   Do not include this.timeout in tests, that is not supported by vitest
--   When I report a bug or regression to you we need to figure out how to reproduce it determinstically in a test case first and then we can brainstorm how to fix it.
--   Test files should be written in TypeScript (.test.ts). The test runner will type-check all TypeScript test files before running them.
--   When modifying files under test/, run `npx tsc --project test/tsconfig.json --noEmit` to verify types are correct.
--   If you need to mock consider to use vitest utilities for mocking
--   If you're gonna mock a comment, you need to create a fixture that's similar to how it looks to production like this one. For comment (CommentIpfs), look at test/fixtures/signatures/comment/commentUpdate/valid_comment_ipfs.json, while for commentUpdate look at test/fixtures/signatures/comment/commentUpdate/valid_comment_update.json
--   Keep in mind that a comment's bytes size during publication is limited to 40kb
--   When writing new functions, prefer a single object parameter with all args (e.g., `signComment({ comment, plebbit })` instead of `signComment(comment, plebbit)`)
--   When you're debugging a failure or a test failure in CI, you should check `test_server.log` for subplebbit logs and `test_node_${config}.stdout.log`/`test_node_${config}.stderr.log` artifacts for client logs (where config is e.g. `remote-kubo-rpc`)
--   When I report a bug or test failure, you need to try to understand the root cause instead of trying to fix it with timeouts
--   When you modify a test file you need to make sure it passes test build process of tsc with test/tsconfig.json
--   When adding a new JSON column to the database, add a test in `test/node/subplebbit/parsing.db.subplebbit.test.ts` for parsing it, and if it's on a comment, add an integration test for `dbHandler.queryComment` returning the proper JSON value (not a string)
--   Do not commit /dist to git
--   In tests, prefer `createSubplebbit()` + `update()` over `getSubplebbit()`, since `getSubplebbit` does a one-shot fetch that fails randomly in CI
--   When creating a Plebbit instance pointing at the local test Kubo (`http://localhost:15001/api/v0`), always pass `httpRoutersOptions: []` to prevent the Zod default from adding production routers, which triggers a Kubo shutdown/restart and breaks parallel tests with ECONNREFUSED
--   Use `npx ipfs` not systemwide `ipfs` binary
--   `author.address` and `subplebbit.address` are immutable — never override or fall back to a derived address; use `author.nameResolved` to indicate whether a domain resolved correctly
--   You should not run `npm run test:server:node` yourself instead ask me to do it
+# Agent Instructions for plebbit-js
+
+Instructions for AI agents working on this codebase. Rules are ranked by priority: **MUST** rules are mandatory and cannot be skipped; **SHOULD** rules are strong defaults that apply in most situations.
+
+## Task Router
+
+| Situation | Action |
+|---|---|
+| Modifying `src/` | Run `npm run build`, ensure no errors |
+| Modifying `test/` | Run `npx tsc --project test/tsconfig.json --noEmit` |
+| Editing schema | Check local zod version in `package.json` first |
+| Running tests | Use `node test/run-test-config.js --plebbit-config ${plebbit-config} ${testPath}` |
+| Bug reported | Reproduce deterministically in a test case first |
+| Debugging CI failures | Check `test_server.log` and `test_node_${config}.stdout.log`/`.stderr.log` artifacts |
+
+## MUST Rules
+
+### Build
+
+- Run `npm run build` when modifying files inside `src/`, and make sure it passes with no errors. You don't need to run build if you're modifying files outside `src/`.
+- Node-only code MUST go under `src/runtime/node/`, not directly under `src/` — otherwise the browser build will fail.
+- Do not commit `/dist` to git.
+
+### Testing
+
+- Run every automated test suite through `node test/run-test-config.js --plebbit-config ${plebbit-config} ${testPath}` so our Vitest setup enforces bail/allowOnly/timeouts automatically. Choose plebbit-config based on test location: `test/node` → `"local-kubo-rpc,remote-plebbit-rpc"`, `test/node-and-browser` → `"remote-kubo-rpc,remote-plebbit-rpc"`.
+- Test files MUST be written in TypeScript (`.test.ts`). The test runner will type-check all TypeScript test files before running them.
+- Tests that use `LocalSubplebbit` or other Node-only types MUST be placed under `test/node/`, not `test/node-and-browser/`.
+- Do not include `this.timeout` in tests — it is not supported by vitest.
+- When you modify a test file, make sure it passes the test build process: `npx tsc --project test/tsconfig.json --noEmit`.
+- You should not run `npm run test:server:node` yourself — instead ask me to do it.
+
+### Code
+
+- Never use `removeAllListeners` — it removes the error listener initialized in the constructor, which may cause the process to crash.
+- `author.address` and `subplebbit.address` are immutable — never override or fall back to a derived address; use `author.nameResolved` to indicate whether a domain resolved correctly.
+- A comment's bytes size during publication is limited to 40kb.
+
+### Debugging
+
+- When a bug or regression is reported, reproduce it deterministically in a test case first, then brainstorm how to fix it.
+- When a bug or test failure is reported, understand the root cause instead of trying to fix it with timeouts.
+
+## SHOULD Rules
+
+### Schema & Database
+
+- If you're editing schema, check for docs relevant to the local zod version by checking `package.json`.
+- When adding a new JSON column to the database, add a test in `test/node/subplebbit/parsing.db.subplebbit.test.ts` for parsing it, and if it's on a comment, add an integration test for `dbHandler.queryComment` returning the proper JSON value (not a string).
+
+### Testing Patterns
+
+- Use vitest utilities for mocking.
+- When mocking a comment, create a fixture that looks like production. For comment (`CommentIpfs`), look at `test/fixtures/signatures/comment/commentUpdate/valid_comment_ipfs.json`; for `commentUpdate`, look at `test/fixtures/signatures/comment/commentUpdate/valid_comment_update.json`.
+- Prefer `createSubplebbit()` + `update()` over `getSubplebbit()`, since `getSubplebbit` does a one-shot fetch that fails randomly in CI.
+- When creating a Plebbit instance pointing at local test Kubo (`http://localhost:15001/api/v0`), always pass `httpRoutersOptions: []` to prevent the Zod default from adding production routers, which triggers a Kubo shutdown/restart and breaks parallel tests with ECONNREFUSED.
+- When running RPC tests (e.g. `remove.test.js`), set `USE_RPC=1` in the environment.
+- If RPC tests are failing, consider the RPC server may be outdated and carrying old `dist/`.
+
+### Code Patterns
+
+- When writing new functions, prefer a single object parameter with all args (e.g., `signComment({ comment, plebbit })` instead of `signComment(comment, plebbit)`).
+- Use `npx ipfs` not the system-wide `ipfs` binary.
+
+### Debugging Patterns
+
+- When debugging CI failures, check `test_server.log` for subplebbit logs and `test_node_${config}.stdout.log`/`test_node_${config}.stderr.log` artifacts for client logs (where config is e.g. `remote-kubo-rpc`).
+- To troubleshoot or debug anything related to a local subplebbit, run sqlite queries against its database at `${plebbitDataPath}/subplebbits/${subplebbitAddress}`.
+
+## Domain Notes
+
+- Each HTTP router keeps provider announcements for only 24 hours.
