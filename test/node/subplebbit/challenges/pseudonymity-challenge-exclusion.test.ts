@@ -112,6 +112,41 @@ async function publishPostWithChallengeAnswer(
     return post;
 }
 
+async function publishPostAndTrackChallenge(
+    subplebbitAddress: string,
+    plebbit: Plebbit,
+    signer: SignerWithPublicKeyAddress,
+    opts?: {
+        title?: string;
+        content?: string;
+        challengeAnswer?: string;
+    }
+): Promise<{ post: Comment; challengeReceived: boolean }> {
+    const post = await plebbit.createComment({
+        subplebbitAddress,
+        signer,
+        title: opts?.title ?? "Test post for role exclusion",
+        content: opts?.content ?? "Content " + Math.random()
+    });
+
+    let challengeReceived = false;
+    post.once("challenge", async () => {
+        challengeReceived = true;
+        await post.publishChallengeAnswers([opts?.challengeAnswer ?? "2"]);
+    });
+
+    await post.publish();
+
+    await new Promise<void>((resolve, reject) => {
+        post.once("challengeverification", (msg: ChallengeVerificationMessageType) => {
+            if (msg.challengeSuccess) resolve();
+            else reject(new Error(`Challenge failed: ${JSON.stringify(msg.challengeErrors || msg.reason)}`));
+        });
+    });
+
+    return { post, challengeReceived };
+}
+
 async function publishReplyWithChallengeAnswer(
     parentComment: CommentIpfsWithCidDefined,
     plebbit: Plebbit,
@@ -180,6 +215,44 @@ async function publishVoteWithChallengeAnswer(
 
 describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
     describe("per-post pseudonymity mode", () => {
+        it("moderators are excluded from role-based challenges in per-post mode", async () => {
+            const context = await createSubplebbitWithChallengeExclusion({
+                pseudonymityMode: "per-post",
+                challengeExclude: [{ role: ["moderator"] }]
+            });
+
+            try {
+                const moderator = await context.plebbit.createSigner();
+
+                await context.subplebbit.edit({
+                    roles: {
+                        ...(context.subplebbit.roles || {}),
+                        [moderator.address]: { role: "moderator" }
+                    }
+                });
+                await resolveWhenConditionIsTrue({
+                    toUpdate: context.subplebbit,
+                    predicate: async () => context.subplebbit.roles?.[moderator.address]?.role === "moderator"
+                });
+
+                const challengeRequestPromise = new Promise<DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor>((resolve) => {
+                    context.subplebbit.once("challengerequest", resolve);
+                });
+                const moderatorPublication = await publishPostAndTrackChallenge(context.subplebbit.address, context.plebbit, moderator, {
+                    title: "Moderator post",
+                    content: "Moderator should be excluded from challenge"
+                });
+                const challengeRequest = await challengeRequestPromise;
+
+                expect(challengeRequest.comment?.author.address).to.equal(moderator.address);
+                expect(moderatorPublication.challengeReceived, "Moderator should be excluded from the challenge").to.be.false;
+
+                await moderatorPublication.post.stop();
+            } finally {
+                await context.cleanup();
+            }
+        });
+
         it("new author with no karma must solve challenge (not excluded by postScore)", async () => {
             const context = await createSubplebbitWithChallengeExclusion({
                 pseudonymityMode: "per-post",
@@ -499,6 +572,38 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
     });
 
     describe("per-reply pseudonymity mode", () => {
+        it("moderators are excluded from role-based challenges in per-reply mode", async () => {
+            const context = await createSubplebbitWithChallengeExclusion({
+                pseudonymityMode: "per-reply",
+                challengeExclude: [{ role: ["moderator"] }]
+            });
+
+            try {
+                const moderator = await context.plebbit.createSigner();
+
+                await context.subplebbit.edit({
+                    roles: {
+                        ...(context.subplebbit.roles || {}),
+                        [moderator.address]: { role: "moderator" }
+                    }
+                });
+                await resolveWhenConditionIsTrue({
+                    toUpdate: context.subplebbit,
+                    predicate: async () => context.subplebbit.roles?.[moderator.address]?.role === "moderator"
+                });
+
+                const moderatorPublication = await publishPostAndTrackChallenge(context.subplebbit.address, context.plebbit, moderator, {
+                    title: "Moderator post",
+                    content: "Moderator should be excluded from challenge"
+                });
+                expect(moderatorPublication.challengeReceived, "Moderator should be excluded from the challenge").to.be.false;
+
+                await moderatorPublication.post.stop();
+            } finally {
+                await context.cleanup();
+            }
+        });
+
         it("author with enough karma is excluded from challenge in per-reply mode", async () => {
             const context = await createSubplebbitWithChallengeExclusion({
                 pseudonymityMode: "per-reply",
@@ -645,6 +750,38 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
     });
 
     describe("per-author pseudonymity mode", () => {
+        it("moderators are excluded from role-based challenges in per-author mode", async () => {
+            const context = await createSubplebbitWithChallengeExclusion({
+                pseudonymityMode: "per-author",
+                challengeExclude: [{ role: ["moderator"] }]
+            });
+
+            try {
+                const moderator = await context.plebbit.createSigner();
+
+                await context.subplebbit.edit({
+                    roles: {
+                        ...(context.subplebbit.roles || {}),
+                        [moderator.address]: { role: "moderator" }
+                    }
+                });
+                await resolveWhenConditionIsTrue({
+                    toUpdate: context.subplebbit,
+                    predicate: async () => context.subplebbit.roles?.[moderator.address]?.role === "moderator"
+                });
+
+                const moderatorPublication = await publishPostAndTrackChallenge(context.subplebbit.address, context.plebbit, moderator, {
+                    title: "Moderator post",
+                    content: "Moderator should be excluded from challenge"
+                });
+                expect(moderatorPublication.challengeReceived, "Moderator should be excluded from the challenge").to.be.false;
+
+                await moderatorPublication.post.stop();
+            } finally {
+                await context.cleanup();
+            }
+        });
+
         it("author with enough karma is excluded from challenge in per-author mode", async () => {
             const context = await createSubplebbitWithChallengeExclusion({
                 pseudonymityMode: "per-author",
