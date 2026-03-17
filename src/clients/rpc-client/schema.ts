@@ -2,6 +2,7 @@ import { z } from "zod";
 import { CommentIpfsSchema, CommentUpdateSchema } from "../../publications/comment/schema.js";
 import { AuthorAddressSchema, ChallengeAnswersSchema, CidStringSchema, SubplebbitAddressSchema } from "../../schema/schema.js";
 import { SubplebbitEditOptionsSchema } from "../../subplebbit/schema.js";
+import type { EncodedDecryptedChallengeVerificationMessageType } from "../../pubsub-messages/types.js";
 export const SubscriptionIdSchema = z.number().positive().int();
 
 export const RpcCommentEventResultSchema = z.object({
@@ -9,6 +10,10 @@ export const RpcCommentEventResultSchema = z.object({
     nameResolved: z.boolean().optional()
 });
 export const RpcCommentUpdateResultSchema = z.object({ commentUpdate: CommentUpdateSchema });
+export const RpcChallengeVerificationEventResultSchema = z.object({
+    challengeVerification: z.custom<EncodedDecryptedChallengeVerificationMessageType>(),
+    nameResolved: z.boolean().optional()
+});
 
 export const RpcCidParamSchema = z.object({ cid: CidStringSchema }).loose();
 export const RpcSubplebbitAddressParamSchema = z.object({ address: SubplebbitAddressSchema });

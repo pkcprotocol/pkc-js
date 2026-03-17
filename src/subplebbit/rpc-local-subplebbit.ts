@@ -181,7 +181,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit implements RpcIntern
     }
 
     private _handleRpcChallengeVerificationEvent(args: any) {
-        const encodedChallengeVerification: EncodedDecryptedChallengeVerificationMessageType = args.params.result;
+        const { challengeVerification: encodedChallengeVerification } = args.params.result;
 
         const challengeVerification = decodeRpcChallengeVerificationPubsubMsg(encodedChallengeVerification);
         this._setRpcClientStateWithEmission("publishing-challenge-verification");

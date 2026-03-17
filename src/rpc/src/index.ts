@@ -504,7 +504,9 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
         this._trackSubplebbitListener(subplebbit, "challengeanswer", challengeAnswerListener);
 
         const challengeVerificationListener = (challengeVerification: DecryptedChallengeVerificationMessageType) =>
-            sendEvent("challengeverification", encodeChallengeVerificationMessage(challengeVerification));
+            sendEvent("challengeverification", {
+                challengeVerification: encodeChallengeVerificationMessage(challengeVerification)
+            });
         subplebbit.on("challengeverification", challengeVerificationListener);
         this._trackSubplebbitListener(subplebbit, "challengeverification", challengeVerificationListener);
 
@@ -1029,7 +1031,10 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
         comment.on("challengerequest", challengeRequestListener);
 
         const challengeVerificationListener = (challengeVerification: DecryptedChallengeVerificationMessageType) =>
-            sendEvent("challengeverification", encodeChallengeVerificationMessage(challengeVerification));
+            sendEvent("challengeverification", {
+                challengeVerification: encodeChallengeVerificationMessage(challengeVerification),
+                nameResolved: comment.author.nameResolved
+            });
         comment.on("challengeverification", challengeVerificationListener);
 
         const publishingStateListener = () => {
@@ -1108,7 +1113,9 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
             sendEvent("challengerequest", encodeChallengeRequest(request));
         vote.on("challengerequest", challengeRequestListener);
         const challengeVerificationListener = (challengeVerification: DecryptedChallengeVerificationMessageType) =>
-            sendEvent("challengeverification", encodeChallengeVerificationMessage(challengeVerification));
+            sendEvent("challengeverification", {
+                challengeVerification: encodeChallengeVerificationMessage(challengeVerification)
+            });
         vote.on("challengeverification", challengeVerificationListener);
         const publishingStateListener = () => sendEvent("publishingstatechange", { state: vote.publishingState });
         vote.on("publishingstatechange", publishingStateListener);
@@ -1179,7 +1186,9 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
             sendEvent("challengerequest", encodeChallengeRequest(request));
         subplebbitEdit.on("challengerequest", challengeRequestListener);
         const challengeVerificationListener = (challengeVerification: DecryptedChallengeVerificationMessageType) =>
-            sendEvent("challengeverification", encodeChallengeVerificationMessage(challengeVerification));
+            sendEvent("challengeverification", {
+                challengeVerification: encodeChallengeVerificationMessage(challengeVerification)
+            });
         subplebbitEdit.on("challengeverification", challengeVerificationListener);
         const publishingStateListener = () => sendEvent("publishingstatechange", { state: subplebbitEdit.publishingState });
         subplebbitEdit.on("publishingstatechange", publishingStateListener);
@@ -1249,7 +1258,9 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
             sendEvent("challengerequest", encodeChallengeRequest(request));
         commentEdit.on("challengerequest", challengeRequestListener);
         const challengeVerificationListener = (challengeVerification: DecryptedChallengeVerificationMessageType) =>
-            sendEvent("challengeverification", encodeChallengeVerificationMessage(challengeVerification));
+            sendEvent("challengeverification", {
+                challengeVerification: encodeChallengeVerificationMessage(challengeVerification)
+            });
         commentEdit.on("challengeverification", challengeVerificationListener);
         const publishingStateListener = () => sendEvent("publishingstatechange", { state: commentEdit.publishingState });
         commentEdit.on("publishingstatechange", publishingStateListener);
@@ -1323,7 +1334,9 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
             sendEvent("challengerequest", encodeChallengeRequest(request));
         commentMod.on("challengerequest", challengeRequestListener);
         const challengeVerificationListener = (challengeVerification: DecryptedChallengeVerificationMessageType) =>
-            sendEvent("challengeverification", encodeChallengeVerificationMessage(challengeVerification));
+            sendEvent("challengeverification", {
+                challengeVerification: encodeChallengeVerificationMessage(challengeVerification)
+            });
         commentMod.on("challengeverification", challengeVerificationListener);
         const publishingStateListener = () => sendEvent("publishingstatechange", { state: commentMod.publishingState });
         commentMod.on("publishingstatechange", publishingStateListener);

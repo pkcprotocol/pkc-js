@@ -176,10 +176,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
         };
     }
 
-    private async _handleRpcChallengeVerification(verification: DecryptedChallengeVerificationMessageType) {
+    private async _handleRpcChallengeVerification(verification: DecryptedChallengeVerificationMessageType, nameResolved?: boolean) {
         const log = Logger("plebbit-js:publication:_handleRpcChallengeVerification");
         if (verification.comment)
             await this._verifyDecryptedChallengeVerificationAndUpdateCommentProps(<DecryptedChallengeVerification>verification);
+        if (this instanceof Comment && typeof nameResolved === "boolean") this.author.nameResolved = nameResolved;
         this._setRpcClientState("stopped");
         const newPublishingState = verification.challengeSuccess ? "succeeded" : "failed";
         this._changePublicationStateEmitEventEmitStateChangeEvent({
@@ -708,13 +709,13 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     private async _handleIncomingChallengeVerificationFromRpc(args: any) {
-        const encoded: EncodedDecryptedChallengeVerificationMessageType = args.params.result;
+        const { challengeVerification: encoded, nameResolved } = args.params.result;
         const decoded = decodeRpcChallengeVerificationPubsubMsg(encoded);
         this._challengeExchanges[decoded.challengeRequestId.toString()] = {
             ...this._challengeExchanges[decoded.challengeRequestId.toString()],
             challengeVerification: decoded
         };
-        await this._handleRpcChallengeVerification(decoded);
+        await this._handleRpcChallengeVerification(decoded, nameResolved);
     }
 
     private _handleIncomingPublishingStateFromRpc(args: any) {

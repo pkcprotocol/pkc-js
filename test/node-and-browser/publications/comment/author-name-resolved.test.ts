@@ -20,6 +20,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         let domainCommentCid: string;
         let noDomainCommentCid: string;
         let mismatchedDomainCommentCid: string;
+        let unresolvableDomainCommentCid: string;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -47,6 +48,16 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 }
             });
             mismatchedDomainCommentCid = mismatchedDomainComment.commentCid;
+
+            // Comment with a domain that no resolver can resolve
+            const unresolvableDomainComment = await createStaticSubplebbitRecordForComment({
+                plebbit,
+                commentOptions: {
+                    author: { name: "hello.scam" },
+                    signer: signers[5]
+                }
+            });
+            unresolvableDomainCommentCid = unresolvableDomainComment.commentCid;
         });
 
         afterAll(async () => {
@@ -97,6 +108,25 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(comment.author.address).to.equal("plebbit.bso");
         });
 
+        it("createComment preserves author.nameResolved on the runtime instance only", async () => {
+            const comment = await plebbit.createComment({
+                author: {
+                    displayName: `Test Author - ${Date.now()}`,
+                    name: "plebbit.bso",
+                    nameResolved: true
+                },
+                signer: signers[3],
+                content: `Test content - ${Date.now()}`,
+                title: "Test post",
+                subplebbitAddress
+            });
+
+            expect(comment.author.nameResolved).to.equal(true);
+            expect(comment.author.address).to.equal("plebbit.bso");
+            expect(comment.raw.pubsubMessageToPublish).to.be.an("object");
+            expect(comment.raw.pubsubMessageToPublish!.author).to.not.have.property("nameResolved");
+        });
+
         it("nameResolved is false when the loaded comment's author name does not match its signature public key", async () => {
             const comment = await plebbit.createComment({ cid: mismatchedDomainCommentCid });
             await comment.update();
@@ -109,6 +139,20 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(comment.author.nameResolved).to.equal(false);
             // address is immutable — stays as the domain even when nameResolved is false
             expect(comment.author.address).to.equal("plebbit.bso");
+        });
+
+        it("nameResolved is false when the author's domain cannot be resolved", async () => {
+            const comment = await plebbit.createComment({ cid: unresolvableDomainCommentCid });
+            await comment.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: comment,
+                predicate: async () => Boolean(comment.content)
+            });
+            await comment.stop();
+
+            // Resolver returns null for unknown domain → null !== derivedAddress → nameResolved = false
+            expect(comment.author.nameResolved).to.equal(false);
+            expect(comment.author.address).to.equal("hello.scam");
         });
 
         itSkipIfRpc("nameResolved is undefined when resolveAuthorNames is false", async () => {
