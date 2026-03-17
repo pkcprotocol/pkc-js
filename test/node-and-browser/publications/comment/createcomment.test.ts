@@ -72,6 +72,27 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(localCommentJson).to.deep.equal(commentCloneJson);
         });
 
+        it(`normalizes a domain passed via author.address into wire author.name`, async () => {
+            const domain = "normalized-author-address.bso";
+            const displayName = `Mock Author - ${Date.now()}`;
+            const comment = await plebbit.createComment({
+                subplebbitAddress,
+                author: { address: domain, displayName },
+                title: `test title ${Date.now()}`,
+                content: `test content ${Date.now()}`,
+                signer: signers[6]
+            });
+
+            expect(comment.author.address).to.equal(domain);
+            expect(comment.author.name).to.equal(domain);
+            expect(comment.author.displayName).to.equal(displayName);
+            expect(comment.raw.pubsubMessageToPublish!.author).to.deep.equal({
+                name: domain,
+                displayName
+            });
+            expect(comment.raw.pubsubMessageToPublish!.author).to.not.have.property("address");
+        });
+
         it(`Can recreate a stringifed local Comment instance after publishing with plebbit.createComment`, async () => {
             const localComment = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             expect(localComment.author.subplebbit).to.be.a("object"); // should get it from subplebbit

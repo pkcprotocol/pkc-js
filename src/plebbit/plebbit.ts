@@ -136,7 +136,7 @@ import { createLibp2pJsClientOrUseExistingOne } from "../helia/helia-for-plebbit
 import { Libp2pJsClient } from "../helia/libp2pjsClient.js";
 import { AuthorNameRpcParam, CidRpcParam, SubplebbitAddressRpcParam } from "../clients/rpc-client/types.js";
 import { parseRpcAuthorNameParam, parseRpcCidParam, parseRpcSubplebbitAddressParam } from "../clients/rpc-client/rpc-schema-util.js";
-import { cleanWireAuthor } from "../publications/publication-author.js";
+import { cleanWireAuthor, normalizeCreatePublicationAuthor } from "../publications/publication-author.js";
 
 export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements ParsedPlebbitOptions {
     ipfsGatewayUrls: ParsedPlebbitOptions["ipfsGatewayUrls"];
@@ -453,7 +453,8 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
     ): Promise<CommentOptionsToSign | VoteOptionsToSign | CommentEditOptionsToSign | SubplebbitEditPublicationOptionsToSign> {
         const finalOptions = remeda.clone(pubOptions);
         if (!finalOptions.signer) throw Error("User did not provide a signer to create a local publication");
-        const cleanedAuthor = cleanWireAuthor(finalOptions.author);
+        const normalizedAuthor = normalizeCreatePublicationAuthor(finalOptions.author);
+        const cleanedAuthor = cleanWireAuthor(normalizedAuthor);
         const filledTimestamp = typeof finalOptions.timestamp !== "number" ? timestamp() : finalOptions.timestamp;
         const filledSigner = await this.createSigner(finalOptions.signer);
         const filledProtocolVersion = finalOptions.protocolVersion || env.PROTOCOL_VERSION;

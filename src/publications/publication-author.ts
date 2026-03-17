@@ -20,6 +20,17 @@ export function cleanWireAuthor(author?: LooseAuthor): AuthorPubsubType | undefi
     return wireAuthor as AuthorPubsubType;
 }
 
+export function normalizeCreatePublicationAuthor(author?: LooseAuthor): LooseAuthor | undefined {
+    if (!author) return undefined;
+    if (typeof author.name === "string") return author;
+    if (!isStringDomain(author.address)) return author;
+
+    return {
+        ...author,
+        name: author.address
+    };
+}
+
 export function getAuthorNameFromWire(author?: LooseAuthor): string | undefined {
     const wireAuthor = omitRuntimeAuthorFields(author);
     if (typeof wireAuthor.name === "string") return wireAuthor.name;
