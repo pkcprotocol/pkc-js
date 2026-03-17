@@ -151,6 +151,7 @@ export function mapModqueuePageIpfsCommentToModQueuePageJsonComment(
         signature: pageComment.comment.signature,
         author: {
             ...runtimeAuthor,
+            ...(pageComment.commentUpdate.author || {}),
             shortAddress: shortifyAddress(runtimeAuthor.address),
             flairs: pageComment.commentUpdate?.author?.subplebbit?.flairs || runtimeAuthor.flairs
         },
@@ -194,6 +195,7 @@ export function mapPageIpfsCommentToPageJsonComment(pageComment: PageIpfs["comme
         signature: pageComment.comment.signature,
         author: {
             ...runtimeAuthor,
+            ...(pageComment.commentUpdate.author || {}),
             shortAddress: shortifyAddress(runtimeAuthor.address),
             flairs:
                 pageComment.commentUpdate?.author?.subplebbit?.flairs ||
