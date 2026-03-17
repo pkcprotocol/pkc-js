@@ -19,6 +19,7 @@ import {
     ipnsNameToIpnsOverPubsubTopic,
     isAbortError,
     pubsubTopicToDhtKey,
+    throwIfAbortSignalAborted,
     timestamp
 } from "../util.js";
 import pLimit from "p-limit";
@@ -269,7 +270,19 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
             } catch (e) {
                 log.error(`Failed to update subplebbit ${this._subplebbit.address} for this iteration, will retry later`, e);
             } finally {
-                await new Promise((resolve) => setTimeout(resolve, updateInterval));
+                await new Promise<void>((resolve) => {
+                    const stopSignal = this._subplebbit._getStopAbortSignal();
+                    if (stopSignal?.aborted) return resolve();
+                    const timer = setTimeout(resolve, updateInterval);
+                    stopSignal?.addEventListener(
+                        "abort",
+                        () => {
+                            clearTimeout(timer);
+                            resolve();
+                        },
+                        { once: true }
+                    );
+                });
             }
         }
 
@@ -352,7 +365,10 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
         if ("_helia" in kuboRpcOrHelia) {
             this.updateLibp2pJsClientState("fetching-ipns", kuboRpcOrHelia._libp2pJsClientsOptions.key);
         } else this.updateKuboRpcState("fetching-ipns", kuboRpcOrHelia.url);
-        const latestSubplebbitCid = await this.resolveIpnsToCidP2P(ipnsName, { timeoutMs: this._plebbit._timeouts["subplebbit-ipns"] });
+        const latestSubplebbitCid = await this.resolveIpnsToCidP2P(ipnsName, {
+            timeoutMs: this._plebbit._timeouts["subplebbit-ipns"],
+            abortSignal: this._subplebbit._getStopAbortSignal()
+        });
         log.trace(`Resolved subplebbit IPNS`, ipnsName, `to CID`, latestSubplebbitCid);
         if (this._updateCidsAlreadyLoaded.has(latestSubplebbitCid)) {
             log.trace(
@@ -372,7 +388,8 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
         try {
             rawSubJsonString = await this._fetchCidP2P(latestSubplebbitCid, {
                 maxFileSizeBytes: MAX_FILE_SIZE_BYTES_FOR_SUBPLEBBIT_IPFS,
-                timeoutMs: this._plebbit._timeouts["subplebbit-ipfs"]
+                timeoutMs: this._plebbit._timeouts["subplebbit-ipfs"],
+                abortSignal: this._subplebbit._getStopAbortSignal()
             });
         } catch (e) {
             //@ts-expect-error
@@ -545,13 +562,22 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
             };
         }
 
+        const stopSignal = this._subplebbit._getStopAbortSignal();
+        const onStopAbort = () => cleanUp();
+
         const cleanUp = () => {
             queueLimit.clearQueue();
             Object.values(gatewayFetches).forEach((gateway) => {
                 if (!gateway.subplebbitRecord && !gateway.error) gateway.abortController.abort("Cleaning up requests for subplebbit");
                 clearTimeout(gateway.timeoutId);
             });
+            if (stopSignal) stopSignal.removeEventListener("abort", onStopAbort);
         };
+
+        if (stopSignal) {
+            throwIfAbortSignalAborted(stopSignal);
+            stopSignal.addEventListener("abort", onStopAbort, { once: true });
+        }
 
         const _findRecentSubplebbit = (): { subplebbit: SubplebbitIpfsType; cid: string } | undefined => {
             // Try to find a very recent subplebbit
@@ -611,6 +637,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
             );
         } catch {
             cleanUp();
+            throwIfAbortSignalAborted(stopSignal);
             const gatewayToError = remeda.mapValues(gatewayFetches, (gatewayFetch) => gatewayFetch.error!);
             const hasGatewayConfirmingCurrentRecord = Object.keys(gatewayFetches)
                 .map((gatewayUrl) => gatewayFetches[gatewayUrl].error!)

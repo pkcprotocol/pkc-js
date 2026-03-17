@@ -501,7 +501,7 @@ export class BaseClientsManager {
     }
 
     async fetchFromMultipleGateways(
-        loadOpts: Omit<OptionsToLoadFromGateway, "abortController">
+        loadOpts: Omit<OptionsToLoadFromGateway, "abortController"> & { abortSignal?: AbortSignal }
     ): Promise<{ resText: string; res: Response }> {
         const timeoutMs = loadOpts.timeoutMs;
         const concurrencyLimit = 3;
@@ -522,7 +522,14 @@ export class BaseClientsManager {
                 if (!gateway.response && !gateway.error) gateway.abortController.abort();
                 clearTimeout(gateway.timeoutId);
             });
+            if (loadOpts.abortSignal) loadOpts.abortSignal.removeEventListener("abort", onParentAbort);
         };
+
+        const onParentAbort = () => cleanUp();
+        if (loadOpts.abortSignal) {
+            throwIfAbortSignalAborted(loadOpts.abortSignal);
+            loadOpts.abortSignal.addEventListener("abort", onParentAbort, { once: true });
+        }
 
         for (const gateway of gatewaysSorted) {
             const abortController = new AbortController();
@@ -542,6 +549,7 @@ export class BaseClientsManager {
         ]);
         if (Array.isArray(res)) {
             cleanUp();
+            throwIfAbortSignalAborted(loadOpts.abortSignal);
             const gatewayToError: Record<string, PlebbitError> = {};
             for (let i = 0; i < res.length; i++) if (res[i]["value"]) gatewayToError[gatewaysSorted[i]] = res[i]["value"].error;
 
@@ -564,7 +572,8 @@ export class BaseClientsManager {
     }
 
     // IPFS P2P methods
-    async resolveIpnsToCidP2P(ipnsName: string, loadOpts: { timeoutMs: number }): Promise<string> {
+    async resolveIpnsToCidP2P(ipnsName: string, loadOpts: { timeoutMs: number; abortSignal?: AbortSignal }): Promise<string> {
+        throwIfAbortSignalAborted(loadOpts.abortSignal);
         const ipnsResolveOpts = { nocache: true, recursive: true, ...loadOpts };
         const ipfsClient = this.getIpfsClientWithKuboRpcClientFunctions();
 
@@ -587,11 +596,13 @@ export class BaseClientsManager {
                 message: new PlebbitError("ERR_IPNS_RESOLUTION_P2P_TIMEOUT", {
                     ipnsName,
                     ipnsResolveOpts
-                })
+                }),
+                signal: loadOpts.abortSignal
             });
 
             return result;
         } catch (error) {
+            if (isAbortError(error)) throw error;
             //@ts-expect-error
             error.details = { ...error.details, ipnsName, ipnsResolveOpts };
             // Wrap ETIMEDOUT in PlebbitError so _isRetriableErrorWhenLoading recognizes it as retriable
@@ -612,7 +623,11 @@ export class BaseClientsManager {
 
     // TODO rename this to _fetchPathP2P
 
-    async _fetchCidP2P(cidV0: string, loadOpts: { maxFileSizeBytes: number; timeoutMs: number }): Promise<string> {
+    async _fetchCidP2P(
+        cidV0: string,
+        loadOpts: { maxFileSizeBytes: number; timeoutMs: number; abortSignal?: AbortSignal }
+    ): Promise<string> {
+        throwIfAbortSignalAborted(loadOpts.abortSignal);
         const kuboRpcOrHelia = this.getDefaultKuboRpcClientOrHelia();
 
         const ipfsClient = this.getIpfsClientWithKuboRpcClientFunctions();
@@ -640,10 +655,12 @@ export class BaseClientsManager {
             // Wrap the fetch function with pTimeout to ensure it times out properly
             const result = <string>await pTimeout(fetchPromise(), {
                 milliseconds: loadOpts.timeoutMs,
-                message: new PlebbitError("ERR_FETCH_CID_P2P_TIMEOUT", { cid: cidV0, loadOpts })
+                message: new PlebbitError("ERR_FETCH_CID_P2P_TIMEOUT", { cid: cidV0, loadOpts }),
+                signal: loadOpts.abortSignal
             });
             return result;
         } catch (e) {
+            if (isAbortError(e)) throw e;
             if (e instanceof PlebbitError) throw e;
             else if (e instanceof Error && e.name === "TimeoutError")
                 throw new PlebbitError("ERR_FETCH_CID_P2P_TIMEOUT", { cid: cidV0, error: e, loadOpts });

@@ -148,7 +148,8 @@ export class CommentClientsManager extends PublicationClientsManager {
             try {
                 res = await this._fetchCidP2P(path, {
                     maxFileSizeBytes: MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE,
-                    timeoutMs: commentUpdateTimeoutMs
+                    timeoutMs: commentUpdateTimeoutMs,
+                    abortSignal: this._comment._getStopAbortSignal()
                 });
             } catch (e) {
                 // failed to load the record, maybe our node is offline or the content is unreachable
@@ -275,7 +276,8 @@ export class CommentClientsManager extends PublicationClientsManager {
                     validateGatewayResponseFunc: validateCommentFromGateway,
                     log,
                     maxFileSizeBytes: MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE,
-                    timeoutMs: this._plebbit._timeouts["comment-update-ipfs"]
+                    timeoutMs: this._plebbit._timeouts["comment-update-ipfs"],
+                    abortSignal: this._comment._getStopAbortSignal()
                 });
                 if (!commentUpdate) throw Error("Failed to load comment update from gateways. This is a critical logic error");
                 if (commentUpdate.updatedAt > (this._comment.raw?.commentUpdate?.updatedAt || 0))
@@ -385,7 +387,11 @@ export class CommentClientsManager extends PublicationClientsManager {
         let commentRawString: string;
         const commentTimeoutMs = this._plebbit._timeouts["comment-ipfs"];
         try {
-            commentRawString = await this._fetchCidP2P(cid, { maxFileSizeBytes: 1024 * 1024, timeoutMs: commentTimeoutMs });
+            commentRawString = await this._fetchCidP2P(cid, {
+                maxFileSizeBytes: 1024 * 1024,
+                timeoutMs: commentTimeoutMs,
+                abortSignal: this._comment._getStopAbortSignal()
+            });
         } catch (e) {
             //@ts-expect-error
             e.details = { ...e.details, commentCid: cid, commentTimeoutMs };
@@ -408,7 +414,8 @@ export class CommentClientsManager extends PublicationClientsManager {
             validateGatewayResponseFunc: async () => {},
             log,
             maxFileSizeBytes: 1024 * 1024,
-            timeoutMs: this._plebbit._timeouts["comment-ipfs"]
+            timeoutMs: this._plebbit._timeouts["comment-ipfs"],
+            abortSignal: this._comment._getStopAbortSignal()
         });
         return res.resText;
     }

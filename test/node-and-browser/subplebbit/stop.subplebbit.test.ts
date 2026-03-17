@@ -5,6 +5,7 @@ import {
     getAvailablePlebbitConfigsToTestAgainst,
     isRpcFlagOn,
     mockRemotePlebbit,
+    mockGatewayPlebbit,
     mockPlebbitNoDataPathWithOnlyKuboClient,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
@@ -125,6 +126,99 @@ describeSkipIfRpc(`subplebbit.stop() aborts verification`, async () => {
             expect(sub.updatedAt).to.be.undefined;
             expect(sub.raw.subplebbitIpfs).to.be.undefined;
             expect(errors).to.have.length(0);
+        } finally {
+            await plebbit.destroy();
+        }
+    });
+});
+
+describeSkipIfRpc(`subplebbit.stop() aborts in-flight gateway fetches`, async () => {
+    it(`subplebbit.stop() aborts gateway fetch of subplebbit IPNS`, async () => {
+        // Use a non-routable IP that will hang forever
+        const plebbit = await mockGatewayPlebbit({
+            plebbitOptions: {
+                ipfsGatewayUrls: ["http://192.0.2.1:1"]
+            }
+        });
+
+        try {
+            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            const errors: Error[] = [];
+            sub.on("error", (error) => errors.push(error as Error));
+
+            await sub.update();
+
+            // Wait until the gateway client is actively fetching
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => sub.clients.ipfsGateways["http://192.0.2.1:1"]?.state === "fetching-ipns"
+            });
+
+            const startMs = Date.now();
+            await sub.stop();
+            const elapsed = Date.now() - startMs;
+
+            expect(sub.state).to.equal("stopped");
+            expect(sub.updatingState).to.equal("stopped");
+            expect(sub.clients.ipfsGateways["http://192.0.2.1:1"].state).to.equal("stopped");
+            expect(elapsed).to.be.lessThan(2000);
+        } finally {
+            await plebbit.destroy();
+        }
+    });
+
+    it(`subplebbit.stop() aborts P2P IPNS resolve via kubo`, async () => {
+        // Use kubo with a non-existent IPNS name that will hang during resolve
+        const plebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
+
+        try {
+            // Use a valid but non-existent IPNS name
+            const sub = await plebbit.createSubplebbit({ address: "12D3KooWHFMSoRMak4VCKwTrURP1Rf2JHNGbAGCqU4jJhAPZjR3j" });
+            const errors: Error[] = [];
+            sub.on("error", (error) => errors.push(error as Error));
+
+            await sub.update();
+
+            const kuboUrl = Object.keys(plebbit.clients.kuboRpcClients)[0];
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => (sub as RemoteSubplebbit).clients.kuboRpcClients[kuboUrl]?.state === "fetching-ipns"
+            });
+
+            const startMs = Date.now();
+            await sub.stop();
+            const elapsed = Date.now() - startMs;
+
+            expect(sub.state).to.equal("stopped");
+            expect(sub.updatingState).to.equal("stopped");
+            expect(elapsed).to.be.lessThan(5000);
+        } finally {
+            await plebbit.destroy();
+        }
+    });
+
+    it(`subplebbit.stop() interrupts the inter-update sleep`, async () => {
+        const plebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
+
+        try {
+            const sub = (await plebbit.createSubplebbit({ address: subplebbitAddress })) as RemoteSubplebbit;
+            await sub.update();
+
+            // Wait for first successful update
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => typeof sub.updatedAt === "number"
+            });
+
+            // Now sub is in the sleep phase between updates
+            const startMs = Date.now();
+            await sub.stop();
+            const elapsed = Date.now() - startMs;
+
+            expect(sub.state).to.equal("stopped");
+            expect(sub.updatingState).to.equal("stopped");
+            // Should not wait for the full updateInterval (which is 1000ms for kubo)
+            expect(elapsed).to.be.lessThan(1000);
         } finally {
             await plebbit.destroy();
         }

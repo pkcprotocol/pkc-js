@@ -3,6 +3,8 @@ import { describe, it, beforeAll, afterAll } from "vitest";
 import {
     describeSkipIfRpc,
     mockRemotePlebbit,
+    mockGatewayPlebbit,
+    mockPlebbitNoDataPathWithOnlyKuboClient,
     publishRandomPost,
     resolveWhenConditionIsTrue,
     getAvailablePlebbitConfigsToTestAgainst,
@@ -248,6 +250,72 @@ describeSkipIfRpc(`comment.stop() aborts verification`, async () => {
             expect(errors).to.have.length(0);
         } finally {
             await Promise.allSettled([reader.destroy(), publisher.destroy()]);
+        }
+    });
+});
+
+describeSkipIfRpc(`comment.stop() aborts in-flight gateway fetches`, async () => {
+    it(`comment.stop() aborts gateway fetch of commentIpfs`, async () => {
+        // Use a non-routable IP that will hang forever
+        const plebbit = await mockGatewayPlebbit({
+            plebbitOptions: {
+                ipfsGatewayUrls: ["http://192.0.2.1:1"]
+            }
+        });
+
+        try {
+            const publisher = await mockRemotePlebbit();
+            const post = await publishRandomPost({ subplebbitAddress, plebbit: publisher });
+            await publisher.destroy();
+
+            const comment = await plebbit.createComment({ cid: post.cid });
+            await comment.update();
+
+            // Wait until the gateway client is actively fetching
+            await resolveWhenConditionIsTrue({
+                toUpdate: comment,
+                predicate: async () => comment.clients.ipfsGateways["http://192.0.2.1:1"]?.state === "fetching-ipfs"
+            });
+
+            const startMs = Date.now();
+            await comment.stop();
+            const elapsed = Date.now() - startMs;
+
+            expect(comment.state).to.equal("stopped");
+            expect(comment.updatingState).to.equal("stopped");
+            expect(comment.clients.ipfsGateways["http://192.0.2.1:1"].state).to.equal("stopped");
+            expect(elapsed).to.be.lessThan(2000);
+        } finally {
+            await plebbit.destroy();
+        }
+    });
+
+    it(`comment.stop() aborts P2P fetch of commentIpfs via kubo`, async () => {
+        // Use kubo with a CID that doesn't exist in the network (will hang during fetch)
+        const plebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
+
+        try {
+            // Use a valid but non-existent CID that kubo will try to find in the network
+            const nonExistentCid = "QmYHNYAaYK5hm3ZhZFx5W9H6xydKDGimjdgJMrMSdnctEn"; // random valid CID
+            const comment = await plebbit.createComment({ cid: nonExistentCid });
+            await comment.update();
+
+            // Wait until kubo is actively fetching
+            const kuboUrl = Object.keys(plebbit.clients.kuboRpcClients)[0];
+            await resolveWhenConditionIsTrue({
+                toUpdate: comment,
+                predicate: async () => comment.clients.kuboRpcClients[kuboUrl]?.state === "fetching-ipfs"
+            });
+
+            const startMs = Date.now();
+            await comment.stop();
+            const elapsed = Date.now() - startMs;
+
+            expect(comment.state).to.equal("stopped");
+            expect(comment.updatingState).to.equal("stopped");
+            expect(elapsed).to.be.lessThan(5000);
+        } finally {
+            await plebbit.destroy();
         }
     });
 });
