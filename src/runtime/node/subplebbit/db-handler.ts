@@ -281,7 +281,7 @@ export class DbHandler {
             CREATE TABLE IF NOT EXISTS ${tableName} (
                 cid TEXT NOT NULL PRIMARY KEY UNIQUE,
                 authorSignerAddress TEXT NOT NULL,
-                author TEXT NOT NULL, -- JSON
+                author TEXT NULLABLE, -- JSON
                 link TEXT NULLABLE,
                 linkWidth INTEGER NULLABLE,
                 linkHeight INTEGER NULLABLE,
@@ -368,11 +368,11 @@ export class DbHandler {
             CREATE TABLE IF NOT EXISTS ${tableName} (
                 commentCid TEXT NOT NULL REFERENCES ${TABLES.COMMENTS}(cid),
                 authorSignerAddress TEXT NOT NULL,
-                author TEXT NOT NULL, -- JSON
+                author TEXT NULLABLE, -- JSON
                 signature TEXT NOT NULL, -- JSON
                 protocolVersion TEXT NOT NULL,
                 subplebbitAddress TEXT NOT NULL,
-                timestamp INTEGER CHECK(timestamp > 0) NOT NULL, 
+                timestamp INTEGER CHECK(timestamp > 0) NOT NULL,
                 content TEXT NULLABLE,
                 reason TEXT NULLABLE,
                 deleted INTEGER NULLABLE, -- BOOLEAN (0/1)
@@ -390,7 +390,7 @@ export class DbHandler {
         this._db.exec(`
             CREATE TABLE IF NOT EXISTS ${tableName} (
                 commentCid TEXT NOT NULL,
-                author TEXT NOT NULL, -- JSON
+                author TEXT NULLABLE, -- JSON
                 signature TEXT NOT NULL, -- JSON
                 modSignerAddress TEXT NOT NULL,
                 protocolVersion TEXT NOT NULL,
