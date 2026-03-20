@@ -1178,7 +1178,12 @@ export async function setExtraPropOnVoteAndSign(vote: Vote, extraProps: Object, 
 
     disableValidationOfSignatureBeforePublishing(vote);
 
-    Object.assign(vote, publicationWithExtraProp);
+    Object.assign(vote, publicationWithExtraProp, {
+        author: buildRuntimeAuthor({
+            author: publicationWithExtraProp.author,
+            signaturePublicKey: publicationWithExtraProp.signature.publicKey
+        })
+    });
 }
 
 export async function setExtraPropOnCommentEditAndSign(
@@ -1200,7 +1205,12 @@ export async function setExtraPropOnCommentEditAndSign(
 
     disableValidationOfSignatureBeforePublishing(commentEdit);
 
-    Object.assign(commentEdit, publicationWithExtraProp);
+    Object.assign(commentEdit, publicationWithExtraProp, {
+        author: buildRuntimeAuthor({
+            author: publicationWithExtraProp.author,
+            signaturePublicKey: publicationWithExtraProp.signature.publicKey
+        })
+    });
 }
 
 export async function setExtraPropOnCommentModerationAndSign(
