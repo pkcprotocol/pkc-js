@@ -185,11 +185,17 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
 
         const getLatestComment = () => subIpfs.posts.pages.hot.comments.find((comment) => comment.commentUpdate.cid === commentWithEnsCid)!;
 
-        const tempPlebbit = await mockRemotePlebbit();
-
-        const originalResolveAuthor = plebbit._clientsManager.resolveAuthorNameIfNeeded;
-        tempPlebbit._clientsManager.resolveAuthorNameIfNeeded = async (authorAddress) =>
-            authorAddress === "plebbit.eth" ? signers[7].address : originalResolveAuthor(authorAddress);
+        const tempPlebbit = await mockRemotePlebbit({
+            mockResolve: false,
+            plebbitOptions: {
+                nameResolvers: [
+                    createMockNameResolver({
+                        records: new Map([["plebbit.eth", signers[7].address]]),
+                        includeDefaultRecords: true
+                    })
+                ]
+            }
+        });
 
         expect(getLatestComment().comment.author.address).to.equal("plebbit.eth");
         expect(

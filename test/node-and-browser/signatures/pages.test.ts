@@ -1,5 +1,5 @@
 import { beforeAll, afterAll } from "vitest";
-import { mockRemotePlebbit, describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
+import { mockRemotePlebbit, describeSkipIfRpc, createMockNameResolver } from "../../../dist/node/test/test-util.js";
 import { verifyPage } from "../../../dist/node/signer/signatures.js";
 import { messages } from "../../../dist/node/errors.js";
 import signers from "../../fixtures/signers.js";
@@ -83,7 +83,7 @@ describeSkipIfRpc(`verify pages`, async () => {
         expect(verification).to.deep.equal({ valid: true });
     });
 
-    it(`verifyPage will validate a page with comment.author.address (domain) that resolves to address different than author's. It will also override the domain with actual address (overrideAuthorAddress=true)`, async () => {
+    it(`verifyPage will return valid when comment.author.address (domain) resolves to address different than the signer's`, async () => {
         // verifyPage would override the incorrect domain
         const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
         const commentWithDomainAddressIndex = invalidPage.comments.findIndex(
@@ -92,32 +92,20 @@ describeSkipIfRpc(`verify pages`, async () => {
         expect(commentWithDomainAddressIndex).to.be.greaterThanOrEqual(0);
         const domainAddress = (invalidPage.comments[commentWithDomainAddressIndex].comment.author as { address: string }).address;
 
-        const tempPlebbit: PlebbitType = await mockRemotePlebbit();
-
-        tempPlebbit._clientsManager.resolveAuthorNameIfNeeded = async (authorAddress) =>
-            authorAddress === domainAddress ? signers[3].address : authorAddress; // Resolve to wrong address intentionally. Correct address would be signers[6].address
+        const tempPlebbit: PlebbitType = await mockRemotePlebbit({
+            mockResolve: false,
+            plebbitOptions: {
+                nameResolvers: [
+                    createMockNameResolver({
+                        records: new Map([[domainAddress, signers[3].address]]), // Resolve to wrong address intentionally. Correct address would be signers[6].address
+                        includeDefaultRecords: true
+                    })
+                ]
+            }
+        });
 
         const verification = await verifyPageJsonAlongWithObject(invalidPage, tempPlebbit, subplebbit, undefined); // comments[commentWithDomainAddressIndex] author address should be modified after
         expect(verification).to.deep.equal({ valid: true });
-        expect((invalidPage.comments[commentWithDomainAddressIndex].comment.author as { address: string }).address).to.equal(domainAddress);
-        await tempPlebbit.destroy();
-    });
-
-    it(`verifyPage will invalidate validate a page with comment.author.address (domain) that resolves to address different than author's (overrideAuthorAddress=false)`, async () => {
-        const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
-        const commentWithDomainAddressIndex = invalidPage.comments.findIndex(
-            (pageComment) => typeof (pageComment.comment.author as { address?: unknown }).address === "string"
-        );
-        expect(commentWithDomainAddressIndex).to.be.greaterThanOrEqual(0);
-        const domainAddress = (invalidPage.comments[commentWithDomainAddressIndex].comment.author as { address: string }).address;
-
-        const tempPlebbit: PlebbitType = await mockRemotePlebbit();
-
-        tempPlebbit._clientsManager.resolveAuthorNameIfNeeded = async (authorAddress) =>
-            authorAddress === domainAddress ? signers[3].address : authorAddress; // Resolve to wrong address intentionally. Correct address would be signers[6].address
-
-        const verification = await verifyPageJsonAlongWithObject(invalidPage, tempPlebbit, subplebbit, undefined); // comments[commentWithDomainAddressIndex] author address should be modified after
-        expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_AUTHOR_NOT_MATCHING_SIGNATURE });
         expect((invalidPage.comments[commentWithDomainAddressIndex].comment.author as { address: string }).address).to.equal(domainAddress);
         await tempPlebbit.destroy();
     });
