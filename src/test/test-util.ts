@@ -1224,7 +1224,12 @@ export async function setExtraPropOnCommentModerationAndSign(
 
     disableValidationOfSignatureBeforePublishing(commentModeration);
 
-    Object.assign(commentModeration, newPubsubPublicationWithExtraProp);
+    Object.assign(commentModeration, newPubsubPublicationWithExtraProp, {
+        author: buildRuntimeAuthor({
+            author: newPubsubPublicationWithExtraProp.author,
+            signaturePublicKey: newPubsubPublicationWithExtraProp.signature.publicKey
+        })
+    });
 }
 export async function setExtraPropOnChallengeRequestAndSign({
     publication,
