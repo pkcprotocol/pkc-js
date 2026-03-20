@@ -150,7 +150,7 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
                 expectedReason: messages.ERR_USER_PUBLISHED_UNDER_PENDING_COMMENT
             });
         });
-        it(`should not be able to publish a CommentEdit under a pending comment`, async () => {
+        it(`should not be able to publish a non-delete CommentEdit under a pending comment`, async () => {
             const edit = await plebbit.createCommentEdit({
                 subplebbitAddress: commentInPendingApproval.subplebbitAddress,
                 commentCid: commentInPendingApproval.cid!,
@@ -319,6 +319,27 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
         it("Should not include pendingApproval in commentIpfs", async () => {
             // @ts-expect-error - pendingApproval is not defined in CommentIpfs
             expect(commentInPendingApproval.raw.comment!.pendingApproval).to.not.exist;
+        });
+
+        it.sequential(`Author should be able to delete own pending comment and it should be purged immediately`, async () => {
+            const deleteEdit = await plebbit.createCommentEdit({
+                subplebbitAddress: commentInPendingApproval.subplebbitAddress,
+                commentCid: commentInPendingApproval.cid!,
+                deleted: true,
+                signer: commentInPendingApproval.signer,
+                challengeRequest: { challengeAnswers: ["pending"] }
+            });
+            await publishWithExpectedResult({
+                publication: deleteEdit,
+                expectedChallengeSuccess: true
+            });
+
+            // Verify the comment has been purged from the mod queue
+            await resolveWhenConditionIsTrue({
+                toUpdate: subplebbit,
+                predicate: async () => !subplebbit.modQueue.pageCids?.pendingApproval
+            });
+            expect(subplebbit.modQueue.pageCids?.pendingApproval).to.be.undefined;
         });
     });
 }

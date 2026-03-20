@@ -925,6 +925,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         strippedOutEditPublication.author = cleanWireAuthor(strippedOutEditPublication.author); // strip runtime-only author fields (address, publicKey, etc.)
         const commentToBeEdited = this._dbHandler.queryComment(commentEditRaw.commentCid); // We assume commentToBeEdited to be defined because we already tested for its existence above
         if (!commentToBeEdited) throw Error("The comment to edit doesn't exist"); // unlikely error to happen, but always a good idea to verify
+
         const editSignedByOriginalAuthor = commentEditRaw.signature.publicKey === commentToBeEdited.signature.publicKey;
 
         const authorSignerAddress = await getPlebbitAddressFromPublicKey(commentEditRaw.signature.publicKey);
@@ -951,6 +952,19 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         }
 
         this._dbHandler.insertCommentEdits([editTableRow]);
+
+        // If author is deleting a pending or disapproved comment, purge it immediately from the database
+        if (commentEditRaw.deleted === true) {
+            const isPending = commentToBeEdited.pendingApproval;
+            const disapprovalResult = this._dbHandler._queryIsCommentApproved(commentToBeEdited);
+            const isDisapproved = disapprovalResult && !disapprovalResult.approved;
+
+            if (isPending || isDisapproved) {
+                log("Author deleted a pending/disapproved comment, purging immediately", commentEditRaw.commentCid);
+                this._dbHandler.purgeComment(commentEditRaw.commentCid);
+                this._subplebbitUpdateTrigger = true;
+            }
+        }
     }
 
     private async storeCommentModeration(
@@ -1688,10 +1702,16 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             if (parent.timestamp > publication.timestamp) return messages.ERR_SUB_COMMENT_TIMESTAMP_IS_EARLIER_THAN_PARENT;
 
             // if user publishes vote/reply/commentEdit under pending comment, it should fail
-            if (parent.pendingApproval && !("commentModeration" in request)) return messages.ERR_USER_PUBLISHED_UNDER_PENDING_COMMENT;
+            if (parent.pendingApproval && !("commentModeration" in request) && !(request.commentEdit?.deleted === true))
+                return messages.ERR_USER_PUBLISHED_UNDER_PENDING_COMMENT;
 
             const isCommentDisapproved = this._dbHandler._queryIsCommentApproved(parent);
-            if (isCommentDisapproved && !isCommentDisapproved.approved && !("commentModeration" in request))
+            if (
+                isCommentDisapproved &&
+                !isCommentDisapproved.approved &&
+                !("commentModeration" in request) &&
+                !(request.commentEdit?.deleted === true)
+            )
                 return messages.ERR_USER_PUBLISHED_UNDER_DISAPPROVED_COMMENT;
         }
 
