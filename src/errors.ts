@@ -171,6 +171,7 @@ export enum messages {
     ERR_SUBPLEBBIT_RECORD_INCLUDES_RESERVED_FIELD = "The SubplebbitIpfs record includes a reserved field",
     ERR_FAILED_TO_RESOLVE_SUBPLEBBIT_DOMAIN = "Failed to resolve the subplebbit domain address to use for verification",
     ERR_FAILED_TO_RESOLVE_AUTHOR_DOMAIN = "Failed to resolve the author domain address to use for verification",
+    ERR_AUTHOR_DOMAIN_RESOLVES_TO_DIFFERENT_SIGNER = "The author domain resolved to a public key that does not match the publication signer",
     ERR_SUBPLEBBIT_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES = "SubplebbitIpfs record includes a field not included in signature.signedPropertyNames",
     ERR_VOTE_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES = "VotePubsubMessagePublication record includes a field that's not included in signature.signedPropertyNames",
     ERR_COMMENT_EDIT_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES = "CommentEditPubsubMessagePublication record includes a field that's not included in signature.signedPropertyNames",
