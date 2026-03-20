@@ -4,21 +4,17 @@ import { messages } from "../../dist/node/errors.js";
 import {
     createMockNameResolver,
     mockRemotePlebbit,
-    mockUpdatingCommentResolvingAuthor,
     publishWithExpectedResult,
     publishRandomPost,
     itSkipIfRpc,
     describeSkipIfRpc,
     mockNameResolvers,
-    resolveWhenConditionIsTrue,
     mockPlebbitV2
 } from "../../dist/node/test/test-util.js";
 import type { Plebbit } from "../../dist/node/plebbit/plebbit.js";
 import type { RemoteSubplebbit } from "../../dist/node/subplebbit/remote-subplebbit.js";
 import type { Comment } from "../../dist/node/publications/comment/comment.js";
 import { NameResolverSchema } from "../../dist/node/schema.js";
-
-const mockComments: Comment[] = [];
 
 describe("Comments with Authors as domains", async () => {
     let plebbit: Plebbit;
@@ -49,7 +45,6 @@ describe("Comments with Authors as domains", async () => {
         expect(mockPost.author.address).to.equal("plebbit.bso");
         // ipnsKeyName is an internal property that may not be in the type definition
         expect((mockPost as Comment & { ipnsKeyName?: string }).ipnsKeyName).to.be.undefined;
-        mockComments.push(mockPost);
     });
 
     itSkipIfRpc(`Subplebbit rejects a comment if author.name resolves to a different address than signer`, async () => {
@@ -79,24 +74,9 @@ describe("Comments with Authors as domains", async () => {
         await publishWithExpectedResult({
             publication: mockPost,
             expectedChallengeSuccess: false,
-            expectedReason: messages.ERR_AUTHOR_NOT_MATCHING_SIGNATURE
+            expectedReason: messages.ERR_AUTHOR_DOMAIN_RESOLVES_TO_DIFFERENT_SIGNER
         });
         expect(mockPost.author.address).to.equal("testgibbreish.bso");
-        await tempPlebbit.destroy();
-    });
-
-    itSkipIfRpc(`comment.update() corrects author.address to derived address in case author.name resolves to another address`, async () => {
-        const tempPlebbit = await mockRemotePlebbit();
-        const comment = await tempPlebbit.createComment({ cid: mockComments[mockComments.length - 1].cid });
-        const originalResolvingFunction = comment._clientsManager.resolveAuthorNameIfNeeded.bind(comment._clientsManager);
-        // verifyComment in comment.update should overwrite author.address to the derived signer address
-        await comment.update();
-        mockUpdatingCommentResolvingAuthor(comment, async (authorAddress: string) =>
-            authorAddress === "plebbit.bso" ? signers[7].address : originalResolvingFunction(authorAddress)
-        );
-        await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => Boolean(comment.author?.address) });
-        await comment.stop();
-        expect(comment.author.address).to.equal(signers[3].address);
         await tempPlebbit.destroy();
     });
 });
@@ -138,7 +118,7 @@ describe(`Vote with authors as domains`, async () => {
         await publishWithExpectedResult({
             publication: vote,
             expectedChallengeSuccess: false,
-            expectedReason: messages.ERR_AUTHOR_NOT_MATCHING_SIGNATURE
+            expectedReason: messages.ERR_AUTHOR_DOMAIN_RESOLVES_TO_DIFFERENT_SIGNER
         });
         expect(vote.author.address).to.equal("testgibbreish.bso");
         await tempPlebbit.destroy();
@@ -266,7 +246,7 @@ describe("Comments with Authors as .bso domains", async () => {
             remotePlebbit: true,
             mockResolve: false,
             plebbitOptions: {
-                nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: { "plebbit.bso": signers[6].address } })]
+                nameResolvers: [createMockNameResolver({ includeDefaultRecords: true })]
             }
         });
     });
@@ -278,7 +258,7 @@ describe("Comments with Authors as .bso domains", async () => {
     itSkipIfRpc(`Sub accepts posts with author.name as .bso domain that resolves to comment signer`, async () => {
         const mockPost = await plebbit.createComment({
             author: { displayName: `Mock Author - ${Date.now()}`, name: "plebbit.bso" },
-            signer: signers[6],
+            signer: signers[3],
             content: `Mock post - ${Date.now()}`,
             title: "Mock post title .bso",
             subplebbitAddress: signers[0].address
@@ -863,7 +843,7 @@ describeSkipIfRpc(`CommentEdit with author as domain`, async () => {
             plebbit: plebbit,
             postProps: {
                 author: { name: "plebbit.bso" },
-                signer: signers[6]
+                signer: signers[3]
             }
         });
     });
@@ -877,7 +857,7 @@ describeSkipIfRpc(`CommentEdit with author as domain`, async () => {
             subplebbitAddress: postToEdit.subplebbitAddress,
             commentCid: postToEdit.cid!,
             content: "edited content via domain author " + Date.now(),
-            signer: signers[6]
+            signer: signers[3]
         });
 
         await publishWithExpectedResult({ publication: commentEdit, expectedChallengeSuccess: true });

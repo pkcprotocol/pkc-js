@@ -35,6 +35,7 @@ Instructions for AI agents working on this codebase. Rules are ranked by priorit
 - Never use `removeAllListeners` — it removes the error listener initialized in the constructor, which may cause the process to crash.
 - `author.address` and `subplebbit.address` are immutable — never override or fall back to a derived address; use `author.nameResolved` to indicate whether a domain resolved correctly.
 - A comment's bytes size during publication is limited to 40kb.
+- An author and a community cannot share the same domain name for now.
 
 ### Debugging
 
