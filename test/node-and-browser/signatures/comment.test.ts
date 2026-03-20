@@ -383,7 +383,7 @@ describeSkipIfRpc("verify Comment", async () => {
 
 // Clients of RPC will trust the response of RPC and won't validate
 describeSkipIfRpc(`Comment with author.name as domain`, async () => {
-    it(`verifyCommentPubsubMessage uses derived signer address if author.name resolves to a different author`, async () => {
+    it(`verifyCommentPubsubMessage returns valid when author.name resolves to a different author (domain mismatch is not a signature failure)`, async () => {
         const tempPlebbit = await mockRemotePlebbit();
         const commentToSign = createCommentToSign({
             subplebbitAddress: signers[0].address,
@@ -395,23 +395,25 @@ describeSkipIfRpc(`Comment with author.name as domain`, async () => {
             ...remeda.omit(commentToSign, ["signer"]),
             signature: await signComment({ comment: commentToSign, plebbit: tempPlebbit })
         } satisfies CommentPubsubMessagePublication;
+        // TODO below should be replaced with mocking nameResolvers in tempPlebbit
         tempPlebbit._clientsManager.resolveAuthorNameIfNeeded = async (authorAddress: string) =>
             authorAddress === "testDomain.eth" ? signers[6].address : authorAddress; // testDomain.eth no longer points to the same author
 
-        const verificaiton = await verifyCommentPubsubMessage({
+        const verification = await verifyCommentPubsubMessage({
             comment: signedPublication,
             resolveAuthorNames: tempPlebbit.resolveAuthorNames,
             clientsManager: tempPlebbit._clientsManager
         });
-        expect(verificaiton).to.deep.equal({ valid: true, derivedAddress: signers[1].address });
+        expect(verification).to.deep.equal({ valid: true });
         expect(signedPublication.author?.name).to.equal("testDomain.eth");
         await tempPlebbit.destroy();
     });
-    it(`Comment with invalid author domain address will be invalidated`, async () => {
+    it(`verifyCommentIpfs returns valid when author domain resolves to different address (nameResolved handles display)`, async () => {
         const comment = remeda.clone(validCommentAuthorAddressDomainFixture) as CommentIpfsType;
         const tempPlebbit = await mockRemotePlebbit();
+        // TODO below should be replaced with mocking nameResolvers in tempPlebbit
         tempPlebbit._clientsManager.resolveAuthorNameIfNeeded = async (authorAddress: string) =>
-            authorAddress === "plebbit.eth" ? signers[7].address : authorAddress; // This would invalidate the fixture author address. Should be corrected
+            authorAddress === "plebbit.eth" ? signers[7].address : authorAddress; // Domain resolves to different signer
 
         const verification = await verifyCommentIpfs({
             comment,
@@ -420,9 +422,9 @@ describeSkipIfRpc(`Comment with author.name as domain`, async () => {
             calculatedCommentCid: "QmTest"
         });
 
-        expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_AUTHOR_NOT_MATCHING_SIGNATURE });
+        expect(verification).to.deep.equal({ valid: true });
 
-        expect(comment.author.address).to.equal("plebbit.eth"); // should remain the same
+        expect(comment.author.address).to.equal("plebbit.eth"); // address is immutable
         await tempPlebbit.destroy();
     });
 });

@@ -1,6 +1,7 @@
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import {
     mockPlebbit,
+    createMockNameResolver,
     createSubWithNoChallenge,
     publishWithExpectedResult,
     publishRandomPost,
@@ -20,7 +21,19 @@ describe("Subplebbit rejects publications with unsupported author TLDs", () => {
     let validPost: CommentIpfsWithCidDefined;
 
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
+        plebbit = await mockPlebbit(
+            {
+                nameResolvers: [
+                    createMockNameResolver({
+                        includeDefaultRecords: true,
+                        canResolve: ({ name }) => /\.(eth|bso)$/i.test(name)
+                    })
+                ]
+            },
+            undefined,
+            undefined,
+            false // mockResolve=false since we're providing our own nameResolvers
+        );
         subplebbit = await createSubWithNoChallenge({}, plebbit);
         await subplebbit.start();
         await resolveWhenConditionIsTrue({

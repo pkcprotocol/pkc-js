@@ -1635,6 +1635,24 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         if (publication.author && remeda.intersection(remeda.keys.strict(publication.author), AuthorReservedFields).length > 0)
             return messages.ERR_PUBLICATION_AUTHOR_HAS_RESERVED_FIELD;
 
+        // Reject publications with author domains that can't be resolved or don't match the signer
+        // TODO do we still need this below?
+        const authorName = getAuthorNameFromWire(publication.author);
+        if (authorName && isStringDomain(authorName) && this._plebbit.resolveAuthorNames) {
+            let resolvedAddress: string | null;
+            try {
+                resolvedAddress = await this._clientsManager.resolveAuthorNameIfNeeded(authorName);
+            } catch (e) {
+                log("Rejecting publication with unresolvable author domain", authorName, e);
+                return messages.ERR_FAILED_TO_RESOLVE_AUTHOR_DOMAIN;
+            }
+            const signerAddress = await getPlebbitAddressFromPublicKey(publication.signature.publicKey);
+            if (resolvedAddress !== signerAddress) {
+                log("Rejecting publication: author domain resolves to different signer", authorName, resolvedAddress, signerAddress);
+                return messages.ERR_FAILED_TO_RESOLVE_AUTHOR_DOMAIN;
+            }
+        }
+
         if ("commentCid" in publication || "parentCid" in publication) {
             // vote or reply or commentEdit or commentModeration
             // not post though

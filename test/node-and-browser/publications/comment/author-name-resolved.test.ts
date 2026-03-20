@@ -5,6 +5,7 @@ import {
     publishRandomPost,
     itSkipIfRpc,
     mockNameResolvers,
+    createMockNameResolver,
     resolveWhenConditionIsTrue,
     mockPlebbitV2,
     getAvailablePlebbitConfigsToTestAgainst,
@@ -262,5 +263,45 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         // === Tests that require non-RPC (mock resolvers or local verification) ===
+
+        itSkipIfRpc("nameResolved is false when reader has no resolver for the author's TLD", async () => {
+            // Create a comment with .xyz TLD using default plebbit (which accepts all TLDs)
+            const xyzComment = await createStaticSubplebbitRecordForComment({
+                plebbit,
+                commentOptions: {
+                    author: { name: "testuser.xyz" },
+                    signer: signers[4]
+                }
+            });
+
+            // Create a reader plebbit with a restricted resolver (only .eth/.bso)
+            const readerPlebbit = await mockPlebbitV2({
+                stubStorage: false,
+                remotePlebbit: true,
+                mockResolve: false,
+                plebbitOptions: {
+                    nameResolvers: [
+                        createMockNameResolver({
+                            includeDefaultRecords: true,
+                            canResolve: ({ name }) => /\.(eth|bso)$/i.test(name)
+                        })
+                    ]
+                }
+            });
+
+            const comment = await readerPlebbit.createComment({ cid: xyzComment.commentCid });
+            await comment.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: comment,
+                predicate: async () => Boolean(comment.content)
+            });
+            await comment.stop();
+
+            // Comment should load successfully with nameResolved=false, not throw
+            expect(comment.author.nameResolved).to.equal(false);
+            expect(comment.author.address).to.equal("testuser.xyz");
+
+            await readerPlebbit.destroy();
+        });
     });
 });

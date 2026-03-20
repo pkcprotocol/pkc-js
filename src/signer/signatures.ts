@@ -375,23 +375,25 @@ export async function signChallengeVerification({
     });
 }
 
-type VerifyAuthorRes = { useDerivedAddress: false; reason?: string } | { useDerivedAddress: true; derivedAddress: string; reason: string };
-
 // Verify functions
+
+// Resolves author domain and updates nameResolvedCache as a side effect.
+// Domain failures return { valid: true } — domain resolution is a display concern (nameResolved), not a signature concern.
+// B58 failures return { valid: false } — these are data integrity issues.
+// TODO refactor this func to use a single arg {} with all options
 const _verifyAuthorDomainResolvesToSignatureAddress = async (
     publicationJson: PublicationFromDecryptedChallengeRequest,
     resolveAuthorNames: boolean,
     clientsManager: BaseClientsManager,
     abortSignal?: AbortSignal
-): Promise<VerifyAuthorRes> => {
+): Promise<ValidationResult> => {
     const log = Logger("plebbit-js:signatures:verifyAuthor");
-    const derivedAddress = await getPlebbitAddressFromPublicKey(publicationJson.signature.publicKey);
     const authorName = getAuthorNameFromWire(publicationJson.author);
 
-    if (!authorName) return { useDerivedAddress: false };
+    if (!authorName) return { valid: true };
 
     if (authorName.includes(".")) {
-        if (!resolveAuthorNames) return { useDerivedAddress: false };
+        if (!resolveAuthorNames) return { valid: true };
         const nameResolvedCacheKey = sha256(authorName + publicationJson.signature.publicKey);
         let resolvedAuthorAddress: string | null;
         try {
@@ -399,34 +401,34 @@ const _verifyAuthorDomainResolvesToSignatureAddress = async (
         } catch (e) {
             if (isAbortError(e)) throw e;
             log.error("Failed to resolve author address to verify author", e);
-            return { useDerivedAddress: true, derivedAddress, reason: messages.ERR_FAILED_TO_RESOLVE_AUTHOR_DOMAIN };
+            // TODO why are setting it to false when it could've failed due to timeout or something random?
+            // if we set it to false that means it won't be retried right?
+            clientsManager._plebbit._memCaches.nameResolvedCache.set(nameResolvedCacheKey, false);
+            return { valid: true };
         }
-        if (resolvedAuthorAddress !== derivedAddress) {
-            // Means bitsocial text record is resolving to another address (outdated?)
-            // Will always use address derived from publication.signature.publicKey as truth
+        const signerAddress = await getPlebbitAddressFromPublicKey(publicationJson.signature.publicKey);
+        if (resolvedAuthorAddress !== signerAddress) {
             log.error(
-                `author address (${authorName}) resolved address (${resolvedAuthorAddress}) does not match signature address (${derivedAddress}). `
+                `author address (${authorName}) resolved address (${resolvedAuthorAddress}) does not match signature address (${signerAddress}). `
             );
             clientsManager._plebbit._memCaches.nameResolvedCache.set(nameResolvedCacheKey, false);
-            return { useDerivedAddress: true, derivedAddress, reason: messages.ERR_AUTHOR_NOT_MATCHING_SIGNATURE };
+            return { valid: true };
         } else clientsManager._plebbit._memCaches.nameResolvedCache.set(nameResolvedCacheKey, true);
     } else {
         let authorPeerId: PeerId, signaturePeerId: PeerId;
         try {
             authorPeerId = PeerId.createFromB58String(authorName);
         } catch {
-            return { useDerivedAddress: true, reason: messages.ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58, derivedAddress };
+            return { valid: false, reason: messages.ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58 };
         }
         try {
             signaturePeerId = await getPeerIdFromPublicKey(publicationJson.signature.publicKey);
         } catch {
-            return { useDerivedAddress: false, reason: messages.ERR_SIGNATURE_PUBLIC_KEY_IS_NOT_B58 };
+            return { valid: false, reason: messages.ERR_SIGNATURE_PUBLIC_KEY_IS_NOT_B58 };
         }
-        if (!signaturePeerId.equals(authorPeerId))
-            return { useDerivedAddress: true, reason: messages.ERR_AUTHOR_NOT_MATCHING_SIGNATURE, derivedAddress };
+        if (!signaturePeerId.equals(authorPeerId)) return { valid: false, reason: messages.ERR_AUTHOR_NOT_MATCHING_SIGNATURE };
     }
-    // Author
-    return { useDerivedAddress: false };
+    return { valid: true };
 };
 
 // DO NOT MODIFY THIS FUNCTION, OTHERWISE YOU RISK BREAKING BACKWARD COMPATIBILITY
@@ -466,23 +468,21 @@ const _verifyPubsubSignature = async (msg: PubsubMessage): Promise<boolean> => {
     }
 };
 
+// TODO refactor this func to use a single arg {} with all options
 const _verifyPublicationSignatureAndAuthor = async (
     publicationJson: PublicationFromDecryptedChallengeRequest,
     resolveAuthorNames: boolean,
     clientsManager: BaseClientsManager,
     abortSignal?: AbortSignal
 ): Promise<ValidationResult> => {
-    // Validate author
-    const log = Logger("plebbit-js:signatures:verifyPublicationWithAUthor");
-    const authorSignatureValidity = await _verifyAuthorDomainResolvesToSignatureAddress(
+    // Validate author (also sets nameResolvedCache as side effect)
+    const authorValidity = await _verifyAuthorDomainResolvesToSignatureAddress(
         publicationJson,
         resolveAuthorNames,
         clientsManager,
         abortSignal
     );
-
-    if (authorSignatureValidity.useDerivedAddress)
-        log.trace(`Publication author identity claim did not resolve to the signer address`, publicationJson);
+    if (!authorValidity.valid) return authorValidity;
 
     // Validate signature
     const signatureValidity = await _verifyJsonSignature(publicationJson);
