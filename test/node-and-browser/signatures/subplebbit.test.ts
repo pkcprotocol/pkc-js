@@ -204,8 +204,8 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
             valid: true
         });
 
-        // The author.address should be overridden here
-        expect(getLatestComment().comment.author.address).to.equal(signers[6].address);
+        // author.address is immutable — it stays as the domain even when resolution fails
+        expect(getLatestComment().comment.author.address).to.equal("plebbit.eth");
         await tempPlebbit.destroy();
     });
 
