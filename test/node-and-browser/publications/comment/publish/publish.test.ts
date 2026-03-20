@@ -225,14 +225,14 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const comment1 = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             const commentToPublish = await plebbit.createComment(comment1);
             await publishWithExpectedResult({ publication: commentToPublish, expectedChallengeSuccess: true });
-            expect(commentToPublish.toJSONPubsubMessagePublication()).to.deep.equal(comment1.toJSONPubsubMessagePublication());
+            expect(commentToPublish.raw.pubsubMessageToPublish!).to.deep.equal(comment1.raw.pubsubMessageToPublish!);
         });
 
         it(`Can publish a post that was created from jsonfied comment instance`, async () => {
             const comment1 = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
             const commentToPublish = await plebbit.createComment(JSON.parse(JSON.stringify(comment1)));
             await publishWithExpectedResult({ publication: commentToPublish, expectedChallengeSuccess: true });
-            expect(commentToPublish.toJSONPubsubMessagePublication()).to.deep.equal(comment1.toJSONPubsubMessagePublication());
+            expect(commentToPublish.raw.pubsubMessageToPublish!).to.deep.equal(comment1.raw.pubsubMessageToPublish!);
             expect(commentToPublish.toJSONPubsubRequestToEncrypt()).to.deep.equal(comment1.toJSONPubsubRequestToEncrypt());
         });
 

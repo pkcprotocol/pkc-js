@@ -435,7 +435,7 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
             content: "Edited content",
             signer: originalCommentSigner
         });
-        const editPublication = editInstance.toJSONPubsubMessagePublication();
+        const editPublication = editInstance.raw.pubsubMessageToPublish!;
 
         const { challengeVerifications, dispose } = captureChallengeVerifications();
 
@@ -479,7 +479,7 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
             commentModeration: { removed: true },
             signer: modSigner
         });
-        const moderationPublication = moderationInstance.toJSONPubsubMessagePublication();
+        const moderationPublication = moderationInstance.raw.pubsubMessageToPublish!;
 
         const { challengeVerifications, dispose } = captureChallengeVerifications();
 
@@ -522,7 +522,7 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
             vote: 1,
             signer
         });
-        const votePublication = voteInstance.toJSONPubsubMessagePublication();
+        const votePublication = voteInstance.raw.pubsubMessageToPublish!;
 
         const { challengeVerifications, dispose } = captureChallengeVerifications();
 
@@ -558,7 +558,7 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
             subplebbitEdit: { description: "Updated description" },
             signer
         });
-        const editPublication = editInstance.toJSONPubsubMessagePublication();
+        const editPublication = editInstance.raw.pubsubMessageToPublish!;
 
         const { challengeVerifications, dispose } = captureChallengeVerifications();
 
@@ -591,7 +591,7 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
     }> {
         const signer = await plebbit.createSigner();
         const commentInstance = await generateMockPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit, postProps: { signer } });
-        const publication = commentInstance.toJSONPubsubMessagePublication();
+        const publication = commentInstance.raw.pubsubMessageToPublish!;
         return { signer, publication, instance: commentInstance as unknown as Publication };
     }
 });

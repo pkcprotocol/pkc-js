@@ -50,9 +50,9 @@ describe.sequential("Validate props of subplebbit Pubsub messages", async () => 
         await comment.publish();
         const request = await challengeRequestPromise;
         // request.comment has runtime author fields (address, publicKey) added by _buildRuntimeChallengeRequest,
-        // while toJSONPubsubMessagePublication() returns wire-only data without those fields
+        // while raw.pubsubMessageToPublish returns wire-only data without those fields
         const requestCommentWire = { ...request.comment, author: omitRuntimeAuthorFields(request.comment!.author) };
-        expect(deterministicStringify(requestCommentWire)).to.equal(deterministicStringify(comment.toJSONPubsubMessagePublication()));
+        expect(deterministicStringify(requestCommentWire)).to.equal(deterministicStringify(comment.raw.pubsubMessageToPublish!));
         expect(request.challengeRequestId.constructor.name).to.equal("Uint8Array");
         expect(request.challengeRequestId.length).to.equal(38);
         expect(request.type).to.equal("CHALLENGEREQUEST");

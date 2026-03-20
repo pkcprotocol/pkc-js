@@ -40,17 +40,12 @@ export class CommentModeration extends Publication implements CommentModerationP
         this.raw.pubsubMessageToPublish = pubsubMsgPub;
     }
 
-    override toJSONPubsubMessagePublication(): CommentModerationPubsubMessagePublication {
-        if (!this.raw.pubsubMessageToPublish) throw Error("Need to define local CommentModerationPubsubMessage first");
-        return this.raw.pubsubMessageToPublish;
-    }
-
     override getType(): PublicationTypeName {
         return "commentModeration";
     }
 
     private async _validateSignature() {
-        const editObj = JSON.parse(JSON.stringify(this.toJSONPubsubMessagePublication()));
+        const editObj = JSON.parse(JSON.stringify(this.raw.pubsubMessageToPublish!));
         const signatureValidity = await verifyCommentModeration({
             moderation: editObj,
             resolveAuthorNames: this._plebbit.resolveAuthorNames,

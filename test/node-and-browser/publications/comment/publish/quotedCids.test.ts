@@ -51,7 +51,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 });
                 // Verify quotedCids is set on the Comment instance
                 expect(reply.quotedCids).to.deep.equal(quotedCids);
-                expect(reply.toJSONPubsubMessagePublication().quotedCids).to.deep.equal(quotedCids);
+                expect(reply.raw.pubsubMessageToPublish!.quotedCids).to.deep.equal(quotedCids);
                 await publishWithExpectedResult({ publication: reply, expectedChallengeSuccess: true });
                 // Verify quotedCids exists in CommentIpfs after publishing
                 expect(reply.raw.comment?.quotedCids).to.deep.equal(quotedCids);
@@ -67,7 +67,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     quotedCids
                 });
                 expect(reply.quotedCids).to.deep.equal(quotedCids);
-                expect(reply.toJSONPubsubMessagePublication().quotedCids).to.deep.equal(quotedCids);
+                expect(reply.raw.pubsubMessageToPublish!.quotedCids).to.deep.equal(quotedCids);
                 await publishWithExpectedResult({ publication: reply, expectedChallengeSuccess: true });
                 // Verify quotedCids exists in CommentIpfs after publishing
                 expect(reply.raw.comment?.quotedCids).to.deep.equal(quotedCids);
@@ -96,7 +96,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     signer: signers[4]
                 });
                 expect(reply.quotedCids).to.be.undefined;
-                expect(reply.toJSONPubsubMessagePublication().quotedCids).to.be.undefined;
+                expect(reply.raw.pubsubMessageToPublish!.quotedCids).to.be.undefined;
                 await publishWithExpectedResult({ publication: reply, expectedChallengeSuccess: true });
                 // Verify quotedCids is undefined in CommentIpfs after publishing
                 expect(reply.raw.comment?.quotedCids).to.be.undefined;

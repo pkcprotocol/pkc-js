@@ -107,7 +107,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects incoming signed wire autho
     async function injectSignedAuthorAddressIntoSubplebbitEdit(subplebbitEdit: SubplebbitEdit, authorAddress: string) {
         if (!subplebbitEdit.signer) throw Error("Expected subplebbitEdit.signer to be defined");
 
-        const publication = subplebbitEdit.toJSONPubsubMessagePublication();
+        const publication = subplebbitEdit.raw.pubsubMessageToPublish!;
         const modifiedPublication = {
             ...publication,
             author: { ...(publication.author || {}), address: authorAddress }

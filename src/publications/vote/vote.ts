@@ -42,17 +42,12 @@ class Vote extends Publication implements VotePubsubMessagePublication {
         this.raw.pubsubMessageToPublish = props;
     }
 
-    override toJSONPubsubMessagePublication(): VotePubsubMessagePublication {
-        if (!this.raw.pubsubMessageToPublish) throw Error("Should define local props before calling toJSONPubsubMessagePublication");
-        return this.raw.pubsubMessageToPublish;
-    }
-
     override getType(): PublicationTypeName {
         return "vote";
     }
 
     private async _validateSignature() {
-        const voteObj = JSON.parse(JSON.stringify(this.toJSONPubsubMessagePublication())); // Stringified here to simulate a message sent through IPNS/PUBSUB
+        const voteObj = JSON.parse(JSON.stringify(this.raw.pubsubMessageToPublish!)); // Stringified here to simulate a message sent through IPNS/PUBSUB
         const signatureValidity = await verifyVote({
             vote: voteObj,
             resolveAuthorNames: this._plebbit.resolveAuthorNames,

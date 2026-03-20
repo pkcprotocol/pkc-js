@@ -39,17 +39,12 @@ class SubplebbitEdit extends Publication implements SubplebbitEditPubsubMessageP
         this.raw.pubsubMessageToPublish = props;
     }
 
-    override toJSONPubsubMessagePublication(): SubplebbitEditPubsubMessagePublication {
-        if (!this.raw.pubsubMessageToPublish) throw Error("Should define local props before calling toJSONPubsubMessagePublication");
-        return this.raw.pubsubMessageToPublish;
-    }
-
     override getType(): PublicationTypeName {
         return "subplebbitEdit";
     }
 
     private async _validateSignature() {
-        const subplebbitEditObj = JSON.parse(JSON.stringify(this.toJSONPubsubMessagePublication())); // Stringified here to simulate a message sent through IPNS/PUBSUB
+        const subplebbitEditObj = JSON.parse(JSON.stringify(this.raw.pubsubMessageToPublish!)); // Stringified here to simulate a message sent through IPNS/PUBSUB
         const signatureValidity = await verifySubplebbitEdit({
             subplebbitEdit: subplebbitEditObj,
             resolveAuthorNames: this._plebbit.resolveAuthorNames,

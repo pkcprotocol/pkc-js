@@ -1109,7 +1109,7 @@ export async function disableValidationOfSignatureBeforePublishing(publication: 
 
 export async function overrideCommentInstancePropsAndSign(comment: Comment, props: CreateCommentOptions) {
     if (!comment.signer) throw Error("Need comment.signer to overwrite the signature");
-    const pubsubPublication = remeda.clone(comment.toJSONPubsubMessagePublication());
+    const pubsubPublication = remeda.clone(comment.raw.pubsubMessageToPublish!);
 
     for (const optionKey of remeda.keys.strict(props)) {
         //@ts-expect-error
@@ -1132,7 +1132,7 @@ export async function overrideCommentEditInstancePropsAndSign(commentEdit: Comme
     for (const optionKey of Object.keys(props)) commentEdit[optionKey] = props[optionKey];
 
     commentEdit.signature = await signCommentEdit({
-        edit: removeUndefinedValuesRecursively({ ...commentEdit.toJSONPubsubMessagePublication(), signer: commentEdit.signer }),
+        edit: removeUndefinedValuesRecursively({ ...commentEdit.raw.pubsubMessageToPublish!, signer: commentEdit.signer }),
         plebbit: commentEdit._plebbit
     });
 
@@ -1142,7 +1142,7 @@ export async function overrideCommentEditInstancePropsAndSign(commentEdit: Comme
 export async function setExtraPropOnCommentAndSign(comment: Comment, extraProps: Object, includeExtraPropInSignedPropertyNames: boolean) {
     const log = Logger("plebbit-js:test-util:setExtraPropOnVoteAndSign");
 
-    const publicationWithExtraProp = { ...comment.toJSONPubsubMessagePublication(), ...extraProps };
+    const publicationWithExtraProp = { ...comment.raw.pubsubMessageToPublish!, ...extraProps };
     if (includeExtraPropInSignedPropertyNames)
         publicationWithExtraProp.signature = await _signJson(
             [...comment.signature.signedPropertyNames, ...remeda.keys.strict(extraProps)],
@@ -1166,7 +1166,7 @@ export async function setExtraPropOnCommentAndSign(comment: Comment, extraProps:
 export async function setExtraPropOnVoteAndSign(vote: Vote, extraProps: Object, includeExtraPropInSignedPropertyNames: boolean) {
     const log = Logger("plebbit-js:test-util:setExtraPropOnVoteAndSign");
 
-    const publicationWithExtraProp = { ...vote.toJSONPubsubMessagePublication(), ...extraProps };
+    const publicationWithExtraProp = { ...vote.raw.pubsubMessageToPublish!, ...extraProps };
     if (includeExtraPropInSignedPropertyNames)
         publicationWithExtraProp.signature = await _signJson(
             [...vote.signature.signedPropertyNames, ...Object.keys(extraProps)],
@@ -1188,7 +1188,7 @@ export async function setExtraPropOnCommentEditAndSign(
 ) {
     const log = Logger("plebbit-js:test-util:setExtraPropOnCommentEditAndSign");
 
-    const publicationWithExtraProp = { ...commentEdit.toJSONPubsubMessagePublication(), ...extraProps };
+    const publicationWithExtraProp = { ...commentEdit.raw.pubsubMessageToPublish!, ...extraProps };
     if (includeExtraPropInSignedPropertyNames)
         publicationWithExtraProp.signature = await _signJson(
             [...commentEdit.signature.signedPropertyNames, ...Object.keys(extraProps)],
@@ -1211,7 +1211,7 @@ export async function setExtraPropOnCommentModerationAndSign(
     const log = Logger("plebbit-js:test-util:setExtraPropOnCommentModerationAndSign");
 
     const newPubsubPublicationWithExtraProp = <CommentModerationPubsubMessagePublication>(
-        remeda.mergeDeep(commentModeration.toJSONPubsubMessagePublication(), extraProps)
+        remeda.mergeDeep(commentModeration.raw.pubsubMessageToPublish!, extraProps)
     );
     if (includeExtraPropInSignedPropertyNames)
         newPubsubPublicationWithExtraProp.signature = await _signJson(

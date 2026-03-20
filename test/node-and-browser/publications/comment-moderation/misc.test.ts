@@ -105,9 +105,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({ publication: modFromStringifiedMod, expectedChallengeSuccess: true });
             const challengerequest = await challengeRequestPromise;
 
-            expect(challengerequest.commentModeration).to.deep.equal(commentMod.toJSONPubsubMessagePublication());
+            expect(challengerequest.commentModeration).to.deep.equal(commentMod.raw.pubsubMessageToPublish!);
 
-            expect(commentMod.toJSONPubsubMessagePublication()).to.deep.equal(modFromStringifiedMod.toJSONPubsubMessagePublication());
+            expect(commentMod.raw.pubsubMessageToPublish!).to.deep.equal(modFromStringifiedMod.raw.pubsubMessageToPublish!);
             expect(commentMod.toJSONPubsubRequestToEncrypt()).to.deep.equal(modFromStringifiedMod.toJSONPubsubRequestToEncrypt());
         });
     });

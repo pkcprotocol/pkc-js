@@ -1406,7 +1406,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-author"', () => {
                     title: `duplicate-per-author-title-${Date.now()}`,
                     content: `duplicate-per-author-content-${Date.now()}`
                 });
-                const originalPublication = clonePublication(originalPost.toJSONPubsubMessagePublication());
+                const originalPublication = clonePublication(originalPost.raw.pubsubMessageToPublish!);
 
                 await publishWithExpectedResult({ publication: originalPost, expectedChallengeSuccess: true });
                 await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, originalPost);
@@ -1443,7 +1443,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-author"', () => {
                     postCid: parentPost.cid,
                     content: `duplicate-per-author-reply-${Date.now()}`
                 });
-                const originalReplyPublication = clonePublication(originalReply.toJSONPubsubMessagePublication());
+                const originalReplyPublication = clonePublication(originalReply.raw.pubsubMessageToPublish!);
 
                 await publishWithExpectedResult({ publication: originalReply, expectedChallengeSuccess: true });
                 await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, originalReply);

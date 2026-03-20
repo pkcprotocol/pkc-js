@@ -518,11 +518,6 @@ export class Comment
         return this.raw.comment;
     }
 
-    override toJSONPubsubMessagePublication(): CommentPubsubMessagePublication {
-        if (!this.raw.pubsubMessageToPublish) throw Error("comment.raw.pubsubMessageToPublish should be defined before calling ");
-        return this.raw.pubsubMessageToPublish;
-    }
-
     setCid(newCid: string) {
         this.cid = newCid;
         this.shortCid = shortifyCid(this.cid);
@@ -1100,7 +1095,7 @@ export class Comment
 
     private async _validateSignature() {
         const stopAbortController = this._createStopAbortController();
-        const commentObj = JSON.parse(JSON.stringify(this.toJSONPubsubMessagePublication())); // Stringify so it resembles messages from pubsub
+        const commentObj = JSON.parse(JSON.stringify(this.raw.pubsubMessageToPublish!)); // Stringify so it resembles messages from pubsub
         try {
             const signatureValidity = await verifyCommentPubsubMessage({
                 comment: commentObj,

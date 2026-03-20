@@ -103,8 +103,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({ publication: editFromStringifiedEdit, expectedChallengeSuccess: true });
             const challengerequest = await challengeRequestPromise;
 
-            expect(challengerequest.commentEdit).to.deep.equal(edit.toJSONPubsubMessagePublication());
-            expect(edit.toJSONPubsubMessagePublication()).to.deep.equal(editFromStringifiedEdit.toJSONPubsubMessagePublication());
+            expect(challengerequest.commentEdit).to.deep.equal(edit.raw.pubsubMessageToPublish!);
+            expect(edit.raw.pubsubMessageToPublish!).to.deep.equal(editFromStringifiedEdit.raw.pubsubMessageToPublish!);
             expect(edit.toJSONPubsubRequestToEncrypt()).to.deep.equal(editFromStringifiedEdit.toJSONPubsubRequestToEncrypt());
         });
     });

@@ -51,17 +51,12 @@ export class CommentEdit extends Publication implements CommentEditPubsubMessage
         this.nsfw = props.nsfw;
     }
 
-    override toJSONPubsubMessagePublication(): CommentEditPubsubMessagePublication {
-        if (!this.raw.pubsubMessageToPublish) throw Error("Need to define local CommentEditPubsubMessage first");
-        return this.raw.pubsubMessageToPublish;
-    }
-
     override getType(): PublicationTypeName {
         return "commentEdit";
     }
 
     private async _validateSignature() {
-        const editObj = JSON.parse(JSON.stringify(this.toJSONPubsubMessagePublication()));
+        const editObj = JSON.parse(JSON.stringify(this.raw.pubsubMessageToPublish!));
         const signatureValidity = await verifyCommentEdit({
             edit: editObj,
             resolveAuthorNames: this._plebbit.resolveAuthorNames,

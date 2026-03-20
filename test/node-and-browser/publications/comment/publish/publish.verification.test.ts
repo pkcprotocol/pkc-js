@@ -36,9 +36,9 @@ describe.sequential(`Client side verification`, async () => {
             plebbit: plebbit,
             postProps: { signer: signers[0] }
         });
-        const pubsubPublication = JSON.parse(JSON.stringify(mockComment.toJSONPubsubMessagePublication()));
+        const pubsubPublication = JSON.parse(JSON.stringify(mockComment.raw.pubsubMessageToPublish!));
         pubsubPublication.timestamp += 1; // corrupts signature
-        mockComment.toJSONPubsubMessagePublication = () => pubsubPublication;
+        mockComment.raw.pubsubMessageToPublish = pubsubPublication;
 
         try {
             await mockComment.publish();
@@ -112,7 +112,7 @@ describe.concurrent("Subplebbit rejection of incorrect values of fields", async 
 
     it("Throws an error when publishing a duplicate post", async function () {
         const newPost = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
-        newPost.toJSONPubsubMessagePublication = () => post.toJSONPubsubMessagePublication();
+        newPost.raw.pubsubMessageToPublish = post.raw.pubsubMessageToPublish!;
         await publishWithExpectedResult({
             publication: newPost,
             expectedChallengeSuccess: false,

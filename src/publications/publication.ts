@@ -164,14 +164,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
         throw new Error(`Should be implemented by children of Publication`);
     }
 
-    // This is the publication that user publishes over pubsub
-    toJSONPubsubMessagePublication(): PublicationFromDecryptedChallengeRequest {
-        throw Error("Should be overridden");
-    }
-
     toJSONPubsubRequestToEncrypt(): DecryptedChallengeRequest {
+        if (!this.raw.pubsubMessageToPublish)
+            throw Error("raw.pubsubMessageToPublish must be defined before calling toJSONPubsubRequestToEncrypt");
         return {
-            [this.getType()]: this.toJSONPubsubMessagePublication(),
+            [this.getType()]: this.raw.pubsubMessageToPublish,
             ...this.challengeRequest
         };
     }

@@ -91,7 +91,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
             );
             await comment.publish();
             const request = await requestPromise;
-            expect(deterministicStringify(request.comment)).to.equal(deterministicStringify(comment.toJSONPubsubMessagePublication()));
+            expect(deterministicStringify(request.comment)).to.equal(deterministicStringify(comment.raw.pubsubMessageToPublish!));
             expect(request.challengeRequestId.constructor.name).to.equal("Uint8Array");
             expect(request.challengeRequestId.length).to.equal(38);
             expect(request.type).to.equal("CHALLENGEREQUEST");
