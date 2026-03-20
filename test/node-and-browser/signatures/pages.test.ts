@@ -207,7 +207,7 @@ describeSkipIfRpc(`verify pages`, async () => {
             (invalidPage.comments[0].comment.author as { address: string }).address =
                 "12D3KooWJJcSwMHrFvsFL7YCNDLD93kBczEfkHpPNdxcjZwR2X2Y"; // Random address
             const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
-            expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_AUTHOR_NOT_MATCHING_SIGNATURE });
+            expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
         it(`comment.author.previousCommentCid`, async () => {
             const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
