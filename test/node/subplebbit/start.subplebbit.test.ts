@@ -463,7 +463,7 @@ describe(`Publish loop resiliency`, async () => {
     it(`Subplebbit can publish a new IPNS record with one of its comments having a valid ENS author address`, async () => {
         const mockPost = await plebbit.createComment({
             author: { address: "plebbit.bso" },
-            signer: signers[6],
+            signer: signers[3],
             content: `Mock post - ${Date.now()}`,
             title: "Mock post title " + Date.now(),
             subplebbitAddress: subplebbit.address
@@ -546,13 +546,12 @@ describe(`Publish loop resiliency`, async () => {
         for (const resolveAuthorNames of [true, false]) {
             const remotePlebbitInstance = await mockPlebbitNoDataPathWithOnlyKuboClient({
                 plebbitOptions: { resolveAuthorNames, validatePages: true }
-            }); // we need to enable validatePages so subplebbit.posts can be validated and override author.address
+            });
             const loadedSub = await remotePlebbitInstance.getSubplebbit({ address: subplebbit.address });
             const mockPostInPage = loadedSub.posts!.pages.hot!.comments.find((comment) => comment.cid === mockPost.cid);
-            // if we're resolving author address, plebbit-js should pick up that it's pointing to the wrong signer address
-            // once it does that plebbit-js override author.address to point to signer.address
-            if (resolveAuthorNames) expect(mockPostInPage!.author.address).to.equal(mockPost.signer!.address);
-            else expect(mockPostInPage!.author.address).to.equal("plebbit.bso");
+            // author.address is immutable (always name || publicKey), use nameResolved to indicate domain verification status
+            expect(mockPostInPage!.author.address).to.equal("plebbit.bso");
+            if (resolveAuthorNames) expect(mockPostInPage!.author.nameResolved).to.equal(false);
         }
     });
 });

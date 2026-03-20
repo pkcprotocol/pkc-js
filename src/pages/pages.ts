@@ -13,6 +13,8 @@ import { Comment } from "../publications/comment/comment.js";
 import { RemoteSubplebbit } from "../subplebbit/remote-subplebbit.js";
 import { Plebbit } from "../plebbit/plebbit.js";
 import { parsePageCidParams } from "./schema-util.js";
+import { getAuthorDomainFromRuntime } from "../publications/publication-author.js";
+import { sha256 } from "js-sha256";
 
 type BaseProps = {
     subplebbit: Pick<RemoteSubplebbit, "address" | "signature"> & {
@@ -51,9 +53,23 @@ export class BasePages {
             this._clientsManager.updatePageCidsToSortTypes(this.pageCids);
             this._clientsManager.updatePagesMaxSizeCache(Object.values(this.pageCids), 1024 * 1024);
         }
-        if (this.pages)
-            for (const preloadedPage of Object.values(this.pages))
+        if (this.pages) {
+            for (const preloadedPage of Object.values(this.pages)) {
                 if (preloadedPage?.nextCid) this._clientsManager.updatePagesMaxSizeCache([preloadedPage.nextCid], 1024 * 1024);
+                if (preloadedPage) this._applyNameResolvedCacheToPage(preloadedPage);
+            }
+        }
+    }
+
+    private _applyNameResolvedCacheToPage(page: PageTypeJson | ModQueuePageTypeJson) {
+        const cache = this._clientsManager._plebbit._memCaches.nameResolvedCache;
+        for (const comment of page.comments) {
+            const domain = getAuthorDomainFromRuntime(comment.author);
+            if (!domain) continue;
+            const cacheKey = sha256(domain + comment.signature.publicKey);
+            const cached = cache.get(cacheKey);
+            if (typeof cached === "boolean") comment.author.nameResolved = cached;
+        }
     }
 
     protected _initClientsManager(plebbit: Plebbit) {
@@ -87,7 +103,9 @@ export class BasePages {
         const parsedArgs = parsePageCidParams(pageCid);
 
         const pageIpfs = await this._fetchAndVerifyPage({ pageCid: parsedArgs.cid });
-        return this._parseRawPageIpfs(pageIpfs);
+        const parsed = this._parseRawPageIpfs(pageIpfs);
+        this._applyNameResolvedCacheToPage(parsed);
+        return parsed;
     }
 
     // method below will be present in both subplebbit.posts and comment.replies

@@ -5,6 +5,7 @@ import {
     resolveWhenConditionIsTrue
 } from "../../../../dist/node/test/test-util.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
+import { omitRuntimeAuthorFields } from "../../../../dist/node/publications/publication-author.js";
 import { describe, beforeAll, afterAll, it } from "vitest";
 import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
 import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/subplebbit/local-subplebbit.js";
@@ -48,7 +49,10 @@ describe.sequential("Validate props of subplebbit Pubsub messages", async () => 
         );
         await comment.publish();
         const request = await challengeRequestPromise;
-        expect(deterministicStringify(request.comment)).to.equal(deterministicStringify(comment.toJSONPubsubMessagePublication()));
+        // request.comment has runtime author fields (address, publicKey) added by _buildRuntimeChallengeRequest,
+        // while toJSONPubsubMessagePublication() returns wire-only data without those fields
+        const requestCommentWire = { ...request.comment, author: omitRuntimeAuthorFields(request.comment!.author) };
+        expect(deterministicStringify(requestCommentWire)).to.equal(deterministicStringify(comment.toJSONPubsubMessagePublication()));
         expect(request.challengeRequestId.constructor.name).to.equal("Uint8Array");
         expect(request.challengeRequestId.length).to.equal(38);
         expect(request.type).to.equal("CHALLENGEREQUEST");

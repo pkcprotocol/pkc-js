@@ -3189,6 +3189,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             await this._updateStartedValue();
             await this._dbHandler.initDbIfNeeded();
             await this._dbHandler.createOrMigrateTablesIfNeeded();
+            await this._updateInstanceStateWithDbState(); // sync in-memory state after potential migration
 
             await this._setChallengesToDefaultIfNotDefined(log);
             // Import subplebbit keys onto ipfs node

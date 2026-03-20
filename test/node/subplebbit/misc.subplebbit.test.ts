@@ -380,7 +380,7 @@ describe.concurrent(`subplebbit.clients (Local)`, async () => {
             await publishRandomPost({
                 subplebbitAddress: mockSub.address,
                 plebbit: plebbit,
-                postProps: { author: { address: "plebbit.bso" }, signer: signers[6] }
+                postProps: { author: { address: "plebbit.bso" }, signer: signers[3] }
             });
 
             await challengeVerificationPromise;

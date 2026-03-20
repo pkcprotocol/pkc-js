@@ -46,7 +46,7 @@ import { CommentIpfsSchema, CommentUpdateSchema } from "../../../publications/co
 import { verifyCommentEdit, verifyCommentIpfs } from "../../../signer/signatures.js";
 import type { PageIpfs, RepliesPagesTypeIpfs } from "../../../pages/types.js";
 import type { CommentModerationsTableRowInsert, CommentModerationTableRow } from "../../../publications/comment-moderation/types.js";
-import { getSubplebbitChallengeFromSubplebbitChallengeSettings } from "./challenges/index.js";
+import { getSubplebbitChallengeFromSubplebbitChallengeSettings, plebbitJsChallenges } from "./challenges/index.js";
 import KeyvBetterSqlite3 from "./keyv-better-sqlite3.js";
 
 import { STORAGE_KEYS } from "../../../constants.js";
@@ -426,11 +426,14 @@ export class DbHandler {
     _migrateOldSettings(oldSettings: InternalSubplebbitRecordBeforeFirstUpdateType["settings"]) {
         const fieldsToRemove = ["post", "reply", "vote"] as const;
         const newSettings = remeda.clone(oldSettings);
-        if (Array.isArray(newSettings.challenges))
+        if (Array.isArray(newSettings.challenges)) {
+            // Filter out challenges that reference removed built-in names
+            newSettings.challenges = newSettings.challenges.filter((cs) => !cs.name || cs.path || cs.name in plebbitJsChallenges);
             for (const oldChallengeSetting of newSettings.challenges)
                 if (oldChallengeSetting.exclude)
                     for (const oldExcludeSetting of oldChallengeSetting.exclude)
                         for (const fieldToMove of fieldsToRemove) delete oldExcludeSetting[fieldToMove];
+        }
         return newSettings;
     }
 
