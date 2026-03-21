@@ -61,12 +61,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(post.replies.pageCids).to.deep.equal({}); // no page cids cause it's a single preloaded page
             await post.update();
         });
-        it(`A preloaded page should not have a corresponding CID in post.replies.pageCids`, async () => {
+        it.sequential(`A preloaded page should not have a corresponding CID in post.replies.pageCids`, async () => {
             for (const preloadedPageSortName of Object.keys(post.replies.pages))
                 expect(post.replies.pageCids[preloadedPageSortName]).to.be.undefined;
         });
 
-        it(`The PageIpfs.comments.comment always correspond to PageIpfs.comment.commentUpdate.cid`, async () => {
+        it.sequential(`The PageIpfs.comments.comment always correspond to PageIpfs.comment.commentUpdate.cid`, async () => {
             const postReplySortNames = Object.keys(POST_REPLIES_SORT_TYPES).filter(
                 (sortName) => post.replies.pageCids[sortName] || post.replies.pages[sortName]
             );
@@ -113,12 +113,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(reply.replies.pageCids).to.deep.equal({}); // no page cids cause it's a single preloaded page
         });
 
-        it(`A preloaded page should not have a corresponding CID in reply.replies.pageCids`, async () => {
+        it.sequential(`A preloaded page should not have a corresponding CID in reply.replies.pageCids`, async () => {
             for (const preloadedPageSortName of Object.keys(reply.replies.pages))
                 expect(reply.replies.pageCids[preloadedPageSortName]).to.be.undefined;
         });
 
-        it(`Stringified reply.replies still have all props`, async () => {
+        it.sequential(`Stringified reply.replies still have all props`, async () => {
             const preloadedPages = reply.replies.pages;
             for (const preloadedSortType of Object.keys(preloadedPages)) {
                 const stringifiedReplies = JSON.parse(JSON.stringify(reply.replies)).pages[preloadedSortType].comments;
@@ -126,7 +126,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             }
         });
 
-        it(`The PageIpfs.comments.comment always correspond to PageIpfs.comment.commentUpdate.cid`, async () => {
+        it.sequential(`The PageIpfs.comments.comment always correspond to PageIpfs.comment.commentUpdate.cid`, async () => {
             const availableReplySorts = Object.keys(REPLY_REPLIES_SORT_TYPES).filter(
                 (sortName) => reply.replies.pageCids[sortName] || reply.replies.pages[sortName]
             );

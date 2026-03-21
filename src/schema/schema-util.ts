@@ -169,7 +169,7 @@ export function parseRpcCommentUpdateEventWithPlebbitErrorIfItFails(
             zodError: parseRes.error,
             updateResult
         });
-    else return parseRes.data;
+    else return updateResult;
 }
 
 export function parseRpcCommentEventWithPlebbitErrorIfItFails(
@@ -181,7 +181,7 @@ export function parseRpcCommentEventWithPlebbitErrorIfItFails(
             zodError: parseRes.error,
             updateResult
         });
-    else return parseRes.data;
+    else return updateResult;
 }
 
 export function parseSubplebbitEditPubsubMessagePublicationSchemaWithPlebbitErrorIfItFails(args: SubplebbitEditPubsubMessagePublication) {
