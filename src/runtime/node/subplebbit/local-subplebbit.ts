@@ -1268,6 +1268,9 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             ...(pseudonymityMode ? { pseudonymityMode } : {})
         };
 
+        // Strip runtime-only author fields (nameResolved, address, publicKey, etc.) before IPFS storage
+        commentIpfs.author = cleanWireAuthor(commentIpfs.author);
+
         const ipfsClient = this._clientsManager.getDefaultKuboRpcClient();
 
         const file = pendingApproval
