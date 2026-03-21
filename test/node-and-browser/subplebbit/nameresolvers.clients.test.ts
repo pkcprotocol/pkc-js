@@ -52,7 +52,7 @@ describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
             plebbit: plebbit,
             postProps: {
                 author: { address: "plebbit.bso" },
-                signer: signers[6]
+                signer: signers[3]
             }
         });
 
