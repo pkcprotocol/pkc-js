@@ -36,6 +36,7 @@ Instructions for AI agents working on this codebase. Rules are ranked by priorit
 - `author.address` and `subplebbit.address` are immutable — never override or fall back to a derived address; use `author.nameResolved` to indicate whether a domain resolved correctly.
 - A comment's bytes size during publication is limited to 40kb.
 - An author and a community cannot share the same domain name for now.
+- Never use the `any` type or cast to `any` without consulting the user first — this repo should remain fully typed.
 
 ### Debugging
 

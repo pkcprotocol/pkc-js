@@ -10,9 +10,11 @@ import {
     resolveWhenConditionIsTrue,
     mockPlebbitV2,
     getAvailablePlebbitConfigsToTestAgainst,
-    createStaticSubplebbitRecordForComment
+    createStaticSubplebbitRecordForComment,
+    addStringToIpfs
 } from "../../../../dist/node/test/test-util.js";
 import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
+import type { PageIpfs } from "../../../../dist/node/pages/types.js";
 
 const subplebbitAddress = signers[0].address;
 
@@ -23,6 +25,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         let noDomainCommentCid: string;
         let mismatchedDomainCommentCid: string;
         let unresolvableDomainCommentCid: string;
+        let manualPageCid: string;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -60,6 +63,17 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 }
             });
             unresolvableDomainCommentCid = unresolvableDomainComment.commentCid;
+
+            // Create a manual page from the preloaded hot page for getPage() tests
+            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => sub.posts?.pages?.hot?.comments?.some((c) => c.cid === domainCommentCid) ?? false
+            });
+            await sub.stop();
+            const rawPage = { comments: sub.posts.pages.hot!.comments.map((c) => c.raw) } as PageIpfs;
+            manualPageCid = await addStringToIpfs(JSON.stringify(rawPage));
         });
 
         afterAll(async () => {
@@ -291,7 +305,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             });
             await sub.stop();
 
-            const noDomainComment = sub.posts.pages.hot!.comments.find((c) => c.cid === noDomainCommentCid);
+            const noDomainComment = sub.posts.pages.hot!.comments.find((c) => !c.author.address.includes("."));
             expect(noDomainComment, "Non-domain comment should be in preloaded hot page").to.exist;
             expect(noDomainComment!.author.nameResolved).to.be.undefined;
         });
@@ -301,14 +315,14 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
-                predicate: async () => Boolean(sub.posts?.pageCids?.hot)
+                predicate: async () => Boolean(sub.posts?.pages?.hot?.comments?.length)
             });
 
-            const page = await sub.posts.getPage({ cid: sub.posts.pageCids.hot });
+            const page = await sub.posts.getPage({ cid: manualPageCid });
             await sub.stop();
 
             const domainComment = page.comments.find((c) => c.cid === domainCommentCid);
-            expect(domainComment, "Domain comment should be in fetched hot page").to.exist;
+            expect(domainComment, "Domain comment should be in fetched page").to.exist;
             expect(domainComment!.author.nameResolved).to.equal(true);
             expect(domainComment!.author.address).to.equal("plebbit.bso");
         });
@@ -318,14 +332,14 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
-                predicate: async () => Boolean(sub.posts?.pageCids?.hot)
+                predicate: async () => Boolean(sub.posts?.pages?.hot?.comments?.length)
             });
 
-            const page = await sub.posts.getPage({ cid: sub.posts.pageCids.hot });
+            const page = await sub.posts.getPage({ cid: manualPageCid });
             await sub.stop();
 
-            const noDomainComment = page.comments.find((c) => c.cid === noDomainCommentCid);
-            expect(noDomainComment, "Non-domain comment should be in fetched hot page").to.exist;
+            const noDomainComment = page.comments.find((c) => !c.author.address.includes("."));
+            expect(noDomainComment, "Non-domain comment should be in fetched page").to.exist;
             expect(noDomainComment!.author.nameResolved).to.be.undefined;
         });
 
@@ -398,10 +412,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await parent.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: parent,
-                predicate: async () => Boolean(parent.replies?.pageCids?.best)
+                predicate: async () => Boolean(parent.replies?.pages?.best?.comments?.length)
             });
 
-            const page = await parent.replies.getPage({ cid: parent.replies.pageCids.best });
+            const rawReplyPage: PageIpfs = { comments: parent.replies.pages.best!.comments.map((c) => c.raw) };
+            const replyPageCid = await addStringToIpfs(JSON.stringify(rawReplyPage));
+
+            const page = await parent.replies.getPage({ cid: replyPageCid });
             await parent.stop();
 
             const domainReply = page.comments.find((c) => c.author.address === "plebbit.bso");
@@ -429,10 +446,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
-                predicate: async () => Boolean(sub.posts?.pageCids?.hot)
+                predicate: async () => Boolean(sub.posts?.pages?.hot?.comments?.length)
             });
 
-            const page = await sub.posts.getPage({ cid: sub.posts.pageCids.hot });
+            const page = await sub.posts.getPage({ cid: manualPageCid });
             await sub.stop();
 
             const mismatchComment = page.comments.find((c) => c.cid === mismatchedDomainCommentCid);
