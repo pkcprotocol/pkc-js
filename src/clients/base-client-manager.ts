@@ -1,14 +1,6 @@
 import { Plebbit } from "../plebbit/plebbit.js";
 import assert from "assert";
-import {
-    calculateIpfsCidV0,
-    hideClassPrivateProps,
-    isAbortError,
-    isIpns,
-    isStringDomain,
-    throwIfAbortSignalAborted,
-    throwWithErrorCode
-} from "../util.js";
+import { calculateIpfsCidV0, hideClassPrivateProps, isAbortError, isIpns, isStringDomain, throwIfAbortSignalAborted } from "../util.js";
 import { nativeFunctions } from "../runtime/node/util.js";
 import pLimit from "p-limit";
 import {
@@ -707,7 +699,7 @@ export class BaseClientsManager {
         const log = Logger("plebbit-js:client-manager:_resolveViaNameResolvers");
         const nameResolvers = this._plebbit.nameResolvers;
         if (!nameResolvers || nameResolvers.length === 0) {
-            throwWithErrorCode("ERR_NO_RESOLVER_FOR_NAME", { address });
+            throw new PlebbitError("ERR_NO_RESOLVER_FOR_NAME", { address });
         }
 
         throwIfAbortSignalAborted(abortSignal);
@@ -739,7 +731,7 @@ export class BaseClientsManager {
         }
 
         if (!anyResolverCanHandle) {
-            throwWithErrorCode("ERR_NO_RESOLVER_FOR_NAME", { address });
+            throw new PlebbitError("ERR_NO_RESOLVER_FOR_NAME", { address });
         }
 
         return value || null;
@@ -756,7 +748,7 @@ export class BaseClientsManager {
         if (!isStringDomain(subplebbitAddress)) return subplebbitAddress;
         const result = await this._resolveViaNameResolvers({ address: subplebbitAddress, resolveType: "community", abortSignal });
         if (typeof result === "string" && !isIpns(result))
-            throwWithErrorCode("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: subplebbitAddress });
+            throw new PlebbitError("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: subplebbitAddress });
         return result;
     }
 
@@ -770,7 +762,7 @@ export class BaseClientsManager {
         if (!isStringDomain(authorAddress)) throw new PlebbitError("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58", { authorAddress });
         const result = await this._resolveViaNameResolvers({ address: authorAddress, resolveType: "author", abortSignal });
         if (typeof result === "string" && !isIpns(result))
-            throwWithErrorCode("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: authorAddress });
+            throw new PlebbitError("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: authorAddress });
         return result;
     }
 

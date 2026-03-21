@@ -32,7 +32,6 @@ import type {
     SubplebbitIpfsType
 } from "../subplebbit/types.js";
 import type { DecryptedChallenge, DecryptedChallengeAnswer, DecryptedChallengeVerification } from "../pubsub-messages/types.js";
-import { throwWithErrorCode } from "../util.js";
 import { CidStringSchema } from "./schema.js";
 import { RpcCommentEventResultSchema, RpcCommentUpdateResultSchema } from "../clients/rpc-client/schema.js";
 import { CreatePlebbitWsServerOptionsSchema, SetNewSettingsPlebbitWsServerSchema } from "../rpc/src/schema.js";
@@ -73,7 +72,7 @@ export function parseJsonWithPlebbitErrorIfFails(x: string): any {
     try {
         return JSON.parse(x);
     } catch (e) {
-        throwWithErrorCode("ERR_INVALID_JSON", { error: e, invalidJson: x });
+        throw new PlebbitError("ERR_INVALID_JSON", { error: e, invalidJson: x });
     }
 }
 

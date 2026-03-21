@@ -35,7 +35,6 @@ import {
     isLinkValid,
     isStringDomain,
     pubsubTopicToDhtKey,
-    throwWithErrorCode,
     timestamp,
     getErrorCodeFromMessage,
     removeMfsFilesSafely,
@@ -878,7 +877,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         try {
             const validation = await verifySubplebbit(verificationOpts);
             if (!validation.valid) {
-                throwWithErrorCode("ERR_LOCAL_SUBPLEBBIT_PRODUCED_INVALID_SIGNATURE", {
+                throw new PlebbitError("ERR_LOCAL_SUBPLEBBIT_PRODUCED_INVALID_SIGNATURE", {
                     validation,
                     verificationOpts
                 });
@@ -892,7 +891,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         try {
             const validation = await verifySubplebbit(verificationOpts);
             if (!validation.valid) {
-                throwWithErrorCode("ERR_LOCAL_SUBPLEBBIT_PRODUCED_INVALID_SIGNATURE", {
+                throw new PlebbitError("ERR_LOCAL_SUBPLEBBIT_PRODUCED_INVALID_SIGNATURE", {
                     validation,
                     verificationOpts
                 });
@@ -1424,7 +1423,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
 
         if (!validity.valid) {
             await this._publishFailedChallengeVerification({ reason: validity.reason }, request.challengeRequestId);
-            throwWithErrorCode(getErrorCodeFromMessage(validity.reason), { request, validity });
+            throw new PlebbitError(getErrorCodeFromMessage(validity.reason), { request, validity });
         }
     }
 
@@ -2989,7 +2988,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
 
     private async _initBeforeStarting() {
         this.protocolVersion = env.PROTOCOL_VERSION;
-        if (!this.signer?.address) throwWithErrorCode("ERR_SUB_SIGNER_NOT_DEFINED");
+        if (!this.signer?.address) throw new PlebbitError("ERR_SUB_SIGNER_NOT_DEFINED");
         if (!this._challengeAnswerPromises)
             this._challengeAnswerPromises = new LRUCache<string, Promise<DecryptedChallengeAnswer["challengeAnswers"]>>({
                 max: 1000,

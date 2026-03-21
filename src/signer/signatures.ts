@@ -16,9 +16,9 @@ import {
     isAbortError,
     isStringDomain,
     removeNullUndefinedEmptyObjectsValuesRecursively,
-    throwWithErrorCode,
     timestamp
 } from "../util.js";
+import { PlebbitError } from "../plebbit-error.js";
 import { Plebbit } from "../plebbit/plebbit.js";
 
 import type {
@@ -134,7 +134,7 @@ async function _validateAuthorAddressBeforeSigning(author: CommentOptionsToSign[
     const authorName = getAuthorNameFromWire(author);
     if (!authorName) return;
     if (isStringDomain(authorName)) return;
-    throwWithErrorCode("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58", {
+    throw new PlebbitError("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58", {
         authorAddress: authorName,
         signerAddress: signer.address,
         author

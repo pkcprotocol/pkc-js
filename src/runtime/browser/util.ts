@@ -2,7 +2,7 @@ import type { KuboRpcClient, NativeFunctions } from "../../types.js";
 import { default as browserNativeFunctions } from "./native-functions.js";
 import Logger from "@plebbit/plebbit-logger";
 import { create as CreateKuboRpcClient } from "kubo-rpc-client";
-import { throwWithErrorCode } from "../../util.js";
+import { PlebbitError } from "../../plebbit-error.js";
 
 // Functions should not be called in browser
 export const getDefaultDataPath = () => undefined;
@@ -46,7 +46,7 @@ export async function importSignerIntoKuboNode(ipnsKeyName: string, ipfsKey: Uin
     });
 
     if (res.status !== 200)
-        throwWithErrorCode("ERR_FAILED_TO_IMPORT_IPFS_KEY", { url, status: res.status, statusText: res.statusText, ipnsKeyName });
+        throw new PlebbitError("ERR_FAILED_TO_IMPORT_IPFS_KEY", { url, status: res.status, statusText: res.statusText, ipnsKeyName });
     const resJson = (await res.json()) as { Id: string; Name: string };
 
     return { id: resJson.Id, name: resJson.Name };

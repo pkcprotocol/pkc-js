@@ -122,10 +122,6 @@ export function removeNullUndefinedEmptyObjectsValuesRecursively<T>(obj: T): T {
     return cleanedObj;
 }
 
-export function throwWithErrorCode(code: keyof typeof messages, details?: {}): never {
-    throw new PlebbitError(code, details);
-}
-
 const parseIfJsonString = (jsonString: any) => {
     if (typeof jsonString !== "string" || (!jsonString.startsWith("{") && !jsonString.startsWith("["))) return undefined;
     try {

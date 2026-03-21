@@ -33,7 +33,7 @@ import Publication from "../../publications/publication.js";
 import { PlebbitError } from "../../plebbit-error.js";
 import { LocalSubplebbit } from "../../runtime/node/subplebbit/local-subplebbit.js";
 import { RemoteSubplebbit } from "../../subplebbit/remote-subplebbit.js";
-import { hideClassPrivateProps, replaceXWithY, throwWithErrorCode } from "../../util.js";
+import { hideClassPrivateProps, replaceXWithY } from "../../util.js";
 import * as remeda from "remeda";
 import type { IncomingMessage } from "http";
 import type { CommentChallengeRequestToEncryptType, CommentIpfsType, CommentRpcErrorToTransmit } from "../../publications/comment/types.js";
@@ -676,7 +676,8 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
         const plebbit = await this._getPlebbitInstance();
 
         const addresses = plebbit.subplebbits;
-        if (!addresses.includes(address)) throwWithErrorCode("ERR_RPC_CLIENT_TRYING_TO_DELETE_REMOTE_SUB", { subplebbitAddress: address });
+        if (!addresses.includes(address))
+            throw new PlebbitError("ERR_RPC_CLIENT_TRYING_TO_DELETE_REMOTE_SUB", { subplebbitAddress: address });
 
         const isSubStarted = address in this._startedSubplebbits;
         const subplebbit = isSubStarted

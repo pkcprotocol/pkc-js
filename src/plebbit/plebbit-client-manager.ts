@@ -1,5 +1,6 @@
 import { Plebbit } from "./plebbit.js";
-import { hideClassPrivateProps, isIpfsCid, isIpfsPath, throwWithErrorCode } from "../util.js";
+import { hideClassPrivateProps, isIpfsCid, isIpfsPath } from "../util.js";
+import { PlebbitError } from "../plebbit-error.js";
 import assert from "assert";
 import * as remeda from "remeda";
 import { NameResolverClient } from "../clients/name-resolver-client.js";
@@ -160,7 +161,7 @@ export class PlebbitClientsManager extends BaseClientsManager {
     async fetchCid(cid: string): Promise<string> {
         let finalCid = remeda.clone(cid);
         if (!isIpfsCid(finalCid) && isIpfsPath(finalCid)) finalCid = finalCid.split("/")[2];
-        if (!isIpfsCid(finalCid)) throwWithErrorCode("ERR_CID_IS_INVALID", { cid });
+        if (!isIpfsCid(finalCid)) throw new PlebbitError("ERR_CID_IS_INVALID", { cid });
         const timeoutMs = this._plebbit._timeouts["generic-ipfs"];
         if (Object.keys(this.clients.kuboRpcClients).length > 0 || Object.keys(this.clients.libp2pJsClients).length > 0)
             return this._fetchCidP2P(cid, { maxFileSizeBytes: 1024 * 1024, timeoutMs });

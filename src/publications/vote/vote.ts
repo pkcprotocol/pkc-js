@@ -2,7 +2,8 @@ import Publication from "../publication.js";
 import type { PublicationTypeName } from "../../types.js";
 import { Plebbit } from "../../plebbit/plebbit.js";
 import { verifyVote } from "../../signer/index.js";
-import { hideClassPrivateProps, throwWithErrorCode } from "../../util.js";
+import { hideClassPrivateProps } from "../../util.js";
+import { PlebbitError } from "../../plebbit-error.js";
 import type { CreateVoteOptions, VotePubsubMessagePublication } from "./types.js";
 import * as remeda from "remeda";
 import type { SignerType } from "../../signer/types.js";
@@ -53,7 +54,7 @@ class Vote extends Publication implements VotePubsubMessagePublication {
             resolveAuthorNames: this._plebbit.resolveAuthorNames,
             clientsManager: this._clientsManager
         });
-        if (!signatureValidity.valid) throwWithErrorCode("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
+        if (!signatureValidity.valid) throw new PlebbitError("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
     }
 
     override async publish(): Promise<void> {

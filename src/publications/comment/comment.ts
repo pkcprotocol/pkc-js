@@ -1,5 +1,5 @@
 import retry, { RetryOperation } from "retry";
-import { createAbortError, hideClassPrivateProps, isAbortError, retryKuboIpfsAdd, shortifyCid, throwWithErrorCode } from "../../util.js";
+import { createAbortError, hideClassPrivateProps, isAbortError, retryKuboIpfsAdd, shortifyCid } from "../../util.js";
 import Publication from "../publication.js";
 import type { DecryptedChallengeVerification } from "../../pubsub-messages/types.js";
 import type { AuthorWithOptionalCommentUpdateJson, PublicationTypeName } from "../../types.js";

@@ -30,7 +30,7 @@ import {
     verifyChallengeMessage,
     verifyChallengeVerification
 } from "../signer/signatures.js";
-import { hideClassPrivateProps, shortifyAddress, throwWithErrorCode, timestamp } from "../util.js";
+import { hideClassPrivateProps, shortifyAddress, timestamp } from "../util.js";
 import { TypedEmitter } from "tiny-typed-emitter";
 import { Comment } from "./comment/comment.js";
 import { PlebbitError } from "../plebbit-error.js";
@@ -531,19 +531,19 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
     private _validatePublicationFields() {
         if (typeof this.timestamp !== "number" || this.timestamp < 0)
-            throwWithErrorCode("ERR_PUBLICATION_MISSING_FIELD", { type: this.getType, timestamp: this.timestamp });
+            throw new PlebbitError("ERR_PUBLICATION_MISSING_FIELD", { type: this.getType, timestamp: this.timestamp });
 
         if (typeof this.author?.address !== "string")
-            throwWithErrorCode("ERR_PUBLICATION_MISSING_FIELD", { type: this.getType(), authorAddress: this.author?.address });
+            throw new PlebbitError("ERR_PUBLICATION_MISSING_FIELD", { type: this.getType(), authorAddress: this.author?.address });
         if (typeof this.subplebbitAddress !== "string")
-            throwWithErrorCode("ERR_PUBLICATION_MISSING_FIELD", { type: this.getType(), subplebbitAddress: this.subplebbitAddress });
+            throw new PlebbitError("ERR_PUBLICATION_MISSING_FIELD", { type: this.getType(), subplebbitAddress: this.subplebbitAddress });
     }
 
     private _validateSubFields() {
         if (typeof this._subplebbit?.encryption?.publicKey !== "string")
-            throwWithErrorCode("ERR_SUBPLEBBIT_MISSING_FIELD", { subplebbitPublicKey: this._subplebbit?.encryption?.publicKey });
+            throw new PlebbitError("ERR_SUBPLEBBIT_MISSING_FIELD", { subplebbitPublicKey: this._subplebbit?.encryption?.publicKey });
         if (typeof this._pubsubTopicWithfallback() !== "string")
-            throwWithErrorCode("ERR_SUBPLEBBIT_MISSING_FIELD", {
+            throw new PlebbitError("ERR_SUBPLEBBIT_MISSING_FIELD", {
                 pubsubTopic: this._subplebbit?.pubsubTopic,
                 address: this._subplebbit?.address
             });

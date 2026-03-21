@@ -4,7 +4,7 @@ import assert from "assert";
 import { PlebbitError } from "../../plebbit-error.js";
 import EventEmitter from "events";
 import pTimeout from "p-timeout";
-import { hideClassPrivateProps, replaceXWithY, resolveWhenPredicateIsTrue, throwWithErrorCode } from "../../util.js";
+import { hideClassPrivateProps, replaceXWithY, resolveWhenPredicateIsTrue } from "../../util.js";
 import type {
     CreateNewLocalSubplebbitUserOptions,
     RpcInternalSubplebbitRecordBeforeFirstUpdateType,

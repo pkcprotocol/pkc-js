@@ -1,6 +1,7 @@
 import { Plebbit } from "../../plebbit/plebbit.js";
 import Publication from "../publication.js";
-import { hideClassPrivateProps, isIpfsCid, throwWithErrorCode } from "../../util.js";
+import { hideClassPrivateProps, isIpfsCid } from "../../util.js";
+import { PlebbitError } from "../../plebbit-error.js";
 import type { CommentModerationPubsubMessagePublication, CreateCommentModerationOptions } from "./types.js";
 import type { PublicationTypeName } from "../../types.js";
 import { verifyCommentModeration } from "../../signer/signatures.js";
@@ -51,12 +52,12 @@ export class CommentModeration extends Publication implements CommentModerationP
             resolveAuthorNames: this._plebbit.resolveAuthorNames,
             clientsManager: this._clientsManager
         });
-        if (!signatureValidity.valid) throwWithErrorCode("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
+        if (!signatureValidity.valid) throw new PlebbitError("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
     }
 
     override async publish(): Promise<void> {
         // TODO if publishing with content,reason, deleted, verify that publisher is original author
-        if (!isIpfsCid(this.commentCid)) throwWithErrorCode("ERR_CID_IS_INVALID", { commentCid: this.commentCid });
+        if (!isIpfsCid(this.commentCid)) throw new PlebbitError("ERR_CID_IS_INVALID", { commentCid: this.commentCid });
 
         await this._validateSignature();
 
