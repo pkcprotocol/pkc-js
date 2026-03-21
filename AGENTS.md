@@ -28,7 +28,7 @@ Instructions for AI agents working on this codebase. Rules are ranked by priorit
 - Tests that use `LocalSubplebbit` or other Node-only types MUST be placed under `test/node/`, not `test/node-and-browser/`.
 - Do not include `this.timeout` in tests — it is not supported by vitest.
 - When you modify a test file, make sure it passes the test build process: `npx tsc --project test/tsconfig.json --noEmit`.
-- You should not run run test server `npm run test:server:node` yourself — instead ask me to do it or assume I'm doing it. Test server is not the same as test files, but many test files need test server running. You should still run tests without waiting for me and assume the test server is running.
+- You should still run tests without waiting for me and assume the test server is running by me. You should not run run test server `npm run test:server:node` yourself — instead ask me to do it or assume I'm doing it. Test server is not the same as test files, but many test files need test server running. 
 
 ### Code
 
