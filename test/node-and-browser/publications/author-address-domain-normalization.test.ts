@@ -94,6 +94,85 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(subEdit.raw.pubsubMessageToPublish!.author!.name).to.equal(domainAddress);
         });
 
+        it("createComment ignores non-domain author.address and derives address from signer", async () => {
+            const comment = await plebbit.createComment({
+                subplebbitAddress,
+                content: "test",
+                title: "test",
+                author: { address: "bogusAddress123" },
+                signer: signers[3]
+            });
+
+            expect(comment.author.address).to.equal(signers[3].address);
+            expect(comment.author.name).to.be.undefined;
+            const wireAuthor = comment.raw.pubsubMessageToPublish!.author;
+            expect(wireAuthor === undefined || !("address" in wireAuthor)).to.be.true;
+            expect(wireAuthor === undefined || !("name" in wireAuthor)).to.be.true;
+        });
+
+        it("createVote ignores non-domain author.address and derives address from signer", async () => {
+            const vote = await plebbit.createVote({
+                subplebbitAddress,
+                commentCid: fakeCid,
+                vote: 1,
+                author: { address: "bogusAddress123" },
+                signer: signers[3]
+            });
+
+            expect(vote.author.address).to.equal(signers[3].address);
+            expect(vote.author.name).to.be.undefined;
+            const wireAuthor = vote.raw.pubsubMessageToPublish!.author;
+            expect(wireAuthor === undefined || !("address" in wireAuthor)).to.be.true;
+            expect(wireAuthor === undefined || !("name" in wireAuthor)).to.be.true;
+        });
+
+        it("createCommentEdit ignores non-domain author.address and derives address from signer", async () => {
+            const edit = await plebbit.createCommentEdit({
+                subplebbitAddress,
+                commentCid: fakeCid,
+                content: "edited",
+                author: { address: "bogusAddress123" },
+                signer: signers[3]
+            });
+
+            expect(edit.author.address).to.equal(signers[3].address);
+            expect(edit.author.name).to.be.undefined;
+            const wireAuthor = edit.raw.pubsubMessageToPublish!.author;
+            expect(wireAuthor === undefined || !("address" in wireAuthor)).to.be.true;
+            expect(wireAuthor === undefined || !("name" in wireAuthor)).to.be.true;
+        });
+
+        it("createCommentModeration ignores non-domain author.address and derives address from signer", async () => {
+            const mod = await plebbit.createCommentModeration({
+                subplebbitAddress,
+                commentCid: fakeCid,
+                commentModeration: { removed: true },
+                author: { address: "bogusAddress123" },
+                signer: signers[3]
+            });
+
+            expect(mod.author.address).to.equal(signers[3].address);
+            expect(mod.author.name).to.be.undefined;
+            const wireAuthor = mod.raw.pubsubMessageToPublish!.author;
+            expect(wireAuthor === undefined || !("address" in wireAuthor)).to.be.true;
+            expect(wireAuthor === undefined || !("name" in wireAuthor)).to.be.true;
+        });
+
+        it("createSubplebbitEdit ignores non-domain author.address and derives address from signer", async () => {
+            const subEdit = await plebbit.createSubplebbitEdit({
+                subplebbitAddress,
+                subplebbitEdit: { title: "new title" },
+                author: { address: "bogusAddress123" },
+                signer: signers[3]
+            });
+
+            expect(subEdit.author.address).to.equal(signers[3].address);
+            expect(subEdit.author.name).to.be.undefined;
+            const wireAuthor = subEdit.raw.pubsubMessageToPublish!.author;
+            expect(wireAuthor === undefined || !("address" in wireAuthor)).to.be.true;
+            expect(wireAuthor === undefined || !("name" in wireAuthor)).to.be.true;
+        });
+
         it("createComment preserves existing author.name when author.address is also a domain", async () => {
             const comment = await plebbit.createComment({
                 subplebbitAddress,
