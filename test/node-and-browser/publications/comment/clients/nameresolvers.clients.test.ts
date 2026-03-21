@@ -95,7 +95,9 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
         await differentPlebbit.destroy();
     });
 
-    it(`Correct order of nameResolvers state when updating a comment whose sub is a domain - cached`, async () => {
+    // Skipped: the new nameResolvers plugin system has no resolver-level caching,
+    // so cached vs uncached tests for resolver state changes are now redundant
+    it.skip(`Correct order of nameResolvers state when updating a comment whose sub is a domain - cached`, async () => {
         const mockPost = await publishRandomPost({ subplebbitAddress: "plebbit.bso", plebbit: plebbit });
 
         await mockPost.stop();
@@ -272,7 +274,9 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
         expect(actualStates.slice(0, expectedStates.length)).to.deep.equal(expectedStates);
     });
 
-    it(`Correct order of nameResolvers state when comment has a reply with author.address as domain - cached`, async () => {
+    // Skipped: the new nameResolvers plugin system has no resolver-level caching,
+    // so cached vs uncached tests for resolver state changes are now redundant
+    it.skip(`Correct order of nameResolvers state when comment has a reply with author.address as domain - cached`, async () => {
         const mockPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
         const reply = await publishRandomReply({
             parentComment: mockPost as CommentIpfsWithCidDefined,
