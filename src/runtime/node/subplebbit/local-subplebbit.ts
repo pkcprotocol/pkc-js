@@ -1654,7 +1654,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         if (authorName && isStringDomain(authorName) && this._plebbit.resolveAuthorNames) {
             let resolvedAddress: string | null;
             try {
-                resolvedAddress = await this._clientsManager.resolveAuthorNameIfNeeded(authorName);
+                resolvedAddress = await this._clientsManager.resolveAuthorNameIfNeeded({ authorAddress: authorName });
             } catch (e) {
                 log("Rejecting publication with unresolvable author domain", authorName, e);
                 return messages.ERR_FAILED_TO_RESOLVE_AUTHOR_DOMAIN;
@@ -2926,7 +2926,9 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
 
     private async _assertDomainResolvesCorrectly(newAddressAsDomain: string) {
         if (isStringDomain(newAddressAsDomain)) {
-            const resolvedIpnsFromNewDomain = await this._clientsManager.resolveCommunityNameIfNeeded(newAddressAsDomain);
+            const resolvedIpnsFromNewDomain = await this._clientsManager.resolveCommunityNameIfNeeded({
+                subplebbitAddress: newAddressAsDomain
+            });
             if (resolvedIpnsFromNewDomain !== this.signer.address)
                 throw new PlebbitError("ERR_DOMAIN_SUB_ADDRESS_TXT_RECORD_POINT_TO_DIFFERENT_ADDRESS", {
                     currentSubplebbitAddress: this.address,
@@ -3017,7 +3019,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             if (isStringDomain(roleAddress)) {
                 let resolved: string | null;
                 try {
-                    resolved = await this._clientsManager.resolveAuthorNameIfNeeded(roleAddress);
+                    resolved = await this._clientsManager.resolveAuthorNameIfNeeded({ authorAddress: roleAddress });
                 } catch {
                     resolved = null;
                 }

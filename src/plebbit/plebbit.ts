@@ -907,7 +907,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
 
     async resolveAuthorName(resolveAuthorAddressArgs: AuthorNameRpcParam) {
         const parsedArgs = parseRpcAuthorNameParam(resolveAuthorAddressArgs);
-        const resolved = await this._clientsManager.resolveAuthorNameIfNeeded(parsedArgs.address);
+        const resolved = await this._clientsManager.resolveAuthorNameIfNeeded({ authorAddress: parsedArgs.address });
         return resolved;
     }
 

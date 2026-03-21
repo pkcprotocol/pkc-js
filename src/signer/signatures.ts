@@ -401,7 +401,7 @@ const _verifyAuthorDomainResolvesToSignatureAddress = async ({
         const nameResolvedCacheKey = sha256(authorName + publicationJson.signature.publicKey);
         let resolvedAuthorAddress: string | null;
         try {
-            resolvedAuthorAddress = await clientsManager.resolveAuthorNameIfNeeded(authorName, abortSignal);
+            resolvedAuthorAddress = await clientsManager.resolveAuthorNameIfNeeded({ authorAddress: authorName, abortSignal });
         } catch (e) {
             if (isAbortError(e)) throw e;
             log.error("Failed to resolve author address to verify author", e);

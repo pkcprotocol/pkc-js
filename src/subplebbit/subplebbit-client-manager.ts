@@ -299,7 +299,10 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
 
     async fetchNewUpdateForSubplebbit(subAddress: SubplebbitIpfsType["address"]): Promise<ResultOfFetchingSubplebbit> {
         return this._withInflightSubplebbitFetch(subAddress, async () => {
-            const ipnsName = await this.resolveCommunityNameIfNeeded(subAddress, this._subplebbit._getStopAbortSignal());
+            const ipnsName = await this.resolveCommunityNameIfNeeded({
+                subplebbitAddress: subAddress,
+                abortSignal: this._subplebbit._getStopAbortSignal()
+            });
             // if ipnsAddress is undefined then it will be handled in postResolveTextRecordSuccess
 
             if (!ipnsName) throw Error("Failed to resolve subplebbit address to an IPNS name");

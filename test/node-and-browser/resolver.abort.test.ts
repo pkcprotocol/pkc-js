@@ -51,7 +51,10 @@ describeSkipIfRpc(`nameResolver abortSignal support`, async () => {
 
         try {
             const abortController = new AbortController();
-            const resolutionPromise = plebbit._clientsManager.resolveCommunityNameIfNeeded("test.bso", abortController.signal);
+            const resolutionPromise = plebbit._clientsManager.resolveCommunityNameIfNeeded({
+                subplebbitAddress: "test.bso",
+                abortSignal: abortController.signal
+            });
 
             await waitUntilResolverCalled;
 

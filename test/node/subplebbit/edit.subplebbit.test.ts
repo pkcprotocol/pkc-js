@@ -60,7 +60,7 @@ describeSkipIfRpc(`subplebbit.edit`, async () => {
         plebbitResolverRecords.set(bsoNameAddress, subplebbit.signer.address);
         remoteResolverRecords.set(bsoNameAddress, subplebbit.signer.address);
 
-        const resolvedSubAddress = await remotePlebbit._clientsManager.resolveCommunityNameIfNeeded(bsoNameAddress);
+        const resolvedSubAddress = await remotePlebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: bsoNameAddress });
         expect(resolvedSubAddress).to.equal(subplebbit.signer.address);
 
         await plebbit.resolveAuthorName({ address: "esteban.bso" });
@@ -225,8 +225,12 @@ describeSkipIfRpc(`subplebbit.edit .eth -> .bso transition`, async () => {
         remoteResolverRecords.set(ethAddress, subplebbit.signer.address);
         remoteResolverRecords.set(bsoAddress, subplebbit.signer.address);
 
-        expect(await remotePlebbit._clientsManager.resolveCommunityNameIfNeeded(ethAddress)).to.equal(subplebbit.signer.address);
-        expect(await remotePlebbit._clientsManager.resolveCommunityNameIfNeeded(bsoAddress)).to.equal(subplebbit.signer.address);
+        expect(await remotePlebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: ethAddress })).to.equal(
+            subplebbit.signer.address
+        );
+        expect(await remotePlebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: bsoAddress })).to.equal(
+            subplebbit.signer.address
+        );
 
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
@@ -409,7 +413,9 @@ describeSkipIfRpc(`Concurrency with subplebbit.edit`, async () => {
                 plebbitResolverRecords.set(editArgs.address, subplebbitInstance.signer.address);
                 plebbit._storage.removeItem = () => Promise.resolve(false); // stop clearing cache when editing subplebbit address
 
-                const resolvedSubAddress = await plebbit._clientsManager.resolveCommunityNameIfNeeded(editArgs.address);
+                const resolvedSubAddress = await plebbit._clientsManager.resolveCommunityNameIfNeeded({
+                    subplebbitAddress: editArgs.address
+                });
                 expect(resolvedSubAddress).to.equal(subplebbitInstance.signer.address);
             }
 
@@ -607,7 +613,9 @@ describe(`Edit misc`, async () => {
         const customPlebbit = await mockPlebbitV2({ stubStorage: false, mockResolve: true });
         const newSub = (await customPlebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
         if (!customPlebbit._plebbitRpcClient) {
-            const resolvedSubAddress = await customPlebbit._clientsManager.resolveCommunityNameIfNeeded("no-sub-address.bso");
+            const resolvedSubAddress = await customPlebbit._clientsManager.resolveCommunityNameIfNeeded({
+                subplebbitAddress: "no-sub-address.bso"
+            });
             expect(resolvedSubAddress).to.equal(null);
         }
 

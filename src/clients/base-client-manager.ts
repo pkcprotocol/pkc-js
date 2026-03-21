@@ -745,7 +745,13 @@ export class BaseClientsManager {
         return value || null;
     }
 
-    async resolveCommunityNameIfNeeded(subplebbitAddress: string, abortSignal?: AbortSignal): Promise<string | null> {
+    async resolveCommunityNameIfNeeded({
+        subplebbitAddress,
+        abortSignal
+    }: {
+        subplebbitAddress: string;
+        abortSignal?: AbortSignal;
+    }): Promise<string | null> {
         assert(typeof subplebbitAddress === "string", "subplebbitAddress needs to be a string to be resolved");
         if (!isStringDomain(subplebbitAddress)) return subplebbitAddress;
         const result = await this._resolveViaNameResolvers({ address: subplebbitAddress, resolveType: "community", abortSignal });
@@ -754,7 +760,13 @@ export class BaseClientsManager {
         return result;
     }
 
-    async resolveAuthorNameIfNeeded(authorAddress: string, abortSignal?: AbortSignal): Promise<string | null> {
+    async resolveAuthorNameIfNeeded({
+        authorAddress,
+        abortSignal
+    }: {
+        authorAddress: string;
+        abortSignal?: AbortSignal;
+    }): Promise<string | null> {
         if (!isStringDomain(authorAddress)) throw new PlebbitError("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58", { authorAddress });
         const result = await this._resolveViaNameResolvers({ address: authorAddress, resolveType: "author", abortSignal });
         if (typeof result === "string" && !isIpns(result))
