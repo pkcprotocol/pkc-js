@@ -302,7 +302,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const props: {
                 subplebbitAddress: string;
                 timestamp: number;
-                author: { address: string; displayName: string };
+                author: { displayName: string };
                 protocolVersion: string;
                 content: string;
                 title: string;
@@ -310,7 +310,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             } = {
                 subplebbitAddress: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR",
                 timestamp: Math.round(Date.now() / 1000),
-                author: { address: signer.address, displayName: "Mock Author - 1690130836.1711266" + Math.random() },
+                author: { displayName: "Mock Author - 1690130836.1711266" + Math.random() },
                 protocolVersion: "1.0.0",
                 content: "Mock content - 1690130836.1711266" + Math.random(),
                 title: "Mock Post - 1690130836.1711266" + Math.random()
