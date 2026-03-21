@@ -405,7 +405,11 @@ const _verifyAuthorDomainResolvesToSignatureAddress = async ({
         } catch (e) {
             if (isAbortError(e)) throw e;
             log.error("Failed to resolve author address to verify author", e);
-            // Don't cache on transient failures (timeout, network error) — leave nameResolved as undefined so it can be retried
+            if (e instanceof PlebbitError && e.code === "ERR_NO_RESOLVER_FOR_NAME") {
+                // No resolver can handle this TLD — this is permanent, not transient
+                clientsManager._plebbit._memCaches.nameResolvedCache.set(nameResolvedCacheKey, false);
+            }
+            // For transient failures (timeout, network error) — leave nameResolved as undefined so it can be retried
             return { valid: true };
         }
         const signerAddress = await getPlebbitAddressFromPublicKey(publicationJson.signature.publicKey);
