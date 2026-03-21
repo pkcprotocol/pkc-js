@@ -3444,7 +3444,6 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         this._stopHasBeenCalled = true;
         if (this._updateLoopAbortController) {
             this._updateLoopAbortController.abort();
-            this._updateLoopAbortController = undefined;
         }
         this.posts._stop();
 
@@ -3504,6 +3503,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
                 await this._updateLoopPromise;
                 this._updateLoopPromise = undefined;
             }
+            this._updateLoopAbortController = undefined;
             if (this._dbHandler) this._dbHandler.destoryConnection();
             if (this._mirroredStartedOrUpdatingSubplebbit) await this._cleanUpMirroredStartedOrUpdatingSubplebbit();
             if (this._plebbit._updatingSubplebbits[this.address] === this) {

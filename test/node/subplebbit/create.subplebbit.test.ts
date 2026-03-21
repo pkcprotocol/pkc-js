@@ -12,7 +12,11 @@ import {
 } from "../../../dist/node/test/test-util.js";
 import { timestamp } from "../../../dist/node/util.js";
 import signers from "../../fixtures/signers.js";
-import { describe, beforeAll, afterAll, it } from "vitest";
+import { describe, beforeAll, afterAll, it, expect } from "vitest";
+import tempy from "tempy";
+import PlebbitWsServer from "../../../dist/node/rpc/src/index.js";
+import Plebbit from "../../../dist/node/index.js";
+import type { CreatePlebbitWsServerOptions } from "../../../dist/node/rpc/src/types.js";
 
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 
@@ -298,5 +302,47 @@ describe(`plebbit.createSubplebbit - performance regression`, async () => {
         expect(result.sub!.address).to.equal(address);
 
         await newSub.delete();
+    });
+
+    it(`createSubplebbit({address}) over RPC for a stopped local subplebbit should not trigger IPNS resolution`, async () => {
+        // This test creates its own RPC server to test the RPC-specific code path
+        // The direct (non-RPC) case is covered by the test above
+        const dataPath = tempy.directory();
+        const rpcServerPort = 19170;
+
+        const options: CreatePlebbitWsServerOptions = {
+            port: rpcServerPort,
+            plebbitOptions: {
+                kuboRpcClientsOptions:
+                    plebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                httpRoutersOptions: plebbit.httpRoutersOptions,
+                dataPath
+            },
+            startStartedSubplebbitsOnStartup: false
+        };
+
+        const rpcServer = await PlebbitWsServer.PlebbitWsServer(options);
+        const rpcUrl = `ws://localhost:${rpcServerPort}`;
+        const rpcPlebbit = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+
+        // Create a sub (not started)
+        const newSub = await rpcPlebbit.createSubplebbit({});
+        const address = newSub.address;
+
+        // Now call createSubplebbit({address}) — before the fix this took 60s
+        const timeoutMs = 15000;
+        const result = await Promise.race([
+            rpcPlebbit.createSubplebbit({ address }).then((sub) => ({ sub, timedOut: false as const })),
+            new Promise<{ sub: undefined; timedOut: true }>((resolve) =>
+                setTimeout(() => resolve({ sub: undefined, timedOut: true }), timeoutMs)
+            )
+        ]);
+
+        expect(result.timedOut, `createSubplebbit({address}) over RPC took longer than ${timeoutMs}ms`).to.be.false;
+        expect(result.sub!.address).to.equal(address);
+
+        await newSub.delete();
+        await rpcPlebbit.destroy();
+        await rpcServer.destroy();
     });
 });
