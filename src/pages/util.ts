@@ -354,6 +354,17 @@ export function buildPageRuntimeFields(page: PageIpfs | ModQueuePageIpfs, cache:
     };
 }
 
+export function buildPagesRuntimeFields(
+    pages: Record<string, PageIpfs | ModQueuePageIpfs>,
+    cache: LRUCache<string, boolean>
+): Record<string, PageRuntimeFields> {
+    const result: Record<string, PageRuntimeFields> = {};
+    for (const [sort, page] of Object.entries(pages)) {
+        result[sort] = buildPageRuntimeFields(page, cache);
+    }
+    return result;
+}
+
 export function findCommentInPageInstanceRecursively(
     pageInstance: RemoteSubplebbit["posts"] | Comment["replies"],
     targetCid: string

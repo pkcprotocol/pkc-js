@@ -77,6 +77,7 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
         this.initSubplebbitIpfsPropsNoMerge(updateRecord.subplebbit);
         this.updateCid = updateRecord.runtimeFields.updateCid;
         this._setUpdatingStateNoEmission(updateRecord.runtimeFields.updatingState || "succeeded");
+        this.raw.runtimeFieldsFromRpc = updateRecord.runtimeFields;
         deepMergeRuntimeFields(this, updateRecord.runtimeFields);
 
         this.emit("update", this);
@@ -99,6 +100,8 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
                 if (updatingSubplebbit.raw.subplebbitIpfs) {
                     this.initSubplebbitIpfsPropsNoMerge(updatingSubplebbit.raw.subplebbitIpfs);
                     this.updateCid = updatingSubplebbit.updateCid;
+                    if (updatingSubplebbit.raw.runtimeFieldsFromRpc)
+                        deepMergeRuntimeFields(this, updatingSubplebbit.raw.runtimeFieldsFromRpc);
                     this.emit("update", this);
                 }
             },
@@ -151,6 +154,7 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
         if (updatingSubplebbit.raw.subplebbitIpfs) {
             this.initSubplebbitIpfsPropsNoMerge(updatingSubplebbit.raw.subplebbitIpfs);
             this.updateCid = updatingSubplebbit.updateCid;
+            if (updatingSubplebbit.raw.runtimeFieldsFromRpc) deepMergeRuntimeFields(this, updatingSubplebbit.raw.runtimeFieldsFromRpc);
             this.emit("update", this);
         }
     }

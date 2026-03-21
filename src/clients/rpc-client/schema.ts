@@ -9,7 +9,10 @@ export const RpcCommentEventResultSchema = z.object({
     comment: CommentIpfsSchema,
     runtimeFields: z.object({}).passthrough().optional()
 });
-export const RpcCommentUpdateResultSchema = z.object({ commentUpdate: CommentUpdateSchema });
+export const RpcCommentUpdateResultSchema = z.object({
+    commentUpdate: CommentUpdateSchema,
+    runtimeFields: z.object({}).passthrough().optional()
+});
 export const RpcChallengeVerificationEventResultSchema = z.object({
     challengeVerification: z.custom<EncodedDecryptedChallengeVerificationMessageType>(),
     runtimeFields: z.object({}).passthrough().optional()

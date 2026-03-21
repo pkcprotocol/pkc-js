@@ -779,7 +779,11 @@ export class Comment
         const newUpdate = parsed.commentUpdate;
         if ((this.updatedAt || 0) <= newUpdate.updatedAt) {
             log(`Received new CommentUpdate (${this.cid}) from RPC`);
-            this._initCommentUpdate(newUpdate as any);
+            this._initCommentUpdate(newUpdate);
+            if (parsed.runtimeFields) {
+                this.raw.runtimeFieldsFromRpc = parsed.runtimeFields;
+                deepMergeRuntimeFields(this, parsed.runtimeFields);
+            }
 
             this.emit("update", this);
         }
@@ -897,6 +901,8 @@ export class Comment
                 );
                 this._commentUpdateIpfsPath = updatingCommentInstance._commentUpdateIpfsPath;
                 this._copyNameResolvedFromComment(updatingCommentInstance);
+                if (updatingCommentInstance.raw.runtimeFieldsFromRpc)
+                    deepMergeRuntimeFields(this, updatingCommentInstance.raw.runtimeFieldsFromRpc);
                 this.emit("update", this);
             }
         } else {

@@ -81,7 +81,7 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
     // should be used internally
     _plebbit: Plebbit;
     _clientsManager: SubplebbitClientsManager;
-    raw: { subplebbitIpfs?: SubplebbitIpfsType } = {};
+    raw: { subplebbitIpfs?: SubplebbitIpfsType; runtimeFieldsFromRpc?: Record<string, any> } = {};
     _updatingSubInstanceWithListeners?: { subplebbit: RemoteSubplebbit } & Pick<
         SubplebbitEvents,
         "error" | "updatingstatechange" | "update" | "statechange"

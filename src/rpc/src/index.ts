@@ -66,7 +66,7 @@ import { PublicationRpcErrorToTransmit, RpcPublishResult } from "../../publicati
 import { TypedEmitter } from "tiny-typed-emitter";
 import { sanitizeRpcNotificationResult } from "./json-rpc-util.js";
 import type { ModQueuePageIpfs, PageIpfs } from "../../pages/types.js";
-import { buildPageRuntimeFields } from "../../pages/util.js";
+import { buildPageRuntimeFields, buildPagesRuntimeFields } from "../../pages/util.js";
 import {
     parseRpcSubplebbitAddressParam,
     parseRpcAuthorNameParam,
@@ -489,11 +489,9 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
             // Merge preloaded page runtimeFields into existing runtimeFields
             const subIpfs = subplebbit.raw.subplebbitIpfs;
             if (subIpfs?.posts?.pages && "runtimeFields" in json && json.runtimeFields) {
-                const postsRf: Record<string, any> = { posts: { pages: {} as Record<string, any> } };
-                for (const [sort, page] of Object.entries(subIpfs.posts.pages)) {
-                    postsRf.posts.pages[sort] = buildPageRuntimeFields(page, subplebbit._plebbit._memCaches.nameResolvedCache);
-                }
-                Object.assign(json.runtimeFields, postsRf);
+                Object.assign(json.runtimeFields, {
+                    posts: { pages: buildPagesRuntimeFields(subIpfs.posts.pages, subplebbit._plebbit._memCaches.nameResolvedCache) }
+                });
             }
             sendEvent("update", json);
         };
@@ -859,7 +857,15 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
                 sentCommentIpfsUpdateEvent = true;
             }
             if (comment.raw.commentUpdate) {
-                sendEvent("update", { commentUpdate: comment.raw.commentUpdate });
+                const updateEvent: Record<string, any> = { commentUpdate: comment.raw.commentUpdate };
+                if (comment.raw.commentUpdate.replies?.pages) {
+                    updateEvent.runtimeFields = {
+                        replies: {
+                            pages: buildPagesRuntimeFields(comment.raw.commentUpdate.replies.pages, plebbit._memCaches.nameResolvedCache)
+                        }
+                    };
+                }
+                sendEvent("update", updateEvent);
             }
         };
         const updateListener = () => sendUpdate();
@@ -952,11 +958,9 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
             // Merge preloaded page runtimeFields into existing runtimeFields
             const subIpfs = subplebbit.raw.subplebbitIpfs;
             if (subIpfs?.posts?.pages && "runtimeFields" in jsonToSend && jsonToSend.runtimeFields) {
-                const postsRf: Record<string, any> = { posts: { pages: {} as Record<string, any> } };
-                for (const [sort, page] of Object.entries(subIpfs.posts.pages)) {
-                    postsRf.posts.pages[sort] = buildPageRuntimeFields(page, plebbit._memCaches.nameResolvedCache);
-                }
-                Object.assign(jsonToSend.runtimeFields, postsRf);
+                Object.assign(jsonToSend.runtimeFields, {
+                    posts: { pages: buildPagesRuntimeFields(subIpfs.posts.pages, plebbit._memCaches.nameResolvedCache) }
+                });
             }
 
             sendEvent("update", jsonToSend);

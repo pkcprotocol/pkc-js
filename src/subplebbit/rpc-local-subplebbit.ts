@@ -128,7 +128,10 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit implements RpcIntern
         else this.initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(updateRecord);
 
         const runtimeFields = args.params.result.runtimeFields;
-        if (runtimeFields) deepMergeRuntimeFields(this, runtimeFields);
+        if (runtimeFields) {
+            this.raw.runtimeFieldsFromRpc = runtimeFields;
+            deepMergeRuntimeFields(this, runtimeFields);
+        }
 
         if (updateRecord.startedState) this._setStartedStateNoEmission(updateRecord.startedState);
         this.emit("update", this);
@@ -146,7 +149,10 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit implements RpcIntern
         } else this.initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(updateRecord);
 
         const runtimeFields = args.params.result.runtimeFields;
-        if (runtimeFields) deepMergeRuntimeFields(this, runtimeFields);
+        if (runtimeFields) {
+            this.raw.runtimeFieldsFromRpc = runtimeFields;
+            deepMergeRuntimeFields(this, runtimeFields);
+        }
 
         if (updateRecord.startedState) {
             this._setStartedStateNoEmission(updateRecord.startedState);

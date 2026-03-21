@@ -50,6 +50,7 @@ export interface CommentRawField extends Omit<Required<Publication["raw"]>, "pub
     commentUpdate?: CommentUpdateType;
     pubsubMessageToPublish?: CommentPubsubMessagePublication;
     commentUpdateFromChallengeVerification?: CommentUpdateForChallengeVerification;
+    runtimeFieldsFromRpc?: Record<string, any>;
 }
 
 // JSON types
