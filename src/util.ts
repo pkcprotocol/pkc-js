@@ -450,8 +450,10 @@ export function parseIpfsRawOptionToIpfsOptions(kuboRpcRawOption: KuboRpcClientC
 
 // Deep merge runtimeFields from RPC server into parsed data.
 // Handles nested objects (recursive), arrays (element-by-element), and primitives (overwrite).
+// For getter-only properties (e.g. updatingState), sets the backing _field directly.
 export function deepMergeRuntimeFields(target: any, source: any): void {
     if (!source || typeof source !== "object") return;
+    if (!target || typeof target !== "object") return;
     for (const key of Object.keys(source)) {
         if (Array.isArray(source[key]) && Array.isArray(target?.[key])) {
             for (let i = 0; i < source[key].length; i++) {
@@ -460,7 +462,19 @@ export function deepMergeRuntimeFields(target: any, source: any): void {
         } else if (source[key] && typeof source[key] === "object" && target?.[key] && typeof target[key] === "object") {
             deepMergeRuntimeFields(target[key], source[key]);
         } else if (source[key] !== undefined) {
-            target[key] = source[key];
+            // Check if the property is getter-only (no setter)
+            let descriptor: PropertyDescriptor | undefined;
+            let proto = target;
+            while (proto && !descriptor) {
+                descriptor = Object.getOwnPropertyDescriptor(proto, key);
+                proto = Object.getPrototypeOf(proto);
+            }
+            if (descriptor?.get && !descriptor.set) {
+                // Set the backing _field directly (e.g. _updatingState for updatingState)
+                target[`_${key}`] = source[key];
+            } else {
+                target[key] = source[key];
+            }
         }
     }
 }
