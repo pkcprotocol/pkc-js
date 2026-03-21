@@ -27,7 +27,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await plebbit.destroy();
         });
 
-        itSkipIfRpc("calling plebbit.getSubplebbit({address: ) in parallel of the same subplebbit resolves IPNS only once", async () => {
+        itSkipIfRpc("calling plebbit.getSubplebbit({address}) in parallel of the same subplebbit resolves IPNS only once", async () => {
             const localPlebbit = await config.plebbitInstancePromise();
             const randomSub = await createMockedSubplebbitIpns({});
             let fetchSpy: ReturnType<typeof vi.spyOn> | undefined;
