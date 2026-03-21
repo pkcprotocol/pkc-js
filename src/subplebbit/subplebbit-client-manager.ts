@@ -264,7 +264,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
             Object.keys(this._plebbit.clients.kuboRpcClients).length > 0 || Object.keys(this._plebbit.clients.libp2pJsClients).length > 0;
         const updateInterval = areWeConnectedToKuboOrHelia ? 1000 : this._plebbit.updateInterval; // if we're on helia or kubo we should resolve IPNS every second
 
-        while (this._subplebbit.state === "updating") {
+        while (this._subplebbit.state === "updating" && !this._subplebbit._getStopAbortSignal()?.aborted) {
             try {
                 await this.updateOnce();
             } catch (e) {
@@ -286,13 +286,13 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
             }
         }
 
+        this._subplebbit._clearStopAbortController();
         log("Subplebbit", this._subplebbit.address, "is no longer updating");
     }
 
     async stopUpdatingLoop() {
         this._ipnsLoadingOperation?.stop();
         this._updateCidsAlreadyLoaded.clear();
-        this._subplebbit._clearStopAbortController();
     }
 
     // fetching subplebbit ipns here

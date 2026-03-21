@@ -13,13 +13,9 @@ export class InflightFetchManager {
                 try {
                     return await fetcher();
                 } finally {
-                    // Use setTimeout instead of queueMicrotask to defer cleanup to the next macrotask.
-                    // queueMicrotask runs during the microtask phase, before all promise continuations
-                    // have settled, causing late-arriving callers to miss the inflight entry and start
-                    // duplicate fetches. setTimeout ensures all microtasks (promise resolutions) complete first.
-                    setTimeout(() => {
+                    queueMicrotask(() => {
                         if (fetchPromiseRef && this._inflightFetches.get(key) === fetchPromiseRef) this._inflightFetches.delete(key);
-                    }, 0);
+                    });
                 }
             })();
             fetchPromiseRef = fetchPromise;
