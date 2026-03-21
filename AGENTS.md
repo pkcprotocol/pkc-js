@@ -67,6 +67,7 @@ Instructions for AI agents working on this codebase. Rules are ranked by priorit
 ### Debugging Patterns
 
 - When debugging CI failures, check `test_server.log` for subplebbit logs and `test_node_${config}.stdout.log`/`test_node_${config}.stderr.log` artifacts for client logs (where config is e.g. `remote-kubo-rpc`).
+- To capture stdout/stderr from `run-test-config.js` to log files, use `--stdout-log <path>` and `--stderr-log <path>`, or use `--log-prefix <prefix>` to automatically create `<prefix>.stdout.log` and `<prefix>.stderr.log`. DEBUG output (from the `debug` module) goes to stderr.
 - To troubleshoot or debug anything related to a local subplebbit, run sqlite queries against its database at `${plebbitDataPath}/subplebbits/${subplebbitAddress}`.
 
 ## Domain Notes
