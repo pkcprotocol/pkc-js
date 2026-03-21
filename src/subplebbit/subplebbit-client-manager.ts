@@ -132,16 +132,10 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
     override postResolveNameResolverSuccess(opts: PostResolveNameResolverSuccessOptions): void {
         super.postResolveNameResolverSuccess(opts);
         if (!opts.resolvedValue && this._subplebbit.state === "updating") {
-            const error = new PlebbitError("ERR_DOMAIN_TXT_RECORD_NOT_FOUND", {
+            throw new PlebbitError("ERR_DOMAIN_TXT_RECORD_NOT_FOUND", {
                 subplebbitAddress: opts.address,
                 textRecord: "bitsocial"
             });
-            this._subplebbit._changeStateEmitEventEmitStateChangeEvent({
-                event: { name: "error", args: [error] },
-                newUpdatingState: "failed"
-            });
-
-            throw error;
         }
     }
 

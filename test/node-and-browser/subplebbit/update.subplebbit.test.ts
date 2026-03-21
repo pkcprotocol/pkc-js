@@ -18,7 +18,7 @@ import { describe, it, vi, beforeAll, afterAll } from "vitest";
 import type { Plebbit as PlebbitType } from "../../../dist/node/plebbit/plebbit.js";
 import type { PlebbitError } from "../../../dist/node/plebbit-error.js";
 
-const ensSubplebbitSigner = signers[3];
+const nameSubplebbitSigner = signers[3];
 
 getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     describe.concurrent("subplebbit.update (remote) - " + config.name, async () => {
@@ -105,8 +105,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await subplebbit.stop();
         });
 
-        it(`subplebbit.update() emits error if user supplied {address: ipnsName} and the actual address was ENS`, async () => {
-            const loadedSubplebbit = await plebbit.createSubplebbit({ address: ensSubplebbitSigner.address });
+        it(`subplebbit.update() emits error if user supplied {address: ipnsName} and the actual address was a name`, async () => {
+            const loadedSubplebbit = await plebbit.createSubplebbit({ address: nameSubplebbitSigner.address });
             const errorPromise = new Promise<PlebbitError>((resolve) => loadedSubplebbit.once("error", resolve as (err: Error) => void));
 
             await loadedSubplebbit.update();
@@ -121,7 +121,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             } else expect(error.code).to.equal("ERR_THE_SUBPLEBBIT_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED");
             // should not accept the SubplebbitIpfs props
             expect(loadedSubplebbit.updatedAt).to.be.undefined;
-            expect(loadedSubplebbit.address).to.equal(ensSubplebbitSigner.address);
+            expect(loadedSubplebbit.address).to.equal(nameSubplebbitSigner.address);
             await loadedSubplebbit.stop();
         });
 
@@ -214,14 +214,14 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await ipnsObj.plebbit.destroy();
         });
 
-        it(`subplebbit.update emits error and keeps retrying if address is ENS and ENS address has no subplebbit-address text record`, async () => {
+        it(`subplebbit.update emits error and keeps retrying if address is name and name address has no subplebbit-address text record`, async () => {
             const sub = await plebbit.createSubplebbit({ address: "this-sub-does-not-exist.bso" });
             // Should emit an error and keep on retrying in the next update loop
             let errorCount = 0;
             const errorPromise = new Promise<void>((resolve) => {
                 sub.on("error", (err: PlebbitError | Error) => {
                     expect((err as PlebbitError).code).to.equal("ERR_DOMAIN_TXT_RECORD_NOT_FOUND");
-                    expect(sub.updatingState).to.equal("failed");
+                    expect(sub.updatingState).to.equal("waiting-retry");
                     errorCount++;
                     if (errorCount === 3) resolve();
                 });
