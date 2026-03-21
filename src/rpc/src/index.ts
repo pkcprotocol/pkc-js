@@ -1448,7 +1448,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
     async destroy() {
         for (const connectionId of remeda.keys.strict(this.subscriptionCleanups))
             for (const subscriptionId of remeda.keys.strict(this.subscriptionCleanups[connectionId]))
-                await this.unsubscribe([Number(subscriptionId)], connectionId);
+                await this.unsubscribe([{ subscriptionId: Number(subscriptionId) }], connectionId);
 
         this.ws.close();
         const plebbit = await this._getPlebbitInstance();
