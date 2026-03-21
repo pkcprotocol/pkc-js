@@ -44,7 +44,7 @@ describeSkipIfRpc.concurrent("Sign subplebbit", async () => {
     });
     it(`Can sign and validate live subplebbit correctly`, async () => {
         const subplebbit = await plebbit.getSubplebbit({ address: signers[0].address });
-        const subjsonIpfs = subplebbit.toJSONIpfs();
+        const subjsonIpfs = subplebbit.raw.subplebbitIpfs!;
         const subplebbitToSign: Record<string, unknown> = {
             ...cleanUpBeforePublishing(subjsonIpfs),
             posts: removeUndefinedValuesRecursively(subjsonIpfs.posts)
@@ -90,7 +90,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
 
         expect(
             await verifySubplebbit({
-                subplebbit: loadedSubplebbit.toJSONIpfs(),
+                subplebbit: loadedSubplebbit.raw.subplebbitIpfs!,
                 subplebbitIpnsName: signers[0].address,
                 resolveAuthorNames: plebbit.resolveAuthorNames,
                 clientsManager: plebbit._clientsManager,
@@ -125,7 +125,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
         await sub.update();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
         const verification = await verifySubplebbit({
-            subplebbit: sub.toJSONIpfs(),
+            subplebbit: sub.raw.subplebbitIpfs!,
             subplebbitIpnsName: signers[4].address,
             resolveAuthorNames: tempPlebbit.resolveAuthorNames,
             clientsManager: tempPlebbit._clientsManager,
@@ -146,7 +146,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
         });
 
         await loadedSubplebbit.stop();
-        const subJson = remeda.clone(loadedSubplebbit.toJSONIpfs());
+        const subJson = remeda.clone(loadedSubplebbit.raw.subplebbitIpfs!);
         expect(
             await verifySubplebbit({
                 subplebbit: subJson,

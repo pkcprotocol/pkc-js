@@ -410,7 +410,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
         const getCommentArgs = parseRpcCidParam(params[0]);
         const comment = await (await this._getPlebbitInstance()).getComment(getCommentArgs);
         // TODO may need to be changed later
-        return comment.toJSONIpfs();
+        return comment.raw.comment!;
     }
 
     async getSubplebbitPage(params: any): Promise<PageIpfs | ModQueuePageIpfs> {

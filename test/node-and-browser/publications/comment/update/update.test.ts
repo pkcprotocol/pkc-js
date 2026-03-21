@@ -54,7 +54,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await commentIpfsPromise; // Comment ipfs props should be defined now, but not CommentUpdate
                 expect(recreatedPost.updatedAt).to.be.undefined;
 
-                expect(recreatedPost.toJSONIpfs()).to.deep.equal(originalPost.toJSONIpfs());
+                expect(recreatedPost.raw.comment!).to.deep.equal(originalPost.raw.comment!);
 
                 await new Promise((resolve) => recreatedPost.once("update", resolve));
                 await recreatedPost.stop();
@@ -88,7 +88,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 // Comment ipfs props should be defined now, but not CommentUpdate
                 expect(recreatedReply.updatedAt).to.be.undefined;
 
-                expect(recreatedReply.toJSONIpfs()).to.deep.equal(reply.toJSONIpfs());
+                expect(recreatedReply.raw.comment!).to.deep.equal(reply.raw.comment!);
 
                 await commentUpdatePromise;
                 await recreatedReply.stop();
@@ -173,7 +173,7 @@ const addCommentIpfsWithInvalidSignatureToIpfs = async () => {
     const plebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
     const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
 
-    const postIpfs = cleanUpBeforePublishing((await plebbit.getComment({ cid: subplebbit.posts.pages.hot.comments[0].cid })).toJSONIpfs());
+    const postIpfs = cleanUpBeforePublishing((await plebbit.getComment({ cid: subplebbit.posts.pages.hot.comments[0].cid })).raw.comment!);
 
     postIpfs.title += "1234"; // Invalidate signature
     const postWithInvalidSignatureCid = addStringToIpfs(JSON.stringify(postIpfs));
@@ -187,7 +187,7 @@ const addCommentIpfsWithInvalidSchemaToIpfs = async () => {
     const plebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
     const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
 
-    const postIpfs = (await plebbit.getComment({ cid: subplebbit.posts.pages.hot.comments[0].cid })).toJSONIpfs();
+    const postIpfs = (await plebbit.getComment({ cid: subplebbit.posts.pages.hot.comments[0].cid })).raw.comment!;
 
     (postIpfs as { content: string | number }).content = 1234; // Content is supposed to be a string, this will make the schema invalid
 

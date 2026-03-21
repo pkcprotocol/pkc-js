@@ -513,11 +513,6 @@ export class Comment
         return "comment";
     }
 
-    toJSONIpfs(): CommentIpfsType {
-        if (!this.raw.comment) throw Error("comment.raw.commentIpfs has to be defined before calling toJSONIpfs()");
-        return this.raw.comment;
-    }
-
     setCid(newCid: string) {
         this.cid = newCid;
         this.shortCid = shortifyCid(this.cid);

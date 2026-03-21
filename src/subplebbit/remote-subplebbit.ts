@@ -343,15 +343,10 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
         return remeda.pick(this, subplebbitIpfsKeys);
     }
 
-    toJSONIpfs(): SubplebbitIpfsType {
-        if (!this.raw.subplebbitIpfs) throw Error("should not be calling toJSONIpfs() before defining _rawSubplebbitIpfs");
-        return this.raw.subplebbitIpfs;
-    }
-
     toJSONRpcRemote(): RpcRemoteSubplebbitType {
         if (!this.updateCid) throw Error("subplebbit.updateCid should be defined before calling toJSONRpcRemote");
         return {
-            subplebbit: this.toJSONIpfs(),
+            subplebbit: this.raw.subplebbitIpfs!,
             updateCid: this.updateCid,
             updatingState: this.updatingState
         };
@@ -490,7 +485,7 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
         return <NonNullable<this["_updatingSubInstanceWithListeners"]>>{
             subplebbit: subInstance,
             update: () => {
-                this.initSubplebbitIpfsPropsNoMerge(subInstance.toJSONIpfs());
+                this.initSubplebbitIpfsPropsNoMerge(subInstance.raw.subplebbitIpfs!);
                 this.updateCid = subInstance.updateCid;
                 log(
                     `Remote Subplebbit instance`,

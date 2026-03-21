@@ -1635,7 +1635,7 @@ async function getTemplateSubplebbitRecord(plebbit: Plebbit): Promise<Subplebbit
     const sub = await plebbit.createSubplebbit({ address: "12D3KooWANwdyPERMQaCgiMnTT1t3Lr4XLFbK1z4ptFVhW2ozg1z" });
     await sub.update();
     await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
-    const result = sub.toJSONIpfs();
+    const result = sub.raw.subplebbitIpfs!;
     await sub.stop();
     return result;
 }
@@ -2294,7 +2294,7 @@ export async function publishToModQueueWithDepth({
 // This may not be needed
 export async function forceSubplebbitToGenerateAllPostsPages(subplebbit: RemoteSubplebbit, commentProps?: CreateCommentOptions) {
     // max comment size is 40kb = 40000
-    const rawSubplebbitRecord = subplebbit.toJSONIpfs();
+    const rawSubplebbitRecord = subplebbit.raw.subplebbitIpfs;
     if (!rawSubplebbitRecord) throw Error("Subplebbit should be updating before forcing to generate all pages");
 
     subplebbit.setMaxListeners(100);

@@ -335,14 +335,14 @@ export class PublicationClientsManager extends PlebbitClientsManager {
             const timeoutMs = this._plebbit._timeouts["subplebbit-ipns"];
             try {
                 await waitForUpdateInSubInstanceWithErrorAndTimeout(updatingSubInstance.subplebbit, timeoutMs);
-                subIpfs = updatingSubInstance.subplebbit.toJSONIpfs();
+                subIpfs = updatingSubInstance.subplebbit.raw.subplebbitIpfs!;
             } catch (e) {
                 await this.cleanUpUpdatingSubInstance();
                 throw e;
             }
             await this.cleanUpUpdatingSubInstance();
         } else {
-            subIpfs = updatingSubInstance.subplebbit.toJSONIpfs();
+            subIpfs = updatingSubInstance.subplebbit.raw.subplebbitIpfs!;
             await this.cleanUpUpdatingSubInstance();
         }
 

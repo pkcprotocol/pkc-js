@@ -84,7 +84,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it("Can load subplebbit via IPNS address", async () => {
             const loadedSubplebbit = await plebbit.getSubplebbit({ address: subplebbitSigner.address });
-            const _subplebbitIpns = loadedSubplebbit.toJSONIpfs();
+            const _subplebbitIpns = loadedSubplebbit.raw.subplebbitIpfs!;
             expect(_subplebbitIpns.lastPostCid).to.be.a.string;
             expect(_subplebbitIpns.pubsubTopic).to.be.a.string;
             expect(_subplebbitIpns.address).to.be.a.string;
@@ -96,7 +96,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(_subplebbitIpns.signature).to.be.a("object");
             expect(_subplebbitIpns.posts).to.be.a("object");
             // Remove undefined keys from json
-            expect(deterministicStringify(loadedSubplebbit.toJSONIpfs())).to.equals(deterministicStringify(_subplebbitIpns));
+            expect(deterministicStringify(loadedSubplebbit.raw.subplebbitIpfs!)).to.equals(deterministicStringify(_subplebbitIpns));
         });
 
         it("can load subplebbit with ENS domain via plebbit.getSubplebbit", async () => {

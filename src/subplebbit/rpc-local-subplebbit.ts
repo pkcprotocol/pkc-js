@@ -65,7 +65,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit implements RpcIntern
     toJSONInternalRpcAfterFirstUpdate(): RpcInternalSubplebbitRecordAfterFirstUpdateType {
         if (!this.updateCid) throw Error("rpcLocalSubplebbit.cid should be defined before calling toJSONInternalRpcAfterFirstUpdate");
         return {
-            ...this.toJSONIpfs(),
+            ...this.raw.subplebbitIpfs!,
             ...this.toJSONInternalRpcBeforeFirstUpdate(),
             updateCid: this.updateCid
         };

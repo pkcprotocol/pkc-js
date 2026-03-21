@@ -92,7 +92,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(recreatedPost.spoiler).to.be.true;
 
             const commentIpfsValidity = await verifyCommentIpfs({
-                comment: recreatedPost.toJSONIpfs(),
+                comment: recreatedPost.raw.comment!,
                 resolveAuthorNames: true,
                 clientsManager: recreatedPost._clientsManager,
                 calculatedCommentCid: recreatedPost.cid

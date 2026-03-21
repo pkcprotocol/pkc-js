@@ -130,7 +130,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             const ipnsObj = await createNewIpns();
 
-            const rawSubplebbitJson = (await plebbit.getSubplebbit({ address: signers[0].address })).toJSONIpfs();
+            const rawSubplebbitJson = (await plebbit.getSubplebbit({ address: signers[0].address })).raw.subplebbitIpfs!;
             rawSubplebbitJson.address = ipnsObj.signer.address; // this will corrupt the signature
             await ipnsObj.publishToIpns(JSON.stringify(rawSubplebbitJson));
             const tempSubplebbit = await plebbit.createSubplebbit({ address: ipnsObj.signer.address });
@@ -158,7 +158,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`subplebbit.update emits error if schema of subplebbit is invalid `, async () => {
-            const rawSubplebbitJson = (await plebbit.getSubplebbit({ address: signers[0].address })).toJSONIpfs();
+            const rawSubplebbitJson = (await plebbit.getSubplebbit({ address: signers[0].address })).raw.subplebbitIpfs!;
             (rawSubplebbitJson as Record<string, unknown>).lastPostCid = 12345; // This will make schema invalid
 
             const ipnsObj = await createNewIpns();

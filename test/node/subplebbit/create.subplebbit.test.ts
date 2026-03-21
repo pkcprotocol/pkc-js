@@ -59,7 +59,7 @@ describe.concurrent(`plebbit.createSubplebbit (local)`, async () => {
 
         expect(localSubRemoteJson).to.deep.equal(remoteSubJson);
 
-        expect(remoteSub.toJSONIpfs()).to.deep.equal(newSubplebbit.toJSONIpfs());
+        expect(remoteSub.raw.subplebbitIpfs!).to.deep.equal(newSubplebbit.raw.subplebbitIpfs!);
         return newSubplebbit;
     };
 

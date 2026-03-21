@@ -82,11 +82,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     expect(publishedPostWithEmojiContent.content).to.equal(content);
                     expect(publishedPostWithEmojiContent.title).to.equal(content);
 
-                    const publishedPostIpfs = JSON.stringify(publishedPostWithEmojiContent.toJSONIpfs());
+                    const publishedPostIpfs = JSON.stringify(publishedPostWithEmojiContent.raw.comment!);
                     expect(await calculateIpfsHash(publishedPostIpfs)).to.equal(publishedPostWithEmojiContent.cid);
 
                     const remotePost = await plebbit.getComment({ cid: publishedPostWithEmojiContent.cid });
-                    const remotePostIpfs = JSON.stringify(remotePost.toJSONIpfs());
+                    const remotePostIpfs = JSON.stringify(remotePost.raw.comment!);
                     expect(await calculateIpfsHash(remotePostIpfs)).to.equal(publishedPostWithEmojiContent.cid);
 
                     await waitTillPostInSubplebbitInstancePages(publishedPostWithEmojiContent as CommentIpfsWithCidDefined, sub);

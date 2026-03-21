@@ -22,12 +22,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             const sub = await remotePlebbit.createSubplebbit(publishedSub.subplebbitRecord);
 
-            expect((sub.toJSONIpfs() as Record<string, unknown>).extraProp).to.equal(publishedSub.subplebbitRecord.extraProp);
-            expect(sub.toJSONIpfs()).to.deep.equal(publishedSub.subplebbitRecord);
+            expect((sub.raw.subplebbitIpfs! as Record<string, unknown>).extraProp).to.equal(publishedSub.subplebbitRecord.extraProp);
+            expect(sub.raw.subplebbitIpfs!).to.deep.equal(publishedSub.subplebbitRecord);
             expect((sub as unknown as Record<string, unknown>)["extraProp"]).to.equal(publishedSub.subplebbitRecord.extraProp);
 
             const recreatedSubFromInstance = await remotePlebbit.createSubplebbit(sub);
-            expect(recreatedSubFromInstance.toJSONIpfs()).to.deep.equal(publishedSub.subplebbitRecord);
+            expect(recreatedSubFromInstance.raw.subplebbitIpfs!).to.deep.equal(publishedSub.subplebbitRecord);
             expect(JSON.parse(JSON.stringify(recreatedSubFromInstance)).extraProp).to.equal(opts.extraProps.extraProp);
             expect((recreatedSubFromInstance as unknown as Record<string, unknown>)["extraProp"]).to.equal(
                 publishedSub.subplebbitRecord.extraProp
@@ -56,9 +56,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
 
-            expect((sub.toJSONIpfs() as Record<string, unknown>).extraProp).to.equal(opts.extraProps.extraProp);
+            expect((sub.raw.subplebbitIpfs! as Record<string, unknown>).extraProp).to.equal(opts.extraProps.extraProp);
 
-            expect(sub.toJSONIpfs()).to.deep.equal(publishedSub.subplebbitRecord);
+            expect(sub.raw.subplebbitIpfs!).to.deep.equal(publishedSub.subplebbitRecord);
 
             expect(JSON.parse(JSON.stringify(sub)).extraProp).to.equal(opts.extraProps.extraProp);
 
@@ -125,18 +125,18 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             // Test createSubplebbit with record directly
             const sub = await remotePlebbit.createSubplebbit(subplebbitRecord);
-            const subJson = sub.toJSONIpfs() as SubplebbitWithNestedExtraProps;
+            const subJson = sub.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
             expect(subJson.features?.extraFeature).to.equal(true);
             expect(subJson.features?.noVideos).to.equal(true);
 
             // Test recreation from instance
             const recreatedSub = await remotePlebbit.createSubplebbit(sub);
-            const recreatedJson = recreatedSub.toJSONIpfs() as SubplebbitWithNestedExtraProps;
+            const recreatedJson = recreatedSub.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
             expect(recreatedJson.features?.extraFeature).to.equal(true);
 
             // Test recreation from JSON
             const recreatedFromJson = await remotePlebbit.createSubplebbit(JSON.parse(JSON.stringify(sub)));
-            const recreatedFromJsonJson = recreatedFromJson.toJSONIpfs() as SubplebbitWithNestedExtraProps;
+            const recreatedFromJsonJson = recreatedFromJson.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
             expect(recreatedFromJsonJson.features?.extraFeature).to.equal(true);
 
             // Test update() flow
@@ -144,7 +144,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await subToUpdate.update();
             await resolveWhenConditionIsTrue({ toUpdate: subToUpdate, predicate: async () => typeof subToUpdate.updatedAt === "number" });
 
-            const updatedJson = subToUpdate.toJSONIpfs() as SubplebbitWithNestedExtraProps;
+            const updatedJson = subToUpdate.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
             expect(updatedJson.features?.extraFeature).to.equal(true);
             expect(updatedJson.features?.noVideos).to.equal(true);
 
@@ -162,7 +162,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             // Test createSubplebbit with record directly
             const sub = await remotePlebbit.createSubplebbit(subplebbitRecord);
-            const subJson = sub.toJSONIpfs() as SubplebbitWithNestedExtraProps;
+            const subJson = sub.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
             expect(subJson.suggested?.extraSuggested).to.equal("customValue");
             expect(subJson.suggested?.primaryColor).to.equal("#ff0000");
 
@@ -171,7 +171,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await subToUpdate.update();
             await resolveWhenConditionIsTrue({ toUpdate: subToUpdate, predicate: async () => typeof subToUpdate.updatedAt === "number" });
 
-            const updatedJson = subToUpdate.toJSONIpfs() as SubplebbitWithNestedExtraProps;
+            const updatedJson = subToUpdate.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
             expect(updatedJson.suggested?.extraSuggested).to.equal("customValue");
             expect(updatedJson.suggested?.primaryColor).to.equal("#ff0000");
 
@@ -192,13 +192,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             // Test createSubplebbit with modified record
             const sub = await remotePlebbit.createSubplebbit(recordWithExtraEncryption);
-            const subJson = sub.toJSONIpfs() as SubplebbitWithNestedExtraProps;
+            const subJson = sub.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
             expect(subJson.encryption?.extraEncryption).to.equal("extraData");
             expect(subJson.encryption?.type).to.equal(subplebbitRecord.encryption.type);
 
             // Test recreation from JSON
             const recreatedFromJson = await remotePlebbit.createSubplebbit(JSON.parse(JSON.stringify(sub)));
-            const recreatedJson = recreatedFromJson.toJSONIpfs() as SubplebbitWithNestedExtraProps;
+            const recreatedJson = recreatedFromJson.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
             expect(recreatedJson.encryption?.extraEncryption).to.equal("extraData");
 
             await remotePlebbit.destroy();
@@ -217,7 +217,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             // Test createSubplebbit with record directly
             const sub = await remotePlebbit.createSubplebbit(subplebbitRecord);
-            const subJson = sub.toJSONIpfs() as SubplebbitWithNestedExtraProps;
+            const subJson = sub.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
             expect(subJson.roles?.[testAddress]?.extraRoleProp).to.equal("customRoleData");
             expect(subJson.roles?.[testAddress]?.role).to.equal("moderator");
 
@@ -226,7 +226,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await subToUpdate.update();
             await resolveWhenConditionIsTrue({ toUpdate: subToUpdate, predicate: async () => typeof subToUpdate.updatedAt === "number" });
 
-            const updatedJson = subToUpdate.toJSONIpfs() as SubplebbitWithNestedExtraProps;
+            const updatedJson = subToUpdate.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
             expect(updatedJson.roles?.[testAddress]?.extraRoleProp).to.equal("customRoleData");
             expect(updatedJson.roles?.[testAddress]?.role).to.equal("moderator");
 
@@ -245,7 +245,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const remotePlebbit = await config.plebbitInstancePromise();
 
             const sub = await remotePlebbit.createSubplebbit(subplebbitRecord);
-            const subJson = sub.toJSONIpfs() as SubplebbitWithNestedExtraProps;
+            const subJson = sub.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
 
             // Verify all nested extra props
             expect(subJson.features?.extraFeature).to.equal(true);
@@ -257,7 +257,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await subToUpdate.update();
             await resolveWhenConditionIsTrue({ toUpdate: subToUpdate, predicate: async () => typeof subToUpdate.updatedAt === "number" });
 
-            const updatedJson = subToUpdate.toJSONIpfs() as SubplebbitWithNestedExtraProps;
+            const updatedJson = subToUpdate.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
             expect(updatedJson.features?.extraFeature).to.equal(true);
             expect(updatedJson.suggested?.extraSuggested).to.equal("suggestedValue");
             expect(updatedJson.roles?.[testAddress]?.extraRoleProp).to.equal("roleValue");
