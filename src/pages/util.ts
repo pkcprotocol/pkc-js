@@ -18,6 +18,9 @@ import * as remeda from "remeda";
 import type { CommentWithinModQueuePageJson, CommentWithinRepliesPostsPageJson, CommentUpdateType } from "../publications/comment/types.js";
 import { shortifyAddress, shortifyCid } from "../util.js";
 import { RemoteSubplebbit } from "../subplebbit/remote-subplebbit.js";
+import { getAuthorDomainFromWire } from "../publications/publication-author.js";
+import { sha256 } from "js-sha256";
+import type { LRUCache } from "lru-cache";
 import { BaseClientsManager } from "../clients/base-client-manager.js";
 import { parseJsonWithPlebbitErrorIfFails, parsePageIpfsSchemaWithPlebbitErrorIfItFails } from "../schema/schema-util.js";
 import type { SubplebbitIpfsType } from "../subplebbit/types.js";
@@ -310,6 +313,45 @@ export function findCommentInHierarchicalPageIpfsRecursively(page: PageIpfs, tar
         }
     }
     return undefined;
+}
+
+// Runtime fields types — derived from Comment so tsc catches changes
+export type CommentRuntimeFields = {
+    author?: Partial<Pick<Comment["author"], "nameResolved">>;
+};
+
+export type PageRuntimeFields = {
+    comments?: CommentRuntimeFields[];
+};
+
+function _buildCommentRuntimeFields(
+    comment: PageIpfs["comments"][0] | ModQueuePageIpfs["comments"][0],
+    cache: LRUCache<string, boolean>
+): CommentRuntimeFields {
+    const domain = getAuthorDomainFromWire(comment.comment.author);
+    if (!domain) return {};
+    const key = sha256(domain + comment.comment.signature.publicKey);
+    const cached = cache.get(key);
+    if (typeof cached !== "boolean") return {};
+    return { author: { nameResolved: cached } };
+}
+
+export function buildPageRuntimeFields(page: PageIpfs | ModQueuePageIpfs, cache: LRUCache<string, boolean>): PageRuntimeFields {
+    return {
+        comments: (page.comments as PageIpfs["comments"]).map((c) => {
+            const rf: CommentRuntimeFields & { commentUpdate?: { replies?: { pages?: Record<string, PageRuntimeFields> } } } =
+                _buildCommentRuntimeFields(c, cache);
+            // Recurse into nested preloaded replies
+            if ("commentUpdate" in c && c.commentUpdate?.replies?.pages) {
+                const nestedPages: Record<string, PageRuntimeFields> = {};
+                for (const [sortName, nestedPage] of Object.entries(c.commentUpdate.replies.pages)) {
+                    nestedPages[sortName] = buildPageRuntimeFields(nestedPage, cache);
+                }
+                rf.commentUpdate = { replies: { pages: nestedPages } };
+            }
+            return rf;
+        })
+    };
 }
 
 export function findCommentInPageInstanceRecursively(

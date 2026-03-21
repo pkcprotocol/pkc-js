@@ -348,8 +348,10 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
         if (!this.raw.subplebbitIpfs) throw Error("subplebbit.raw.subplebbitIpfs should be defined before calling toJSONRpcRemote");
         return {
             subplebbit: this.raw.subplebbitIpfs,
-            updateCid: this.updateCid,
-            updatingState: this.updatingState
+            runtimeFields: {
+                updateCid: this.updateCid,
+                updatingState: this.updatingState
+            }
         };
     }
 

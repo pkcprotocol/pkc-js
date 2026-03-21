@@ -30,7 +30,7 @@ import {
     verifyChallengeMessage,
     verifyChallengeVerification
 } from "../signer/signatures.js";
-import { hideClassPrivateProps, shortifyAddress, timestamp } from "../util.js";
+import { deepMergeRuntimeFields, hideClassPrivateProps, shortifyAddress, timestamp } from "../util.js";
 import { TypedEmitter } from "tiny-typed-emitter";
 import { Comment } from "./comment/comment.js";
 import { PlebbitError } from "../plebbit-error.js";
@@ -173,11 +173,14 @@ class Publication extends TypedEmitter<PublicationEvents> {
         };
     }
 
-    private async _handleRpcChallengeVerification(verification: DecryptedChallengeVerificationMessageType, nameResolved?: boolean) {
+    private async _handleRpcChallengeVerification(
+        verification: DecryptedChallengeVerificationMessageType,
+        runtimeFields?: Record<string, any>
+    ) {
         const log = Logger("plebbit-js:publication:_handleRpcChallengeVerification");
         if (verification.comment)
             await this._verifyDecryptedChallengeVerificationAndUpdateCommentProps(<DecryptedChallengeVerification>verification);
-        if (this instanceof Comment && typeof nameResolved === "boolean") this.author.nameResolved = nameResolved;
+        if (this instanceof Comment && runtimeFields) deepMergeRuntimeFields(this, runtimeFields);
         this._setRpcClientState("stopped");
         const newPublishingState = verification.challengeSuccess ? "succeeded" : "failed";
         this._changePublicationStateEmitEventEmitStateChangeEvent({
@@ -706,13 +709,13 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     private async _handleIncomingChallengeVerificationFromRpc(args: any) {
-        const { challengeVerification: encoded, nameResolved } = args.params.result;
+        const { challengeVerification: encoded, runtimeFields } = args.params.result;
         const decoded = decodeRpcChallengeVerificationPubsubMsg(encoded);
         this._challengeExchanges[decoded.challengeRequestId.toString()] = {
             ...this._challengeExchanges[decoded.challengeRequestId.toString()],
             challengeVerification: decoded
         };
-        await this._handleRpcChallengeVerification(decoded, nameResolved);
+        await this._handleRpcChallengeVerification(decoded, runtimeFields);
     }
 
     private _handleIncomingPublishingStateFromRpc(args: any) {

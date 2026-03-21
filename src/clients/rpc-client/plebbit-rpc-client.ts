@@ -12,6 +12,7 @@ import type {
     RpcLocalSubplebbitUpdateResultType
 } from "../../subplebbit/types.js";
 import type { ModQueuePageIpfs, PageIpfs } from "../../pages/types.js";
+import type { PageRuntimeFields } from "../../pages/util.js";
 import { SubscriptionIdSchema } from "./schema.js";
 import type { DecryptedChallengeAnswer, DecryptedChallengeRequest } from "../../pubsub-messages/types.js";
 import type { PlebbitWsServerSettingsSerialized } from "../../rpc/src/types.js";
@@ -316,16 +317,18 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
         return commentProps;
     }
 
-    async getCommentPage(page: CommentPageRpcParam): Promise<PageIpfs> {
+    async getCommentPage(page: CommentPageRpcParam): Promise<{ page: PageIpfs; runtimeFields?: PageRuntimeFields }> {
         const parsedGetCommentRepliesPageArgs = parseRpcCommentRepliesPageParam(page);
-        const pageIpfs = <PageIpfs>await this._webSocketClient.call("getCommentPage", [parsedGetCommentRepliesPageArgs]);
-        return pageIpfs;
+        const result = await this._webSocketClient.call("getCommentPage", [parsedGetCommentRepliesPageArgs]);
+        return result as { page: PageIpfs; runtimeFields?: PageRuntimeFields };
     }
 
-    async getSubplebbitPage(page: SubplebbitPageRpcParam): Promise<PageIpfs | ModQueuePageIpfs> {
+    async getSubplebbitPage(
+        page: SubplebbitPageRpcParam
+    ): Promise<{ page: PageIpfs | ModQueuePageIpfs; runtimeFields?: PageRuntimeFields }> {
         const parsedGetSubplebbitPostsPage = parseRpcSubplebbitPageParam(page);
-        const pageIpfs = <PageIpfs | ModQueuePageIpfs>await this._webSocketClient.call("getSubplebbitPage", [parsedGetSubplebbitPostsPage]);
-        return pageIpfs;
+        const result = await this._webSocketClient.call("getSubplebbitPage", [parsedGetSubplebbitPostsPage]);
+        return result as { page: PageIpfs | ModQueuePageIpfs; runtimeFields?: PageRuntimeFields };
     }
 
     async createSubplebbit(

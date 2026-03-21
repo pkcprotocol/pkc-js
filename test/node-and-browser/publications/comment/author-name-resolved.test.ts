@@ -3,6 +3,7 @@ import signers from "../../../fixtures/signers.js";
 import {
     publishWithExpectedResult,
     publishRandomPost,
+    publishRandomReply,
     itSkipIfRpc,
     mockNameResolvers,
     createMockNameResolver,
@@ -12,6 +13,7 @@ import {
     createStaticSubplebbitRecordForComment
 } from "../../../../dist/node/test/test-util.js";
 import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
+import { deepMergeRuntimeFields } from "../../../../dist/node/util.js";
 
 const subplebbitAddress = signers[0].address;
 
@@ -264,6 +266,184 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         // === Tests that require non-RPC (mock resolvers or local verification) ===
 
+        // === Page-level nameResolved tests ===
+
+        it("nameResolved is true for domain author in subplebbit.posts preloaded pages", async () => {
+            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => Boolean(sub.posts?.pages?.hot?.comments?.length)
+            });
+            await sub.stop();
+
+            const domainComment = sub.posts.pages.hot!.comments.find((c) => c.cid === domainCommentCid);
+            expect(domainComment, "Domain comment should be in preloaded hot page").to.exist;
+            expect(domainComment!.author.nameResolved).to.equal(true);
+            expect(domainComment!.author.address).to.equal("plebbit.bso");
+        });
+
+        it("nameResolved is undefined for non-domain author in subplebbit.posts preloaded pages", async () => {
+            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => Boolean(sub.posts?.pages?.hot?.comments?.length)
+            });
+            await sub.stop();
+
+            const noDomainComment = sub.posts.pages.hot!.comments.find((c) => c.cid === noDomainCommentCid);
+            expect(noDomainComment, "Non-domain comment should be in preloaded hot page").to.exist;
+            expect(noDomainComment!.author.nameResolved).to.be.undefined;
+        });
+
+        it("nameResolved is true for domain author in pages fetched via sub.posts.getPage()", async () => {
+            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => Boolean(sub.posts?.pageCids?.hot)
+            });
+
+            const page = await sub.posts.getPage({ cid: sub.posts.pageCids.hot });
+            await sub.stop();
+
+            const domainComment = page.comments.find((c) => c.cid === domainCommentCid);
+            expect(domainComment, "Domain comment should be in fetched hot page").to.exist;
+            expect(domainComment!.author.nameResolved).to.equal(true);
+            expect(domainComment!.author.address).to.equal("plebbit.bso");
+        });
+
+        it("nameResolved is undefined for non-domain author in fetched pages", async () => {
+            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => Boolean(sub.posts?.pageCids?.hot)
+            });
+
+            const page = await sub.posts.getPage({ cid: sub.posts.pageCids.hot });
+            await sub.stop();
+
+            const noDomainComment = page.comments.find((c) => c.cid === noDomainCommentCid);
+            expect(noDomainComment, "Non-domain comment should be in fetched hot page").to.exist;
+            expect(noDomainComment!.author.nameResolved).to.be.undefined;
+        });
+
+        it("nameResolved is false for mismatched domain in subplebbit.posts preloaded pages", async () => {
+            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => Boolean(sub.posts?.pages?.hot?.comments?.length)
+            });
+            await sub.stop();
+
+            const mismatchComment = sub.posts.pages.hot!.comments.find((c) => c.cid === mismatchedDomainCommentCid);
+            if (mismatchComment) {
+                expect(mismatchComment.author.nameResolved).to.equal(false);
+                expect(mismatchComment.author.address).to.equal("plebbit.bso");
+            }
+        });
+
+        it("nameResolved is false for unresolvable domain in subplebbit.posts preloaded pages", async () => {
+            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => Boolean(sub.posts?.pages?.hot?.comments?.length)
+            });
+            await sub.stop();
+
+            const unresolvableComment = sub.posts.pages.hot!.comments.find((c) => c.cid === unresolvableDomainCommentCid);
+            if (unresolvableComment) {
+                expect(unresolvableComment.author.nameResolved).to.equal(false);
+                expect(unresolvableComment.author.address).to.equal("hello.scam");
+            }
+        });
+
+        it("nameResolved is true for domain author in comment.replies preloaded pages", async () => {
+            // Load the parent comment fully first
+            const parentForPublish = await plebbit.createComment({ cid: noDomainCommentCid });
+            await parentForPublish.update();
+            await resolveWhenConditionIsTrue({ toUpdate: parentForPublish, predicate: async () => Boolean(parentForPublish.content) });
+            await parentForPublish.stop();
+
+            // Publish a domain-author reply to the noDomainComment post
+            const reply = await publishRandomReply({
+                parentComment: parentForPublish as any,
+                plebbit,
+                commentProps: {
+                    author: { name: "plebbit.bso" },
+                    signer: signers[3]
+                }
+            });
+
+            // Load the parent comment and wait for replies
+            const parent = await plebbit.createComment({ cid: noDomainCommentCid });
+            await parent.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: parent,
+                predicate: async () => Boolean(parent.replies?.pages?.best?.comments?.length)
+            });
+            await parent.stop();
+
+            const domainReply = parent.replies.pages.best!.comments.find((c) => c.cid === reply.cid);
+            expect(domainReply, "Domain reply should be in preloaded best page").to.exist;
+            expect(domainReply!.author.nameResolved).to.equal(true);
+            expect(domainReply!.author.address).to.equal("plebbit.bso");
+        });
+
+        it("nameResolved is true for domain author in comment.replies fetched via getPage()", async () => {
+            const parent = await plebbit.createComment({ cid: noDomainCommentCid });
+            await parent.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: parent,
+                predicate: async () => Boolean(parent.replies?.pageCids?.best)
+            });
+
+            const page = await parent.replies.getPage({ cid: parent.replies.pageCids.best });
+            await parent.stop();
+
+            const domainReply = page.comments.find((c) => c.author.address === "plebbit.bso");
+            expect(domainReply, "Domain reply should be in fetched best page").to.exist;
+            expect(domainReply!.author.nameResolved).to.equal(true);
+        });
+
+        it("page with no domain authors has no nameResolved set", async () => {
+            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => Boolean(sub.posts?.pages?.hot?.comments?.length)
+            });
+            await sub.stop();
+
+            const noDomainComments = sub.posts.pages.hot!.comments.filter((c) => !c.author.address.includes("."));
+            for (const comment of noDomainComments) {
+                expect(comment.author.nameResolved).to.be.undefined;
+            }
+        });
+
+        it("nameResolved is false for mismatched domain in fetched pages", async () => {
+            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => Boolean(sub.posts?.pageCids?.hot)
+            });
+
+            const page = await sub.posts.getPage({ cid: sub.posts.pageCids.hot });
+            await sub.stop();
+
+            const mismatchComment = page.comments.find((c) => c.cid === mismatchedDomainCommentCid);
+            if (mismatchComment) {
+                expect(mismatchComment.author.nameResolved).to.equal(false);
+            }
+        });
+
+        // === Tests that require non-RPC (mock resolvers or local verification) ===
+
         itSkipIfRpc("nameResolved is false when reader has no resolver for the author's TLD", async () => {
             // Create a comment with .xyz TLD using default plebbit (which accepts all TLDs)
             const xyzComment = await createStaticSubplebbitRecordForComment({
@@ -303,5 +483,92 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             await readerPlebbit.destroy();
         });
+    });
+});
+
+describe("deepMergeRuntimeFields", () => {
+    it("merges nested objects", () => {
+        const target: any = { author: { name: "test", address: "12D3..." } };
+        deepMergeRuntimeFields(target, { author: { nameResolved: true } });
+        expect(target.author.nameResolved).to.equal(true);
+        expect(target.author.name).to.equal("test");
+        expect(target.author.address).to.equal("12D3...");
+    });
+
+    it("merges arrays element-by-element", () => {
+        const target: any = { comments: [{ author: { name: "a" } }, { author: { name: "b" } }] };
+        deepMergeRuntimeFields(target, { comments: [{ author: { nameResolved: true } }, {}] });
+        expect(target.comments[0].author.nameResolved).to.equal(true);
+        expect(target.comments[0].author.name).to.equal("a");
+        expect(target.comments[1].author).to.not.have.property("nameResolved");
+    });
+
+    it("does not overwrite when source value is undefined", () => {
+        const target: any = { author: { nameResolved: true } };
+        deepMergeRuntimeFields(target, { author: { nameResolved: undefined } });
+        expect(target.author.nameResolved).to.equal(true);
+    });
+
+    it("does nothing when source is empty object", () => {
+        const target: any = { author: { name: "test" } };
+        deepMergeRuntimeFields(target, {});
+        expect(target.author.name).to.equal("test");
+    });
+
+    it("handles mismatched array lengths (source shorter)", () => {
+        const target: any = { comments: [{ author: {} }, { author: {} }, { author: {} }] };
+        deepMergeRuntimeFields(target, { comments: [{ author: { nameResolved: true } }] });
+        expect(target.comments[0].author.nameResolved).to.equal(true);
+        expect(target.comments[1].author).to.not.have.property("nameResolved");
+    });
+
+    it("handles mismatched array lengths (source longer)", () => {
+        const target: any = { comments: [{ author: {} }] };
+        deepMergeRuntimeFields(target, { comments: [{ author: { nameResolved: true } }, { author: { nameResolved: false } }] });
+        expect(target.comments[0].author.nameResolved).to.equal(true);
+        // second element ignored since target only has 1
+        expect(target.comments.length).to.equal(1);
+    });
+
+    it("handles null/undefined targets gracefully", () => {
+        expect(() => deepMergeRuntimeFields(null, { author: { nameResolved: true } })).to.not.throw();
+        expect(() => deepMergeRuntimeFields(undefined, { author: { nameResolved: true } })).to.not.throw();
+    });
+
+    it("handles null/undefined sources gracefully", () => {
+        const target: any = { author: { name: "test" } };
+        deepMergeRuntimeFields(target, null);
+        deepMergeRuntimeFields(target, undefined);
+        expect(target.author.name).to.equal("test");
+    });
+
+    it("deeply merges nested page structure with preloaded pages", () => {
+        const target: any = {
+            posts: {
+                pages: {
+                    hot: {
+                        comments: [{ author: { name: "a" } }, { author: { name: "b" } }]
+                    }
+                }
+            }
+        };
+        deepMergeRuntimeFields(target, {
+            posts: {
+                pages: {
+                    hot: {
+                        comments: [{ author: { nameResolved: true } }, { author: { nameResolved: false } }]
+                    }
+                }
+            }
+        });
+        expect(target.posts.pages.hot.comments[0].author.nameResolved).to.equal(true);
+        expect(target.posts.pages.hot.comments[1].author.nameResolved).to.equal(false);
+        expect(target.posts.pages.hot.comments[0].author.name).to.equal("a");
+    });
+
+    it("overwrites primitive values", () => {
+        const target: any = { author: { nameResolved: false } };
+        deepMergeRuntimeFields(target, { author: { nameResolved: true } });
+        expect(target.author.nameResolved).to.equal(true);
     });
 });

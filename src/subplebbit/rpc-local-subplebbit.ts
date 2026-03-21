@@ -28,7 +28,7 @@ import type {
     EncodedDecryptedChallengeRequestMessageTypeWithSubplebbitAuthor,
     EncodedDecryptedChallengeVerificationMessageType
 } from "../pubsub-messages/types.js";
-import { hideClassPrivateProps } from "../util.js";
+import { deepMergeRuntimeFields, hideClassPrivateProps } from "../util.js";
 
 // This class is for subs that are running and publishing, over RPC. Can be used for both browser and node
 export class RpcLocalSubplebbit extends RpcRemoteSubplebbit implements RpcInternalSubplebbitRecordBeforeFirstUpdateType {
@@ -67,7 +67,10 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit implements RpcIntern
         return {
             ...this.raw.subplebbitIpfs!,
             ...this.toJSONInternalRpcBeforeFirstUpdate(),
-            updateCid: this.updateCid
+            runtimeFields: {
+                updateCid: this.updateCid,
+                updatingState: this.updatingState
+            }
         };
     }
 
@@ -99,7 +102,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit implements RpcIntern
         } else super.initRemoteSubplebbitPropsNoMerge(newProps);
 
         this.initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(newProps);
-        this.updateCid = newProps.updateCid;
+        this.updateCid = newProps.runtimeFields.updateCid;
     }
 
     protected _updateRpcClientStateFromStartedState(startedState: RpcLocalSubplebbit["startedState"]) {
@@ -124,6 +127,9 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit implements RpcIntern
         if ("updatedAt" in updateRecord) this.initRpcInternalSubplebbitAfterFirstUpdateNoMerge(updateRecord);
         else this.initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(updateRecord);
 
+        const runtimeFields = args.params.result.runtimeFields;
+        if (runtimeFields) deepMergeRuntimeFields(this, runtimeFields);
+
         if (updateRecord.startedState) this._setStartedStateNoEmission(updateRecord.startedState);
         this.emit("update", this);
     }
@@ -138,6 +144,9 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit implements RpcIntern
         if ("updatedAt" in updateRecord) {
             this.initRpcInternalSubplebbitAfterFirstUpdateNoMerge(updateRecord);
         } else this.initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(updateRecord);
+
+        const runtimeFields = args.params.result.runtimeFields;
+        if (runtimeFields) deepMergeRuntimeFields(this, runtimeFields);
 
         if (updateRecord.startedState) {
             this._setStartedStateNoEmission(updateRecord.startedState);

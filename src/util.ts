@@ -448,6 +448,23 @@ export function parseIpfsRawOptionToIpfsOptions(kuboRpcRawOption: KuboRpcClientC
     else return kuboRpcRawOption as KuboRpcClient["_clientOptions"];
 }
 
+// Deep merge runtimeFields from RPC server into parsed data.
+// Handles nested objects (recursive), arrays (element-by-element), and primitives (overwrite).
+export function deepMergeRuntimeFields(target: any, source: any): void {
+    if (!source || typeof source !== "object") return;
+    for (const key of Object.keys(source)) {
+        if (Array.isArray(source[key]) && Array.isArray(target?.[key])) {
+            for (let i = 0; i < source[key].length; i++) {
+                if (i < target[key].length) deepMergeRuntimeFields(target[key][i], source[key][i]);
+            }
+        } else if (source[key] && typeof source[key] === "object" && target?.[key] && typeof target[key] === "object") {
+            deepMergeRuntimeFields(target[key], source[key]);
+        } else if (source[key] !== undefined) {
+            target[key] = source[key];
+        }
+    }
+}
+
 export function hideClassPrivateProps(_this: any) {
     // make props that start with _ not enumerable
 

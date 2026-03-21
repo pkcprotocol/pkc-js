@@ -1,5 +1,12 @@
 import retry, { RetryOperation } from "retry";
-import { createAbortError, hideClassPrivateProps, isAbortError, retryKuboIpfsAdd, shortifyCid } from "../../util.js";
+import {
+    createAbortError,
+    deepMergeRuntimeFields,
+    hideClassPrivateProps,
+    isAbortError,
+    retryKuboIpfsAdd,
+    shortifyCid
+} from "../../util.js";
 import Publication from "../publication.js";
 import type { DecryptedChallengeVerification } from "../../pubsub-messages/types.js";
 import type { AuthorWithOptionalCommentUpdateJson, PublicationTypeName } from "../../types.js";
@@ -754,9 +761,7 @@ export class Comment
         }
         log(`Received new CommentIpfs (${this.cid}) from RPC`);
         this._initIpfsProps(parsed.comment);
-        if (typeof parsed.nameResolved === "boolean") {
-            this.author.nameResolved = parsed.nameResolved;
-        }
+        if (parsed.runtimeFields) deepMergeRuntimeFields(this, parsed.runtimeFields);
 
         this.emit("update", this);
     }

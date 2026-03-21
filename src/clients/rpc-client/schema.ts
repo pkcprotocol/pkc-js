@@ -7,12 +7,12 @@ export const SubscriptionIdSchema = z.number().positive().int();
 
 export const RpcCommentEventResultSchema = z.object({
     comment: CommentIpfsSchema,
-    nameResolved: z.boolean().optional()
+    runtimeFields: z.object({}).passthrough().optional()
 });
 export const RpcCommentUpdateResultSchema = z.object({ commentUpdate: CommentUpdateSchema });
 export const RpcChallengeVerificationEventResultSchema = z.object({
     challengeVerification: z.custom<EncodedDecryptedChallengeVerificationMessageType>(),
-    nameResolved: z.boolean().optional()
+    runtimeFields: z.object({}).passthrough().optional()
 });
 
 export const RpcCidParamSchema = z.object({ cid: CidStringSchema }).loose();

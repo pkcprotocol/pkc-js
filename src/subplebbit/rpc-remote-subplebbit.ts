@@ -4,6 +4,7 @@ import type { RpcRemoteSubplebbitType, SubplebbitEvents, SubplebbitRpcErrorToTra
 import * as remeda from "remeda";
 import { PlebbitError } from "../plebbit-error.js";
 import { parseRpcRemoteSubplebbitUpdateEventWithPlebbitErrorIfItFails } from "../schema/schema-util.js";
+import { deepMergeRuntimeFields } from "../util.js";
 import { RpcLocalSubplebbit } from "./rpc-local-subplebbit.js";
 
 export class RpcRemoteSubplebbit extends RemoteSubplebbit {
@@ -74,9 +75,9 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
         }
 
         this.initSubplebbitIpfsPropsNoMerge(updateRecord.subplebbit);
-        this.updateCid = updateRecord.updateCid;
-
-        this._setUpdatingStateNoEmission(updateRecord.updatingState || "succeeded");
+        this.updateCid = updateRecord.runtimeFields.updateCid;
+        this._setUpdatingStateNoEmission(updateRecord.runtimeFields.updatingState || "succeeded");
+        deepMergeRuntimeFields(this, updateRecord.runtimeFields);
 
         this.emit("update", this);
     }

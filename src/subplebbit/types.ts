@@ -191,11 +191,12 @@ export interface RpcInternalSubplebbitRecordBeforeFirstUpdateType
 export interface RpcInternalSubplebbitRecordAfterFirstUpdateType
     extends Omit<
         InternalSubplebbitRecordAfterFirstUpdateType,
-        "signer" | "_internalStateUpdateId" | "_cidsToUnPin" | "_mfsPathsToRemove" | "_pendingEditProps"
+        "signer" | "_internalStateUpdateId" | "_cidsToUnPin" | "_mfsPathsToRemove" | "_pendingEditProps" | "updateCid"
     > {
     started: RpcInternalSubplebbitRecordBeforeFirstUpdateType["started"];
     signer: RpcInternalSubplebbitRecordBeforeFirstUpdateType["signer"];
     startedState: RpcLocalSubplebbit["startedState"];
+    runtimeFields: Record<string, any>;
 }
 
 export type RpcLocalSubplebbitUpdateResultType =

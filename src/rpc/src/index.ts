@@ -66,6 +66,7 @@ import { PublicationRpcErrorToTransmit, RpcPublishResult } from "../../publicati
 import { TypedEmitter } from "tiny-typed-emitter";
 import { sanitizeRpcNotificationResult } from "./json-rpc-util.js";
 import type { ModQueuePageIpfs, PageIpfs } from "../../pages/types.js";
+import { buildPageRuntimeFields } from "../../pages/util.js";
 import {
     parseRpcSubplebbitAddressParam,
     parseRpcAuthorNameParam,
@@ -413,7 +414,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
         return comment.raw.comment!;
     }
 
-    async getSubplebbitPage(params: any): Promise<PageIpfs | ModQueuePageIpfs> {
+    async getSubplebbitPage(params: any) {
         const { cid: pageCid, subplebbitAddress, type, pageMaxSize } = parseRpcSubplebbitPageParam(params[0]);
         const plebbit = await this._getPlebbitInstance();
 
@@ -422,19 +423,21 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
             subplebbitAddress in this._startedSubplebbits
                 ? await this.getStartedSubplebbit(subplebbitAddress)
                 : <RemoteSubplebbit | LocalSubplebbit>await plebbit.createSubplebbit({ address: subplebbitAddress });
-        const page =
+        const { page } =
             type === "posts"
                 ? await sub.posts._fetchAndVerifyPage({ pageCid, pageMaxSize })
                 : await sub.modQueue._fetchAndVerifyPage({ pageCid, pageMaxSize });
-        return page;
+        const runtimeFields = buildPageRuntimeFields(page, plebbit._memCaches.nameResolvedCache);
+        return { page, runtimeFields };
     }
 
-    async getCommentPage(params: any): Promise<PageIpfs> {
+    async getCommentPage(params: any) {
         const { cid: pageCid, commentCid, subplebbitAddress, pageMaxSize } = parseRpcCommentRepliesPageParam(params[0]);
         const plebbit = await this._getPlebbitInstance();
         const comment = await plebbit.createComment({ cid: commentCid, subplebbitAddress });
-        const page = await comment.replies._fetchAndVerifyPage({ pageCid, pageMaxSize });
-        return page;
+        const { page } = await comment.replies._fetchAndVerifyPage({ pageCid, pageMaxSize });
+        const runtimeFields = buildPageRuntimeFields(page, plebbit._memCaches.nameResolvedCache);
+        return { page, runtimeFields };
     }
 
     async createSubplebbit(params: any) {
@@ -481,7 +484,19 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
             typeof subplebbit.updatedAt === "number"
                 ? subplebbit.toJSONInternalRpcAfterFirstUpdate()
                 : subplebbit.toJSONInternalRpcBeforeFirstUpdate();
-        const updateListener = () => sendEvent("update", getUpdateJson());
+        const updateListener = () => {
+            const json = getUpdateJson();
+            // Merge preloaded page runtimeFields into existing runtimeFields
+            const subIpfs = subplebbit.raw.subplebbitIpfs;
+            if (subIpfs?.posts?.pages && "runtimeFields" in json && json.runtimeFields) {
+                const postsRf: Record<string, any> = { posts: { pages: {} as Record<string, any> } };
+                for (const [sort, page] of Object.entries(subIpfs.posts.pages)) {
+                    postsRf.posts.pages[sort] = buildPageRuntimeFields(page, subplebbit._plebbit._memCaches.nameResolvedCache);
+                }
+                Object.assign(json.runtimeFields, postsRf);
+            }
+            sendEvent("update", json);
+        };
         subplebbit.on("update", updateListener);
         this._trackSubplebbitListener(subplebbit, "update", updateListener);
 
@@ -837,7 +852,10 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
         const comment = await plebbit.createComment(parsedCommentUpdateArgs);
         const sendUpdate = () => {
             if (!sentCommentIpfsUpdateEvent && comment.raw.comment) {
-                sendEvent("comment", { comment: comment.raw.comment, nameResolved: comment.author.nameResolved });
+                sendEvent("comment", {
+                    comment: comment.raw.comment,
+                    runtimeFields: { author: { nameResolved: comment.author.nameResolved } }
+                });
                 sentCommentIpfsUpdateEvent = true;
             }
             if (comment.raw.commentUpdate) {
@@ -930,6 +948,16 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
                         ? subplebbit.toJSONInternalRpcAfterFirstUpdate()
                         : subplebbit.toJSONInternalRpcBeforeFirstUpdate();
             else jsonToSend = subplebbit.toJSONRpcRemote();
+
+            // Merge preloaded page runtimeFields into existing runtimeFields
+            const subIpfs = subplebbit.raw.subplebbitIpfs;
+            if (subIpfs?.posts?.pages && "runtimeFields" in jsonToSend && jsonToSend.runtimeFields) {
+                const postsRf: Record<string, any> = { posts: { pages: {} as Record<string, any> } };
+                for (const [sort, page] of Object.entries(subIpfs.posts.pages)) {
+                    postsRf.posts.pages[sort] = buildPageRuntimeFields(page, plebbit._memCaches.nameResolvedCache);
+                }
+                Object.assign(jsonToSend.runtimeFields, postsRf);
+            }
 
             sendEvent("update", jsonToSend);
         };
@@ -1034,7 +1062,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
         const challengeVerificationListener = (challengeVerification: DecryptedChallengeVerificationMessageType) =>
             sendEvent("challengeverification", {
                 challengeVerification: encodeChallengeVerificationMessage(challengeVerification),
-                nameResolved: comment.author.nameResolved
+                runtimeFields: { author: { nameResolved: comment.author.nameResolved } }
             });
         comment.on("challengeverification", challengeVerificationListener);
 

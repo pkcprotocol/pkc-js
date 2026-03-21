@@ -8,13 +8,14 @@ import {
     SubplebbitModQueueClientsManager
 } from "./pages-client-manager.js";
 import { PlebbitError } from "../plebbit-error.js";
-import { hideClassPrivateProps } from "../util.js";
+import { deepMergeRuntimeFields, hideClassPrivateProps } from "../util.js";
 import { Comment } from "../publications/comment/comment.js";
 import { RemoteSubplebbit } from "../subplebbit/remote-subplebbit.js";
 import { Plebbit } from "../plebbit/plebbit.js";
 import { parsePageCidParams } from "./schema-util.js";
 import { getAuthorDomainFromRuntime } from "../publications/publication-author.js";
 import { sha256 } from "js-sha256";
+import type { PageRuntimeFields } from "./util.js";
 
 type BaseProps = {
     subplebbit: Pick<RemoteSubplebbit, "address" | "signature"> & {
@@ -86,12 +87,15 @@ export class BasePages {
         throw Error("should be implemented");
     }
 
-    async _fetchAndVerifyPage(opts: { pageCid: string; pageMaxSize?: number }): Promise<PageIpfs | ModQueuePageIpfs> {
-        const pageIpfs = await this._clientsManager.fetchPage(opts.pageCid, opts.pageMaxSize);
+    async _fetchAndVerifyPage(opts: {
+        pageCid: string;
+        pageMaxSize?: number;
+    }): Promise<{ page: PageIpfs | ModQueuePageIpfs; runtimeFields?: PageRuntimeFields }> {
+        const { page: pageIpfs, runtimeFields } = await this._clientsManager.fetchPage(opts.pageCid, opts.pageMaxSize);
         if (!this._clientsManager._plebbit._plebbitRpcClient && this._clientsManager._plebbit.validatePages)
             await this._validatePage(pageIpfs, opts.pageCid);
 
-        return pageIpfs;
+        return { page: pageIpfs, runtimeFields };
     }
 
     _parseRawPageIpfs(pageIpfs: PageIpfs | ModQueuePageIpfs): ModQueuePageTypeJson | PageTypeJson {
@@ -102,9 +106,10 @@ export class BasePages {
         if (!this._subplebbit?.address) throw Error("Subplebbit address needs to be defined under page");
         const parsedArgs = parsePageCidParams(pageCid);
 
-        const pageIpfs = await this._fetchAndVerifyPage({ pageCid: parsedArgs.cid });
+        const { page: pageIpfs, runtimeFields } = await this._fetchAndVerifyPage({ pageCid: parsedArgs.cid });
         const parsed = this._parseRawPageIpfs(pageIpfs);
         this._applyNameResolvedCacheToPage(parsed);
+        if (runtimeFields) deepMergeRuntimeFields(parsed, runtimeFields);
         return parsed;
     }
 
@@ -145,8 +150,12 @@ export class RepliesPages extends BasePages {
         this.clients = this._clientsManager.clients;
     }
 
-    override async _fetchAndVerifyPage(opts: { pageCid: string; pageMaxSize?: number }): Promise<PageIpfs> {
-        return <PageIpfs>await super._fetchAndVerifyPage(opts);
+    override async _fetchAndVerifyPage(opts: {
+        pageCid: string;
+        pageMaxSize?: number;
+    }): Promise<{ page: PageIpfs; runtimeFields?: PageRuntimeFields }> {
+        const result = await super._fetchAndVerifyPage(opts);
+        return { page: result.page as PageIpfs, runtimeFields: result.runtimeFields };
     }
 
     override _parseRawPageIpfs(pageIpfs: PageIpfs): PageTypeJson {
@@ -249,8 +258,12 @@ export class PostsPages extends BasePages {
         this.clients = this._clientsManager.clients;
     }
 
-    override async _fetchAndVerifyPage(opts: { pageCid: string; pageMaxSize?: number }): Promise<PageIpfs> {
-        return <PageIpfs>await super._fetchAndVerifyPage(opts);
+    override async _fetchAndVerifyPage(opts: {
+        pageCid: string;
+        pageMaxSize?: number;
+    }): Promise<{ page: PageIpfs; runtimeFields?: PageRuntimeFields }> {
+        const result = await super._fetchAndVerifyPage(opts);
+        return { page: result.page as PageIpfs, runtimeFields: result.runtimeFields };
     }
 
     override _parseRawPageIpfs(pageIpfs: PageIpfs): PageTypeJson {
@@ -310,8 +323,12 @@ export class ModQueuePages extends BasePages {
         this.clients = this._clientsManager.clients;
     }
 
-    override async _fetchAndVerifyPage(opts: { pageCid: string; pageMaxSize?: number }): Promise<ModQueuePageIpfs> {
-        return <ModQueuePageIpfs>await super._fetchAndVerifyPage(opts);
+    override async _fetchAndVerifyPage(opts: {
+        pageCid: string;
+        pageMaxSize?: number;
+    }): Promise<{ page: ModQueuePageIpfs; runtimeFields?: PageRuntimeFields }> {
+        const result = await super._fetchAndVerifyPage(opts);
+        return { page: result.page as ModQueuePageIpfs, runtimeFields: result.runtimeFields };
     }
 
     override _parseRawPageIpfs(pageIpfs: ModQueuePageIpfs): ModQueuePageTypeJson {
