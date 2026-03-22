@@ -49,6 +49,9 @@ export const NameResolverSchema = z.object({
     dataPath: z.string().optional() // Optional filesystem path for persistent cache storage. Resolvers can use this to store cached resolution results across restarts.
 });
 
+// Serialized variant without function props — for RPC transport where functions can't survive JSON serialization
+export const NameResolverSerializedSchema = NameResolverSchema.omit({ resolve: true, canResolve: true });
+
 const TransformKuboRpcClientOptionsSchema = KuboRpcCreateClientOptionSchema.array().transform((options) =>
     options.map(parseIpfsRawOptionToIpfsOptions)
 );

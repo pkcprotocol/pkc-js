@@ -339,15 +339,18 @@ function _buildCommentRuntimeFields(
 export function buildPageRuntimeFields(page: PageIpfs | ModQueuePageIpfs, cache: LRUCache<string, boolean>): PageRuntimeFields {
     return {
         comments: (page.comments as PageIpfs["comments"]).map((c) => {
-            const rf: CommentRuntimeFields & { commentUpdate?: { replies?: { pages?: Record<string, PageRuntimeFields> } } } =
-                _buildCommentRuntimeFields(c, cache);
+            const rf: CommentRuntimeFields & { replies?: { pages?: Record<string, PageRuntimeFields> } } = _buildCommentRuntimeFields(
+                c,
+                cache
+            );
             // Recurse into nested preloaded replies
+            // Use `replies.pages` path (matches parsed PageTypeJson structure) not `commentUpdate.replies.pages` (raw PageIpfs structure)
             if ("commentUpdate" in c && c.commentUpdate?.replies?.pages) {
                 const nestedPages: Record<string, PageRuntimeFields> = {};
                 for (const [sortName, nestedPage] of Object.entries(c.commentUpdate.replies.pages)) {
                     nestedPages[sortName] = buildPageRuntimeFields(nestedPage, cache);
                 }
-                rf.commentUpdate = { replies: { pages: nestedPages } };
+                rf.replies = { pages: nestedPages };
             }
             return rf;
         })

@@ -648,9 +648,10 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
     }
 
     async editSubplebbit(params: any) {
-        const { address, editOptions } = parseRpcEditSubplebbitParam(params[0]);
-        const replacedProps = replaceXWithY(editOptions, null, undefined);
-        const editSubplebbitOptions = parseSubplebbitEditOptionsSchemaWithPlebbitErrorIfItFails(replacedProps);
+        const rawParam = params[0];
+        rawParam.editOptions = replaceXWithY(rawParam.editOptions, null, undefined);
+        const { address, editOptions } = parseRpcEditSubplebbitParam(rawParam);
+        const editSubplebbitOptions = parseSubplebbitEditOptionsSchemaWithPlebbitErrorIfItFails(editOptions);
         const plebbit = await this._getPlebbitInstance();
 
         const localSubs = plebbit.subplebbits;
@@ -799,7 +800,12 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
 
             log(`RPC client called setSettings, the clients need to call all subscription methods again`);
             const oldPlebbit = this.plebbit;
-            const newPlebbit = await this._createPlebbitInstanceFromSetSettings(settings.plebbitOptions);
+            // Strip nameResolvers from client settings — RPC server ignores them for now
+            const { nameResolvers: _stripNr, ...plebbitOptionsWithoutNameResolvers } = settings.plebbitOptions;
+            const newPlebbit = await this._createPlebbitInstanceFromSetSettings({
+                ...plebbitOptionsWithoutNameResolvers,
+                nameResolvers: this.plebbit.parsedPlebbitOptions.nameResolvers
+            } as InputPlebbitOptions);
             this._initPlebbit(newPlebbit); // swap to new instance first so new RPC calls don't hit a destroyed plebbit
 
             // send a settingsNotification to all subscribers

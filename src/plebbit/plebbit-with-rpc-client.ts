@@ -5,7 +5,13 @@ import { parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbitErrorIfItFails
 import { CreateRpcSubplebbitFunctionArgumentSchema } from "../subplebbit/schema.js";
 import { RpcLocalSubplebbit } from "../subplebbit/rpc-local-subplebbit.js";
 import { RpcRemoteSubplebbit } from "../subplebbit/rpc-remote-subplebbit.js";
-import type { RpcLocalSubplebbitJson, RpcRemoteSubplebbitJson, SubplebbitIpfsType } from "../subplebbit/types.js";
+import type {
+    RpcInternalSubplebbitRecordAfterFirstUpdateType,
+    RpcInternalSubplebbitRecordBeforeFirstUpdateType,
+    RpcLocalSubplebbitJson,
+    RpcRemoteSubplebbitJson,
+    SubplebbitIpfsType
+} from "../subplebbit/types.js";
 import { z } from "zod";
 import { PlebbitError } from "../plebbit-error.js";
 import type { AuthorNameRpcParam, CidRpcParam } from "../clients/rpc-client/types.js";
@@ -91,8 +97,24 @@ export class PlebbitWithRpcClient extends Plebbit {
             await this._waitForSubplebbitsToBeDefined();
             const rpcSubs = this.subplebbits; // should probably be replaced with a direct call for subs
             const isSubRpcLocal = rpcSubs.includes(parsedRpcOptions.address);
-            // Should actually create an instance here, instead of calling getSubplebbit
-            if (isSubRpcLocal) {
+
+            if ("clients" in options && isSubRpcLocal) {
+                // Jsonified local sub — rehydrate from provided data instead of doing a fresh RPC fetch
+                const sub = new RpcLocalSubplebbit(this);
+                const jsonified = parsedRpcOptions as unknown as RpcLocalSubplebbitJson;
+                if (jsonified.signature) {
+                    sub.initRpcInternalSubplebbitAfterFirstUpdateNoMerge({
+                        ...jsonified,
+                        runtimeFields: { updateCid: jsonified.updateCid }
+                    } as unknown as RpcInternalSubplebbitRecordAfterFirstUpdateType);
+                } else {
+                    sub.initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(
+                        jsonified as unknown as RpcInternalSubplebbitRecordBeforeFirstUpdateType
+                    );
+                }
+                return sub;
+            } else if (isSubRpcLocal) {
+                // No jsonified data — do a fresh fetch
                 const sub = new RpcLocalSubplebbit(this);
                 sub.setAddress(parsedRpcOptions.address);
                 // wait for one update here, and then stop

@@ -207,6 +207,24 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         this._userPlebbitOptions = options;
         this.parsedPlebbitOptions = parsePlebbitUserOptionsSchemaWithPlebbitErrorIfItFails(options);
 
+        // Make nameResolver function props non-enumerable so they're excluded from JSON serialization and spread
+        if (this.parsedPlebbitOptions.nameResolvers) {
+            for (const resolver of this.parsedPlebbitOptions.nameResolvers) {
+                Object.defineProperty(resolver, "resolve", {
+                    enumerable: false,
+                    value: resolver.resolve,
+                    writable: true,
+                    configurable: true
+                });
+                Object.defineProperty(resolver, "canResolve", {
+                    enumerable: false,
+                    value: resolver.canResolve,
+                    writable: true,
+                    configurable: true
+                });
+            }
+        }
+
         // initializing fields
 
         this.plebbitRpcClientsOptions = this.parsedPlebbitOptions.plebbitRpcClientsOptions;
