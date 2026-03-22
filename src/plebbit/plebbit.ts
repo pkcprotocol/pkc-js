@@ -23,6 +23,7 @@ import { Comment } from "../publications/comment/comment.js";
 import {
     waitForUpdateInSubInstanceWithErrorAndTimeout,
     areEquivalentSubplebbitAddresses,
+    deepMergeRuntimeFields,
     doesDomainAddressHaveCapitalLetter,
     hideClassPrivateProps,
     removeUndefinedValuesRecursively,
@@ -67,6 +68,7 @@ import { RemoteSubplebbit } from "../subplebbit/remote-subplebbit.js";
 import { RpcRemoteSubplebbit } from "../subplebbit/rpc-remote-subplebbit.js";
 import { RpcLocalSubplebbit } from "../subplebbit/rpc-local-subplebbit.js";
 import { LocalSubplebbit } from "../runtime/node/subplebbit/local-subplebbit.js";
+import { extractSubplebbitRuntimeFieldsFromParsedPages } from "../pages/util.js";
 import pTimeout, { TimeoutError } from "p-timeout";
 import * as remeda from "remeda";
 import { z } from "zod";
@@ -587,13 +589,25 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         options: CreateRemoteSubplebbitOptions | SubplebbitIpfsType | RemoteSubplebbitJson | RpcRemoteSubplebbitJson
     ) {
         await subplebbit.initRemoteSubplebbitPropsNoMerge(options);
-        if ("raw" in options && options.raw.subplebbitIpfs) await subplebbit.initSubplebbitIpfsPropsNoMerge(options.raw.subplebbitIpfs); // we're setting SubplebbitIpfs
+        const preservedRuntimeFields = extractSubplebbitRuntimeFieldsFromParsedPages({
+            postsPages: subplebbit.posts.pages,
+            modQueuePages: subplebbit.modQueue.pages
+        });
+        const reapplyPreservedRuntimeFields = () => {
+            if (preservedRuntimeFields) deepMergeRuntimeFields(subplebbit, preservedRuntimeFields);
+        };
+
+        if ("raw" in options && options.raw.subplebbitIpfs) {
+            await subplebbit.initSubplebbitIpfsPropsNoMerge(options.raw.subplebbitIpfs); // we're setting SubplebbitIpfs
+            reapplyPreservedRuntimeFields();
+        }
 
         if ("updateCid" in options && options.updateCid) subplebbit.updateCid = options.updateCid;
         if (!subplebbit.raw.subplebbitIpfs) {
             // we didn't receive options that we can parse into SubplebbitIpfs
             // let's try using _updatingSubplebbits
             await subplebbit._setSubplebbitIpfsPropsFromUpdatingSubplebbitsIfPossible();
+            if (subplebbit.raw.subplebbitIpfs) reapplyPreservedRuntimeFields();
         }
 
         // last resort to set subplebbit ipfs props
@@ -605,6 +619,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
                 if (resParseSubplebbitIpfs.success) {
                     const cleanedRecord = removeUndefinedValuesRecursively(resParseSubplebbitIpfs.data); // safe way to replicate JSON.stringify() which is done before adding record to ipfs
                     await subplebbit.initSubplebbitIpfsPropsNoMerge(cleanedRecord);
+                    reapplyPreservedRuntimeFields();
                 }
             }
         }

@@ -368,6 +368,63 @@ export function buildPagesRuntimeFields(
     return result;
 }
 
+function extractCommentRuntimeFieldsFromParsedComment(
+    comment: PageTypeJson["comments"][number] | ModQueuePageTypeJson["comments"][number]
+): CommentRuntimeFields & { replies?: { pages?: Record<string, PageRuntimeFields> } } {
+    const runtimeFields: CommentRuntimeFields & { replies?: { pages?: Record<string, PageRuntimeFields> } } = {};
+    if (typeof comment.author?.nameResolved === "boolean") runtimeFields.author = { nameResolved: comment.author.nameResolved };
+
+    const repliesPages = "replies" in comment ? comment.replies?.pages : undefined;
+    if (repliesPages) {
+        const replyRuntimeFields = extractParsedPagesRuntimeFields(repliesPages);
+        if (Object.keys(replyRuntimeFields).length > 0) runtimeFields.replies = { pages: replyRuntimeFields };
+    }
+
+    return runtimeFields;
+}
+
+function extractParsedPageRuntimeFields(page: PageTypeJson | ModQueuePageTypeJson): PageRuntimeFields {
+    const comments = page.comments.map(extractCommentRuntimeFieldsFromParsedComment);
+    return comments.some((commentRuntimeFields) => Object.keys(commentRuntimeFields).length > 0) ? { comments } : {};
+}
+
+export function extractParsedPagesRuntimeFields(
+    pages: Record<string, PageTypeJson | ModQueuePageTypeJson | undefined>
+): Record<string, PageRuntimeFields> {
+    const result: Record<string, PageRuntimeFields> = {};
+    for (const [sort, page] of Object.entries(pages)) {
+        if (!page) continue;
+        const pageRuntimeFields = extractParsedPageRuntimeFields(page);
+        if (Object.keys(pageRuntimeFields).length > 0) result[sort] = pageRuntimeFields;
+    }
+    return result;
+}
+
+export function extractSubplebbitRuntimeFieldsFromParsedPages({
+    postsPages,
+    modQueuePages
+}: {
+    postsPages?: Record<string, PageTypeJson | undefined>;
+    modQueuePages?: Record<string, ModQueuePageTypeJson | undefined>;
+}) {
+    const runtimeFields: {
+        posts?: { pages: Record<string, PageRuntimeFields> };
+        modQueue?: { pages: Record<string, PageRuntimeFields> };
+    } = {};
+
+    if (postsPages) {
+        const postsRuntimeFields = extractParsedPagesRuntimeFields(postsPages);
+        if (Object.keys(postsRuntimeFields).length > 0) runtimeFields.posts = { pages: postsRuntimeFields };
+    }
+
+    if (modQueuePages) {
+        const modQueueRuntimeFields = extractParsedPagesRuntimeFields(modQueuePages);
+        if (Object.keys(modQueueRuntimeFields).length > 0) runtimeFields.modQueue = { pages: modQueueRuntimeFields };
+    }
+
+    return Object.keys(runtimeFields).length > 0 ? runtimeFields : undefined;
+}
+
 export function findCommentInPageInstanceRecursively(
     pageInstance: RemoteSubplebbit["posts"] | Comment["replies"],
     targetCid: string

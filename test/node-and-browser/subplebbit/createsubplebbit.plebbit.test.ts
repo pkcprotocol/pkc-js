@@ -90,6 +90,26 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) =>
             expect(deterministicStringify(loadedSubJson)).to.equal(deterministicStringify(createdSubJson));
         });
 
+        it("createSubplebbit preserves runtime-only author.nameResolved in preloaded fixture pages", async () => {
+            const subJson = remeda.clone(validSubplebbitJsonfiedFixture);
+            const sourceComment = subJson.posts.pages.hot.comments[0];
+            const sourceRawComment = subJson.raw.subplebbitIpfs.posts.pages.hot.comments[0];
+            Object.assign(sourceComment.author, { nameResolved: true });
+
+            expect(sourceComment.author).to.have.property("nameResolved", true);
+            expect(sourceRawComment.comment.author).to.not.have.property("nameResolved");
+
+            const recreatedSub = await plebbit.createSubplebbit(subJson);
+            const recreatedComment = recreatedSub.posts.pages.hot.comments.find((comment) => comment.cid === sourceComment.cid);
+
+            expect(recreatedComment, `Fixture comment ${sourceComment.cid} should exist after createSubplebbit rehydration`).to.exist;
+            expect(recreatedComment!.author).to.have.property(
+                "nameResolved",
+                true,
+                "createSubplebbit should preserve runtime-only author.nameResolved from parsed preloaded pages"
+            );
+        });
+
         it(`Sub JSON props does not change by creating a Subplebbit object via plebbit.createSubplebbit`, async () => {
             const subJson = remeda.clone(validSubplebbitJsonfiedFixture);
             const subObj = await plebbit.createSubplebbit(remeda.clone(validSubplebbitJsonfiedFixture));
