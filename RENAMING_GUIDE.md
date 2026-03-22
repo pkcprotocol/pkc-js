@@ -177,6 +177,52 @@ After removing `captcha-canvas-v3`, `mintpass`, `voucher`, and extracting `evm-c
 
 ---
 
+## Phase 1B: Protocol Wire Format Changes
+
+> **Do before the cosmetic rename (Phases 2–17).** These are functional/behavioral changes to the wire format and database. Isolating them from the rename makes issues easier to debug. Follows the proven `author.address` → instance-only pattern already implemented in `src/publications/publication-author.ts`.
+
+### Step 1: SubplebbitIpfs — add `name`, make `address` instance-only
+
+- [ ] Add `name: z.string().min(1).optional()` to `SubplebbitIpfsSchema` (`src/subplebbit/schema.ts`)
+- [ ] Remove `address` from `SubplebbitIpfsSchema` wire definition (becomes instance-only)
+- [ ] Make schema `.loose()` so old records with `address` field are still accepted (do NOT use `.strip()` — stripping removes fields in `signedPropertyNames` and breaks signature verification)
+- [ ] `SubplebbitSignedPropertyNames`: now includes `name` (from schema keys), excludes `address`
+- [ ] Add `name` to `SubplebbitEditOptionsSchema` so owners can set it via `sub.edit({ name: "memes.bso" })`
+- [ ] Make `address` instance-only on `RemoteSubplebbit`, computed as `name || publicKey`
+- [ ] Make `publicKey` instance-only on `RemoteSubplebbit`, derived from `signature.publicKey`
+- [ ] Make `nameResolved` instance-only on `RemoteSubplebbit` (`boolean | undefined`)
+- [ ] All three (`address`, `publicKey`, `nameResolved`) must be **enumerable own properties** (appear in `JSON.stringify()`)
+- [ ] Create helper functions following the `publication-author.ts` pattern: `buildRuntimeSubplebbit()`, `cleanWireSubplebbit()`, `omitRuntimeSubplebbitFields()`
+- [ ] Update `LocalSubplebbit` to publish new format: include `name` (if set), exclude `address`
+- [ ] Update signature verification (`verifySubplebbit` in `src/signer/signatures.ts`) — self-describing `signedPropertyNames` handles old records automatically
+- [ ] Add domain resolution verification for `subplebbit.name` (same pattern as `_verifyAuthorDomainResolvesToSignatureAddress`)
+- [ ] Tests: old records with `address` in `signedPropertyNames` still verify; new records with `name`; `address` computed correctly; `nameResolved` verification; `sub.edit({ name })` flow
+
+### Step 2: Publications — add `communityPublicKey`/`communityName`, make `subplebbitAddress` instance-only
+
+- [ ] Add `communityPublicKey: z.string().min(1).optional()` and `communityName: z.string().min(1).optional()` to `CreatePublicationUserOptionsSchema` (`src/schema/schema.ts`)
+- [ ] Keep `subplebbitAddress` in `CreatePublicationUserOptionsSchema` as user-facing input for now (renamed to `communityAddress` in the cosmetic rename phase)
+- [ ] Make publication schemas `.loose()` to accept old records with `subplebbitAddress`
+- [ ] Update `signedPropertyNames` for all publication types: include `communityPublicKey`/`communityName`, exclude `subplebbitAddress`
+- [ ] Make `subplebbitAddress` instance-only on `Publication`, computed as `communityName || communityPublicKey`
+- [ ] Create helper functions: `buildRuntimeCommunityFields()`, `cleanWireCommunityFields()`, `normalizeCommunityInput()`
+- [ ] Resolution flow on creation: user provides `subplebbitAddress` (domain or key) → system resolves → sets `communityPublicKey` + optional `communityName` → strips `subplebbitAddress` before signing
+- [ ] Backward compat when loading old `CommentIpfs` with `subplebbitAddress` but no `communityPublicKey`: if IPNS key → `communityPublicKey = subplebbitAddress`; if domain → fill from community context
+- [ ] Update `LocalSubplebbit` to accept both old and new publication formats via pubsub
+- [ ] Tests: old publications with `subplebbitAddress` still load and verify; new publications with `communityPublicKey`/`communityName`; resolution flow; signature verification both formats
+
+### Step 3: DB migration — new columns for publication fields
+
+- [ ] Bump `DB_VERSION` from 36 to 37 (`src/version.ts`)
+- [ ] Add columns to `comments`, `commentEdits`, `commentModerations` tables: `communityPublicKey TEXT`, `communityName TEXT`
+- [ ] Make `subplebbitAddress` nullable (was `TEXT NOT NULL`, now `TEXT`)
+- [ ] Migration logic: backfill `communityPublicKey` from `subplebbitAddress` (IPNS key → direct; domain → local sub's own public key)
+- [ ] Update `CommentsTableRowSchema` with new optional columns
+- [ ] Update `queryComment()` and related methods to return new columns
+- [ ] Tests: DB migration v36→v37; `queryComment` returns proper JSON for new columns; parsing test in `parsing.db.subplebbit.test.ts` per AGENTS.md; old rows with `subplebbitAddress` still work; new rows with `communityPublicKey`/`communityName`
+
+---
+
 ## Phase 2: Package Configuration & Project Files
 
 ### 2.1 Package Identity
@@ -1143,6 +1189,9 @@ Use this section to track overall progress:
 | Phase | Status | Notes |
 |-------|--------|-------|
 | Phase 1: Web3 Modularization | [~] In Progress | Name resolver done; challenge cleanup done; `resolveAuthorName` renamed; exported challenge types done; runtime author computation and `author.nameResolved` follow-up done; `nameResolved` tests added; RPC challenge verification wrapper refactored |
+| Phase 1B Step 1: SubplebbitIpfs wire format | [ ] Not Started | Add `name`, make `address`/`publicKey`/`nameResolved` instance-only |
+| Phase 1B Step 2: Publication wire format | [ ] Not Started | Add `communityPublicKey`/`communityName`, make `subplebbitAddress` instance-only |
+| Phase 1B Step 3: DB migration | [ ] Not Started | New columns, version bump, backfill |
 | Phase 2: Package Config | [ ] Not Started | |
 | Phase 3: Directory Structure | [ ] Not Started | |
 | Phase 4: Source Files | [ ] Not Started | |
