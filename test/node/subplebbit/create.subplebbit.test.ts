@@ -305,7 +305,7 @@ describe(`plebbit.createSubplebbit - performance regression`, async () => {
         await newSub.delete();
     });
 
-    it(`createSubplebbit({address}) over RPC for a stopped local subplebbit should not trigger IPNS resolution`, async () => {
+    itSkipIfRpc(`createSubplebbit({address}) over RPC for a stopped local subplebbit should not trigger IPNS resolution`, async () => {
         // This test creates its own RPC server to test the RPC-specific code path
         // The direct (non-RPC) case is covered by the test above
         const dataPath = tempy.directory();
