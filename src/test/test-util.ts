@@ -1735,6 +1735,7 @@ export function jsonifySubplebbitAndRemoveInternalProps(sub: RemoteSubplebbit) {
     const jsonfied = JSON.parse(JSON.stringify(sub));
     delete jsonfied["posts"]["clients"];
     delete jsonfied["modQueue"]["clients"];
+    delete jsonfied["raw"]["runtimeFieldsFromRpc"];
 
     return remeda.omit(jsonfied, ["startedState", "started", "signer", "settings", "editable", "clients", "updatingState", "state"]);
 }
