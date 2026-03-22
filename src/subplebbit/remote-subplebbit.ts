@@ -118,7 +118,7 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
             plebbit: this._plebbit,
             subplebbit: this
         });
-        this.modQueue = new ModQueuePages({ pageCids: {}, plebbit: this._plebbit, subplebbit: this, pages: undefined });
+        this.modQueue = new ModQueuePages({ pageCids: {}, plebbit: this._plebbit, subplebbit: this, pages: {} });
         hideClassPrivateProps(this);
     }
 

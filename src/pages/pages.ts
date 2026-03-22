@@ -304,18 +304,17 @@ export class PostsPages extends BasePages {
 type ModQueuePageCids = Record<string, string>; // cid string, we assume pendingApproval is under pageCids
 
 export class ModQueuePages extends BasePages {
-    override pages: undefined = undefined;
+    override pages!: Partial<Record<string, ModQueuePageTypeJson>>;
     override pageCids!: ModQueuePageCids;
     override _parentComment = undefined;
 
     constructor(props: ModQueueProps) {
         super(props);
-        this.pages = undefined;
     }
 
     override resetPages(): void {
         this.pageCids = {};
-        this.pages = undefined;
+        this.pages = {};
     }
 
     protected override _initClientsManager(plebbit: Plebbit): void {
