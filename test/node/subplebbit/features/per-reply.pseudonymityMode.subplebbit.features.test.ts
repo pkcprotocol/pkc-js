@@ -1791,6 +1791,16 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-reply"', () => {
                 await publishWithExpectedResult({ publication: originalPost, expectedChallengeSuccess: true });
                 await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, originalPost);
 
+                // First 3 duplicate attempts should succeed idempotently
+                for (let i = 0; i < 3; i++) {
+                    const idempotentDup = await context.publisherPlebbit.createComment(originalPublication);
+                    try {
+                        await publishWithExpectedResult({ publication: idempotentDup, expectedChallengeSuccess: true });
+                    } finally {
+                        await idempotentDup.stop();
+                    }
+                }
+                // 4th attempt should fail
                 duplicatePost = await context.publisherPlebbit.createComment(originalPublication);
                 await publishWithExpectedResult({
                     publication: duplicatePost,
@@ -1828,6 +1838,16 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-reply"', () => {
                 await publishWithExpectedResult({ publication: originalReply, expectedChallengeSuccess: true });
                 await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, originalReply);
 
+                // First 3 duplicate attempts should succeed idempotently
+                for (let i = 0; i < 3; i++) {
+                    const idempotentDup = await context.publisherPlebbit.createComment(originalReplyPublication);
+                    try {
+                        await publishWithExpectedResult({ publication: idempotentDup, expectedChallengeSuccess: true });
+                    } finally {
+                        await idempotentDup.stop();
+                    }
+                }
+                // 4th attempt should fail
                 duplicateReply = await context.publisherPlebbit.createComment(originalReplyPublication);
                 await publishWithExpectedResult({
                     publication: duplicateReply,
