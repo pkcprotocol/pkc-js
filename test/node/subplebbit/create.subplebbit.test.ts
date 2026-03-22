@@ -168,8 +168,7 @@ describe.concurrent(`plebbit.createSubplebbit (local)`, async () => {
             plebbit
         );
         await newSub.start();
-        await new Promise((resolve) => newSub.once("update", resolve));
-        if (!newSub.updatedAt) await new Promise((resolve) => newSub.once("update", resolve));
+        await resolveWhenConditionIsTrue({ toUpdate: newSub, predicate: async () => typeof newSub?.updatedAt === "number" });
         await newSub.stop();
 
         const createdSubplebbit = (await plebbit.createSubplebbit({
@@ -181,6 +180,8 @@ describe.concurrent(`plebbit.createSubplebbit (local)`, async () => {
         expect(createdSubplebbit.description).to.equal(newSub.description);
 
         await createdSubplebbit.start();
+        await resolveWhenConditionIsTrue({ toUpdate: newSub, predicate: async () => createdSubplebbit.title === newSub.title });
+
         await new Promise((resolve) => createdSubplebbit.once("update", resolve));
         expect(createdSubplebbit.title).to.equal(newSub.title);
         expect(createdSubplebbit.description).to.equal(newSub.description);
