@@ -107,6 +107,40 @@ describe("deepMergeRuntimeFields", () => {
         expect(target.updateCid).to.equal("Qm123");
     });
 
+    it("should not create new complex properties on the target when key does not exist", () => {
+        // Simulates a comment with empty replies (pages not yet loaded) receiving runtimeFields
+        // that include replies.pages.best - the runtimeFields should NOT create fake page data
+        const target: any = {
+            author: { name: "test" },
+            replies: {
+                pages: {},
+                pageCids: {}
+            }
+        };
+        const runtimeFields = {
+            author: { nameResolved: true },
+            replies: {
+                pages: {
+                    best: {
+                        comments: [{ author: { nameResolved: false } }]
+                    }
+                }
+            }
+        };
+        deepMergeRuntimeFields(target, runtimeFields);
+        // author.nameResolved should be merged (merging into existing property)
+        expect(target.author.nameResolved).to.equal(true);
+        // replies.pages.best should NOT be created (target.replies.pages has no 'best' key)
+        expect(target.replies.pages).to.not.have.property("best");
+    });
+
+    it("should not create new array properties on the target when key does not exist", () => {
+        // When target has no 'comments' key, runtimeFields should not assign their comments array
+        const target: any = { author: { name: "test" } };
+        deepMergeRuntimeFields(target, { comments: [{ author: { nameResolved: true } }] });
+        expect(target).to.not.have.property("comments");
+    });
+
     it("sets inherited getter-only properties via their backing _field", () => {
         class Base {
             _updatingState = "stopped";

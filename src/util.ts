@@ -462,6 +462,11 @@ export function deepMergeRuntimeFields(target: any, source: any): void {
         } else if (source[key] && typeof source[key] === "object" && target?.[key] && typeof target[key] === "object") {
             deepMergeRuntimeFields(target[key], source[key]);
         } else if (source[key] !== undefined) {
+            // Don't create new complex (object/array) properties on the target from runtimeFields.
+            // RuntimeFields should only merge into existing structures, not create new pages/comments/etc.
+            if ((typeof source[key] === "object" || Array.isArray(source[key])) && !(key in target)) {
+                continue;
+            }
             // Check if the property is getter-only (no setter)
             let descriptor: PropertyDescriptor | undefined;
             let proto = target;
