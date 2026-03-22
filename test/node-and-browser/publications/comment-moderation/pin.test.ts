@@ -254,9 +254,18 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`pinned=true appears in pages of subplebbit`, async () => {
-            const sub = await plebbit.getSubplebbit({ address: secondPostToPin.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: secondPostToPin.subplebbitAddress });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => {
+                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(secondPostToPin.cid, sub.posts);
+                    return commentInPage?.pinned === false;
+                }
+            });
             const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(secondPostToPin.cid, sub.posts);
             expect(commentInPage.pinned).to.be.false;
+            await sub.stop();
         });
         it(`Unpinned posts is sorted like regular posts`, async () => {
             const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });

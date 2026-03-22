@@ -75,9 +75,18 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`nsfw=true appears in pages of subplebbit`, async () => {
-            const sub = await plebbit.getSubplebbit({ address: authorPost.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: authorPost.subplebbitAddress });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => {
+                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, sub.posts);
+                    return commentInPage?.nsfw === true;
+                }
+            });
             const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, sub.posts);
             expect(commentInPage.nsfw).to.be.true;
+            await sub.stop();
         });
 
         it(`The new Comment with nsfw=true has valid signature`, async () => {
@@ -137,9 +146,18 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`nsfw=false appears in pages of subplebbit`, async () => {
-            const sub = await plebbit.getSubplebbit({ address: authorPost.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: authorPost.subplebbitAddress });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => {
+                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, sub.posts);
+                    return commentInPage?.nsfw === false;
+                }
+            });
             const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, sub.posts);
             expect(commentInPage.nsfw).to.be.false;
+            await sub.stop();
         });
     });
 
@@ -186,9 +204,18 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`nsfw=true appears in getPage of subplebbit`, async () => {
-            const sub = await plebbit.getSubplebbit({ address: modPost.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: modPost.subplebbitAddress });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => {
+                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, sub.posts);
+                    return commentInPage?.nsfw === true;
+                }
+            });
             const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, sub.posts);
             expect(commentInPage.nsfw).to.be.true;
+            await sub.stop();
         });
 
         it(`Mod can unnsfw their own comment`, async () => {
@@ -217,9 +244,18 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`nsfw=false appears in pages of subplebbit`, async () => {
-            const sub = await plebbit.getSubplebbit({ address: modPost.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: modPost.subplebbitAddress });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => {
+                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, sub.posts);
+                    return commentInPage?.nsfw === false;
+                }
+            });
             const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, sub.posts);
             expect(commentInPage.nsfw).to.be.false;
+            await sub.stop();
         });
     });
 });

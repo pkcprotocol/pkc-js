@@ -75,9 +75,18 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`spoiler=true appears in pages of subplebbit`, async () => {
-            const sub = await plebbit.getSubplebbit({ address: authorPost.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: authorPost.subplebbitAddress });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => {
+                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, sub.posts);
+                    return commentInPage?.spoiler === true;
+                }
+            });
             const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, sub.posts);
             expect(commentInPage.spoiler).to.be.true;
+            await sub.stop();
         });
 
         it(`The new Comment with spoiler=true has valid signature`, async () => {
@@ -137,9 +146,18 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`spoiler=false appears pages of subplebbit`, async () => {
-            const sub = await plebbit.getSubplebbit({ address: authorPost.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: authorPost.subplebbitAddress });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => {
+                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, sub.posts);
+                    return commentInPage?.spoiler === false;
+                }
+            });
             const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, sub.posts);
             expect(commentInPage.spoiler).to.be.false;
+            await sub.stop();
         });
     });
 
@@ -187,9 +205,18 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`spoiler=true appears in pages of subplebbit`, async () => {
-            const sub = await plebbit.getSubplebbit({ address: modPost.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: modPost.subplebbitAddress });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => {
+                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, sub.posts);
+                    return commentInPage?.spoiler === true;
+                }
+            });
             const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, sub.posts);
             expect(commentInPage.spoiler).to.be.true;
+            await sub.stop();
         });
 
         it(`Mod can unspoiler their own comment`, async () => {
@@ -218,9 +245,18 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`spoiler=false appears pages of subplebbit`, async () => {
-            const sub = await plebbit.getSubplebbit({ address: modPost.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: modPost.subplebbitAddress });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => {
+                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, sub.posts);
+                    return commentInPage?.spoiler === false;
+                }
+            });
             const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, sub.posts);
             expect(commentInPage.spoiler).to.be.false;
+            await sub.stop();
         });
     });
 });

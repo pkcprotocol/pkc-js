@@ -473,11 +473,20 @@ describe(`Publish loop resiliency`, async () => {
 
         await waitTillPostInSubplebbitPages(mockPost as CommentIpfsWithCidDefined, remotePlebbit);
 
-        const loadedSub = await remotePlebbit.getSubplebbit({ address: subplebbit.address }); // If it can load, then it has a valid signature
+        const loadedSub = await remotePlebbit.createSubplebbit({ address: subplebbit.address }); // If it can update, then it has a valid signature
+        await loadedSub.update();
+        await resolveWhenConditionIsTrue({
+            toUpdate: loadedSub,
+            predicate: async () => {
+                const loadedPost = await iterateThroughPagesToFindCommentInParentPagesInstance(mockPost.cid!, loadedSub.posts!);
+                return loadedPost?.cid === mockPost.cid;
+            }
+        });
 
         const loadedPost = await iterateThroughPagesToFindCommentInParentPagesInstance(mockPost.cid!, loadedSub.posts!);
 
         expect(loadedPost!.cid).to.equal(mockPost.cid);
+        await loadedSub.stop();
     });
 
     it(`Subplebbit isn't publishing updates needlessly`, async () => {

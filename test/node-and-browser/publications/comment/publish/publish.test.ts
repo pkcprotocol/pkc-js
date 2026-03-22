@@ -33,7 +33,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            sub = (await plebbit.createSubplebbit({ address: subplebbitAddress })) as RemoteSubplebbit;
             await sub.update();
         });
 

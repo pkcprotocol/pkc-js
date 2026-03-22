@@ -113,7 +113,18 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`The new content should be reflected in subplebbit.posts.getPage`, async () => {
-            const subplebbit1 = await plebbit.getSubplebbit({ address: commentToBeEdited.subplebbitAddress });
+            const subplebbit1 = await plebbit.createSubplebbit({ address: commentToBeEdited.subplebbitAddress });
+            await subplebbit1.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: subplebbit1,
+                predicate: async () => {
+                    const editedCommentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
+                        commentToBeEdited.cid,
+                        subplebbit1.posts
+                    );
+                    return Boolean(editedCommentInPage?.edit?.reason?.startsWith("To test editing content"));
+                }
+            });
             const subplebbit2 = await plebbit.createSubplebbit(subplebbit1); // we're testing if posts from subplebbit are parsed correctly
             const subplebbit3 = await plebbit.createSubplebbit(JSON.parse(JSON.stringify(subplebbit1)));
             for (const subplebbit of [subplebbit1, subplebbit2, subplebbit3]) {
@@ -129,10 +140,22 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 expect(editedCommentInPage.reason).to.be.undefined;
                 expect(editedCommentInPage.edit.reason.startsWith("To test editing content")).to.be.true;
             }
+            await subplebbit1.stop();
         });
 
         it(`The new content should be reflected in JSON.parse(JSON.stringify(subplebbit)).posts.pages`, async () => {
-            const sub1 = await plebbit.getSubplebbit({ address: commentToBeEdited.subplebbitAddress });
+            const sub1 = await plebbit.createSubplebbit({ address: commentToBeEdited.subplebbitAddress });
+            await sub1.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub1,
+                predicate: async () => {
+                    const editedCommentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
+                        commentToBeEdited.cid,
+                        sub1.posts
+                    );
+                    return Boolean(editedCommentInPage?.edit?.reason?.startsWith("To test editing content"));
+                }
+            });
             const sub2 = await plebbit.createSubplebbit(sub1); // we're testing if posts from subplebbit are parsed correctly
             const sub3 = await plebbit.createSubplebbit(JSON.parse(JSON.stringify(sub1)));
 
@@ -157,6 +180,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 expect(editedCommentInPage.reason).to.be.undefined;
                 expect(editedCommentInPage.edit.reason.startsWith("To test editing content")).to.be.true;
             }
+            await sub1.stop();
         });
 
         it.sequential(`Author can modify content again, while preserving comment.originalContent`, async () => {

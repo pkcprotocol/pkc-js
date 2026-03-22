@@ -124,7 +124,18 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             });
 
             it(`Can load pages with comments that has extra props in them`, async () => {
-                const subplebbit = await plebbit.getSubplebbit({ address: commentWithExtraProps.subplebbitAddress });
+                const subplebbit = await plebbit.createSubplebbit({ address: commentWithExtraProps.subplebbitAddress });
+                await subplebbit.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: subplebbit,
+                    predicate: async () => {
+                        const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
+                            commentWithExtraProps.cid!,
+                            subplebbit.posts
+                        );
+                        return (commentInPage as CommentWithExtraProp | undefined)?.extraProp === extraProps.extraProp;
+                    }
+                });
 
                 const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
                     commentWithExtraProps.cid!,
@@ -138,6 +149,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 ];
 
                 for (const shape of shapes) expect((shape as CommentWithExtraProp).extraProp).to.equal(extraProps.extraProp);
+                await subplebbit.stop();
             });
         });
     });
@@ -227,7 +239,18 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     plebbit
                 );
 
-                const subplebbit = await plebbit.getSubplebbit({ address: postWithExtraAuthorProp.subplebbitAddress });
+                const subplebbit = await plebbit.createSubplebbit({ address: postWithExtraAuthorProp.subplebbitAddress });
+                await subplebbit.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: subplebbit,
+                    predicate: async () => {
+                        const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
+                            postWithExtraAuthorProp.cid!,
+                            subplebbit.posts
+                        );
+                        return (postInPage?.author as AuthorWithExtraProp | undefined)?.extraProp === extraProps.extraProp;
+                    }
+                });
                 const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
                     postWithExtraAuthorProp.cid!,
                     subplebbit.posts
@@ -237,6 +260,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 const shapes = [postInPage, await plebbit.createComment(postInPage!)];
 
                 for (const shape of shapes) expect((shape!.author as AuthorWithExtraProp).extraProp).to.equal(extraProps.extraProp);
+                await subplebbit.stop();
             });
         });
     });

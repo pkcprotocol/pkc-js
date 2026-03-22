@@ -110,9 +110,18 @@ describeSkipIfRpc(`Migration to a new IPFS repo`, async () => {
     });
 
     it(`Post with extra prop retains its extra prop in pages`, async () => {
-        const loadedSub = await remotePlebbit.getSubplebbit({ address: postWithExtraProps.subplebbitAddress });
+        const loadedSub = await remotePlebbit.createSubplebbit({ address: postWithExtraProps.subplebbitAddress });
+        await loadedSub.update();
+        await resolveWhenConditionIsTrue({
+            toUpdate: loadedSub,
+            predicate: async () => {
+                const loadedPost = await iterateThroughPagesToFindCommentInParentPagesInstance(postWithExtraProps.cid!, loadedSub.posts);
+                return (loadedPost as { extraProp?: string } | undefined)?.extraProp === "1234";
+            }
+        });
         const loadedPost = await iterateThroughPagesToFindCommentInParentPagesInstance(postWithExtraProps.cid!, loadedSub.posts);
         expect((loadedPost as { extraProp?: string } | undefined)?.extraProp).to.equal("1234");
+        await loadedSub.stop();
     });
 
     it(`Comments' IPFS are repinned`, async () => {

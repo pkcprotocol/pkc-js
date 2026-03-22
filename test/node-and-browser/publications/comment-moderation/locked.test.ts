@@ -133,10 +133,19 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`locked=true for author post when it's locked by mod in pages of subplebbit`, async () => {
-            const sub = await plebbit.getSubplebbit({ address: postToBeLocked.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: postToBeLocked.subplebbitAddress });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => {
+                    const postInSubplebbitPage = await iterateThroughPagesToFindCommentInParentPagesInstance(postToBeLocked.cid, sub.posts);
+                    return postInSubplebbitPage?.locked === true;
+                }
+            });
             const postInSubplebbitPage = await iterateThroughPagesToFindCommentInParentPagesInstance(postToBeLocked.cid, sub.posts);
             expect(postInSubplebbitPage.locked).to.be.true;
             expect(postInSubplebbitPage.reason).to.equal("To lock an author post");
+            await sub.stop();
         });
 
         it.sequential(`Mod can lock their own post`, async () => {
@@ -159,9 +168,18 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`locked=true for mod post when it's locked by mod in getPage of subplebbit`, async () => {
-            const sub = await plebbit.getSubplebbit({ address: modPost.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: modPost.subplebbitAddress });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => {
+                    const postInSubplebbitPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, sub.posts);
+                    return postInSubplebbitPage?.locked === true;
+                }
+            });
             const postInSubplebbitPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, sub.posts);
             expect(postInSubplebbitPage.locked).to.be.true;
+            await sub.stop();
         });
 
         it(`Can't publish a reply on a locked post`, async () => {
@@ -220,9 +238,18 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`locked=false in getPage of subplebbit after the mod unlocks it`, async () => {
-            const sub = await plebbit.getSubplebbit({ address: postToBeLocked.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: postToBeLocked.subplebbitAddress });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => {
+                    const postInSubplebbitPage = await iterateThroughPagesToFindCommentInParentPagesInstance(postToBeLocked.cid, sub.posts);
+                    return postInSubplebbitPage?.locked === false;
+                }
+            });
             const postInSubplebbitPage = await iterateThroughPagesToFindCommentInParentPagesInstance(postToBeLocked.cid, sub.posts);
             expect(postInSubplebbitPage.locked).to.be.false;
+            await sub.stop();
         });
 
         it(`Unlocked post can receive replies`, async () => {
