@@ -195,6 +195,12 @@ type CommentUpdateToWriteToDbAndPublishToIpfs = {
 };
 const _startedSubplebbits: Record<string, LocalSubplebbit> = {}; // A global record on process level to track started subplebbits
 
+const DUPLICATE_PUBLICATION_ERRORS = new Set([
+    messages.ERR_DUPLICATE_COMMENT,
+    messages.ERR_DUPLICATE_COMMENT_EDIT,
+    messages.ERR_DUPLICATE_COMMENT_MODERATION
+]);
+
 // This is a sub we have locally in our plebbit datapath, in a NodeJS environment
 export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLocalSubplebbitParsedOptions {
     override signer!: SignerWithPublicKeyAddress;
@@ -218,6 +224,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         { resolve: (answers: DecryptedChallengeAnswer["challengeAnswers"]) => void; reject: (error: Error) => void }
     >;
     private _ongoingChallengeExchanges!: LRUCache<string, boolean>;
+    private _duplicatePublicationAttempts!: LRUCache<string, number>;
     private _challengeExchangesFromLocalPublishers: Record<string, boolean> = {}; // key is stringified challengeRequestId and value is true if the challenge exchange is ongoing
 
     _cidsToUnPin: Set<string> = new Set<string>();
@@ -266,6 +273,8 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         this._challengeAnswerResolveReject = undefined;
         //@ts-expect-error
         this._ongoingChallengeExchanges = undefined;
+        //@ts-expect-error
+        this._duplicatePublicationAttempts = undefined;
         //@ts-expect-error
         this._internalStateUpdateId = undefined;
 
@@ -1515,6 +1524,86 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         this._cleanUpChallengeAnswerPromise(challengeRequestId.toString());
     }
 
+    private async _publishIdempotentDuplicateVerification(
+        request: DecryptedChallengeRequestMessageType,
+        challengeRequestId: ChallengeRequestMessageType["challengeRequestId"],
+        duplicateReason: string
+    ) {
+        const log = Logger("plebbit-js:local-subplebbit:_publishIdempotentDuplicateVerification");
+
+        let encrypted: ChallengeVerificationMessageType["encrypted"] | undefined;
+        let toEncryptDecrypted: DecryptedChallengeVerification | undefined;
+
+        // For comments, include the existing comment data in the encrypted response
+        if (duplicateReason === messages.ERR_DUPLICATE_COMMENT && request.comment) {
+            const existingComment = this._dbHandler.queryCommentBySignatureEncoded(request.comment.signature.signature);
+            if (!existingComment) {
+                return this._publishFailedChallengeVerification({ reason: duplicateReason }, challengeRequestId);
+            }
+            log("Returning idempotent success for duplicate comment", existingComment.cid);
+
+            const authorSignerAddress = await getPlebbitAddressFromPublicKey(existingComment.signature.publicKey);
+            const authorDomain = getAuthorDomainFromWire(existingComment.author);
+            const authorSubplebbit = this._dbHandler.querySubplebbitAuthor(authorSignerAddress, authorDomain);
+            if (!authorSubplebbit) {
+                return this._publishFailedChallengeVerification({ reason: duplicateReason }, challengeRequestId);
+            }
+            const commentNumberPostNumber = this._dbHandler._assignNumbersForComment(existingComment.cid);
+
+            const commentUpdateNoSig = <Omit<DecryptedChallengeVerification["commentUpdate"], "signature">>cleanUpBeforePublishing({
+                author: { subplebbit: authorSubplebbit },
+                cid: existingComment.cid,
+                protocolVersion: env.PROTOCOL_VERSION,
+                ...commentNumberPostNumber
+            });
+            const commentUpdate = <DecryptedChallengeVerification["commentUpdate"]>{
+                ...commentUpdateNoSig,
+                signature: await signCommentUpdateForChallengeVerification({
+                    update: commentUpdateNoSig,
+                    signer: this.signer
+                })
+            };
+            const commentIpfs = CommentIpfsSchema.strip().parse(existingComment);
+            toEncryptDecrypted = { comment: commentIpfs, commentUpdate };
+
+            encrypted = await encryptEd25519AesGcmPublicKeyBuffer(
+                deterministicStringify(toEncryptDecrypted),
+                this.signer.privateKey,
+                request.signature.publicKey
+            );
+        } else {
+            // For edits/moderations: success has no encrypted data (same as normal success)
+            log("Returning idempotent success for duplicate", duplicateReason);
+        }
+
+        const toSignMsg: Omit<ChallengeVerificationMessageType, "signature"> = cleanUpBeforePublishing({
+            type: "CHALLENGEVERIFICATION",
+            challengeRequestId,
+            encrypted,
+            challengeSuccess: true,
+            reason: undefined,
+            userAgent: this._plebbit.userAgent,
+            protocolVersion: env.PROTOCOL_VERSION,
+            timestamp: timestamp()
+        });
+        const challengeVerification = <ChallengeVerificationMessageType>{
+            ...toSignMsg,
+            signature: await signChallengeVerification({ challengeVerification: toSignMsg, signer: this.signer })
+        };
+
+        const pubsubClient = this._clientsManager.getDefaultKuboPubsubClient();
+        this._clientsManager.updateKuboRpcPubsubState("publishing-challenge-verification", pubsubClient.url);
+        if (!this._challengeExchangesFromLocalPublishers[challengeRequestId.toString()])
+            await this._clientsManager.pubsubPublish(this.pubsubTopicWithfallback(), challengeVerification);
+        this._clientsManager.updateKuboRpcPubsubState("waiting-challenge-requests", pubsubClient.url);
+
+        const objectToEmit = <DecryptedChallengeVerificationMessageType>{ ...challengeVerification, ...toEncryptDecrypted };
+        this.emit("challengeverification", objectToEmit);
+        this._ongoingChallengeExchanges.delete(challengeRequestId.toString());
+        delete this._challengeExchangesFromLocalPublishers[challengeRequestId.toString()];
+        this._cleanUpChallengeAnswerPromise(challengeRequestId.toString());
+    }
+
     private async _storePublicationAndEncryptForChallengeVerification(
         request: DecryptedChallengeRequestMessageType,
         pendingApproval?: boolean
@@ -2194,8 +2283,21 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         this.emit("challengerequest", decryptedRequestWithSubplebbitAuthor);
 
         const publicationInvalidityReason = await this._checkPublicationValidity(decryptedRequestMsg, publication, subplebbitAuthor);
-        if (publicationInvalidityReason)
+        if (publicationInvalidityReason) {
+            if (DUPLICATE_PUBLICATION_ERRORS.has(publicationInvalidityReason)) {
+                const sig = publication.signature.signature;
+                const attempts = (this._duplicatePublicationAttempts.get(sig) || 0) + 1;
+                this._duplicatePublicationAttempts.set(sig, attempts);
+                if (attempts <= 3) {
+                    return this._publishIdempotentDuplicateVerification(
+                        decryptedRequestMsg,
+                        request.challengeRequestId,
+                        publicationInvalidityReason
+                    );
+                }
+            }
             return this._publishFailedChallengeVerification({ reason: publicationInvalidityReason }, request.challengeRequestId);
+        }
 
         const answerPromiseKey = decryptedRequestWithSubplebbitAuthor.challengeRequestId.toString();
         const getChallengeAnswers: GetChallengeAnswers = async (challenges) => {
@@ -3013,6 +3115,11 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
                 max: 1000,
                 ttl: 600000
             });
+        if (!this._duplicatePublicationAttempts)
+            this._duplicatePublicationAttempts = new LRUCache<string, number>({
+                max: 1000,
+                ttl: 600000
+            });
         await this._dbHandler.initDbIfNeeded();
     }
 
@@ -3493,6 +3600,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             delete this._plebbit._startedSubplebbits[this.signer.address]; // in case we changed address
             delete _startedSubplebbits[this.address];
             delete _startedSubplebbits[this.signer.address];
+            this._duplicatePublicationAttempts?.clear();
             await this._dbHandler.rollbackAllTransactions();
             await this._dbHandler.unlockSubState();
             await this._updateStartedValue();

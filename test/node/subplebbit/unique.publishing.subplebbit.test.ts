@@ -2,6 +2,7 @@ import { beforeAll, afterAll, beforeEach, afterEach, it } from "vitest";
 import { describeSkipIfRpc, generateMockPost, mockPlebbit, publishWithExpectedResult } from "../../../dist/node/test/test-util.js";
 import { messages } from "../../../dist/node/errors.js";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
+import { LRUCache } from "lru-cache";
 
 import type { Plebbit as PlebbitType } from "../../../dist/node/plebbit/plebbit.js";
 import type { LocalSubplebbit } from "../../../dist/node/runtime/node/subplebbit/local-subplebbit.js";
@@ -118,7 +119,15 @@ class InMemoryDbHandlerMock {
     }
 
     hasCommentWithSignatureEncoded(signatureEncoded: string): boolean {
-        return this.comments.some((comment) => comment.signature?.signature === signatureEncoded);
+        return this.comments.some(
+            (comment) => comment.signature?.signature === signatureEncoded || comment.originalCommentSignatureEncoded === signatureEncoded
+        );
+    }
+
+    queryCommentBySignatureEncoded(signatureEncoded: string): CommentsTableRowInsert | undefined {
+        return this.comments.find(
+            (comment) => comment.signature?.signature === signatureEncoded || comment.originalCommentSignatureEncoded === signatureEncoded
+        );
     }
 
     insertComments(comments: CommentsTableRowInsert[]): void {
@@ -232,11 +241,13 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
             _challengeAnswerPromises: Map<string, Record<string, number | string | boolean>>;
             _challengeAnswerResolveReject: Map<string, Record<string, number | string | boolean>>;
             _challengeExchangesFromLocalPublishers: Record<string, Record<string, number | string | boolean>>;
+            _duplicatePublicationAttempts: LRUCache<string, number>;
         };
         s._ongoingChallengeExchanges = new Map();
         s._challengeAnswerPromises = new Map();
         s._challengeAnswerResolveReject = new Map();
         s._challengeExchangesFromLocalPublishers = {};
+        s._duplicatePublicationAttempts = new LRUCache<string, number>({ max: 1000, ttl: 600000 });
     };
 
     const publishChallengeVerification = async (
@@ -581,6 +592,202 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
         expect(challengeVerifications.length).to.equal(2);
         const duplicateEvent = challengeVerifications[1];
         expect(duplicateEvent.challengeSuccess).to.be.true;
+        dispose();
+    });
+
+    // Helpers for idempotent duplicate tests
+    const checkPublicationValidity = async (
+        sub: LocalSubplebbit,
+        request: MockChallengeRequest,
+        publication: { signature: { publicKey: string; signature: string } }
+    ): Promise<string | undefined> => {
+        const s = sub as object as {
+            _checkPublicationValidity(
+                request: MockChallengeRequest,
+                publication: { signature: { publicKey: string; signature: string } },
+                subplebbitAuthor: unknown
+            ): Promise<string | undefined>;
+        };
+        return s._checkPublicationValidity(request, publication, undefined);
+    };
+
+    const publishIdempotentDuplicateVerification = async (
+        sub: LocalSubplebbit,
+        request: MockChallengeRequest,
+        challengeRequestId: bigint,
+        duplicateReason: string
+    ): Promise<void> => {
+        const s = sub as object as {
+            _publishIdempotentDuplicateVerification(
+                request: MockChallengeRequest,
+                challengeRequestId: bigint,
+                duplicateReason: string
+            ): Promise<void>;
+        };
+        return s._publishIdempotentDuplicateVerification(request, challengeRequestId, duplicateReason);
+    };
+
+    const getDuplicateAttempts = (sub: LocalSubplebbit, sig: string): number => {
+        const s = sub as object as { _duplicatePublicationAttempts: LRUCache<string, number> };
+        return s._duplicatePublicationAttempts.get(sig) || 0;
+    };
+
+    const setDuplicateAttempts = (sub: LocalSubplebbit, sig: string, count: number): void => {
+        const s = sub as object as { _duplicatePublicationAttempts: LRUCache<string, number> };
+        s._duplicatePublicationAttempts.set(sig, count);
+    };
+
+    it("returns idempotent success for duplicate comment up to 3 times, then rejects", async () => {
+        const { publication: commentPub, instance: commentInstance } = await createCommentPublication();
+        const { challengeVerifications, dispose } = captureChallengeVerifications();
+
+        // First publish succeeds normally
+        const request = makeCommentRequest(commentPub, 100);
+        await publishViaMockedSubAndAssert({
+            publication: commentInstance,
+            request,
+            expectedChallengeSuccess: true
+        });
+        expect(dbMock.comments.length).to.equal(1);
+
+        // Duplicate attempts 1-3 should return success via idempotent handler
+        for (let i = 1; i <= 3; i++) {
+            const dupRequest = makeCommentRequest(clone(commentPub), 100 + i);
+            const reason = await checkPublicationValidity(subplebbit, dupRequest, commentPub);
+            expect(reason).to.equal(messages.ERR_DUPLICATE_COMMENT);
+
+            await publishIdempotentDuplicateVerification(subplebbit, dupRequest, BigInt(100 + i), messages.ERR_DUPLICATE_COMMENT);
+            setDuplicateAttempts(subplebbit, commentPub.signature.signature, i);
+        }
+
+        // Should have 4 verifications total: 1 original + 3 idempotent
+        expect(challengeVerifications.length).to.equal(4);
+        for (let i = 1; i <= 3; i++) {
+            expect(challengeVerifications[i].challengeSuccess).to.be.true;
+        }
+
+        // No new comments stored
+        expect(dbMock.comments.length).to.equal(1);
+
+        // 4th duplicate attempt should be rejected (spam)
+        setDuplicateAttempts(subplebbit, commentPub.signature.signature, 3);
+        const spamRequest = makeCommentRequest(clone(commentPub), 104);
+        const spamReason = await checkPublicationValidity(subplebbit, spamRequest, commentPub);
+        expect(spamReason).to.equal(messages.ERR_DUPLICATE_COMMENT);
+
+        // Simulate the handleChallengeRequest logic: attempts > 3 → reject
+        const attempts = getDuplicateAttempts(subplebbit, commentPub.signature.signature) + 1;
+        setDuplicateAttempts(subplebbit, commentPub.signature.signature, attempts);
+        expect(attempts).to.be.greaterThan(3);
+
+        dispose();
+    });
+
+    it("returns idempotent success for duplicate comment edit up to 3 times, then rejects", async () => {
+        const { signer: originalCommentSigner, publication: commentPub } = await createCommentPublication();
+        const commentRequest = makeCommentRequest(commentPub, 110);
+        await publishChallengeVerification(subplebbit, { challengeSuccess: true, challengeErrors: undefined }, commentRequest, false);
+
+        const storedComment = dbMock.comments[0];
+        const editInstance = await plebbit.createCommentEdit({
+            subplebbitAddress: subplebbit.address,
+            commentCid: storedComment.cid,
+            content: "Edited content",
+            signer: originalCommentSigner
+        });
+        const editPublication = editInstance.raw.pubsubMessageToPublish!;
+
+        const { challengeVerifications, dispose } = captureChallengeVerifications();
+
+        // First edit publish succeeds
+        const editRequest = makeCommentEditRequest(editPublication, 111);
+        await publishViaMockedSubAndAssert({
+            publication: editInstance,
+            request: editRequest,
+            expectedChallengeSuccess: true
+        });
+        expect(dbMock.commentEdits.length).to.equal(1);
+
+        // Duplicate edit attempts 1-3 should succeed via idempotent handler
+        for (let i = 1; i <= 3; i++) {
+            const dupRequest = makeCommentEditRequest(clone(editPublication), 111 + i);
+            const reason = await checkPublicationValidity(subplebbit, dupRequest, editPublication);
+            expect(reason).to.equal(messages.ERR_DUPLICATE_COMMENT_EDIT);
+
+            await publishIdempotentDuplicateVerification(subplebbit, dupRequest, BigInt(111 + i), messages.ERR_DUPLICATE_COMMENT_EDIT);
+            setDuplicateAttempts(subplebbit, editPublication.signature.signature, i);
+        }
+
+        expect(challengeVerifications.length).to.equal(4);
+        for (let i = 1; i <= 3; i++) {
+            expect(challengeVerifications[i].challengeSuccess).to.be.true;
+        }
+        expect(dbMock.commentEdits.length).to.equal(1);
+
+        // 4th attempt rejected
+        setDuplicateAttempts(subplebbit, editPublication.signature.signature, 3);
+        const attempts = getDuplicateAttempts(subplebbit, editPublication.signature.signature) + 1;
+        setDuplicateAttempts(subplebbit, editPublication.signature.signature, attempts);
+        expect(attempts).to.be.greaterThan(3);
+
+        dispose();
+    });
+
+    it("returns idempotent success for duplicate comment moderation up to 3 times, then rejects", async () => {
+        const { publication: commentPub } = await createCommentPublication();
+        const commentRequest = makeCommentRequest(commentPub, 120);
+        await publishChallengeVerification(subplebbit, { challengeSuccess: true, challengeErrors: undefined }, commentRequest, false);
+
+        const storedComment = dbMock.comments[0];
+        const modSigner = await plebbit.createSigner();
+        subplebbit.roles = { [modSigner.address]: { role: "moderator" } };
+
+        const moderationInstance = await plebbit.createCommentModeration({
+            subplebbitAddress: subplebbit.address,
+            commentCid: storedComment.cid,
+            commentModeration: { removed: true },
+            signer: modSigner
+        });
+        const moderationPublication = moderationInstance.raw.pubsubMessageToPublish!;
+
+        const { challengeVerifications, dispose } = captureChallengeVerifications();
+
+        // First moderation publish succeeds
+        const modRequest = makeCommentModerationRequest(moderationPublication, 121);
+        await publishViaMockedSubAndAssert({
+            publication: moderationInstance,
+            request: modRequest,
+            expectedChallengeSuccess: true
+        });
+        expect(dbMock.commentModerations.length).to.equal(1);
+
+        // Duplicate moderation attempts 1-3 should succeed via idempotent handler
+        for (let i = 1; i <= 3; i++) {
+            const dupRequest = makeCommentModerationRequest(clone(moderationPublication), 121 + i);
+            const reason = await checkPublicationValidity(subplebbit, dupRequest, moderationPublication);
+            expect(reason).to.equal(messages.ERR_DUPLICATE_COMMENT_MODERATION);
+
+            await publishIdempotentDuplicateVerification(
+                subplebbit,
+                dupRequest,
+                BigInt(121 + i),
+                messages.ERR_DUPLICATE_COMMENT_MODERATION
+            );
+            setDuplicateAttempts(subplebbit, moderationPublication.signature.signature, i);
+        }
+
+        expect(challengeVerifications.length).to.equal(4);
+        for (let i = 1; i <= 3; i++) {
+            expect(challengeVerifications[i].challengeSuccess).to.be.true;
+        }
+        expect(dbMock.commentModerations.length).to.equal(1);
+
+        // 4th attempt rejected
+        setDuplicateAttempts(subplebbit, moderationPublication.signature.signature, 3);
+        const attempts = getDuplicateAttempts(subplebbit, moderationPublication.signature.signature) + 1;
+        setDuplicateAttempts(subplebbit, moderationPublication.signature.signature, attempts);
+        expect(attempts).to.be.greaterThan(3);
+
         dispose();
     });
 

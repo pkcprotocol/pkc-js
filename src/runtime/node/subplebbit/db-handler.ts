@@ -1331,6 +1331,19 @@ export class DbHandler {
         return row !== undefined;
     }
 
+    queryCommentBySignatureEncoded(signatureEncoded: string): CommentsTableRow | undefined {
+        const row = this._db
+            .prepare(
+                `SELECT * FROM ${TABLES.COMMENTS}
+                 WHERE json_extract(signature, '$.signature') = ?
+                    OR originalCommentSignatureEncoded = ?
+                 LIMIT 1`
+            )
+            .get(signatureEncoded, signatureEncoded) as CommentsTableRow | undefined;
+        if (!row) return undefined;
+        return this._parseCommentsTableRow(row);
+    }
+
     hasCommentModerationWithSignatureEncoded(signatureEncoded: string): boolean {
         const row = this._db
             .prepare(`SELECT 1 FROM ${TABLES.COMMENT_MODERATIONS} WHERE json_extract(signature, '$.signature') = ? LIMIT 1`)
