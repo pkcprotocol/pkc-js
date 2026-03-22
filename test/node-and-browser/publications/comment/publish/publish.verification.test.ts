@@ -110,15 +110,8 @@ describe.concurrent("Subplebbit rejection of incorrect values of fields", async 
         });
     });
 
-    it("Throws an error when publishing a duplicate post", async function () {
-        const newPost = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
-        newPost.raw.pubsubMessageToPublish = post.raw.pubsubMessageToPublish!;
-        await publishWithExpectedResult({
-            publication: newPost,
-            expectedChallengeSuccess: false,
-            expectedReason: messages.ERR_DUPLICATE_COMMENT
-        });
-    });
+    // Removed: "Throws an error when publishing a duplicate post" — idempotent duplicate handling is now
+    // tested in test/node/subplebbit/unique.publishing.subplebbit.test.ts
 
     it(`Throws an error when comment is over size`, async () => {
         const veryLongString = "Hello".repeat(10000);
