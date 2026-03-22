@@ -14,7 +14,7 @@ import type { Comment } from "../../../../dist/node/publications/comment/comment
 const subplebbitAddress = signers[0].address;
 
 getAvailablePlebbitConfigsToTestAgainst().map((config) => {
-    describe(`Authors can set flairs on their own comment - ${config.name}`, async () => {
+    describe.sequential(`Authors can set flairs on their own comment - ${config.name}`, async () => {
         let plebbit: Plebbit, authorPost: Comment;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -84,7 +84,15 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`flairs appear in pages of subplebbit`, async () => {
-            const sub = await plebbit.getSubplebbit({ address: authorPost.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: authorPost.subplebbitAddress });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => {
+                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, sub.posts);
+                    return Boolean(commentInPage?.flairs);
+                }
+            });
             const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, sub.posts);
             expect(commentInPage.flairs).to.deep.equal([{ text: "Discussion" }]);
         });
