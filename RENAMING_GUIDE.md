@@ -62,9 +62,9 @@ Name resolution must happen on the RPC server side, not the client side. This al
 - This is important for lightweight clients (browsers, mobile) that shouldn't need web3 dependencies
 
 **Implementation considerations:**
-- [ ] Ensure `getSubplebbit` / `getCommunity` RPC method resolves names server-side
-- [ ] RPC client should NOT attempt local resolution before calling RPC
-- [ ] `subplebbitUpdateSubscribe` / `communityUpdateSubscribe` should accept domain names and resolve server-side
+- [x] Ensure RPC methods resolve names server-side — no standalone `getSubplebbit` RPC method exists; resolution happens server-side via `subplebbitUpdateSubscribe` and `createSubplebbit` which call `plebbit.createSubplebbit(parsedArgs)`, triggering `nameResolvers`
+- [x] RPC client should NOT attempt local resolution before calling RPC — confirmed: `plebbit-rpc-client.ts` passes params directly to WebSocket calls
+- [x] `subplebbitUpdateSubscribe` / `communityUpdateSubscribe` should accept domain names and resolve server-side — RPC server strips client nameResolvers and uses its own
 - [ ] Document that RPC servers need resolvers configured, not RPC clients
 
 ### 1.2 External Challenge Registration
@@ -445,10 +445,9 @@ After renaming directories and files, update ALL import statements across the co
 - [ ] `SubplebbitAddressSchema` → `CommunityAddressSchema`
 - [ ] `PlebbitTimestampSchema` → `PKCTimestampSchema`
 - [ ] `SubplebbitAuthorSchema` → `CommunityAuthorSchema`
-- [ ] **Remove** `address` from `AuthorPubsubSchema` — now instance-only, computed as `name || publicKey` (**breaking change**)
-- [ ] **Remove** `address` from `AuthorIpfsSchema` — now instance-only (**breaking change**)
-- [ ] **Add** `name: z.string().min(1).optional()` to `AuthorPubsubSchema` and `AuthorIpfsSchema` (wire field — domain name like `"vitalik.bso"`)
-- [ ] Use `.loose()` on author schemas to accept old records with `address` field (do NOT use `.strip()` — stripping can remove fields referenced in `signedPropertyNames` and corrupt signature verification)
+- [x] **Remove** `address` from `AuthorPubsubSchema` — now instance-only, computed as `name || publicKey` (**breaking change**). `AuthorIpfsSchema` was also removed (no separate schema exists).
+- [x] **Add** `name: z.string().min(1).optional()` to `AuthorPubsubSchema` (wire field — domain name like `"vitalik.bso"`)
+- [x] Use `.loose()` on author schemas to accept old records with `address` field (used on `CreatePublicationUserOptionsSchema.author`)
 
 ### 7.3 Subplebbit Schemas (src/subplebbit/schema.ts)
 - [ ] `SubplebbitEncryptionSchema` → `CommunityEncryptionSchema`
@@ -823,6 +822,7 @@ Rename all test files with "subplebbit" or "plebbit" in the name. Files without 
 - [ ] `mirror-client-mismatch.test.ts` (content updates only)
 - [ ] `multiplegateways.update.test.ts` (content updates only)
 - [ ] `unsupported-tld-rejection.test.ts` (content updates only)
+- [ ] `runtime-author-fields.db.subplebbit.test.ts` → `runtime-author-fields.db.community.test.ts`
 
 **test/node/subplebbit/ipns/**
 - [ ] `resolve.ipns.subplebbit.test.ts` → `resolve.ipns.community.test.ts`
@@ -887,6 +887,10 @@ Rename all test files with "subplebbit" or "plebbit" in the name. Files without 
 - [ ] `plebbit-settings-challenges.test.ts` → `pkc-settings-challenges.test.ts`
 - [ ] `plebbit-settings-challenges-rpc.test.ts` → `pkc-settings-challenges-rpc.test.ts`
 - [ ] `hanging.plebbit.test.ts` → `hanging.pkc.test.ts`
+- [ ] `plebbit-settings-nameresolvers-rpc.test.ts` → `pkc-settings-nameresolvers-rpc.test.ts`
+
+**test/node/pages/**
+- [ ] `author-subplebbit-in-pages.test.ts` → `author-community-in-pages.test.ts`
 
 **test/node-and-browser/subplebbit/** (13 files — directory moves to test/node-and-browser/community/)
 - [ ] `state.subplebbit.test.ts` → `state.community.test.ts`
@@ -936,8 +940,15 @@ Rename all test files with "subplebbit" or "plebbit" in the name. Files without 
 **test/node-and-browser/publications/subplebbit-edit/** (directory moves to test/node-and-browser/publications/community-edit/)
 - [ ] `subplebbit.edit.publication.test.ts` → `community.edit.publication.test.ts`
 
+**test/node-and-browser/publications/**
+- [ ] `author-address-domain-normalization.test.ts` (content updates only)
+- [ ] `runtime-author-fields-serialization.test.ts` (content updates only)
+
 **test/node-and-browser/publications/comment/**
 - [ ] `getcomment.plebbit.test.ts` → `getcomment.pkc.test.ts`
+
+**test/node-and-browser/** (root-level test files)
+- [ ] `deep-merge-runtime-fields.test.ts` (content updates only)
 
 **test/browser/**
 - [ ] `plebbit.test.ts` → `pkc.test.ts`
