@@ -183,20 +183,24 @@ After removing `captcha-canvas-v3`, `mintpass`, `voucher`, and extracting `evm-c
 
 ### Step 1: SubplebbitIpfs — add `name`, make `address` instance-only
 
-- [ ] Add `name: z.string().min(1).optional()` to `SubplebbitIpfsSchema` (`src/subplebbit/schema.ts`)
-- [ ] Remove `address` from `SubplebbitIpfsSchema` wire definition (becomes instance-only)
-- [ ] Make schema `.loose()` so old records with `address` field are still accepted (do NOT use `.strip()` — stripping removes fields in `signedPropertyNames` and breaks signature verification)
-- [ ] `SubplebbitSignedPropertyNames`: now includes `name` (from schema keys), excludes `address`
-- [ ] Add `name` to `SubplebbitEditOptionsSchema` so owners can set it via `sub.edit({ name: "memes.bso" })`
-- [ ] Make `address` instance-only on `RemoteSubplebbit`, computed as `name || publicKey`
-- [ ] Make `publicKey` instance-only on `RemoteSubplebbit`, derived from `signature.publicKey`
-- [ ] Make `nameResolved` instance-only on `RemoteSubplebbit` (`boolean | undefined`)
-- [ ] All three (`address`, `publicKey`, `nameResolved`) must be **enumerable own properties** (appear in `JSON.stringify()`)
-- [ ] Create helper functions following the `publication-author.ts` pattern: `buildRuntimeSubplebbit()`, `cleanWireSubplebbit()`, `omitRuntimeSubplebbitFields()`
-- [ ] Update `LocalSubplebbit` to publish new format: include `name` (if set), exclude `address`
-- [ ] Update signature verification (`verifySubplebbit` in `src/signer/signatures.ts`) — self-describing `signedPropertyNames` handles old records automatically
-- [ ] Add domain resolution verification for `subplebbit.name` (same pattern as `_verifyAuthorDomainResolvesToSignatureAddress`)
-- [ ] Tests: old records with `address` in `signedPropertyNames` still verify; new records with `name`; `address` computed correctly; `nameResolved` verification; `sub.edit({ name })` flow
+- [x] Add `name: z.string().min(1).optional()` to `SubplebbitIpfsSchema` (`src/subplebbit/schema.ts`)
+- [x] Remove `address` from `SubplebbitIpfsSchema` wire definition (becomes instance-only)
+- [x] Parsing already uses `.loose()` via `parseSubplebbitIpfsSchemaPassthroughWithPlebbitErrorIfItFails`, so old records with `address` are accepted. Schema definition stays `.strict()` to preserve TypeScript types.
+- [x] `SubplebbitSignedPropertyNames`: now includes `name` (from schema keys), excludes `address`
+- [x] Add `name` to `SubplebbitEditOptionsSchema` so owners can set it via `sub.edit({ name: "memes.bso" })`
+- [x] Make `address` instance-only on `RemoteSubplebbit`, computed as `name || publicKey`
+- [x] Make `publicKey` instance-only on `RemoteSubplebbit`, derived from `signature.publicKey`
+- [ ] Make `nameResolved` instance-only on `RemoteSubplebbit` (`boolean | undefined`) — property declared, but domain resolution verification not yet wired up
+- [x] `address` and `publicKey` appear in `JSON.stringify()` (enumerable own properties)
+- [x] Create helper functions following the `publication-author.ts` pattern: `buildRuntimeSubplebbit()`, `cleanWireSubplebbit()`, `omitRuntimeSubplebbitFields()` — in `src/subplebbit/subplebbit-wire.ts`
+- [x] `_toJSONIpfsBaseNoPosts()` automatically follows schema shape, so published format excludes `address` and includes `name`
+- [x] Update signature verification (`verifySubplebbit` in `src/signer/signatures.ts`) — derives address from wire record for page verification; self-describing `signedPropertyNames` handles old records automatically
+- [ ] Add domain resolution verification for `subplebbit.name` (same pattern as `_verifyAuthorDomainResolvesToSignatureAddress`) — not yet implemented
+- [x] `CreateRemoteSubplebbitOptionsSchema`: `address` now optional, added `publicKey` (B58 IPNS name), refinement requires at least one of `address`/`name`/`publicKey`
+- [x] `createSubplebbit()` accepts `{name}`, `{publicKey}`, `{address}`, or combinations; `instance.address` always defined
+- [x] Tests: old records with `address` in `signedPropertyNames` still verify; new records with `name`; `address` computed correctly; flexible `createSubplebbit` input (21 new tests in `test/node-and-browser/subplebbit/wire-format-migration.test.ts` and `test/node-and-browser/signatures/subplebbit.test.ts`)
+- [ ] `sub.edit({ name })` flow — edit handler not yet updated in `LocalSubplebbit`
+- [ ] `nameResolved` verification — not yet implemented
 
 ### Step 2: Publications — add `communityPublicKey`/`communityName`, make `subplebbitAddress` instance-only
 
