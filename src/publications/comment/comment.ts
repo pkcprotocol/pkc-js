@@ -32,6 +32,7 @@ import type {
     CommentUpdateType,
     CommentUpdatingState,
     CommentWithinRepliesPostsPageJson,
+    CommentOptionsToSign,
     CreateCommentOptions,
     RpcCommentResultType,
     RpcCommentUpdateResultType
@@ -44,6 +45,7 @@ import {
     parseRpcCommentUpdateEventWithPlebbitErrorIfItFails
 } from "../../schema/schema-util.js";
 import type { SignerType } from "../../signer/types.js";
+import type { CreatePublicationOptions } from "../../types.js";
 import { CommentClientsManager } from "./comment-client-manager.js";
 import type { SubplebbitIpfsType } from "../../subplebbit/types.js";
 import { CID } from "kubo-rpc-client";
@@ -185,6 +187,30 @@ export class Comment
 
     _clearStopAbortController() {
         this._stopAbortController = undefined;
+    }
+
+    override _initUnsignedLocalProps<
+        T extends {
+            signer: SignerType;
+            communityAddress: string;
+            timestamp: number;
+            protocolVersion: string;
+            author?: Record<string, unknown>;
+        }
+    >(opts: { unsignedOptions: T; challengeRequest?: CreatePublicationOptions["challengeRequest"] }) {
+        super._initUnsignedLocalProps(opts);
+        const o = opts.unsignedOptions as unknown as CommentOptionsToSign;
+        this.title = o.title;
+        this.content = o.content;
+        this.parentCid = o.parentCid;
+        this.link = o.link;
+        this.linkWidth = o.linkWidth;
+        this.linkHeight = o.linkHeight;
+        this.linkHtmlTagName = o.linkHtmlTagName;
+        this.spoiler = o.spoiler;
+        this.nsfw = o.nsfw;
+        this.flairs = o.flairs;
+        this.quotedCids = o.quotedCids;
     }
 
     _initLocalProps(props: {

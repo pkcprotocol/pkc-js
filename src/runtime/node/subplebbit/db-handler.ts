@@ -1159,9 +1159,12 @@ export class DbHandler {
         const address = this._subplebbit.address;
         const addresses = getEquivalentSubplebbitAddresses(address);
         if (isStringDomain(address)) {
-            // Domain-based: match communityName against equivalent domain variants
+            // Domain-based: match communityName OR communityPublicKey (domain strings and IPNS keys never overlap)
             const domainPlaceholders = addresses.map(() => "?").join(", ");
-            return { clause: `${alias}.communityName IN (${domainPlaceholders})`, params: addresses };
+            return {
+                clause: `(${alias}.communityName IN (${domainPlaceholders}) OR ${alias}.communityPublicKey IN (${domainPlaceholders}))`,
+                params: [...addresses, ...addresses]
+            };
         } else {
             // IPNS key: match communityPublicKey directly
             return { clause: `${alias}.communityPublicKey = ?`, params: [address] };
@@ -1172,15 +1175,22 @@ export class DbHandler {
         const address = this._subplebbit.address;
         const addresses = getEquivalentSubplebbitAddresses(address);
         if (isStringDomain(address)) {
-            // Domain-based: match communityName against equivalent domain variants
+            // Domain-based: match communityName OR communityPublicKey (domain strings and IPNS keys never overlap)
             const params: Record<string, string> = {};
-            const placeholders: string[] = [];
+            const namePlaceholders: string[] = [];
+            const keyPlaceholders: string[] = [];
             addresses.forEach((addr, i) => {
-                const paramName = `${paramPrefix}CommunityName${i}`;
-                params[paramName] = addr;
-                placeholders.push(`:${paramName}`);
+                const nameParam = `${paramPrefix}CommunityName${i}`;
+                const keyParam = `${paramPrefix}CommunityKey${i}`;
+                params[nameParam] = addr;
+                params[keyParam] = addr;
+                namePlaceholders.push(`:${nameParam}`);
+                keyPlaceholders.push(`:${keyParam}`);
             });
-            return { clause: `${alias}.communityName IN (${placeholders.join(", ")})`, params };
+            return {
+                clause: `(${alias}.communityName IN (${namePlaceholders.join(", ")}) OR ${alias}.communityPublicKey IN (${keyPlaceholders.join(", ")}))`,
+                params
+            };
         } else {
             // IPNS key: match communityPublicKey directly
             const paramName = `${paramPrefix}CommunityKey`;

@@ -17,7 +17,7 @@ function makePageIpfsComment(extraCommentUpdateAuthorFields?: Record<string, unk
                 signedPropertyNames: ["content", "title", "author", "subplebbitAddress", "protocolVersion", "timestamp"],
                 type: "ed25519"
             },
-            communityAddress: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR",
+            communityPublicKey: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR",
             timestamp: 1728396704,
             title: "Test post"
         },

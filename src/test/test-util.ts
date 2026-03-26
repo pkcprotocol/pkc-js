@@ -1153,6 +1153,28 @@ export async function overrideCommentEditInstancePropsAndSign(commentEdit: Comme
     disableValidationOfSignatureBeforePublishing(commentEdit);
 }
 
+export async function ensurePublicationIsSigned(
+    publication: Publication,
+    community: {
+        address: string;
+        signer?: { address: string };
+        encryption: { type: string; publicKey: string };
+        pubsubTopic?: string;
+        name?: string;
+    }
+) {
+    if (!publication.raw.pubsubMessageToPublish) {
+        publication._community = {
+            address: community.address,
+            publicKey: community.signer?.address ?? community.address,
+            name: community.name,
+            encryption: community.encryption,
+            pubsubTopic: community.pubsubTopic
+        };
+        await publication._signPublicationWithCommunityFields();
+    }
+}
+
 export async function setExtraPropOnCommentAndSign(comment: Comment, extraProps: Object, includeExtraPropInSignedPropertyNames: boolean) {
     const log = Logger("plebbit-js:test-util:setExtraPropOnVoteAndSign");
 

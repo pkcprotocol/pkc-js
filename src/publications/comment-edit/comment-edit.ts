@@ -3,9 +3,10 @@ import Publication from "../publication.js";
 import { verifyCommentEdit } from "../../signer/signatures.js";
 import { hideClassPrivateProps, isIpfsCid } from "../../util.js";
 import { PlebbitError } from "../../plebbit-error.js";
-import type { CommentEditPubsubMessagePublication, CreateCommentEditOptions } from "./types.js";
+import type { CommentEditOptionsToSign, CommentEditPubsubMessagePublication, CreateCommentEditOptions } from "./types.js";
 import type { PublicationTypeName } from "../../types.js";
 import type { SignerType } from "../../signer/types.js";
+import type { CreatePublicationOptions } from "../../types.js";
 
 export class CommentEdit extends Publication implements CommentEditPubsubMessagePublication {
     commentCid!: CommentEditPubsubMessagePublication["commentCid"];
@@ -28,6 +29,26 @@ export class CommentEdit extends Publication implements CommentEditPubsubMessage
         this.publish = this.publish.bind(this);
 
         hideClassPrivateProps(this);
+    }
+
+    override _initUnsignedLocalProps<
+        T extends {
+            signer: SignerType;
+            communityAddress: string;
+            timestamp: number;
+            protocolVersion: string;
+            author?: Record<string, unknown>;
+        }
+    >(opts: { unsignedOptions: T; challengeRequest?: CreatePublicationOptions["challengeRequest"] }) {
+        super._initUnsignedLocalProps(opts);
+        const o = opts.unsignedOptions as unknown as CommentEditOptionsToSign;
+        this.commentCid = o.commentCid;
+        this.content = o.content;
+        this.reason = o.reason;
+        this.deleted = o.deleted;
+        this.flairs = o.flairs;
+        this.spoiler = o.spoiler;
+        this.nsfw = o.nsfw;
     }
 
     _initLocalProps(props: {

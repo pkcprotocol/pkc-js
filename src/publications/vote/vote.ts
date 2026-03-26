@@ -4,9 +4,10 @@ import { Plebbit } from "../../plebbit/plebbit.js";
 import { verifyVote } from "../../signer/index.js";
 import { hideClassPrivateProps } from "../../util.js";
 import { PlebbitError } from "../../plebbit-error.js";
-import type { CreateVoteOptions, VotePubsubMessagePublication } from "./types.js";
+import type { CreateVoteOptions, VoteOptionsToSign, VotePubsubMessagePublication } from "./types.js";
 import * as remeda from "remeda";
 import type { SignerType } from "../../signer/types.js";
+import type { CreatePublicationOptions } from "../../types.js";
 
 // vote.signer is inherited from Publication
 class Vote extends Publication implements VotePubsubMessagePublication {
@@ -24,6 +25,21 @@ class Vote extends Publication implements VotePubsubMessagePublication {
         this.publish = this.publish.bind(this);
 
         hideClassPrivateProps(this);
+    }
+
+    override _initUnsignedLocalProps<
+        T extends {
+            signer: SignerType;
+            communityAddress: string;
+            timestamp: number;
+            protocolVersion: string;
+            author?: Record<string, unknown>;
+        }
+    >(opts: { unsignedOptions: T; challengeRequest?: CreatePublicationOptions["challengeRequest"] }) {
+        super._initUnsignedLocalProps(opts);
+        const o = opts.unsignedOptions as unknown as VoteOptionsToSign;
+        this.commentCid = o.commentCid;
+        this.vote = o.vote;
     }
 
     _initLocalProps(props: {

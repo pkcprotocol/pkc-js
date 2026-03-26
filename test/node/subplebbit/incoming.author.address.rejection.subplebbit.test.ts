@@ -4,6 +4,7 @@ import {
     createSubWithNoChallenge,
     describeSkipIfRpc,
     disableValidationOfSignatureBeforePublishing,
+    ensurePublicationIsSigned,
     mockPlebbit,
     publishRandomPost,
     publishWithExpectedResult,
@@ -106,6 +107,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects incoming signed wire autho
 
     async function injectSignedAuthorAddressIntoSubplebbitEdit(subplebbitEdit: SubplebbitEdit, authorAddress: string) {
         if (!subplebbitEdit.signer) throw Error("Expected subplebbitEdit.signer to be defined");
+        await ensurePublicationIsSigned(subplebbitEdit, subplebbit);
 
         const publication = subplebbitEdit.raw.pubsubMessageToPublish!;
         const modifiedPublication = {
@@ -141,6 +143,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects incoming signed wire autho
             publication: comment,
             publicationKey: "comment",
             injectAuthorAddress: async (authorAddress) => {
+                await ensurePublicationIsSigned(comment, subplebbit);
                 await setExtraPropOnCommentAndSign(comment, { author: { address: authorAddress } }, true);
             }
         });
@@ -159,6 +162,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects incoming signed wire autho
             publication: vote,
             publicationKey: "vote",
             injectAuthorAddress: async (authorAddress) => {
+                await ensurePublicationIsSigned(vote, subplebbit);
                 await setExtraPropOnVoteAndSign(vote as Vote, { author: { address: authorAddress } }, true);
             }
         });
@@ -178,6 +182,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects incoming signed wire autho
             publication: commentEdit,
             publicationKey: "commentEdit",
             injectAuthorAddress: async (authorAddress) => {
+                await ensurePublicationIsSigned(commentEdit, subplebbit);
                 await setExtraPropOnCommentEditAndSign(commentEdit as CommentEdit, { author: { address: authorAddress } }, true);
             }
         });
@@ -199,6 +204,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects incoming signed wire autho
             publication: commentModeration,
             publicationKey: "commentModeration",
             injectAuthorAddress: async (authorAddress) => {
+                await ensurePublicationIsSigned(commentModeration, subplebbit);
                 await setExtraPropOnCommentModerationAndSign(
                     commentModeration as CommentModeration,
                     { author: { address: authorAddress } },

@@ -195,7 +195,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         this.author = { ...runtimeAuthor, shortAddress: shortifyAddress(runtimeAuthor.address) };
     }
 
-    protected async _signPublicationWithCommunityFields() {
+    async _signPublicationWithCommunityFields() {
         if (!this.raw.unsignedPublicationOptions) throw Error("No unsigned publication options to sign");
         if (!this._community) throw Error("Community must be loaded before signing");
 

@@ -2,10 +2,11 @@ import { Plebbit } from "../../plebbit/plebbit.js";
 import Publication from "../publication.js";
 import { hideClassPrivateProps, isIpfsCid } from "../../util.js";
 import { PlebbitError } from "../../plebbit-error.js";
-import type { CommentModerationPubsubMessagePublication, CreateCommentModerationOptions } from "./types.js";
+import type { CommentModerationOptionsToSign, CommentModerationPubsubMessagePublication, CreateCommentModerationOptions } from "./types.js";
 import type { PublicationTypeName } from "../../types.js";
 import { verifyCommentModeration } from "../../signer/signatures.js";
 import type { SignerType } from "../../signer/types.js";
+import type { CreatePublicationOptions } from "../../types.js";
 
 export class CommentModeration extends Publication implements CommentModerationPubsubMessagePublication {
     commentCid!: CommentModerationPubsubMessagePublication["commentCid"];
@@ -22,6 +23,21 @@ export class CommentModeration extends Publication implements CommentModerationP
         this.publish = this.publish.bind(this);
 
         hideClassPrivateProps(this);
+    }
+
+    override _initUnsignedLocalProps<
+        T extends {
+            signer: SignerType;
+            communityAddress: string;
+            timestamp: number;
+            protocolVersion: string;
+            author?: Record<string, unknown>;
+        }
+    >(opts: { unsignedOptions: T; challengeRequest?: CreatePublicationOptions["challengeRequest"] }) {
+        super._initUnsignedLocalProps(opts);
+        const o = opts.unsignedOptions as unknown as CommentModerationOptionsToSign;
+        this.commentCid = o.commentCid;
+        this.commentModeration = o.commentModeration;
     }
 
     _initLocalProps(props: {

@@ -3,9 +3,14 @@ import type { PublicationTypeName } from "../../types.js";
 import { Plebbit } from "../../plebbit/plebbit.js";
 import { hideClassPrivateProps } from "../../util.js";
 import { PlebbitError } from "../../plebbit-error.js";
-import type { CreateSubplebbitEditPublicationOptions, SubplebbitEditPubsubMessagePublication } from "./types.js";
+import type {
+    CreateSubplebbitEditPublicationOptions,
+    SubplebbitEditPublicationOptionsToSign,
+    SubplebbitEditPubsubMessagePublication
+} from "./types.js";
 import type { SignerType } from "../../signer/types.js";
 import { verifySubplebbitEdit } from "../../signer/signatures.js";
+import type { CreatePublicationOptions } from "../../types.js";
 
 // subplebbitEdit.signer is inherited from Publication
 class SubplebbitEdit extends Publication implements SubplebbitEditPubsubMessagePublication {
@@ -22,6 +27,20 @@ class SubplebbitEdit extends Publication implements SubplebbitEditPubsubMessageP
         this.publish = this.publish.bind(this);
 
         hideClassPrivateProps(this);
+    }
+
+    override _initUnsignedLocalProps<
+        T extends {
+            signer: SignerType;
+            communityAddress: string;
+            timestamp: number;
+            protocolVersion: string;
+            author?: Record<string, unknown>;
+        }
+    >(opts: { unsignedOptions: T; challengeRequest?: CreatePublicationOptions["challengeRequest"] }) {
+        super._initUnsignedLocalProps(opts);
+        const o = opts.unsignedOptions as unknown as SubplebbitEditPublicationOptionsToSign;
+        this.subplebbitEdit = o.subplebbitEdit;
     }
 
     _initLocalProps(props: {
