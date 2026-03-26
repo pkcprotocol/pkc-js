@@ -241,6 +241,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
         this._initBaseRemoteProps(signedPublication);
     }
 
+    protected async _validateSignatureHook(): Promise<void> {
+        // Subclasses override to validate signature after signing
+    }
+
     protected async _verifyDecryptedChallengeVerificationAndUpdateCommentProps(decryptedVerification: DecryptedChallengeVerification) {
         throw Error("should be handled in comment, not publication");
     }
@@ -1156,6 +1160,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
         if (this.raw.unsignedPublicationOptions && !this.raw.pubsubMessageToPublish) {
             await this._signPublicationWithCommunityFields();
         }
+
+        await this._validateSignatureHook();
 
         if (this._plebbit._plebbitRpcClient) return this._publishWithRpc();
 

@@ -1101,7 +1101,7 @@ export class Comment
         this._setUpdatingStateWithEmissionIfNewState("stopped");
     }
 
-    private async _validateSignature() {
+    protected override async _validateSignatureHook() {
         const stopAbortController = this._createStopAbortController();
         const commentObj = JSON.parse(JSON.stringify(this.raw.pubsubMessageToPublish!)); // Stringify so it resembles messages from pubsub
         try {
@@ -1115,10 +1115,5 @@ export class Comment
         } finally {
             if (this.state !== "updating") this._clearStopAbortController();
         }
-    }
-
-    override async publish(): Promise<void> {
-        await this._validateSignature();
-        return super.publish();
     }
 }

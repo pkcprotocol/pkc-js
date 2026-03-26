@@ -47,7 +47,7 @@ class Vote extends Publication implements VotePubsubMessagePublication {
         return "vote";
     }
 
-    private async _validateSignature() {
+    protected override async _validateSignatureHook() {
         const voteObj = JSON.parse(JSON.stringify(this.raw.pubsubMessageToPublish!)); // Stringified here to simulate a message sent through IPNS/PUBSUB
         const signatureValidity = await verifyVote({
             vote: voteObj,
@@ -55,11 +55,6 @@ class Vote extends Publication implements VotePubsubMessagePublication {
             clientsManager: this._clientsManager
         });
         if (!signatureValidity.valid) throw new PlebbitError("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
-    }
-
-    override async publish(): Promise<void> {
-        await this._validateSignature();
-        return super.publish();
     }
 }
 

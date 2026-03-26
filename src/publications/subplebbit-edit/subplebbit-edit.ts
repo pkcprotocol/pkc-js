@@ -44,7 +44,7 @@ class SubplebbitEdit extends Publication implements SubplebbitEditPubsubMessageP
         return "subplebbitEdit";
     }
 
-    private async _validateSignature() {
+    protected override async _validateSignatureHook() {
         const subplebbitEditObj = JSON.parse(JSON.stringify(this.raw.pubsubMessageToPublish!)); // Stringified here to simulate a message sent through IPNS/PUBSUB
         const signatureValidity = await verifySubplebbitEdit({
             subplebbitEdit: subplebbitEditObj,
@@ -52,11 +52,6 @@ class SubplebbitEdit extends Publication implements SubplebbitEditPubsubMessageP
             clientsManager: this._clientsManager
         });
         if (!signatureValidity.valid) throw new PlebbitError("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
-    }
-
-    override async publish(): Promise<void> {
-        await this._validateSignature();
-        return super.publish();
     }
 }
 

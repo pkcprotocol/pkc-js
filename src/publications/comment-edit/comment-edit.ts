@@ -56,7 +56,7 @@ export class CommentEdit extends Publication implements CommentEditPubsubMessage
         return "commentEdit";
     }
 
-    private async _validateSignature() {
+    protected override async _validateSignatureHook() {
         const editObj = JSON.parse(JSON.stringify(this.raw.pubsubMessageToPublish!));
         const signatureValidity = await verifyCommentEdit({
             edit: editObj,
@@ -70,8 +70,6 @@ export class CommentEdit extends Publication implements CommentEditPubsubMessage
     override async publish(): Promise<void> {
         // TODO if publishing with content,reason, deleted, verify that publisher is original author
         if (!isIpfsCid(this.commentCid)) throw new PlebbitError("ERR_CID_IS_INVALID", { commentCid: this.commentCid });
-
-        await this._validateSignature();
 
         return super.publish();
     }
