@@ -22,7 +22,7 @@ import { parseRpcAuthorNameParam, parseRpcCidParam } from "../clients/rpc-client
 export class PlebbitWithRpcClient extends Plebbit {
     override _plebbitRpcClient!: NonNullable<Plebbit["_plebbitRpcClient"]>;
     override plebbitRpcClientsOptions!: NonNullable<Plebbit["plebbitRpcClientsOptions"]>;
-    override _startedSubplebbits: Record<SubplebbitIpfsType["address"], RpcLocalSubplebbit> = {}; // storing subplebbit instance that are started rn
+    override _startedSubplebbits: Record<string, RpcLocalSubplebbit> = {}; // storing subplebbit instance that are started rn
     override _updatingSubplebbits: Record<string, RpcLocalSubplebbit | RpcRemoteSubplebbit> = {};
 
     constructor(options: InputPlebbitOptions) {
@@ -93,10 +93,19 @@ export class PlebbitWithRpcClient extends Plebbit {
 
         log.trace("Received subplebbit options to create a subplebbit instance over RPC:", options);
 
-        if ("address" in parsedRpcOptions && typeof parsedRpcOptions.address === "string") {
+        const hasIdentifier =
+            ("address" in parsedRpcOptions && typeof parsedRpcOptions.address === "string") ||
+            ("name" in parsedRpcOptions && typeof parsedRpcOptions.name === "string") ||
+            ("publicKey" in parsedRpcOptions && typeof parsedRpcOptions.publicKey === "string");
+        const effectiveAddress =
+            ((parsedRpcOptions as Record<string, unknown>).address as string | undefined) ||
+            ((parsedRpcOptions as Record<string, unknown>).name as string | undefined) ||
+            ((parsedRpcOptions as Record<string, unknown>).publicKey as string | undefined);
+
+        if (hasIdentifier && effectiveAddress) {
             await this._waitForSubplebbitsToBeDefined();
             const rpcSubs = this.subplebbits; // should probably be replaced with a direct call for subs
-            const isSubRpcLocal = rpcSubs.includes(parsedRpcOptions.address);
+            const isSubRpcLocal = rpcSubs.includes(effectiveAddress);
 
             if ("clients" in options && isSubRpcLocal) {
                 // Jsonified local sub — rehydrate from provided data instead of doing a fresh RPC fetch
@@ -116,7 +125,7 @@ export class PlebbitWithRpcClient extends Plebbit {
             } else if (isSubRpcLocal) {
                 // No jsonified data — do a fresh fetch
                 const sub = new RpcLocalSubplebbit(this);
-                sub.setAddress(parsedRpcOptions.address);
+                sub.setAddress(effectiveAddress!);
                 // wait for one update here, and then stop
                 const updatePromise = new Promise((resolve) => sub.once("update", resolve));
                 let error: PlebbitError | Error | undefined;
@@ -129,13 +138,13 @@ export class PlebbitWithRpcClient extends Plebbit {
 
                 return sub;
             } else {
-                log.trace("Creating a remote RPC subplebbit instance with address", parsedRpcOptions.address);
+                log.trace("Creating a remote RPC subplebbit instance with address", effectiveAddress);
                 const remoteSub = new RpcRemoteSubplebbit(this);
                 await this._setSubplebbitIpfsOnInstanceIfPossible(remoteSub, parsedRpcOptions);
 
                 return remoteSub;
             }
-        } else if (!("address" in parsedRpcOptions)) {
+        } else if (!hasIdentifier) {
             // We're creating a new local sub
             const subPropsAfterCreation = await this._plebbitRpcClient!.createSubplebbit(parsedRpcOptions);
             log(

@@ -74,7 +74,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                 );
 
             const subplebbit = await plebbit.getSubplebbit({ address: signers[0].address });
-            mockPost._getSubplebbitCache = () => subplebbit.raw.subplebbitIpfs; // so libp2pjs client state won't include fetching subplebbit states
+            mockPost._getSubplebbitCache = () => {
+                const ipfs = subplebbit.raw.subplebbitIpfs;
+                if (!ipfs) return undefined;
+                return { address: subplebbit.address, encryption: ipfs.encryption, pubsubTopic: ipfs.pubsubTopic };
+            }; // so libp2pjs client state won't include fetching subplebbit states
             await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });
 
             expect(actualStates).to.deep.equal(expectedStates);

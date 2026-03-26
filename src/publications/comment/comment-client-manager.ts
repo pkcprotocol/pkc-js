@@ -209,7 +209,7 @@ export class CommentClientsManager extends PublicationClientsManager {
             update: commentUpdate,
             resolveAuthorNames: this._plebbit.resolveAuthorNames,
             clientsManager: this,
-            subplebbit: subplebbitIpfs,
+            subplebbit: { address: this._comment.subplebbitAddress, signature: subplebbitIpfs.signature },
             comment: { ...this._comment.raw.comment, cid: this._comment.cid, postCid: this._comment.postCid },
             validatePages: this._plebbit.validatePages,
             validateUpdateSignature: true,
@@ -923,7 +923,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         }
         const replyInPage = this._findCommentInPagesOfUpdatingCommentsOrSubplebbit({ post: postInstance });
 
-        const repliesSubplebbit = <Pick<SubplebbitIpfsType, "signature" | "address">>(
+        const repliesSubplebbit = <Pick<SubplebbitIpfsType, "signature">>(
             (this._plebbit._updatingSubplebbits[postInstance.subplebbitAddress]?.raw?.subplebbitIpfs ||
                 this._plebbit._startedSubplebbits[postInstance.subplebbitAddress]?.raw?.subplebbitIpfs ||
                 postInstance.replies._subplebbit)

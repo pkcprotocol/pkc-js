@@ -65,7 +65,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
 
                 const stressPublishCount = 100;
                 const offlineSubplebbit = await createMockedSubplebbitIpns({});
-                const offlineSubAddress = offlineSubplebbit.subplebbitRecord.address; // this sub is not online so can't respond to messages, although the IPNS record is fetchable
+                const offlineSubAddress = offlineSubplebbit.subplebbitAddress; // this sub is not online so can't respond to messages, although the IPNS record is fetchable
 
                 const challengeRequestIds = new Set();
                 const externalPeerChallengeRequests = new Set();
@@ -80,7 +80,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
                     externalPeer.once("connect", () => resolve());
                     externalPeer.once("connect_error", reject);
                 });
-                externalPeer.on(offlineSubAddress, (msg) => {
+                externalPeer.on(offlineSubAddress, (msg: unknown) => {
                     const asBytes = normalizeToUint8(msg);
                     if (!asBytes) return;
                     try {
@@ -155,7 +155,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
                 const isRemoteIpfsGatewayConfig = isPlebbitFetchingUsingGateways(localPlebbit);
                 const shouldMockFetchForIpns = isRemoteIpfsGatewayConfig && typeof globalThis.fetch === "function";
 
-                const targetAddressForGatewayIpnsUrl = convertBase58IpnsNameToBase36Cid(randomSub.subplebbitRecord.address);
+                const targetAddressForGatewayIpnsUrl = convertBase58IpnsNameToBase36Cid(randomSub.subplebbitAddress);
                 let fetchSpy: MockInstance | undefined;
                 let nameResolveSpy: MockInstance | undefined;
 
@@ -180,7 +180,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
                     const comments = await Promise.all(
                         new Array(stressPublishCount).fill(null).map(async (_, index) =>
                             localPlebbit.createComment({
-                                subplebbitAddress: randomSub.subplebbitRecord.address,
+                                subplebbitAddress: randomSub.subplebbitAddress,
                                 title: `parallel publish cache regression ${index}`,
                                 content: `parallel publish cache regression content ${index}`,
                                 signer: await localPlebbit.createSigner()
@@ -199,8 +199,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
                               const url = typeof input === "string" ? input : (input as { url?: string })?.url;
                               return typeof url === "string" && url.includes("/ipns/" + targetAddressForGatewayIpnsUrl);
                           }).length
-                        : nameResolveSpy!.mock.calls.filter((callArgs: unknown[]) => callArgs[0] === randomSub.subplebbitRecord.address)
-                              .length;
+                        : nameResolveSpy!.mock.calls.filter((callArgs: unknown[]) => callArgs[0] === randomSub.subplebbitAddress).length;
 
                     expect(resolveCallsCount).to.equal(1, "Publishing to the same subplebbit should only resolve IPNS once");
                     await Promise.all(comments.map((comment) => comment.stop()));

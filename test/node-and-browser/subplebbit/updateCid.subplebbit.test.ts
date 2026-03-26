@@ -15,7 +15,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) =>
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             const ipnsObj = await createMockedSubplebbitIpns({});
-            subAddress = ipnsObj.subplebbitRecord.address;
+            subAddress = ipnsObj.subplebbitAddress;
         });
 
         afterAll(async () => {

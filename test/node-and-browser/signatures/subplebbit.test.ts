@@ -11,6 +11,8 @@ import { messages } from "../../../dist/node/errors.js";
 import { verifySubplebbit, signSubplebbit, cleanUpBeforePublishing, _signJson } from "../../../dist/node/signer/signatures.js";
 import * as remeda from "remeda";
 import validSubplebbitFixture from "../../fixtures/signatures/subplebbit/valid_subplebbit_ipfs.json" with { type: "json" };
+import newFormatFixture from "../../fixtures/signatures/subplebbit/valid_subplebbit_ipfs_new_format.json" with { type: "json" };
+import newFormatWithNameFixture from "../../fixtures/signatures/subplebbit/valid_subplebbit_ipfs_new_format_with_name.json" with { type: "json" };
 import { removeUndefinedValuesRecursively } from "../../../dist/node/util.js";
 import Logger from "@plebbit/plebbit-logger";
 
@@ -37,10 +39,13 @@ describeSkipIfRpc.concurrent("Sign subplebbit", async () => {
             subplebbit: subFixtureClone as Omit<SubplebbitIpfsType, "signature">,
             signer: signers[0]
         });
-        expect(signature.signature).to.equal(subFixture.signature.signature);
+        // Old fixture was signed with address in signedPropertyNames; new signing omits address.
+        // The signatures differ because different fields are signed, but both are valid.
         expect(signature.publicKey).to.equal(subFixture.signature.publicKey);
-        expect(signature.signedPropertyNames.sort()).to.deep.equal(subFixture.signature.signedPropertyNames.sort());
         expect(signature.type).to.equal(subFixture.signature.type);
+        // New signature excludes 'address' from signedPropertyNames
+        expect(signature.signedPropertyNames).to.not.include("address");
+        expect(subFixture.signature.signedPropertyNames).to.include("address");
     });
     it(`Can sign and validate live subplebbit correctly`, async () => {
         const subplebbit = await plebbit.getSubplebbit({ address: signers[0].address });
@@ -65,6 +70,31 @@ describeSkipIfRpc.concurrent("Sign subplebbit", async () => {
             cacheIfValid: false
         });
         expect(verification).to.deep.equal({ valid: true });
+    });
+
+    it(`Can sign new-format record without address`, async () => {
+        const subFixture = remeda.clone(newFormatFixture) as SubplebbitIpfsType;
+        const subFixtureClone = remeda.clone(subFixture) as Record<string, unknown>;
+        delete subFixtureClone["signature"];
+        const signature = await signSubplebbit({
+            subplebbit: subFixtureClone as Omit<SubplebbitIpfsType, "signature">,
+            signer: signers[0]
+        });
+        expect(signature.signature).to.equal(subFixture.signature.signature);
+        expect(signature.signedPropertyNames).to.not.include("address");
+    });
+
+    it(`Can sign new-format record with name`, async () => {
+        const subFixture = remeda.clone(newFormatWithNameFixture) as SubplebbitIpfsType;
+        const subFixtureClone = remeda.clone(subFixture) as Record<string, unknown>;
+        delete subFixtureClone["signature"];
+        const signature = await signSubplebbit({
+            subplebbit: subFixtureClone as Omit<SubplebbitIpfsType, "signature">,
+            signer: signers[0]
+        });
+        expect(signature.signature).to.equal(subFixture.signature.signature);
+        expect(signature.signedPropertyNames).to.include("name");
+        expect(signature.signedPropertyNames).to.not.include("address");
     });
 });
 
@@ -112,6 +142,55 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
             })
         ).to.deep.equal({ valid: true });
     });
+
+    it(`Old-format fixture with address in signedPropertyNames still verifies`, async () => {
+        const sub = remeda.clone(validSubplebbitFixture) as SubplebbitIpfsType;
+        expect(sub.signature.signedPropertyNames).to.include("address");
+        expect(
+            await verifySubplebbit({
+                subplebbit: sub,
+                subplebbitIpnsName: signers[0].address,
+                resolveAuthorNames: plebbit.resolveAuthorNames,
+                clientsManager: plebbit._clientsManager,
+                validatePages: true,
+                cacheIfValid: false
+            })
+        ).to.deep.equal({ valid: true });
+    });
+
+    it(`New-format fixture without address verifies`, async () => {
+        const sub = remeda.clone(newFormatFixture) as SubplebbitIpfsType;
+        expect(sub.signature.signedPropertyNames).to.not.include("address");
+        expect((sub as Record<string, unknown>).address).to.be.undefined;
+        expect(
+            await verifySubplebbit({
+                subplebbit: sub,
+                subplebbitIpnsName: signers[0].address,
+                resolveAuthorNames: plebbit.resolveAuthorNames,
+                clientsManager: plebbit._clientsManager,
+                validatePages: false,
+                cacheIfValid: false
+            })
+        ).to.deep.equal({ valid: true });
+    });
+
+    it(`New-format fixture with name verifies`, async () => {
+        const sub = remeda.clone(newFormatWithNameFixture) as SubplebbitIpfsType;
+        expect(sub.signature.signedPropertyNames).to.include("name");
+        expect(sub.signature.signedPropertyNames).to.not.include("address");
+        expect(sub.name).to.equal("test-sub.eth");
+        expect(
+            await verifySubplebbit({
+                subplebbit: sub,
+                subplebbitIpnsName: signers[0].address,
+                resolveAuthorNames: plebbit.resolveAuthorNames,
+                clientsManager: plebbit._clientsManager,
+                validatePages: false,
+                cacheIfValid: false
+            })
+        ).to.deep.equal({ valid: true });
+    });
+
     it(`Subplebbit with domain that does not match public key will get invalidated`, async () => {
         // plebbit.eth -> signers[3], so we will intentionally set it to a different address
         const tempPlebbit = await mockPlebbitV2({
@@ -218,7 +297,8 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
     it(`A subplebbit record is rejected if it includes a field not in signature.signedPropertyNames`, async () => {
         const tempPlebbit: PlebbitType = await mockRemotePlebbit();
 
-        const subFixture = remeda.clone(validSubplebbitFixture) as SubplebbitIpfsType;
+        // Use new-format fixture (no address) to avoid signature mismatch due to format change
+        const subFixture = remeda.clone(newFormatFixture) as SubplebbitIpfsType;
         const subFixtureClone = remeda.clone(subFixture) as SubplebbitIpfsType & { extraProp?: string };
         subFixtureClone.extraProp = "1234";
         const signature = await signSubplebbit({
@@ -227,7 +307,6 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
         });
         expect(signature.signature).to.equal(subFixture.signature.signature);
         expect(signature.publicKey).to.equal(subFixture.signature.publicKey);
-        expect(signature.signedPropertyNames.sort()).to.deep.equal(subFixture.signature.signedPropertyNames.sort());
         expect(signature.type).to.equal(subFixture.signature.type);
 
         expect(signature.signedPropertyNames).to.not.include("extraProp");
@@ -237,7 +316,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
             subplebbitIpnsName: signers[0].address,
             resolveAuthorNames: tempPlebbit.resolveAuthorNames,
             clientsManager: tempPlebbit._clientsManager,
-            validatePages: true
+            validatePages: false
         });
         expect(validation).to.deep.equal({
             valid: false,

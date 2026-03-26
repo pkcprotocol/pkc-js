@@ -3,7 +3,8 @@ import {
     getPeerIdFromPublicKeyBuffer,
     getPlebbitAddressFromPrivateKey,
     getPlebbitAddressFromPublicKey,
-    getPlebbitAddressFromPublicKeyBuffer
+    getPlebbitAddressFromPublicKeyBuffer,
+    getPlebbitAddressFromPublicKeySync
 } from "./util.js";
 import * as cborg from "cborg";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
@@ -672,6 +673,10 @@ export async function verifySubplebbit({
     const cacheKey = sha256(subplebbit.signature.signature + resolveAuthorNames + validatePages + subplebbitIpnsName);
     if (cacheIfValidWithDefault && clientsManager._plebbit._memCaches.subplebbitVerificationCache.get(cacheKey)) return { valid: true };
 
+    // Derive address for page verification: name || publicKey || ipnsName
+    const subAddress = subplebbit.name || getPlebbitAddressFromPublicKeySync(subplebbit.signature.publicKey);
+    const subForPages: SubplebbitForVerifyingPages = { address: subAddress, signature: subplebbit.signature };
+
     if (subplebbit.posts?.pages && validatePages)
         for (const preloadedPageSortName of remeda.keys.strict(subplebbit.posts.pages)) {
             const pageCid: string | undefined = subplebbit.posts.pageCids?.[preloadedPageSortName];
@@ -683,7 +688,7 @@ export async function verifySubplebbit({
                 pageSortName: preloadedPageSortName,
                 resolveAuthorNames,
                 clientsManager,
-                subplebbit,
+                subplebbit: subForPages,
                 parentComment: { cid: undefined, depth: -1, postCid: undefined },
                 validatePages,
                 validateUpdateSignature: false, // no need because we already verified subplebbit signature
@@ -692,7 +697,7 @@ export async function verifySubplebbit({
 
             if (!pageValidity.valid) {
                 log.error(
-                    `Subplebbit (${subplebbit.address}) page (${preloadedPageSortName} - ${subplebbit.posts.pageCids?.[preloadedPageSortName]}) has an invalid signature due to reason (${pageValidity.reason})`
+                    `Subplebbit (${subAddress}) page (${preloadedPageSortName} - ${subplebbit.posts.pageCids?.[preloadedPageSortName]}) has an invalid signature due to reason (${pageValidity.reason})`
                 );
                 return { valid: false, reason: messages.ERR_SUBPLEBBIT_POSTS_INVALID };
             }
@@ -907,7 +912,7 @@ type ParentCommentForVerifyingPages =
     | Pick<CommentIpfsWithCidDefined, "postCid"> // when we're verifying a flat page
     | { cid: undefined; depth: -1; postCid: undefined }; // when we're verifying a subplebbit posts page
 
-type SubplebbitForVerifyingPages = Pick<RemoteSubplebbit, "address" | "signature">;
+type SubplebbitForVerifyingPages = { address: string; signature?: SubplebbitIpfsType["signature"] };
 
 export async function verifyPageComment({
     pageComment,

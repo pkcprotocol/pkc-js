@@ -117,7 +117,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`features.extraProp is preserved through createSubplebbit and update()`, async () => {
             const extraFeatures = { noVideos: true, extraFeature: true };
-            const { subplebbitRecord } = await createMockedSubplebbitIpns({
+            const { subplebbitRecord, subplebbitAddress } = await createMockedSubplebbitIpns({
                 features: extraFeatures
             });
 
@@ -140,7 +140,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(recreatedFromJsonJson.features?.extraFeature).to.equal(true);
 
             // Test update() flow
-            const subToUpdate = await remotePlebbit.createSubplebbit({ address: subplebbitRecord.address });
+            const subToUpdate = await remotePlebbit.createSubplebbit({ address: subplebbitAddress });
             await subToUpdate.update();
             await resolveWhenConditionIsTrue({ toUpdate: subToUpdate, predicate: async () => typeof subToUpdate.updatedAt === "number" });
 
@@ -154,7 +154,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`suggested.extraProp is preserved through createSubplebbit and update()`, async () => {
             const extraSuggested = { primaryColor: "#ff0000", extraSuggested: "customValue" };
-            const { subplebbitRecord } = await createMockedSubplebbitIpns({
+            const { subplebbitRecord, subplebbitAddress } = await createMockedSubplebbitIpns({
                 suggested: extraSuggested
             });
 
@@ -167,7 +167,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(subJson.suggested?.primaryColor).to.equal("#ff0000");
 
             // Test update() flow
-            const subToUpdate = await remotePlebbit.createSubplebbit({ address: subplebbitRecord.address });
+            const subToUpdate = await remotePlebbit.createSubplebbit({ address: subplebbitAddress });
             await subToUpdate.update();
             await resolveWhenConditionIsTrue({ toUpdate: subToUpdate, predicate: async () => typeof subToUpdate.updatedAt === "number" });
 
@@ -209,7 +209,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const rolesWithExtra = {
                 [testAddress]: { role: "moderator", extraRoleProp: "customRoleData" }
             };
-            const { subplebbitRecord } = await createMockedSubplebbitIpns({
+            const { subplebbitRecord, subplebbitAddress } = await createMockedSubplebbitIpns({
                 roles: rolesWithExtra
             });
 
@@ -222,7 +222,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(subJson.roles?.[testAddress]?.role).to.equal("moderator");
 
             // Test update() flow
-            const subToUpdate = await remotePlebbit.createSubplebbit({ address: subplebbitRecord.address });
+            const subToUpdate = await remotePlebbit.createSubplebbit({ address: subplebbitAddress });
             await subToUpdate.update();
             await resolveWhenConditionIsTrue({ toUpdate: subToUpdate, predicate: async () => typeof subToUpdate.updatedAt === "number" });
 
@@ -236,7 +236,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Multiple nested objects with extra props are all preserved`, async () => {
             const testAddress = "12D3KooWTestAddress1234567890abcdefghij";
-            const { subplebbitRecord } = await createMockedSubplebbitIpns({
+            const { subplebbitRecord, subplebbitAddress } = await createMockedSubplebbitIpns({
                 features: { noVideos: true, extraFeature: true },
                 suggested: { primaryColor: "#00ff00", extraSuggested: "suggestedValue" },
                 roles: { [testAddress]: { role: "admin", extraRoleProp: "roleValue" } }
@@ -253,7 +253,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(subJson.roles?.[testAddress]?.extraRoleProp).to.equal("roleValue");
 
             // Test update() flow
-            const subToUpdate = await remotePlebbit.createSubplebbit({ address: subplebbitRecord.address });
+            const subToUpdate = await remotePlebbit.createSubplebbit({ address: subplebbitAddress });
             await subToUpdate.update();
             await resolveWhenConditionIsTrue({ toUpdate: subToUpdate, predicate: async () => typeof subToUpdate.updatedAt === "number" });
 

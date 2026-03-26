@@ -91,7 +91,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
     raw: { pubsubMessageToPublish?: PublicationFromDecryptedChallengeRequest } = {};
 
     // private
-    _subplebbit?: Pick<SubplebbitIpfsType, "encryption" | "pubsubTopic" | "address"> = undefined; // will be used for publishing
+    _subplebbit?: { address: string; encryption: SubplebbitIpfsType["encryption"]; pubsubTopic?: SubplebbitIpfsType["pubsubTopic"] } =
+        undefined; // will be used for publishing
     _publishingToLocalSubplebbit?: LocalSubplebbit;
 
     _challengeExchanges: Record<
@@ -608,12 +609,14 @@ class Publication extends TypedEmitter<PublicationEvents> {
         return pubsubTopic;
     }
 
-    _getSubplebbitCache() {
-        return (
-            this._plebbit._memCaches.subplebbitForPublishing.get(this.subplebbitAddress, { allowStale: true }) ||
+    _getSubplebbitCache(): NonNullable<Publication["_subplebbit"]> | undefined {
+        const cached = this._plebbit._memCaches.subplebbitForPublishing.get(this.subplebbitAddress, { allowStale: true });
+        if (cached) return cached;
+        const subIpfs =
             this._plebbit._updatingSubplebbits[this.subplebbitAddress]?.raw.subplebbitIpfs ||
-            this._plebbit._startedSubplebbits[this.subplebbitAddress]?.raw.subplebbitIpfs
-        );
+            this._plebbit._startedSubplebbits[this.subplebbitAddress]?.raw.subplebbitIpfs;
+        if (subIpfs) return { address: this.subplebbitAddress, encryption: subIpfs.encryption, pubsubTopic: subIpfs.pubsubTopic };
+        return undefined;
     }
 
     async _fetchSubplebbitForPublishing(): Promise<NonNullable<Publication["_subplebbit"]>> {

@@ -33,10 +33,7 @@ import { MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE } from "../../publications/comme
 
 export const getDefaultDataPath = () => path.join(process.cwd(), ".plebbit");
 
-export const getDefaultSubplebbitDbConfig = async (
-    subplebbitAddress: SubplebbitIpfsType["address"],
-    plebbit: Plebbit
-): Promise<DbHandler["_dbConfig"]> => {
+export const getDefaultSubplebbitDbConfig = async (subplebbitAddress: string, plebbit: Plebbit): Promise<DbHandler["_dbConfig"]> => {
     let filename: string;
     if (plebbit.noData) filename = ":memory:";
     else {

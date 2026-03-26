@@ -41,7 +41,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 const isRemoteIpfsGatewayConfig = isPlebbitFetchingUsingGateways(localPlebbit);
                 const shouldMockFetchForIpns = isRemoteIpfsGatewayConfig && typeof globalThis.fetch === "function";
 
-                const targetAddressForGatewayIpnsUrl = convertBase58IpnsNameToBase36Cid(randomSub.subplebbitRecord.address);
+                const targetAddressForGatewayIpnsUrl = convertBase58IpnsNameToBase36Cid(randomSub.subplebbitAddress);
                 const stressCount = 100;
 
                 if (!usesGateways) {
@@ -61,7 +61,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
                 const subInstances = await Promise.all(
                     new Array(stressCount).fill(null).map(async () => {
-                        const subInstance = await localPlebbit.createSubplebbit({ address: randomSub.subplebbitRecord.address });
+                        const subInstance = await localPlebbit.createSubplebbit({ address: randomSub.subplebbitAddress });
                         return subInstance;
                     })
                 );
@@ -131,7 +131,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const ipnsObj = await createNewIpns();
 
             const rawSubplebbitJson = (await plebbit.getSubplebbit({ address: signers[0].address })).raw.subplebbitIpfs!;
-            rawSubplebbitJson.address = ipnsObj.signer.address; // this will corrupt the signature
+            (rawSubplebbitJson as Record<string, unknown>).address = ipnsObj.signer.address; // this will corrupt the signature
             await ipnsObj.publishToIpns(JSON.stringify(rawSubplebbitJson));
             const tempSubplebbit = await plebbit.createSubplebbit({ address: ipnsObj.signer.address });
 

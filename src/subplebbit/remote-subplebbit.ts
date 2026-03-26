@@ -50,7 +50,9 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
     features?: SubplebbitIpfsType["features"];
     suggested?: SubplebbitIpfsType["suggested"];
     flairs?: SubplebbitIpfsType["flairs"];
-    address!: SubplebbitIpfsType["address"];
+    name?: SubplebbitIpfsType["name"];
+    publicKey?: string; // derived from signature.publicKey
+    address!: string;
     shortAddress!: string;
     statsCid?: SubplebbitIpfsType["statsCid"];
     createdAt?: SubplebbitIpfsType["createdAt"];
@@ -263,12 +265,12 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
         this.initRemoteSubplebbitPropsNoMerge(newProps);
         const unknownProps = remeda.difference(remeda.keys.strict(this.raw.subplebbitIpfs), remeda.keys.strict(SubplebbitIpfsSchema.shape));
         if (unknownProps.length > 0) {
-            log(`Found unknown props on subplebbit (${this.raw.subplebbitIpfs.address}) ipfs record`, unknownProps);
+            log(`Found unknown props on subplebbit (${this.address}) ipfs record`, unknownProps);
             Object.assign(this, remeda.pick(this.raw.subplebbitIpfs, unknownProps));
         }
     }
 
-    protected _updateIpnsPubsubPropsIfNeeded(newProps: SubplebbitJson | CreateRemoteSubplebbitOptions) {
+    protected _updateIpnsPubsubPropsIfNeeded(newProps: SubplebbitJson | CreateRemoteSubplebbitOptions | SubplebbitIpfsType) {
         if ("ipnsName" in newProps && newProps.ipnsName) {
             this.ipnsName = newProps.ipnsName;
             this.ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(this.ipnsName);
@@ -287,11 +289,16 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
         if (!this.pubsubTopicRoutingCid) {
             if ("pubsubTopicRoutingCid" in newProps) this.pubsubTopicRoutingCid = newProps.pubsubTopicRoutingCid;
             else if (this.raw.subplebbitIpfs)
-                this.pubsubTopicRoutingCid = pubsubTopicToDhtKey(newProps.pubsubTopic || this.pubsubTopic || newProps.address);
+                this.pubsubTopicRoutingCid = pubsubTopicToDhtKey(
+                    newProps.pubsubTopic ||
+                        this.pubsubTopic ||
+                        ("address" in newProps ? (newProps.address as string) : undefined) ||
+                        this.address
+                );
         }
     }
 
-    initRemoteSubplebbitPropsNoMerge(newProps: SubplebbitJson | CreateRemoteSubplebbitOptions) {
+    initRemoteSubplebbitPropsNoMerge(newProps: SubplebbitJson | CreateRemoteSubplebbitOptions | SubplebbitIpfsType) {
         // This function is not strict, and will assume all props can be undefined, except address
         this.title = newProps.title;
         this.description = newProps.description;
@@ -315,12 +322,23 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
 
         this.signature = newProps.signature;
 
-        this.setAddress(newProps.address);
+        // Compute runtime fields: publicKey, name, address
+        if (newProps.signature?.publicKey) {
+            this.publicKey = getPlebbitAddressFromPublicKeySync(newProps.signature.publicKey);
+        }
+        this.name = newProps.name;
+
+        // Compute address: name || publicKey (from signature) || explicit publicKey || explicit address
+        const explicitAddress = "address" in newProps ? (newProps.address as string) : undefined;
+        const explicitPublicKey = "publicKey" in newProps ? (newProps.publicKey as string) : undefined;
+        const derivedAddress = this.name || this.publicKey || explicitPublicKey || explicitAddress;
+        if (derivedAddress) this.setAddress(derivedAddress);
+
         this._updateLocalPostsInstance(newProps.posts);
         this._updateLocalModQueueInstance(newProps.modQueue);
 
         // Exclusive Instance props
-        if (newProps.updateCid) this.updateCid = newProps.updateCid;
+        if ("updateCid" in newProps && newProps.updateCid) this.updateCid = newProps.updateCid as string;
     }
 
     setAddress(newAddress: string) {

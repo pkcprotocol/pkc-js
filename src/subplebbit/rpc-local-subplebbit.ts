@@ -78,6 +78,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit implements RpcIntern
         if (!this.settings) throw Error("Attempting to transmit InternalRpc record without defining settings");
         return {
             ...this._toJSONIpfsBaseNoPosts(),
+            address: this.address,
             signer: this.signer,
             settings: this.settings,
             _usingDefaultChallenge: this._usingDefaultChallenge,

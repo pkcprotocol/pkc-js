@@ -1662,11 +1662,11 @@ export async function publishSubplebbitRecordWithExtraProp(opts?: { includeExtra
 
 export async function createMockedSubplebbitIpns(subplebbitOpts: CreateNewLocalSubplebbitUserOptions) {
     const ipnsObj = await createNewIpns();
+    const subplebbitAddress = ipnsObj.signer.address;
     const subplebbitRecord = <SubplebbitIpfsType>{
         ...(await getTemplateSubplebbitRecord(ipnsObj.plebbit)),
         posts: undefined,
-        address: ipnsObj.signer.address,
-        pubsubTopic: ipnsObj.signer.address,
+        pubsubTopic: subplebbitAddress,
         ...subplebbitOpts
     }; // default sub, will be using its props
     if (!subplebbitRecord.posts) delete subplebbitRecord.posts;
@@ -1676,7 +1676,7 @@ export async function createMockedSubplebbitIpns(subplebbitOpts: CreateNewLocalS
 
     await ipnsObj.plebbit.destroy();
 
-    return { subplebbitRecord, ipnsObj };
+    return { subplebbitRecord, subplebbitAddress, ipnsObj };
 }
 
 export async function createStaticSubplebbitRecordForComment(opts?: {
@@ -1688,13 +1688,13 @@ export async function createStaticSubplebbitRecordForComment(opts?: {
     if (commentOptions.parentCid && !commentOptions.postCid) throw Error("postCid must be provided when parentCid is supplied for a reply");
 
     const ipnsObj = await createNewIpns();
+    const subplebbitAddress = ipnsObj.signer.address;
     let subplebbitRecord: SubplebbitIpfsType | undefined;
     try {
         subplebbitRecord = <SubplebbitIpfsType>{
             ...(await getTemplateSubplebbitRecord(ipnsObj.plebbit)),
             posts: undefined,
-            address: ipnsObj.signer.address,
-            pubsubTopic: ipnsObj.signer.address
+            pubsubTopic: subplebbitAddress
         };
         if (!subplebbitRecord.posts) delete subplebbitRecord.posts;
         subplebbitRecord.signature = await signSubplebbit({ subplebbit: subplebbitRecord, signer: ipnsObj.signer });
@@ -1710,7 +1710,7 @@ export async function createStaticSubplebbitRecordForComment(opts?: {
         const commentToPublish = await commentPlebbit.createComment({
             ...commentOptions,
             signer: commentOptions.signer || (await commentPlebbit.createSigner()),
-            subplebbitAddress: subplebbitRecord!.address,
+            subplebbitAddress,
             title: commentOptions.title ?? `Mock Post - ${Date.now()}`,
             content: commentOptions.content ?? `Mock content - ${Date.now()}`
         });
@@ -1725,7 +1725,7 @@ export async function createStaticSubplebbitRecordForComment(opts?: {
 
         const commentCid = await addStringToIpfs(JSON.stringify(commentIpfs));
 
-        return { commentCid, subplebbitAddress: subplebbitRecord.address };
+        return { commentCid, subplebbitAddress };
     } finally {
         if (shouldDestroyCommentPlebbit) await commentPlebbit.destroy();
     }

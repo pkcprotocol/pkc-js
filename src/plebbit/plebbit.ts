@@ -181,9 +181,9 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
     _userPlebbitOptions: InputPlebbitOptions; // this is the raw input from user
     _stats!: Stats;
     _storage!: StorageInterface;
-    _updatingSubplebbits: Record<SubplebbitIpfsType["address"], Awaited<ReturnType<Plebbit["createSubplebbit"]>>> = {}; // storing subplebbit instance that are getting updated rn
+    _updatingSubplebbits: Record<string, Awaited<ReturnType<Plebbit["createSubplebbit"]>>> = {}; // storing subplebbit instance that are getting updated rn
     _updatingComments: Record<string, Awaited<ReturnType<Plebbit["createComment"]>>> = {}; // storing comment instancse that are getting updated rn
-    _startedSubplebbits: Record<SubplebbitIpfsType["address"], LocalSubplebbit | RpcLocalSubplebbit> = {}; // storing subplebbit instance that are started rn
+    _startedSubplebbits: Record<string, LocalSubplebbit | RpcLocalSubplebbit> = {}; // storing subplebbit instance that are started rn
     private _subplebbitFsWatchAbort?: AbortController;
 
     private _addressRewriterDestroy?: () => Promise<void>;
@@ -701,7 +701,19 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         const parsedOptions = <z.infer<typeof CreateSubplebbitFunctionArgumentsSchema>>options;
         log.trace("Received options: ", parsedOptions);
 
-        if ("address" in parsedOptions && parsedOptions?.address && doesDomainAddressHaveCapitalLetter(parsedOptions.address))
+        const hasAddress = "address" in parsedOptions && typeof parsedOptions.address === "string";
+        const hasName = "name" in parsedOptions && typeof parsedOptions.name === "string";
+        const hasPublicKey = "publicKey" in parsedOptions && typeof parsedOptions.publicKey === "string";
+        const hasSigner = "signer" in parsedOptions && parsedOptions.signer !== undefined;
+        const hasIdentifier = hasAddress || hasName || hasPublicKey; // can identify an existing sub
+
+        // Derive effective address for local-vs-remote checks
+        const effectiveAddress =
+            ((parsedOptions as Record<string, unknown>).address as string | undefined) ||
+            ((parsedOptions as Record<string, unknown>).name as string | undefined) ||
+            ((parsedOptions as Record<string, unknown>).publicKey as string | undefined);
+
+        if (effectiveAddress && doesDomainAddressHaveCapitalLetter(effectiveAddress))
             throw new PlebbitError("ERR_DOMAIN_ADDRESS_HAS_CAPITAL_LETTER", { ...parsedOptions });
 
         // Creating a subplebbit when we're connected to RPC will be handled in plebbit-with-rpc-client
@@ -709,7 +721,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
 
         const canCreateLocalSub = this._canCreateNewLocalSub(); // this is true if we're on NodeJS and have a dataPath
 
-        if ("signer" in parsedOptions && !canCreateLocalSub)
+        if (hasSigner && !canCreateLocalSub)
             throw new PlebbitError("ERR_CAN_NOT_CREATE_A_LOCAL_SUB", {
                 plebbitOptions: this._userPlebbitOptions,
                 isEnvNode: Boolean(process),
@@ -722,32 +734,34 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
             return this._createRemoteSubplebbitInstance(parsedRemoteOptions);
         }
 
-        if ("address" in parsedOptions && !("signer" in parsedOptions)) {
+        if (hasIdentifier && !hasSigner) {
             // sub is already created, need to check if it's local or remote
             const localSubs = await nodeListSubplebbits(this);
             // Check for exact match or .eth/.bso alias match
-            const localSubAddress = localSubs.find((localAddr) => areEquivalentSubplebbitAddresses(localAddr, parsedOptions.address));
+            const localSubAddress = localSubs.find((localAddr) => areEquivalentSubplebbitAddresses(localAddr, effectiveAddress!));
             if (localSubAddress) return this._createLocalSub({ address: localSubAddress });
             else {
                 const parsedRemoteOptions = parseCreateRemoteSubplebbitFunctionArgumentSchemaWithPlebbitErrorIfItFails(options);
                 return this._createRemoteSubplebbitInstance(parsedRemoteOptions);
             }
-        } else if (!("address" in parsedOptions) && !("signer" in parsedOptions)) {
-            // no address, no signer, create signer and assign address to signer.address
+        } else if (!hasIdentifier && !hasSigner) {
+            // no identifier, no signer, create signer and assign address to signer.address
             const signer = await this.createSigner();
             const localOptions = <CreateNewLocalSubplebbitParsedOptions>{ ...parsedOptions, signer, address: signer.address };
             log(`Did not provide CreateSubplebbitOptions.signer, generated random signer with address (${localOptions.address})`);
 
             return this._createLocalSub(localOptions);
-        } else if (!("address" in parsedOptions) && "signer" in parsedOptions) {
-            const signer = await this.createSigner(parsedOptions.signer);
+        } else if (!hasIdentifier && hasSigner) {
+            const signerInput = parsedOptions.signer as { type: "ed25519"; privateKey: string } | undefined;
+            const signer = await this.createSigner(signerInput);
             const localOptions = <CreateNewLocalSubplebbitParsedOptions>{
                 ...parsedOptions,
                 address: signer.address,
                 signer
             };
             return this._createLocalSub(localOptions);
-        } else if ("address" in parsedOptions && "signer" in parsedOptions) return this._createLocalSub(parsedOptions);
+        } else if (hasIdentifier && hasSigner)
+            return this._createLocalSub(parsedOptions as unknown as CreateNewLocalSubplebbitParsedOptions);
         else throw new PlebbitError("ERR_CAN_NOT_CREATE_A_LOCAL_SUB", { parsedOptions });
     }
 
@@ -967,9 +981,10 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
                 commentIpfsValidity
             });
 
-        const subplebbit = this._updatingSubplebbits[comment.subplebbitAddress]?.raw?.subplebbitIpfs || {
-            address: comment.subplebbitAddress
-        };
+        const subplebbitIpfs = this._updatingSubplebbits[comment.subplebbitAddress]?.raw?.subplebbitIpfs;
+        const subplebbit: { address: string; signature?: SubplebbitIpfsType["signature"] } = subplebbitIpfs
+            ? { address: comment.subplebbitAddress, signature: subplebbitIpfs.signature }
+            : { address: comment.subplebbitAddress };
         const commentUpdateVerificationOpts = {
             update: commentUpdate,
             resolveAuthorNames: this.resolveAuthorNames,

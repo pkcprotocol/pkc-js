@@ -92,7 +92,7 @@ export type CreateNewLocalSubplebbitParsedOptions = z.infer<typeof CreateNewLoca
 
 // or load an already existing sub through plebbit.createSubplebbit
 
-export type CreateInstanceOfLocalOrRemoteSubplebbitOptions = { address: SubplebbitIpfsType["address"] };
+export type CreateInstanceOfLocalOrRemoteSubplebbitOptions = { address: string };
 
 export type SubplebbitEditOptions = z.infer<typeof SubplebbitEditOptionsSchema>;
 

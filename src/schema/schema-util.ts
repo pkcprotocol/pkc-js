@@ -83,7 +83,7 @@ export function parseSubplebbitIpfsSchemaPassthroughWithPlebbitErrorIfItFails(
     if (!parseRes.success)
         throw new PlebbitError("ERR_INVALID_SUBPLEBBIT_IPFS_SCHEMA", {
             zodError: parseRes.error,
-            subAddress: subIpfs?.address,
+            subAddress: (subIpfs as Record<string, unknown>)?.address,
             subJson: subIpfs
         });
     else return subIpfs;

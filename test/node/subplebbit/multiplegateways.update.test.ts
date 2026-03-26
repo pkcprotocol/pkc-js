@@ -77,7 +77,6 @@ describe("Test fetching subplebbit record from multiple gateways (isolated)", as
     const generateFreshRecord = (): Omit<SubplebbitIpfsType, "signature"> => {
         const now = Math.round(Date.now() / 1000);
         return {
-            address: subAddress,
             challenges: [],
             createdAt: now - 3600, // Created 1 hour ago
             updatedAt: now, // Updated now (fresh)

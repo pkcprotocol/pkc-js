@@ -272,13 +272,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         );
 
         it(`doesn't resurrect _updatingComments after stop() when the subplebbit record is invalid`, async () => {
-            const { subplebbitRecord, ipnsObj } = await createMockedSubplebbitIpns({});
+            const { subplebbitRecord, subplebbitAddress, ipnsObj } = await createMockedSubplebbitIpns({});
             const invalidSubplebbitRecord = { ...subplebbitRecord, updatedAt: subplebbitRecord.updatedAt + 9999 };
             await ipnsObj.publishToIpns(JSON.stringify(invalidSubplebbitRecord));
 
             const postToPublish = await plebbit.createComment({
                 signer: await plebbit.createSigner(),
-                subplebbitAddress: invalidSubplebbitRecord.address,
+                subplebbitAddress,
                 title: `Mock Post - ${Date.now()}`,
                 content: `Mock content - ${Date.now()}`
             });

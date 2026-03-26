@@ -101,7 +101,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         it(`Correct order of ${clientFieldName} state when we update a subplebbit and it's not publishing new subplebbit records`, async () => {
             const subRecord = await createMockedSubplebbitIpns({}); // only published once, a static record
 
-            const sub = await plebbit.createSubplebbit({ address: subRecord.subplebbitRecord.address });
+            const sub = await plebbit.createSubplebbit({ address: subRecord.subplebbitAddress });
 
             const recordedStates: string[] = [];
             const clientUrl = Object.keys((sub.clients as unknown as Record<string, Record<string, { on: Function }>>)[clientFieldName])[0];

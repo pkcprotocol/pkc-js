@@ -37,7 +37,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 const isRemoteIpfsGatewayConfig = isPlebbitFetchingUsingGateways(localPlebbit);
                 const shouldMockFetchForIpns = isRemoteIpfsGatewayConfig && typeof globalThis.fetch === "function";
 
-                const targetAddress = convertBase58IpnsNameToBase36Cid(randomSub.subplebbitRecord.address);
+                const targetAddress = convertBase58IpnsNameToBase36Cid(randomSub.subplebbitAddress);
                 const stressCount = 100;
 
                 if (!usesGateways) {
@@ -58,7 +58,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
                 const subInstances = await Promise.all(
                     new Array(stressCount).fill(null).map(async () => {
-                        return localPlebbit.getSubplebbit({ address: randomSub.subplebbitRecord.address });
+                        return localPlebbit.getSubplebbit({ address: randomSub.subplebbitAddress });
                     })
                 );
 
@@ -87,7 +87,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const _subplebbitIpns = loadedSubplebbit.raw.subplebbitIpfs!;
             expect(_subplebbitIpns.lastPostCid).to.be.a.string;
             expect(_subplebbitIpns.pubsubTopic).to.be.a.string;
-            expect(_subplebbitIpns.address).to.be.a.string;
+            expect(loadedSubplebbit.address).to.be.a.string;
             expect(_subplebbitIpns.statsCid).to.be.a.string;
             expect(_subplebbitIpns.createdAt).to.be.a("number");
             expect(_subplebbitIpns.updatedAt).to.be.a("number");

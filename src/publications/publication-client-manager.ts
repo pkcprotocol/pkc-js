@@ -347,6 +347,10 @@ export class PublicationClientsManager extends PlebbitClientsManager {
         }
 
         if (!subIpfs) throw Error("Should fail properly here");
-        return subIpfs;
+        return {
+            address: updatingSubInstance.subplebbit.address,
+            encryption: subIpfs.encryption,
+            pubsubTopic: subIpfs.pubsubTopic
+        };
     }
 }

@@ -11,6 +11,8 @@ import { NameResolverClient } from "../clients/name-resolver-client.js";
 import { RemoteSubplebbit } from "./remote-subplebbit.js";
 import * as remeda from "remeda";
 import type { SubplebbitIpfsType, SubplebbitJson } from "./types.js";
+import { getSubplebbitNameFromWire } from "./subplebbit-wire.js";
+import { getPlebbitAddressFromPublicKeySync } from "../signer/util.js";
 import Logger from "@plebbit/plebbit-logger";
 
 import {
@@ -147,10 +149,17 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
         return areEquivalentSubplebbitAddresses(addressA, addressB);
     }
 
+    private _deriveAddressFromWireRecord(subJson: SubplebbitIpfsType): string {
+        // Old records have address in the wire format, new records use name || publicKey
+        return (
+            getSubplebbitNameFromWire(subJson as Record<string, unknown>) || getPlebbitAddressFromPublicKeySync(subJson.signature.publicKey)
+        );
+    }
+
     // functions for updatingSubInstance
 
     private async _retryLoadingSubplebbitAddress(
-        subplebbitAddress: SubplebbitIpfsType["address"]
+        subplebbitAddress: string
     ): Promise<ResultOfFetchingSubplebbit | { criticalError: Error | PlebbitError } | { aborted: true }> {
         const log = Logger("plebbit-js:remote-subplebbit:update:_retryLoadingSubplebbitIpns");
 
@@ -291,7 +300,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
 
     // fetching subplebbit ipns here
 
-    async fetchNewUpdateForSubplebbit(subAddress: SubplebbitIpfsType["address"]): Promise<ResultOfFetchingSubplebbit> {
+    async fetchNewUpdateForSubplebbit(subAddress: string): Promise<ResultOfFetchingSubplebbit> {
         return this._withInflightSubplebbitFetch(subAddress, async () => {
             const ipnsName = await this.resolveCommunityNameIfNeeded({
                 subplebbitAddress: subAddress,
@@ -347,10 +356,13 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
 
             if (subRes?.subplebbit) {
                 // we found a new record that is verified
-                this._plebbit._memCaches.subplebbitForPublishing.set(
-                    subRes.subplebbit.address,
-                    remeda.pick(subRes.subplebbit, ["encryption", "pubsubTopic", "address"])
-                );
+                // Compute address from wire record (old records have address, new records derive from name/publicKey)
+                const recordAddress = this._deriveAddressFromWireRecord(subRes.subplebbit);
+                this._plebbit._memCaches.subplebbitForPublishing.set(recordAddress, {
+                    encryption: subRes.subplebbit.encryption,
+                    pubsubTopic: subRes.subplebbit.pubsubTopic,
+                    address: recordAddress
+                });
             }
             return subRes;
         });
@@ -596,7 +608,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
             if (gatewayFetches[bestGatewayUrl].subplebbitRecord!.updatedAt > currentUpdatedAt) {
                 const bestSubRecord = gatewayFetches[bestGatewayUrl].subplebbitRecord!;
                 log(
-                    `Gateway (${bestGatewayUrl}) was able to find a very recent subplebbit (${bestSubRecord.address}) whose IPNS is (${ipnsName}).  The record has updatedAt (${bestSubRecord.updatedAt}) that's ${bestGatewayRecordAge}s old with a TTL of ${gatewayFetches[bestGatewayUrl].ttl} seconds`
+                    `Gateway (${bestGatewayUrl}) was able to find a very recent subplebbit (${this._deriveAddressFromWireRecord(bestSubRecord)}) whose IPNS is (${ipnsName}).  The record has updatedAt (${bestSubRecord.updatedAt}) that's ${bestGatewayRecordAge}s old with a TTL of ${gatewayFetches[bestGatewayUrl].ttl} seconds`
                 );
                 return { subplebbit: bestSubRecord, cid: gatewayFetches[bestGatewayUrl].cid! };
             }
@@ -666,13 +678,14 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
         cidOfSubIpns: string
     ): Promise<PlebbitError | undefined> {
         const subInstanceAddress = this._getSubplebbitAddressFromInstance();
-        if (!this._areEquivalentSubplebbitAddresses(subJson.address, subInstanceAddress)) {
+        const recordAddress = this._deriveAddressFromWireRecord(subJson);
+        if (!this._areEquivalentSubplebbitAddresses(recordAddress, subInstanceAddress)) {
             // Did the gateway supply us with a different subplebbit's ipns
 
             const error = new PlebbitError("ERR_THE_SUBPLEBBIT_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED", {
                 addressFromSubplebbitInstance: subInstanceAddress,
                 ipnsName: ipnsNameOfSub,
-                addressFromGateway: subJson.address,
+                addressFromGateway: recordAddress,
                 subplebbitIpnsFromGateway: subJson,
                 ipnsPubsubTopic: this._subplebbit.ipnsPubsubTopic,
                 ipnsPubsubTopicRoutingCid: this._subplebbit.ipnsPubsubTopicRoutingCid,

@@ -201,7 +201,7 @@ export const SubplebbitIpfsSchema = z
         challenges: SubplebbitChallengeSchema.array(),
         signature: JsonSignatureSchema,
         encryption: SubplebbitEncryptionSchema,
-        address: SubplebbitAddressSchema,
+        name: z.string().min(1).optional(), // domain name of the subplebbit (e.g. "memes.eth"); address is now instance-only
         createdAt: PlebbitTimestampSchema,
         updatedAt: PlebbitTimestampSchema,
         pubsubTopic: PubsubTopicSchema.optional(),
@@ -232,15 +232,17 @@ export const RpcRemoteSubplebbitUpdateEventResultSchema = z.object({
         })
         .passthrough()
 });
-// If you're trying to create a subplebbit instance with any props, all props are optional except address
+// At least one of address, name, or publicKey must be provided to identify the subplebbit
 
 export const CreateRemoteSubplebbitOptionsSchema = SubplebbitIpfsSchema.partial()
-    .merge(SubplebbitIpfsSchema.pick({ address: true }))
     .extend({
+        address: SubplebbitAddressSchema.optional(), // instance-only, computed as name || publicKey if not provided
+        publicKey: z.string().min(1).optional(), // B58 IPNS name (e.g. 12D3KooW...)
         posts: SubplebbitIpfsSchema.shape.posts.or(PostsPagesIpfsSchema.pick({ pageCids: true })),
         updateCid: CidStringSchema.optional()
     })
-    .strict();
+    .strict()
+    .refine((opts) => opts.address || opts.name || opts.publicKey, "At least one of address, name, or publicKey must be provided");
 
 // Local Subplebbit schemas
 
@@ -260,7 +262,7 @@ const SubplebbitRolesToEditSchema = z.record(AuthorAddressSchema, SubplebbitRole
 
 export const SubplebbitEditOptionsSchema = SubplebbitIpfsSchema.pick({
     flairs: true,
-    address: true,
+    name: true,
     title: true,
     description: true,
     roles: true,
@@ -270,6 +272,7 @@ export const SubplebbitEditOptionsSchema = SubplebbitIpfsSchema.pick({
     suggested: true
 })
     .extend({
+        address: SubplebbitAddressSchema.optional(), // backward compat for sub.edit({ address: "domain.eth" })
         settings: SubplebbitSettingsSchema.optional(),
         roles: SubplebbitRolesToEditSchema.optional()
     })
