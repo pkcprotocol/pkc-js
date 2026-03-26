@@ -16,6 +16,7 @@ import Logger from "@plebbit/plebbit-logger";
 import * as remeda from "remeda";
 import { LocalSubplebbit } from "../runtime/node/subplebbit/local-subplebbit.js";
 import { RpcLocalSubplebbit } from "../subplebbit/rpc-local-subplebbit.js";
+import { findUpdatingComment, findUpdatingSubplebbit } from "../plebbit/tracked-instance-registry-util.js";
 import type {
     CreateNewLocalSubplebbitUserOptions,
     LocalSubplebbitJson,
@@ -1842,7 +1843,7 @@ export function disablePreloadPagesOnSub({ subplebbit }: { subplebbit: LocalSubp
 }
 
 export function mockPostToReturnSpecificCommentUpdate(commentToBeMocked: Comment, commentUpdateRecordString: string) {
-    const updatingPostComment = commentToBeMocked._plebbit._updatingComments[commentToBeMocked.cid!];
+    const updatingPostComment = findUpdatingComment(commentToBeMocked._plebbit, { cid: commentToBeMocked.cid! });
     if (!updatingPostComment) throw Error("Post should be updating before starting to mock");
     if (commentToBeMocked._plebbit._plebbitRpcClient)
         throw Error("Can't mock Post to return specific CommentUpdate record when plebbit is using RPC");
@@ -1883,7 +1884,7 @@ export function mockPostToReturnSpecificCommentUpdate(commentToBeMocked: Comment
 }
 
 export function mockPostToFailToLoadFromPostUpdates(postToBeMocked: Comment) {
-    const updatingPostComment = postToBeMocked._plebbit._updatingComments[postToBeMocked.cid!];
+    const updatingPostComment = findUpdatingComment(postToBeMocked._plebbit, { cid: postToBeMocked.cid! });
     if (!updatingPostComment) throw Error("Post should be updating before starting to mock");
     if (postToBeMocked._plebbit._plebbitRpcClient)
         throw Error("Can't mock Post to to fail loading post from postUpdates when plebbit is using RPC");
@@ -1896,7 +1897,7 @@ export function mockPostToFailToLoadFromPostUpdates(postToBeMocked: Comment) {
 }
 
 export function mockPostToHaveSubplebbitWithNoPostUpdates(postToBeMocked: Comment) {
-    const updatingPostComment = postToBeMocked._plebbit._updatingComments[postToBeMocked.cid!];
+    const updatingPostComment = findUpdatingComment(postToBeMocked._plebbit, { cid: postToBeMocked.cid! });
     if (!updatingPostComment) throw Error("Post should be updating before starting to mock");
     if (postToBeMocked._plebbit._plebbitRpcClient)
         throw Error("Can't mock Post to to fail loading post from postUpdates when plebbit is using RPC");
@@ -1969,7 +1970,7 @@ export function mockPlebbitToTimeoutFetchingCid(plebbit: Plebbit) {
 }
 
 export function mockCommentToNotUsePagesForUpdates(comment: Comment) {
-    const updatingComment = comment._plebbit._updatingComments[comment.cid!];
+    const updatingComment = findUpdatingComment(comment._plebbit, { cid: comment.cid! });
     if (!updatingComment) throw Error("Comment should be updating before starting to mock");
 
     if (comment._plebbit._plebbitRpcClient)
@@ -2352,7 +2353,7 @@ export async function forceSubplebbitToGenerateAllPostsPages(subplebbit: RemoteS
 }
 
 export function mockReplyToUseParentPagesForUpdates(reply: Comment) {
-    const updatingComment = reply._plebbit._updatingComments[reply.cid!];
+    const updatingComment = findUpdatingComment(reply._plebbit, { cid: reply.cid! });
     if (!updatingComment) throw Error("Reply should be updating before starting to mock");
     if (updatingComment.depth === 0) throw Error("Should not call this function on a post");
     delete updatingComment.raw.commentUpdate;
@@ -2366,8 +2367,8 @@ export function mockReplyToUseParentPagesForUpdates(reply: Comment) {
 
     updatingComment._clientsManager.handleUpdateEventFromPostToFetchReplyCommentUpdate = (postInstance) => {
         // this should stop plebbit-js from assuming the post replies is a single preloaded page
-        const updatingSubInstance = reply._plebbit._updatingSubplebbits[postInstance.communityAddress];
-        const updatingParentInstance = reply._plebbit._updatingComments[reply.parentCid!];
+        const updatingSubInstance = findUpdatingSubplebbit(reply._plebbit, { address: postInstance.communityAddress });
+        const updatingParentInstance = findUpdatingComment(reply._plebbit, { cid: reply.parentCid! });
 
         if (postInstance.replies.pages)
             Object.keys(postInstance.replies.pages).forEach((preloadedPageKey) => {
@@ -2393,7 +2394,7 @@ export function mockUpdatingCommentResolvingAuthor(
     comment: Comment,
     mockFunction: Comment["_clientsManager"]["resolveAuthorNameIfNeeded"]
 ) {
-    const updatingComment = comment._plebbit._updatingComments[comment.cid!];
+    const updatingComment = findUpdatingComment(comment._plebbit, { cid: comment.cid! });
     if (!updatingComment) throw Error("Comment should be updating before starting to mock");
 
     if (comment._plebbit._plebbitRpcClient) throw Error("Can't mock cache with plebbit rpc clients");

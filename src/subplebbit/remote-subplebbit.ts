@@ -36,6 +36,12 @@ import { SubplebbitIpfsSchema } from "./schema.js";
 import { SignerWithPublicKeyAddress } from "../signer/index.js";
 import { SubplebbitClientsManager } from "./subplebbit-client-manager.js";
 import { getPlebbitAddressFromPublicKeySync } from "../signer/util.js";
+import {
+    findUpdatingSubplebbit,
+    refreshTrackedSubplebbitAliases,
+    trackUpdatingSubplebbit,
+    untrackUpdatingSubplebbit
+} from "../plebbit/tracked-instance-registry-util.js";
 
 export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements Omit<Partial<SubplebbitIpfsType>, "posts"> {
     // public
@@ -339,6 +345,7 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
 
         // Exclusive Instance props
         if ("updateCid" in newProps && newProps.updateCid) this.updateCid = newProps.updateCid as string;
+        refreshTrackedSubplebbitAliases(this._plebbit, this);
     }
 
     setAddress(newAddress: string) {
@@ -354,6 +361,7 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
         this.shortAddress = shortifyAddress(this.address);
         this.posts._subplebbit = this;
         this.modQueue._subplebbit = this;
+        refreshTrackedSubplebbitAliases(this._plebbit, this);
     }
 
     protected _toJSONIpfsBaseNoPosts() {
@@ -482,7 +490,7 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
 
     _setSubplebbitIpfsPropsFromUpdatingSubplebbitsIfPossible() {
         const log = Logger("plebbit-js:comment:_setSubplebbitIpfsPropsFromUpdatingSubplebbitsIfPossible");
-        const updatingSub = this._plebbit._updatingSubplebbits[this.address];
+        const updatingSub = findUpdatingSubplebbit(this._plebbit, { address: this.address });
         if (updatingSub?.raw?.subplebbitIpfs && (this.updatedAt || 0) < updatingSub.raw.subplebbitIpfs.updatedAt) {
             this.initSubplebbitIpfsPropsNoMerge(updatingSub.raw.subplebbitIpfs);
             this.updateCid = updatingSub.updateCid;
@@ -500,9 +508,10 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
     }
 
     private async _initSubInstanceWithListeners() {
-        if (!this._plebbit._updatingSubplebbits[this.address]) throw Error("should be defined at this stage");
+        const trackedUpdatingSub = findUpdatingSubplebbit(this._plebbit, { address: this.address });
+        if (!trackedUpdatingSub) throw Error("should be defined at this stage");
         const log = Logger("plebbit-js:remote-subplebbit:update");
-        const subInstance = this._plebbit._updatingSubplebbits[this.address];
+        const subInstance = trackedUpdatingSub;
         return <NonNullable<this["_updatingSubInstanceWithListeners"]>>{
             subplebbit: subInstance,
             update: () => {
@@ -534,13 +543,14 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
     private async fetchLatestSubOrSubscribeToEvent() {
         const log = Logger("plebbit-js:remote-subplebbit:update:updateOnce");
 
-        if (!this._plebbit._updatingSubplebbits[this.address]) {
+        if (!findUpdatingSubplebbit(this._plebbit, { address: this.address })) {
             const updatingSub = await this._plebbit.createSubplebbit({ address: this.address });
-            this._plebbit._updatingSubplebbits[this.address] = updatingSub;
+            trackUpdatingSubplebbit(this._plebbit, updatingSub);
             log("Creating a new entry for this._plebbit._updatingSubplebbits", this.address);
         }
 
-        const subInstance = this._plebbit._updatingSubplebbits[this.address];
+        const subInstance = findUpdatingSubplebbit(this._plebbit, { address: this.address });
+        if (!subInstance) throw Error("should be defined at this stage");
         if (subInstance === this) {
             // Already tracking this instance; start the loop directly without mirroring to itself
             this._clientsManager.startUpdatingLoop().catch((err) => log.error("Failed to start update loop of subplebbit", err));
@@ -632,7 +642,7 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
         else {
             // this instance is plebbit._updatingSubplebbit[address] itself
             await this._clientsManager.stopUpdatingLoop();
-            delete this._plebbit._updatingSubplebbits[this.address];
+            untrackUpdatingSubplebbit(this._plebbit, this);
         }
         this._setUpdatingStateWithEventEmissionIfNewState("stopped");
         this._setState("stopped");

@@ -44,6 +44,7 @@ import PeerId from "peer-id";
 import { unmarshalIPNSRecord } from "ipns";
 import { importFile } from "ipfs-unixfs-importer";
 import { MemoryBlockstore } from "blockstore-core";
+import { findUpdatingSubplebbit } from "./plebbit/tracked-instance-registry-util.js";
 
 export function timestamp() {
     return Math.round(Date.now() / 1000);
@@ -578,8 +579,9 @@ export async function waitForUpdateInSubInstanceWithErrorAndTimeout(subplebbit: 
         if (updateError) throw updateError;
     } catch (e) {
         if (updateError) throw updateError;
-        if (subplebbit._plebbit._updatingSubplebbits[subplebbit.address]?._clientsManager._ipnsLoadingOperation?.mainError())
-            throw subplebbit._plebbit._updatingSubplebbits[subplebbit.address]!._clientsManager!._ipnsLoadingOperation!.mainError();
+        const updatingSubplebbit = findUpdatingSubplebbit(subplebbit._plebbit, { address: subplebbit.address });
+        if (updatingSubplebbit?._clientsManager._ipnsLoadingOperation?.mainError())
+            throw updatingSubplebbit._clientsManager._ipnsLoadingOperation.mainError();
         throw e;
     } finally {
         subplebbit.removeListener("error", errorListener);

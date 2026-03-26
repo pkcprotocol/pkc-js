@@ -29,6 +29,7 @@ import type {
     EncodedDecryptedChallengeVerificationMessageType
 } from "../pubsub-messages/types.js";
 import { deepMergeRuntimeFields, hideClassPrivateProps } from "../util.js";
+import { findStartedSubplebbit, trackStartedSubplebbit, untrackStartedSubplebbit } from "../plebbit/tracked-instance-registry-util.js";
 
 // This class is for subs that are running and publishing, over RPC. Can be used for both browser and node
 export class RpcLocalSubplebbit extends RpcRemoteSubplebbit implements RpcInternalSubplebbitRecordBeforeFirstUpdateType {
@@ -212,7 +213,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit implements RpcIntern
         if (typeof this._startRpcSubscriptionId === "number")
             throw new PlebbitError("ERR_SUB_ALREADY_STARTED", { subplebbitAddress: this.address });
 
-        if (this._plebbit._startedSubplebbits[this.address])
+        if (findStartedSubplebbit(this._plebbit, { address: this.address }))
             throw new PlebbitError("ERR_SUB_ALREADY_STARTED_IN_SAME_PLEBBIT_INSTANCE", { subplebbitAddress: this.address });
         try {
             this._startRpcSubscriptionId = await this._plebbit._plebbitRpcClient!.startSubplebbit({ address: this.address });
@@ -223,7 +224,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit implements RpcIntern
             this._setStartedStateWithEmission("failed");
             throw e;
         }
-        this._plebbit._startedSubplebbits[this.address] = this;
+        trackStartedSubplebbit(this._plebbit, this);
         this.started = true;
         this._plebbit
             ._plebbitRpcClient!.getSubscription(this._startRpcSubscriptionId)
@@ -262,7 +263,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit implements RpcIntern
         this._setStartedStateWithEmission("stopped");
         this._setRpcClientStateWithEmission("stopped");
         this.started = false;
-        delete this._plebbit._startedSubplebbits[this.address];
+        untrackStartedSubplebbit(this._plebbit, this);
     }
 
     override async stop() {
@@ -278,7 +279,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit implements RpcIntern
                 log.error("RPC client received an error when asking rpc server to stop subplebbit", e);
             }
             await this._cleanUpRpcConnection(log);
-            delete this._plebbit._startedSubplebbits[this.address];
+            untrackStartedSubplebbit(this._plebbit, this);
         }
     }
 
@@ -311,8 +312,9 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit implements RpcIntern
 
     override async delete() {
         // Make sure to stop updating or starting first
-        if (this._plebbit._startedSubplebbits[this.address] && this._plebbit._startedSubplebbits[this.address] !== this) {
-            await this._plebbit._startedSubplebbits[this.address].delete();
+        const startedSubplebbit = findStartedSubplebbit(this._plebbit, { address: this.address });
+        if (startedSubplebbit && startedSubplebbit !== this) {
+            await startedSubplebbit.delete();
         } else {
             if (this.state === "started" || this.state === "updating") await this.stop();
 

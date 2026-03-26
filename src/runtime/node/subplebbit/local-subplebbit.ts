@@ -191,6 +191,17 @@ import { RemoteSubplebbit } from "../../../subplebbit/remote-subplebbit.js";
 import pLimit from "p-limit";
 import { sha256 } from "js-sha256";
 import { iterateOverPageCidsToFindAllCids } from "../../../pages/util.js";
+import { TrackedInstanceRegistry } from "../../../plebbit/tracked-instance-registry.js";
+import {
+    findStartedSubplebbit,
+    findSubplebbitInRegistry,
+    findUpdatingSubplebbit,
+    syncSubplebbitRegistryEntry,
+    trackStartedSubplebbit,
+    trackUpdatingSubplebbit,
+    untrackStartedSubplebbit,
+    untrackUpdatingSubplebbit
+} from "../../../plebbit/tracked-instance-registry-util.js";
 
 type CommentUpdateToWriteToDbAndPublishToIpfs = {
     newCommentUpdate: CommentUpdateType;
@@ -198,7 +209,7 @@ type CommentUpdateToWriteToDbAndPublishToIpfs = {
     localMfsPath: string | undefined;
     pendingApproval: CommentsTableRow["pendingApproval"];
 };
-const _startedSubplebbits: Record<string, LocalSubplebbit> = {}; // A global record on process level to track started subplebbits
+const processStartedSubplebbits = new TrackedInstanceRegistry<LocalSubplebbit>(); // A global registry on process level to track started subplebbits
 
 const DUPLICATE_PUBLICATION_ERRORS = new Set([
     messages.ERR_DUPLICATE_COMMENT,
@@ -356,6 +367,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         if (Array.isArray(newProps._cidsToUnPin)) newProps._cidsToUnPin.forEach((cid) => this._cidsToUnPin.add(cid));
         if (Array.isArray(newProps._mfsPathsToRemove)) newProps._mfsPathsToRemove.forEach((path) => this._mfsPathsToRemove.add(path));
         this._updateIpnsPubsubPropsIfNeeded(newProps);
+        if (processStartedSubplebbits.has(this)) syncSubplebbitRegistryEntry(processStartedSubplebbits, this);
     }
 
     async initInternalSubplebbitBeforeFirstUpdateNoMerge(newProps: InternalSubplebbitRecordBeforeFirstUpdateType) {
@@ -370,6 +382,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         this.ipnsName = newProps.signer.address;
         this.ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(this.ipnsName);
         this.ipnsPubsubTopicRoutingCid = pubsubTopicToDhtKey(this.ipnsPubsubTopic);
+        if (processStartedSubplebbits.has(this)) syncSubplebbitRegistryEntry(processStartedSubplebbits, this);
     }
 
     private async initDbHandlerIfNeeded() {
@@ -386,9 +399,10 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         // if sub is not started, load the InternalSubplebbit props from the local db
 
         const log = Logger("plebbit-js:local-subplebbit:_updateInstancePropsWithStartedSubOrDb");
-        const startedSubplebbit = (this._plebbit._startedSubplebbits[this.address] || _startedSubplebbits[this.address]) as
-            | LocalSubplebbit
-            | undefined;
+        const startedSubplebbit = <LocalSubplebbit | undefined>(
+            (findStartedSubplebbit(this._plebbit, { address: this.address }) ||
+                findSubplebbitInRegistry(processStartedSubplebbits, { address: this.address }))
+        );
         if (startedSubplebbit) {
             log("Loading local subplebbit", this.address, "from started subplebbit instance");
             if (startedSubplebbit.updatedAt)
@@ -3242,8 +3256,8 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         );
         this.emit("update", this);
         if (this.address !== oldAddress) {
-            this._plebbit._startedSubplebbits[this.address] = this._plebbit._startedSubplebbits[oldAddress] = this;
-            _startedSubplebbits[this.address] = _startedSubplebbits[oldAddress] = this;
+            trackStartedSubplebbit(this._plebbit, this);
+            syncSubplebbitRegistryEntry(processStartedSubplebbits, this);
         }
         return this;
     }
@@ -3284,7 +3298,10 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         // 3 - calling edit() on a subplebbit that's not started (should load db and edit it)
         // 4 - calling edit() on the subplebbit that's started (should edit the started subplebbit)
 
-        const startedSubplebbit = this._plebbit._startedSubplebbits[this.address] || _startedSubplebbits[this.address];
+        const startedSubplebbit = <LocalSubplebbit | undefined>(
+            (findStartedSubplebbit(this._plebbit, { address: this.address }) ||
+                findSubplebbitInRegistry(processStartedSubplebbits, { address: this.address }))
+        );
         if (startedSubplebbit && this.state !== "started") {
             // sceneario 1
             const editRes = await startedSubplebbit.edit(newSubplebbitOptions);
@@ -3329,7 +3346,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             return this._editPropsOnNotStartedSubplebbit(newProps);
         }
 
-        if (this._plebbit._startedSubplebbits[this.address] === this) {
+        if (findStartedSubplebbit(this._plebbit, { address: this.address }) === this) {
             // sceneario 4
             return this._editPropsOnStartedSubplebbit(newProps);
         }
@@ -3345,7 +3362,11 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             throw Error("You need to define an IPFS client in your plebbit instance to be able to start a local sub");
         await this.initDbHandlerIfNeeded();
         await this._updateStartedValue();
-        if (this.started || this._plebbit._startedSubplebbits[this.address] || _startedSubplebbits[this.address])
+        if (
+            this.started ||
+            findStartedSubplebbit(this._plebbit, { address: this.address }) ||
+            findSubplebbitInRegistry(processStartedSubplebbits, { address: this.address })
+        )
             throw new PlebbitError("ERR_SUB_ALREADY_STARTED", { address: this.address });
         try {
             await this._initBeforeStarting();
@@ -3353,8 +3374,8 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             this._setState("started");
             await this._updateStartedValue();
             await this._dbHandler.lockSubStart(); // Will throw if sub is locked already
-            this._plebbit._startedSubplebbits[this.address] = this;
-            _startedSubplebbits[this.address] = this;
+            trackStartedSubplebbit(this._plebbit, this);
+            syncSubplebbitRegistryEntry(processStartedSubplebbits, this);
             await this._updateStartedValue();
             await this._dbHandler.initDbIfNeeded();
             await this._dbHandler.createOrMigrateTablesIfNeeded();
@@ -3508,27 +3529,26 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         const log = Logger("plebbit-js:local-subplebbit:_updateOnce");
         await this.initDbHandlerIfNeeded();
         await this._updateStartedValue();
-        const startedSubplebbit = (this._plebbit._startedSubplebbits[this.address] || _startedSubplebbits[this.address]) as
-            | LocalSubplebbit
-            | undefined;
+        const startedSubplebbit = <LocalSubplebbit | undefined>(
+            (findStartedSubplebbit(this._plebbit, { address: this.address }) ||
+                findSubplebbitInRegistry(processStartedSubplebbits, { address: this.address }))
+        );
         if (this._mirroredStartedOrUpdatingSubplebbit)
             return; // we're already mirroring a started or updating subplebbit
         else if (startedSubplebbit) {
             // let's mirror the started subplebbit in this process
             await this._initMirroringStartedOrUpdatingSubplebbit(startedSubplebbit);
-            delete this._plebbit._updatingSubplebbits[this.address];
-            delete this._plebbit._updatingSubplebbits[this.signer.address];
-            return;
-        } else if (
-            this._plebbit._updatingSubplebbits[this.address] instanceof LocalSubplebbit &&
-            this._plebbit._updatingSubplebbits[this.address] !== this
-        ) {
-            // different instance is updating, let's mirror it
-            await this._initMirroringStartedOrUpdatingSubplebbit(this._plebbit._updatingSubplebbits[this.address] as LocalSubplebbit);
+            untrackUpdatingSubplebbit(this._plebbit, this);
             return;
         } else {
+            const updatingSubplebbit = findUpdatingSubplebbit(this._plebbit, { address: this.address });
+            if (updatingSubplebbit instanceof LocalSubplebbit && updatingSubplebbit !== this) {
+                // different instance is updating, let's mirror it
+                await this._initMirroringStartedOrUpdatingSubplebbit(updatingSubplebbit as LocalSubplebbit);
+                return;
+            }
             // this sub is not started or updated anywhere, but maybe another process will call edit() on it
-            this._plebbit._updatingSubplebbits[this.address] = this;
+            trackUpdatingSubplebbit(this._plebbit, this);
             const oldUpdateId = remeda.clone(this._internalStateUpdateId);
             await this._updateInstancePropsWithStartedSubOrDb(); // will update this instance props with DB
             if (this._internalStateUpdateId !== oldUpdateId) {
@@ -3631,10 +3651,8 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             const pubsubClient = this._clientsManager.getDefaultKuboPubsubClient();
 
             this._setStartedStateWithEmission("stopped");
-            delete this._plebbit._startedSubplebbits[this.address];
-            delete this._plebbit._startedSubplebbits[this.signer.address]; // in case we changed address
-            delete _startedSubplebbits[this.address];
-            delete _startedSubplebbits[this.signer.address];
+            untrackStartedSubplebbit(this._plebbit, this);
+            processStartedSubplebbits.untrack(this);
             this._duplicatePublicationAttempts?.clear();
             await this._dbHandler.rollbackAllTransactions();
             await this._dbHandler.unlockSubState();
@@ -3652,10 +3670,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             this._updateLoopAbortController = undefined;
             if (this._dbHandler) this._dbHandler.destoryConnection();
             if (this._mirroredStartedOrUpdatingSubplebbit) await this._cleanUpMirroredStartedOrUpdatingSubplebbit();
-            if (this._plebbit._updatingSubplebbits[this.address] === this) {
-                delete this._plebbit._updatingSubplebbits[this.address];
-                delete this._plebbit._updatingSubplebbits[this.signer.address];
-            }
+            if (findUpdatingSubplebbit(this._plebbit, { address: this.address }) === this) untrackUpdatingSubplebbit(this._plebbit, this);
             this._setUpdatingStateWithEventEmissionIfNewState("stopped");
             log(`Stopped the updating of local subplebbit (${this.address})`);
             this._setState("stopped");
@@ -3666,9 +3681,10 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         const log = Logger("plebbit-js:local-subplebbit:delete");
         log.trace(`Attempting to stop the subplebbit (${this.address}) before deleting, if needed`);
 
-        const startedSubplebbit = (this._plebbit._startedSubplebbits[this.address] || _startedSubplebbits[this.address]) as
-            | LocalSubplebbit
-            | undefined;
+        const startedSubplebbit = <LocalSubplebbit | undefined>(
+            (findStartedSubplebbit(this._plebbit, { address: this.address }) ||
+                findSubplebbitInRegistry(processStartedSubplebbits, { address: this.address }))
+        );
         if (startedSubplebbit && startedSubplebbit !== this) {
             await startedSubplebbit.delete();
             await this.stop();

@@ -50,6 +50,17 @@ import { CID } from "kubo-rpc-client";
 import type { PublicationEventArgs, PublicationEvents } from "../types.js";
 import { getAuthorDomainFromRuntime } from "../publication-author.js";
 import { sha256 } from "js-sha256";
+import {
+    findStartedSubplebbit,
+    findUpdatingComment,
+    findUpdatingSubplebbit,
+    listStartedSubplebbits,
+    listUpdatingComments,
+    listUpdatingSubplebbits,
+    refreshTrackedCommentAliases,
+    trackUpdatingComment,
+    untrackUpdatingComment
+} from "../../plebbit/tracked-instance-registry-util.js";
 
 export class Comment
     extends Publication
@@ -524,6 +535,7 @@ export class Comment
     setCid(newCid: string) {
         this.cid = newCid;
         this.shortCid = shortifyCid(this.cid);
+        refreshTrackedCommentAliases(this._plebbit, this);
     }
 
     override setCommunityAddress(newCommunityAddress: string) {
@@ -855,9 +867,7 @@ export class Comment
         if (!this.cid) throw Error("Need to have comment.cid defined");
         if (!this.communityAddress) {
             // try to find cid in all _updatingSubplebbits
-            for (const updatingSubplebbit of Object.values(this._plebbit._updatingSubplebbits).concat(
-                Object.values(this._plebbit._startedSubplebbits)
-            )) {
+            for (const updatingSubplebbit of [...listUpdatingSubplebbits(this._plebbit), ...listStartedSubplebbits(this._plebbit)]) {
                 const commentInSubplebbitPosts = findCommentInPageInstanceRecursively(updatingSubplebbit.posts, this.cid);
                 if (commentInSubplebbitPosts) {
                     const addr = getCommunityAddressFromRecord(commentInSubplebbitPosts.comment as unknown as Record<string, unknown>);
@@ -868,9 +878,9 @@ export class Comment
             if (!this.communityAddress) return;
         }
         const updatingSubplebbitInstance =
-            this._plebbit._updatingSubplebbits[this.communityAddress] ||
+            findUpdatingSubplebbit(this._plebbit, { address: this.communityAddress }) ||
             this._communityForUpdating?.subplebbit ||
-            this._plebbit._startedSubplebbits[this.communityAddress];
+            findStartedSubplebbit(this._plebbit, { address: this.communityAddress });
         if (updatingSubplebbitInstance?.raw?.subplebbitIpfs && this.cid) {
             const commentInSubplebbitPosts = findCommentInPageInstanceRecursively(updatingSubplebbitInstance.posts, this.cid);
             if (commentInSubplebbitPosts) {
@@ -888,7 +898,7 @@ export class Comment
 
     _useUpdatePropsFromUpdatingCommentIfPossible() {
         if (!this.cid) throw Error("should have cid at this point");
-        const updatingCommentInstance = this._plebbit._updatingComments[this.cid] || this._updatingCommentInstance?.comment;
+        const updatingCommentInstance = findUpdatingComment(this._plebbit, { cid: this.cid }) || this._updatingCommentInstance?.comment;
         if (updatingCommentInstance) {
             // TODO maybe we should just copy props with Object.assign? not sure
             if (!this.raw.comment && updatingCommentInstance.raw.comment) {
@@ -908,10 +918,14 @@ export class Comment
                 this.emit("update", this);
             }
         } else {
-            const ancestorAndUpdatingCids = [this.postCid, this.parentCid, ...Object.keys(this._plebbit._updatingComments)];
+            const ancestorAndUpdatingCids = [
+                this.postCid,
+                this.parentCid,
+                ...listUpdatingComments(this._plebbit).map((comment) => comment.cid)
+            ];
             for (const ancestorCid of ancestorAndUpdatingCids) {
                 if (!ancestorCid) continue;
-                const updatingCommentInstanceOfAncestor = this._plebbit._updatingComments[ancestorCid];
+                const updatingCommentInstanceOfAncestor = findUpdatingComment(this._plebbit, { cid: ancestorCid });
                 if (updatingCommentInstanceOfAncestor) {
                     const commentInAncestor = findCommentInPageInstanceRecursively(updatingCommentInstanceOfAncestor.replies, this.cid!);
                     if (commentInAncestor) {
@@ -922,7 +936,7 @@ export class Comment
                         if ((this.updatedAt || 0) < commentInAncestor.commentUpdate.updatedAt) {
                             this._initCommentUpdate(
                                 commentInAncestor.commentUpdate,
-                                this._plebbit._updatingSubplebbits[this.communityAddress]?.raw?.subplebbitIpfs
+                                findUpdatingSubplebbit(this._plebbit, { address: this.communityAddress })?.raw?.subplebbitIpfs
                             );
                             this.emit("update", this);
                         }
@@ -976,7 +990,7 @@ export class Comment
 
         const updatingCommentInstance = await this._plebbit.createComment(this);
 
-        this._plebbit._updatingComments[this.cid!] = updatingCommentInstance;
+        trackUpdatingComment(this._plebbit, updatingCommentInstance);
 
         this._useUpdatingCommentFromPlebbit(updatingCommentInstance);
         updatingCommentInstance._setStateWithEmission("updating");
@@ -997,7 +1011,7 @@ export class Comment
         if (!this.cid) throw Error("Can't call comment.update() without defining cid");
         this._setStateWithEmission("updating");
 
-        const existingUpdatingComment = this._plebbit._updatingComments[this.cid];
+        const existingUpdatingComment = findUpdatingComment(this._plebbit, { cid: this.cid });
         if (existingUpdatingComment) {
             if (existingUpdatingComment === this) {
                 // This instance is already tracked; start the update loop without mirroring to itself
@@ -1024,7 +1038,7 @@ export class Comment
             }
             this._updateRpcSubscriptionId = undefined;
             this._setRpcClientState("stopped");
-            delete this._plebbit._updatingComments[this.cid];
+            untrackUpdatingComment(this._plebbit, this);
         }
 
         // what if it didn't have enough time to set up _communityForUpdating and _postForUpdating? These are defined after loading CommentIpfs
@@ -1033,10 +1047,10 @@ export class Comment
             !this._postForUpdating &&
             !this._communityForUpdating &&
             !this._updatingCommentInstance &&
-            this._plebbit._updatingComments[this.cid] === this
+            findUpdatingComment(this._plebbit, { cid: this.cid }) === this
         ) {
             // comment.stop got called before updating subplebbit or post instance was created
-            delete this._plebbit._updatingComments[this.cid];
+            untrackUpdatingComment(this._plebbit, this);
         }
         // clean up _communityForUpdating subscriptions
         if (this._communityForUpdating) {
@@ -1044,7 +1058,7 @@ export class Comment
 
             await this._clientsManager.cleanUpUpdatingSubInstance();
             this._communityForUpdating = undefined;
-            delete this._plebbit._updatingComments[this.cid];
+            untrackUpdatingComment(this._plebbit, this);
             this._invalidCommentUpdateMfsPaths.clear();
         }
 
@@ -1052,7 +1066,7 @@ export class Comment
             // this reply instance is subscribed to an updating post
             await this._clientsManager.cleanUpUpdatingPostInstance();
             this._postForUpdating = undefined;
-            delete this._plebbit._updatingComments[this.cid];
+            untrackUpdatingComment(this._plebbit, this);
         }
 
         if (this._updatingCommentInstance) {
@@ -1080,10 +1094,10 @@ export class Comment
             } else if (
                 this._updatingCommentInstance.comment._numOfListenersForUpdatingInstance === 0 &&
                 this._updatingCommentInstance.comment.state === "stopped" &&
-                this._plebbit._updatingComments[this.cid] === this._updatingCommentInstance.comment
+                findUpdatingComment(this._plebbit, { cid: this.cid }) === this._updatingCommentInstance.comment
             ) {
                 // No listeners left and the updating comment is already stopped; remove the stale entry
-                delete this._plebbit._updatingComments[this.cid];
+                untrackUpdatingComment(this._plebbit, this._updatingCommentInstance.comment);
             }
             this._updatingCommentInstance = undefined;
         }

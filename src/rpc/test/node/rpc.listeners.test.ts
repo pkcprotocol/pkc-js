@@ -3,6 +3,7 @@ import tempy from "tempy";
 
 import PlebbitWsServerModule from "../../../../dist/node/rpc/src/index.js";
 import { restorePlebbitJs } from "../../../../dist/node/rpc/src/lib/plebbit-js/index.js";
+import { findStartedSubplebbit } from "../../../../dist/node/plebbit/tracked-instance-registry-util.js";
 import { describeSkipIfRpc, mockRpcServerForTests, mockRpcServerPlebbit } from "../../../../dist/node/test/test-util.js";
 import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/subplebbit/local-subplebbit.js";
 
@@ -189,7 +190,10 @@ describeSkipIfRpc("PlebbitWsServer listener lifecycle", function () {
             expect(deleteResult).to.equal(true);
 
             expect(trackedListenersMap.get(capturedSubplebbit!)).to.equal(undefined, "Tracked listeners should be removed after delete");
-            expect(rpcServer.plebbit._startedSubplebbits[address]).to.equal(undefined, "Started sub list should not contain deleted sub");
+            expect(findStartedSubplebbit(rpcServer.plebbit, { address })).to.equal(
+                undefined,
+                "Started sub list should not contain deleted sub"
+            );
 
             trackedSnapshot.forEach((listeners, event) => {
                 const emitterListeners = capturedSubplebbit!.listeners(event as Parameters<typeof capturedSubplebbit.listeners>[0]);

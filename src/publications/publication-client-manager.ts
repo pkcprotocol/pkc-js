@@ -14,6 +14,7 @@ import {
 import { CommentIpfsGatewayClient, CommentKuboRpcClient } from "./comment/comment-clients.js";
 import type { SubplebbitEvents, SubplebbitIpfsType } from "../subplebbit/types.js";
 import { waitForUpdateInSubInstanceWithErrorAndTimeout } from "../util.js";
+import { findStartedSubplebbit, findUpdatingSubplebbit } from "../plebbit/tracked-instance-registry-util.js";
 
 export class PublicationClientsManager extends PlebbitClientsManager {
     override clients!: {
@@ -162,8 +163,8 @@ export class PublicationClientsManager extends PlebbitClientsManager {
         // basically in Publication or comment we need to be fetching the subplebbit record
         // this function will be for translating between the states of the subplebbit and its clients to publication/comment states
         const directSubInstance =
-            this._plebbit._updatingSubplebbits[this._publication.communityAddress] ||
-            this._plebbit._startedSubplebbits[this._publication.communityAddress];
+            findUpdatingSubplebbit(this._plebbit, { address: this._publication.communityAddress }) ||
+            findStartedSubplebbit(this._plebbit, { address: this._publication.communityAddress });
         const sub = directSubInstance || (await this._plebbit.createSubplebbit({ address: this._publication.communityAddress }));
 
         this._communityForUpdating = {

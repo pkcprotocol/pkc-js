@@ -16,14 +16,13 @@ import { z } from "zod";
 import { PlebbitError } from "../plebbit-error.js";
 import type { AuthorNameRpcParam, CidRpcParam } from "../clients/rpc-client/types.js";
 import { parseRpcAuthorNameParam, parseRpcCidParam } from "../clients/rpc-client/rpc-schema-util.js";
+import { listStartedSubplebbits } from "./tracked-instance-registry-util.js";
 
 // This is a helper class for separating RPC-client logic from main Plebbit
 // Not meant to be used with end users
 export class PlebbitWithRpcClient extends Plebbit {
     override _plebbitRpcClient!: NonNullable<Plebbit["_plebbitRpcClient"]>;
     override plebbitRpcClientsOptions!: NonNullable<Plebbit["plebbitRpcClientsOptions"]>;
-    override _startedSubplebbits: Record<string, RpcLocalSubplebbit> = {}; // storing subplebbit instance that are started rn
-    override _updatingSubplebbits: Record<string, RpcLocalSubplebbit | RpcRemoteSubplebbit> = {};
 
     constructor(options: InputPlebbitOptions) {
         super(options);
@@ -66,7 +65,7 @@ export class PlebbitWithRpcClient extends Plebbit {
     }
 
     override async destroy() {
-        for (const startedSubplebbit of Object.values(this._startedSubplebbits)) {
+        for (const startedSubplebbit of listStartedSubplebbits(this)) {
             await startedSubplebbit.stopWithoutRpcCall();
         }
         await super.destroy();

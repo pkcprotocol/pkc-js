@@ -5,10 +5,19 @@ import {
     publishRandomPost,
     createSubWithNoChallenge
 } from "../../../dist/node/test/test-util.js";
+import {
+    findStartedSubplebbit,
+    findUpdatingComment,
+    findUpdatingSubplebbit,
+    listStartedSubplebbits,
+    listUpdatingComments,
+    listUpdatingSubplebbits
+} from "../../../dist/node/plebbit/tracked-instance-registry-util.js";
 import { describe, beforeAll, afterAll, it } from "vitest";
 import type { Plebbit } from "../../../dist/node/plebbit/plebbit.js";
 import type { LocalSubplebbit } from "../../../dist/node/runtime/node/subplebbit/local-subplebbit.js";
 import type { RpcLocalSubplebbit } from "../../../dist/node/subplebbit/rpc-local-subplebbit.js";
+import signers from "../../fixtures/signers.js";
 
 // when it comes to _startedSubplebbits with RPC, we need to test it differently
 // localSubplebbit.update() will not use _startedSubplebbits, it will create a new subscription and let the RPC server handle the rest
@@ -24,9 +33,43 @@ describe.concurrent(`plebbit._startedSubplebbits`, () => {
     it(`sub.start() should add the subplebbit to plebbit._startedSubplebbits. stop() should remove it`, async () => {
         const subplebbit = (await plebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
         await subplebbit.start();
-        expect(plebbit._startedSubplebbits[subplebbit.address]).to.exist;
+        expect(findStartedSubplebbit(plebbit, { address: subplebbit.address })).to.equal(subplebbit);
         await subplebbit.stop();
-        expect(plebbit._startedSubplebbits[subplebbit.address]).to.not.exist;
+        expect(findStartedSubplebbit(plebbit, { address: subplebbit.address })).to.be.undefined;
+    });
+
+    it(`started registry resolves the same subplebbit by address, name, publicKey, and sticky aliases`, async () => {
+        const isolatedPlebbit = await mockPlebbit();
+
+        try {
+            const startedSubplebbit = (await isolatedPlebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
+            const originalAddress = startedSubplebbit.address;
+            const aliasBase = `started-sub-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+            const bsoAddress = `${aliasBase}.bso`;
+            const ethAddress = `${aliasBase}.eth`;
+
+            await startedSubplebbit.start();
+            await startedSubplebbit.edit({ address: bsoAddress });
+            await new Promise((resolve) => startedSubplebbit.once("update", resolve));
+
+            const publicKey = startedSubplebbit.publicKey || startedSubplebbit.signer.address;
+
+            expect(findStartedSubplebbit(isolatedPlebbit, { address: originalAddress })).to.equal(startedSubplebbit);
+            expect(findStartedSubplebbit(isolatedPlebbit, { address: bsoAddress })).to.equal(startedSubplebbit);
+            expect(findStartedSubplebbit(isolatedPlebbit, { address: ethAddress })).to.equal(startedSubplebbit);
+            expect(findStartedSubplebbit(isolatedPlebbit, { name: bsoAddress })).to.equal(startedSubplebbit);
+            expect(findStartedSubplebbit(isolatedPlebbit, { publicKey })).to.equal(startedSubplebbit);
+            expect(listStartedSubplebbits(isolatedPlebbit)).to.deep.equal([startedSubplebbit]);
+
+            await startedSubplebbit.stop();
+
+            expect(findStartedSubplebbit(isolatedPlebbit, { address: originalAddress })).to.be.undefined;
+            expect(findStartedSubplebbit(isolatedPlebbit, { address: bsoAddress })).to.be.undefined;
+            expect(findStartedSubplebbit(isolatedPlebbit, { address: ethAddress })).to.be.undefined;
+            expect(listStartedSubplebbits(isolatedPlebbit)).to.deep.equal([]);
+        } finally {
+            await isolatedPlebbit.destroy().catch(() => {});
+        }
     });
 
     itSkipIfRpc(`localSubplebbit.update() should use the subplebbit in plebbit._startdSubplebbits`, async () => {
@@ -114,27 +157,65 @@ describe.concurrent(`plebbit._startedSubplebbits`, () => {
     it(`Publishing/updating via comment should not stop a started subplebbit`, async () => {
         const startedSub = (await createSubWithNoChallenge({}, plebbit)) as LocalSubplebbit | RpcLocalSubplebbit;
         await startedSub.start();
-        expect(plebbit._startedSubplebbits[startedSub.address]).to.exist;
+        expect(findStartedSubplebbit(plebbit, { address: startedSub.address })).to.equal(startedSub);
 
         const post = await publishRandomPost({ communityAddress: startedSub.address, plebbit: plebbit });
         const comment = await plebbit.createComment({ cid: post.cid! });
         await comment.update();
         await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });
-        expect(plebbit._startedSubplebbits[startedSub.address]).to.exist;
-        expect(plebbit._updatingSubplebbits[startedSub.address]).to.be.undefined;
-        expect(plebbit._updatingComments[comment.cid!]).to.exist;
+        expect(findStartedSubplebbit(plebbit, { address: startedSub.address })).to.equal(startedSub);
+        expect(findUpdatingSubplebbit(plebbit, { address: startedSub.address })).to.be.undefined;
+        expect(findUpdatingComment(plebbit, { cid: comment.cid! })).to.exist;
 
         await comment.stop();
         await new Promise((resolve) => setTimeout(resolve, 200));
 
-        expect(plebbit._startedSubplebbits[startedSub.address]).to.exist;
-        expect(plebbit._updatingSubplebbits[startedSub.address]).to.be.undefined;
-        expect(plebbit._updatingComments[comment.cid!]).to.not.exist;
+        expect(findStartedSubplebbit(plebbit, { address: startedSub.address })).to.equal(startedSub);
+        expect(findUpdatingSubplebbit(plebbit, { address: startedSub.address })).to.be.undefined;
+        expect(findUpdatingComment(plebbit, { cid: comment.cid! })).to.not.exist;
 
         expect(startedSub.state).to.equal("started");
         await startedSub.stop();
-        expect(plebbit._startedSubplebbits[startedSub.address]).to.not.exist;
-        expect(plebbit._updatingSubplebbits[startedSub.address]).to.be.undefined;
-        expect(plebbit._updatingComments[comment.cid!]).to.not.exist;
+        expect(findStartedSubplebbit(plebbit, { address: startedSub.address })).to.not.exist;
+        expect(findUpdatingSubplebbit(plebbit, { address: startedSub.address })).to.be.undefined;
+        expect(findUpdatingComment(plebbit, { cid: comment.cid! })).to.not.exist;
+    });
+
+    it(`destroy clears started, updating subplebbit, and updating comment registries without duplicates`, async () => {
+        const isolatedPlebbit = await mockPlebbit();
+        let destroyed = false;
+
+        try {
+            const startedSubplebbit = (await createSubWithNoChallenge({}, isolatedPlebbit)) as LocalSubplebbit | RpcLocalSubplebbit;
+            await startedSubplebbit.start();
+
+            const updatingSubplebbit = await isolatedPlebbit.createSubplebbit({ address: signers[0].address });
+            await updatingSubplebbit.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: updatingSubplebbit,
+                predicate: async () => typeof updatingSubplebbit.updatedAt === "number"
+            });
+
+            const comment = await isolatedPlebbit.createComment({ cid: updatingSubplebbit.posts.pages.hot.comments[0].cid });
+            await comment.update();
+            await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });
+
+            expect(listStartedSubplebbits(isolatedPlebbit)).to.have.lengthOf(1);
+            expect(listUpdatingSubplebbits(isolatedPlebbit)).to.have.lengthOf(1);
+            expect(listUpdatingComments(isolatedPlebbit).map((trackedComment) => trackedComment.cid)).to.include(comment.cid);
+
+            expect(new Set(listStartedSubplebbits(isolatedPlebbit)).size).to.equal(listStartedSubplebbits(isolatedPlebbit).length);
+            expect(new Set(listUpdatingSubplebbits(isolatedPlebbit)).size).to.equal(listUpdatingSubplebbits(isolatedPlebbit).length);
+            expect(new Set(listUpdatingComments(isolatedPlebbit)).size).to.equal(listUpdatingComments(isolatedPlebbit).length);
+
+            await isolatedPlebbit.destroy();
+            destroyed = true;
+
+            expect(listStartedSubplebbits(isolatedPlebbit)).to.deep.equal([]);
+            expect(listUpdatingSubplebbits(isolatedPlebbit)).to.deep.equal([]);
+            expect(listUpdatingComments(isolatedPlebbit)).to.deep.equal([]);
+        } finally {
+            if (!destroyed) await isolatedPlebbit.destroy().catch(() => {});
+        }
     });
 });

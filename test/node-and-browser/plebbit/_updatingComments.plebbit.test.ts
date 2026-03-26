@@ -14,6 +14,12 @@ import type { Plebbit } from "../../../dist/node/plebbit/plebbit.js";
 import type { RemoteSubplebbit } from "../../../dist/node/subplebbit/remote-subplebbit.js";
 import type { PlebbitError } from "../../../dist/node/plebbit-error.js";
 import type { CommentIpfsWithCidDefined } from "../../../dist/node/publications/comment/types.js";
+import {
+    findUpdatingComment,
+    findUpdatingSubplebbit,
+    listUpdatingComments,
+    listUpdatingSubplebbits
+} from "../../../dist/node/plebbit/tracked-instance-registry-util.js";
 
 const subplebbitAddress = signers[0].address;
 
@@ -232,6 +238,34 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         }
 
         // The rest of your standalone tests go here
+        it(`findUpdatingComment and listUpdatingComments track one live instance per cid`, async () => {
+            const commentCid = sub.posts.pages.hot.comments[0].cid;
+            const comment1 = await plebbit.createComment({ cid: commentCid });
+            const comment2 = await plebbit.createComment({ cid: commentCid });
+
+            expect(findUpdatingComment(plebbit, { cid: commentCid })).to.be.undefined;
+            expect(listUpdatingComments(plebbit)).to.deep.equal([]);
+
+            await comment1.update();
+            await comment2.update();
+
+            await Promise.all(
+                [comment1, comment2].map((comment) =>
+                    resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" })
+                )
+            );
+
+            expect(findUpdatingComment(plebbit, { cid: commentCid })?.cid).to.equal(commentCid);
+            expect(listUpdatingComments(plebbit).filter((trackedComment) => trackedComment.cid === commentCid)).to.have.lengthOf(1);
+
+            await comment1.stop();
+            await comment2.stop();
+            await new Promise((resolve) => setTimeout(resolve, 100));
+
+            expect(findUpdatingComment(plebbit, { cid: commentCid })).to.be.undefined;
+            expect(listUpdatingComments(plebbit)).to.deep.equal([]);
+        });
+
         itSkipIfRpc(
             `Stopping the first updating comment shouldn't tear down _updatingSubplebbits while another comment from the same sub is still updating`,
             async () => {
@@ -254,20 +288,20 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 });
 
                 const subAddress = firstComment.communityAddress;
-                expect(plebbit._updatingSubplebbits[subAddress]).to.exist;
+                expect(findUpdatingSubplebbit(plebbit, { address: subAddress })).to.exist;
 
                 await firstComment.stop();
                 await new Promise((resolve) => setTimeout(resolve, 200));
 
-                expect(plebbit._updatingSubplebbits[subAddress]).to.exist;
+                expect(findUpdatingSubplebbit(plebbit, { address: subAddress })).to.exist;
                 expect(secondComment.state).to.equal("updating");
-                expect(plebbit._updatingComments[secondComment.cid]).to.exist;
+                expect(findUpdatingComment(plebbit, { cid: secondComment.cid! })).to.exist;
 
                 await secondComment.stop();
                 await new Promise((resolve) => setTimeout(resolve, 200));
 
-                expect(plebbit._updatingSubplebbits[subAddress]).to.not.exist;
-                expect(plebbit._updatingComments).to.deep.equal({});
+                expect(findUpdatingSubplebbit(plebbit, { address: subAddress })).to.not.exist;
+                expect(listUpdatingComments(plebbit)).to.deep.equal([]);
             }
         );
 
@@ -296,8 +330,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             await post.stop();
 
-            expect(Object.keys(plebbit._updatingComments)).to.deep.equal([]);
-            expect(Object.keys(plebbit._updatingSubplebbits)).to.deep.equal([]);
+            expect(listUpdatingComments(plebbit)).to.deep.equal([]);
+            expect(listUpdatingSubplebbits(plebbit)).to.deep.equal([]);
         });
 
         it(`Calling comment.stop() and update() should behave as normal with plebbit._updatingComments`, async () => {
@@ -308,17 +342,17 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             await postComment1.update();
             await resolveWhenConditionIsTrue({ toUpdate: postComment1, predicate: async () => typeof postComment1.updatedAt === "number" });
-            expect(plebbit._updatingComments[postCommentCid].listenerCount("update")).to.equal(1);
+            expect(findUpdatingComment(plebbit, { cid: postCommentCid })!.listenerCount("update")).to.equal(1);
 
             const postComment2 = await plebbit.createComment({ cid: postCommentCid });
 
             await postComment2.update();
-            expect(plebbit._updatingComments[postCommentCid].listenerCount("update")).to.equal(2);
+            expect(findUpdatingComment(plebbit, { cid: postCommentCid })!.listenerCount("update")).to.equal(2);
 
             await postComment1.stop();
 
-            expect(plebbit._updatingComments[postCommentCid]).to.exist;
-            expect(plebbit._updatingComments[postCommentCid].listenerCount("update")).to.equal(1);
+            expect(findUpdatingComment(plebbit, { cid: postCommentCid })).to.exist;
+            expect(findUpdatingComment(plebbit, { cid: postCommentCid })!.listenerCount("update")).to.equal(1);
 
             const initialReplyCount = postComment2.replyCount;
 
@@ -336,7 +370,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             await new Promise((resolve) => setTimeout(resolve, 100));
 
-            expect(plebbit._updatingComments[postCommentCid]).to.be.undefined;
+            expect(findUpdatingComment(plebbit, { cid: postCommentCid })).to.be.undefined;
         });
 
         it("fails (for now) when an updating comment mirrors itself from _updatingComments", async () => {
@@ -378,21 +412,21 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await resolveWhenConditionIsTrue({ toUpdate: reply, predicate: async () => typeof reply.updatedAt === "number" });
                 const postCid = reply.postCid;
                 // Verify that both the reply and its parent post are in _updatingComments
-                expect(plebbit._updatingComments[replyCid]).to.exist;
-                expect(plebbit._updatingComments[postCid]).to.exist;
+                expect(findUpdatingComment(plebbit, { cid: replyCid })).to.exist;
+                expect(findUpdatingComment(plebbit, { cid: postCid })).to.exist;
 
                 // Verify the reply's CID matches replyCid
-                expect(plebbit._updatingComments[replyCid].cid).to.equal(replyCid);
+                expect(findUpdatingComment(plebbit, { cid: replyCid })!.cid).to.equal(replyCid);
 
                 // Verify the post's CID matches the expected postCid
-                expect(plebbit._updatingComments[postCid].cid).to.equal(postCid);
+                expect(findUpdatingComment(plebbit, { cid: postCid })!.cid).to.equal(postCid);
 
                 // Now stop the reply and verify both are removed from _updatingComments
                 await reply.stop();
                 await new Promise((resolve) => setTimeout(resolve, 500)); // need to wait some time to propgate events
-                expect(plebbit._updatingComments[replyCid]).to.be.undefined;
-                expect(plebbit._updatingComments[postCid]).to.be.undefined;
-                expect(Object.keys(plebbit._updatingComments).length).to.equal(0);
+                expect(findUpdatingComment(plebbit, { cid: replyCid })).to.be.undefined;
+                expect(findUpdatingComment(plebbit, { cid: postCid })).to.be.undefined;
+                expect(listUpdatingComments(plebbit)).to.have.lengthOf(0);
             }
         );
 
@@ -405,18 +439,18 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
                 const comment = await plebbit.createComment({ cid: commentCid });
 
-                expect(plebbit._updatingComments[commentCid]).to.not.exist;
-                expect(plebbit._updatingSubplebbits[comment.communityAddress]).to.not.exist;
+                expect(findUpdatingComment(plebbit, { cid: commentCid })).to.not.exist;
+                expect(findUpdatingSubplebbit(plebbit, { address: comment.communityAddress })).to.not.exist;
 
                 await comment.update();
                 await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });
-                expect(plebbit._updatingComments[commentCid]).to.exist;
-                expect(plebbit._updatingSubplebbits[comment.communityAddress]).to.exist;
+                expect(findUpdatingComment(plebbit, { cid: commentCid })).to.exist;
+                expect(findUpdatingSubplebbit(plebbit, { address: comment.communityAddress })).to.exist;
 
                 await comment.stop();
                 await new Promise((resolve) => setTimeout(resolve, 500)); // need to wait some time to propgate events
-                expect(plebbit._updatingComments[commentCid]).to.not.exist;
-                expect(plebbit._updatingSubplebbits[comment.communityAddress]).to.not.exist;
+                expect(findUpdatingComment(plebbit, { cid: commentCid })).to.not.exist;
+                expect(findUpdatingSubplebbit(plebbit, { address: comment.communityAddress })).to.not.exist;
             }
         );
 
@@ -427,18 +461,18 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             const comment = await plebbit.createComment({ cid: commentCid });
 
-            expect(plebbit._updatingComments[commentCid]).to.not.exist;
-            expect(plebbit._updatingSubplebbits[subplebbit.address]).to.exist;
+            expect(findUpdatingComment(plebbit, { cid: commentCid })).to.not.exist;
+            expect(findUpdatingSubplebbit(plebbit, { address: subplebbit.address })).to.exist;
 
             await comment.update();
             await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });
-            expect(plebbit._updatingComments[commentCid]).to.exist;
-            expect(plebbit._updatingSubplebbits[comment.communityAddress]).to.exist;
+            expect(findUpdatingComment(plebbit, { cid: commentCid })).to.exist;
+            expect(findUpdatingSubplebbit(plebbit, { address: comment.communityAddress })).to.exist;
 
             await comment.stop();
             await new Promise((resolve) => setTimeout(resolve, 500)); // need to wait some time to propgate events
-            expect(plebbit._updatingComments[commentCid]).to.not.exist;
-            expect(plebbit._updatingSubplebbits[comment.communityAddress]).to.exist;
+            expect(findUpdatingComment(plebbit, { cid: commentCid })).to.not.exist;
+            expect(findUpdatingSubplebbit(plebbit, { address: comment.communityAddress })).to.exist;
         });
     });
 });

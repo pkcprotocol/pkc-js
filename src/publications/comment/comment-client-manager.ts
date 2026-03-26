@@ -28,6 +28,7 @@ import { Plebbit } from "../../plebbit/plebbit.js";
 import type { PublicationEvents } from "../types.js";
 import { InflightResourceTypes } from "../../util/inflight-fetch-manager.js";
 import { loadAllPagesUnderSubplebbitToFindComment } from "./comment-util.js";
+import { findStartedSubplebbit, findUpdatingComment, findUpdatingSubplebbit } from "../../plebbit/tracked-instance-registry-util.js";
 
 const fetchCommentLogger = Logger("plebbit-js:comment:client-manager:fetchAndVerifyCommentCid");
 
@@ -565,18 +566,20 @@ export class CommentClientsManager extends PublicationClientsManager {
         // TODO rewrite this to use updating comments and subplebbit
         if (typeof this._comment.cid !== "string") throw Error("Need to have defined cid");
         const sub: RemoteSubplebbit | undefined =
-            this._plebbit._startedSubplebbits[this._comment.communityAddress] ||
-            this._plebbit._updatingSubplebbits[this._comment.communityAddress] ||
+            findStartedSubplebbit(this._plebbit, { address: this._comment.communityAddress }) ||
+            findUpdatingSubplebbit(this._plebbit, { address: this._comment.communityAddress }) ||
             opts?.sub;
         let updateFromSub: PageIpfs["comments"][0] | undefined;
         if (sub) updateFromSub = findCommentInPageInstanceRecursively(sub.posts, this._comment.cid);
 
-        const post: Comment | undefined = this._comment.postCid ? this._plebbit._updatingComments[this._comment.postCid!] : opts?.post;
+        const post: Comment | undefined = this._comment.postCid
+            ? findUpdatingComment(this._plebbit, { cid: this._comment.postCid })
+            : opts?.post;
         let updateFromPost: PageIpfs["comments"][0] | undefined;
         if (post) updateFromPost = findCommentInPageInstanceRecursively(post.replies, this._comment.cid);
 
         const parent: Comment | undefined = this._comment.parentCid
-            ? opts?.parent || this._plebbit._updatingComments[this._comment.parentCid]
+            ? opts?.parent || findUpdatingComment(this._plebbit, { cid: this._comment.parentCid })
             : undefined;
         let updateFromParent: PageIpfs["comments"][0] | undefined;
         if (parent) {
@@ -923,10 +926,10 @@ export class CommentClientsManager extends PublicationClientsManager {
         }
         const replyInPage = this._findCommentInPagesOfUpdatingCommentsOrSubplebbit({ post: postInstance });
 
+        const updatingSubplebbit = findUpdatingSubplebbit(this._plebbit, { address: postInstance.communityAddress });
+        const startedSubplebbit = findStartedSubplebbit(this._plebbit, { address: postInstance.communityAddress });
         const repliesSubplebbit = <Pick<SubplebbitIpfsType, "signature">>(
-            (this._plebbit._updatingSubplebbits[postInstance.communityAddress]?.raw?.subplebbitIpfs ||
-                this._plebbit._startedSubplebbits[postInstance.communityAddress]?.raw?.subplebbitIpfs ||
-                postInstance.replies._subplebbit)
+            (updatingSubplebbit?.raw?.subplebbitIpfs || startedSubplebbit?.raw?.subplebbitIpfs || postInstance.replies._subplebbit)
         );
         if (!repliesSubplebbit.signature) throw Error("repliesSubplebbit.signature needs to be defined to fetch comment update of reply");
         if (replyInPage && !this._comment.raw.comment) {
@@ -963,7 +966,8 @@ export class CommentClientsManager extends PublicationClientsManager {
         // this function will be for translating between the states of the post and its clients to reply states
         if (!this._comment.postCid) throw Error("comment.postCid needs to be defined to fetch comment update of reply");
         const post =
-            this._plebbit._updatingComments[this._comment.postCid] || (await this._plebbit.createComment({ cid: this._comment.postCid }));
+            findUpdatingComment(this._plebbit, { cid: this._comment.postCid }) ||
+            (await this._plebbit.createComment({ cid: this._comment.postCid }));
 
         this._postForUpdating = {
             comment: post,

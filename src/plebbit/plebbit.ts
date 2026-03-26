@@ -128,6 +128,13 @@ import { Libp2pJsClient } from "../helia/libp2pjsClient.js";
 import { AuthorNameRpcParam, CidRpcParam, SubplebbitAddressRpcParam } from "../clients/rpc-client/types.js";
 import { parseRpcAuthorNameParam, parseRpcCidParam, parseRpcSubplebbitAddressParam } from "../clients/rpc-client/rpc-schema-util.js";
 import { cleanWireAuthor, normalizeCreatePublicationAuthor } from "../publications/publication-author.js";
+import { IndexedTrackedInstanceRegistry, TrackedInstanceRegistry } from "./tracked-instance-registry.js";
+import {
+    findUpdatingSubplebbit,
+    listStartedSubplebbits,
+    listUpdatingComments,
+    listUpdatingSubplebbits
+} from "./tracked-instance-registry-util.js";
 
 export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements ParsedPlebbitOptions {
     ipfsGatewayUrls: ParsedPlebbitOptions["ipfsGatewayUrls"];
@@ -170,9 +177,13 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
     _userPlebbitOptions: InputPlebbitOptions; // this is the raw input from user
     _stats!: Stats;
     _storage!: StorageInterface;
-    _updatingSubplebbits: Record<string, Awaited<ReturnType<Plebbit["createSubplebbit"]>>> = {}; // storing subplebbit instance that are getting updated rn
-    _updatingComments: Record<string, Awaited<ReturnType<Plebbit["createComment"]>>> = {}; // storing comment instancse that are getting updated rn
-    _startedSubplebbits: Record<string, LocalSubplebbit | RpcLocalSubplebbit> = {}; // storing subplebbit instance that are started rn
+    _updatingSubplebbits: IndexedTrackedInstanceRegistry<RemoteSubplebbit | RpcRemoteSubplebbit | RpcLocalSubplebbit | LocalSubplebbit> =
+        new TrackedInstanceRegistry() as IndexedTrackedInstanceRegistry<
+            RemoteSubplebbit | RpcRemoteSubplebbit | RpcLocalSubplebbit | LocalSubplebbit
+        >; // storing subplebbit instance that are getting updated rn
+    _updatingComments: IndexedTrackedInstanceRegistry<Comment> = new TrackedInstanceRegistry() as IndexedTrackedInstanceRegistry<Comment>; // storing comment instancse that are getting updated rn
+    _startedSubplebbits: IndexedTrackedInstanceRegistry<LocalSubplebbit | RpcLocalSubplebbit> =
+        new TrackedInstanceRegistry() as IndexedTrackedInstanceRegistry<LocalSubplebbit | RpcLocalSubplebbit>; // storing subplebbit instance that are started rn
     private _subplebbitFsWatchAbort?: AbortController;
 
     private _addressRewriterDestroy?: () => Promise<void>;
@@ -937,7 +948,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
                 commentIpfsValidity
             });
 
-        const subplebbitIpfs = this._updatingSubplebbits[comment.communityAddress]?.raw?.subplebbitIpfs;
+        const subplebbitIpfs = findUpdatingSubplebbit(this, { address: comment.communityAddress })?.raw?.subplebbitIpfs;
         const subplebbit: { address: string; signature?: SubplebbitIpfsType["signature"] } = subplebbitIpfs
             ? { address: comment.communityAddress, signature: subplebbitIpfs.signature }
             : { address: comment.communityAddress };
@@ -973,11 +984,11 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         this.destroyed = true;
         // Clean up connections
 
-        for (const comment of Object.values(this._updatingComments)) await comment.stop();
+        for (const comment of listUpdatingComments(this)) await comment.stop();
 
-        for (const subplebbit of Object.values(this._updatingSubplebbits)) await subplebbit.stop();
+        for (const subplebbit of listUpdatingSubplebbits(this)) await subplebbit.stop();
 
-        await Promise.all(Object.values(this._startedSubplebbits).map((sub) => sub.stop()));
+        await Promise.all(listStartedSubplebbits(this).map((sub) => sub.stop()));
 
         if (this._subplebbitFsWatchAbort) this._subplebbitFsWatchAbort.abort();
 

@@ -6,6 +6,12 @@ import { PlebbitError } from "../plebbit-error.js";
 import { parseRpcRemoteSubplebbitUpdateEventWithPlebbitErrorIfItFails } from "../schema/schema-util.js";
 import { deepMergeRuntimeFields } from "../util.js";
 import { RpcLocalSubplebbit } from "./rpc-local-subplebbit.js";
+import {
+    findStartedSubplebbit,
+    findUpdatingSubplebbit,
+    trackUpdatingSubplebbit,
+    untrackUpdatingSubplebbit
+} from "../plebbit/tracked-instance-registry-util.js";
 
 export class RpcRemoteSubplebbit extends RemoteSubplebbit {
     private _updateRpcSubscriptionId?: number = undefined;
@@ -190,7 +196,7 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
         const log = Logger("plebbit-js:rpc-remote-subplebbit:_createNewUpdatingSubplebbit");
         const updatingSub =
             updatingSubplebbit || ((await this._plebbit.createSubplebbit({ address: this.address })) as RpcRemoteSubplebbit);
-        this._plebbit._updatingSubplebbits[this.address] = updatingSub;
+        trackUpdatingSubplebbit(this._plebbit, updatingSub);
         log("Creating a new entry for this._plebbit._updatingSubplebbits", this.address);
 
         if (updatingSub !== this)
@@ -206,16 +212,18 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
         if (this.state !== "stopped") return; // No need to do anything if subplebbit is already updating
         this._setState("updating");
         try {
-            if (this._plebbit._updatingSubplebbits[this.address]) {
-                const existingSub = this._plebbit._updatingSubplebbits[this.address] as RpcRemoteSubplebbit;
+            const existingSub = findUpdatingSubplebbit(this._plebbit, { address: this.address }) as RpcRemoteSubplebbit | undefined;
+            if (existingSub) {
                 if (existingSub === this) await this._initRpcUpdateSubscription();
                 else await this._initMirroringUpdatingSubplebbit(existingSub);
-            } else if (this._plebbit._startedSubplebbits[this.address]) {
-                await this._initMirroringUpdatingSubplebbit(this._plebbit._startedSubplebbits[this.address] as RpcLocalSubplebbit);
             } else {
-                // creating a new entry in plebbit._updatingSubplebbits
-                // poll updates from RPC
-                await this._createAndSubscribeToNewUpdatingSubplebbit();
+                const startedSub = findStartedSubplebbit(this._plebbit, { address: this.address });
+                if (startedSub) await this._initMirroringUpdatingSubplebbit(startedSub as RpcLocalSubplebbit);
+                else {
+                    // creating a new entry in plebbit._updatingSubplebbits
+                    // poll updates from RPC
+                    await this._createAndSubscribeToNewUpdatingSubplebbit();
+                }
             }
         } catch (e) {
             await this.stop();
@@ -288,7 +296,7 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
             }
             this._updateRpcSubscriptionId = undefined;
             log.trace(`Stopped the update of remote subplebbit (${this.address}) via RPC`);
-            delete this._plebbit._updatingSubplebbits[this.address];
+            untrackUpdatingSubplebbit(this._plebbit, this);
         }
         this._setRpcClientStateWithEmission("stopped");
         this._setUpdatingStateWithEventEmissionIfNewState("stopped");

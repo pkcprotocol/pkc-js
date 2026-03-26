@@ -38,6 +38,7 @@ import { getBufferedPlebbitAddressFromPublicKey } from "../signer/util.js";
 import * as cborg from "cborg";
 import * as remeda from "remeda";
 import type { SubplebbitIpfsType } from "../subplebbit/types.js";
+import { findStartedSubplebbit, findUpdatingSubplebbit } from "../plebbit/tracked-instance-registry-util.js";
 import type { CommentIpfsType } from "./comment/types.js";
 import {
     parseDecryptedChallengeAnswerWithPlebbitErrorIfItFails,
@@ -701,7 +702,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
         const cached = this._plebbit._memCaches.subplebbitForPublishing.get(this.communityAddress, { allowStale: true });
         if (cached) return cached;
         const subInstance =
-            this._plebbit._updatingSubplebbits[this.communityAddress] || this._plebbit._startedSubplebbits[this.communityAddress];
+            findUpdatingSubplebbit(this._plebbit, { address: this.communityAddress }) ||
+            findStartedSubplebbit(this._plebbit, { address: this.communityAddress });
         const subIpfs = subInstance?.raw.subplebbitIpfs;
         if (subIpfs && subInstance.publicKey)
             return {
@@ -1168,9 +1170,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
         const options = { acceptedChallengeTypes: [] };
 
         const providers = this._getPubsubProviders();
-        if (this._plebbit._startedSubplebbits[this.communityAddress] as LocalSubplebbit) {
+        const startedSubplebbit = findStartedSubplebbit(this._plebbit, { address: this.communityAddress }) as LocalSubplebbit | undefined;
+        if (startedSubplebbit) {
             return this._publishWithLocalSubplebbit(
-                this._plebbit._startedSubplebbits[this.communityAddress] as LocalSubplebbit,
+                startedSubplebbit,
                 await this._generateChallengeRequestToPublish(
                     "publishing directly to local subplebbit instance",
                     options.acceptedChallengeTypes
