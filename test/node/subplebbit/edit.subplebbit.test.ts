@@ -118,8 +118,14 @@ describeSkipIfRpc(`subplebbit.edit`, async () => {
         expect(subplebbit.posts.pages).to.not.deep.equal({});
         await subplebbit.edit({ address: bsoNameAddress });
         expect(subplebbit.address).to.equal(bsoNameAddress);
+        expect(subplebbit.name).to.equal(bsoNameAddress);
         await new Promise((resolve) => subplebbit.once("update", resolve));
         expect(subplebbit.address).to.equal(bsoNameAddress);
+        expect(subplebbit.name).to.equal(bsoNameAddress);
+    });
+
+    it(`Wire format includes name after editing address to domain`, async () => {
+        expect(subplebbit.raw.subplebbitIpfs?.name).to.equal(bsoNameAddress);
     });
 
     it(`plebbit.subplebbits includes the new ENS address, and not the old address`, async () => {
