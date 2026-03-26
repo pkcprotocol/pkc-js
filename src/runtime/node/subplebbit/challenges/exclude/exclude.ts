@@ -161,7 +161,7 @@ const shouldExcludeChallengeSuccess = (
 
 // cache for fetching comment cids, never expire
 // key is comment cid
-type CommentCacheType = Pick<Comment, "subplebbitAddress"> & { author: { address: Comment["author"]["address"] } };
+type CommentCacheType = Pick<Comment, "communityAddress"> & { author: { address: Comment["author"]["address"] } };
 const commentCache = new QuickLRU<string, CommentCacheType>({
     maxSize: 10000
 });
@@ -199,7 +199,7 @@ const shouldExcludeChallengeCommentCids = async (
     const _getComment = async (
         commentCid: string,
         addressesSet: Set<string>
-    ): Promise<Pick<Comment, "subplebbitAddress"> & { author: Pick<Comment["author"], "address" | "subplebbit"> }> => {
+    ): Promise<Pick<Comment, "communityAddress"> & { author: Pick<Comment["author"], "address" | "subplebbit"> }> => {
         // comment is cached
         let cachedComment = commentCache.get(commentCid);
 
@@ -208,13 +208,13 @@ const shouldExcludeChallengeCommentCids = async (
         if (!cachedComment) {
             comment = await plebbit.getComment({ cid: commentCid });
             // only cache useful values
-            cachedComment = { subplebbitAddress: comment.subplebbitAddress, author: { address: comment.author.address } };
+            cachedComment = { communityAddress: comment.communityAddress, author: { address: comment.author.address } };
             commentCache.set(commentCid, cachedComment);
         }
 
-        // subplebbit address doesn't match filter
-        if (!addressesSet.has(cachedComment.subplebbitAddress)) {
-            throw Error(`comment doesn't have subplebbit address`);
+        // community address doesn't match filter
+        if (!addressesSet.has(cachedComment!.communityAddress)) {
+            throw Error(`comment doesn't have matching community address`);
         }
 
         // author address doesn't match author

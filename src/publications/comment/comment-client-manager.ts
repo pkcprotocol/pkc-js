@@ -209,7 +209,7 @@ export class CommentClientsManager extends PublicationClientsManager {
             update: commentUpdate,
             resolveAuthorNames: this._plebbit.resolveAuthorNames,
             clientsManager: this,
-            subplebbit: { address: this._comment.subplebbitAddress, signature: subplebbitIpfs.signature },
+            subplebbit: { address: this._comment.communityAddress, signature: subplebbitIpfs.signature },
             comment: { ...this._comment.raw.comment, cid: this._comment.cid, postCid: this._comment.postCid },
             validatePages: this._plebbit.validatePages,
             validateUpdateSignature: true,
@@ -427,7 +427,7 @@ export class CommentClientsManager extends PublicationClientsManager {
             resolveAuthorNames: this._plebbit.resolveAuthorNames,
             clientsManager: this,
             calculatedCommentCid: commentCid,
-            subplebbitAddressFromInstance: this._comment.subplebbitAddress,
+            communityAddressFromInstance: this._comment.communityAddress,
             abortSignal: this._comment._getStopAbortSignal()
         };
         const commentIpfsValidation = await verifyCommentIpfs(verificationOpts);
@@ -440,9 +440,9 @@ export class CommentClientsManager extends PublicationClientsManager {
         // what do we do if we don't have parentCid?
 
         // - download all comments under a sub and look for our specific comment
-        if (!this._comment.subplebbitAddress) throw Error("Comment subplebbtiAddress should be defined");
+        if (!this._comment.communityAddress) throw Error("Comment communityAddress should be defined");
         if (!this._comment.cid) throw Error("Comment cid should be defined");
-        const sub = await this._plebbit.createSubplebbit({ address: this._comment.subplebbitAddress });
+        const sub = await this._plebbit.createSubplebbit({ address: this._comment.communityAddress });
 
         const abortController = new AbortController();
         const abortIfNeeded = async () => {
@@ -565,8 +565,8 @@ export class CommentClientsManager extends PublicationClientsManager {
         // TODO rewrite this to use updating comments and subplebbit
         if (typeof this._comment.cid !== "string") throw Error("Need to have defined cid");
         const sub: RemoteSubplebbit | undefined =
-            this._plebbit._startedSubplebbits[this._comment.subplebbitAddress] ||
-            this._plebbit._updatingSubplebbits[this._comment.subplebbitAddress] ||
+            this._plebbit._startedSubplebbits[this._comment.communityAddress] ||
+            this._plebbit._updatingSubplebbits[this._comment.communityAddress] ||
             opts?.sub;
         let updateFromSub: PageIpfs["comments"][0] | undefined;
         if (sub) updateFromSub = findCommentInPageInstanceRecursively(sub.posts, this._comment.cid);
@@ -605,7 +605,7 @@ export class CommentClientsManager extends PublicationClientsManager {
 
         if (!sub.raw.subplebbitIpfs) throw Error("Subplebbit IPFS should be defined when an update is emitted");
         // let's try to find a CommentUpdate in subplebbit pages, or _updatingComments
-        // this._subplebbitForUpdating!.subplebbit.raw.subplebbitIpfs?.posts.
+        // this._communityForUpdating!.subplebbit.raw.subplebbitIpfs?.posts.
 
         const postInUpdatingSubplebbit = this._findCommentInPagesOfUpdatingCommentsOrSubplebbit({ sub });
 
@@ -814,7 +814,7 @@ export class CommentClientsManager extends PublicationClientsManager {
     override async handleErrorEventFromSub(error: PlebbitError | Error) {
         // we received a non retriable error from sub instance
         if (this._comment.state === "publishing") return super.handleErrorEventFromSub(error);
-        else if (this._subplebbitForUpdating?.subplebbit?.updatingState === "failed") {
+        else if (this._communityForUpdating?.subplebbit?.updatingState === "failed") {
             // let's make sure
             // we're updating a comment
             const log = Logger("plebbit-js:comment:update");
@@ -924,8 +924,8 @@ export class CommentClientsManager extends PublicationClientsManager {
         const replyInPage = this._findCommentInPagesOfUpdatingCommentsOrSubplebbit({ post: postInstance });
 
         const repliesSubplebbit = <Pick<SubplebbitIpfsType, "signature">>(
-            (this._plebbit._updatingSubplebbits[postInstance.subplebbitAddress]?.raw?.subplebbitIpfs ||
-                this._plebbit._startedSubplebbits[postInstance.subplebbitAddress]?.raw?.subplebbitIpfs ||
+            (this._plebbit._updatingSubplebbits[postInstance.communityAddress]?.raw?.subplebbitIpfs ||
+                this._plebbit._startedSubplebbits[postInstance.communityAddress]?.raw?.subplebbitIpfs ||
                 postInstance.replies._subplebbit)
         );
         if (!repliesSubplebbit.signature) throw Error("repliesSubplebbit.signature needs to be defined to fetch comment update of reply");

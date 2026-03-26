@@ -35,18 +35,7 @@ import { createSigner, verifyCommentPubsubMessage } from "../signer/index.js";
 import { CommentEdit } from "../publications/comment-edit/comment-edit.js";
 import Logger from "@plebbit/plebbit-logger";
 import env from "../version.js";
-import {
-    cleanUpBeforePublishing,
-    signComment,
-    signCommentEdit,
-    signCommentModeration,
-    signSubplebbitEdit,
-    signVote,
-    verifyCommentEdit,
-    verifyCommentIpfs,
-    verifyCommentUpdate,
-    verifySubplebbitEdit
-} from "../signer/signatures.js";
+import { verifyCommentEdit, verifyCommentIpfs, verifyCommentUpdate, verifySubplebbitEdit } from "../signer/signatures.js";
 import Stats from "../stats.js";
 import Storage from "../runtime/node/storage.js";
 import { PlebbitClientsManager } from "./plebbit-client-manager.js";
@@ -492,7 +481,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         const commentInstance = new Comment(this);
 
         if (options.cid) commentInstance.setCid(options.cid);
-        if (options.subplebbitAddress) commentInstance.setSubplebbitAddress(options.subplebbitAddress);
+        if (options.communityAddress) commentInstance.setCommunityAddress(options.communityAddress);
         if (options.raw?.commentUpdate?.cid) commentInstance.setCid(options.raw?.commentUpdate?.cid);
         if ("pubsubMessageToPublish" in options.raw && options.raw.pubsubMessageToPublish && "signer" in options && options.signer)
             commentInstance._initLocalProps({
@@ -514,7 +503,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         options:
             | CommentIpfsType
             | CommentPubsubMessagePublication
-            | { cid: CommentUpdateType["cid"]; subplebbitAddress?: CommentPubsubMessagePublication["subplebbitAddress"] }
+            | { cid: CommentUpdateType["cid"]; communityAddress?: string; subplebbitAddress?: string }
             | MinimumCommentFieldsToFetchPages
             | CreateCommentOptions
             | CommentJson
@@ -530,8 +519,10 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
             ); // CommentJson
 
         const commentInstance = new Comment(this);
-        if ("subplebbitAddress" in options && options.subplebbitAddress)
-            commentInstance.setSubplebbitAddress(parseSubplebbitAddressWithPlebbitErrorIfItFails(options.subplebbitAddress));
+        if ("communityAddress" in options && options.communityAddress)
+            commentInstance.setCommunityAddress(parseSubplebbitAddressWithPlebbitErrorIfItFails(options.communityAddress));
+        else if ("subplebbitAddress" in options && options.subplebbitAddress)
+            commentInstance.setCommunityAddress(parseSubplebbitAddressWithPlebbitErrorIfItFails(options.subplebbitAddress as string));
 
         if ("depth" in options) {
             // Options is CommentIpfs | CommentIpfsWithCidDefined | MinimumCommentFieldsToFetchPages
@@ -550,18 +541,11 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
             // options is CreateCommentOptions
             const runtimeAuthorNameResolved = typeof options.author?.nameResolved === "boolean" ? options.author.nameResolved : undefined;
             const parsedOptions = parseCreateCommentOptionsSchemaWithPlebbitErrorIfItFails(options);
-            // we're creating a new comment to sign and publish here
+            // Defer signing to publish() — just fill missing fields and store unsigned options
             const fieldsFilled = <CommentOptionsToSign>await this._initMissingFieldsOfPublicationBeforeSigning(parsedOptions, log);
-            const cleanedFieldsFilled = cleanUpBeforePublishing(fieldsFilled);
-            const signature = await signComment({ comment: cleanedFieldsFilled, plebbit: this });
-            const signedComment = <CommentPubsubMessagePublication>{
-                ...remeda.pick(cleanedFieldsFilled, signature.signedPropertyNames),
-                signature
-            };
-            commentInstance._initLocalProps({
-                challengeRequest: parsedOptions.challengeRequest,
-                signer: fieldsFilled.signer,
-                comment: signedComment
+            commentInstance._initUnsignedLocalProps({
+                unsignedOptions: fieldsFilled,
+                challengeRequest: parsedOptions.challengeRequest
             });
             if (typeof runtimeAuthorNameResolved === "boolean") commentInstance.author.nameResolved = runtimeAuthorNameResolved;
         } else if ("cid" in options) {
@@ -788,16 +772,9 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         } else {
             const parsedOptions = parseCreateVoteOptionsSchemaWithPlebbitErrorIfItFails(options);
             const finalOptions = <VoteOptionsToSign>await this._initMissingFieldsOfPublicationBeforeSigning(parsedOptions, log);
-            const cleanedFinalOptions = cleanUpBeforePublishing(finalOptions);
-            const signature = await signVote({ vote: cleanedFinalOptions, plebbit: this });
-            const signedVote: VotePubsubMessagePublication = {
-                ...remeda.pick(cleanedFinalOptions, signature.signedPropertyNames),
-                signature
-            };
-            voteInstance._initLocalProps({
-                challengeRequest: parsedOptions.challengeRequest,
-                signer: finalOptions.signer,
-                vote: signedVote
+            voteInstance._initUnsignedLocalProps({
+                unsignedOptions: finalOptions,
+                challengeRequest: parsedOptions.challengeRequest
             });
         }
         return voteInstance;
@@ -828,16 +805,9 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         } else {
             const parsedOptions = parseCreateCommentEditOptionsSchemaWithPlebbitErrorIfItFails(options);
             const finalOptions = <CommentEditOptionsToSign>await this._initMissingFieldsOfPublicationBeforeSigning(options, log);
-            const cleanedFinalOptions = cleanUpBeforePublishing(finalOptions);
-            const signature = await signCommentEdit({ edit: cleanedFinalOptions, plebbit: this });
-            const signedEdit = <CommentEditPubsubMessagePublication>{
-                ...remeda.pick(cleanedFinalOptions, signature.signedPropertyNames),
-                signature
-            };
-            editInstance._initLocalProps({
-                challengeRequest: parsedOptions.challengeRequest,
-                signer: finalOptions.signer,
-                commentEdit: signedEdit
+            editInstance._initUnsignedLocalProps({
+                unsignedOptions: finalOptions,
+                challengeRequest: parsedOptions.challengeRequest
             });
         }
         return editInstance;
@@ -869,16 +839,9 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
             const finalOptions = <CommentModerationOptionsToSign>(
                 await this._initMissingFieldsOfPublicationBeforeSigning(parsedOptions, log)
             );
-            const cleanedFinalOptions = cleanUpBeforePublishing(finalOptions);
-            const signature = await signCommentModeration({ commentMod: cleanedFinalOptions, plebbit: this });
-            const signedMod = <CommentModerationPubsubMessagePublication>{
-                ...remeda.pick(cleanedFinalOptions, signature.signedPropertyNames),
-                signature
-            };
-            modInstance._initLocalProps({
-                challengeRequest: parsedOptions.challengeRequest,
-                signer: finalOptions.signer,
-                commentModeration: signedMod
+            modInstance._initUnsignedLocalProps({
+                unsignedOptions: finalOptions,
+                challengeRequest: parsedOptions.challengeRequest
             });
         }
         return modInstance;
@@ -910,16 +873,9 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
             const finalOptions = <SubplebbitEditPublicationOptionsToSign>(
                 await this._initMissingFieldsOfPublicationBeforeSigning(parsedOptions, log)
             );
-            const cleanedFinalOptions = cleanUpBeforePublishing(finalOptions);
-            const signature = await signSubplebbitEdit({ subplebbitEdit: cleanedFinalOptions, plebbit: this });
-            const signedSubplebbitEdit: SubplebbitEditPubsubMessagePublication = {
-                ...remeda.pick(cleanedFinalOptions, signature.signedPropertyNames),
-                signature
-            };
-            subplebbitEditInstance._initLocalProps({
-                challengeRequest: parsedOptions.challengeRequest,
-                signer: finalOptions.signer,
-                subplebbitEdit: signedSubplebbitEdit
+            subplebbitEditInstance._initUnsignedLocalProps({
+                unsignedOptions: finalOptions,
+                challengeRequest: parsedOptions.challengeRequest
             });
         }
         return subplebbitEditInstance;
@@ -981,10 +937,10 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
                 commentIpfsValidity
             });
 
-        const subplebbitIpfs = this._updatingSubplebbits[comment.subplebbitAddress]?.raw?.subplebbitIpfs;
+        const subplebbitIpfs = this._updatingSubplebbits[comment.communityAddress]?.raw?.subplebbitIpfs;
         const subplebbit: { address: string; signature?: SubplebbitIpfsType["signature"] } = subplebbitIpfs
-            ? { address: comment.subplebbitAddress, signature: subplebbitIpfs.signature }
-            : { address: comment.subplebbitAddress };
+            ? { address: comment.communityAddress, signature: subplebbitIpfs.signature }
+            : { address: comment.communityAddress };
         const commentUpdateVerificationOpts = {
             update: commentUpdate,
             resolveAuthorNames: this.resolveAuthorNames,

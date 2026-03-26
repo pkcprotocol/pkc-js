@@ -142,7 +142,7 @@ describeSkipIfRpc("Plebbit RPC server stress publish", function () {
                 const client = await createPlebbitRpcClient();
                 const authorSigner = await client.createSigner();
                 const pendingComment = await client.createComment({
-                    subplebbitAddress: subplebbit.address,
+                    communityAddress: subplebbit.address,
                     content: `stress comment ${i}`,
                     title: `stress ${i}`,
                     signer: authorSigner,
@@ -151,7 +151,7 @@ describeSkipIfRpc("Plebbit RPC server stress publish", function () {
                 await publishWithExpectedResult({ publication: pendingComment, expectedChallengeSuccess: true });
 
                 const rejection = await plebbit.createCommentModeration({
-                    subplebbitAddress: subplebbit.address,
+                    communityAddress: subplebbit.address,
                     commentCid: pendingComment.cid!,
                     signer: moderatorSigner,
                     commentModeration: { approved: false, reason: `reject-${i}` }
@@ -159,7 +159,7 @@ describeSkipIfRpc("Plebbit RPC server stress publish", function () {
                 await publishWithExpectedResult({ publication: rejection, expectedChallengeSuccess: true });
 
                 const edit = await client.createCommentEdit({
-                    subplebbitAddress: subplebbit.address,
+                    communityAddress: subplebbit.address,
                     commentCid: pendingComment.cid!,
                     reason: "stress-edit",
                     content: "text to edit on pending comment",
@@ -190,7 +190,7 @@ describeSkipIfRpc("Plebbit RPC server stress publish", function () {
                 const client = await createPlebbitRpcClient();
                 const authorSigner = await client.createSigner();
                 const pendingComment = await client.createComment({
-                    subplebbitAddress: subplebbit.address,
+                    communityAddress: subplebbit.address,
                     content: `drop stress comment ${i}`,
                     title: `drop stress ${i}`,
                     signer: authorSigner,
@@ -199,7 +199,7 @@ describeSkipIfRpc("Plebbit RPC server stress publish", function () {
                 await publishWithExpectedResult({ publication: pendingComment, expectedChallengeSuccess: true });
 
                 const rejection = await plebbit.createCommentModeration({
-                    subplebbitAddress: subplebbit.address,
+                    communityAddress: subplebbit.address,
                     commentCid: pendingComment.cid!,
                     signer: moderatorSigner,
                     commentModeration: { approved: false, reason: `drop-reject-${i}` }
@@ -207,7 +207,7 @@ describeSkipIfRpc("Plebbit RPC server stress publish", function () {
                 await publishWithExpectedResult({ publication: rejection, expectedChallengeSuccess: true });
 
                 const edit = await client.createCommentEdit({
-                    subplebbitAddress: subplebbit.address,
+                    communityAddress: subplebbit.address,
                     commentCid: pendingComment.cid!,
                     reason: "drop-stress-edit",
                     content: "drop text to edit on pending comment",
@@ -239,7 +239,7 @@ describeSkipIfRpc("Plebbit RPC server stress publish", function () {
                 plebbit: client,
                 subplebbit: subplebbit,
                 commentProps: {
-                    subplebbitAddress: subplebbit.address,
+                    communityAddress: subplebbit.address,
                     content: `toggle stress comment ${index}`,
                     title: `toggle stress ${index}`,
                     signer: authorSigner,
@@ -248,7 +248,7 @@ describeSkipIfRpc("Plebbit RPC server stress publish", function () {
             });
 
             const rejection = await plebbit.createCommentModeration({
-                subplebbitAddress: subplebbit.address,
+                communityAddress: subplebbit.address,
                 commentCid: pendingComment.cid!,
                 signer: moderatorSigner,
                 commentModeration: { approved: false, reason: `toggle-reject-${index}` }
@@ -256,7 +256,7 @@ describeSkipIfRpc("Plebbit RPC server stress publish", function () {
             await publishWithExpectedResult({ publication: rejection, expectedChallengeSuccess: true });
 
             const edit = await client.createCommentEdit({
-                subplebbitAddress: subplebbit.address,
+                communityAddress: subplebbit.address,
                 commentCid: pendingComment.cid!,
                 reason: "toggle-stress-edit",
                 content: "toggle edit content",

@@ -8,6 +8,7 @@ import {
     shortifyCid
 } from "../../util.js";
 import Publication from "../publication.js";
+import { getCommunityAddressFromRecord } from "../publication-community.js";
 import type { DecryptedChallengeVerification } from "../../pubsub-messages/types.js";
 import type { AuthorWithOptionalCommentUpdateJson, PublicationTypeName } from "../../types.js";
 
@@ -121,7 +122,7 @@ export class Comment
     private _stopAbortController?: AbortController = undefined;
     override challengeRequest?: CreateCommentOptions["challengeRequest"];
 
-    private _subplebbitForUpdating?: CommentClientsManager["_subplebbitForUpdating"];
+    private _communityForUpdating?: CommentClientsManager["_communityForUpdating"];
 
     private _postForUpdating?: CommentClientsManager["_postForUpdating"];
 
@@ -141,7 +142,7 @@ export class Comment
             pages: {},
             pageCids: {},
             plebbit: this._plebbit,
-            subplebbit: { address: this.subplebbitAddress },
+            subplebbit: { address: this.communityAddress },
             parentComment: this
         });
 
@@ -312,7 +313,7 @@ export class Comment
         if (typeof repliesCreationTimestamp !== "number") throw Error("comment.updatedAt should be defined when updating replies");
 
         this.replies._subplebbit.signature = subplebbitSignature;
-        const repliesSubplebbit = { address: this.subplebbitAddress, signature: subplebbitSignature };
+        const repliesSubplebbit = { address: this.communityAddress, signature: subplebbitSignature };
         if (!newReplies) {
             this.replies.resetPages();
         } else if (!("pages" in newReplies) && newReplies.pageCids) {
@@ -397,7 +398,7 @@ export class Comment
             update: decryptedVerification.commentUpdate,
             clientsManager: this._clientsManager,
             comment: { ...decryptedVerification.comment, cid: calculatedCid, postCid },
-            subplebbit: this._subplebbit!,
+            subplebbit: this._community!,
             resolveAuthorNames: this._plebbit.resolveAuthorNames,
             validateUpdateSignature: true,
             validatePages: true
@@ -525,9 +526,9 @@ export class Comment
         this.shortCid = shortifyCid(this.cid);
     }
 
-    override setSubplebbitAddress(newSubplebbitAddress: string) {
-        super.setSubplebbitAddress(newSubplebbitAddress);
-        this.replies._subplebbit.address = newSubplebbitAddress;
+    override setCommunityAddress(newCommunityAddress: string) {
+        super.setCommunityAddress(newCommunityAddress);
+        this.replies._subplebbit.address = newCommunityAddress;
     }
 
     private _isCommentIpfsErrorRetriable(err: PlebbitError | Error): boolean {
@@ -538,7 +539,7 @@ export class Comment
             err.code === "ERR_CALCULATED_CID_DOES_NOT_MATCH" ||
             err.code === "ERR_OVER_DOWNLOAD_LIMIT" ||
             err.code === "ERR_INVALID_JSON" ||
-            err.code === "ERR_COMMENT_IPFS_SUBPLEBBIT_ADDRESS_MISMATCH"
+            err.code === "ERR_COMMENT_IPFS_COMMUNITY_ADDRESS_MISMATCH"
         )
             return false; // These errors means there's a problem with the record itself, not the loading
 
@@ -579,7 +580,7 @@ export class Comment
                             event: { name: "error", args: [error] }
                         });
 
-                        if (curAttempt === 1 && this.subplebbitAddress) {
+                        if (curAttempt === 1 && this.communityAddress) {
                             log("Failed the first time in loading comment", this.cid, "will try to load from subplebbit pages");
                             // if we fail for second time, start trying to find CommentIpfs using pages instead of comment.cid
                             await this._clientsManager._fetchCommentIpfsFromPages();
@@ -638,16 +639,16 @@ export class Comment
         const log = Logger("plebbit-js:comment:update:startCommentUpdateSubplebbitSubscription");
         if (this.state === "stopped") return; // we may have called stop() before reaching comment update subscription and after loading commentipfs
         if (this.depth === 0) {
-            if (!this._subplebbitForUpdating)
-                this._subplebbitForUpdating = await this._clientsManager._createSubInstanceWithStateTranslation();
+            if (!this._communityForUpdating)
+                this._communityForUpdating = await this._clientsManager._createSubInstanceWithStateTranslation();
 
             if (this.state !== "updating") return; // there are cases where stop() is called in parallel
-            if (this._subplebbitForUpdating.subplebbit.state === "stopped") {
-                await this._subplebbitForUpdating!.subplebbit.update(); // BUG: calling this resets this._subplebbitForUpdating to undefined
+            if (this._communityForUpdating.subplebbit.state === "stopped") {
+                await this._communityForUpdating!.subplebbit.update(); // BUG: calling this resets this._communityForUpdating to undefined
             }
             if (this.state !== "updating") return; // there are cases where stop() is called in parallel
-            if (this._subplebbitForUpdating.subplebbit.raw.subplebbitIpfs)
-                await this._subplebbitForUpdating.update(this._subplebbitForUpdating.subplebbit);
+            if (this._communityForUpdating.subplebbit.raw.subplebbitIpfs)
+                await this._communityForUpdating.update(this._communityForUpdating.subplebbit);
         } else {
             if (!this._postForUpdating) this._postForUpdating = await this._clientsManager._createPostInstanceWithStateTranslation();
             if (this.state !== "updating") return; // there are cases where stop() is called in parallel
@@ -826,7 +827,7 @@ export class Comment
             this._updateRpcSubscriptionId = await this._plebbit._plebbitRpcClient!.commentUpdateSubscribe({
                 cid: this.cid,
                 raw: this.raw,
-                subplebbitAddress: this.subplebbitAddress,
+                communityAddress: this.communityAddress,
                 parentCid: this.parentCid,
                 postCid: this.postCid
             });
@@ -852,23 +853,24 @@ export class Comment
 
     _useUpdatePropsFromUpdatingStartedSubplebbitIfPossible() {
         if (!this.cid) throw Error("Need to have comment.cid defined");
-        if (!this.subplebbitAddress) {
+        if (!this.communityAddress) {
             // try to find cid in all _updatingSubplebbits
             for (const updatingSubplebbit of Object.values(this._plebbit._updatingSubplebbits).concat(
                 Object.values(this._plebbit._startedSubplebbits)
             )) {
                 const commentInSubplebbitPosts = findCommentInPageInstanceRecursively(updatingSubplebbit.posts, this.cid);
                 if (commentInSubplebbitPosts) {
-                    this.setSubplebbitAddress(commentInSubplebbitPosts.comment.subplebbitAddress);
+                    const addr = getCommunityAddressFromRecord(commentInSubplebbitPosts.comment as unknown as Record<string, unknown>);
+                    if (addr) this.setCommunityAddress(addr);
                     break;
                 }
             }
-            if (!this.subplebbitAddress) return;
+            if (!this.communityAddress) return;
         }
         const updatingSubplebbitInstance =
-            this._plebbit._updatingSubplebbits[this.subplebbitAddress] ||
-            this._subplebbitForUpdating?.subplebbit ||
-            this._plebbit._startedSubplebbits[this.subplebbitAddress];
+            this._plebbit._updatingSubplebbits[this.communityAddress] ||
+            this._communityForUpdating?.subplebbit ||
+            this._plebbit._startedSubplebbits[this.communityAddress];
         if (updatingSubplebbitInstance?.raw?.subplebbitIpfs && this.cid) {
             const commentInSubplebbitPosts = findCommentInPageInstanceRecursively(updatingSubplebbitInstance.posts, this.cid);
             if (commentInSubplebbitPosts) {
@@ -897,7 +899,7 @@ export class Comment
             if (updatingCommentInstance.raw.commentUpdate && (this.updatedAt || 0) < updatingCommentInstance.raw.commentUpdate.updatedAt) {
                 this._initCommentUpdate(
                     updatingCommentInstance.raw.commentUpdate,
-                    updatingCommentInstance._subplebbitForUpdating?.subplebbit?.raw.subplebbitIpfs
+                    updatingCommentInstance._communityForUpdating?.subplebbit?.raw.subplebbitIpfs
                 );
                 this._commentUpdateIpfsPath = updatingCommentInstance._commentUpdateIpfsPath;
                 this._copyNameResolvedFromComment(updatingCommentInstance);
@@ -920,7 +922,7 @@ export class Comment
                         if ((this.updatedAt || 0) < commentInAncestor.commentUpdate.updatedAt) {
                             this._initCommentUpdate(
                                 commentInAncestor.commentUpdate,
-                                this._plebbit._updatingSubplebbits[this.subplebbitAddress]?.raw?.subplebbitIpfs
+                                this._plebbit._updatingSubplebbits[this.communityAddress]?.raw?.subplebbitIpfs
                             );
                             this.emit("update", this);
                         }
@@ -1025,23 +1027,23 @@ export class Comment
             delete this._plebbit._updatingComments[this.cid];
         }
 
-        // what if it didn't have enough time to set up _subplebbitForUpdating and _postForUpdating? These are defined after loading CommentIpfs
+        // what if it didn't have enough time to set up _communityForUpdating and _postForUpdating? These are defined after loading CommentIpfs
 
         if (
             !this._postForUpdating &&
-            !this._subplebbitForUpdating &&
+            !this._communityForUpdating &&
             !this._updatingCommentInstance &&
             this._plebbit._updatingComments[this.cid] === this
         ) {
             // comment.stop got called before updating subplebbit or post instance was created
             delete this._plebbit._updatingComments[this.cid];
         }
-        // clean up _subplebbitForUpdating subscriptions
-        if (this._subplebbitForUpdating) {
+        // clean up _communityForUpdating subscriptions
+        if (this._communityForUpdating) {
             // this post instance is plebbit._updatingComments[cid] and it's updating
 
             await this._clientsManager.cleanUpUpdatingSubInstance();
-            this._subplebbitForUpdating = undefined;
+            this._communityForUpdating = undefined;
             delete this._plebbit._updatingComments[this.cid];
             this._invalidCommentUpdateMfsPaths.clear();
         }

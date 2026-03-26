@@ -6,6 +6,7 @@ import type {
     SubplebbitChallengeSetting
 } from "../../../../../subplebbit/types.js";
 import { derivePublicationFromChallengeRequest } from "../../../../../util.js";
+import { getCommunityAddressFromRecord } from "../../../../../publications/publication-community.js";
 
 const optionInputs = <NonNullable<ChallengeFileInput["optionInputs"]>>[
     {
@@ -127,7 +128,11 @@ const getChallenge = async ({ challengeSettings, challengeRequestMessage }: GetC
     const publication = derivePublicationFromChallengeRequest(challengeRequestMessage);
     if (
         !addressesSet.has(publication?.author?.address) &&
-        !(await urlsAddressesSet.has(publication?.author?.address, publication?.subplebbitAddress, challengeSettings?.options?.urls))
+        !(await urlsAddressesSet.has(
+            publication?.author?.address,
+            getCommunityAddressFromRecord(publication as unknown as Record<string, unknown>),
+            challengeSettings?.options?.urls
+        ))
     ) {
         return {
             success: false,

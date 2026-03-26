@@ -18,6 +18,7 @@ export type CommentModerationChallengeRequestToEncrypt = z.infer<typeof CommentM
 
 export interface CommentModerationOptionsToSign extends Omit<CommentModerationPubsubMessagePublication, "signature"> {
     signer: SignerType;
+    communityAddress: string;
 }
 
 export interface CommentModerationSignature extends JsonSignature {

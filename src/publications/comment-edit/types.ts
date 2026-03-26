@@ -26,6 +26,7 @@ export type CommentEditTypeJson = JsonOfClass<CommentEdit>;
 
 export interface CommentEditOptionsToSign extends Omit<CommentEditPubsubMessagePublication, "signature"> {
     signer: SignerType;
+    communityAddress: string;
 }
 
 export interface CommentEditSignature extends JsonSignature {

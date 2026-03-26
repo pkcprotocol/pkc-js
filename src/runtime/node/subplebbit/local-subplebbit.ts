@@ -124,6 +124,11 @@ import {
     getAuthorDomainFromWire,
     getAuthorNameFromWire
 } from "../../../publications/publication-author.js";
+import {
+    getCommunityAddressFromRecord,
+    getCommunityPublicKeyFromWire,
+    getCommunityNameFromWire
+} from "../../../publications/publication-community.js";
 
 import type {
     CommentEditOptionsToSign,
@@ -1229,7 +1234,10 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         } else {
             delete anonymizedComment.author;
         }
-        anonymizedComment.signature = await signComment({ comment: { ...anonymizedComment, signer: aliasSigner }, plebbit: this._plebbit });
+        anonymizedComment.signature = await signComment({
+            comment: { ...anonymizedComment, signer: aliasSigner, communityAddress: this.address },
+            plebbit: this._plebbit
+        });
 
         return {
             publication: anonymizedComment,
@@ -1253,7 +1261,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         const commentEditSignedByAlias = remeda.clone(originalEdit);
         delete commentEditSignedByAlias.author;
         commentEditSignedByAlias.signature = await signCommentEdit({
-            edit: { ...commentEditSignedByAlias, signer: aliasSigner },
+            edit: { ...commentEditSignedByAlias, signer: aliasSigner, communityAddress: this.address },
             plebbit: this._plebbit
         });
 
@@ -1731,8 +1739,18 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     ): Promise<messages | undefined> {
         const log = Logger("plebbit-js:local-subplebbit:handleChallengeRequest:checkPublicationValidity");
 
-        if (!areEquivalentSubplebbitAddresses(publication.subplebbitAddress, this.address))
+        const publicationCommunityAddress = getCommunityAddressFromRecord(publication as Record<string, unknown>);
+        if (!publicationCommunityAddress || !areEquivalentSubplebbitAddresses(publicationCommunityAddress, this.address))
             return messages.ERR_PUBLICATION_INVALID_SUBPLEBBIT_ADDRESS;
+
+        // Validate communityPublicKey matches this subplebbit's IPNS key
+        const pubCommunityPublicKey = getCommunityPublicKeyFromWire(publication as Record<string, unknown>);
+        if (pubCommunityPublicKey && pubCommunityPublicKey !== this.signer.address)
+            return messages.ERR_PUBLICATION_INVALID_COMMUNITY_PUBLIC_KEY;
+
+        // Validate communityName matches this subplebbit's address (if it has a domain name)
+        const pubCommunityName = getCommunityNameFromWire(publication as Record<string, unknown>);
+        if (pubCommunityName && pubCommunityName !== this.address) return messages.ERR_PUBLICATION_INVALID_COMMUNITY_NAME;
 
         if (publication.timestamp <= timestamp() - 5 * 60 || publication.timestamp >= timestamp() + 5 * 60)
             return messages.ERR_PUBLICATION_TIMESTAMP_IS_NOT_IN_PROPER_RANGE;

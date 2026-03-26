@@ -19,6 +19,7 @@ import {
     removeNullUndefinedEmptyObjectsValuesRecursively,
     timestamp
 } from "../util.js";
+import { getCommunityAddressFromRecord } from "../publications/publication-community.js";
 import { PlebbitError } from "../plebbit-error.js";
 import { Plebbit } from "../plebbit/plebbit.js";
 
@@ -599,7 +600,7 @@ export async function verifyCommentIpfs(opts: {
     calculatedCommentCid: string;
     resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
-    subplebbitAddressFromInstance?: CommentIpfsType["subplebbitAddress"];
+    communityAddressFromInstance?: string;
     abortSignal?: AbortSignal;
 }): ReturnType<typeof verifyCommentPubsubMessage> {
     const cacheKey = sha256(
@@ -607,15 +608,18 @@ export async function verifyCommentIpfs(opts: {
             opts.comment.signature.publicKey +
             opts.calculatedCommentCid +
             Number(opts.resolveAuthorNames) +
-            opts.subplebbitAddressFromInstance || ""
+            opts.communityAddressFromInstance || ""
     );
     if (opts.clientsManager._plebbit._memCaches.commentVerificationCache.get(cacheKey)) return { valid: true };
 
+    // Handle both old format (subplebbitAddress) and new format (communityPublicKey/communityName)
+    const commentCommunityAddress = getCommunityAddressFromRecord(opts.comment as unknown as Record<string, unknown>);
     if (
-        opts.subplebbitAddressFromInstance &&
-        !areEquivalentSubplebbitAddresses(opts.comment.subplebbitAddress, opts.subplebbitAddressFromInstance)
+        opts.communityAddressFromInstance &&
+        commentCommunityAddress &&
+        !areEquivalentSubplebbitAddresses(commentCommunityAddress, opts.communityAddressFromInstance)
     )
-        return { valid: false, reason: messages.ERR_COMMENT_IPFS_SUBPLEBBIT_ADDRESS_MISMATCH };
+        return { valid: false, reason: messages.ERR_COMMENT_IPFS_COMMUNITY_ADDRESS_MISMATCH };
 
     const keysCasted = <(keyof CommentPubsubMessagePublication)[]>opts.comment.signature.signedPropertyNames;
 
@@ -938,7 +942,9 @@ export async function verifyPageComment({
     // another sceneario is with a flat page, where we don't have the parent comment cid or prop, but we do have its postCid
     // another sceneario is when we're veriifying a nested page and we have the parent comment cid and all its props
     // another sceneario is when we're verifying a mod queue page that has comments with different depths with different parentCids and not necessarily a shared postCid
-    if (!areEquivalentSubplebbitAddresses(pageComment.comment.subplebbitAddress, subplebbit.address))
+    // Handle both old format (subplebbitAddress) and new format (communityPublicKey/communityName)
+    const pageCommunityAddress = getCommunityAddressFromRecord(pageComment.comment as unknown as Record<string, unknown>);
+    if (pageCommunityAddress && !areEquivalentSubplebbitAddresses(pageCommunityAddress, subplebbit.address))
         return { valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_SUB };
 
     if (pageComment.comment.depth === 0 && pageComment.comment.postCid)

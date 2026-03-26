@@ -84,7 +84,9 @@ export const ChallengeAnswersSchema = ChallengeAnswerStringSchema.array().nonemp
 export const CreatePublicationUserOptionsSchema = z.object({
     signer: CreateSignerSchema,
     author: AuthorPubsubSchema.partial().loose().optional(),
-    subplebbitAddress: SubplebbitAddressSchema,
+    communityAddress: SubplebbitAddressSchema,
+    communityPublicKey: z.string().min(1).optional(), // IPNS key of the community; optional in schema for backward compat with old CommentIpfs, but communities mandate it on new incoming publications
+    communityName: z.string().min(1).optional(), // domain name of the community, if any
     protocolVersion: ProtocolVersionSchema.optional(),
     timestamp: PlebbitTimestampSchema.optional(),
     // pubsubMessage field will contain fields to be added to request.encrypted

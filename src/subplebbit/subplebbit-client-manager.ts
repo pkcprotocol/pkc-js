@@ -361,7 +361,9 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                 this._plebbit._memCaches.subplebbitForPublishing.set(recordAddress, {
                     encryption: subRes.subplebbit.encryption,
                     pubsubTopic: subRes.subplebbit.pubsubTopic,
-                    address: recordAddress
+                    address: recordAddress,
+                    publicKey: getPlebbitAddressFromPublicKeySync(subRes.subplebbit.signature.publicKey),
+                    name: subRes.subplebbit.name
                 });
             }
             return subRes;

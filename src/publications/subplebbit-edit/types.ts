@@ -17,6 +17,7 @@ export type SubplebbitEditJson = JsonOfClass<SubplebbitEdit>;
 
 export interface SubplebbitEditPublicationOptionsToSign extends Omit<SubplebbitEditPubsubMessagePublication, "signature"> {
     signer: SignerType;
+    communityAddress: string;
 }
 
 export interface SubplebbitEditPublicationSignature extends JsonSignature {

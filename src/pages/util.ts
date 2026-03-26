@@ -19,6 +19,7 @@ import type { CommentWithinModQueuePageJson, CommentWithinRepliesPostsPageJson, 
 import { shortifyAddress, shortifyCid } from "../util.js";
 import { RemoteSubplebbit } from "../subplebbit/remote-subplebbit.js";
 import { getAuthorDomainFromWire } from "../publications/publication-author.js";
+import { getCommunityAddressFromRecord } from "../publications/publication-community.js";
 import { sha256 } from "js-sha256";
 import type { LRUCache } from "lru-cache";
 import { BaseClientsManager } from "../clients/base-client-manager.js";
@@ -147,6 +148,7 @@ export function mapModqueuePageIpfsCommentToModQueuePageJsonComment(
         signaturePublicKey: pageComment.comment.signature.publicKey
     });
 
+    const communityAddr = getCommunityAddressFromRecord(pageComment.comment as unknown as Record<string, unknown>)!;
     return {
         ...pageComment.comment,
         ...pageComment.commentUpdate,
@@ -157,8 +159,9 @@ export function mapModqueuePageIpfsCommentToModQueuePageJsonComment(
             shortAddress: shortifyAddress(runtimeAuthor.address),
             flairs: pageComment.commentUpdate?.author?.subplebbit?.flairs || runtimeAuthor.flairs
         },
+        communityAddress: communityAddr,
         shortCid: shortifyCid(pageComment.commentUpdate.cid),
-        shortSubplebbitAddress: shortifyAddress(pageComment.comment.subplebbitAddress),
+        shortCommunityAddress: shortifyAddress(communityAddr),
         postCid,
         raw: {
             comment: pageComment.comment,
@@ -190,6 +193,7 @@ export function mapPageIpfsCommentToPageJsonComment(pageComment: PageIpfs["comme
               ? pageComment.commentUpdate.edit?.nsfw
               : pageComment.comment.nsfw;
 
+    const communityAddr = getCommunityAddressFromRecord(pageComment.comment as unknown as Record<string, unknown>)!;
     return {
         ...pageComment.comment,
         ...pageComment.commentUpdate,
@@ -203,8 +207,9 @@ export function mapPageIpfsCommentToPageJsonComment(pageComment: PageIpfs["comme
                 pageComment.commentUpdate?.edit?.author?.flairs ||
                 runtimeAuthor.flairs
         },
+        communityAddress: communityAddr,
         shortCid: shortifyCid(pageComment.commentUpdate.cid),
-        shortSubplebbitAddress: shortifyAddress(pageComment.comment.subplebbitAddress),
+        shortCommunityAddress: shortifyAddress(communityAddr),
         deleted: pageComment.commentUpdate.edit?.deleted,
         replies: parsedPages,
         content: pageComment.commentUpdate.edit?.content || pageComment.comment.content,

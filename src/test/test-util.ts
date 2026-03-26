@@ -1,5 +1,6 @@
 import PlebbitIndex from "../index.js";
 import { calculateStringSizeSameAsIpfsAddCidV0, removeUndefinedValuesRecursively, retryKuboIpfsAdd, timestamp } from "../util.js";
+import { getCommunityAddressFromRecord } from "../publications/publication-community.js";
 import { Comment } from "../publications/comment/comment.js";
 import { Plebbit } from "../plebbit/plebbit.js";
 import Vote from "../publications/vote/vote.js";
@@ -163,12 +164,12 @@ function generateRandomTimestamp(parentTimestamp?: number): number {
 }
 
 export async function generateMockPost({
-    subplebbitAddress,
+    communityAddress,
     plebbit,
     randomTimestamp = false,
     postProps = {}
 }: {
-    subplebbitAddress: string;
+    communityAddress: string;
     plebbit: Plebbit;
     randomTimestamp?: boolean;
     postProps?: Partial<CreateCommentOptions>;
@@ -178,7 +179,7 @@ export async function generateMockPost({
     const signer = postProps?.signer || (await plebbit.createSigner());
 
     const baseProps = <CreateCommentOptions>{
-        subplebbitAddress,
+        communityAddress,
         author: { displayName: `Mock Author - ${postStartTestTime}` },
         title: `Mock Post - ${postStartTestTime}`,
         content: `Mock content - ${postStartTestTime}`,
@@ -208,7 +209,7 @@ export async function generateMockComment(
         content: `Mock comment - ${commentTime}`,
         parentCid: parentPostOrComment.cid,
         postCid: parentPostOrComment.postCid,
-        subplebbitAddress: parentPostOrComment.subplebbitAddress,
+        communityAddress: getCommunityAddressFromRecord(parentPostOrComment as unknown as Record<string, unknown>)!,
         timestamp: commentTimestamp,
         ...commentProps
     });
@@ -232,7 +233,7 @@ export async function generateMockVote(
         signer: signer,
         commentCid,
         vote,
-        subplebbitAddress: parentPostOrComment.subplebbitAddress
+        communityAddress: getCommunityAddressFromRecord(parentPostOrComment as unknown as Record<string, unknown>)!
     });
 
     return voteObj;
@@ -324,8 +325,8 @@ async function _startEnsSubplebbit(signers: SignerType[], plebbit: Plebbit): Pro
     return subplebbit;
 }
 
-async function _publishPosts(subplebbitAddress: string, numOfPosts: number, plebbit: Plebbit) {
-    return Promise.all(new Array(numOfPosts).fill(null).map(() => publishRandomPost({ subplebbitAddress, plebbit })));
+async function _publishPosts(communityAddress: string, numOfPosts: number, plebbit: Plebbit) {
+    return Promise.all(new Array(numOfPosts).fill(null).map(() => publishRandomPost({ communityAddress, plebbit })));
 }
 
 async function _publishReplies(parentComment: CommentIpfsWithCidDefined, numOfReplies: number, plebbit: Plebbit) {
@@ -333,7 +334,7 @@ async function _publishReplies(parentComment: CommentIpfsWithCidDefined, numOfRe
 }
 
 async function _publishVotesOnOneComment(
-    comment: Pick<CommentIpfsWithCidDefined, "cid" | "subplebbitAddress">,
+    comment: Pick<CommentIpfsWithCidDefined, "cid"> & { communityAddress: string },
     votesPerCommentToPublish: number,
     plebbit: Plebbit
 ) {
@@ -341,7 +342,7 @@ async function _publishVotesOnOneComment(
         new Array(votesPerCommentToPublish).fill(null).map(() =>
             publishVote({
                 commentCid: comment.cid,
-                subplebbitAddress: comment.subplebbitAddress,
+                communityAddress: comment.communityAddress,
                 vote: Math.random() > 0.5 ? 1 : -1,
                 plebbit
             })
@@ -350,7 +351,7 @@ async function _publishVotesOnOneComment(
 }
 
 async function _publishVotes(
-    comments: Pick<CommentIpfsWithCidDefined, "cid" | "depth" | "subplebbitAddress">[],
+    comments: (Pick<CommentIpfsWithCidDefined, "cid" | "depth"> & { communityAddress: string })[],
     votesPerCommentToPublish: number,
     plebbit: Plebbit
 ) {
@@ -385,11 +386,15 @@ async function _populateSubplebbit(
     console.log(`Have successfully published ${posts.length} posts`);
     const replies = await _publishReplies(<CommentIpfsWithCidDefined>posts[0], props.numOfCommentsToPublish, subplebbit._plebbit);
     console.log(`Have sucessfully published ${replies.length} replies`);
-    const postVotes = await _publishVotes(<CommentIpfsWithCidPostCidDefined[]>posts, props.votesPerCommentToPublish, subplebbit._plebbit);
+    const postVotes = await _publishVotes(
+        posts as unknown as (Pick<CommentIpfsWithCidDefined, "cid" | "depth"> & { communityAddress: string })[],
+        props.votesPerCommentToPublish,
+        subplebbit._plebbit
+    );
     console.log(`Have sucessfully published ${postVotes.length} votes on ${posts.length} posts`);
 
     const repliesVotes = await _publishVotes(
-        <CommentIpfsWithCidPostCidDefined[]>replies,
+        replies as unknown as (Pick<CommentIpfsWithCidDefined, "cid" | "depth"> & { communityAddress: string })[],
         props.votesPerCommentToPublish,
         subplebbit._plebbit
     );
@@ -742,16 +747,16 @@ export async function publishRandomReply({
 }
 
 export async function publishRandomPost({
-    subplebbitAddress,
+    communityAddress,
     plebbit,
     postProps
 }: {
-    subplebbitAddress: string;
+    communityAddress: string;
     plebbit: Plebbit;
     postProps?: Partial<CreateCommentOptions>;
 }) {
     const post = await generateMockPost({
-        subplebbitAddress,
+        communityAddress,
         plebbit,
         postProps: {
             content: `Random post Content ${uuidv4()}`,
@@ -765,13 +770,13 @@ export async function publishRandomPost({
 
 export async function publishVote({
     commentCid,
-    subplebbitAddress,
+    communityAddress,
     vote,
     plebbit,
     voteProps
 }: {
     commentCid: string;
-    subplebbitAddress: string;
+    communityAddress: string;
     vote: 1 | 0 | -1;
     plebbit: Plebbit;
     voteProps?: Partial<CreateVoteOptions>;
@@ -779,7 +784,7 @@ export async function publishVote({
     const voteObj = await plebbit.createVote({
         commentCid,
         vote,
-        subplebbitAddress,
+        communityAddress,
         signer: voteProps?.signer || (await plebbit.createSigner()),
         ...voteProps
     });
@@ -803,7 +808,7 @@ async function _publishWithExpectedResultOnce({
             type: publication.constructor?.name,
             cid: (publication as any).cid,
             parentCid: (publication as any).parentCid,
-            subplebbitAddress: publication.subplebbitAddress,
+            communityAddress: publication.communityAddress,
             signerAddress: (publication as any).signer?.address,
             commentModeration: (publication as any).commentModeration
                 ? remeda.pick((publication as any).commentModeration, ["approved", "reason", "spoiler", "nsfw", "pinned", "removed"])
@@ -902,7 +907,7 @@ export async function iterateThroughPageCidToFindComment(commentCid: string, pag
 }
 
 export async function findCommentInSubplebbitInstancePagesPreloadedAndPageCids(opts: {
-    comment: Required<Pick<CommentIpfsWithCidDefined, "cid" | "subplebbitAddress">>;
+    comment: Required<Pick<CommentIpfsWithCidDefined, "cid"> & { communityAddress: string }>;
     sub: RemoteSubplebbit;
 }): Promise<CommentWithinRepliesPostsPageJson | undefined> {
     // TODO need to handle, what if the comment is nested deep down the subplebbit.posts tree and doesn't appear in preloaded page
@@ -929,7 +934,7 @@ export async function findCommentInSubplebbitInstancePagesPreloadedAndPageCids(o
 }
 
 export async function findReplyInParentCommentPagesInstancePreloadedAndPageCids(opts: {
-    reply: Required<Pick<CommentIpfsWithCidDefined, "cid" | "subplebbitAddress" | "parentCid">>;
+    reply: Required<Pick<CommentIpfsWithCidDefined, "cid" | "parentCid"> & { communityAddress: string }>;
     parentComment: Comment;
 }): Promise<CommentWithinRepliesPostsPageJson | undefined> {
     const { parentComment, reply } = opts;
@@ -968,7 +973,7 @@ export async function findReplyInParentCommentPagesInstancePreloadedAndPageCids(
 }
 
 export async function waitTillPostInSubplebbitInstancePages(
-    post: Required<Pick<CommentIpfsWithCidDefined, "cid" | "subplebbitAddress">>,
+    post: Required<Pick<CommentIpfsWithCidDefined, "cid"> & { communityAddress: string }>,
     sub: RemoteSubplebbit
 ) {
     if (sub.state === "stopped") await sub.update();
@@ -979,10 +984,10 @@ export async function waitTillPostInSubplebbitInstancePages(
 }
 
 export async function waitTillPostInSubplebbitPages(
-    post: Required<Pick<CommentIpfsWithCidDefined, "cid" | "subplebbitAddress">>,
+    post: Required<Pick<CommentIpfsWithCidDefined, "cid"> & { communityAddress: string }>,
     plebbit: Plebbit
 ) {
-    const sub = await plebbit.createSubplebbit({ address: post.subplebbitAddress });
+    const sub = await plebbit.createSubplebbit({ address: post.communityAddress });
     await waitTillPostInSubplebbitInstancePages(post, sub);
     await sub.stop();
 }
@@ -1003,7 +1008,7 @@ export async function iterateThroughPagesToFindCommentInParentPagesInstance(
 }
 
 export async function waitTillReplyInParentPagesInstance(
-    reply: Required<Pick<CommentIpfsWithCidDefined, "cid" | "subplebbitAddress" | "parentCid">>,
+    reply: Required<Pick<CommentIpfsWithCidDefined, "cid" | "parentCid"> & { communityAddress: string }>,
     parentComment: Comment
 ) {
     if (parentComment.state === "stopped") throw Error("Parent comment is stopped, can't wait for reply in parent pages");
@@ -1015,7 +1020,7 @@ export async function waitTillReplyInParentPagesInstance(
 }
 
 export async function waitTillReplyInParentPages(
-    reply: Required<Pick<CommentIpfsWithCidDefined, "cid" | "subplebbitAddress" | "parentCid">>,
+    reply: Required<Pick<CommentIpfsWithCidDefined, "cid" | "parentCid"> & { communityAddress: string }>,
     plebbit: Plebbit
 ) {
     const parentComment = await plebbit.createComment({ cid: reply.parentCid });
@@ -1034,10 +1039,10 @@ export async function createSubWithNoChallenge(
 }
 
 export async function generatePostToAnswerMathQuestion(
-    props: Partial<CreateCommentOptions> & Pick<CreateCommentOptions, "subplebbitAddress">,
+    props: Partial<CreateCommentOptions> & Pick<CreateCommentOptions, "communityAddress">,
     plebbit: Plebbit
 ) {
-    const mockPost = await generateMockPost({ subplebbitAddress: props.subplebbitAddress, plebbit, postProps: props });
+    const mockPost = await generateMockPost({ communityAddress: props.communityAddress, plebbit, postProps: props });
     mockPost.removeAllListeners("challenge");
     mockPost.once("challenge", (challengeMessage) => {
         mockPost.publishChallengeAnswers(["2"]);
@@ -1117,7 +1122,11 @@ export async function overrideCommentInstancePropsAndSign(comment: Comment, prop
     }
 
     comment.signature = pubsubPublication.signature = await signComment({
-        comment: removeUndefinedValuesRecursively({ ...pubsubPublication, signer: comment.signer }),
+        comment: removeUndefinedValuesRecursively({
+            ...pubsubPublication,
+            signer: comment.signer,
+            communityAddress: comment.communityAddress
+        }),
         plebbit: comment._plebbit
     });
 
@@ -1132,7 +1141,11 @@ export async function overrideCommentEditInstancePropsAndSign(commentEdit: Comme
     for (const optionKey of Object.keys(props)) commentEdit[optionKey] = props[optionKey];
 
     commentEdit.signature = await signCommentEdit({
-        edit: removeUndefinedValuesRecursively({ ...commentEdit.raw.pubsubMessageToPublish!, signer: commentEdit.signer }),
+        edit: removeUndefinedValuesRecursively({
+            ...commentEdit.raw.pubsubMessageToPublish!,
+            signer: commentEdit.signer,
+            communityAddress: commentEdit.communityAddress
+        }),
         plebbit: commentEdit._plebbit
     });
 
@@ -1281,7 +1294,7 @@ export async function publishChallengeAnswerMessageWithExtraProps({
     const encryptedChallengeAnswers = await encryptEd25519AesGcm(
         JSON.stringify({ challengeAnswers }),
         signer.privateKey,
-        publication._subplebbit!.encryption.publicKey
+        publication._community!.encryption.publicKey
     );
     const toSignAnswer: Omit<ChallengeAnswerMessageType, "signature"> = cleanUpBeforePublishing({
         type: "CHALLENGEANSWER",
@@ -1299,8 +1312,7 @@ export async function publishChallengeAnswerMessageWithExtraProps({
 
     const signature = await _signPubsubMsg({ signedPropertyNames, msg: toSignAnswer, signer, log });
 
-    //@ts-expect-error
-    await publishOverPubsub(publication._subplebbit.pubsubTopic!, { ...toSignAnswer, signature });
+    await publishOverPubsub(publication._community!.pubsubTopic!, { ...toSignAnswer, signature });
 }
 
 export async function publishChallengeMessageWithExtraProps({
@@ -1710,7 +1722,7 @@ export async function createStaticSubplebbitRecordForComment(opts?: {
         const commentToPublish = await commentPlebbit.createComment({
             ...commentOptions,
             signer: commentOptions.signer || (await commentPlebbit.createSigner()),
-            subplebbitAddress,
+            communityAddress: subplebbitAddress,
             title: commentOptions.title ?? `Mock Post - ${Date.now()}`,
             content: commentOptions.content ?? `Mock content - ${Date.now()}`
         });
@@ -2129,7 +2141,7 @@ export async function findOrPublishCommentWithDepth({
     if (closestCommentFromHot) {
         curComment = await plebbitWithDefault.createComment(closestCommentFromHot);
     } else {
-        curComment = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbitWithDefault });
+        curComment = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbitWithDefault });
     }
 
     if (curComment.depth === depth) return curComment;
@@ -2170,7 +2182,7 @@ export async function findOrPublishCommentWithDepthWithHttpServerShortcut({
 
 export async function publishCommentWithDepth({ depth, subplebbit }: { depth: number; subplebbit: RemoteSubplebbit }): Promise<Comment> {
     if (depth === 0) {
-        return publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: subplebbit._plebbit });
+        return publishRandomPost({ communityAddress: subplebbit.address, plebbit: subplebbit._plebbit });
     } else {
         const parentComment = await publishCommentWithDepth({ depth: depth - 1, subplebbit });
         let curComment = await publishRandomReply({
@@ -2214,7 +2226,7 @@ export async function publishCommentToModQueue({
               ...commentProps
           })
         : await generateMockPost({
-              subplebbitAddress: subplebbit.address,
+              communityAddress: subplebbit.address,
               plebbit: remotePlebbit,
               postProps: {
                   content: "Pending post" + " " + Math.random(),
@@ -2257,7 +2269,7 @@ export async function publishToModQueueWithDepth({
         // we assume mod can publish comments without mod queue
         const remotePlebbit = plebbit || subplebbit._plebbit;
         const commentsPublishedByMod = [
-            await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit, postProps: modCommentProps })
+            await publishRandomPost({ communityAddress: subplebbit.address, plebbit: remotePlebbit, postProps: modCommentProps })
         ];
         for (let i = 1; i < depth; i++) {
             commentsPublishedByMod.push(
@@ -2313,14 +2325,14 @@ export async function forceSubplebbitToGenerateAllPostsPages(subplebbit: RemoteS
     const numOfCommentsToPublish = Math.round((1024 * 1024 - curRecordSize) / estimatedCommentSize) + 1;
 
     let lastPublishedPost: Comment = await publishRandomPost({
-        subplebbitAddress: subplebbit.address,
+        communityAddress: subplebbit.address,
         plebbit: subplebbit._plebbit,
         postProps: adjustedCommentProps
     });
     await Promise.all(
         new Array(numOfCommentsToPublish).fill(null).map(async () => {
             const post = await publishRandomPost({
-                subplebbitAddress: subplebbit.address,
+                communityAddress: subplebbit.address,
                 plebbit: subplebbit._plebbit,
                 postProps: adjustedCommentProps
             });
@@ -2328,7 +2340,10 @@ export async function forceSubplebbitToGenerateAllPostsPages(subplebbit: RemoteS
         })
     );
 
-    await waitTillPostInSubplebbitPages(lastPublishedPost as CommentIpfsWithCidDefined, subplebbit._plebbit);
+    await waitTillPostInSubplebbitPages(
+        lastPublishedPost as unknown as Required<Pick<CommentIpfsWithCidDefined, "cid"> & { communityAddress: string }>,
+        subplebbit._plebbit
+    );
     const newSubplebbit = await subplebbit._plebbit.createSubplebbit({ address: subplebbit.address });
     await newSubplebbit.update();
     await resolveWhenConditionIsTrue({ toUpdate: newSubplebbit, predicate: async () => typeof newSubplebbit.updatedAt === "number" });
@@ -2351,7 +2366,7 @@ export function mockReplyToUseParentPagesForUpdates(reply: Comment) {
 
     updatingComment._clientsManager.handleUpdateEventFromPostToFetchReplyCommentUpdate = (postInstance) => {
         // this should stop plebbit-js from assuming the post replies is a single preloaded page
-        const updatingSubInstance = reply._plebbit._updatingSubplebbits[postInstance.subplebbitAddress];
+        const updatingSubInstance = reply._plebbit._updatingSubplebbits[postInstance.communityAddress];
         const updatingParentInstance = reply._plebbit._updatingComments[reply.parentCid!];
 
         if (postInstance.replies.pages)

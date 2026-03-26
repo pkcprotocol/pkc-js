@@ -18,6 +18,7 @@ export type VoteJson = JsonOfClass<Vote>;
 
 export interface VoteOptionsToSign extends Omit<VotePubsubMessagePublication, "signature"> {
     signer: SignerType;
+    communityAddress: string;
 }
 
 export interface VoteSignature extends JsonSignature {

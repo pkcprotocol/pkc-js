@@ -34,6 +34,10 @@ export const SubplebbitEditPublicationPubsubReservedFields = remeda.difference(
     [
         ...remeda.keys.strict(SubplebbitEditPublicationChallengeRequestToEncryptSchema.shape),
         "shortSubplebbitAddress",
+        "shortCommunityAddress",
+        "communityAddress",
+        "communityPublicKey",
+        "communityName",
         "state",
         "publishingState",
         "signer",

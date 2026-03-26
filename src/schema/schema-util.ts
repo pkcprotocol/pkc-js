@@ -466,8 +466,8 @@ export function parseCreateCommentOptionsSchemaWithPlebbitErrorIfItFails(args: z
     else return args;
 }
 
-export function parseSubplebbitAddressWithPlebbitErrorIfItFails(args: z.infer<typeof CreateCommentOptionsSchema.shape.subplebbitAddress>) {
-    const parseRes = CreateCommentOptionsSchema.shape.subplebbitAddress.safeParse(args);
+export function parseSubplebbitAddressWithPlebbitErrorIfItFails(args: z.infer<typeof CreateCommentOptionsSchema.shape.communityAddress>) {
+    const parseRes = CreateCommentOptionsSchema.shape.communityAddress.safeParse(args);
     if (!parseRes.success)
         throw new PlebbitError("ERR_INVALID_SUBPLEBBIT_ADDRESS_SCHEMA", {
             zodError: parseRes.error,

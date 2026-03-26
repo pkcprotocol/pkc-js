@@ -30,6 +30,7 @@ export type CommentPubsubMessagePublication = z.infer<typeof CommentPubsubMessag
 
 export interface CommentOptionsToSign extends Omit<CommentPubsubMessagePublication, "signature"> {
     signer: SignerType;
+    communityAddress: string; // instance-only field from CreateCommentOptions, omitted from wire/signing
 }
 
 export type CommentUpdateType = z.infer<typeof CommentUpdateSchema>;
@@ -45,7 +46,7 @@ export type CommentChallengeRequestToEncryptType = z.infer<typeof CommentChallen
 export type RpcCommentUpdateResultType = z.infer<typeof RpcCommentUpdateResultSchema>;
 export type RpcCommentResultType = z.infer<typeof RpcCommentEventResultSchema>;
 
-export interface CommentRawField extends Omit<Required<Publication["raw"]>, "pubsubMessageToPublish"> {
+export interface CommentRawField extends Omit<Required<Publication["raw"]>, "pubsubMessageToPublish" | "unsignedPublicationOptions"> {
     comment?: CommentIpfsType;
     commentUpdate?: CommentUpdateType;
     pubsubMessageToPublish?: CommentPubsubMessagePublication;
@@ -57,7 +58,7 @@ export interface CommentRawField extends Omit<Required<Publication["raw"]>, "pub
 
 export type CommentJson = JsonOfClass<Comment>;
 
-type AuthorWithShortSubplebbitAddress = RuntimeAuthorWithCommentUpdateType & { shortAddress: string };
+type AuthorWithShortCommunityAddress = RuntimeAuthorWithCommentUpdateType & { shortAddress: string };
 
 export interface CommentIpfsWithCidDefined extends CommentIpfsType {
     cid: string;
@@ -69,18 +70,20 @@ export interface CommentIpfsWithCidPostCidDefined extends CommentIpfsWithCidDefi
 
 // subplebbit.posts.pages.hot.comments[0] will have this shape
 export interface CommentWithinRepliesPostsPageJson extends CommentIpfsWithCidPostCidDefined, Omit<CommentUpdateType, "replies"> {
+    communityAddress: string;
     shortCid: string;
-    shortSubplebbitAddress: string;
-    author: AuthorWithShortSubplebbitAddress;
+    shortCommunityAddress: string;
+    author: AuthorWithShortCommunityAddress;
     deleted?: boolean;
     replies?: Omit<RepliesPagesTypeJson, "clients">;
     raw: { comment: CommentIpfsType; commentUpdate: CommentUpdateType };
 }
 
 export interface CommentWithinModQueuePageJson extends CommentIpfsWithCidPostCidDefined, CommentUpdateForChallengeVerification {
+    communityAddress: string;
     shortCid: string;
-    shortSubplebbitAddress: string;
-    author: AuthorWithShortSubplebbitAddress;
+    shortCommunityAddress: string;
+    author: AuthorWithShortCommunityAddress;
     raw: { comment: CommentIpfsType; commentUpdate: CommentUpdateForChallengeVerification & { pendingApproval: boolean } };
     pendingApproval: boolean;
 }
@@ -129,7 +132,7 @@ export interface CommentUpdateSignature extends JsonSignature {
     signedPropertyNames: typeof CommentUpdateSignedPropertyNames;
 }
 
-export type MinimumCommentFieldsToFetchPages = Pick<CommentIpfsWithCidDefined, "cid" | "subplebbitAddress" | "depth" | "postCid">;
+export type MinimumCommentFieldsToFetchPages = Pick<CommentIpfsWithCidDefined, "cid" | "depth" | "postCid"> & { communityAddress: string };
 
 export type CommentRpcErrorToTransmit = PublicationRpcErrorToTransmit & {
     details?: PublicationRpcErrorToTransmit["details"] & {

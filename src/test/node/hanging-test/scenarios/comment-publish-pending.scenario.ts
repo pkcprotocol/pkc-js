@@ -14,7 +14,7 @@ export default defineHangingScenario({
         const mathCliSub = "12D3KooWANwdyPERMQaCgiMnTT1t3Lr4XLFbK1z4ptFVhW2ozg1z";
         const { plebbit, config } = await createScenarioContext(configCode);
 
-        const post = await generateMockPost({ subplebbitAddress: mathCliSub, plebbit });
+        const post = await generateMockPost({ communityAddress: mathCliSub, plebbit });
         post.removeAllListeners("challenge");
 
         await post.publish(); // it will receive a challenge, but we won't respond because we wanna keep process hanging
