@@ -9,7 +9,7 @@ import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
 import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/subplebbit/local-subplebbit.js";
 import type { RpcLocalSubplebbit } from "../../../../dist/node/subplebbit/rpc-local-subplebbit.js";
 import type { SignerWithPublicKeyAddress } from "../../../../dist/node/signer/index.js";
-import type { CommentIpfsWithCidDefined, CommentUpdatesRow, CommentsTableRow } from "../../../../dist/node/publications/comment/types.js";
+import type { CommentUpdatesRow, CommentsTableRow } from "../../../../dist/node/publications/comment/types.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { SubplebbitChallengeSetting, SubplebbitFeatures } from "../../../../dist/node/subplebbit/types.js";
 import type {
@@ -84,13 +84,13 @@ async function waitForStoredCommentUpdateWithAssertions(subplebbit: LocalSubpleb
 }
 
 async function publishPostWithChallengeAnswer(
-    subplebbitAddress: string,
+    communityAddress: string,
     plebbit: Plebbit,
     signer: SignerWithPublicKeyAddress,
     challengeAnswer: string
 ): Promise<Comment> {
     const post = await plebbit.createComment({
-        subplebbitAddress,
+        communityAddress: communityAddress,
         signer,
         title: "Test post for challenge exclusion",
         content: "Content " + Math.random()
@@ -113,7 +113,7 @@ async function publishPostWithChallengeAnswer(
 }
 
 async function publishPostAndTrackChallenge(
-    subplebbitAddress: string,
+    communityAddress: string,
     plebbit: Plebbit,
     signer: SignerWithPublicKeyAddress,
     opts?: {
@@ -123,7 +123,7 @@ async function publishPostAndTrackChallenge(
     }
 ): Promise<{ post: Comment; challengeReceived: boolean }> {
     const post = await plebbit.createComment({
-        subplebbitAddress,
+        communityAddress: communityAddress,
         signer,
         title: opts?.title ?? "Test post for role exclusion",
         content: opts?.content ?? "Content " + Math.random()
@@ -148,7 +148,7 @@ async function publishPostAndTrackChallenge(
 }
 
 async function publishReplyWithChallengeAnswer(
-    parentComment: CommentIpfsWithCidDefined,
+    parentComment: Pick<Comment, "cid" | "postCid" | "communityAddress">,
     plebbit: Plebbit,
     signer: SignerWithPublicKeyAddress,
     challengeAnswer: string
@@ -159,7 +159,7 @@ async function publishReplyWithChallengeAnswer(
     const postCid = parentComment.postCid || parentComment.cid;
 
     const reply = await plebbit.createComment({
-        subplebbitAddress: parentComment.subplebbitAddress,
+        communityAddress: parentComment.communityAddress,
         parentCid: parentComment.cid,
         postCid,
         signer,
@@ -185,7 +185,7 @@ async function publishReplyWithChallengeAnswer(
 async function publishVoteWithChallengeAnswer(
     plebbit: Plebbit,
     opts: {
-        subplebbitAddress: string;
+        communityAddress: string;
         commentCid: string;
         vote: 1 | -1 | 0;
         signer: SignerWithPublicKeyAddress;
@@ -193,7 +193,7 @@ async function publishVoteWithChallengeAnswer(
     challengeAnswer: string
 ): Promise<void> {
     const vote = await plebbit.createVote({
-        subplebbitAddress: opts.subplebbitAddress,
+        communityAddress: opts.communityAddress,
         commentCid: opts.commentCid,
         vote: opts.vote,
         signer: opts.signer
@@ -265,7 +265,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 // Publish a post - since author has no karma, they should receive a challenge
                 let challengeReceived = false;
                 const post = await context.plebbit.createComment({
-                    subplebbitAddress: context.subplebbit.address,
+                    communityAddress: context.subplebbit.address,
                     signer: author,
                     title: "Test post",
                     content: "Content"
@@ -310,7 +310,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
                     {
-                        subplebbitAddress: context.subplebbit.address,
+                        communityAddress: context.subplebbit.address,
                         commentCid: firstPost.cid,
                         vote: 1,
                         signer: voter
@@ -334,7 +334,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 // Now publish a second post - author should be EXCLUDED from challenge (no challenge received)
                 let challengeReceived = false;
                 const secondPost = await context.plebbit.createComment({
-                    subplebbitAddress: context.subplebbit.address,
+                    communityAddress: context.subplebbit.address,
                     signer: author,
                     title: "Second post",
                     content: "Should be excluded from challenge"
@@ -380,7 +380,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
-                    { subplebbitAddress: context.subplebbit.address, commentCid: post1.cid, vote: 1, signer: voter },
+                    { communityAddress: context.subplebbit.address, commentCid: post1.cid, vote: 1, signer: voter },
                     "2"
                 );
 
@@ -390,7 +390,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
-                    { subplebbitAddress: context.subplebbit.address, commentCid: post2.cid, vote: 1, signer: voter },
+                    { communityAddress: context.subplebbit.address, commentCid: post2.cid, vote: 1, signer: voter },
                     "2"
                 );
 
@@ -400,7 +400,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
-                    { subplebbitAddress: context.subplebbit.address, commentCid: post3.cid, vote: 1, signer: voter },
+                    { communityAddress: context.subplebbit.address, commentCid: post3.cid, vote: 1, signer: voter },
                     "2"
                 );
 
@@ -420,7 +420,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 // Now publish post4 - should be EXCLUDED because aggregated karma = 3
                 let challengeReceived = false;
                 const post4 = await context.plebbit.createComment({
-                    subplebbitAddress: context.subplebbit.address,
+                    communityAddress: context.subplebbit.address,
                     signer: author,
                     title: "Fourth post",
                     content: "Should be excluded"
@@ -466,12 +466,12 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, post);
 
                 // Publish a reply and upvote it
-                const reply = await publishReplyWithChallengeAnswer(post as CommentIpfsWithCidDefined, context.plebbit, author, "2");
+                const reply = await publishReplyWithChallengeAnswer(post, context.plebbit, author, "2");
                 await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, reply);
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
-                    { subplebbitAddress: context.subplebbit.address, commentCid: reply.cid, vote: 1, signer: voter },
+                    { communityAddress: context.subplebbit.address, commentCid: reply.cid, vote: 1, signer: voter },
                     "2"
                 );
 
@@ -487,7 +487,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 // Now publish another post - should be excluded based on replyScore
                 let challengeReceived = false;
                 const post2 = await context.plebbit.createComment({
-                    subplebbitAddress: context.subplebbit.address,
+                    communityAddress: context.subplebbit.address,
                     signer: author,
                     title: "Second post",
                     content: "Should be excluded due to replyScore"
@@ -541,7 +541,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 // Now publish second post - should be excluded based on firstCommentTimestamp
                 let challengeReceived = false;
                 const secondPost = await context.plebbit.createComment({
-                    subplebbitAddress: context.subplebbit.address,
+                    communityAddress: context.subplebbit.address,
                     signer: author,
                     title: "Second post",
                     content: "Should be excluded due to firstCommentTimestamp"
@@ -620,7 +620,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
-                    { subplebbitAddress: context.subplebbit.address, commentCid: post.cid, vote: 1, signer: voter },
+                    { communityAddress: context.subplebbit.address, commentCid: post.cid, vote: 1, signer: voter },
                     "2"
                 );
 
@@ -637,7 +637,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 // but karma should still be looked up from original author
                 let challengeReceived = false;
                 const secondPost = await context.plebbit.createComment({
-                    subplebbitAddress: context.subplebbit.address,
+                    communityAddress: context.subplebbit.address,
                     signer: author,
                     title: "Second post",
                     content: "Should be excluded"
@@ -681,22 +681,22 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, post);
 
                 // Publish reply1 (gets new alias) and upvote
-                const reply1 = await publishReplyWithChallengeAnswer(post as CommentIpfsWithCidDefined, context.plebbit, author, "2");
+                const reply1 = await publishReplyWithChallengeAnswer(post, context.plebbit, author, "2");
                 await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, reply1);
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
-                    { subplebbitAddress: context.subplebbit.address, commentCid: reply1.cid, vote: 1, signer: voter },
+                    { communityAddress: context.subplebbit.address, commentCid: reply1.cid, vote: 1, signer: voter },
                     "2"
                 );
 
                 // Publish reply2 (gets new alias) and upvote
-                const reply2 = await publishReplyWithChallengeAnswer(post as CommentIpfsWithCidDefined, context.plebbit, author, "2");
+                const reply2 = await publishReplyWithChallengeAnswer(post, context.plebbit, author, "2");
                 await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, reply2);
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
-                    { subplebbitAddress: context.subplebbit.address, commentCid: reply2.cid, vote: 1, signer: voter },
+                    { communityAddress: context.subplebbit.address, commentCid: reply2.cid, vote: 1, signer: voter },
                     "2"
                 );
 
@@ -716,7 +716,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 // Now publish reply3 - should be excluded
                 let challengeReceived = false;
                 const reply3 = await context.plebbit.createComment({
-                    subplebbitAddress: context.subplebbit.address,
+                    communityAddress: context.subplebbit.address,
                     parentCid: post.cid,
                     postCid: post.cid,
                     signer: author,
@@ -798,7 +798,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
-                    { subplebbitAddress: context.subplebbit.address, commentCid: post.cid, vote: 1, signer: voter },
+                    { communityAddress: context.subplebbit.address, commentCid: post.cid, vote: 1, signer: voter },
                     "2"
                 );
 
@@ -814,7 +814,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 // Now publish second post - in per-author mode, same alias is used
                 let challengeReceived = false;
                 const secondPost = await context.plebbit.createComment({
-                    subplebbitAddress: context.subplebbit.address,
+                    communityAddress: context.subplebbit.address,
                     signer: author,
                     title: "Second post",
                     content: "Should be excluded"
@@ -859,17 +859,17 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
-                    { subplebbitAddress: context.subplebbit.address, commentCid: post1.cid, vote: 1, signer: voter },
+                    { communityAddress: context.subplebbit.address, commentCid: post1.cid, vote: 1, signer: voter },
                     "2"
                 );
 
                 // Publish reply and upvote
-                const reply = await publishReplyWithChallengeAnswer(post1 as CommentIpfsWithCidDefined, context.plebbit, author, "2");
+                const reply = await publishReplyWithChallengeAnswer(post1, context.plebbit, author, "2");
                 await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, reply);
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
-                    { subplebbitAddress: context.subplebbit.address, commentCid: reply.cid, vote: 1, signer: voter },
+                    { communityAddress: context.subplebbit.address, commentCid: reply.cid, vote: 1, signer: voter },
                     "2"
                 );
 
@@ -879,7 +879,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
-                    { subplebbitAddress: context.subplebbit.address, commentCid: post2.cid, vote: 1, signer: voter },
+                    { communityAddress: context.subplebbit.address, commentCid: post2.cid, vote: 1, signer: voter },
                     "2"
                 );
 
@@ -900,7 +900,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 // Now publish post3 - should be excluded (meets both criteria)
                 let challengeReceived = false;
                 const post3 = await context.plebbit.createComment({
-                    subplebbitAddress: context.subplebbit.address,
+                    communityAddress: context.subplebbit.address,
                     signer: author,
                     title: "Third post",
                     content: "Should be excluded"
@@ -952,7 +952,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
-                    { subplebbitAddress: context.subplebbit.address, commentCid: post1.cid, vote: 1, signer: voter },
+                    { communityAddress: context.subplebbit.address, commentCid: post1.cid, vote: 1, signer: voter },
                     "2"
                 );
 
@@ -962,7 +962,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
-                    { subplebbitAddress: context.subplebbit.address, commentCid: post2.cid, vote: 1, signer: voter },
+                    { communityAddress: context.subplebbit.address, commentCid: post2.cid, vote: 1, signer: voter },
                     "2"
                 );
 
@@ -981,7 +981,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 });
 
                 const post3 = await context.plebbit.createComment({
-                    subplebbitAddress: context.subplebbit.address,
+                    communityAddress: context.subplebbit.address,
                     signer: author,
                     title: "Third post",
                     content: "Check challengerequest values"
@@ -1032,22 +1032,22 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, post);
 
                 // Publish reply1 (gets alias1) and upvote it
-                const reply1 = await publishReplyWithChallengeAnswer(post as CommentIpfsWithCidDefined, context.plebbit, author, "2");
+                const reply1 = await publishReplyWithChallengeAnswer(post, context.plebbit, author, "2");
                 await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, reply1);
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
-                    { subplebbitAddress: context.subplebbit.address, commentCid: reply1.cid, vote: 1, signer: voter },
+                    { communityAddress: context.subplebbit.address, commentCid: reply1.cid, vote: 1, signer: voter },
                     "2"
                 );
 
                 // Publish reply2 (gets alias2) and upvote it
-                const reply2 = await publishReplyWithChallengeAnswer(post as CommentIpfsWithCidDefined, context.plebbit, author, "2");
+                const reply2 = await publishReplyWithChallengeAnswer(post, context.plebbit, author, "2");
                 await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, reply2);
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
-                    { subplebbitAddress: context.subplebbit.address, commentCid: reply2.cid, vote: 1, signer: voter },
+                    { communityAddress: context.subplebbit.address, commentCid: reply2.cid, vote: 1, signer: voter },
                     "2"
                 );
 
@@ -1066,7 +1066,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 });
 
                 const reply3 = await context.plebbit.createComment({
-                    subplebbitAddress: context.subplebbit.address,
+                    communityAddress: context.subplebbit.address,
                     parentCid: post.cid,
                     postCid: post.cid,
                     signer: author,

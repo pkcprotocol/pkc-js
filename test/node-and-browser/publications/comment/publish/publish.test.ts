@@ -21,9 +21,10 @@ import type {
 } from "../../../../../dist/node/publications/comment/types.js";
 import type { Plebbit } from "../../../../../dist/node/plebbit/plebbit.js";
 import type { RemoteSubplebbit } from "../../../../../dist/node/subplebbit/remote-subplebbit.js";
+import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
 
 // Helper type for replies that requires both cid and parentCid
-type ReplyWithRequiredFields = Required<Pick<CommentIpfsWithCidDefined, "cid" | "subplebbitAddress" | "parentCid">>;
+type ReplyWithRequiredFields = Required<Pick<CommentIpfsWithCidDefined, "cid" | "parentCid"> & { communityAddress: string }>;
 
 const subplebbitAddress = signers[0].address;
 
@@ -43,20 +44,20 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it("Can publish a post", async () => {
             const title = "Test of ability to publish posts" + Date.now();
-            const post = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit, postProps: { title } });
+            const post = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit, postProps: { title } });
             expect(post.depth).to.equal(0);
             expect(post.title).to.equal(title);
-            await waitTillPostInSubplebbitInstancePages(post as CommentIpfsWithCidDefined, sub);
+            await waitTillPostInSubplebbitInstancePages(post as Comment & { cid: string }, sub);
             const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, sub.posts);
             expect(postInPage.title).to.equal(title);
         });
 
         it(`Can Publish a post with only link`, async () => {
             const link = "https://demo.plebbit.eth.limo";
-            const post = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit, postProps: { link } });
+            const post = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit, postProps: { link } });
             expect(post.link).to.equal(link);
             await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
-            await waitTillPostInSubplebbitInstancePages(post as CommentIpfsWithCidDefined, sub);
+            await waitTillPostInSubplebbitInstancePages(post as Comment & { cid: string }, sub);
             const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, sub.posts);
             expect(postInPage.link).to.equal(link);
         });
@@ -72,7 +73,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await Promise.all(
                 emojiContents.map(async (content) => {
                     const publishedPostWithEmojiContent = await publishRandomPost({
-                        subplebbitAddress: subplebbitAddress,
+                        communityAddress: subplebbitAddress,
                         plebbit: plebbit,
                         postProps: {
                             content,
@@ -89,7 +90,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     const remotePostIpfs = JSON.stringify(remotePost.raw.comment!);
                     expect(await calculateIpfsHash(remotePostIpfs)).to.equal(publishedPostWithEmojiContent.cid);
 
-                    await waitTillPostInSubplebbitInstancePages(publishedPostWithEmojiContent as CommentIpfsWithCidDefined, sub);
+                    await waitTillPostInSubplebbitInstancePages(publishedPostWithEmojiContent as Comment & { cid: string }, sub);
                     const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
                         publishedPostWithEmojiContent.cid,
                         sub.posts
@@ -101,7 +102,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`post.author.shortAddress is defined throughout publishing`, async () => {
-            const post = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            const post = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             expect(post.author.shortAddress).to.be.a("string").with.length.above(0);
             expect(JSON.parse(JSON.stringify(post)).author.shortAddress)
                 .to.be.a("string")
@@ -122,7 +123,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const commentProps = {
                 title: "Random " + Math.random(),
                 content: "Random " + Math.random(),
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 author: {
                     address: signers[6].address,
                     avatar: {
@@ -141,13 +142,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const post = await plebbit.createComment({ ...commentProps, signer: signers[6] });
 
             await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
-            await waitTillPostInSubplebbitInstancePages(post as CommentIpfsWithCidDefined, sub);
+            await waitTillPostInSubplebbitInstancePages(post as Comment & { cid: string }, sub);
             const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, sub.posts);
             expect(postInPage.author.avatar).to.deep.equal(commentProps.author.avatar);
             expect(postInPage.author.address).to.equal(commentProps.author.address);
             expect(postInPage.content).to.equal(commentProps.content);
             expect(postInPage.title).to.equal(commentProps.title);
-            expect(postInPage.subplebbitAddress).to.equal(commentProps.subplebbitAddress);
+            expect(postInPage.communityAddress).to.equal(commentProps.communityAddress);
         });
 
         it(`Can publish a post with spoiler`, async () => {
@@ -156,7 +157,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await Promise.all(
                 spoilerValues.map(async (spoilerValue) => {
                     const post = await generateMockPost({
-                        subplebbitAddress: subplebbitAddress,
+                        communityAddress: subplebbitAddress,
                         plebbit: plebbit,
                         postProps: { spoiler: spoilerValue }
                     });
@@ -167,7 +168,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     expect(post.spoiler).to.equal(spoilerValue);
                     const remotePostFromCid = await plebbit.getComment({ cid: post.cid });
                     expect(remotePostFromCid.spoiler).to.equal(spoilerValue);
-                    await waitTillPostInSubplebbitInstancePages(post as CommentIpfsWithCidDefined, sub);
+                    await waitTillPostInSubplebbitInstancePages(post as Comment & { cid: string }, sub);
                     const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, sub.posts);
                     expect(postInPage.spoiler).to.equal(spoilerValue);
                     await post.stop();
@@ -181,7 +182,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await Promise.all(
                 nsfwValues.map(async (nsfwValue) => {
                     const post = await generateMockPost({
-                        subplebbitAddress: subplebbitAddress,
+                        communityAddress: subplebbitAddress,
                         plebbit: plebbit,
                         postProps: { nsfw: nsfwValue }
                     });
@@ -192,7 +193,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     expect(post.nsfw).to.equal(nsfwValue);
                     const remotePostFromCid = await plebbit.getComment({ cid: post.cid });
                     expect(remotePostFromCid.nsfw).to.equal(nsfwValue);
-                    await waitTillPostInSubplebbitInstancePages(post as CommentIpfsWithCidDefined, sub);
+                    await waitTillPostInSubplebbitInstancePages(post as Comment & { cid: string }, sub);
                     const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, sub.posts);
                     expect(postInPage.nsfw).to.equal(nsfwValue);
                     await post.stop();
@@ -209,27 +210,27 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 }
             };
             const post = await generateMockPost({
-                subplebbitAddress: subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 plebbit: plebbit,
                 postProps: { author: { wallets } }
             });
             expect(post.author.wallets).to.deep.equal(wallets);
             await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
-            await waitTillPostInSubplebbitInstancePages(post as CommentIpfsWithCidDefined, sub);
+            await waitTillPostInSubplebbitInstancePages(post as Comment & { cid: string }, sub);
             const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, sub.posts);
             expect(postInPage.author.wallets).to.deep.equal(wallets);
             await post.stop();
         });
 
         it(`Can publish a post that was created from another comment instance`, async () => {
-            const comment1 = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            const comment1 = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             const commentToPublish = await plebbit.createComment(comment1);
             await publishWithExpectedResult({ publication: commentToPublish, expectedChallengeSuccess: true });
             expect(commentToPublish.raw.pubsubMessageToPublish!).to.deep.equal(comment1.raw.pubsubMessageToPublish!);
         });
 
         it(`Can publish a post that was created from jsonfied comment instance`, async () => {
-            const comment1 = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            const comment1 = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             const commentToPublish = await plebbit.createComment(JSON.parse(JSON.stringify(comment1)));
             await publishWithExpectedResult({ publication: commentToPublish, expectedChallengeSuccess: true });
             expect(commentToPublish.raw.pubsubMessageToPublish!).to.deep.equal(comment1.raw.pubsubMessageToPublish!);
@@ -238,7 +239,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Can publish a post with linkHtmlTagName defined`, async () => {
             const post = await generateMockPost({
-                subplebbitAddress: subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 plebbit: plebbit,
                 postProps: {
                     linkHtmlTagName: "img",
@@ -259,7 +260,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`A post with author.wallet = {} doesn't cause issues with pages or signatures`, async () => {
             const post = await generateMockPost({
-                subplebbitAddress: subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 plebbit: plebbit,
                 postProps: { author: { wallets: {} } }
             });
@@ -268,7 +269,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
             expect(post.author.wallets).to.be.undefined;
 
-            await waitTillPostInSubplebbitInstancePages(post as CommentIpfsWithCidDefined, sub);
+            await waitTillPostInSubplebbitInstancePages(post as Comment & { cid: string }, sub);
             const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, sub.posts);
             expect(postInPage.author.wallets).to.be.undefined;
 
@@ -279,7 +280,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         itSkipIfRpc(`publish() can be caught if subplebbit failed to load`, async () => {
             const randomSigner = await plebbit.createSigner();
             const downSubplebbitAddress = randomSigner.address; // an offline sub
-            const post = await generateMockPost({ subplebbitAddress: downSubplebbitAddress, plebbit: plebbit });
+            const post = await generateMockPost({ communityAddress: downSubplebbitAddress, plebbit: plebbit });
             plebbit._timeouts["subplebbit-ipns"] = 100; // need to change time out from 5 minutes to 100ms
 
             try {
@@ -300,7 +301,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         it(`Can publish a post whose signature is defined prior to plebbit.createComment()`, async () => {
             const signer = await plebbit.createSigner();
             const props: {
-                subplebbitAddress: string;
+                communityAddress: string;
                 timestamp: number;
                 author: { displayName: string };
                 protocolVersion: string;
@@ -308,7 +309,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 title: string;
                 signature?: CommentPubsubMessagPublicationSignature;
             } = {
-                subplebbitAddress: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR",
+                communityAddress: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR",
                 timestamp: Math.round(Date.now() / 1000),
                 author: { displayName: "Mock Author - 1690130836.1711266" + Math.random() },
                 protocolVersion: "1.0.0",
@@ -337,7 +338,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const title = `Test title on Comment ${Date.now()} ${Math.random()}`;
             const content = "Random Content" + Math.random();
             const link = "https://plebbit.com";
-            const post = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            const post = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             await post.update();
             const reply = await publishRandomReply({
                 parentComment: post as CommentIpfsWithCidDefined,

@@ -30,7 +30,7 @@ describe.concurrent(`subplebbit.features.noMarkdownImages`, async () => {
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
         // Publish a post first (before enabling the feature) to test comment edits later
-        publishedPost = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
+        publishedPost = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: remotePlebbit });
     });
 
     afterAll(async () => {
@@ -54,7 +54,7 @@ describe.concurrent(`subplebbit.features.noMarkdownImages`, async () => {
     it(`Can't publish a post with markdown image syntax`, async () => {
         const contentWithMarkdownImage = "Here is some text with an image: ![alt text](https://example.com/image.png)";
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: { content: contentWithMarkdownImage }
         });
@@ -68,7 +68,7 @@ describe.concurrent(`subplebbit.features.noMarkdownImages`, async () => {
     it(`Can't publish a post with HTML img tag`, async () => {
         const contentWithHtmlImg = 'Here is some text with an image: <img src="https://example.com/image.png" />';
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: { content: contentWithHtmlImg }
         });
@@ -94,7 +94,7 @@ describe.concurrent(`subplebbit.features.noMarkdownImages`, async () => {
     it(`Can publish a post with plain text content`, async () => {
         const plainContent = "This is just plain text without any images";
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: { content: plainContent }
         });
@@ -104,7 +104,7 @@ describe.concurrent(`subplebbit.features.noMarkdownImages`, async () => {
     it(`Can publish a post with regular markdown link (not image)`, async () => {
         const contentWithLink = "Check out this [link](https://example.com)";
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: { content: contentWithLink }
         });
@@ -113,7 +113,7 @@ describe.concurrent(`subplebbit.features.noMarkdownImages`, async () => {
 
     it(`Can publish a post with direct link field (not markdown content)`, async () => {
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: {
                 link: "https://example.com/image.png",
@@ -128,7 +128,7 @@ describe.concurrent(`subplebbit.features.noMarkdownImages`, async () => {
         const commentEdit = await remotePlebbit.createCommentEdit({
             commentCid: publishedPost.cid!,
             content: contentWithMarkdownImage,
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             signer: publishedPost.signer
         });
         await publishWithExpectedResult({
@@ -143,7 +143,7 @@ describe.concurrent(`subplebbit.features.noMarkdownImages`, async () => {
         const commentEdit = await remotePlebbit.createCommentEdit({
             commentCid: publishedPost.cid!,
             content: plainContent,
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             signer: publishedPost.signer
         });
         await publishWithExpectedResult({ publication: commentEdit, expectedChallengeSuccess: true });

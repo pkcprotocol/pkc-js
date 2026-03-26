@@ -32,7 +32,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             // Publish a domain comment (plebbit.bso → signers[3]) for reuse across tests
             const domainComment = await publishRandomPost({
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 plebbit,
                 postProps: {
                     author: { name: "plebbit.bso" },
@@ -42,7 +42,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             domainCommentCid = domainComment.cid!;
 
             // Publish a non-domain comment for reuse
-            const noDomainComment = await publishRandomPost({ subplebbitAddress, plebbit });
+            const noDomainComment = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit });
             noDomainCommentCid = noDomainComment.cid!;
 
             const mismatchedDomainComment = await createStaticSubplebbitRecordForComment({
@@ -113,7 +113,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 signer: signers[3],
                 content: `Test content - ${Date.now()}`,
                 title: "Test post",
-                subplebbitAddress
+                communityAddress: subplebbitAddress
             });
 
             await publishWithExpectedResult({ publication: comment, expectedChallengeSuccess: true });
@@ -134,7 +134,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 signer: signers[3],
                 content: `Test content - ${Date.now()}`,
                 title: "Test post",
-                subplebbitAddress
+                communityAddress: subplebbitAddress
             });
 
             expect(comment.author.nameResolved).to.equal(true);
@@ -244,7 +244,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it("nameResolved is not present in raw CommentIpfs record", async () => {
             const comment = await publishRandomPost({
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 plebbit,
                 postProps: {
                     author: { name: "plebbit.bso" },
@@ -272,7 +272,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     signer: signers[6],
                     content: `No dot test - ${Date.now()}`,
                     title: "Test",
-                    subplebbitAddress
+                    communityAddress: subplebbitAddress
                 })
             ).rejects.toThrow();
         });

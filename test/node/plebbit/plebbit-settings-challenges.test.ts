@@ -154,7 +154,7 @@ describe("plebbit.settings.challenges", async () => {
 
         // Publish with correct pre-answer
         const correctPost = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: plebbit,
             postProps: {
                 challengeRequest: { challengeAnswers: ["blue"] }
@@ -167,7 +167,7 @@ describe("plebbit.settings.challenges", async () => {
             subplebbit.once("challengeverification", resolve)
         );
         const wrongPost = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: plebbit,
             postProps: {
                 challengeRequest: { challengeAnswers: ["red"] }
@@ -202,7 +202,7 @@ describe("plebbit.settings.challenges", async () => {
 
         // Verify correct answer works
         const correctPost = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: plebbitWithOverride,
             postProps: {
                 challengeRequest: { challengeAnswers: ["42"] }
@@ -215,7 +215,7 @@ describe("plebbit.settings.challenges", async () => {
             subplebbit.once("challengeverification", resolve)
         );
         const wrongPost = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: plebbitWithOverride,
             postProps: {
                 challengeRequest: { challengeAnswers: ["wrong"] }

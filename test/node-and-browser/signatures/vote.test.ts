@@ -22,7 +22,7 @@ describe.concurrent("Sign Vote", async () => {
 
         voteProps = {
             author: { displayName: "Voter" },
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             commentCid: subplebbit.lastPostCid!,
             timestamp: timestamp(),
             vote: 1,
@@ -108,7 +108,7 @@ describeSkipIfRpc.concurrent("Verify vote", async () => {
     it("verifyVote validates a vote that was signed without author", async () => {
         const signer = signers[7];
         const voteToSign: VoteOptionsToSign = {
-            subplebbitAddress: signers[0].address,
+            communityAddress: signers[0].address,
             commentCid: "QmTest",
             timestamp: timestamp(),
             vote: 1,

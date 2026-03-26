@@ -441,7 +441,7 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
         const storedComment = dbMock.comments[0];
 
         const editInstance = await plebbit.createCommentEdit({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             commentCid: storedComment.cid,
             content: "Edited content",
             signer: originalCommentSigner
@@ -485,7 +485,7 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
         subplebbit.roles = { [modSigner.address]: { role: "moderator" } };
 
         const moderationInstance = await plebbit.createCommentModeration({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             commentCid: storedComment.cid,
             commentModeration: { removed: true },
             signer: modSigner
@@ -528,7 +528,7 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
         const signer = await plebbit.createSigner();
 
         const voteInstance = await plebbit.createVote({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             commentCid: storedComment.cid,
             vote: 1,
             signer
@@ -565,7 +565,7 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
         subplebbit.roles = { [signer.address]: { role: "owner" } };
 
         const editInstance = await plebbit.createSubplebbitEdit({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             subplebbitEdit: { description: "Updated description" },
             signer
         });
@@ -690,7 +690,7 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
 
         const storedComment = dbMock.comments[0];
         const editInstance = await plebbit.createCommentEdit({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             commentCid: storedComment.cid,
             content: "Edited content",
             signer: originalCommentSigner
@@ -743,7 +743,7 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
         subplebbit.roles = { [modSigner.address]: { role: "moderator" } };
 
         const moderationInstance = await plebbit.createCommentModeration({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             commentCid: storedComment.cid,
             commentModeration: { removed: true },
             signer: modSigner
@@ -797,7 +797,7 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
         instance: Publication;
     }> {
         const signer = await plebbit.createSigner();
-        const commentInstance = await generateMockPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit, postProps: { signer } });
+        const commentInstance = await generateMockPost({ communityAddress: subplebbit.address, plebbit: plebbit, postProps: { signer } });
         const publication = commentInstance.raw.pubsubMessageToPublish!;
         return { signer, publication, instance: commentInstance as unknown as Publication };
     }

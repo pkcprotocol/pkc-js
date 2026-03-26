@@ -38,7 +38,7 @@ describeSkipIfRpc("dbHandler.queryComment returns quotedCids as array", async ()
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
         // Publish a post to quote
-        post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit, postProps: { signer: modSigner } });
+        post = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit, postProps: { signer: modSigner } });
 
         // Publish a reply that quotes the post
         replyWithQuotedCids = await publishRandomReply({

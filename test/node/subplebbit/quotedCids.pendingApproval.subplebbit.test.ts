@@ -47,7 +47,7 @@ describeSkipIfRpc("quotedCids with pending approval comments", async () => {
 
         // Publish an approved post (using mod signer bypasses challenge)
         approvedPost = await publishRandomPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: plebbit,
             postProps: { signer: modSigner }
         });

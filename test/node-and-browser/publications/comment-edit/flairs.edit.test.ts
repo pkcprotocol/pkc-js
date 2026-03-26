@@ -18,7 +18,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         let plebbit: Plebbit, authorPost: Comment;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            authorPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            authorPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             expect(authorPost.flairs).to.be.undefined;
             await authorPost.update();
             await resolveWhenConditionIsTrue({ toUpdate: authorPost, predicate: async () => typeof authorPost.updatedAt === "number" });
@@ -32,7 +32,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Regular author can't set flairs on another author's comment`, async () => {
             const flairsEdit = await plebbit.createCommentEdit({
-                subplebbitAddress: authorPost.subplebbitAddress,
+                communityAddress: authorPost.communityAddress,
                 commentCid: authorPost.cid,
                 flairs: [{ text: "Hacked" }],
                 signer: await plebbit.createSigner()
@@ -46,7 +46,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Author can't set flairs not in the allowed list`, async () => {
             const flairsEdit = await plebbit.createCommentEdit({
-                subplebbitAddress: authorPost.subplebbitAddress,
+                communityAddress: authorPost.communityAddress,
                 commentCid: authorPost.cid,
                 flairs: [{ text: "NotAllowed" }],
                 signer: authorPost.signer
@@ -62,7 +62,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(authorPost.flairs).to.be.undefined;
 
             const flairsEdit = await plebbit.createCommentEdit({
-                subplebbitAddress: authorPost.subplebbitAddress,
+                communityAddress: authorPost.communityAddress,
                 commentCid: authorPost.cid,
                 flairs: [{ text: "Discussion" }],
                 signer: authorPost.signer,
@@ -84,7 +84,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`flairs appear in pages of subplebbit`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: authorPost.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: authorPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -99,7 +99,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it.sequential(`Author can update flairs with multiple entries`, async () => {
             const flairsEdit = await plebbit.createCommentEdit({
-                subplebbitAddress: authorPost.subplebbitAddress,
+                communityAddress: authorPost.communityAddress,
                 commentCid: authorPost.cid,
                 flairs: [{ text: "Updated" }, { text: "Important", backgroundColor: "#ff0000" }],
                 signer: authorPost.signer,

@@ -54,14 +54,14 @@ const fixtureSignature = {
 
 // Helper to create a comment with all required fields for signing
 function createCommentToSign(opts: {
-    subplebbitAddress: string;
+    communityAddress: string;
     author?: CommentOptionsToSign["author"];
     signer: (typeof signers)[0];
     title?: string;
     content?: string;
 }): CommentOptionsToSign {
     return {
-        subplebbitAddress: opts.subplebbitAddress,
+        communityAddress: opts.communityAddress,
         ...(opts.author === undefined ? undefined : { author: opts.author }),
         timestamp: timestamp(),
         protocolVersion: PROTOCOL_VERSION,
@@ -86,7 +86,7 @@ describe("sign comment", async () => {
         const signer = await plebbit.createSigner();
 
         const comment = createCommentToSign({
-            subplebbitAddress: signers[0].address,
+            communityAddress: signers[0].address,
             signer
         });
         const signature = await signComment({ comment, plebbit });
@@ -104,7 +104,7 @@ describe("sign comment", async () => {
     it("Can sign a comment with an imported key", async () => {
         const signer = await plebbit.createSigner({ privateKey: signers[1].privateKey, type: "ed25519" });
         const comment = createCommentToSign({
-            subplebbitAddress: signers[0].address,
+            communityAddress: signers[0].address,
             signer
         });
         const signature = await signComment({ comment, plebbit });
@@ -135,7 +135,12 @@ describe("sign comment", async () => {
         delete (cloneComment as { signature?: unknown }).signature;
         cloneComment.author = { name: "gibbreish" };
         try {
-            const commentToSign: CommentOptionsToSign = { ...cloneComment, protocolVersion: PROTOCOL_VERSION, signer: signers[7] };
+            const commentToSign: CommentOptionsToSign = {
+                ...cloneComment,
+                protocolVersion: PROTOCOL_VERSION,
+                signer: signers[7],
+                communityAddress: signers[7].address
+            };
             await signComment({ comment: commentToSign, plebbit });
             expect.fail("Should have thrown");
         } catch (e) {
@@ -145,7 +150,7 @@ describe("sign comment", async () => {
     it("can sign a comment without author", async () => {
         const signer = signers[7];
         const comment = createCommentToSign({
-            subplebbitAddress: signer.address,
+            communityAddress: signer.address,
             signer,
             title: "comment title",
             content: "comment content"
@@ -163,7 +168,7 @@ describe("sign comment", async () => {
         const signer = signers[4];
 
         const comment = createCommentToSign({
-            subplebbitAddress: signer.address,
+            communityAddress: signer.address,
             author: { name: "plebbit.eth" },
             signer,
             title: "comment title",
@@ -182,7 +187,7 @@ describe("sign comment", async () => {
         const signer = signers[4];
 
         const comment = createCommentToSign({
-            subplebbitAddress: signer.address,
+            communityAddress: signer.address,
             signer,
             title: "comment title",
             content: "comment content"
@@ -272,7 +277,7 @@ describeSkipIfRpc("verify Comment", async () => {
     it("verifyCommentPubsubMessage validates a comment without author", async () => {
         const signer = await plebbit.createSigner();
         const commentToSign = createCommentToSign({
-            subplebbitAddress: signers[0].address,
+            communityAddress: signers[0].address,
             signer,
             title: "Authorless verification",
             content: "some content"
@@ -292,7 +297,7 @@ describeSkipIfRpc("verify Comment", async () => {
     it(`Can sign and verify a comment with flairs`, async () => {
         const signer = await plebbit.createSigner();
         const commentToSign: CommentOptionsToSign = {
-            subplebbitAddress: signers[0].address,
+            communityAddress: signers[0].address,
             timestamp: timestamp(),
             protocolVersion: PROTOCOL_VERSION,
             title: "Post with flairs",
@@ -314,7 +319,7 @@ describeSkipIfRpc("verify Comment", async () => {
     it(`Can verify a comment whose author.flairs have been changed`, async () => {
         const signer = await plebbit.createSigner();
         const commentToSign: CommentOptionsToSign = {
-            subplebbitAddress: signers[0].address,
+            communityAddress: signers[0].address,
             author: { flairs: [{ text: "Original" }] },
             timestamp: timestamp(),
             protocolVersion: PROTOCOL_VERSION,
@@ -339,7 +344,7 @@ describeSkipIfRpc("verify Comment", async () => {
         // Signing a comment with flairs, then modifying the flairs should invalidate the signature
         const signer = await plebbit.createSigner();
         const commentToSign: CommentOptionsToSign = {
-            subplebbitAddress: signers[0].address,
+            communityAddress: signers[0].address,
             timestamp: timestamp(),
             protocolVersion: PROTOCOL_VERSION,
             title: "Post to be mod-flaired",
@@ -400,7 +405,7 @@ describeSkipIfRpc(`Comment with author.name as domain`, async () => {
             }
         });
         const commentToSign = createCommentToSign({
-            subplebbitAddress: signers[0].address,
+            communityAddress: signers[0].address,
             author: { name: "testDomain.eth" },
             signer: signers[1],
             content: "domain identity claim"
@@ -571,7 +576,11 @@ describeSkipIfRpc(`commentupdate`, async () => {
         ).to.deep.equal({ valid: true });
         update.edit.author = { name: "attacker.eth" };
         update.edit.signature = await signCommentEdit({
-            edit: { ...update.edit, signer: signers[7] } as Parameters<typeof signCommentEdit>[0]["edit"],
+            edit: {
+                ...update.edit,
+                signer: signers[7],
+                communityAddress: (update.edit as Record<string, unknown>).subplebbitAddress as string
+            } as Parameters<typeof signCommentEdit>[0]["edit"],
             plebbit
         });
         const verification = await verifyCommentUpdate({

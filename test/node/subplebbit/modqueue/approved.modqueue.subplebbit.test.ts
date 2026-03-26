@@ -84,7 +84,7 @@ for (const batch of depthBatches) {
 
                 it.sequential("Should approve comment using createCommentModeration with approved: true", async () => {
                     const commentModeration = await plebbit.createCommentModeration({
-                        subplebbitAddress: subplebbit.address,
+                        communityAddress: subplebbit.address,
                         signer: modSigner,
                         commentModeration: { approved: true, reason: "test approval" },
                         commentCid: approvedComment.cid!
@@ -253,7 +253,7 @@ for (const batch of depthBatches) {
 
                 it(`Sub should reject CommentModeration if a mod publishes approval for a comment that already got approved`, async () => {
                     const commentModeration = await plebbit.createCommentModeration({
-                        subplebbitAddress: subplebbit.address,
+                        communityAddress: subplebbit.address,
                         signer: modSigner,
                         commentModeration: { approved: true },
                         commentCid: approvedComment.cid!

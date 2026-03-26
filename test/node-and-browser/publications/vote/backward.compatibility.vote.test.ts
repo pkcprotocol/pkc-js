@@ -26,7 +26,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         let commentToVoteOn: Comment;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            commentToVoteOn = await publishRandomPost({ subplebbitAddress: signers[0].address, plebbit: plebbit });
+            commentToVoteOn = await publishRandomPost({ communityAddress: signers[0].address, plebbit: plebbit });
         });
 
         afterAll(async () => {

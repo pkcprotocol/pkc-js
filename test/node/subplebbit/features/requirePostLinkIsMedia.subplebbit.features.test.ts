@@ -50,7 +50,7 @@ describe.concurrent(`subplebbit.features.requirePostLinkIsMedia (with requirePos
 
     it(`Can't publish a post with invalid link`, async () => {
         const invalidUrl = "test.com"; // invalid because it has no protocol
-        const post = await generateMockPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
+        const post = await generateMockPost({ communityAddress: subplebbit.address, plebbit: remotePlebbit });
         await overrideCommentInstancePropsAndSign(post, { link: invalidUrl } as Parameters<typeof overrideCommentInstancePropsAndSign>[1]);
         expect(post.link).to.equal(invalidUrl);
         await publishWithExpectedResult({
@@ -63,7 +63,7 @@ describe.concurrent(`subplebbit.features.requirePostLinkIsMedia (with requirePos
     it(`Can't publish a post with link that isn't of a media`, async () => {
         const urlOfNotMedia = "https://google.com";
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: { link: urlOfNotMedia }
         });
@@ -77,7 +77,7 @@ describe.concurrent(`subplebbit.features.requirePostLinkIsMedia (with requirePos
     it(`Can publish a post with valid media link`, async () => {
         const validUrl = "https://img1.wsimg.com/isteam/ip/eb02f20b-e787-4a02-b188-d0fcbc250ba1/blob-6af1ead.png";
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: { link: validUrl }
         });
@@ -114,14 +114,14 @@ describe.concurrent(`subplebbit.features.requirePostLinkIsMedia (without require
     });
 
     it(`Can publish a post without a link`, async () => {
-        const post = await generateMockPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
+        const post = await generateMockPost({ communityAddress: subplebbit.address, plebbit: remotePlebbit });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });
 
     it(`Can't publish a post with non-media link`, async () => {
         const urlOfNotMedia = "https://google.com";
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: { link: urlOfNotMedia }
         });
@@ -135,7 +135,7 @@ describe.concurrent(`subplebbit.features.requirePostLinkIsMedia (without require
     it(`Can publish a post with valid media link`, async () => {
         const validUrl = "https://img1.wsimg.com/isteam/ip/eb02f20b-e787-4a02-b188-d0fcbc250ba1/blob-6af1ead.png";
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: { link: validUrl }
         });

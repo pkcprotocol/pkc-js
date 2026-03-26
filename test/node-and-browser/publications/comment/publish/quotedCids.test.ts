@@ -31,11 +31,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             // Create a post
-            post = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            post = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             // Create a reply under the post
             reply1 = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
             // Create another post for cross-thread testing
-            post2 = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            post2 = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
         });
 
         afterAll(async () => {
@@ -123,7 +123,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         describe("Invalid quotedCids scenarios", () => {
             it("Post with quotedCids is rejected", async () => {
                 const newPost = await generateMockPost({
-                    subplebbitAddress: subplebbitAddress,
+                    communityAddress: subplebbitAddress,
                     plebbit: plebbit,
                     postProps: {
                         signer: signers[1]
@@ -275,14 +275,14 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             // Create a post
-            post = await publishRandomPost({ subplebbitAddress: modSubplebbitAddress, plebbit: plebbit });
+            post = await publishRandomPost({ communityAddress: modSubplebbitAddress, plebbit: plebbit });
             // Create replies that will be removed/deleted
             replyToRemove = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
             replyToDelete = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
 
             // Remove the first reply (mod action)
             const removeModeration = await plebbit.createCommentModeration({
-                subplebbitAddress: modSubplebbitAddress,
+                communityAddress: modSubplebbitAddress,
                 commentCid: replyToRemove.cid,
                 commentModeration: { removed: true, reason: "For quotedCids test" },
                 signer: signers[3] // mod signer
@@ -291,7 +291,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             // Delete the second reply (author action)
             const deleteEdit = await plebbit.createCommentEdit({
-                subplebbitAddress: modSubplebbitAddress,
+                communityAddress: modSubplebbitAddress,
                 commentCid: replyToDelete.cid,
                 deleted: true,
                 signer: replyToDelete.signer,

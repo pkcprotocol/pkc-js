@@ -23,7 +23,7 @@ import type { Plebbit as PlebbitType } from "../../../dist/node/plebbit/plebbit.
 import type { LocalSubplebbit } from "../../../dist/node/runtime/node/subplebbit/local-subplebbit.js";
 import type { RpcLocalSubplebbit } from "../../../dist/node/subplebbit/rpc-local-subplebbit.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
-import type { CommentIpfsWithCidDefined } from "../../../dist/node/publications/comment/types.js";
+
 import type { InputPlebbitOptions } from "../../../dist/node/types.js";
 
 interface DatabaseToMigrate {
@@ -64,8 +64,8 @@ const generateRandomSub = async (): Promise<LocalSubplebbit | RpcLocalSubplebbit
     await sub.start();
     await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => Boolean(sub.updatedAt) });
 
-    const post: Comment = await publishRandomPost({ subplebbitAddress: sub.address, plebbit: plebbit });
-    await waitTillPostInSubplebbitInstancePages(post as CommentIpfsWithCidDefined, sub);
+    const post: Comment = await publishRandomPost({ communityAddress: sub.address, plebbit: plebbit });
+    await waitTillPostInSubplebbitInstancePages(post as Comment & { cid: string }, sub);
 
     await sub.stop();
     await plebbit.destroy();
@@ -123,7 +123,7 @@ describeSkipIfRpc.sequential(`DB importing`, async () => {
         const currentDbVersion = await localSub._dbHandler.getDbVersion();
         expect(currentDbVersion).to.equal(plebbitVersion.DB_VERSION);
 
-        const mockPost: Comment = await generateMockPost({ subplebbitAddress: subplebbit.address, plebbit: tempPlebbit });
+        const mockPost: Comment = await generateMockPost({ communityAddress: subplebbit.address, plebbit: tempPlebbit });
         mockPost.once("challenge", async () => {
             await mockPost.publishChallengeAnswers(["2"]); // hardcode answer here
         });
@@ -178,7 +178,7 @@ describeSkipIfRpc.sequential(`DB importing`, async () => {
         await regularPlebbit.destroy();
         await tempPlebbit.destroy();
 
-        // const mockPost = await generateMockPost({ subplebbitAddress: subplebbit.address, plebbit: tempPlebbit });
+        // const mockPost = await generateMockPost({ communityAddress: subplebbit.address, plebbit: tempPlebbit });
         // mockPost.once("challenge", async (challengeMsg) => {
         //     await mockPost.publishChallengeAnswers(["2"]); // hardcode answer here
         // });
@@ -216,7 +216,7 @@ describeSkipIfRpc.sequential("DB Migration", () => {
 
             await new Promise<void>((resolve) => subplebbit.once("update", () => resolve())); // Ensure IPNS is published
             await subplebbit.edit({ settings: { ...subplebbit.settings, challenges: [] } });
-            const mockPost: Comment = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
+            const mockPost: Comment = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
 
             await mockPost.update();
             await resolveWhenConditionIsTrue({ toUpdate: mockPost, predicate: async () => Boolean(mockPost.updatedAt) });

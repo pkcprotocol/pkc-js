@@ -738,17 +738,17 @@ export class BaseClientsManager {
     }
 
     async resolveCommunityNameIfNeeded({
-        subplebbitAddress,
+        communityAddress,
         abortSignal
     }: {
-        subplebbitAddress: string;
+        communityAddress: string;
         abortSignal?: AbortSignal;
     }): Promise<string | null> {
-        assert(typeof subplebbitAddress === "string", "subplebbitAddress needs to be a string to be resolved");
-        if (!isStringDomain(subplebbitAddress)) return subplebbitAddress;
-        const result = await this._resolveViaNameResolvers({ address: subplebbitAddress, resolveType: "community", abortSignal });
+        assert(typeof communityAddress === "string", "communityAddress needs to be a string to be resolved");
+        if (!isStringDomain(communityAddress)) return communityAddress;
+        const result = await this._resolveViaNameResolvers({ address: communityAddress, resolveType: "community", abortSignal });
         if (typeof result === "string" && !isIpns(result))
-            throw new PlebbitError("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: subplebbitAddress });
+            throw new PlebbitError("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: communityAddress });
         return result;
     }
 

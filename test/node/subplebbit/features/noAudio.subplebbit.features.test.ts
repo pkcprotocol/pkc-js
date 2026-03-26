@@ -30,7 +30,7 @@ describe.concurrent(`subplebbit.features.noAudio`, async () => {
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
         // Publish a post first (before enabling the feature)
-        publishedPost = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
+        publishedPost = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: remotePlebbit });
     });
 
     afterAll(async () => {
@@ -53,7 +53,7 @@ describe.concurrent(`subplebbit.features.noAudio`, async () => {
 
     it(`Can't publish a post with audio link (.mp3)`, async () => {
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: {
                 link: "https://example.com/song.mp3",
@@ -80,7 +80,7 @@ describe.concurrent(`subplebbit.features.noAudio`, async () => {
 
     it(`Can publish a post with image link (noAudio doesn't block images)`, async () => {
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: {
                 link: "https://example.com/image.png",
@@ -92,7 +92,7 @@ describe.concurrent(`subplebbit.features.noAudio`, async () => {
 
     it(`Can publish a post with video link (noAudio doesn't block videos)`, async () => {
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: {
                 link: "https://example.com/video.mp4",
@@ -104,7 +104,7 @@ describe.concurrent(`subplebbit.features.noAudio`, async () => {
 
     it(`Can publish a post with plain content (no link)`, async () => {
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: {
                 content: "Just plain text"

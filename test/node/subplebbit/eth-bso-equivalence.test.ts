@@ -64,7 +64,7 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
         expect(subplebbit.address).to.equal(ethNameAddress);
 
         // Publish a post under the .eth address
-        postPublishedOnEth = await publishRandomPost({ subplebbitAddress: ethNameAddress, plebbit: plebbit });
+        postPublishedOnEth = await publishRandomPost({ communityAddress: ethNameAddress, plebbit: plebbit });
         await resolveWhenConditionIsTrue({
             toUpdate: subplebbit,
             predicate: async () =>
@@ -94,14 +94,14 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
         it(`accepts comment with .eth subplebbitAddress in a .bso subplebbit`, async () => {
             const pageComment = subplebbit.posts.pages.hot!.comments.find((c) => c.cid === postPublishedOnEth.cid)!;
             expect(pageComment).to.not.be.undefined;
-            expect(pageComment.subplebbitAddress).to.equal(ethNameAddress);
+            expect(pageComment.communityAddress).to.equal(ethNameAddress);
 
             const verification = await verifyCommentIpfs({
                 comment: pageComment.raw.comment,
                 clientsManager: plebbit._clientsManager,
                 resolveAuthorNames: false,
                 calculatedCommentCid: pageComment.cid!,
-                subplebbitAddressFromInstance: bsoNameAddress
+                communityAddressFromInstance: bsoNameAddress
             });
             expect(verification.valid).to.be.true;
         });
@@ -115,44 +115,44 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
                 clientsManager: plebbit._clientsManager,
                 resolveAuthorNames: false,
                 calculatedCommentCid: pageComment.cid!,
-                subplebbitAddressFromInstance: pageComment.subplebbitAddress.endsWith(".eth")
-                    ? pageComment.subplebbitAddress.slice(0, -4) + ".bso"
-                    : pageComment.subplebbitAddress.slice(0, -4) + ".eth"
+                communityAddressFromInstance: pageComment.communityAddress.endsWith(".eth")
+                    ? pageComment.communityAddress.slice(0, -4) + ".bso"
+                    : pageComment.communityAddress.slice(0, -4) + ".eth"
             });
             expect(verification.valid).to.be.true;
         });
     });
 
     describe(`createComment with cross-alias subplebbitAddress`, () => {
-        it(`createComment({cid, subplebbitAddress: ".bso"}) works when comment was published under .eth`, async () => {
-            const comment = await remotePlebbit.createComment({ cid: postPublishedOnEth.cid!, subplebbitAddress: bsoNameAddress });
+        it(`createComment({cid, communityAddress: ".bso"}) works when comment was published under .eth`, async () => {
+            const comment = await remotePlebbit.createComment({ cid: postPublishedOnEth.cid!, communityAddress: bsoNameAddress });
             await comment.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: comment,
                 predicate: async () => typeof comment.updatedAt === "number"
             });
             await comment.stop();
-            expect(comment.raw.comment!.subplebbitAddress).to.equal(ethNameAddress);
+            expect(comment.communityAddress).to.equal(ethNameAddress);
             expect(comment.cid).to.equal(postPublishedOnEth.cid);
             expect(comment.updatedAt).to.be.a("number");
         });
 
-        it(`createComment({cid, subplebbitAddress: ".eth"}) works when comment was published under .bso`, async () => {
+        it(`createComment({cid, communityAddress: ".eth"}) works when comment was published under .bso`, async () => {
             expect(subplebbit.address).to.equal(bsoNameAddress);
-            const postOnBso = await publishRandomPost({ subplebbitAddress: bsoNameAddress, plebbit: plebbit });
+            const postOnBso = await publishRandomPost({ communityAddress: bsoNameAddress, plebbit: plebbit });
             await resolveWhenConditionIsTrue({
                 toUpdate: subplebbit,
                 predicate: async () => Boolean(subplebbit?.posts?.pages?.hot?.comments?.some((comment) => comment.cid === postOnBso.cid))
             });
 
-            const comment = await remotePlebbit.createComment({ cid: postOnBso.cid!, subplebbitAddress: ethNameAddress });
+            const comment = await remotePlebbit.createComment({ cid: postOnBso.cid!, communityAddress: ethNameAddress });
             await comment.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: comment,
                 predicate: async () => typeof comment.updatedAt === "number"
             });
             await comment.stop();
-            expect(comment.raw.comment!.subplebbitAddress).to.equal(bsoNameAddress);
+            expect(comment.communityAddress).to.equal(bsoNameAddress);
             expect(comment.cid).to.equal(postOnBso.cid);
             expect(comment.updatedAt).to.be.a("number");
         });
@@ -161,18 +161,18 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
     describe(`getComment with cross-alias comments`, () => {
         it(`getComment(cid) works for a comment published under .eth (before transition to .bso)`, async () => {
             const comment = await remotePlebbit.getComment({ cid: postPublishedOnEth.cid! });
-            expect(comment.raw.comment!.subplebbitAddress).to.equal(ethNameAddress);
+            expect(comment.communityAddress).to.equal(ethNameAddress);
             expect(comment.cid).to.equal(postPublishedOnEth.cid);
             expect(comment.content).to.be.a("string");
         });
 
         it(`getComment(cid) works for a comment published under .bso (after transition from .eth)`, async () => {
             expect(subplebbit.address).to.equal(bsoNameAddress);
-            const bsoPost = subplebbit.posts!.pages.hot!.comments!.find((c) => c.raw.comment!.subplebbitAddress === bsoNameAddress);
+            const bsoPost = subplebbit.posts!.pages.hot!.comments!.find((c) => c.communityAddress === bsoNameAddress);
             expect(bsoPost).to.not.be.undefined;
 
             const comment = await remotePlebbit.getComment({ cid: bsoPost!.cid! });
-            expect(comment.raw.comment!.subplebbitAddress).to.equal(bsoNameAddress);
+            expect(comment.communityAddress).to.equal(bsoNameAddress);
             expect(comment.cid).to.equal(bsoPost!.cid);
             expect(comment.content).to.be.a("string");
         });

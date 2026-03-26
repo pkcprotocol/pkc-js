@@ -23,7 +23,7 @@ import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publicatio
 // Helper type for the skipped test that uses toJSON
 type CommentWithToJSON = Comment & { toJSON: () => unknown };
 // Helper type for casting Comment to required fields for test utilities
-type CommentWithRequiredFields = Required<Pick<CommentIpfsWithCidDefined, "cid" | "subplebbitAddress" | "parentCid">>;
+type CommentWithRequiredFields = Required<Pick<CommentIpfsWithCidDefined, "cid" | "parentCid"> & { communityAddress: string }>;
 
 const subplebbitAddress = signers[0].address;
 
@@ -42,7 +42,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             // For now we're not supporting creating a comment instance from another instance
             const props = {
                 content: `test comment = await createComment(await createComment) ${Date.now()}`,
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 author: {
                     address: signers[4].address,
                     displayName: `Mock Author - comment = await createComment(await createComment)`
@@ -55,7 +55,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const nestedComment = await plebbit.createComment(comment);
 
             expect(comment.content).to.equal(props.content);
-            expect(comment.subplebbitAddress).to.equal(props.subplebbitAddress);
+            expect(comment.communityAddress).to.equal(props.communityAddress);
             expect(comment.author.address).to.equal(props.author.address);
             expect(comment.author.displayName).to.equal(props.author.displayName);
             expect(comment.timestamp).to.equal(props.timestamp);
@@ -64,7 +64,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can recreate a stringifed local Comment instance before publishing with plebbit.createComment`, async () => {
-            const localComment = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            const localComment = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             const commentClone = await plebbit.createComment(JSON.parse(JSON.stringify(localComment)));
             const commentCloneJson = jsonifyCommentAndRemoveInstanceProps(commentClone);
             const localCommentJson = jsonifyCommentAndRemoveInstanceProps(localComment);
@@ -76,7 +76,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const domain = "normalized-author-address.bso";
             const displayName = `Mock Author - ${Date.now()}`;
             const comment = await plebbit.createComment({
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 author: { address: domain, displayName },
                 title: `test title ${Date.now()}`,
                 content: `test content ${Date.now()}`,
@@ -94,7 +94,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can recreate a stringifed local Comment instance after publishing with plebbit.createComment`, async () => {
-            const localComment = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            const localComment = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             expect(localComment.author.subplebbit).to.be.a("object"); // should get it from subplebbit
             const commentClone = await plebbit.createComment(JSON.parse(JSON.stringify(localComment)));
             expect(commentClone.author.subplebbit).to.be.a("object"); // should get it from subplebbit
@@ -105,7 +105,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can recreate a stringified local comment instance after comment.update() with plebbit.createComment`, async () => {
-            const localComment = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            const localComment = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             await localComment.update();
             await resolveWhenConditionIsTrue({ toUpdate: localComment, predicate: async () => typeof localComment.updatedAt === "number" });
             await localComment.stop();
@@ -128,13 +128,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Creating a comment with only cid and subplebbit address, then passing it to another plebbit.createComment should get us both cid and subplebbitAddress`, async () => {
             const randomCid = await calculateIpfsCidV0("Hello" + Math.random());
-            const originalComment = await plebbit.createComment({ cid: randomCid, subplebbitAddress });
+            const originalComment = await plebbit.createComment({ cid: randomCid, communityAddress: subplebbitAddress });
             expect(originalComment.cid).to.equal(randomCid);
-            expect(originalComment.subplebbitAddress).to.equal(subplebbitAddress);
+            expect(originalComment.communityAddress).to.equal(subplebbitAddress);
 
             const anotherComment = await plebbit.createComment(originalComment);
             expect(anotherComment.cid).to.equal(randomCid);
-            expect(anotherComment.subplebbitAddress).to.equal(subplebbitAddress);
+            expect(anotherComment.communityAddress).to.equal(subplebbitAddress);
         });
 
         it(`Creating comment instances from all subplebbit.pages comments doesn't mutate props`, async () => {
@@ -207,7 +207,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can recreate a stringified Post instance with plebbit.createComment`, async () => {
-            const post = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            const post = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             const postFromStringifiedPost = await plebbit.createComment(JSON.parse(JSON.stringify(post)));
             const postJson = jsonifyCommentAndRemoveInstanceProps(post);
             const postFromStringifiedPostJson = jsonifyCommentAndRemoveInstanceProps(postFromStringifiedPost);
@@ -215,7 +215,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential("comment instance created with {subplebbitAddress, cid, depth, postCid} prop can call getPage", async () => {
-            const post = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            const post = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             expect(post.replies).to.be.a("object");
             await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
             await post.update();
@@ -230,13 +230,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(pageCid).to.be.a("string");
 
             const postClone = await plebbit.createComment({
-                subplebbitAddress: post.subplebbitAddress,
+                communityAddress: post.communityAddress,
                 cid: post.cid,
                 depth: post.depth,
                 postCid: post.postCid
             });
             expect(postClone.content).to.be.undefined;
-            expect(postClone.subplebbitAddress).to.equal(post.subplebbitAddress);
+            expect(postClone.communityAddress).to.equal(post.communityAddress);
             expect(postClone.cid).to.equal(post.cid);
             expect(postClone.depth).to.equal(post.depth);
             expect(postClone.postCid).to.equal(post.postCid);
@@ -249,7 +249,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         it(`Can create a new comment with author.shortAddress and publish it`, async () => {
             // it should delete author.shortAddress before publishing however
             const comment = await generateMockPost({
-                subplebbitAddress: subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 plebbit: plebbit,
                 postProps: { author: { shortAddress: "12345" } }
             });
@@ -263,7 +263,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         it(`Can create a new comment with author.subplebbit and publish it`, async () => {
             // it should delete author.sublebbit before publishing however
             const comment = await generateMockPost({
-                subplebbitAddress: subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 plebbit: plebbit,
                 postProps: { author: { subplebbit: { postScore: 100 } } }
             });
@@ -274,11 +274,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(commentLoaded.author.subplebbit).to.be.undefined;
         });
 
-        it(`Can create comment with {subplebbitAddress: string, cid: string}`, async () => {
+        it(`Can create comment with {communityAddress: string, cid: string}`, async () => {
             const cid = "QmQ9mK33zshLf4Bj8dVSQimdbyXGgw5QFRoUQpsCqqz6We";
-            const comment = await plebbit.createComment({ cid, subplebbitAddress });
+            const comment = await plebbit.createComment({ cid, communityAddress: subplebbitAddress });
             expect(comment.cid).to.equal(cid);
-            expect(comment.subplebbitAddress).to.equal(subplebbitAddress);
+            expect(comment.communityAddress).to.equal(subplebbitAddress);
         });
 
         it(`Can create a comment with replies.pages`, async () => {
@@ -293,7 +293,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Can create a comment with eth and sol wallets`, async () => {
             const fixture = {
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 content: "test comment creation with eth and sol wallets",
                 author: {
                     address: "12D3KooWKoXpxTwfnjA5ExuFbeverNKhjKy6a4KesBSh3e6VLaW5",
@@ -333,7 +333,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(comment.author.wallets!.sol!.address).to.equal(fixture.author.wallets.sol.address);
             expect(comment.signer!.address).to.equal(fixture.signer.address);
             expect((comment.signer as typeof fixture.signer).shortAddress).to.equal(fixture.signer.shortAddress);
-            expect(comment.subplebbitAddress).to.equal(fixture.subplebbitAddress);
+            expect(comment.communityAddress).to.equal(fixture.communityAddress);
         });
 
         it(`Creating a comment with commentUpdate.approved=false will set pendingApproval=false`, async () => {

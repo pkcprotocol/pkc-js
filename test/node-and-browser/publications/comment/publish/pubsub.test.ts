@@ -76,7 +76,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                     remotePlebbit: true
                 });
 
-                const mockPost = await generateMockPost({ subplebbitAddress: subplebbitWithMathCliChallenge, plebbit: testPlebbit });
+                const mockPost = await generateMockPost({ communityAddress: subplebbitWithMathCliChallenge, plebbit: testPlebbit });
                 (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 2; // Speed up test
                 (mockPost as unknown as CommentWithInternals)._setProviderFailureThresholdSeconds = 5; // Speed up test
 
@@ -116,7 +116,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                 remotePlebbit: true
             });
 
-            const mockPost = await generateMockPost({ subplebbitAddress: subplebbitWithNoChallenge, plebbit: testPlebbit });
+            const mockPost = await generateMockPost({ communityAddress: subplebbitWithNoChallenge, plebbit: testPlebbit });
             (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 2; // Speed up test
             (mockPost as unknown as CommentWithInternals)._setProviderFailureThresholdSeconds = 5; // Speed up test
 
@@ -165,7 +165,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                     remotePlebbit: true
                 });
 
-                const mockPost = await generatePostToAnswerMathQuestion({ subplebbitAddress: subplebbitWithMathCliChallenge }, testPlebbit);
+                const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: subplebbitWithMathCliChallenge }, testPlebbit);
                 (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 5; // Very fast timeout
 
                 const challengesReceived = [];
@@ -191,7 +191,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                     remotePlebbit: true
                 });
 
-                const mockPost = await generatePostToAnswerMathQuestion({ subplebbitAddress: subplebbitWithMathCliChallenge }, testPlebbit);
+                const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: subplebbitWithMathCliChallenge }, testPlebbit);
                 (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 1; // Very fast timeout
 
                 let challengeRequestCount = 0;
@@ -240,7 +240,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                     remotePlebbit: true
                 });
 
-                const mockPost = await generatePostToAnswerMathQuestion({ subplebbitAddress: subplebbitWithMathCliChallenge }, testPlebbit);
+                const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: subplebbitWithMathCliChallenge }, testPlebbit);
                 (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 2;
 
                 const providerAttempts: string[] = [];
@@ -276,7 +276,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                     });
 
                     const mockPost = await generatePostToAnswerMathQuestion(
-                        { subplebbitAddress: subplebbitWithMathCliChallenge },
+                        { communityAddress: subplebbitWithMathCliChallenge },
                         testPlebbit
                     );
 
@@ -324,7 +324,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                     plebbitOptions: { pubsubKuboRpcClientsOptions: [offlinePubsubUrl] }
                 });
 
-                const mockPost = await generateMockPost({ subplebbitAddress: subplebbitWithNoChallenge, plebbit: testPlebbit });
+                const mockPost = await generateMockPost({ communityAddress: subplebbitWithNoChallenge, plebbit: testPlebbit });
 
                 // Track subscription state
                 const numOfPubsubProvidersBefore = Object.keys(
@@ -382,7 +382,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                     plebbitOptions: { pubsubKuboRpcClientsOptions: [pubsubMockedWithError] }
                 });
 
-                const mockPost = await generateMockPost({ subplebbitAddress: subplebbitWithNoChallenge, plebbit: testPlebbit });
+                const mockPost = await generateMockPost({ communityAddress: subplebbitWithNoChallenge, plebbit: testPlebbit });
 
                 const errors = [];
 

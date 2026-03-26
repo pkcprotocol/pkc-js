@@ -23,7 +23,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            randomPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            randomPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             await randomPost.update();
         });
 
@@ -33,7 +33,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Mod can mark an author comment as nsfw`, async () => {
             const modnsfwEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: randomPost.subplebbitAddress,
+                communityAddress: randomPost.communityAddress,
                 commentCid: randomPost.cid,
                 commentModeration: { nsfw: true, reason: "Mod marking an author comment as nsfw" },
                 signer: roles[2].signer
@@ -52,7 +52,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`nsfw=true appears in pages of subplebibt`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: randomPost.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: randomPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -65,7 +65,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Mod can mark unnsfw author comment `, async () => {
             const unnsfwEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: randomPost.subplebbitAddress,
+                communityAddress: randomPost.communityAddress,
                 commentCid: randomPost.cid,
                 commentModeration: { nsfw: false, reason: "Mod unnsfwing an author comment" },
                 signer: roles[2].signer
@@ -84,7 +84,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`nsfw=false appears in pages of subplebbit`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: randomPost.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: randomPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,

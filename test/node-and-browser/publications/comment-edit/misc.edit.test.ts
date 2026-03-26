@@ -24,7 +24,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            commentToEdit = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            commentToEdit = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             expect(commentToEdit.cid).to.be.a("string");
         });
 
@@ -34,7 +34,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`(edit: CommentEdit) === plebbit.createCommentEdit(JSON.parse(JSON.stringify(edit)))`, async () => {
             const props = {
-                subplebbitAddress: subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 commentCid: commentToEdit.cid,
                 reason: "editReason" + Date.now(),
                 content: "editedText" + Date.now(),
@@ -43,7 +43,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const edit = await plebbit.createCommentEdit(props);
             const editFromStringifiedEdit = await plebbit.createCommentEdit(JSON.parse(JSON.stringify(edit)));
             for (const curEdit of [edit, editFromStringifiedEdit]) {
-                expect(curEdit.subplebbitAddress).to.equal(props.subplebbitAddress);
+                expect(curEdit.communityAddress).to.equal(props.communityAddress);
                 expect(curEdit.commentCid).to.equal(props.commentCid);
                 expect(curEdit.reason).to.equal(props.reason);
                 expect(curEdit.content).to.equal(props.content);
@@ -58,7 +58,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         it(`(edit: CommentEdit) === await plebbit.createCommentEdit(edit)`, async () => {
             const props = {
                 challengeRequest: { challengeCommentCids: ["QmVZR5Ts9MhRc66hr6TsYnX1A2oPhJ2H1fRJknxgjLLwrh"], challengeAnswers: ["1234"] },
-                subplebbitAddress: subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 commentCid: commentToEdit.cid,
                 reason: "editReason" + Date.now(),
                 content: "editedText" + Date.now(),
@@ -67,7 +67,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const localEdit = await plebbit.createCommentEdit(props);
             const recreatedLocalEdit = await plebbit.createCommentEdit(JSON.parse(JSON.stringify(localEdit)));
             [localEdit, recreatedLocalEdit].forEach((curEdit) => {
-                expect(curEdit.subplebbitAddress).to.equal(props.subplebbitAddress);
+                expect(curEdit.communityAddress).to.equal(props.communityAddress);
                 expect(curEdit.commentCid).to.equal(props.commentCid);
                 expect(curEdit.reason).to.equal(props.reason);
                 expect(curEdit.content).to.equal(props.content);
@@ -88,7 +88,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it.sequential(`Can publish a CommentEdit that was created from jsonfied CommentEdit instance`, async () => {
             const props = {
-                subplebbitAddress: subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 commentCid: commentToEdit.cid,
                 reason: "editReason" + Date.now(),
                 content: "editedText" + Date.now(),
@@ -121,7 +121,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`An author publishing multiple author edit fields`, async () => {
-            const authorPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit }); // random signer
+            const authorPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit }); // random signer
 
             const fieldsToChange = {
                 deleted: true,
@@ -135,7 +135,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 ...fieldsToChange,
                 commentCid: authorPost.cid,
                 signer: authorPost.signer,
-                subplebbitAddress
+                communityAddress: subplebbitAddress
             });
             await publishWithExpectedResult({ publication: edit, expectedChallengeSuccess: true });
             await authorPost.update();
@@ -179,13 +179,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 reason: "Test as an author" + Date.now()
             };
 
-            const authorPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit }); // generate random signer
+            const authorPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit }); // generate random signer
 
             const edit1 = await plebbit.createCommentEdit({
                 ...firstEditProps,
                 commentCid: authorPost.cid,
                 signer: authorPost.signer,
-                subplebbitAddress
+                communityAddress: subplebbitAddress
             });
             await publishWithExpectedResult({ publication: edit1, expectedChallengeSuccess: true });
 
@@ -199,7 +199,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 ...secondEditProps,
                 commentCid: authorPost.cid,
                 signer: authorPost.signer,
-                subplebbitAddress
+                communityAddress: subplebbitAddress
             });
 
             await publishWithExpectedResult({ publication: edit2, expectedChallengeSuccess: true });

@@ -27,9 +27,7 @@ describe.skip(`Stress test challenge exchange`, async () => {
     });
 
     it(`Initiate ${num} challenge exchange in parallel`, async () => {
-        const promises = new Array(num)
-            .fill(null)
-            .map(() => publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit }));
+        const promises = new Array(num).fill(null).map(() => publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit }));
         await Promise.all(promises);
     });
 });
@@ -47,12 +45,12 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it("can post after answering correctly", async function () {
-            const mockPost = await generatePostToAnswerMathQuestion({ subplebbitAddress: mathCliSubplebbitAddress }, plebbit);
+            const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliSubplebbitAddress }, plebbit);
             await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });
         });
         it("Throws an error when user fails to solve mathcli captcha", async function () {
             const mockPost = await generateMockPost({
-                subplebbitAddress: mathCliSubplebbitAddress,
+                communityAddress: mathCliSubplebbitAddress,
                 plebbit: plebbit,
                 postProps: { signer: signers[0] }
             });

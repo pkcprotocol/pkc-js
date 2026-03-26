@@ -35,17 +35,25 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         it(`Can parse edit args with no problems in plebbit.createSubplebbitEdit`, async () => {
             const description = "New description" + Math.random();
             const signer = await plebbit.createSigner();
-            const subplebbitEdit = await plebbit.createSubplebbitEdit({ subplebbitEdit: { description }, subplebbitAddress, signer });
+            const subplebbitEdit = await plebbit.createSubplebbitEdit({
+                subplebbitEdit: { description },
+                communityAddress: subplebbitAddress,
+                signer
+            });
 
             expect(subplebbitEdit.subplebbitEdit.description).to.equal(description);
-            expect(subplebbitEdit.subplebbitAddress).to.equal(subplebbitAddress);
+            expect(subplebbitEdit.communityAddress).to.equal(subplebbitAddress);
             expect(subplebbitEdit.author.address).to.equal(signer.address);
         });
 
         it(`(subplebbitEdit: SubplebbitEdit) === plebbit.createSubplebbitEdit(JSON.parse(JSON.stringify(subplebbitEdit)))`, async () => {
             const description = "New description" + Math.random();
             const signer = await plebbit.createSigner();
-            const subplebbitEdit = await plebbit.createSubplebbitEdit({ subplebbitEdit: { description }, subplebbitAddress, signer });
+            const subplebbitEdit = await plebbit.createSubplebbitEdit({
+                subplebbitEdit: { description },
+                communityAddress: subplebbitAddress,
+                signer
+            });
             const subplebbitEditFromStringifiedSubplebbitEdit = await plebbit.createSubplebbitEdit(
                 JSON.parse(JSON.stringify(subplebbitEdit))
             );
@@ -65,7 +73,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const ownerSigner = await plebbit.createSigner(roles[0].signer);
             const subplebbitEdit = await plebbit.createSubplebbitEdit({
                 subplebbitEdit: { description },
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 signer: ownerSigner
             });
             const subplebbitEditFromStringifiedSubplebbitEdit = await plebbit.createSubplebbitEdit(
@@ -104,7 +112,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const signer = await plebbit.createSigner(roles[2].signer);
             const subplebbitEdit = await plebbit.createSubplebbitEdit({
                 subplebbitEdit: { description: "Test desc from " + Math.random() },
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 signer
             });
             await publishWithExpectedResult({
@@ -118,7 +126,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const signer = await plebbit.createSigner();
             const subplebbitEdit = await plebbit.createSubplebbitEdit({
                 subplebbitEdit: { description: "Test 12" + Math.random() },
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 signer
             });
             await publishWithExpectedResult({
@@ -148,7 +156,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             editProps = { description: "Test" + Math.random(), roles: { [authorAddress]: { role: "admin" } } };
             const subplebbitEdit = await plebbit.createSubplebbitEdit({
                 subplebbitEdit: editProps,
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 signer: adminSigner
             });
             await publishWithExpectedResult({
@@ -163,7 +171,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             editProps = { description: "Test" + Math.random(), address: "newaddress.eth" };
             const subplebbitEdit = await plebbit.createSubplebbitEdit({
                 subplebbitEdit: editProps,
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 signer: adminSigner
             });
             await publishWithExpectedResult({
@@ -178,7 +186,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const editProps = { description: "Test" + Math.random(), settings: { fetchThumbnailUrls: true } };
             const subplebbitEdit = await plebbit.createSubplebbitEdit({
                 subplebbitEdit: editProps,
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 signer: adminSigner
             });
             await publishWithExpectedResult({
@@ -193,7 +201,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             editProps = { description: "Test" + Math.random() };
             const subplebbitEdit = await plebbit.createSubplebbitEdit({
                 subplebbitEdit: editProps,
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 signer: adminSigner
             });
             await publishWithExpectedResult({ publication: subplebbitEdit, expectedChallengeSuccess: true });
@@ -229,7 +237,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
             const subplebbitEdit = await plebbit.createSubplebbitEdit({
                 subplebbitEdit: { address: sub.address }, // we're not changing the address because it's a sub used by other tests as well. But if the test pass it means {address} was passed over to sub.edit which is enough for our testing
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 signer: ownerSigner
             });
             await publishWithExpectedResult({ publication: subplebbitEdit, expectedChallengeSuccess: true });
@@ -240,7 +248,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             editProps = { ...editProps, description: "Test" + Math.random(), roles: { [newRoleAddress]: { role: "admin" } } };
             const subplebbitEdit = await plebbit.createSubplebbitEdit({
                 subplebbitEdit: editProps,
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 signer: ownerSigner
             });
             await publishWithExpectedResult({ publication: subplebbitEdit, expectedChallengeSuccess: true });
@@ -251,7 +259,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const editProps = { description: "Test" + Math.random(), settings: { fetchThumbnailUrls: true } };
             const subplebbitEdit = await plebbit.createSubplebbitEdit({
                 subplebbitEdit: editProps,
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 signer: modSigner
             });
             await publishWithExpectedResult({

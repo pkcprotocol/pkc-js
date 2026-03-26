@@ -1688,7 +1688,7 @@ export async function createMockedSubplebbitIpns(subplebbitOpts: CreateNewLocalS
 
     await ipnsObj.plebbit.destroy();
 
-    return { subplebbitRecord, subplebbitAddress, ipnsObj };
+    return { subplebbitRecord, subplebbitAddress, communityAddress: subplebbitAddress, ipnsObj };
 }
 
 export async function createStaticSubplebbitRecordForComment(opts?: {
@@ -1737,7 +1737,7 @@ export async function createStaticSubplebbitRecordForComment(opts?: {
 
         const commentCid = await addStringToIpfs(JSON.stringify(commentIpfs));
 
-        return { commentCid, subplebbitAddress };
+        return { commentCid, communityAddress: subplebbitAddress };
     } finally {
         if (shouldDestroyCommentPlebbit) await commentPlebbit.destroy();
     }

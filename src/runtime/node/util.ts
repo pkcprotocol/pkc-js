@@ -413,6 +413,15 @@ export function deriveCommentIpfsFromCommentTableRow(commentTableRow: CommentsTa
         ...commentTableRow.extraProps
     };
     if (commentTableRow.depth === 0) delete finalCommentIpfsJson.postCid;
+
+    // For old migrated rows (pre-wire-format-change), extraProps contains subplebbitAddress.
+    // The original CommentIpfs on IPFS did NOT have communityPublicKey/communityName,
+    // so we must remove them to preserve CID reproducibility.
+    if (commentTableRow.extraProps && "subplebbitAddress" in commentTableRow.extraProps) {
+        delete (finalCommentIpfsJson as Record<string, unknown>).communityPublicKey;
+        delete (finalCommentIpfsJson as Record<string, unknown>).communityName;
+    }
+
     return finalCommentIpfsJson;
 }
 

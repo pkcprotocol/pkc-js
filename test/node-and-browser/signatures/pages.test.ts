@@ -190,9 +190,9 @@ describeSkipIfRpc(`verify pages`, async () => {
             const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
-        it(`comment.subplebbitAddress`, async () => {
+        it(`comment.communityAddress`, async () => {
             const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
-            invalidPage.comments[0].comment.subplebbitAddress += "1234";
+            invalidPage.comments[0].comment.communityAddress += "1234";
             const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_SUB });
         });

@@ -44,7 +44,7 @@ interface DbRow {
 
 describeSkipIfRpc("db-handler duplicate signature purge during migration", function () {
     let dbHandler: DbHandler | undefined;
-    let subplebbitAddress: string;
+    let communityAddress: string;
     let cidCounter = 0;
     const protocolVersion = "1.0.0";
 
@@ -60,7 +60,7 @@ describeSkipIfRpc("db-handler duplicate signature purge during migration", funct
     async function createTestDbHandler(): Promise<DbHandler> {
         const fakePlebbit = { noData: true };
         const fakeSubplebbit: FakeSubplebbit = {
-            address: subplebbitAddress,
+            address: communityAddress,
             _plebbit: fakePlebbit,
             _cidsToUnPin: new Set<string>(),
             _blocksToRm: [],
@@ -112,7 +112,7 @@ describeSkipIfRpc("db-handler duplicate signature purge during migration", funct
             parentCid: depth === 0 ? null : parentCid,
             postCid: resolvedPostCid,
             previousCid: null,
-            subplebbitAddress,
+            communityPublicKey: communityAddress,
             content: `content-${cid}`,
             timestamp: resolvedTimestamp,
             signature: makeSignature(signatureValue ?? `comment-${cid}`),
@@ -148,7 +148,7 @@ describeSkipIfRpc("db-handler duplicate signature purge during migration", funct
             author: {},
             signature: makeSignature(signatureValue),
             protocolVersion,
-            subplebbitAddress,
+            communityPublicKey: communityAddress,
             timestamp: resolvedTimestamp,
             content: `edit-${commentCid}`,
             reason: null,
@@ -178,7 +178,7 @@ describeSkipIfRpc("db-handler duplicate signature purge during migration", funct
             signature: makeSignature(signatureValue),
             modSignerAddress: `12D3KooMod${commentCid}${signatureValue}`,
             protocolVersion,
-            subplebbitAddress,
+            communityPublicKey: communityAddress,
             timestamp: resolvedTimestamp,
             commentModeration: { approved: true },
             insertedAt: resolvedInsertedAt,
@@ -212,7 +212,7 @@ describeSkipIfRpc("db-handler duplicate signature purge during migration", funct
     }
 
     beforeEach(async () => {
-        subplebbitAddress = `test-sub-${Date.now()}-${Math.random()}`;
+        communityAddress = `test-sub-${Date.now()}-${Math.random()}`;
         dbHandler = await createTestDbHandler();
         cidCounter = 0;
     });

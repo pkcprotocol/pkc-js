@@ -41,7 +41,7 @@ describe("Subplebbit rejects publications with unsupported author TLDs", () => {
             predicate: async () => typeof subplebbit.updatedAt === "number"
         });
         // Publish a valid post for Vote/CommentEdit/CommentModeration tests
-        validPost = (await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit })) as CommentIpfsWithCidDefined;
+        validPost = (await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit })) as CommentIpfsWithCidDefined;
     });
 
     afterAll(async () => {
@@ -58,7 +58,7 @@ describe("Subplebbit rejects publications with unsupported author TLDs", () => {
             signer,
             title: "Test post with unsupported TLD",
             content: "This should be rejected",
-            subplebbitAddress: subplebbit.address
+            communityAddress: subplebbit.address
         });
 
         await publishWithExpectedResult({
@@ -77,7 +77,7 @@ describe("Subplebbit rejects publications with unsupported author TLDs", () => {
             signer,
             commentCid: validPost.cid,
             vote: 1,
-            subplebbitAddress: subplebbit.address
+            communityAddress: subplebbit.address
         });
 
         await publishWithExpectedResult({
@@ -96,7 +96,7 @@ describe("Subplebbit rejects publications with unsupported author TLDs", () => {
             signer,
             commentCid: validPost.cid,
             content: "Edited content from unsupported TLD",
-            subplebbitAddress: subplebbit.address
+            communityAddress: subplebbit.address
         });
 
         await publishWithExpectedResult({

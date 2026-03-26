@@ -30,7 +30,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            commentToMod = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            commentToMod = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
         });
 
         afterAll(async () => {
@@ -39,7 +39,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`(commentMod: CommentModeration) === plebbit.createCommentModeration(JSON.parse(JSON.stringify(commentMod)))`, async () => {
             const modProps = {
-                subplebbitAddress: subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 commentCid: commentToMod.cid,
                 commentModeration: { removed: true, reason: "mod Reason" + Date.now() },
                 signer: signers[7] // Create a new signer, different than the signer of the original comment
@@ -47,7 +47,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const commentMod = await plebbit.createCommentModeration(modProps);
             const modFromStringifiedMod = await plebbit.createCommentModeration(JSON.parse(JSON.stringify(commentMod)));
             for (const curMod of [commentMod, modFromStringifiedMod]) {
-                expect(curMod.subplebbitAddress).to.equal(modProps.subplebbitAddress);
+                expect(curMod.communityAddress).to.equal(modProps.communityAddress);
                 expect(curMod.commentModeration).to.deep.equal(modProps.commentModeration);
                 expect(curMod.commentCid).to.equal(modProps.commentCid);
                 expect(curMod.author.address).to.deep.equal(modProps.signer.address);
@@ -64,7 +64,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     challengeCommentCids: ["QmVZR5Ts9MhRc66hr6TsYnX1A2oPhJ2H1fRJknxgjLLwrh"],
                     challengeAnswers: ["test123"]
                 },
-                subplebbitAddress: subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 commentCid: commentToMod.cid,
                 commentModeration: { locked: true, reason: "editReason" + Date.now() },
                 signer: signers[7] // Create a new signer, different than the signer of the original comment
@@ -72,7 +72,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const localMod = await plebbit.createCommentModeration(props);
             const recreatedLocalMod = await plebbit.createCommentModeration(JSON.parse(JSON.stringify(localMod)));
             [localMod, recreatedLocalMod].forEach((curMod) => {
-                expect(curMod.subplebbitAddress).to.equal(props.subplebbitAddress);
+                expect(curMod.communityAddress).to.equal(props.communityAddress);
                 expect(curMod.commentCid).to.equal(props.commentCid);
                 expect(curMod.commentModeration).to.deep.equal(props.commentModeration);
                 expect(curMod.author.address).to.deep.equal(props.signer.address);
@@ -90,7 +90,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it.sequential(`Can publish a CommentModeration that was created from jsonfied CommentModeration instance`, async () => {
             const modProps = {
-                subplebbitAddress: subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 commentCid: commentToMod.cid,
                 commentModeration: { removed: true, reason: "mod Reason" + Date.now() },
                 signer: roles[0].signer // mod signer
@@ -125,7 +125,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`A mod publishing multiple mod edit fields and they all should appear on the comment`, async () => {
             const modPost = await publishRandomPost({
-                subplebbitAddress: subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 plebbit: plebbit,
                 postProps: { signer: roles[2].signer }
             });
@@ -142,7 +142,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 commentModeration: fieldsToChange,
                 commentCid: modPost.cid,
                 signer: roles[2].signer,
-                subplebbitAddress
+                communityAddress: subplebbitAddress
             });
             await publishWithExpectedResult({ publication: commentMod, expectedChallengeSuccess: true });
             await modPost.update();
@@ -182,7 +182,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`As a mod`, async () => {
             const modPost = await publishRandomPost({
-                subplebbitAddress: subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 plebbit: plebbit,
                 postProps: { signer: roles[2].signer }
             });
@@ -199,7 +199,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 commentModeration: fieldsToChange,
                 commentCid: modPost.cid,
                 signer: modPost.signer,
-                subplebbitAddress
+                communityAddress: subplebbitAddress
             });
             await publishWithExpectedResult({ publication: commentModeration1, expectedChallengeSuccess: true });
 
@@ -210,7 +210,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 commentModeration: fieldsToChange,
                 commentCid: modPost.cid,
                 signer: modPost.signer,
-                subplebbitAddress
+                communityAddress: subplebbitAddress
             });
 
             await publishWithExpectedResult({ publication: commentModeration2, expectedChallengeSuccess: true });
@@ -248,13 +248,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 reason: "Test as an author" + Date.now()
             };
 
-            const authorPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit }); // generate random signer
+            const authorPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit }); // generate random signer
 
             const authorEdit = await plebbit.createCommentEdit({
                 ...authorFieldsToChange,
                 commentCid: authorPost.cid,
                 signer: authorPost.signer,
-                subplebbitAddress
+                communityAddress: subplebbitAddress
             });
             await publishWithExpectedResult({ publication: authorEdit, expectedChallengeSuccess: true });
 
@@ -269,7 +269,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 commentModeration: modFieldsToChange,
                 commentCid: authorPost.cid,
                 signer: roles[2].signer,
-                subplebbitAddress
+                communityAddress: subplebbitAddress
             });
 
             await publishWithExpectedResult({ publication: modEdit, expectedChallengeSuccess: true });
@@ -315,7 +315,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`Correct value of CommentUpdate after mod edit, then author edit`, async () => {
-            const authorPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit }); // generate random signer
+            const authorPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit }); // generate random signer
 
             const modFieldsToChange = {
                 reason: "Test setting spoiler as mod",
@@ -327,7 +327,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 commentModeration: modFieldsToChange,
                 commentCid: authorPost.cid,
                 signer: roles[2].signer,
-                subplebbitAddress
+                communityAddress: subplebbitAddress
             });
 
             await publishWithExpectedResult({ publication: modEdit, expectedChallengeSuccess: true });
@@ -342,7 +342,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 ...authorFieldsToChange,
                 commentCid: authorPost.cid,
                 signer: authorPost.signer,
-                subplebbitAddress
+                communityAddress: subplebbitAddress
             });
             await publishWithExpectedResult({ publication: authorEdit, expectedChallengeSuccess: true });
 

@@ -41,7 +41,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 const isRemoteIpfsGatewayConfig = isPlebbitFetchingUsingGateways(localPlebbit);
                 const shouldMockFetchForIpns = isRemoteIpfsGatewayConfig && typeof globalThis.fetch === "function";
 
-                const targetAddressForGatewayIpnsUrl = convertBase58IpnsNameToBase36Cid(randomSub.subplebbitAddress);
+                const targetAddressForGatewayIpnsUrl = convertBase58IpnsNameToBase36Cid(randomSub.communityAddress);
                 const stressCount = 100;
 
                 if (!usesGateways) {
@@ -61,7 +61,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
                 const subInstances = await Promise.all(
                     new Array(stressCount).fill(null).map(async () => {
-                        const subInstance = await localPlebbit.createSubplebbit({ address: randomSub.subplebbitAddress });
+                        const subInstance = await localPlebbit.createSubplebbit({ address: randomSub.communityAddress });
                         return subInstance;
                     })
                 );
@@ -98,7 +98,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(subplebbit.address).to.equal("plebbit.bso");
             const oldUpdatedAt = remeda.clone(subplebbit.updatedAt);
             await subplebbit.update();
-            await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit }); // Invoke an update
+            await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit }); // Invoke an update
             await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => oldUpdatedAt !== subplebbit.updatedAt });
             expect(oldUpdatedAt).to.not.equal(subplebbit.updatedAt);
             expect(subplebbit.address).to.equal("plebbit.bso");
@@ -264,7 +264,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             await subplebbit.update();
 
-            await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
+            await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
             await new Promise((resolve) => subplebbit.once("update", resolve));
             await subplebbit.stop();
         });

@@ -27,7 +27,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             commentToBeEdited = await publishRandomPost({
-                subplebbitAddress: subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 plebbit: plebbit,
                 postProps: { content: "original content" }
             });
@@ -43,7 +43,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const editedText = "This should fail" + Date.now();
             const editReason = "To test whether editing a comment fails" + Date.now();
             const commentEdit = await plebbit.createCommentEdit({
-                subplebbitAddress: commentToBeEdited.subplebbitAddress,
+                communityAddress: commentToBeEdited.communityAddress,
                 commentCid: commentToBeEdited.cid,
                 reason: editReason,
                 content: editedText,
@@ -61,7 +61,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const editReason = "To test editing content" + Date.now();
 
             const commentEdit = await plebbit.createCommentEdit({
-                subplebbitAddress: commentToBeEdited.subplebbitAddress,
+                communityAddress: commentToBeEdited.communityAddress,
                 commentCid: commentToBeEdited.cid,
                 reason: editReason,
                 content: editedText,
@@ -113,7 +113,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`The new content should be reflected in subplebbit.posts.getPage`, async () => {
-            const subplebbit1 = await plebbit.createSubplebbit({ address: commentToBeEdited.subplebbitAddress });
+            const subplebbit1 = await plebbit.createSubplebbit({ address: commentToBeEdited.communityAddress });
             await subplebbit1.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: subplebbit1,
@@ -144,7 +144,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`The new content should be reflected in JSON.parse(JSON.stringify(subplebbit)).posts.pages`, async () => {
-            const sub1 = await plebbit.createSubplebbit({ address: commentToBeEdited.subplebbitAddress });
+            const sub1 = await plebbit.createSubplebbit({ address: commentToBeEdited.communityAddress });
             await sub1.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub1,
@@ -188,7 +188,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const editReason = "To test double editing a comment";
             const originalContent = (commentToBeEdited.raw.comment ?? commentToBeEdited.raw.pubsubMessageToPublish)?.content;
             const commentEdit = await plebbit.createCommentEdit({
-                subplebbitAddress: commentToBeEdited.subplebbitAddress,
+                communityAddress: commentToBeEdited.communityAddress,
                 commentCid: commentToBeEdited.cid,
                 reason: editReason,
                 content: editedText,
@@ -211,7 +211,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         roles.map((roleTest) =>
             it(`${roleTest.role} role Can modify their own comment content`, async () => {
                 const commentToEdit = await publishRandomPost({
-                    subplebbitAddress: subplebbitAddress,
+                    communityAddress: subplebbitAddress,
                     plebbit: plebbit,
                     postProps: { signer: roleTest.signer }
                 });
@@ -220,7 +220,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 const editedText = `${roleTest.role} role testing CommentEdit`;
                 const editReason = `For ${roleTest.role} role to test editing a comment`;
                 const commentEdit = await plebbit.createCommentEdit({
-                    subplebbitAddress: commentToEdit.subplebbitAddress,
+                    communityAddress: commentToEdit.communityAddress,
                     commentCid: commentToEdit.cid,
                     reason: editReason,
                     content: editedText,
@@ -244,7 +244,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 const editedText = `${roleTest.role} role testing CommentEdit`;
                 const editReason = `For ${roleTest.role} role to test editing a comment`;
                 const commentEdit = await plebbit.createCommentEdit({
-                    subplebbitAddress: commentToBeEdited.subplebbitAddress,
+                    communityAddress: commentToBeEdited.communityAddress,
                     commentCid: commentToBeEdited.cid,
                     reason: editReason,
                     content: editedText,

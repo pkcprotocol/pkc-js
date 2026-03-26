@@ -23,7 +23,7 @@ import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publica
 import type { Plebbit } from "../../../../../dist/node/plebbit/plebbit.js";
 
 // Type for replies with required parentCid
-type ReplyWithRequiredFields = Required<Pick<CommentIpfsWithCidDefined, "cid" | "subplebbitAddress" | "parentCid">>;
+type ReplyWithRequiredFields = Required<Pick<CommentIpfsWithCidDefined, "cid" | "parentCid"> & { communityAddress: string }>;
 
 const subplebbitAddress = signers[0].address;
 
@@ -44,7 +44,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         it.sequential(
             `plebbit.createComment({cid}).update() fetches comment ipfs and update correctly when cid is the cid of a post`,
             async () => {
-                const originalPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+                const originalPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
 
                 const recreatedPost = await plebbit.createComment({ cid: originalPost.cid });
 
@@ -149,7 +149,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`comment.update() is working as expected after comment.publish()`, async () => {
-            const post = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            const post = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             await post.update();
             await resolveWhenConditionIsTrue({ toUpdate: post, predicate: async () => typeof post.updatedAt === "number" });
             expect(post.updatedAt).to.be.a("number");
@@ -157,7 +157,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`reply can receive comment updates`, async () => {
-            const post = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            const post = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             const reply = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
             await reply.update();
             await resolveWhenConditionIsTrue({ toUpdate: reply, predicate: async () => typeof reply.updatedAt === "number" });
@@ -311,7 +311,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             const createdComment = await plebbit.createComment({
                 cid: cidOfCommentIpfsWithMismatchedSubplebbitAddress,
-                subplebbitAddress: expectedSubplebbitAddress
+                communityAddress: expectedSubplebbitAddress
             });
 
             const updatingStates: string[] = [];
@@ -325,7 +325,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await resolveWhenConditionIsTrue({ toUpdate: createdComment, predicate: async () => errors.length >= 1, eventName: "error" });
             expect(errors.length).to.equal(1);
             expect(errors[0].code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
-            expect(errors[0].details.commentIpfsValidation.reason).to.equal(messages.ERR_COMMENT_IPFS_SUBPLEBBIT_ADDRESS_MISMATCH);
+            expect(errors[0].details.commentIpfsValidation.reason).to.equal(messages.ERR_COMMENT_IPFS_COMMUNITY_ADDRESS_MISMATCH);
 
             expect(createdComment.state).to.equal("stopped");
             expect(createdComment.updatingState).to.equal("failed");
@@ -353,7 +353,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             await Promise.all([
                 resolveWhenConditionIsTrue({ toUpdate: createdComment, predicate: async () => errors.length >= 1, eventName: "error" }),
-                publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit })
+                publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit })
             ]);
 
             expect(createdComment.updatedAt).to.be.undefined; // Make sure it didn't use the props from the invalid CommentUpdate
@@ -399,7 +399,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                         predicate: async () => errors.length === 2,
                         eventName: "error"
                     }),
-                    publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit }) // force sub to publish a new update
+                    publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit }) // force sub to publish a new update
                 ]);
 
                 expect(createdComment.updatedAt).to.be.undefined; // Make sure it didn't use the props from the invalid CommentUpdate
@@ -440,7 +440,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             await Promise.all([
                 resolveWhenConditionIsTrue({ toUpdate: createdComment, predicate: async () => errors.length >= 1, eventName: "error" }),
-                publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit }) // force sub to publish a new update
+                publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit }) // force sub to publish a new update
             ]);
 
             expect(createdComment.updatedAt).to.be.undefined; // Make sure it didn't use the props from the invalid CommentUpdate

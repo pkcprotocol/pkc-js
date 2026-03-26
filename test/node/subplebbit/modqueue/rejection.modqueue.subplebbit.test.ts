@@ -106,7 +106,7 @@ for (const commentMod of commentModProps) {
 
                 it.sequential(`Can reject comment with commentModeration=${JSON.stringify(commentMod)}`, async () => {
                     const commentModeration = await plebbit.createCommentModeration({
-                        subplebbitAddress: subplebbit.address,
+                        communityAddress: subplebbit.address,
                         signer: modSigner,
                         commentModeration: commentMod as unknown as Record<string, unknown>,
                         commentCid: commentToBeRejected.cid!
@@ -278,7 +278,7 @@ for (const commentMod of commentModProps) {
                                 try {
                                     const newComment = await remotePlebbit.createComment({
                                         cid: commentToBeRejected.cid,
-                                        subplebbitAddress: commentToBeRejected.subplebbitAddress
+                                        communityAddress: commentToBeRejected.communityAddress
                                     });
 
                                     const errors: Error[] = [];
@@ -441,7 +441,7 @@ for (const commentMod of commentModProps) {
                                     try {
                                         const newComment = await remotePlebbit.createComment({
                                             cid: commentToBeRejected.cid,
-                                            subplebbitAddress: commentToBeRejected.subplebbitAddress
+                                            communityAddress: commentToBeRejected.communityAddress
                                         });
 
                                         await newComment.update();
@@ -519,7 +519,7 @@ for (const commentMod of commentModProps) {
                                         remotePlebbit._timeouts["comment-ipfs"] = 500; // it's gonna fail to load CID so this will make test run faster
                                         const remoteCommentToBeRejected = await remotePlebbit.createComment({
                                             cid: commentToBeRejected.cid,
-                                            subplebbitAddress: commentToBeRejected.subplebbitAddress
+                                            communityAddress: commentToBeRejected.communityAddress
                                         });
                                         await remoteCommentToBeRejected.update();
                                         await resolveWhenConditionIsTrue({
@@ -570,7 +570,7 @@ for (const commentMod of commentModProps) {
                           ? messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_SUB
                           : messages.ERR_USER_PUBLISHED_UNDER_DISAPPROVED_COMMENT;
                     const edit = await plebbit.createCommentEdit({
-                        subplebbitAddress: commentToBeRejected.subplebbitAddress,
+                        communityAddress: commentToBeRejected.communityAddress,
                         commentCid: commentToBeRejected.cid!,
                         reason: "random reason should fail",
                         content: "text to edit on pending comment",
@@ -610,7 +610,7 @@ for (const commentMod of commentModProps) {
                         ? messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_SUB
                         : messages.ERR_MOD_ATTEMPTING_TO_APPROVE_OR_DISAPPROVE_COMMENT_THAT_IS_NOT_PENDING;
                     const commentModerationDisapproval = await plebbit.createCommentModeration({
-                        subplebbitAddress: subplebbit.address,
+                        communityAddress: subplebbit.address,
                         signer: modSigner,
                         commentModeration: { approved: false },
                         commentCid: commentToBeRejected.cid!

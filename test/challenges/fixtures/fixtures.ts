@@ -50,7 +50,7 @@ const authors: MockAuthor[] = [highKarmaAuthor, lowKarmaAuthor];
 
 // mock comment class
 class Comment extends EventEmitter {
-    subplebbitAddress: string;
+    communityAddress: string;
     updatedAt: number | undefined;
     author: MockAuthor;
     karma: string | undefined;
@@ -62,7 +62,7 @@ class Comment extends EventEmitter {
         const subplebbitAddress = split[0];
         const karma = split[1];
         const age = split[2];
-        this.subplebbitAddress = subplebbitAddress;
+        this.communityAddress = subplebbitAddress;
         this.updatedAt = undefined;
 
         // define author

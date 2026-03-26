@@ -32,7 +32,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             plebbit = await mockRemotePlebbit();
             sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
             await sub.update();
-            postToBeArchived = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            postToBeArchived = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
 
             await postToBeArchived.update();
             replyUnderPostToBeArchived = await publishRandomReply({
@@ -45,7 +45,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
         it(`Author can't archive their own post`, async () => {
             const archivedEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: postToBeArchived.subplebbitAddress,
+                communityAddress: postToBeArchived.communityAddress,
                 commentCid: postToBeArchived.cid,
                 commentModeration: { archived: true },
                 signer: postToBeArchived.signer
@@ -58,7 +58,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
         it(`Regular author can't archive another author comment`, async () => {
             const archivedEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: postToBeArchived.subplebbitAddress,
+                communityAddress: postToBeArchived.communityAddress,
                 commentCid: postToBeArchived.cid,
                 commentModeration: { archived: true },
                 signer: await plebbit.createSigner()
@@ -72,7 +72,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Mod Can't archive a reply`, async () => {
             const archivedEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: replyUnderPostToBeArchived.subplebbitAddress,
+                communityAddress: replyUnderPostToBeArchived.communityAddress,
                 commentCid: replyUnderPostToBeArchived.cid,
                 commentModeration: { archived: true },
                 signer: roles[2].signer
@@ -86,7 +86,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it.sequential(`Mod can archive an author post`, async () => {
             const archivedEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: postToBeArchived.subplebbitAddress,
+                communityAddress: postToBeArchived.communityAddress,
                 commentCid: postToBeArchived.cid,
                 commentModeration: { archived: true, reason: "To archive an author post" },
                 signer: roles[2].signer
@@ -104,7 +104,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`subplebbit.posts includes archived post with archived=true`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: postToBeArchived.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: postToBeArchived.communityAddress });
 
             await sub.update();
 
@@ -163,7 +163,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it.sequential(`Mod can unarchive a post`, async () => {
             const unarchiveEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: postToBeArchived.subplebbitAddress,
+                communityAddress: postToBeArchived.communityAddress,
                 commentCid: postToBeArchived.cid,
                 commentModeration: { archived: false, reason: "To unarchive an author post" },
                 signer: roles[2].signer

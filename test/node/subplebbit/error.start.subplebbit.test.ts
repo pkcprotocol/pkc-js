@@ -36,7 +36,7 @@ describeSkipIfRpc(`Local subplebbit emits errors properly in the publish loop`, 
             throw Error("Failed to load sub from db");
         };
         try {
-            await publishRandomPost({ subplebbitAddress: sub.address, plebbit: plebbit });
+            await publishRandomPost({ communityAddress: sub.address, plebbit: plebbit });
         } catch {}
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => errors.length >= 3, eventName: "error" });
 
@@ -63,7 +63,7 @@ describeSkipIfRpc(`Local subplebbit emits errors properly in the publish loop`, 
         ipfsClient.files.write = () => {
             throw Error("Failed to copy a file");
         };
-        await publishRandomPost({ subplebbitAddress: sub.address, plebbit: plebbit });
+        await publishRandomPost({ communityAddress: sub.address, plebbit: plebbit });
 
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => errors.length === 3, eventName: "error" });
 
@@ -97,7 +97,7 @@ describeSkipIfRpc(`Local subplebbit emits errors properly in the publish loop`, 
         pubsubClient.pubsub.ls = originalPubsub;
 
         const remotePlebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
-        await publishRandomPost({ subplebbitAddress: sub.address, plebbit: remotePlebbit }); // pubsub topic is working
+        await publishRandomPost({ communityAddress: sub.address, plebbit: remotePlebbit }); // pubsub topic is working
         await remotePlebbit.destroy();
 
         await sub.delete();

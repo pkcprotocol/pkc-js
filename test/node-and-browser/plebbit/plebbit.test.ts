@@ -244,7 +244,7 @@ describe(`plebbit.destroy`, async () => {
 
         await plebbit.destroy(); // should not fail
         expect(plebbit._updatingComments[commentCid]).to.not.exist;
-        expect(plebbit._updatingSubplebbits[comment.subplebbitAddress]).to.not.exist;
+        expect(plebbit._updatingSubplebbits[comment.communityAddress]).to.not.exist;
         expect(comment.state).to.equal("stopped");
     });
 

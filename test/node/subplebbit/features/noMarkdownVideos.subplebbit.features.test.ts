@@ -30,7 +30,7 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
         // Publish a post first (before enabling the feature) to test comment edits later
-        publishedPost = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
+        publishedPost = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: remotePlebbit });
     });
 
     afterAll(async () => {
@@ -54,7 +54,7 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
     it(`Can't publish a post with markdown video syntax (video extension)`, async () => {
         const contentWithMarkdownVideo = "Here is a video: ![video](https://example.com/video.mp4)";
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: { content: contentWithMarkdownVideo }
         });
@@ -68,7 +68,7 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
     it(`Can't publish a post with HTML video tag`, async () => {
         const contentWithHtmlVideo = 'Here is a video: <video src="https://example.com/video.mp4"></video>';
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: { content: contentWithHtmlVideo }
         });
@@ -82,7 +82,7 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
     it(`Can't publish a post with HTML iframe tag`, async () => {
         const contentWithIframe = 'Embedded video: <iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ"></iframe>';
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: { content: contentWithIframe }
         });
@@ -108,7 +108,7 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
     it(`Can publish a post with plain text content`, async () => {
         const plainContent = "This is just plain text without any videos";
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: { content: plainContent }
         });
@@ -118,7 +118,7 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
     it(`Can't publish a post with markdown GIF`, async () => {
         const contentWithGif = "Here is a gif: ![gif](https://example.com/animation.gif)";
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: { content: contentWithGif }
         });
@@ -133,7 +133,7 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
         // noMarkdownVideos should not block images
         const contentWithImage = "Here is an image: ![img](https://example.com/photo.jpg)";
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: { content: contentWithImage }
         });
@@ -142,7 +142,7 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
 
     it(`Can publish a post with direct link field to video (not markdown content)`, async () => {
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: {
                 link: "https://example.com/video.mp4",
@@ -157,7 +157,7 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
         const commentEdit = await remotePlebbit.createCommentEdit({
             commentCid: publishedPost.cid!,
             content: contentWithMarkdownVideo,
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             signer: publishedPost.signer
         });
         await publishWithExpectedResult({
@@ -172,7 +172,7 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
         const commentEdit = await remotePlebbit.createCommentEdit({
             commentCid: publishedPost.cid!,
             content: contentWithIframe,
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             signer: publishedPost.signer
         });
         await publishWithExpectedResult({
@@ -187,7 +187,7 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
         const commentEdit = await remotePlebbit.createCommentEdit({
             commentCid: publishedPost.cid!,
             content: plainContent,
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             signer: publishedPost.signer
         });
         await publishWithExpectedResult({ publication: commentEdit, expectedChallengeSuccess: true });

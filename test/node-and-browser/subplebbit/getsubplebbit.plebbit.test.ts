@@ -37,7 +37,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 const isRemoteIpfsGatewayConfig = isPlebbitFetchingUsingGateways(localPlebbit);
                 const shouldMockFetchForIpns = isRemoteIpfsGatewayConfig && typeof globalThis.fetch === "function";
 
-                const targetAddress = convertBase58IpnsNameToBase36Cid(randomSub.subplebbitAddress);
+                const targetAddress = convertBase58IpnsNameToBase36Cid(randomSub.communityAddress);
                 const stressCount = 100;
 
                 if (!usesGateways) {
@@ -58,7 +58,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
                 const subInstances = await Promise.all(
                     new Array(stressCount).fill(null).map(async () => {
-                        return localPlebbit.getSubplebbit({ address: randomSub.subplebbitAddress });
+                        return localPlebbit.getSubplebbit({ address: randomSub.communityAddress });
                     })
                 );
 

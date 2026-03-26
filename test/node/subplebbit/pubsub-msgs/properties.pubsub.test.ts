@@ -40,7 +40,7 @@ describe.sequential("Validate props of subplebbit Pubsub messages", async () => 
 
     it(`Validate props of challengerequest`, async () => {
         const comment = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: plebbit,
             postProps: { signer: commentSigner }
         });
@@ -78,7 +78,7 @@ describe.sequential("Validate props of subplebbit Pubsub messages", async () => 
 
     it(`Validate props of challenge`, async () => {
         const comment = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: plebbit,
             postProps: { signer: commentSigner }
         });
@@ -113,7 +113,7 @@ describe.sequential("Validate props of subplebbit Pubsub messages", async () => 
     });
 
     it(`Validate props of challengeanswer`, async () => {
-        const comment = await generatePostToAnswerMathQuestion({ subplebbitAddress: subplebbit.address, signer: commentSigner }, plebbit);
+        const comment = await generatePostToAnswerMathQuestion({ communityAddress: subplebbit.address, signer: commentSigner }, plebbit);
 
         const challengeAnswerPromise = new Promise<DecryptedChallengeAnswerMessageType>((resolve) =>
             subplebbit.once("challengeanswer", resolve)
@@ -151,7 +151,7 @@ describe.sequential("Validate props of subplebbit Pubsub messages", async () => 
     it(`Validate props of challengeverification (challengeSuccess=false)`, async () => {
         // Use generateMockPost instead of generatePostToAnswerMathQuestion so we can provide a wrong answer
         const comment = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: plebbit,
             postProps: { signer: commentSigner }
         });
@@ -190,7 +190,7 @@ describe.sequential("Validate props of subplebbit Pubsub messages", async () => 
     });
 
     it(`Validate props of challengeverification (challengeSuccess=true)`, async () => {
-        const comment = await generatePostToAnswerMathQuestion({ subplebbitAddress: subplebbit.address, signer: commentSigner }, plebbit);
+        const comment = await generatePostToAnswerMathQuestion({ communityAddress: subplebbit.address, signer: commentSigner }, plebbit);
 
         const challengeVerificationPromise = new Promise<DecryptedChallengeVerificationMessageType>((resolve) =>
             subplebbit.once("challengeverification", resolve)

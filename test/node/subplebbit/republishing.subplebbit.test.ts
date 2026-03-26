@@ -40,10 +40,10 @@ describeSkipIfRpc(`Migration to a new IPFS repo`, async () => {
             toUpdate: subBeforeMigration,
             predicate: async () => typeof subBeforeMigration.updatedAt === "number"
         });
-        const post = await publishRandomPost({ subplebbitAddress: subBeforeMigration.address, plebbit: plebbit });
+        const post = await publishRandomPost({ communityAddress: subBeforeMigration.address, plebbit: plebbit });
         await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
         // publish a post with extra prop here
-        postWithExtraProps = await generateMockPost({ subplebbitAddress: subBeforeMigration.address, plebbit: plebbit });
+        postWithExtraProps = await generateMockPost({ communityAddress: subBeforeMigration.address, plebbit: plebbit });
         const extraProps = { extraProp: "1234" };
         await setExtraPropOnCommentAndSign(postWithExtraProps, extraProps, true);
 
@@ -80,8 +80,8 @@ describeSkipIfRpc(`Migration to a new IPFS repo`, async () => {
         const remoteSubplebbit = await remotePlebbit.getSubplebbit({ address: subAfterMigration.address });
         expect(remoteSubplebbit.lastPostCid).to.equal(postWithExtraProps.cid);
         expect(remoteSubplebbit.lastCommentCid).to.equal(replyOfPostWithExtraProps.cid);
-        await waitTillPostInSubplebbitPages(postWithExtraProps as CommentIpfsWithCidDefined, remotePlebbit);
-        await waitTillReplyInParentPages(replyOfPostWithExtraProps as CommentIpfsWithCidDefined & { parentCid: string }, remotePlebbit);
+        await waitTillPostInSubplebbitPages(postWithExtraProps as Comment & { cid: string }, remotePlebbit);
+        await waitTillReplyInParentPages(replyOfPostWithExtraProps as Comment & { cid: string; parentCid: string }, remotePlebbit);
     });
 
     afterAll(async () => {
@@ -101,7 +101,7 @@ describeSkipIfRpc(`Migration to a new IPFS repo`, async () => {
         const subLoaded = await remotePlebbit.getSubplebbit({ address: subAfterMigration.address });
         const postFromPage = subLoaded.posts.pages.hot!.comments[0];
         const postIpfs = JSON.parse(await remotePlebbit.fetchCid({ cid: postFromPage.cid }));
-        expect(postIpfs.subplebbitAddress).to.equal(subAfterMigration.address); // Make sure it was loaded correctly
+        expect(postIpfs.communityAddress).to.equal(subAfterMigration.address); // Make sure it was loaded correctly
     });
 
     it(`Post with extra prop can be fetched from its cid`, async () => {
@@ -110,7 +110,7 @@ describeSkipIfRpc(`Migration to a new IPFS repo`, async () => {
     });
 
     it(`Post with extra prop retains its extra prop in pages`, async () => {
-        const loadedSub = await remotePlebbit.createSubplebbit({ address: postWithExtraProps.subplebbitAddress });
+        const loadedSub = await remotePlebbit.createSubplebbit({ address: postWithExtraProps.communityAddress });
         await loadedSub.update();
         await resolveWhenConditionIsTrue({
             toUpdate: loadedSub,
@@ -128,7 +128,7 @@ describeSkipIfRpc(`Migration to a new IPFS repo`, async () => {
         const subLoaded = await remotePlebbit.getSubplebbit({ address: subAfterMigration.address });
         const postFromPage = subLoaded.posts.pages.hot!.comments[0];
         const commentIpfs = JSON.parse(await remotePlebbit.fetchCid({ cid: postFromPage.replies!.pages.best!.comments[0].cid }));
-        expect(commentIpfs.subplebbitAddress).to.equal(subAfterMigration.address); // Make sure it was loaded correctly
+        expect(commentIpfs.communityAddress).to.equal(subAfterMigration.address); // Make sure it was loaded correctly
     });
     it(`Comments' CommentUpdate are republished`, async () => {
         const subLoaded = await remotePlebbit.getSubplebbit({ address: subAfterMigration.address });

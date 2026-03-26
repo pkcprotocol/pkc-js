@@ -47,7 +47,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         describe("Comment", () => {
             it("has runtime author fields", async () => {
                 const comment = await plebbit.createComment({
-                    subplebbitAddress,
+                    communityAddress: subplebbitAddress,
                     signer,
                     content: "test content",
                     title: "test title"
@@ -57,7 +57,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             it("runtime author fields survive spread", async () => {
                 const comment = await plebbit.createComment({
-                    subplebbitAddress,
+                    communityAddress: subplebbitAddress,
                     signer,
                     content: "test content",
                     title: "test title"
@@ -67,7 +67,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             it("runtime author fields survive JSON.stringify", async () => {
                 const comment = await plebbit.createComment({
-                    subplebbitAddress,
+                    communityAddress: subplebbitAddress,
                     signer,
                     content: "test content",
                     title: "test title"
@@ -79,7 +79,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         describe("Vote", () => {
             it("has runtime author fields", async () => {
                 const vote = await plebbit.createVote({
-                    subplebbitAddress,
+                    communityAddress: subplebbitAddress,
                     signer,
                     commentCid: fakeCid,
                     vote: 1
@@ -89,7 +89,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             it("runtime author fields survive spread", async () => {
                 const vote = await plebbit.createVote({
-                    subplebbitAddress,
+                    communityAddress: subplebbitAddress,
                     signer,
                     commentCid: fakeCid,
                     vote: 1
@@ -99,7 +99,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             it("runtime author fields survive JSON.stringify", async () => {
                 const vote = await plebbit.createVote({
-                    subplebbitAddress,
+                    communityAddress: subplebbitAddress,
                     signer,
                     commentCid: fakeCid,
                     vote: 1
@@ -111,7 +111,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         describe("CommentEdit", () => {
             it("has runtime author fields", async () => {
                 const edit = await plebbit.createCommentEdit({
-                    subplebbitAddress,
+                    communityAddress: subplebbitAddress,
                     signer,
                     commentCid: fakeCid,
                     content: "edited content"
@@ -121,7 +121,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             it("runtime author fields survive spread", async () => {
                 const edit = await plebbit.createCommentEdit({
-                    subplebbitAddress,
+                    communityAddress: subplebbitAddress,
                     signer,
                     commentCid: fakeCid,
                     content: "edited content"
@@ -131,7 +131,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             it("runtime author fields survive JSON.stringify", async () => {
                 const edit = await plebbit.createCommentEdit({
-                    subplebbitAddress,
+                    communityAddress: subplebbitAddress,
                     signer,
                     commentCid: fakeCid,
                     content: "edited content"
@@ -143,7 +143,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         describe("CommentModeration", () => {
             it("has runtime author fields", async () => {
                 const moderation = await plebbit.createCommentModeration({
-                    subplebbitAddress,
+                    communityAddress: subplebbitAddress,
                     signer,
                     commentCid: fakeCid,
                     commentModeration: { removed: true }
@@ -153,7 +153,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             it("runtime author fields survive spread", async () => {
                 const moderation = await plebbit.createCommentModeration({
-                    subplebbitAddress,
+                    communityAddress: subplebbitAddress,
                     signer,
                     commentCid: fakeCid,
                     commentModeration: { removed: true }
@@ -163,7 +163,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             it("runtime author fields survive JSON.stringify", async () => {
                 const moderation = await plebbit.createCommentModeration({
-                    subplebbitAddress,
+                    communityAddress: subplebbitAddress,
                     signer,
                     commentCid: fakeCid,
                     commentModeration: { removed: true }
@@ -175,7 +175,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         describe("SubplebbitEdit", () => {
             it("has runtime author fields", async () => {
                 const subEdit = await plebbit.createSubplebbitEdit({
-                    subplebbitAddress,
+                    communityAddress: subplebbitAddress,
                     signer,
                     subplebbitEdit: { description: "new description" }
                 });
@@ -184,7 +184,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             it("runtime author fields survive spread", async () => {
                 const subEdit = await plebbit.createSubplebbitEdit({
-                    subplebbitAddress,
+                    communityAddress: subplebbitAddress,
                     signer,
                     subplebbitEdit: { description: "new description" }
                 });
@@ -193,7 +193,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             it("runtime author fields survive JSON.stringify", async () => {
                 const subEdit = await plebbit.createSubplebbitEdit({
-                    subplebbitAddress,
+                    communityAddress: subplebbitAddress,
                     signer,
                     subplebbitEdit: { description: "new description" }
                 });

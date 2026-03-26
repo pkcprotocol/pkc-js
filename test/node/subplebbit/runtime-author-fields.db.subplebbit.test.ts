@@ -50,12 +50,12 @@ function buildAuthorWithRuntimeFields() {
 
 describeSkipIfRpc("runtime author fields must not be stored in DB", () => {
     let _dbHandler: DbHandler | undefined;
-    let subplebbitAddress: string;
+    let communityAddress: string;
 
     async function createTestDbHandler(): Promise<DbHandler> {
-        subplebbitAddress = `test-sub-${Date.now()}-${Math.random()}`;
+        communityAddress = `test-sub-${Date.now()}-${Math.random()}`;
         const fakePlebbit = { noData: true };
-        const fakeSubplebbit = { address: subplebbitAddress, _plebbit: fakePlebbit };
+        const fakeSubplebbit = { address: communityAddress, _plebbit: fakePlebbit };
         const handler = new DbHandler(fakeSubplebbit as never);
         await handler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
         await handler.createOrMigrateTablesIfNeeded();
@@ -94,7 +94,7 @@ describeSkipIfRpc("runtime author fields must not be stored in DB", () => {
                 author: buildAuthorWithRuntimeFields(),
                 content: "test content",
                 title: "test title",
-                subplebbitAddress,
+                communityAddress: communityAddress,
                 timestamp: 1700000000,
                 signature: buildSignature(),
                 protocolVersion: PROTOCOL_VERSION,
@@ -139,7 +139,7 @@ describeSkipIfRpc("runtime author fields must not be stored in DB", () => {
                 authorSignerAddress: "12D3KooWTestSigner",
                 author: { name: "original-author" },
                 content: "original content",
-                subplebbitAddress,
+                communityAddress: communityAddress,
                 timestamp: 1700000000,
                 signature: buildSignature(),
                 protocolVersion: PROTOCOL_VERSION,
@@ -152,7 +152,7 @@ describeSkipIfRpc("runtime author fields must not be stored in DB", () => {
                 author: buildAuthorWithRuntimeFields(),
                 commentCid,
                 content: "edited content",
-                subplebbitAddress,
+                communityAddress: communityAddress,
                 timestamp: 1700000100,
                 signature: buildSignature(),
                 protocolVersion: PROTOCOL_VERSION
@@ -194,7 +194,7 @@ describeSkipIfRpc("runtime author fields must not be stored in DB", () => {
                 authorSignerAddress: "12D3KooWTestSigner",
                 author: { name: "original-author" },
                 content: "some content",
-                subplebbitAddress,
+                communityAddress: communityAddress,
                 timestamp: 1700000000,
                 signature: buildSignature(),
                 protocolVersion: PROTOCOL_VERSION,
@@ -207,7 +207,7 @@ describeSkipIfRpc("runtime author fields must not be stored in DB", () => {
                 author: buildAuthorWithRuntimeFields(),
                 commentCid,
                 commentModeration: { removed: true, reason: "spam" },
-                subplebbitAddress,
+                communityAddress: communityAddress,
                 timestamp: 1700000200,
                 signature: buildSignature(),
                 protocolVersion: PROTOCOL_VERSION

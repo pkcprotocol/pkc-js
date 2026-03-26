@@ -31,7 +31,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: false } });
             signer = await plebbit.createSigner();
-            postToVote = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit, postProps: { signer } });
+            postToVote = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit, postProps: { signer } });
             replyToVote = await publishRandomReply({
                 parentComment: postToVote as CommentIpfsWithCidDefined,
                 plebbit: plebbit,
@@ -105,7 +105,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const vote = await plebbit.createVote({
                 commentCid: previousVotes[0].commentCid,
                 signer: previousVotes[0].signer,
-                subplebbitAddress: previousVotes[0].subplebbitAddress,
+                communityAddress: previousVotes[0].communityAddress,
                 vote: -1
             });
             await publishWithExpectedResult({ publication: vote, expectedChallengeSuccess: true });
@@ -127,7 +127,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const vote = await plebbit.createVote({
                 commentCid: previousVotes[1].commentCid,
                 signer: previousVotes[1].signer,
-                subplebbitAddress: previousVotes[1].subplebbitAddress,
+                communityAddress: previousVotes[1].communityAddress,
                 vote: -1
             });
             await publishWithExpectedResult({ publication: vote, expectedChallengeSuccess: true });
@@ -147,7 +147,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const vote = await plebbit.createVote({
                 commentCid: previousVotes[0].commentCid,
                 signer: previousVotes[0].signer,
-                subplebbitAddress: previousVotes[0].subplebbitAddress,
+                communityAddress: previousVotes[0].communityAddress,
                 vote: previousVotes[0].vote
             });
             await publishWithExpectedResult({ publication: vote, expectedChallengeSuccess: true });

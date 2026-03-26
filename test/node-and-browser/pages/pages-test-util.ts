@@ -30,7 +30,7 @@ export const testCommentFieldsInPageJson = (
     expect(comment.childCount).to.be.a("number");
 
     expect(comment.signature).to.be.a("object");
-    expect(comment.subplebbitAddress).to.equal(expectedSubplebbitAddress);
+    expect(comment.communityAddress).to.equal(expectedSubplebbitAddress);
     expect(comment.timestamp).to.be.a("number");
 
     // Verify CommentUpdate fields
@@ -53,7 +53,7 @@ export const testCommentFieldsInPageJson = (
         expect((comment.edit as any).challengeRequestId).to.be.undefined;
         expect(comment.edit.commentCid).to.equal(comment.cid);
         expect(comment.edit.signature).to.be.a("object");
-        expect(comment.edit.subplebbitAddress).to.equal(comment.subplebbitAddress);
+        expect(comment.edit.communityAddress).to.equal(comment.communityAddress);
         expect(comment.timestamp).to.be.a("number");
     }
 
@@ -65,7 +65,7 @@ export const testCommentFieldsInPageJson = (
     expect((comment as any).pendingApproval).to.not.exist;
 };
 
-export const testCommentFieldsInModQueuePageJson = (comment: Record<string, any>, subplebbitAddress: string) => {
+export const testCommentFieldsInModQueuePageJson = (comment: Record<string, any>, communityAddress: string) => {
     if (!comment.link && !comment.content && !comment.title)
         expect.fail("Pending Comment should either have link, content or title defined");
     expect(comment.author.address).to.be.a("string");
@@ -87,7 +87,7 @@ export const testCommentFieldsInModQueuePageJson = (comment: Record<string, any>
     expect(comment.childCount).to.be.undefined;
 
     expect(comment.signature).to.be.a("object");
-    expect(comment.subplebbitAddress).to.equal(subplebbitAddress);
+    expect(comment.communityAddress).to.equal(communityAddress);
     expect(comment.timestamp).to.be.a("number");
 
     // Verify CommentUpdate fields

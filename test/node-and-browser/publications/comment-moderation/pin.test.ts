@@ -34,7 +34,7 @@ const removeAllPins = async (allComments: CommentWithinRepliesPostsPageJson[], p
             .map(async (comment: CommentWithinRepliesPostsPageJson) =>
                 publishWithExpectedResult({
                     publication: await plebbit.createCommentModeration({
-                        subplebbitAddress: comment.subplebbitAddress,
+                        communityAddress: comment.communityAddress,
                         commentCid: comment.cid,
                         commentModeration: { pinned: false },
                         signer: roles[2].signer
@@ -56,8 +56,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             if (!subplebbitPage || subplebbitPage.comments.length < 10) {
                 await Promise.all(
                     new Array(5).fill(null).map(async (_x) => {
-                        const post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
-                        await waitTillPostInSubplebbitInstancePages(post as CommentIpfsWithCidDefined, subplebbit);
+                        const post = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
+                        await waitTillPostInSubplebbitInstancePages(post as Comment & { cid: string }, subplebbit);
                         return post;
                     })
                 );
@@ -70,19 +70,19 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await sub.update();
 
             postToPin = await publishRandomPost({
-                subplebbitAddress: subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 plebbit: plebbit,
                 postProps: { timestamp: Math.round(Date.now() / 1000) - 110 }
             });
             secondPostToPin = await publishRandomPost({
-                subplebbitAddress: subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 plebbit: plebbit,
                 postProps: { timestamp: Math.round(Date.now() / 1000) - 100 }
             });
 
             await postToPin.update();
             await secondPostToPin.update();
-            await waitTillPostInSubplebbitInstancePages(secondPostToPin as CommentIpfsWithCidDefined, sub);
+            await waitTillPostInSubplebbitInstancePages(secondPostToPin as Comment & { cid: string }, sub);
             const firstPage = sub.posts.pageCids.new ? await sub.posts.getPage({ cid: sub.posts.pageCids.new }) : sub.posts.pages.hot;
             const posts = firstPage.comments;
             await removeAllPins(posts, plebbit);
@@ -105,7 +105,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Author can't pin their own post`, async () => {
             const pinEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: postToPin.subplebbitAddress,
+                communityAddress: postToPin.communityAddress,
                 commentCid: postToPin.cid,
                 commentModeration: { reason: "To pin a post", pinned: true },
                 signer: postToPin.signer
@@ -118,7 +118,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
         it(`Regular author can't pin another author comment`, async () => {
             const pinEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: postToPin.subplebbitAddress,
+                communityAddress: postToPin.communityAddress,
                 commentCid: postToPin.cid,
                 commentModeration: { reason: "To pin a post", pinned: true },
                 signer: await plebbit.createSigner()
@@ -132,7 +132,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Mod can pin a post`, async () => {
             const pinEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: postToPin.subplebbitAddress,
+                communityAddress: postToPin.communityAddress,
                 commentCid: postToPin.cid,
                 commentModeration: { reason: "To pin a post", pinned: true },
                 signer: roles[2].signer
@@ -149,7 +149,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`pinned=true appears in pages of subplebbit`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: postToPin.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: postToPin.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -189,7 +189,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Mod can pin another post`, async () => {
             const pinEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: secondPostToPin.subplebbitAddress,
+                communityAddress: secondPostToPin.communityAddress,
                 commentCid: secondPostToPin.cid,
                 commentModeration: { reason: "To pin the second post", pinned: true },
                 signer: roles[2].signer
@@ -237,7 +237,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Mod can unpin a post`, async () => {
             const pinEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: secondPostToPin.subplebbitAddress,
+                communityAddress: secondPostToPin.communityAddress,
                 commentCid: secondPostToPin.cid,
                 commentModeration: { reason: "To unpin the second post", pinned: false },
                 signer: roles[2].signer
@@ -254,7 +254,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`pinned=true appears in pages of subplebbit`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: secondPostToPin.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: secondPostToPin.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -349,7 +349,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Mod can pin reply`, async () => {
             const pinEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: replyToPin.subplebbitAddress,
+                communityAddress: replyToPin.communityAddress,
                 commentCid: replyToPin.cid,
                 commentModeration: { reason: "To pin the reply", pinned: true },
                 signer: roles[2].signer

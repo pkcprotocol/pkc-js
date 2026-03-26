@@ -33,7 +33,7 @@ describe("Comments with Authors as domains", async () => {
             signer: signers[3],
             content: `Mock post - ${Date.now()}`,
             title: "Mock post title",
-            subplebbitAddress: signers[0].address
+            communityAddress: signers[0].address
         });
         const resolvedAuthorAddress = await plebbit.resolveAuthorName({ address: mockPost.author.address });
         expect(resolvedAuthorAddress).to.equal(signers[3].address);
@@ -66,7 +66,7 @@ describe("Comments with Authors as domains", async () => {
             signer: signers[6],
             content: `Mock comment - ${Date.now()}`,
             title: "Mock post Title",
-            subplebbitAddress: signers[0].address
+            communityAddress: signers[0].address
         });
 
         expect(mockPost.author.address).to.equal(authorAddress);
@@ -88,7 +88,7 @@ describe(`Vote with authors as domains`, async () => {
     beforeAll(async () => {
         plebbit = await mockRemotePlebbit();
         subplebbit = await plebbit.getSubplebbit({ address: signers[0].address });
-        comment = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
+        comment = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
     });
 
     afterAll(async () => {
@@ -111,7 +111,7 @@ describe(`Vote with authors as domains`, async () => {
             signer: signers[6],
             commentCid: comment.cid!,
             vote: -1,
-            subplebbitAddress: subplebbit.address
+            communityAddress: subplebbit.address
         });
         expect(vote.author.address).to.equal("testgibbreish.bso");
 
@@ -143,7 +143,7 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
             }
         });
 
-        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: "plebbit.bso" });
+        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "plebbit.bso" });
         expect(resolved).to.equal(expectedIpns);
         // The resolver receives the original address as-is
         expect(receivedName).to.equal("plebbit.bso");
@@ -201,7 +201,7 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
             }
         ];
 
-        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: "test.bso" });
+        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
         expect(resolved).to.equal(expectedIpns);
         expect(resolverCalls).to.deep.equal(["resolver-1", "resolver-2"]);
         await plebbit.destroy();
@@ -232,7 +232,7 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
             }
         ];
 
-        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: "test.bso" });
+        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
         expect(resolved).to.equal(expectedIpns);
         await plebbit.destroy();
     });
@@ -261,7 +261,7 @@ describe("Comments with Authors as .bso domains", async () => {
             signer: signers[3],
             content: `Mock post - ${Date.now()}`,
             title: "Mock post title .bso",
-            subplebbitAddress: signers[0].address
+            communityAddress: signers[0].address
         });
 
         expect(mockPost.author.address).to.equal("plebbit.bso");
@@ -302,7 +302,7 @@ describeSkipIfRpc(`nameResolver canResolve filtering`, async () => {
             }
         });
 
-        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: "test.bso" });
+        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
         expect(resolved).to.equal(expectedIpns);
         expect(resolverCalls).to.deep.equal(["active-resolver"]);
         await plebbit.destroy();
@@ -340,12 +340,12 @@ describeSkipIfRpc(`nameResolver canResolve filtering`, async () => {
             }
         });
 
-        const resolvedEth = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: "test.eth" });
+        const resolvedEth = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.eth" });
         expect(resolvedEth).to.equal(ethIpns);
         expect(resolverCalls).to.deep.equal(["eth-resolver"]);
 
         resolverCalls.length = 0;
-        const resolvedTon = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: "test.ton" });
+        const resolvedTon = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.ton" });
         expect(resolvedTon).to.equal(tonIpns);
         expect(resolverCalls).to.deep.equal(["ton-resolver"]);
         await plebbit.destroy();
@@ -368,7 +368,7 @@ describeSkipIfRpc(`nameResolver canResolve filtering`, async () => {
         });
 
         try {
-            await plebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: "test.ton" });
+            await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.ton" });
             expect.fail("Should have thrown");
         } catch (e: any) {
             expect(e.code).to.equal("ERR_NO_RESOLVER_FOR_NAME");
@@ -386,7 +386,7 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
         });
 
         try {
-            await plebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: "test.bso" });
+            await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
             expect.fail("Should have thrown");
         } catch (e: any) {
             expect(e.code).to.equal("ERR_NO_RESOLVER_FOR_NAME");
@@ -398,7 +398,7 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
         const plebbit = await mockPlebbitV2({ remotePlebbit: true, mockResolve: false });
 
         try {
-            await plebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: "test.bso" });
+            await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
             expect.fail("Should have thrown");
         } catch (e: any) {
             expect(e.code).to.equal("ERR_NO_RESOLVER_FOR_NAME");
@@ -423,7 +423,7 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
         });
 
         try {
-            await plebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: "test.bso" });
+            await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
             expect.fail("Should have thrown");
         } catch (e: any) {
             expect(e.code).to.equal("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS");
@@ -457,7 +457,7 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
             }
         });
 
-        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: "test.bso" });
+        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
         expect(resolved).to.be.null;
         await plebbit.destroy();
     });
@@ -484,7 +484,7 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
             }
         });
 
-        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: "test.bso" });
+        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
         expect(resolved).to.be.null;
         await plebbit.destroy();
     });
@@ -513,7 +513,7 @@ describeSkipIfRpc(`nameResolver provider argument passthrough`, async () => {
             }
         });
 
-        await plebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: "test.bso" });
+        await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
         expect(receivedProvider).to.equal("my-custom-provider-url");
         await plebbit.destroy();
     });
@@ -541,7 +541,7 @@ describeSkipIfRpc(`nameResolver abortSignal support`, async () => {
             }
         });
 
-        await plebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: "test.bso" });
+        await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
         // The resolver should have been called (signal may or may not be passed depending on call site)
         // The important thing is that the resolver type accepts abortSignal and doesn't break
         expect(receivedSignal === undefined || receivedSignal instanceof AbortSignal).to.be.true;
@@ -572,7 +572,7 @@ describeSkipIfRpc(`nameResolver resolution behavior`, async () => {
         });
 
         const ipnsAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
-        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: ipnsAddress });
+        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: ipnsAddress });
         expect(resolved).to.equal(ipnsAddress);
         expect(resolverCalled).to.be.false;
         await plebbit.destroy();
@@ -630,11 +630,11 @@ describeSkipIfRpc(`nameResolver resolution behavior`, async () => {
             }
         });
 
-        const resolved1 = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: "cached.bso" });
+        const resolved1 = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "cached.bso" });
         expect(resolved1).to.equal(firstIpns);
         expect(callCount).to.equal(1);
 
-        const resolved2 = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: "cached.bso" });
+        const resolved2 = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "cached.bso" });
         expect(resolved2).to.equal(secondIpns);
         expect(callCount).to.equal(2);
         await plebbit.destroy();
@@ -744,7 +744,7 @@ describeSkipIfRpc(`nameResolver returning extra properties`, async () => {
             }
         });
 
-        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: "test.bso" });
+        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
         expect(resolved).to.equal(expectedIpns);
         await plebbit.destroy();
     });
@@ -771,7 +771,7 @@ describeSkipIfRpc(`nameResolver runtime modification`, async () => {
             }
         });
 
-        const resolved1 = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: "runtime.bso" });
+        const resolved1 = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "runtime.bso" });
         expect(resolved1).to.equal(firstIpns);
 
         // Swap resolvers at runtime
@@ -784,7 +784,7 @@ describeSkipIfRpc(`nameResolver runtime modification`, async () => {
             }
         ];
 
-        const resolved2 = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: "runtime.bso" });
+        const resolved2 = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "runtime.bso" });
         expect(resolved2).to.equal(secondIpns);
         await plebbit.destroy();
     });
@@ -810,7 +810,7 @@ describeSkipIfRpc(`nameResolver runtime modification`, async () => {
 
         // .ton should fail since no resolver handles it
         try {
-            await plebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: "test.ton" });
+            await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.ton" });
             expect.fail("Should have thrown");
         } catch (e: any) {
             expect(e.code).to.equal("ERR_NO_RESOLVER_FOR_NAME");
@@ -827,7 +827,7 @@ describeSkipIfRpc(`nameResolver runtime modification`, async () => {
             }
         ];
 
-        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: "test.ton" });
+        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.ton" });
         expect(resolved).to.equal(tonIpns);
         await plebbit.destroy();
     });
@@ -841,7 +841,7 @@ describeSkipIfRpc(`CommentEdit with author as domain`, async () => {
         plebbit = await mockRemotePlebbit();
         // Publish a post with author.name as domain
         postToEdit = await publishRandomPost({
-            subplebbitAddress: signers[0].address,
+            communityAddress: signers[0].address,
             plebbit: plebbit,
             postProps: {
                 author: { name: "plebbit.bso" },
@@ -856,7 +856,7 @@ describeSkipIfRpc(`CommentEdit with author as domain`, async () => {
 
     it(`Sub accepts CommentEdit from author with domain name`, async () => {
         const commentEdit = await plebbit.createCommentEdit({
-            subplebbitAddress: postToEdit.subplebbitAddress,
+            communityAddress: postToEdit.communityAddress,
             commentCid: postToEdit.cid!,
             content: "edited content via domain author " + Date.now(),
             signer: signers[3]

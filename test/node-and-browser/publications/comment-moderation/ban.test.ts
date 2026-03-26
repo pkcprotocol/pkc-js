@@ -26,7 +26,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            commentToBeBanned = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            commentToBeBanned = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             await commentToBeBanned.update();
             authorBanExpiresAt = timestamp() + 10; // Ban stays for 10 seconds
             reasonOfBan = "Just so " + Date.now();
@@ -38,7 +38,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it.sequential(`Mod can ban an author for a comment`, async () => {
             const banCommentMod = await plebbit.createCommentModeration({
-                subplebbitAddress: commentToBeBanned.subplebbitAddress,
+                communityAddress: commentToBeBanned.communityAddress,
                 commentCid: commentToBeBanned.cid,
                 commentModeration: {
                     author: { banExpiresAt: authorBanExpiresAt },
@@ -52,7 +52,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Banned author can't publish`, async () => {
             const newCommentByBannedAuthor = await generateMockPost({
-                subplebbitAddress: commentToBeBanned.subplebbitAddress,
+                communityAddress: commentToBeBanned.communityAddress,
                 plebbit: plebbit,
                 postProps: {
                     signer: commentToBeBanned.signer
@@ -75,7 +75,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`author.banExpires is included in pages of subplebbit`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: commentToBeBanned.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: commentToBeBanned.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -87,10 +87,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`Regular author can't ban another author`, async () => {
-            const tryToBanComment = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            const tryToBanComment = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
 
             const banCommentEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: tryToBanComment.subplebbitAddress,
+                communityAddress: tryToBanComment.communityAddress,
                 commentCid: tryToBanComment.cid,
                 commentModeration: { author: { banExpiresAt: authorBanExpiresAt + 1000 } },
                 signer: await plebbit.createSigner()
@@ -106,7 +106,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await new Promise((resolve) => setTimeout(resolve, (authorBanExpiresAt - timestamp()) * 1000.0 + 1000));
             expect(timestamp()).to.be.greaterThan(authorBanExpiresAt);
             const newCommentByBannedAuthor = await generateMockPost({
-                subplebbitAddress: commentToBeBanned.subplebbitAddress,
+                communityAddress: commentToBeBanned.communityAddress,
                 plebbit: plebbit,
                 postProps: {
                     signer: commentToBeBanned.signer

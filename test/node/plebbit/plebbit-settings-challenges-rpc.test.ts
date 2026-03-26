@@ -334,7 +334,7 @@ describe("plebbit.settings.challenges over RPC", () => {
 
         // Publish with correct pre-answer — should succeed
         const correctPost = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: clientPlebbit,
             postProps: {
                 challengeRequest: { challengeAnswers: ["blue"] }
@@ -344,7 +344,7 @@ describe("plebbit.settings.challenges over RPC", () => {
 
         // Publish with wrong pre-answer — should fail
         const wrongPost = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: clientPlebbit,
             postProps: {
                 challengeRequest: { challengeAnswers: ["red"] }

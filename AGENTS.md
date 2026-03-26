@@ -27,6 +27,7 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 | `src/pages/`, pagination, sort types, `pageCids` | `docs/protocol/pages.md` |
 | Challenge/response, `src/pubsub-messages/`, encryption | `docs/protocol/challenge-flow.md` |
 | Data storage, IPFS CIDs, IPNS, mutability questions | `docs/protocol/data-permanence.md` |
+| DB migration, `extraProps`, CID reconstruction, `deriveCommentIpfsFromCommentTableRow` | `docs/protocol/db-subplebbit-address-migration.md` |
 
 ## MUST Rules
 
@@ -43,7 +44,8 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 - Tests that use `LocalSubplebbit` or other Node-only types MUST be placed under `test/node/`, not `test/node-and-browser/`.
 - Do not include `this.timeout` in tests — it is not supported by vitest.
 - When you modify a test file, make sure it passes the test build process: `npx tsc --project test/tsconfig.json --noEmit`.
-- You should still run tests without waiting for me and assume the test server is running by me. You should not run run test server `npm run test:server:node` yourself — instead ask me to do it or assume I'm doing it. Test server is not the same as test files, but many test files need test server running. 
+- You should still run tests without waiting for me and assume the test server is running by me. You should not run run test server `npm run test:server:node` yourself — instead ask me to do it or assume I'm doing it. Test server is not the same as test files, but many test files need test server running.
+- When bumping `DB_VERSION`, add a migration test that creates an in-memory DB with the old schema, inserts representative rows, runs migration via `createOrMigrateTablesIfNeeded()`, and asserts the migrated data is correct. Focus on tables whose schema changed.
 
 ### Code
 
@@ -64,6 +66,7 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 
 - If you're editing schema, check for docs relevant to the local zod version by checking `package.json`.
 - When adding a new JSON column to the database, add a test in `test/node/subplebbit/parsing.db.subplebbit.test.ts` for parsing it, and if it's on a comment, add an integration test for `dbHandler.queryComment` returning the proper JSON value (not a string).
+- When adding a new markdown file under `docs/`, add a corresponding entry to `docs/protocol/README.md` (the protocol docs index table).
 
 ### Testing Patterns
 

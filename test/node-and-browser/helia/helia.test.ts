@@ -38,7 +38,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2p
         });
 
         it("can post after answering correctly", async function () {
-            publishedPost = await generatePostToAnswerMathQuestion({ subplebbitAddress: mathCliNoMockedPubsubSubplebbitAddress }, plebbit);
+            publishedPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliNoMockedPubsubSubplebbitAddress }, plebbit);
             await publishWithExpectedResult({ publication: publishedPost, expectedChallengeSuccess: true });
         });
 

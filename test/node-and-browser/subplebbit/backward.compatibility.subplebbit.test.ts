@@ -117,7 +117,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`features.extraProp is preserved through createSubplebbit and update()`, async () => {
             const extraFeatures = { noVideos: true, extraFeature: true };
-            const { subplebbitRecord, subplebbitAddress } = await createMockedSubplebbitIpns({
+            const { subplebbitRecord, communityAddress: subplebbitAddress } = await createMockedSubplebbitIpns({
                 features: extraFeatures
             });
 
@@ -154,7 +154,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`suggested.extraProp is preserved through createSubplebbit and update()`, async () => {
             const extraSuggested = { primaryColor: "#ff0000", extraSuggested: "customValue" };
-            const { subplebbitRecord, subplebbitAddress } = await createMockedSubplebbitIpns({
+            const { subplebbitRecord, communityAddress: subplebbitAddress } = await createMockedSubplebbitIpns({
                 suggested: extraSuggested
             });
 
@@ -209,7 +209,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const rolesWithExtra = {
                 [testAddress]: { role: "moderator", extraRoleProp: "customRoleData" }
             };
-            const { subplebbitRecord, subplebbitAddress } = await createMockedSubplebbitIpns({
+            const { subplebbitRecord, communityAddress: subplebbitAddress } = await createMockedSubplebbitIpns({
                 roles: rolesWithExtra
             });
 
@@ -236,7 +236,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Multiple nested objects with extra props are all preserved`, async () => {
             const testAddress = "12D3KooWTestAddress1234567890abcdefghij";
-            const { subplebbitRecord, subplebbitAddress } = await createMockedSubplebbitIpns({
+            const { subplebbitRecord, communityAddress: subplebbitAddress } = await createMockedSubplebbitIpns({
                 features: { noVideos: true, extraFeature: true },
                 suggested: { primaryColor: "#00ff00", extraSuggested: "suggestedValue" },
                 roles: { [testAddress]: { role: "admin", extraRoleProp: "roleValue" } }

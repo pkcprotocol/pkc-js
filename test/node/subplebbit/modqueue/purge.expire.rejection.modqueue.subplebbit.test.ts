@@ -86,7 +86,7 @@ async function createDisapprovedComment(
     });
 
     const commentModeration = await ctx.plebbit.createCommentModeration({
-        subplebbitAddress: ctx.subplebbit.address,
+        communityAddress: ctx.subplebbit.address,
         signer: ctx.modSigner,
         commentModeration: moderationProps,
         commentCid: pendingComment.cid!
@@ -122,7 +122,7 @@ async function createApprovedComment(ctx: TestContext, { depth = 1 }: { depth?: 
     });
 
     const commentModeration = await ctx.plebbit.createCommentModeration({
-        subplebbitAddress: ctx.subplebbit.address,
+        communityAddress: ctx.subplebbit.address,
         signer: ctx.modSigner,
         commentModeration: { approved: true },
         commentCid: pendingComment.cid!
@@ -325,7 +325,7 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
             commentBeforeModeration = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(commentCid);
 
             const moderation = await ctx.plebbit.createCommentModeration({
-                subplebbitAddress: ctx.subplebbit.address,
+                communityAddress: ctx.subplebbit.address,
                 signer: ctx.modSigner,
                 commentModeration: { approved: false },
                 commentCid
@@ -460,7 +460,7 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
             commentBeforeModeration = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(commentCid);
 
             const moderation = await ctx.plebbit.createCommentModeration({
-                subplebbitAddress: ctx.subplebbit.address,
+                communityAddress: ctx.subplebbit.address,
                 signer: ctx.modSigner,
                 commentModeration: { approved: false },
                 commentCid
@@ -637,7 +637,7 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
             await setPendingApproval(ctx, disapprovedComment.cid!, true);
 
             const secondModeration = await ctx.plebbit.createCommentModeration({
-                subplebbitAddress: ctx.subplebbit.address,
+                communityAddress: ctx.subplebbit.address,
                 signer: ctx.modSigner,
                 commentModeration: { approved: false, reason: "second disapproval" },
                 commentCid: disapprovedComment.cid!
@@ -682,7 +682,7 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
             await setPendingApproval(ctx, disapprovedComment.cid!, true);
 
             const approval = await ctx.plebbit.createCommentModeration({
-                subplebbitAddress: ctx.subplebbit.address,
+                communityAddress: ctx.subplebbit.address,
                 signer: ctx.modSigner,
                 commentModeration: { approved: true },
                 commentCid: disapprovedComment.cid!

@@ -8,7 +8,7 @@ import {
     waitTillPostInSubplebbitPages
 } from "../../../../../dist/node/test/test-util.js";
 import type { Plebbit } from "../../../../../dist/node/plebbit/plebbit.js";
-import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
+import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
 
 const subplebbitAddress = signers[0].address;
 
@@ -29,7 +29,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbi
             await plebbit.getSubplebbit({ address: mathCliSubplebbitAddress }); // Do this to cache subplebbit so we won't get fetching-subplebbit-ipns
 
             const rpcUrl = Object.keys(plebbit.clients.plebbitRpcClients)[0];
-            const mockPost = await generateMockPost({ subplebbitAddress: mathCliSubplebbitAddress, plebbit: plebbit });
+            const mockPost = await generateMockPost({ communityAddress: mathCliSubplebbitAddress, plebbit: plebbit });
             mockPost.removeAllListeners();
 
             const expectedStates = [
@@ -56,8 +56,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbi
         });
 
         it(`Correct order of comment.clients.plebbitRpcClients states when updating a comment`, async () => {
-            const mockPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
-            await waitTillPostInSubplebbitPages(mockPost as CommentIpfsWithCidDefined, plebbit);
+            const mockPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+            await waitTillPostInSubplebbitPages(mockPost as Comment & { cid: string }, plebbit);
             const postToUpdate = await plebbit.createComment({ cid: mockPost.cid });
 
             const recordedStates: string[] = [];

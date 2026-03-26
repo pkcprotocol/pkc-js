@@ -30,7 +30,7 @@ describe.concurrent(`subplebbit.features.noSpoilers`, async () => {
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
         // Publish a post first (before enabling the feature)
-        publishedPost = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
+        publishedPost = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: remotePlebbit });
     });
 
     afterAll(async () => {
@@ -53,7 +53,7 @@ describe.concurrent(`subplebbit.features.noSpoilers`, async () => {
 
     it(`Can't publish a post with spoiler=true`, async () => {
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: {
                 content: "Spoiler content",
@@ -81,7 +81,7 @@ describe.concurrent(`subplebbit.features.noSpoilers`, async () => {
 
     it(`Can publish a post without spoiler`, async () => {
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: {
                 content: "Normal content"
@@ -92,7 +92,7 @@ describe.concurrent(`subplebbit.features.noSpoilers`, async () => {
 
     it(`Can publish a post with spoiler=false`, async () => {
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: {
                 content: "Normal content",
@@ -106,7 +106,7 @@ describe.concurrent(`subplebbit.features.noSpoilers`, async () => {
         const commentEdit = await remotePlebbit.createCommentEdit({
             commentCid: publishedPost.cid!,
             spoiler: true,
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             signer: publishedPost.signer
         });
         await publishWithExpectedResult({

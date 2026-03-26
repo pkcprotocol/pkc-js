@@ -25,7 +25,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         let plebbit: Plebbit, authorPost: Comment;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            authorPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            authorPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             await authorPost.update();
         });
 
@@ -35,7 +35,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Regular author can't mark another author comment as nsfw`, async () => {
             const nsfwEdit = await plebbit.createCommentEdit({
-                subplebbitAddress: authorPost.subplebbitAddress,
+                communityAddress: authorPost.communityAddress,
                 commentCid: authorPost.cid,
                 nsfw: true,
                 signer: await plebbit.createSigner()
@@ -51,7 +51,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect([false, undefined]).to.include(authorPost.nsfw);
 
             const nsfwEdit = await plebbit.createCommentEdit({
-                subplebbitAddress: authorPost.subplebbitAddress,
+                communityAddress: authorPost.communityAddress,
                 commentCid: authorPost.cid,
                 nsfw: true,
                 signer: authorPost.signer,
@@ -75,7 +75,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`nsfw=true appears in pages of subplebbit`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: authorPost.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: authorPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -112,7 +112,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 update: recreatedPost.raw.commentUpdate,
                 resolveAuthorNames: true,
                 clientsManager: recreatedPost._clientsManager,
-                subplebbit: { address: recreatedPost.subplebbitAddress },
+                subplebbit: { address: recreatedPost.communityAddress },
                 comment: recreatedPost as unknown as Pick<CommentIpfsWithCidPostCidDefined, "signature" | "cid" | "depth" | "postCid">,
                 validatePages: true,
                 validateUpdateSignature: true
@@ -122,7 +122,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Author can unnsfw their own comment`, async () => {
             const unnsfwEdit = await plebbit.createCommentEdit({
-                subplebbitAddress: authorPost.subplebbitAddress,
+                communityAddress: authorPost.communityAddress,
                 commentCid: authorPost.cid,
                 nsfw: false,
                 signer: authorPost.signer,
@@ -146,7 +146,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`nsfw=false appears in pages of subplebbit`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: authorPost.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: authorPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -167,7 +167,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             modPost = await publishRandomPost({
-                subplebbitAddress: subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 plebbit: plebbit,
                 postProps: { signer: roles[2].signer }
             });
@@ -180,7 +180,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Mod can mark their own comment as nsfw`, async () => {
             const nsfwEdit = await plebbit.createCommentEdit({
-                subplebbitAddress: modPost.subplebbitAddress,
+                communityAddress: modPost.communityAddress,
                 commentCid: modPost.cid,
                 nsfw: true,
                 signer: roles[2].signer,
@@ -204,7 +204,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`nsfw=true appears in getPage of subplebbit`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: modPost.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: modPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -220,7 +220,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Mod can unnsfw their own comment`, async () => {
             const unnsfwEdit = await plebbit.createCommentEdit({
-                subplebbitAddress: modPost.subplebbitAddress,
+                communityAddress: modPost.communityAddress,
                 commentCid: modPost.cid,
                 nsfw: false,
                 signer: roles[2].signer,
@@ -244,7 +244,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`nsfw=false appears in pages of subplebbit`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: modPost.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: modPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,

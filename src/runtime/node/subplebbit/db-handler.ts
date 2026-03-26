@@ -291,7 +291,8 @@ export class DbHandler {
                 parentCid TEXT NULLABLE REFERENCES ${TABLES.COMMENTS}(cid),
                 postCid TEXT NOT NULL REFERENCES ${TABLES.COMMENTS}(cid),
                 previousCid TEXT NULLABLE,
-                subplebbitAddress TEXT NOT NULL,
+                communityPublicKey TEXT,
+                communityName TEXT,
                 content TEXT NULLABLE,
                 timestamp INTEGER NOT NULL, 
                 signature TEXT NOT NULL, -- JSON
@@ -371,7 +372,8 @@ export class DbHandler {
                 author TEXT NULLABLE, -- JSON
                 signature TEXT NOT NULL, -- JSON
                 protocolVersion TEXT NOT NULL,
-                subplebbitAddress TEXT NOT NULL,
+                communityPublicKey TEXT,
+                communityName TEXT,
                 timestamp INTEGER CHECK(timestamp > 0) NOT NULL,
                 content TEXT NULLABLE,
                 reason TEXT NULLABLE,
@@ -394,7 +396,8 @@ export class DbHandler {
                 signature TEXT NOT NULL, -- JSON
                 modSignerAddress TEXT NOT NULL,
                 protocolVersion TEXT NOT NULL,
-                subplebbitAddress TEXT NOT NULL,
+                communityPublicKey TEXT,
+                communityName TEXT,
                 timestamp INTEGER CHECK(timestamp > 0) NOT NULL,
                 commentModeration TEXT NOT NULL, -- JSON
                 insertedAt INTEGER NOT NULL,
@@ -745,6 +748,22 @@ export class DbHandler {
                     if (Object.keys(extraProps).length > 0) srcRecord.extraProps = { ...srcRecord.extraProps, ...extraProps };
                 }
 
+                // Migrate subplebbitAddress to communityPublicKey/communityName (v36 → v37)
+                if (currentDbVersion < 37 && srcRecord["subplebbitAddress"]) {
+                    const addr = srcRecord["subplebbitAddress"] as string;
+                    if (isStringDomain(addr)) {
+                        srcRecord["communityName"] = addr;
+                        // Leave communityPublicKey as NULL for domain-based old rows
+                    } else {
+                        srcRecord["communityPublicKey"] = addr;
+                    }
+                    // Preserve subplebbitAddress in extraProps for CID reconstruction
+                    const existingExtra =
+                        typeof srcRecord.extraProps === "string" ? JSON.parse(srcRecord.extraProps) : srcRecord.extraProps || {};
+                    srcRecord.extraProps = { ...existingExtra, subplebbitAddress: addr };
+                    delete srcRecord["subplebbitAddress"];
+                }
+
                 // Prepare record for insertion (stringify JSONs, convert booleans)
                 const processedRecord = this._processRecordsForDbBeforeInsert([srcRecord])[0];
 
@@ -983,8 +1002,8 @@ export class DbHandler {
         // Adding a new column to the comments table requires updating this list manually, which is error-prone.
         const stmt = this._db.prepare(`
             INSERT INTO ${TABLES.COMMENTS}
-            (cid, authorSignerAddress, author, link, linkWidth, linkHeight, thumbnailUrl, thumbnailUrlWidth, thumbnailUrlHeight, parentCid, postCid, previousCid, subplebbitAddress, content, timestamp, signature, originalCommentSignatureEncoded, title, depth, linkHtmlTagName, flairs, spoiler, pendingApproval, number, postNumber, nsfw, pseudonymityMode, quotedCids, extraProps, protocolVersion, insertedAt)
-            VALUES (@cid, @authorSignerAddress, @author, @link, @linkWidth, @linkHeight, @thumbnailUrl, @thumbnailUrlWidth, @thumbnailUrlHeight, @parentCid, @postCid, @previousCid, @subplebbitAddress, @content, @timestamp, @signature, @originalCommentSignatureEncoded, @title, @depth, @linkHtmlTagName, @flairs, @spoiler, @pendingApproval, @number, @postNumber, @nsfw, @pseudonymityMode, @quotedCids, @extraProps, @protocolVersion, @insertedAt)
+            (cid, authorSignerAddress, author, link, linkWidth, linkHeight, thumbnailUrl, thumbnailUrlWidth, thumbnailUrlHeight, parentCid, postCid, previousCid, communityPublicKey, communityName, content, timestamp, signature, originalCommentSignatureEncoded, title, depth, linkHtmlTagName, flairs, spoiler, pendingApproval, number, postNumber, nsfw, pseudonymityMode, quotedCids, extraProps, protocolVersion, insertedAt)
+            VALUES (@cid, @authorSignerAddress, @author, @link, @linkWidth, @linkHeight, @thumbnailUrl, @thumbnailUrlWidth, @thumbnailUrlHeight, @parentCid, @postCid, @previousCid, @communityPublicKey, @communityName, @content, @timestamp, @signature, @originalCommentSignatureEncoded, @title, @depth, @linkHtmlTagName, @flairs, @spoiler, @pendingApproval, @number, @postNumber, @nsfw, @pseudonymityMode, @quotedCids, @extraProps, @protocolVersion, @insertedAt)
         `);
 
         // Create default object with null values for all columns
@@ -1063,8 +1082,8 @@ export class DbHandler {
 
         const stmt = this._db.prepare(`
             INSERT INTO ${TABLES.COMMENT_MODERATIONS}
-            (commentCid, author, signature, modSignerAddress, protocolVersion, subplebbitAddress, timestamp, commentModeration, insertedAt, extraProps, targetAuthorSignerAddress, targetAuthorDomain)
-            VALUES (@commentCid, @author, @signature, @modSignerAddress, @protocolVersion, @subplebbitAddress, @timestamp, @commentModeration, @insertedAt, @extraProps, @targetAuthorSignerAddress, @targetAuthorDomain)
+            (commentCid, author, signature, modSignerAddress, protocolVersion, communityPublicKey, communityName, timestamp, commentModeration, insertedAt, extraProps, targetAuthorSignerAddress, targetAuthorDomain)
+            VALUES (@commentCid, @author, @signature, @modSignerAddress, @protocolVersion, @communityPublicKey, @communityName, @timestamp, @commentModeration, @insertedAt, @extraProps, @targetAuthorSignerAddress, @targetAuthorDomain)
         `);
 
         const defaults = remeda.mapToObj(columnNames, (column) => [column, null]);
@@ -1090,8 +1109,8 @@ export class DbHandler {
 
         const stmt = this._db.prepare(`
             INSERT INTO ${TABLES.COMMENT_EDITS}
-            (commentCid, authorSignerAddress, author, signature, protocolVersion, subplebbitAddress, timestamp, content, reason, deleted, flairs, spoiler, nsfw, isAuthorEdit, insertedAt, extraProps)
-            VALUES (@commentCid, @authorSignerAddress, @author, @signature, @protocolVersion, @subplebbitAddress, @timestamp, @content, @reason, @deleted, @flairs, @spoiler, @nsfw, @isAuthorEdit, @insertedAt, @extraProps)
+            (commentCid, authorSignerAddress, author, signature, protocolVersion, communityPublicKey, communityName, timestamp, content, reason, deleted, flairs, spoiler, nsfw, isAuthorEdit, insertedAt, extraProps)
+            VALUES (@commentCid, @authorSignerAddress, @author, @signature, @protocolVersion, @communityPublicKey, @communityName, @timestamp, @content, @reason, @deleted, @flairs, @spoiler, @nsfw, @isAuthorEdit, @insertedAt, @extraProps)
         `);
 
         const defaults = remeda.mapToObj(columnNames, (column) => [column, null]);
@@ -1136,27 +1155,37 @@ export class DbHandler {
         return `(${alias}.pendingApproval IS NULL OR ${alias}.pendingApproval != 1)`;
     }
 
-    private _subplebbitAddressClause(alias: string): { clause: string; params: string[] } {
-        const addresses = getEquivalentSubplebbitAddresses(this._subplebbit.address);
-        if (addresses.length === 1) return { clause: `${alias}.subplebbitAddress = ?`, params: addresses };
-        const placeholders = addresses.map(() => "?").join(", ");
-        return { clause: `${alias}.subplebbitAddress IN (${placeholders})`, params: addresses };
+    private _communityAddressClause(alias: string): { clause: string; params: string[] } {
+        const address = this._subplebbit.address;
+        const addresses = getEquivalentSubplebbitAddresses(address);
+        if (isStringDomain(address)) {
+            // Domain-based: match communityName against equivalent domain variants
+            const domainPlaceholders = addresses.map(() => "?").join(", ");
+            return { clause: `${alias}.communityName IN (${domainPlaceholders})`, params: addresses };
+        } else {
+            // IPNS key: match communityPublicKey directly
+            return { clause: `${alias}.communityPublicKey = ?`, params: [address] };
+        }
     }
 
-    private _subplebbitAddressClauseNamed(alias: string, paramPrefix: string): { clause: string; params: Record<string, string> } {
-        const addresses = getEquivalentSubplebbitAddresses(this._subplebbit.address);
-        if (addresses.length === 1) {
-            const paramName = `${paramPrefix}SubAddr`;
-            return { clause: `${alias}.subplebbitAddress = :${paramName}`, params: { [paramName]: addresses[0] } };
+    private _communityAddressClauseNamed(alias: string, paramPrefix: string): { clause: string; params: Record<string, string> } {
+        const address = this._subplebbit.address;
+        const addresses = getEquivalentSubplebbitAddresses(address);
+        if (isStringDomain(address)) {
+            // Domain-based: match communityName against equivalent domain variants
+            const params: Record<string, string> = {};
+            const placeholders: string[] = [];
+            addresses.forEach((addr, i) => {
+                const paramName = `${paramPrefix}CommunityName${i}`;
+                params[paramName] = addr;
+                placeholders.push(`:${paramName}`);
+            });
+            return { clause: `${alias}.communityName IN (${placeholders.join(", ")})`, params };
+        } else {
+            // IPNS key: match communityPublicKey directly
+            const paramName = `${paramPrefix}CommunityKey`;
+            return { clause: `${alias}.communityPublicKey = :${paramName}`, params: { [paramName]: address } };
         }
-        const params: Record<string, string> = {};
-        const placeholders: string[] = [];
-        addresses.forEach((addr, i) => {
-            const paramName = `${paramPrefix}SubAddr${i}`;
-            params[paramName] = addr;
-            placeholders.push(`:${paramName}`);
-        });
-        return { clause: `${alias}.subplebbitAddress IN (${placeholders.join(", ")})`, params };
     }
 
     private _buildPageQueryParts(options: Omit<PageOptions, "pageSize" | "preloadedPage" | "baseTimestamp" | "firstPageSizeBytes">): {
@@ -1170,7 +1199,7 @@ export class DbHandler {
         const params: any[] = [options.parentCid];
 
         if (options.excludeCommentsWithDifferentSubAddress) {
-            const { clause, params: addrParams } = this._subplebbitAddressClause(commentsTable);
+            const { clause, params: addrParams } = this._communityAddressClause(commentsTable);
             whereClauses.push(clause);
             params.push(...addrParams);
         }
@@ -1183,7 +1212,7 @@ export class DbHandler {
     }
 
     queryMaximumTimestampUnderComment(comment: Pick<CommentsTableRow, "cid">): number | undefined {
-        const { clause: addrClause, params: addrParams } = this._subplebbitAddressClause("c");
+        const { clause: addrClause, params: addrParams } = this._communityAddressClause("c");
         const query = `
             WITH RECURSIVE descendants AS (
                 SELECT c.cid, c.timestamp FROM ${TABLES.COMMENTS} c
@@ -1255,10 +1284,10 @@ export class DbHandler {
         const deletedLookupAlias = "d";
 
         if (options.excludeCommentsWithDifferentSubAddress) {
-            const { clause: baseClause, params: baseAddrParams } = this._subplebbitAddressClause(commentsAlias);
+            const { clause: baseClause, params: baseAddrParams } = this._communityAddressClause(commentsAlias);
             baseFilterClauses.push(baseClause);
             params.push(...baseAddrParams);
-            const { clause: recClause, params: recAddrParams } = this._subplebbitAddressClause(commentsAlias);
+            const { clause: recClause, params: recAddrParams } = this._communityAddressClause(commentsAlias);
             recursiveFilterClauses.push(recClause);
             params.push(...recAddrParams);
         }
@@ -1515,8 +1544,8 @@ export class DbHandler {
     querySubplebbitStats(): SubplebbitStats {
         // if you change this logic, make sure to run stats.subplebbit.test.js
         const now = timestamp(); // All timestamps are in seconds
-        const { clause: commentAddrClause, params: commentAddrParams } = this._subplebbitAddressClauseNamed("comments", "statsComments");
-        const { clause: votesAddrClause, params: votesAddrParams } = this._subplebbitAddressClauseNamed("comments_for_votes", "statsVotes");
+        const { clause: commentAddrClause, params: commentAddrParams } = this._communityAddressClauseNamed("comments", "statsComments");
+        const { clause: votesAddrClause, params: votesAddrParams } = this._communityAddressClauseNamed("comments_for_votes", "statsVotes");
         const removedCommentsClause = this._removedClause("cu_comments");
         const deletedCommentsClause = this._deletedFromUpdatesClause("cu_comments");
         const removedVotesClause = this._removedClause("cu_votes");
@@ -1702,7 +1731,7 @@ export class DbHandler {
 
     queryFirstCommentWithDepth(commentDepth: number): CommentsTableRow | undefined {
         if (!Number.isInteger(commentDepth) || commentDepth < 0) throw new Error("commentDepth must be a non-negative integer");
-        const { clause: addrClause, params: addrParams } = this._subplebbitAddressClauseNamed("c", "firstComment");
+        const { clause: addrClause, params: addrParams } = this._communityAddressClauseNamed("c", "firstComment");
         const exactDepthRow = this._db
             .prepare(
                 `SELECT c.* FROM ${TABLES.COMMENTS} c
@@ -1803,7 +1832,7 @@ export class DbHandler {
     }
 
     private _queryCommentCounts(cid: string): Pick<CommentUpdateType, "replyCount" | "upvoteCount" | "downvoteCount" | "childCount"> {
-        const { clause: addrClause, params: addrParams } = this._subplebbitAddressClauseNamed("c", "cc");
+        const { clause: addrClause, params: addrParams } = this._communityAddressClauseNamed("c", "cc");
         const query = `
         SELECT
             (SELECT COUNT(*) FROM ${TABLES.VOTES} WHERE commentCid = :cid AND vote = 1) AS upvoteCount,
@@ -1842,18 +1871,19 @@ export class DbHandler {
             .sort((a, b) => a - b)
             .map((bucket) => `WHEN (${currentTimestampSeconds} - c.timestamp) <= ${bucket} THEN ${bucket}`)
             .join(" ");
+        const { clause: addrClause, params: addrParams } = this._communityAddressClause("c");
         const query = `
             WITH post_data AS (
                 SELECT c.cid, c.timestamp, cu.postUpdatesBucket AS current_bucket,
                     CASE ${caseClauses} ELSE ${maxBucket} END AS new_bucket
                 FROM ${TABLES.COMMENTS} as c INNER JOIN ${TABLES.COMMENT_UPDATES} as cu ON c.cid = cu.cid
-                WHERE c.subplebbitAddress = ?
+                WHERE ${addrClause}
                   AND (c.pendingApproval IS NULL OR c.pendingApproval != 1)
                   AND cu.postUpdatesBucket IS NOT NULL AND cu.postUpdatesBucket != ?
             ) SELECT cid, timestamp, current_bucket AS currentBucket, new_bucket AS newBucket
             FROM post_data WHERE current_bucket != new_bucket
         `;
-        return this._db.prepare(query).all(this._subplebbit.address, maxBucket) as {
+        return this._db.prepare(query).all(...addrParams, maxBucket) as {
             cid: string;
             timestamp: number;
             currentBucket: number;
@@ -2753,9 +2783,9 @@ export class DbHandler {
     queryPostsWithActiveScore(
         pageOptions: Omit<PageOptions, "pageSize" | "preloadedPage" | "baseTimestamp" | "firstPageSizeBytes">
     ): (PageIpfs["comments"][0] & { activeScore: number })[] {
-        const { clause: rootAddrClause, params: rootAddrParams } = this._subplebbitAddressClauseNamed("p", "asRoot");
-        const { clause: descAddrClause, params: descAddrParams } = this._subplebbitAddressClauseNamed("c", "asDesc");
-        const { clause: postsAddrClause, params: postsAddrParams } = this._subplebbitAddressClauseNamed("c", "asPosts");
+        const { clause: rootAddrClause, params: rootAddrParams } = this._communityAddressClauseNamed("p", "asRoot");
+        const { clause: descAddrClause, params: descAddrParams } = this._communityAddressClauseNamed("c", "asDesc");
+        const { clause: postsAddrClause, params: postsAddrParams } = this._communityAddressClauseNamed("c", "asPosts");
 
         const activeScoreRootConditions = ["p.depth = 0"];
         if (pageOptions.excludeCommentsWithDifferentSubAddress) activeScoreRootConditions.push(rootAddrClause);

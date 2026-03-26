@@ -54,8 +54,8 @@ describeSkipIfRpc("subplebbit.postUpdates", async () => {
     });
 
     it(`subplebbit.postUpdates = {86400} when a post is published`, async () => {
-        const post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
-        await waitTillPostInSubplebbitPages(post as CommentIpfsWithCidDefined, remotePlebbit);
+        const post = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: remotePlebbit });
+        await waitTillPostInSubplebbitPages(post as Comment & { cid: string }, remotePlebbit);
 
         const postRecreated = await remotePlebbit.createComment({ cid: post.cid });
         await postRecreated.update();

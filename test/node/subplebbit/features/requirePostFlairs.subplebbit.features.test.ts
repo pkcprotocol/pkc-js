@@ -37,7 +37,7 @@ describe(`subplebbit.features.requirePostFlairs`, async () => {
 
         // Publish a post before enabling requirePostFlairs (with flair since postFlairs is enabled)
         publishedPost = (await publishRandomPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: {
                 flairs: [validPostFlair]
@@ -57,7 +57,7 @@ describe(`subplebbit.features.requirePostFlairs`, async () => {
     });
 
     it(`Can't publish a post without post flairs`, async () => {
-        const post = await generateMockPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
+        const post = await generateMockPost({ communityAddress: subplebbit.address, plebbit: remotePlebbit });
         await publishWithExpectedResult({
             publication: post,
             expectedChallengeSuccess: false,
@@ -72,7 +72,7 @@ describe(`subplebbit.features.requirePostFlairs`, async () => {
 
     it(`Can publish a post with valid post flair`, async () => {
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: {
                 flairs: [validPostFlair]
@@ -84,7 +84,7 @@ describe(`subplebbit.features.requirePostFlairs`, async () => {
     it(`Can't publish a post with invalid post flair even when required`, async () => {
         const invalidFlair = { text: "Invalid", backgroundColor: "#ff0000" };
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: {
                 flairs: [invalidFlair]

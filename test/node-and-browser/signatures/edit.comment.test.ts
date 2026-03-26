@@ -24,7 +24,7 @@ describe("Sign commentedit", async () => {
         subplebbit = await plebbit.getSubplebbit({ address: signers[0].address });
         editProps = {
             author: { displayName: "Editor" },
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             commentCid: subplebbit.lastPostCid!,
             reason: "New comment edit",
             content: "Just so",

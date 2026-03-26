@@ -99,7 +99,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         beforeAll(async () => {
             const tempPlebbit = await config.plebbitInstancePromise();
             const sub = await tempPlebbit.getSubplebbit({ address: subplebbitAddress });
-            const post = await publishRandomPost({ subplebbitAddress: sub.address, plebbit: tempPlebbit });
+            const post = await publishRandomPost({ communityAddress: sub.address, plebbit: tempPlebbit });
             const reply = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: tempPlebbit });
             replyCid = reply.cid;
             await tempPlebbit.destroy();
@@ -157,11 +157,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         it(`updating state of reply is set to failed if sub has an invalid Subplebbit record`, async () => {
             const plebbit = await config.plebbitInstancePromise();
             try {
-                const { commentCid: mockedReplyCid, subplebbitAddress: subAddress } = await createStaticSubplebbitRecordForComment({
+                const { commentCid: mockedReplyCid, communityAddress: subAddress } = await createStaticSubplebbitRecordForComment({
                     invalidateSubplebbitSignature: true
                 });
 
-                const mockReply = await plebbit.createComment({ cid: mockedReplyCid, subplebbitAddress: subAddress });
+                const mockReply = await plebbit.createComment({ cid: mockedReplyCid, communityAddress: subAddress });
 
                 const recordedStates: string[] = [];
                 mockReply.on("updatingstatechange", () => recordedStates.push(mockReply.updatingState));
@@ -233,7 +233,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
         it(`updating state of reply is set to failed if sub has an invalid Subplebbit record`, async () => {
             const plebbit = await config.plebbitInstancePromise();
             try {
-                const { commentCid: mockedReplyCid, subplebbitAddress: subAddress } = await createStaticSubplebbitRecordForComment({
+                const { commentCid: mockedReplyCid, communityAddress: subAddress } = await createStaticSubplebbitRecordForComment({
                     plebbit,
                     invalidateSubplebbitSignature: true,
                     commentOptions: {
@@ -241,7 +241,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
                     }
                 });
 
-                const mockReply = await plebbit.createComment({ cid: mockedReplyCid, subplebbitAddress: subAddress });
+                const mockReply = await plebbit.createComment({ cid: mockedReplyCid, communityAddress: subAddress });
                 const recordedStates: string[] = [];
                 mockReply.on("updatingstatechange", () => recordedStates.push(mockReply.updatingState));
 

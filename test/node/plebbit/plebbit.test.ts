@@ -118,7 +118,7 @@ describe.concurrent(`plebbit.destroy()`, async () => {
         await plebbit.destroy();
 
         const remotePlebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
-        await publishRandomPost({ subplebbitAddress: sub.address, plebbit: remotePlebbit }); // if we can publish a post, the sub is running
+        await publishRandomPost({ communityAddress: sub.address, plebbit: remotePlebbit }); // if we can publish a post, the sub is running
 
         await remotePlebbit.destroy();
     });

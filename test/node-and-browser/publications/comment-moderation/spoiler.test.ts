@@ -22,7 +22,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            randomPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            randomPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             await randomPost.update();
         });
 
@@ -32,7 +32,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Mod can mark an author comment as spoiler`, async () => {
             const modSpoilerEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: randomPost.subplebbitAddress,
+                communityAddress: randomPost.communityAddress,
                 commentCid: randomPost.cid,
                 commentModeration: { spoiler: true, reason: "Mod marking an author comment as spoiler" },
                 signer: roles[2].signer
@@ -51,7 +51,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`spoiler=true appears in pages of subplebbit`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: randomPost.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: randomPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -64,7 +64,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Mod can mark unspoiler author comment `, async () => {
             const unspoilerEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: randomPost.subplebbitAddress,
+                communityAddress: randomPost.communityAddress,
                 commentCid: randomPost.cid,
                 commentModeration: { spoiler: false, reason: "Mod unspoilering an author comment" },
                 signer: roles[2].signer
@@ -83,7 +83,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`spoiler=false appears in pages of subplebbit`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: randomPost.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: randomPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,

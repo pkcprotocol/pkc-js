@@ -52,7 +52,7 @@ interface InsertCommentModerationOptions
 
 describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
     let dbHandler: DbHandler | undefined;
-    let subplebbitAddress: string;
+    let communityAddress: string;
     let cidCounter = 0;
     const protocolVersion = "1.0.0";
 
@@ -60,9 +60,9 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
     const currentTimestamp = (): number => Math.floor(Date.now() / 1000);
 
     async function createTestDbHandler(): Promise<DbHandler> {
-        subplebbitAddress = `test-sub-${Date.now()}-${Math.random()}`;
+        communityAddress = `test-sub-${Date.now()}-${Math.random()}`;
         const fakePlebbit = { noData: true };
-        const fakeSubplebbit = { address: subplebbitAddress, _plebbit: fakePlebbit };
+        const fakeSubplebbit = { address: communityAddress, _plebbit: fakePlebbit };
         const handler = new DbHandler(fakeSubplebbit as DbHandler["_subplebbit"]);
         await handler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
         await handler.createOrMigrateTablesIfNeeded();
@@ -87,7 +87,7 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
             author: overrides.author ?? { address: authorSignerAddress },
             content: overrides.content ?? `content-${cid}`,
             title: depth === 0 ? overrides.title ?? `title-${cid}` : undefined,
-            subplebbitAddress,
+            communityPublicKey: communityAddress,
             timestamp: resolvedTimestamp,
             depth,
             postCid: resolvedPostCid,
@@ -179,7 +179,7 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
                 author: { address: authorSignerAddress },
                 signature: "sig",
                 protocolVersion,
-                subplebbitAddress,
+                communityPublicKey: communityAddress,
                 timestamp: resolvedTimestamp,
                 content: `edit-${comment.cid}`,
                 reason: null,
@@ -212,7 +212,7 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
                 signature: "sig",
                 modSignerAddress,
                 protocolVersion,
-                subplebbitAddress,
+                communityPublicKey: communityAddress,
                 timestamp: resolvedTimestamp,
                 commentModeration: moderation,
                 insertedAt: resolvedInsertedAt
@@ -406,7 +406,7 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
                                 parentCid: parent.cid,
                                 postCid: post.cid,
                                 depth: parent.depth + 1,
-                                subplebbitAddress
+                                communityAddress: communityAddress
                             },
                             commentUpdate: {
                                 cid: staleChildCid,
@@ -474,7 +474,7 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
                                 parentCid: parent.cid,
                                 postCid: post.cid,
                                 depth: child.depth,
-                                subplebbitAddress
+                                communityAddress: communityAddress
                             },
                             commentUpdate: {
                                 cid: child.cid,
@@ -665,7 +665,7 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
                                 parentCid: parent.cid,
                                 postCid: post.cid,
                                 depth: child.depth,
-                                subplebbitAddress
+                                communityAddress: communityAddress
                             },
                             commentUpdate: {
                                 cid: child.cid,
@@ -729,7 +729,7 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
                                 parentCid: parent.cid,
                                 postCid: post.cid,
                                 depth: child.depth,
-                                subplebbitAddress
+                                communityAddress: communityAddress
                             },
                             commentUpdate: {
                                 cid: child.cid,
@@ -798,7 +798,7 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
                                 parentCid: parent.cid,
                                 postCid: post.cid,
                                 depth: child.depth,
-                                subplebbitAddress
+                                communityAddress: communityAddress
                             },
                             commentUpdate: {
                                 cid: child.cid,
@@ -872,7 +872,7 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
                                 parentCid: parent.cid,
                                 postCid: post.cid,
                                 depth: pendingChild.depth,
-                                subplebbitAddress
+                                communityAddress: communityAddress
                             },
                             commentUpdate: {
                                 cid: pendingChild.cid,
@@ -1334,7 +1334,7 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
                                 parentCid: reply.cid,
                                 postCid: post.cid,
                                 depth: child.depth,
-                                subplebbitAddress
+                                communityAddress: communityAddress
                             },
                             commentUpdate: {
                                 cid: child.cid,

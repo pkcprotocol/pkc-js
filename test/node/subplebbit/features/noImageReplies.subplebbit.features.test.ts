@@ -30,7 +30,7 @@ describe.concurrent(`subplebbit.features.noImageReplies`, async () => {
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
         // Publish a post first (before enabling the feature)
-        publishedPost = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
+        publishedPost = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: remotePlebbit });
     });
 
     afterAll(async () => {
@@ -53,7 +53,7 @@ describe.concurrent(`subplebbit.features.noImageReplies`, async () => {
 
     it(`Can publish a post with image link (noImageReplies only blocks replies)`, async () => {
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: {
                 link: "https://example.com/image.png",

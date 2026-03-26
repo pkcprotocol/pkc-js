@@ -33,8 +33,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         let plebbit: PlebbitType, newPost: Comment, subplebbit: RemoteSubplebbit;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            newPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit }); // After publishing this post it should appear on all pages
-            await waitTillPostInSubplebbitPages(newPost as CommentIpfsWithCidDefined, plebbit);
+            newPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit }); // After publishing this post it should appear on all pages
+            await waitTillPostInSubplebbitPages(newPost as Comment & { cid: string }, plebbit);
             subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
         });
 
@@ -168,9 +168,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             beforeAll(async () => {
                 plebbit = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: false } });
-                newPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+                newPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
                 await publishRandomReply({ parentComment: newPost as CommentIpfsWithCidDefined, plebbit: plebbit });
-                await waitTillPostInSubplebbitPages(newPost as CommentIpfsWithCidDefined, plebbit);
+                await waitTillPostInSubplebbitPages(newPost as Comment & { cid: string }, plebbit);
                 subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
                 validPageJson = remeda.clone(subplebbit.posts.pages.hot); // PageTypeJson, not PageIpfs
             });
@@ -199,7 +199,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             it("fails validation when a comment belongs to a different subplebbit", async () => {
                 const invalidPage = JSON.parse(JSON.stringify(validPageJson));
-                invalidPage.comments[0].raw.comment.subplebbitAddress = "different-address";
+                invalidPage.comments[0].raw.comment.communityAddress = "different-address";
 
                 try {
                     await subplebbit.posts.validatePage(invalidPage);

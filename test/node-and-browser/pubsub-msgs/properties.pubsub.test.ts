@@ -84,7 +84,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`Validate props of challengerequest`, async () => {
-            const comment = await generatePostToAnswerMathQuestion({ subplebbitAddress: mathCliSubplebbitAddress }, plebbit);
+            const comment = await generatePostToAnswerMathQuestion({ communityAddress: mathCliSubplebbitAddress }, plebbit);
 
             const requestPromise = new Promise<ChallengeRequest>((resolve) =>
                 comment.once("challengerequest", resolve as (req: unknown) => void)
@@ -122,7 +122,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`Validate props of challenge`, async () => {
-            const comment = await generatePostToAnswerMathQuestion({ subplebbitAddress: mathCliSubplebbitAddress }, plebbit);
+            const comment = await generatePostToAnswerMathQuestion({ communityAddress: mathCliSubplebbitAddress }, plebbit);
 
             const challengePromise = new Promise<Challenge>((resolve) => comment.once("challenge", resolve as (msg: unknown) => void));
             await comment.publish();
@@ -160,7 +160,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`Validate props of challengeanswer`, async () => {
-            const comment = await generatePostToAnswerMathQuestion({ subplebbitAddress: mathCliSubplebbitAddress }, plebbit);
+            const comment = await generatePostToAnswerMathQuestion({ communityAddress: mathCliSubplebbitAddress }, plebbit);
 
             const challengeAnswerPromise = new Promise<ChallengeAnswer>((resolve) =>
                 comment.once("challengeanswer", resolve as (msg: unknown) => void)
@@ -196,7 +196,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`Validate props of challengeverification (challengeSuccess=false)`, async () => {
-            const comment = await generatePostToAnswerMathQuestion({ subplebbitAddress: mathCliSubplebbitAddress }, plebbit);
+            const comment = await generatePostToAnswerMathQuestion({ communityAddress: mathCliSubplebbitAddress }, plebbit);
 
             comment.removeAllListeners("challenge");
             const challengePromise = new Promise((resolve) => comment.once("challenge", resolve));
@@ -239,7 +239,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`Validate props of challengeverification (challengeSuccess=true)`, async () => {
-            const comment = await generatePostToAnswerMathQuestion({ subplebbitAddress: mathCliSubplebbitAddress }, plebbit);
+            const comment = await generatePostToAnswerMathQuestion({ communityAddress: mathCliSubplebbitAddress }, plebbit);
 
             const challengeVerificationPromise = new Promise<ChallengeVerification>((resolve) =>
                 comment.once("challengeverification", resolve as (msg: unknown) => void)

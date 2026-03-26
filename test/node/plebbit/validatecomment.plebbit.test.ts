@@ -19,7 +19,7 @@ import type { LocalSubplebbit } from "../../../dist/node/runtime/node/subplebbit
 import type { CommentWithinRepliesPostsPageJson } from "../../../dist/node/publications/comment/types.js";
 
 interface ValidateCommentTestEnvironment {
-    subplebbitAddress: string;
+    communityAddress: string;
     postCid: string;
     repliesPostCid: string;
     cleanup: () => Promise<void>;
@@ -51,7 +51,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
         beforeAll(async () => {
             publisherEnv = await createValidateCommentTestEnvironment();
             remotePlebbit = await config.plebbitInstancePromise();
-            subplebbit = (await remotePlebbit.getSubplebbit({ address: publisherEnv.subplebbitAddress })) as RemoteSubplebbit;
+            subplebbit = (await remotePlebbit.getSubplebbit({ address: publisherEnv.communityAddress })) as RemoteSubplebbit;
             await subplebbit.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: subplebbit,
@@ -445,7 +445,7 @@ async function createValidateCommentTestEnvironment(): Promise<ValidateCommentTe
     });
 
     const postForInstance = await publishRandomPost({
-        subplebbitAddress: subplebbit.address,
+        communityAddress: subplebbit.address,
         plebbit: publisherPlebbit,
         postProps: {
             content: `validate-comment-post ${Date.now()}`
@@ -458,7 +458,7 @@ async function createValidateCommentTestEnvironment(): Promise<ValidateCommentTe
     });
 
     const postWithReplies = await publishRandomPost({
-        subplebbitAddress: subplebbit.address,
+        communityAddress: subplebbit.address,
         plebbit: publisherPlebbit,
         postProps: {
             content: `validate-comment-reply-root ${Date.now()}`
@@ -476,7 +476,7 @@ async function createValidateCommentTestEnvironment(): Promise<ValidateCommentTe
     await postWithReplies.stop();
 
     return {
-        subplebbitAddress: subplebbit.address,
+        communityAddress: subplebbit.address,
         postCid: postForInstance.cid!,
         repliesPostCid: postWithReplies.cid!,
         cleanup: async () => {

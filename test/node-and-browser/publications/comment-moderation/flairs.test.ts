@@ -23,7 +23,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            randomPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            randomPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             await randomPost.update();
         });
 
@@ -34,7 +34,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it.sequential(`Mod can set flairs on a comment`, async () => {
             const modFlairs = await plebbit.createCommentModeration({
-                subplebbitAddress: randomPost.subplebbitAddress,
+                communityAddress: randomPost.communityAddress,
                 commentCid: randomPost.cid,
                 commentModeration: {
                     flairs: [{ text: "Mod Tag", backgroundColor: "#0000ff" }],
@@ -59,7 +59,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`mod flairs appear in pages of subplebbit`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: randomPost.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: randomPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -76,7 +76,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            randomPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            randomPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             await randomPost.update();
         });
 
@@ -87,7 +87,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it.sequential(`Mod can set flairs on an author`, async () => {
             const modAuthorFlairs = await plebbit.createCommentModeration({
-                subplebbitAddress: randomPost.subplebbitAddress,
+                communityAddress: randomPost.communityAddress,
                 commentCid: randomPost.cid,
                 commentModeration: {
                     author: { flairs: [{ text: "Trusted", textColor: "#fff", backgroundColor: "#00ff00" }] },
@@ -107,7 +107,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`author flairs appear in pages of subplebbit`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: randomPost.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: randomPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -126,7 +126,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             plebbit = await config.plebbitInstancePromise();
             // Author publishes post with flairs
             authorPost = await publishRandomPost({
-                subplebbitAddress: subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 plebbit: plebbit,
                 postProps: {
                     flairs: [{ text: "Author Flair" }]
@@ -150,7 +150,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it.sequential(`Mod overrides flairs on the comment`, async () => {
             const modFlairs = await plebbit.createCommentModeration({
-                subplebbitAddress: authorPost.subplebbitAddress,
+                communityAddress: authorPost.communityAddress,
                 commentCid: authorPost.cid,
                 commentModeration: {
                     flairs: [{ text: "Mod Override" }],

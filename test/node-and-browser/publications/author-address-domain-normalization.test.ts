@@ -22,7 +22,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it("createComment copies author.address domain to author.name and excludes address from wire", async () => {
             const comment = await plebbit.createComment({
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 content: "test",
                 title: "test",
                 author: { address: domainAddress },
@@ -37,7 +37,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it("createVote copies author.address domain to author.name and excludes address from wire", async () => {
             const vote = await plebbit.createVote({
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 commentCid: fakeCid,
                 vote: 1,
                 author: { address: domainAddress },
@@ -52,7 +52,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it("createCommentEdit copies author.address domain to author.name and excludes address from wire", async () => {
             const edit = await plebbit.createCommentEdit({
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 commentCid: fakeCid,
                 content: "edited",
                 author: { address: domainAddress },
@@ -67,7 +67,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it("createCommentModeration copies author.address domain to author.name and excludes address from wire", async () => {
             const mod = await plebbit.createCommentModeration({
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 commentCid: fakeCid,
                 commentModeration: { removed: true },
                 author: { address: domainAddress },
@@ -82,7 +82,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it("createSubplebbitEdit copies author.address domain to author.name and excludes address from wire", async () => {
             const subEdit = await plebbit.createSubplebbitEdit({
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 subplebbitEdit: { title: "new title" },
                 author: { address: domainAddress },
                 signer: signers[3]
@@ -96,7 +96,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it("createComment ignores non-domain author.address and derives address from signer", async () => {
             const comment = await plebbit.createComment({
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 content: "test",
                 title: "test",
                 author: { address: "bogusAddress123" },
@@ -112,7 +112,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it("createVote ignores non-domain author.address and derives address from signer", async () => {
             const vote = await plebbit.createVote({
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 commentCid: fakeCid,
                 vote: 1,
                 author: { address: "bogusAddress123" },
@@ -128,7 +128,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it("createCommentEdit ignores non-domain author.address and derives address from signer", async () => {
             const edit = await plebbit.createCommentEdit({
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 commentCid: fakeCid,
                 content: "edited",
                 author: { address: "bogusAddress123" },
@@ -144,7 +144,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it("createCommentModeration ignores non-domain author.address and derives address from signer", async () => {
             const mod = await plebbit.createCommentModeration({
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 commentCid: fakeCid,
                 commentModeration: { removed: true },
                 author: { address: "bogusAddress123" },
@@ -160,7 +160,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it("createSubplebbitEdit ignores non-domain author.address and derives address from signer", async () => {
             const subEdit = await plebbit.createSubplebbitEdit({
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 subplebbitEdit: { title: "new title" },
                 author: { address: "bogusAddress123" },
                 signer: signers[3]
@@ -175,7 +175,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it("createComment preserves existing author.name when author.address is also a domain", async () => {
             const comment = await plebbit.createComment({
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 content: "test",
                 title: "test",
                 author: { address: domainAddress, name: "custom.eth" },

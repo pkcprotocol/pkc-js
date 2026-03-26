@@ -615,7 +615,7 @@ function createFakeIpfsClient(): FakeIpfsClient {
 async function seedSubplebbitComments(subplebbit: LocalSubplebbit, commentTrees: TreeNode[]): Promise<SeededComments> {
     if (!Array.isArray(commentTrees) || commentTrees.length === 0) throw new Error("commentTrees array is required");
     const { rows, labelToCid } = await buildTestCommentRowsFromTrees({
-        subplebbitAddress: subplebbit.address,
+        communityPublicKey: subplebbit.signer.address,
         trees: commentTrees
     });
     subplebbit._dbHandler.insertComments(rows as CommentsTableRowInsert[]);
@@ -632,7 +632,7 @@ async function seedPendingApprovalComments(
         contentTargetBytes: contentBytes
     }));
     const { rows } = await buildTestCommentRowsFromTrees({
-        subplebbitAddress: subplebbit.address,
+        communityPublicKey: subplebbit.signer.address,
         trees
     });
     for (const row of rows) {
@@ -643,10 +643,10 @@ async function seedPendingApprovalComments(
 }
 
 async function buildTestCommentRowsFromTrees({
-    subplebbitAddress,
+    communityPublicKey,
     trees
 }: {
-    subplebbitAddress: string;
+    communityPublicKey: string;
     trees: TreeNode[];
 }): Promise<{ rows: TestCommentRow[]; labelToCid: Map<string, string> }> {
     const rows: TestCommentRow[] = [];
@@ -674,7 +674,8 @@ async function buildTestCommentRowsFromTrees({
             parentCid: depth === 0 ? null : parentCid,
             postCid,
             previousCid: null,
-            subplebbitAddress,
+            communityPublicKey: communityPublicKey,
+            communityName: null,
             content,
             timestamp: nodeTimestamp,
             signature: cloneDefaultSignature(),

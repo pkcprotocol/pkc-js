@@ -235,8 +235,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         itSkipIfRpc(
             `Stopping the first updating comment shouldn't tear down _updatingSubplebbits while another comment from the same sub is still updating`,
             async () => {
-                const firstPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
-                const secondPost = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+                const firstPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+                const secondPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
 
                 const firstComment = await plebbit.createComment({ cid: firstPost.cid });
                 const secondComment = await plebbit.createComment({ cid: secondPost.cid });
@@ -253,7 +253,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     predicate: async () => typeof secondComment.updatedAt === "number"
                 });
 
-                const subAddress = firstComment.subplebbitAddress;
+                const subAddress = firstComment.communityAddress;
                 expect(plebbit._updatingSubplebbits[subAddress]).to.exist;
 
                 await firstComment.stop();
@@ -272,13 +272,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         );
 
         it(`doesn't resurrect _updatingComments after stop() when the subplebbit record is invalid`, async () => {
-            const { subplebbitRecord, subplebbitAddress, ipnsObj } = await createMockedSubplebbitIpns({});
+            const { subplebbitRecord, communityAddress: subplebbitAddress, ipnsObj } = await createMockedSubplebbitIpns({});
             const invalidSubplebbitRecord = { ...subplebbitRecord, updatedAt: subplebbitRecord.updatedAt + 9999 };
             await ipnsObj.publishToIpns(JSON.stringify(invalidSubplebbitRecord));
 
             const postToPublish = await plebbit.createComment({
                 signer: await plebbit.createSigner(),
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 title: `Mock Post - ${Date.now()}`,
                 content: `Mock content - ${Date.now()}`
             });
@@ -301,7 +301,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`Calling comment.stop() and update() should behave as normal with plebbit._updatingComments`, async () => {
-            const comment = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            const comment = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             const postCommentCid = comment.cid;
 
             const postComment1 = await plebbit.createComment({ cid: postCommentCid });
@@ -340,7 +340,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it("fails (for now) when an updating comment mirrors itself from _updatingComments", async () => {
-            const post = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            const post = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             const selfUpdatingComment = await plebbit.createComment({ cid: post.cid });
 
             // Simulate the CI case where _updatingComments already holds the same instance before update()
@@ -406,17 +406,17 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 const comment = await plebbit.createComment({ cid: commentCid });
 
                 expect(plebbit._updatingComments[commentCid]).to.not.exist;
-                expect(plebbit._updatingSubplebbits[comment.subplebbitAddress]).to.not.exist;
+                expect(plebbit._updatingSubplebbits[comment.communityAddress]).to.not.exist;
 
                 await comment.update();
                 await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });
                 expect(plebbit._updatingComments[commentCid]).to.exist;
-                expect(plebbit._updatingSubplebbits[comment.subplebbitAddress]).to.exist;
+                expect(plebbit._updatingSubplebbits[comment.communityAddress]).to.exist;
 
                 await comment.stop();
                 await new Promise((resolve) => setTimeout(resolve, 500)); // need to wait some time to propgate events
                 expect(plebbit._updatingComments[commentCid]).to.not.exist;
-                expect(plebbit._updatingSubplebbits[comment.subplebbitAddress]).to.not.exist;
+                expect(plebbit._updatingSubplebbits[comment.communityAddress]).to.not.exist;
             }
         );
 
@@ -433,12 +433,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await comment.update();
             await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });
             expect(plebbit._updatingComments[commentCid]).to.exist;
-            expect(plebbit._updatingSubplebbits[comment.subplebbitAddress]).to.exist;
+            expect(plebbit._updatingSubplebbits[comment.communityAddress]).to.exist;
 
             await comment.stop();
             await new Promise((resolve) => setTimeout(resolve, 500)); // need to wait some time to propgate events
             expect(plebbit._updatingComments[commentCid]).to.not.exist;
-            expect(plebbit._updatingSubplebbits[comment.subplebbitAddress]).to.exist;
+            expect(plebbit._updatingSubplebbits[comment.communityAddress]).to.exist;
         });
     });
 });

@@ -50,7 +50,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
 
         it(`Correct order of ipfsGateways state when updating a subplebbit that was created with plebbit.getSubplebbit({address: address})`, async () => {
             const sub = await gatewayPlebbit.getSubplebbit({ address: signers[0].address });
-            await publishRandomPost({ subplebbitAddress: sub.address, plebbit: gatewayPlebbit });
+            await publishRandomPost({ communityAddress: sub.address, plebbit: gatewayPlebbit });
 
             const expectedStates = ["fetching-ipns", "stopped"];
 
@@ -69,7 +69,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
         });
 
         it(`Correct order of ipfs gateway state when we update a subplebbit and it's not publishing new subplebbit records`, async () => {
-            const { commentCid, subplebbitAddress } = await createStaticSubplebbitRecordForComment();
+            const { commentCid, communityAddress: subplebbitAddress } = await createStaticSubplebbitRecordForComment();
             // subAddress is static and won't be publishing new updates
 
             const sub = await gatewayPlebbit.createSubplebbit({ address: subplebbitAddress });
@@ -110,7 +110,9 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
         });
 
         it(`Correct order of ipfs gateway states when we update a subplebbit with record whose signature is invalid`, async () => {
-            const { commentCid, subplebbitAddress } = await createStaticSubplebbitRecordForComment({ invalidateSubplebbitSignature: true });
+            const { commentCid, communityAddress: subplebbitAddress } = await createStaticSubplebbitRecordForComment({
+                invalidateSubplebbitSignature: true
+            });
             // subAddress is static and is already published an invalid record
 
             const sub = await gatewayPlebbit.createSubplebbit({ address: subplebbitAddress });

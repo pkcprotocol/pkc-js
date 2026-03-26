@@ -147,7 +147,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         it(`updating state of post is set to failed if sub has an invalid Subplebbit record`, async () => {
             const plebbit = await config.plebbitInstancePromise({ plebbitOptions: { resolveAuthorNames: false } }); // set resolve to false so it wouldn't show up in states
             try {
-                const { commentCid, subplebbitAddress: subAddress } = await createStaticSubplebbitRecordForComment({
+                const { commentCid, communityAddress: subAddress } = await createStaticSubplebbitRecordForComment({
                     plebbit,
                     invalidateSubplebbitSignature: true
                 });
@@ -217,7 +217,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                     eventName: "error"
                 });
 
-                await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: dedicatedPlebbit }); // force subplebbit to publish a new update which will increase loading attempts
+                await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: dedicatedPlebbit }); // force subplebbit to publish a new update which will increase loading attempts
                 await resolveWhenConditionIsTrue({
                     toUpdate: createdComment,
                     predicate: async () => errors.length >= 2,
@@ -276,7 +276,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
         it(`updating state of post is set to failed if sub has an invalid Subplebbit record`, async () => {
             const dedicatedPlebbit = await config.plebbitInstancePromise();
             try {
-                const { commentCid, subplebbitAddress: subAddress } = await createStaticSubplebbitRecordForComment({
+                const { commentCid, communityAddress: subAddress } = await createStaticSubplebbitRecordForComment({
                     plebbit: dedicatedPlebbit,
                     invalidateSubplebbitSignature: true
                 });
@@ -348,7 +348,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
 
                 await createErrorPromise();
 
-                await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: dedicatedPlebbit }); // force subplebbit to publish a new update which will increase loading attempts
+                await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: dedicatedPlebbit }); // force subplebbit to publish a new update which will increase loading attempts
                 await createErrorPromise();
 
                 await createdComment.stop();

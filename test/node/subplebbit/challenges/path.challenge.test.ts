@@ -62,7 +62,7 @@ describeSkipIfRpc.concurrent(`subplebbit.settings.challenges with path`, async (
 
         // Test with correct answer
         const mockPost = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: plebbit,
             postProps: {
                 challengeRequest: { challengeAnswers: ["4"] }
@@ -101,7 +101,7 @@ describeSkipIfRpc.concurrent(`subplebbit.settings.challenges with path`, async (
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
         // Test with wrong answer
-        const mockPost = await generateMockPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
+        const mockPost = await generateMockPost({ communityAddress: subplebbit.address, plebbit: plebbit });
         mockPost.removeAllListeners("challenge");
 
         let challengeReceived = false;
@@ -153,7 +153,7 @@ describeSkipIfRpc.concurrent(`subplebbit.settings.challenges with path`, async (
 
         // Test with correct answers for both challenges
         const mockPost = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: plebbit,
             postProps: {
                 challengeRequest: { challengeAnswers: ["6", "8"] }

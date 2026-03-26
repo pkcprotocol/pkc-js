@@ -32,9 +32,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             plebbit = await mockRemotePlebbit();
             sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
             await sub.update();
-            postToBeLocked = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            postToBeLocked = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             modPost = await publishRandomPost({
-                subplebbitAddress: subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 plebbit: plebbit,
                 postProps: { signer: roles[2].signer }
             });
@@ -51,7 +51,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
         it(`Author can't lock their own post`, async () => {
             const lockedEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: postToBeLocked.subplebbitAddress,
+                communityAddress: postToBeLocked.communityAddress,
                 commentCid: postToBeLocked.cid,
                 commentModeration: { locked: true },
                 signer: postToBeLocked.signer
@@ -64,7 +64,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
         it(`Regular author can't lock another author comment`, async () => {
             const lockedEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: postToBeLocked.subplebbitAddress,
+                communityAddress: postToBeLocked.communityAddress,
                 commentCid: postToBeLocked.cid,
                 commentModeration: { locked: true },
                 signer: await plebbit.createSigner()
@@ -79,7 +79,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         it(`Mod Can't lock a reply`, async () => {
             // This is prior to locking the post
             const lockedEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: replyUnderPostToBeLocked.subplebbitAddress,
+                communityAddress: replyUnderPostToBeLocked.communityAddress,
                 commentCid: replyUnderPostToBeLocked.cid,
                 commentModeration: { locked: true },
                 signer: roles[2].signer
@@ -93,7 +93,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it.sequential(`Mod can lock an author post`, async () => {
             const lockedEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: postToBeLocked.subplebbitAddress,
+                communityAddress: postToBeLocked.communityAddress,
                 commentCid: postToBeLocked.cid,
                 commentModeration: { locked: true, reason: "To lock an author post" },
                 signer: roles[2].signer
@@ -111,7 +111,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`subplebbit.posts includes locked post with locked=true`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: postToBeLocked.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: postToBeLocked.communityAddress });
 
             await sub.update();
 
@@ -133,7 +133,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`locked=true for author post when it's locked by mod in pages of subplebbit`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: postToBeLocked.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: postToBeLocked.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -150,7 +150,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it.sequential(`Mod can lock their own post`, async () => {
             const lockedEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: modPost.subplebbitAddress,
+                communityAddress: modPost.communityAddress,
                 commentCid: modPost.cid,
                 commentModeration: { locked: true, reason: "To lock a mod post" },
                 signer: modPost.signer
@@ -168,7 +168,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`locked=true for mod post when it's locked by mod in getPage of subplebbit`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: modPost.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: modPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -220,7 +220,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it.sequential(`Mod can unlock a post`, async () => {
             const unlockEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: postToBeLocked.subplebbitAddress,
+                communityAddress: postToBeLocked.communityAddress,
                 commentCid: postToBeLocked.cid,
                 commentModeration: { locked: false, reason: "To unlock an author post" },
                 signer: roles[2].signer
@@ -238,7 +238,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`locked=false in getPage of subplebbit after the mod unlocks it`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: postToBeLocked.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: postToBeLocked.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,

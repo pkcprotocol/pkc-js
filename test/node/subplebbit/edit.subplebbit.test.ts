@@ -25,7 +25,6 @@ import type { RpcLocalSubplebbit } from "../../../dist/node/subplebbit/rpc-local
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { RemoteSubplebbit } from "../../../dist/node/subplebbit/remote-subplebbit.js";
 import type { SubplebbitEditOptions } from "../../../dist/node/subplebbit/types.js";
-import type { CommentIpfsWithCidDefined } from "../../../dist/node/publications/comment/types.js";
 
 describeSkipIfRpc(`subplebbit.edit`, async () => {
     let plebbit: PlebbitType;
@@ -60,13 +59,13 @@ describeSkipIfRpc(`subplebbit.edit`, async () => {
         plebbitResolverRecords.set(bsoNameAddress, subplebbit.signer.address);
         remoteResolverRecords.set(bsoNameAddress, subplebbit.signer.address);
 
-        const resolvedSubAddress = await remotePlebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: bsoNameAddress });
+        const resolvedSubAddress = await remotePlebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: bsoNameAddress });
         expect(resolvedSubAddress).to.equal(subplebbit.signer.address);
 
         await plebbit.resolveAuthorName({ address: "esteban.bso" });
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
-        await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
+        await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
     });
     afterAll(async () => {
         await subplebbit.stop();
@@ -161,7 +160,7 @@ describeSkipIfRpc(`subplebbit.edit`, async () => {
     });
 
     it(`Started Sub can receive publications on new ENS address`, async () => {
-        postToPublishAfterEdit = await publishRandomPost({ subplebbitAddress: bsoNameAddress, plebbit: plebbit });
+        postToPublishAfterEdit = await publishRandomPost({ communityAddress: bsoNameAddress, plebbit: plebbit });
     });
 
     it(`Posts submitted to new sub address are shown in subplebbit.posts`, async () => {
@@ -225,18 +224,18 @@ describeSkipIfRpc(`subplebbit.edit .eth -> .bso transition`, async () => {
         remoteResolverRecords.set(ethAddress, subplebbit.signer.address);
         remoteResolverRecords.set(bsoAddress, subplebbit.signer.address);
 
-        expect(await remotePlebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: ethAddress })).to.equal(
+        expect(await remotePlebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: ethAddress })).to.equal(
             subplebbit.signer.address
         );
-        expect(await remotePlebbit._clientsManager.resolveCommunityNameIfNeeded({ subplebbitAddress: bsoAddress })).to.equal(
+        expect(await remotePlebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: bsoAddress })).to.equal(
             subplebbit.signer.address
         );
 
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
-        const publishedPost = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit }); // ensure posts are non-empty before edits
-        await waitTillPostInSubplebbitPages(publishedPost as CommentIpfsWithCidDefined, plebbit);
+        const publishedPost = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit }); // ensure posts are non-empty before edits
+        await waitTillPostInSubplebbitPages(publishedPost as Comment & { cid: string }, plebbit);
     });
 
     afterAll(async () => {
@@ -253,7 +252,7 @@ describeSkipIfRpc(`subplebbit.edit .eth -> .bso transition`, async () => {
         await new Promise((resolve) => subplebbit.once("update", resolve));
         expect(subplebbit.address).to.equal(ethAddress);
 
-        const postPublishedOnEth = await publishRandomPost({ subplebbitAddress: ethAddress, plebbit: plebbit });
+        const postPublishedOnEth = await publishRandomPost({ communityAddress: ethAddress, plebbit: plebbit });
         await resolveWhenConditionIsTrue({
             toUpdate: subplebbit,
             predicate: async () =>
@@ -298,7 +297,7 @@ describeSkipIfRpc(`subplebbit.edit .eth -> .bso transition`, async () => {
     });
 
     it(`started sub keeps accepting publications on the new .bso address`, async () => {
-        postPublishedOnBso = await publishRandomPost({ subplebbitAddress: bsoAddress, plebbit: plebbit });
+        postPublishedOnBso = await publishRandomPost({ communityAddress: bsoAddress, plebbit: plebbit });
 
         await resolveWhenConditionIsTrue({
             toUpdate: subplebbit,
@@ -414,7 +413,7 @@ describeSkipIfRpc(`Concurrency with subplebbit.edit`, async () => {
                 plebbit._storage.removeItem = () => Promise.resolve(false); // stop clearing cache when editing subplebbit address
 
                 const resolvedSubAddress = await plebbit._clientsManager.resolveCommunityNameIfNeeded({
-                    subplebbitAddress: editArgs.address
+                    communityAddress: editArgs.address
                 });
                 expect(resolvedSubAddress).to.equal(subplebbitInstance.signer.address);
             }
@@ -549,8 +548,8 @@ describeSkipIfRpc(`Concurrency with subplebbit.edit`, async () => {
         expect(await localSub._dbHandler.isSubStartLocked(sub.signer.address)).to.be.false;
         expect(await localSub._dbHandler.isSubStartLocked(domain)).to.be.true;
 
-        const post = await publishRandomPost({ subplebbitAddress: sub.address, plebbit: customPlebbit });
-        await waitTillPostInSubplebbitPages(post as Required<Pick<Comment, "cid" | "subplebbitAddress">>, customPlebbit);
+        const post = await publishRandomPost({ communityAddress: sub.address, plebbit: customPlebbit });
+        await waitTillPostInSubplebbitPages(post as Comment & { cid: string }, customPlebbit);
         await sub.stop();
         await customPlebbit.destroy();
     });
@@ -614,7 +613,7 @@ describe(`Edit misc`, async () => {
         const newSub = (await customPlebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
         if (!customPlebbit._plebbitRpcClient) {
             const resolvedSubAddress = await customPlebbit._clientsManager.resolveCommunityNameIfNeeded({
-                subplebbitAddress: "no-sub-address.bso"
+                communityAddress: "no-sub-address.bso"
             });
             expect(resolvedSubAddress).to.equal(null);
         }
@@ -853,7 +852,7 @@ describeSkipIfRpc(`.eth <-> .bso alias address transitions`, async () => {
         expect(subplebbit.address).to.equal(ethNameAddress);
 
         // Publish a post under the .eth address
-        postPublishedOnEth = await publishRandomPost({ subplebbitAddress: ethNameAddress, plebbit: plebbit });
+        postPublishedOnEth = await publishRandomPost({ communityAddress: ethNameAddress, plebbit: plebbit });
         await resolveWhenConditionIsTrue({
             toUpdate: subplebbit,
             predicate: async () =>

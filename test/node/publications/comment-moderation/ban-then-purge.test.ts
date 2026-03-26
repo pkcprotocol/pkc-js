@@ -43,7 +43,7 @@ describe("Ban then purge", () => {
         });
 
         commentToBeBanned = await publishRandomPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: plebbit,
             postProps: { signer: authorSigner }
         });
@@ -62,7 +62,7 @@ describe("Ban then purge", () => {
 
     it.sequential(`Mod can ban the author`, async () => {
         const banMod = await plebbit.createCommentModeration({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             commentCid: commentToBeBanned.cid,
             commentModeration: {
                 author: { banExpiresAt: authorBanExpiresAt },
@@ -75,7 +75,7 @@ describe("Ban then purge", () => {
 
     it.sequential(`Banned author can't publish`, async () => {
         const newCommentByBannedAuthor = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: plebbit,
             postProps: {
                 signer: authorSigner
@@ -90,7 +90,7 @@ describe("Ban then purge", () => {
 
     it.sequential(`Mod purges the banned comment`, async () => {
         const purgeEdit = await plebbit.createCommentModeration({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             commentCid: commentToBeBanned.cid,
             commentModeration: { reason: "Purge after ban test " + Date.now(), purged: true },
             signer: moderatorSigner
@@ -103,7 +103,7 @@ describe("Ban then purge", () => {
         // targetAuthorSignerAddress column in commentModerations stores the banned
         // author's address directly, allowing lookup without going through comments table.
         const newCommentByBannedAuthor = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: plebbit,
             postProps: {
                 signer: authorSigner
@@ -145,7 +145,7 @@ describeSkipIfRpc("Ban then purge with per-post pseudonymity mode", () => {
         });
 
         commentToBeBanned = await publishRandomPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: plebbit,
             postProps: { signer: authorSigner }
         });
@@ -169,7 +169,7 @@ describeSkipIfRpc("Ban then purge with per-post pseudonymity mode", () => {
         expect(aliasRow?.originalAuthorSignerPublicKey).to.equal(authorSigner.publicKey);
 
         const banMod = await plebbit.createCommentModeration({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             commentCid: commentToBeBanned.cid,
             commentModeration: {
                 author: { banExpiresAt: authorBanExpiresAt },
@@ -182,7 +182,7 @@ describeSkipIfRpc("Ban then purge with per-post pseudonymity mode", () => {
 
     it.sequential(`Banned author can't publish (using original signer)`, async () => {
         const newCommentByBannedAuthor = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: plebbit,
             postProps: {
                 signer: authorSigner
@@ -197,7 +197,7 @@ describeSkipIfRpc("Ban then purge with per-post pseudonymity mode", () => {
 
     it.sequential(`Mod purges the banned anonymized comment`, async () => {
         const purgeEdit = await plebbit.createCommentModeration({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             commentCid: commentToBeBanned.cid,
             commentModeration: { reason: "Purge pseudonymous after ban test " + Date.now(), purged: true },
             signer: moderatorSigner
@@ -209,7 +209,7 @@ describeSkipIfRpc("Ban then purge with per-post pseudonymity mode", () => {
         // The ban should persist because targetAuthorSignerAddress stores the original
         // author's address (resolved from pseudonymityAliases.originalAuthorSignerPublicKey)
         const newCommentByBannedAuthor = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: plebbit,
             postProps: {
                 signer: authorSigner
@@ -251,7 +251,7 @@ describeSkipIfRpc("Ban then purge with per-author pseudonymity mode", () => {
         });
 
         commentToBeBanned = await publishRandomPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: plebbit,
             postProps: { signer: authorSigner }
         });
@@ -276,7 +276,7 @@ describeSkipIfRpc("Ban then purge with per-author pseudonymity mode", () => {
         expect(aliasRow?.originalAuthorSignerPublicKey).to.equal(authorSigner.publicKey);
 
         const banMod = await plebbit.createCommentModeration({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             commentCid: commentToBeBanned.cid,
             commentModeration: {
                 author: { banExpiresAt: authorBanExpiresAt },
@@ -289,7 +289,7 @@ describeSkipIfRpc("Ban then purge with per-author pseudonymity mode", () => {
 
     it.sequential(`Banned author can't publish (using original signer)`, async () => {
         const newCommentByBannedAuthor = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: plebbit,
             postProps: {
                 signer: authorSigner
@@ -304,7 +304,7 @@ describeSkipIfRpc("Ban then purge with per-author pseudonymity mode", () => {
 
     it.sequential(`Mod purges the banned per-author anonymized comment`, async () => {
         const purgeEdit = await plebbit.createCommentModeration({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             commentCid: commentToBeBanned.cid,
             commentModeration: { reason: "Purge per-author after ban test " + Date.now(), purged: true },
             signer: moderatorSigner
@@ -314,7 +314,7 @@ describeSkipIfRpc("Ban then purge with per-author pseudonymity mode", () => {
 
     it.sequential(`Author ban persists after purging the per-author anonymized comment`, async () => {
         const newCommentByBannedAuthor = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: plebbit,
             postProps: {
                 signer: authorSigner

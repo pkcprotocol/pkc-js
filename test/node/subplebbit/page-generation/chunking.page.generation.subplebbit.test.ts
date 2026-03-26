@@ -18,7 +18,6 @@ interface CommentOptions {
     cid?: string;
     timestamp?: number;
     depth?: number;
-    subplebbitAddress?: string;
     previousCid?: string;
     content?: string;
     parentCid?: string;
@@ -38,7 +37,6 @@ interface ReplyEntryParams {
     parentCid: string;
     parentDepth: number;
     postCid: string;
-    subplebbitAddress: string;
     count: number;
     contentLength: number;
 }
@@ -47,7 +45,6 @@ interface ShallowReplyParams {
     parentCid: string;
     parentDepth: number;
     postCid: string;
-    subplebbitAddress: string;
     label: string;
     contentLength: number;
 }
@@ -228,7 +225,6 @@ function createCommentEntry(contentLengthOrOptions: number | CommentOptions = 0)
     const cid = options.cid ?? `${BASE_COMMENT_UPDATE.cid}-${commentCounter}`;
     const timestamp = options.timestamp ?? BASE_COMMENT_IPFS.timestamp + commentCounter;
     const depth = options.depth ?? BASE_COMMENT_IPFS.depth ?? 0;
-    const subplebbitAddress = options.subplebbitAddress ?? BASE_COMMENT_IPFS.subplebbitAddress;
     const previousCid = options.previousCid ?? `${BASE_COMMENT_IPFS.previousCid}-${commentCounter}`;
     const safeContentLength = Math.min(Math.max(options.contentLength ?? 0, 0), MAX_COMMENT_CONTENT_BYTES - 64);
     const content = options.content ?? buildContentString(label, safeContentLength);
@@ -236,7 +232,6 @@ function createCommentEntry(contentLengthOrOptions: number | CommentOptions = 0)
     const comment = structuredClone(BASE_COMMENT_IPFS);
     comment.depth = depth;
     comment.timestamp = timestamp;
-    comment.subplebbitAddress = subplebbitAddress;
     comment.previousCid = previousCid;
     comment.author = createCommentAuthor(label);
     comment.content = content;
@@ -257,7 +252,6 @@ function createCommentEntry(contentLengthOrOptions: number | CommentOptions = 0)
             parentCid: cid,
             parentDepth: depth,
             postCid: options.postCid ?? cid,
-            subplebbitAddress,
             count: options.nestedReplyCount ?? 0,
             contentLength: options.nestedReplyContentLength ?? 256
         });
@@ -328,40 +322,24 @@ function loadFixture<T>(relativePath: string): T {
     return JSON.parse(readFileSync(fileUrl, "utf8")) as T;
 }
 
-function createReplyEntries({
-    parentCid,
-    parentDepth,
-    postCid,
-    subplebbitAddress,
-    count,
-    contentLength
-}: ReplyEntryParams): CommentEntry[] {
+function createReplyEntries({ parentCid, parentDepth, postCid, count, contentLength }: ReplyEntryParams): CommentEntry[] {
     if (!count || count <= 0) return [];
     return Array.from({ length: count }, (_, index) =>
         createShallowReplyEntry({
             parentCid,
             parentDepth,
             postCid,
-            subplebbitAddress,
             label: `reply-${parentCid}-${index}`,
             contentLength
         })
     );
 }
 
-function createShallowReplyEntry({
-    parentCid,
-    parentDepth,
-    postCid,
-    subplebbitAddress,
-    label,
-    contentLength
-}: ShallowReplyParams): CommentEntry {
+function createShallowReplyEntry({ parentCid, parentDepth, postCid, label, contentLength }: ShallowReplyParams): CommentEntry {
     const entry = createCommentEntry({
         contentLength,
         label,
         depth: parentDepth + 1,
-        subplebbitAddress,
         parentCid,
         postCid,
         nestedReplyCount: 0

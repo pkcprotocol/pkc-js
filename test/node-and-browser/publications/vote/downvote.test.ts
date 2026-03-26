@@ -25,7 +25,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             signer = await plebbit.createSigner();
-            postToVote = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit, postProps: { signer } });
+            postToVote = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit, postProps: { signer } });
             replyToVote = await publishRandomReply({
                 parentComment: postToVote as unknown as CommentIpfsWithCidDefined,
                 plebbit: plebbit,
@@ -81,7 +81,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const originalDownvote = remeda.clone(postToVote.downvoteCount);
             const vote = await plebbit.createVote({
                 commentCid: previousVotes[0].commentCid,
-                subplebbitAddress: previousVotes[0].subplebbitAddress,
+                communityAddress: previousVotes[0].communityAddress,
                 signer: previousVotes[0].signer,
                 vote: 1
             });
@@ -104,7 +104,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const originalDownvote = remeda.clone(replyToVote.downvoteCount);
             const vote = await plebbit.createVote({
                 commentCid: previousVotes[1].commentCid,
-                subplebbitAddress: previousVotes[1].subplebbitAddress,
+                communityAddress: previousVotes[1].communityAddress,
                 signer: previousVotes[1].signer,
                 vote: 1
             });
@@ -126,7 +126,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             try {
                 await plebbit.createVote({
                     vote: previousVotes[1].vote,
-                    subplebbitAddress: previousVotes[1].subplebbitAddress,
+                    communityAddress: previousVotes[1].communityAddress,
                     signer: previousVotes[1].signer,
                     commentCid: "gibbrish"
                 });

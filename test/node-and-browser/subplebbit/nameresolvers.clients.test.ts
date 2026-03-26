@@ -48,7 +48,7 @@ describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
         const plebbit = await mockPlebbitV2({ stubStorage: true, plebbitOptions: { validatePages: false }, remotePlebbit: true }); // no storage so it wouldn't be cached
 
         const mockPost = await publishRandomPost({
-            subplebbitAddress: subplebbitAddress,
+            communityAddress: subplebbitAddress,
             plebbit: plebbit,
             postProps: {
                 author: { address: "plebbit.bso" },
@@ -56,13 +56,13 @@ describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
             }
         });
 
-        await waitTillPostInSubplebbitPages(mockPost as Required<Pick<typeof mockPost, "cid" | "subplebbitAddress">>, plebbit);
+        await waitTillPostInSubplebbitPages(mockPost as Required<Pick<typeof mockPost, "cid"> & { communityAddress: string }>, plebbit);
 
         const { plebbit: differentPlebbit } = await createRemotePlebbitWithMockResolver({
             stubStorage: true,
             validatePages: true
         });
-        const sub = await differentPlebbit.createSubplebbit({ address: mockPost.subplebbitAddress });
+        const sub = await differentPlebbit.createSubplebbit({ address: mockPost.communityAddress });
 
         const recordedStates: string[] = [];
         const resolverKey = Object.keys(sub.clients.nameResolvers)[0];

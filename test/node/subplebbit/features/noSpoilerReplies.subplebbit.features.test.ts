@@ -32,7 +32,7 @@ describe.concurrent(`subplebbit.features.noSpoilerReplies`, async () => {
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
         // Publish a post and a reply first (before enabling the feature)
-        publishedPost = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
+        publishedPost = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: remotePlebbit });
         publishedReply = await publishRandomReply({ parentComment: publishedPost as CommentIpfsWithCidDefined, plebbit: remotePlebbit });
     });
 
@@ -56,7 +56,7 @@ describe.concurrent(`subplebbit.features.noSpoilerReplies`, async () => {
 
     it(`Can publish a post with spoiler=true (noSpoilerReplies only blocks replies)`, async () => {
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: {
                 content: "Spoiler content",
@@ -89,7 +89,7 @@ describe.concurrent(`subplebbit.features.noSpoilerReplies`, async () => {
         const commentEdit = await remotePlebbit.createCommentEdit({
             commentCid: publishedReply.cid!,
             spoiler: true,
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             signer: publishedReply.signer
         });
         await publishWithExpectedResult({
@@ -103,7 +103,7 @@ describe.concurrent(`subplebbit.features.noSpoilerReplies`, async () => {
         const commentEdit = await remotePlebbit.createCommentEdit({
             commentCid: publishedPost.cid!,
             spoiler: true,
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             signer: publishedPost.signer
         });
         await publishWithExpectedResult({ publication: commentEdit, expectedChallengeSuccess: true });

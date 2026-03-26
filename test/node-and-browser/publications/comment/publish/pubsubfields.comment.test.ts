@@ -27,7 +27,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         it(`plebbit.createComment({challengeRequest: challengeAnswers}) includes challengeAnswers in request pubsub message`, async () => {
             const challengeRequestFields = { challengeAnswers: ["12345"] };
             const comment = await generateMockPost({
-                subplebbitAddress: signers[0].address,
+                communityAddress: signers[0].address,
                 plebbit: plebbit,
                 postProps: { challengeRequest: challengeRequestFields }
             });
@@ -45,7 +45,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         it(`plebbit.createComment({challengeRequest: challengeCommentCids}) includes challengeCommentCids in request pubsub message`, async () => {
             const challengeRequestFields = { challengeCommentCids: ["QmXsYKgNH7XoZXdLko5uDvtWSRNE2AXuQ4u8KxVpCacrZx"] }; // random cid
             const comment = await generateMockPost({
-                subplebbitAddress: signers[0].address,
+                communityAddress: signers[0].address,
                 plebbit: plebbit,
                 postProps: { challengeRequest: challengeRequestFields }
             });
@@ -66,7 +66,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 challengeAnswers: ["12345"]
             }; // random cid
             const comment = await generateMockPost({
-                subplebbitAddress: signers[0].address,
+                communityAddress: signers[0].address,
                 plebbit: plebbit,
                 postProps: { challengeRequest: challengeRequestFields }
             });

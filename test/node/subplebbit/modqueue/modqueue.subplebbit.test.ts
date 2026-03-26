@@ -31,7 +31,7 @@ describe(`Pending approval modqueue functionality`, async () => {
         subplebbit = await createSubWithNoChallenge({}, plebbit);
         await subplebbit.start();
 
-        regularPublishedComment = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
+        regularPublishedComment = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
 
         modSigner = await plebbit.createSigner();
         await subplebbit.edit({
@@ -98,7 +98,7 @@ describe(`Pending approval modqueue functionality`, async () => {
         it(`should exclude CommentEdit from pending approval`, async () => {
             // it should fail because CommentEdit is not applicable for pendingApproval AND it published the wrong answers
             const edit = await plebbit.createCommentEdit({
-                subplebbitAddress: regularPublishedComment.subplebbitAddress,
+                communityAddress: regularPublishedComment.communityAddress,
                 commentCid: regularPublishedComment.cid!,
                 reason: "random reason should fail",
                 content: "text to edit on pending comment",

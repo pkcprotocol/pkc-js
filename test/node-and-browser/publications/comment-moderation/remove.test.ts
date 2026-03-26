@@ -30,7 +30,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             postToRemove = await publishRandomPost({
-                subplebbitAddress: subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 plebbit: plebbit,
                 postProps: { content: "Post to be removed" }
             });
@@ -50,7 +50,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it.sequential(`Mod can mark an author post as removed`, async () => {
             const removeEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: postToRemove.subplebbitAddress,
+                communityAddress: postToRemove.communityAddress,
                 commentCid: postToRemove.cid,
                 commentModeration: { reason: "To remove a post", removed: true },
                 signer: roles[2].signer // Mod role
@@ -128,9 +128,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`Author of post can't remove it`, async () => {
-            const postToBeRemoved = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            const postToBeRemoved = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             const removeEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: postToBeRemoved.subplebbitAddress,
+                communityAddress: postToBeRemoved.communityAddress,
                 commentCid: postToBeRemoved.cid,
                 commentModeration: { reason: "To remove a post" + Date.now(), removed: true },
                 signer: postToBeRemoved.signer
@@ -144,7 +144,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it.sequential(`Mod can unremove a post`, async () => {
             const unremoveEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: postToRemove.subplebbitAddress,
+                communityAddress: postToRemove.communityAddress,
                 commentCid: postToRemove.cid,
                 commentModeration: { reason: "To unremove a post", removed: false },
                 signer: roles[2].signer
@@ -190,7 +190,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             modPost = await publishRandomPost({
-                subplebbitAddress: subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 plebbit: plebbit,
                 postProps: {
                     signer: roles[2].signer,
@@ -206,7 +206,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it.sequential(`Mods can remove their own posts`, async () => {
             const removeEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: modPost.subplebbitAddress,
+                communityAddress: modPost.communityAddress,
                 commentCid: modPost.cid,
                 commentModeration: { reason: "For mods to remove their own post", removed: true },
                 signer: roles[2].signer
@@ -229,7 +229,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             post = await publishRandomPost({
-                subplebbitAddress: subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 plebbit: plebbit,
                 postProps: { content: "Post with removed reply under it" }
             });
@@ -258,7 +258,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it.sequential(`Mod can remove a reply`, async () => {
             const removeEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: replyToBeRemoved.subplebbitAddress,
+                communityAddress: replyToBeRemoved.communityAddress,
                 commentCid: replyToBeRemoved.cid,
                 commentModeration: { reason: "To remove a reply", removed: true },
                 signer: roles[2].signer // Mod role
@@ -315,7 +315,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Author can't unremove a reply`, async () => {
             const unremoveEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: replyToBeRemoved.subplebbitAddress,
+                communityAddress: replyToBeRemoved.communityAddress,
                 commentCid: replyToBeRemoved.cid,
                 commentModeration: { reason: "To unremove a reply by author" + Date.now(), removed: false },
                 signer: replyToBeRemoved.signer
@@ -328,7 +328,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
         it.sequential("Mod can unremove a reply", async () => {
             const unremoveEdit = await plebbit.createCommentModeration({
-                subplebbitAddress: replyToBeRemoved.subplebbitAddress,
+                communityAddress: replyToBeRemoved.communityAddress,
                 commentCid: replyToBeRemoved.cid,
                 commentModeration: { reason: "To unremove a reply", removed: false },
                 signer: roles[2].signer

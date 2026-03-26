@@ -22,7 +22,7 @@ import type { Comment } from "../../../../../dist/node/publications/comment/comm
 import type { RemoteSubplebbit } from "../../../../../dist/node/subplebbit/remote-subplebbit.js";
 
 // Helper type for replies that require both cid and parentCid
-type ReplyWithRequiredFields = Required<Pick<CommentIpfsWithCidDefined, "cid" | "subplebbitAddress" | "parentCid">>;
+type ReplyWithRequiredFields = Required<Pick<CommentIpfsWithCidDefined, "cid" | "parentCid"> & { communityAddress: string }>;
 
 const subplebbitAddress = signers[0].address;
 
@@ -34,7 +34,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             subplebbit = await plebbit.getSubplebbit({ address: signers[0].address });
-            post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
+            post = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
             await post.update();
             await resolveWhenConditionIsTrue({ toUpdate: post, predicate: async () => typeof post.updatedAt === "number" });
         });
@@ -90,7 +90,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
-            const post = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            const post = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             reply = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
             await reply.update();
         });
@@ -148,7 +148,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         let plebbit: Plebbit, post: Comment;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            post = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            post = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
         });
 
         afterAll(async () => {
@@ -195,7 +195,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: false } });
-            postWithReplies = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            postWithReplies = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             const reply = await publishRandomReply({ parentComment: postWithReplies as CommentIpfsWithCidDefined, plebbit: plebbit });
             await publishRandomReply({ parentComment: reply as CommentIpfsWithCidDefined, plebbit: plebbit });
 
@@ -316,7 +316,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 ? await postWithReplies.replies.getPage({ cid: postWithReplies.replies.pageCids.new })
                 : JSON.parse(JSON.stringify(postWithReplies.replies.pages.best));
 
-            invalidPage.comments[0].raw.comment.subplebbitAddress = "different-address";
+            invalidPage.comments[0].raw.comment.communityAddress = "different-address";
             invalidPage.comments[0].raw.commentUpdate.cid = await calculateIpfsHash(JSON.stringify(invalidPage.comments[0].raw.comment));
 
             try {

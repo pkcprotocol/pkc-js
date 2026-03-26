@@ -269,7 +269,7 @@ describe("shouldExcludePublication", () => {
         author
     };
     const subplebbitEdit = {
-        subplebbitAddress: "Qm...",
+        communityAddress: "Qm...",
         subplebbitEdit: { title: "New Title" },
         author
     };

@@ -91,7 +91,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
             const updatePromise = new Promise((resolve) => sub.once("update", resolve));
             await sub.update();
-            await publishRandomPost({ subplebbitAddress: sub.address, plebbit: plebbit }); // force an update
+            await publishRandomPost({ communityAddress: sub.address, plebbit: plebbit }); // force an update
             await updatePromise;
             await sub.stop();
 
@@ -101,7 +101,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         it(`Correct order of ${clientFieldName} state when we update a subplebbit and it's not publishing new subplebbit records`, async () => {
             const subRecord = await createMockedSubplebbitIpns({}); // only published once, a static record
 
-            const sub = await plebbit.createSubplebbit({ address: subRecord.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: subRecord.communityAddress });
 
             const recordedStates: string[] = [];
             const clientUrl = Object.keys((sub.clients as unknown as Record<string, Record<string, { on: Function }>>)[clientFieldName])[0];
@@ -134,7 +134,9 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`Correct order of ${clientFieldName} client states when we attempt to update a subplebbit with invalid record`, async () => {
-            const { commentCid, subplebbitAddress } = await createStaticSubplebbitRecordForComment({ invalidateSubplebbitSignature: true });
+            const { commentCid, communityAddress: subplebbitAddress } = await createStaticSubplebbitRecordForComment({
+                invalidateSubplebbitSignature: true
+            });
 
             // Create a static subplebbit record with invalid signature
             const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });

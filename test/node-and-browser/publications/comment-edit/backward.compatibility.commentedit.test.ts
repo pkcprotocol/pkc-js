@@ -38,7 +38,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         let commentToEdit: Comment;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            commentToEdit = await publishRandomPost({ subplebbitAddress: signers[0].address, plebbit: plebbit });
+            commentToEdit = await publishRandomPost({ communityAddress: signers[0].address, plebbit: plebbit });
             await commentToEdit.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: commentToEdit,
@@ -54,7 +54,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             // Skipped for rpc because it will generate an invalid signature, which will be thrown in rpc server
             const commentEdit = await plebbit.createCommentEdit({
                 commentCid: commentToEdit.cid,
-                subplebbitAddress: commentToEdit.subplebbitAddress,
+                communityAddress: commentToEdit.communityAddress,
                 content: "Radn" + Math.random(),
                 signer: commentToEdit.signer
             });
@@ -77,7 +77,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             async () => {
                 const commentEdit = await plebbit.createCommentEdit({
                     commentCid: commentToEdit.cid,
-                    subplebbitAddress: commentToEdit.subplebbitAddress,
+                    communityAddress: commentToEdit.communityAddress,
                     content: "Radn" + Math.random(),
                     signer: commentToEdit.signer
                 });
@@ -102,7 +102,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         it(`Publishing commentEdit.reservedField should be rejected`, async () => {
             const commentEdit = await plebbit.createCommentEdit({
                 commentCid: commentToEdit.cid,
-                subplebbitAddress: commentToEdit.subplebbitAddress,
+                communityAddress: commentToEdit.communityAddress,
                 content: "Radn" + Math.random(),
                 signer: commentToEdit.signer
             });
@@ -124,7 +124,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             it(`Publishing with extra prop for author should fail if it's a reserved field`, async () => {
                 const commentEdit = await plebbit.createCommentEdit({
                     commentCid: commentToEdit.cid,
-                    subplebbitAddress: commentToEdit.subplebbitAddress,
+                    communityAddress: commentToEdit.communityAddress,
                     deleted: true,
                     signer: signers[3]
                 });
@@ -150,7 +150,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             it.sequential(`Publishing with extra prop for author should succeed`, async () => {
                 const commentEdit = await plebbit.createCommentEdit({
                     commentCid: commentToEdit.cid,
-                    subplebbitAddress: commentToEdit.subplebbitAddress,
+                    communityAddress: commentToEdit.communityAddress,
                     spoiler: true,
                     signer: commentToEdit.signer
                 });

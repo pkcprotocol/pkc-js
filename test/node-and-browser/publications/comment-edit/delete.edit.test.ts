@@ -31,8 +31,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             [postToDelete, modPostToDelete] = await Promise.all([
-                publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit }),
-                publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit, postProps: { signer: roles[2].signer } })
+                publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit }),
+                publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit, postProps: { signer: roles[2].signer } })
             ]);
             postReply = await publishRandomReply({ parentComment: postToDelete as CommentIpfsWithCidDefined, plebbit: plebbit });
             await postToDelete.update();
@@ -45,7 +45,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
         it(`Regular author can't mark a post that is not theirs as deleted`, async () => {
             const deleteEdit = await plebbit.createCommentEdit({
-                subplebbitAddress: postToDelete.subplebbitAddress,
+                communityAddress: postToDelete.communityAddress,
                 commentCid: postToDelete.cid,
                 deleted: true,
                 signer: await plebbit.createSigner()
@@ -59,7 +59,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Mod can't delete a post that is not theirs`, async () => {
             const deleteEdit = await plebbit.createCommentEdit({
-                subplebbitAddress: postToDelete.subplebbitAddress,
+                communityAddress: postToDelete.communityAddress,
                 commentCid: postToDelete.cid,
                 deleted: true,
                 signer: roles[2].signer
@@ -73,7 +73,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it.sequential(`Author of post can delete their own post`, async () => {
             const deleteEdit = await plebbit.createCommentEdit({
-                subplebbitAddress: postToDelete.subplebbitAddress,
+                communityAddress: postToDelete.communityAddress,
                 commentCid: postToDelete.cid,
                 deleted: true,
                 signer: postToDelete.signer,
@@ -94,7 +94,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`Deleted post is omitted from subplebbit.posts`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: postToDelete.subplebbitAddress });
+            const sub = await plebbit.createSubplebbit({ address: postToDelete.communityAddress });
             await sub.update();
 
             await resolveWhenConditionIsTrue({
@@ -161,7 +161,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
         it.sequential(`Mod can delete their own post`, async () => {
             const deleteEdit = await plebbit.createCommentEdit({
-                subplebbitAddress: modPostToDelete.subplebbitAddress,
+                communityAddress: modPostToDelete.communityAddress,
                 commentCid: modPostToDelete.cid,
                 deleted: true,
                 signer: modPostToDelete.signer,
@@ -183,7 +183,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Author can not undelete their own post`, async () => {
             const undeleteEdit = await plebbit.createCommentEdit({
-                subplebbitAddress: postToDelete.subplebbitAddress,
+                communityAddress: postToDelete.communityAddress,
                 commentCid: postToDelete.cid,
                 deleted: false,
                 signer: postToDelete.signer,
@@ -198,7 +198,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Mod can not undelete their own post`, async () => {
             const undeleteEdit = await plebbit.createCommentEdit({
-                subplebbitAddress: modPostToDelete.subplebbitAddress,
+                communityAddress: modPostToDelete.communityAddress,
                 commentCid: modPostToDelete.cid,
                 deleted: false,
                 signer: modPostToDelete.signer,
@@ -217,7 +217,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            post = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            post = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             replyToDelete = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
             replyUnderDeletedReply = await publishRandomReply({
                 parentComment: replyToDelete as CommentIpfsWithCidDefined,
@@ -233,7 +233,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it.sequential(`Author can delete their own reply`, async () => {
             const deleteEdit = await plebbit.createCommentEdit({
-                subplebbitAddress: replyToDelete.subplebbitAddress,
+                communityAddress: replyToDelete.communityAddress,
                 commentCid: replyToDelete.cid,
                 deleted: true,
                 signer: replyToDelete.signer

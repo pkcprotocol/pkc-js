@@ -49,7 +49,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects incoming signed wire autho
         });
 
         targetPost = await publishRandomPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit
         });
 
@@ -131,7 +131,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects incoming signed wire autho
 
     it("rejects a live incoming comment with signed wire author.address", async () => {
         const comment = await plebbit.createComment({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             title: `Reserved author.address comment ${Date.now()}`,
             content: `Reserved author.address comment content ${Date.now()}`,
             signer: await plebbit.createSigner()
@@ -151,7 +151,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects incoming signed wire autho
         const vote = await plebbit.createVote({
             commentCid: targetPost.cid,
             vote: 1,
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             signer: await plebbit.createSigner()
         });
 
@@ -170,7 +170,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects incoming signed wire autho
         const commentEdit = await plebbit.createCommentEdit({
             commentCid: targetPost.cid,
             content: `Reserved author.address edit ${Date.now()}`,
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             signer: targetPost.signer
         });
 
@@ -186,7 +186,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects incoming signed wire autho
     it("rejects a live incoming commentModeration with signed wire author.address", async () => {
         if (!targetPost.cid) throw Error("Expected target post to have a CID");
         const commentModeration = await plebbit.createCommentModeration({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             commentCid: targetPost.cid,
             commentModeration: {
                 reason: `Reserved author.address moderation ${Date.now()}`,
@@ -212,7 +212,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects incoming signed wire autho
         if (!subplebbit.signer || !("privateKey" in subplebbit.signer) || typeof subplebbit.signer.privateKey !== "string")
             throw Error("Expected local subplebbit to expose its owner signer with a private key");
         const subplebbitEdit = await plebbit.createSubplebbitEdit({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             subplebbitEdit: {
                 description: `Reserved author.address sub edit ${Date.now()}`
             },

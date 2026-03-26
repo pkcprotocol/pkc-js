@@ -64,7 +64,7 @@ describeSkipIfRpc("Local publishing to subplebbit", async () => {
     it("should publish comment locally without going through pubsub exchange", async () => {
         // Create a comment that will answer the math question correctly
         const comment: Comment = await generatePostToAnswerMathQuestion(
-            { subplebbitAddress: subplebbit.address, signer: commentSigner },
+            { communityAddress: subplebbit.address, signer: commentSigner },
             plebbit
         );
 
@@ -111,7 +111,7 @@ describeSkipIfRpc("Local publishing to subplebbit", async () => {
         await subplebbit.start();
         expect(subplebbit.updatedAt).to.be.undefined;
 
-        await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
+        await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
         await subplebbit.delete();
     });
 });

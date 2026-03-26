@@ -161,7 +161,8 @@ async function seedCommentChain({
             author: { address: `author-${cid}` },
             content: `content-${cid}`,
             title: curDepth === 0 ? `title-${cid}` : null,
-            subplebbitAddress: SUBPLEBBIT_ADDRESS,
+            communityPublicKey: SUBPLEBBIT_ADDRESS,
+            communityName: undefined,
             timestamp,
             depth: curDepth,
             postCid: rootCid,
@@ -230,11 +231,12 @@ function buildRepliesPageEntry(row: CommentsTableRowInsert, commentUpdate: Comme
         displayName: `Author-${row.authorSignerAddress.slice(-4)}`,
         shortAddress: `${row.authorSignerAddress.slice(0, 4)}…${row.authorSignerAddress.slice(-4)}`
     };
+    const communityAddress = row.communityPublicKey ?? "";
     const comment: CommentIpfsType = {
         cid: row.cid,
         postCid: row.postCid,
         depth: row.depth,
-        subplebbitAddress: row.subplebbitAddress,
+        communityPublicKey: row.communityPublicKey,
         timestamp: row.timestamp,
         content: row.content,
         signature: MOCK_SIGNATURE,
@@ -249,10 +251,10 @@ function buildRepliesPageEntry(row: CommentsTableRowInsert, commentUpdate: Comme
         cid: row.cid,
         postCid: row.postCid,
         depth: row.depth,
-        subplebbitAddress: row.subplebbitAddress,
+        communityAddress,
         timestamp: row.timestamp,
         shortCid: row.cid.slice(0, 8),
-        shortSubplebbitAddress: row.subplebbitAddress.slice(0, 8),
+        shortCommunityAddress: communityAddress.slice(0, 8),
         author,
         original: { content: row.content },
         commentUpdate,

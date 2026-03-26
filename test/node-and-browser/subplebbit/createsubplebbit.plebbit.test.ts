@@ -175,7 +175,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) =>
             await loadedSub.stop();
 
             const post = loadedSub.posts.pages.hot!.comments[0];
-            const comment = await plebbit.createComment({ cid: post.cid, subplebbitAddress });
+            const comment = await plebbit.createComment({ cid: post.cid, communityAddress: subplebbitAddress });
             // updatedAt must be defined for _updateRepliesPostsInstance not to throw
             comment.updatedAt = Math.floor(Date.now() / 1000);
             // Should not throw with empty pages and pageCids

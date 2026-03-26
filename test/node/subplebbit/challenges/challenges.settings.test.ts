@@ -16,7 +16,7 @@ import type { RpcLocalSubplebbit } from "../../../../dist/node/subplebbit/rpc-lo
 import type { RemoteSubplebbit } from "../../../../dist/node/subplebbit/remote-subplebbit.js";
 import type { ChallengeVerificationMessageType, DecryptedChallengeMessageType } from "../../../../dist/node/pubsub-messages/types.js";
 import type { SubplebbitChallengeSetting } from "../../../../dist/node/subplebbit/types.js";
-import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
+import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 
 describe.concurrent(`subplebbit.settings.challenges`, async () => {
     let plebbit: PlebbitType;
@@ -77,7 +77,7 @@ describe.concurrent(`subplebbit.settings.challenges`, async () => {
             subplebbit.once("challengeverification", resolve)
         );
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: { challengeRequest: { challengeAnswers: ["wrong answer"] } }
         });
@@ -95,8 +95,8 @@ describe.concurrent(`subplebbit.settings.challenges`, async () => {
         await subplebbit.edit({ settings: { challenges: [] } });
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
-        const post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit }); // won't get a challenge
-        await waitTillPostInSubplebbitPages(post as CommentIpfsWithCidDefined, plebbit);
+        const post = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit }); // won't get a challenge
+        await waitTillPostInSubplebbitPages(post as Comment & { cid: string }, plebbit);
 
         await subplebbit.delete();
     });
@@ -114,8 +114,8 @@ describe.concurrent(`subplebbit.settings.challenges`, async () => {
         expect(subplebbit.settings!.challenges).to.deep.equal([]);
         expect(subplebbit.challenges).to.deep.equal([]);
         expect(subplebbit._usingDefaultChallenge).to.be.true;
-        const post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit }); // won't get a challenge
-        await waitTillPostInSubplebbitPages(post as CommentIpfsWithCidDefined, plebbit);
+        const post = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit }); // won't get a challenge
+        await waitTillPostInSubplebbitPages(post as Comment & { cid: string }, plebbit);
         await subplebbit.delete();
     });
 
@@ -141,7 +141,7 @@ describe.concurrent(`subplebbit.settings.challenges`, async () => {
         }
 
         const mockPost = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: plebbit,
             postProps: { challengeRequest: { challengeAnswers: ["2"] } }
         });

@@ -83,7 +83,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) =>
         });
 
         it(`comment.stop() after update() should complete within 10s`, async () => {
-            const post = await publishRandomPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            const post = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
 
             const recreatedPost = await plebbit.createComment({ cid: post.cid });
             await recreatedPost.update();
@@ -113,7 +113,7 @@ describeSkipIfRpc(`comment.stop() aborts verification`, async () => {
                 signer: signers[3],
                 title: `Abort publish verification ${Date.now()}`,
                 content: `Abort publish verification ${Date.now()}`,
-                subplebbitAddress
+                communityAddress: subplebbitAddress
             });
             const errors: Error[] = [];
             const challengeRequests: unknown[] = [];
@@ -153,7 +153,7 @@ describeSkipIfRpc(`comment.stop() aborts verification`, async () => {
 
         try {
             const publishedComment = await publishRandomPost({
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 plebbit: publisher,
                 postProps: {
                     author: { name: "plebbit.bso" },
@@ -195,7 +195,7 @@ describeSkipIfRpc(`comment.stop() aborts verification`, async () => {
 
         try {
             const publishedComment = await publishRandomPost({
-                subplebbitAddress,
+                communityAddress: subplebbitAddress,
                 plebbit: publisher,
                 postProps: {
                     author: { name: "plebbit.bso" },
@@ -265,7 +265,7 @@ describeSkipIfRpc(`comment.stop() aborts in-flight gateway fetches`, async () =>
 
         try {
             const publisher = await mockRemotePlebbit();
-            const post = await publishRandomPost({ subplebbitAddress, plebbit: publisher });
+            const post = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: publisher });
             await publisher.destroy();
 
             const comment = await plebbit.createComment({ cid: post.cid });

@@ -61,7 +61,7 @@ const makeComment = ({
             depth,
             parentCid,
             postCid,
-            subplebbitAddress: "s/test",
+            communityAddress: "s/test",
             signature: {},
             author: { address: "author" }
         },

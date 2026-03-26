@@ -66,7 +66,7 @@ function createMockEdit(comment: InsertedComment, subAddress: string, deleted: b
             publicKey: "pk",
             signedPropertyNames: []
         },
-        subplebbitAddress: subAddress,
+        communityPublicKey: subAddress,
         protocolVersion: PROTOCOL_VERSION,
         commentCid: comment.cid,
         author: { address: comment.authorSignerAddress },
@@ -74,19 +74,19 @@ function createMockEdit(comment: InsertedComment, subAddress: string, deleted: b
     };
 }
 
-async function createTestDbHandler(): Promise<{ dbHandler: DbHandler; subplebbitAddress: string }> {
+async function createTestDbHandler(): Promise<{ dbHandler: DbHandler; communityAddress: string }> {
     const subplebbitAddress = `test-sub-${Date.now()}-${Math.random()}`;
     const fakePlebbit = { noData: true };
     const fakeSubplebbit = { address: subplebbitAddress, _plebbit: fakePlebbit };
     const handler = new DbHandler(fakeSubplebbit as DbHandler extends { _subplebbit: infer T } ? T : never);
     await handler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
     await handler.createOrMigrateTablesIfNeeded();
-    return { dbHandler: handler, subplebbitAddress };
+    return { dbHandler: handler, communityAddress: subplebbitAddress };
 }
 
 describe(`subplebbit.statsCid`, function () {
     let dbHandler: DbHandler | undefined;
-    let subplebbitAddress: string;
+    let communityAddress: string;
     let cidCounter = 0;
 
     function nextCid(prefix = "QmTest"): string {
@@ -125,7 +125,7 @@ describe(`subplebbit.statsCid`, function () {
             author: resolvedAuthor,
             parentCid: resolvedParentCid,
             postCid: resolvedPostCid,
-            subplebbitAddress: overrides.subplebbitAddress ?? subplebbitAddress,
+            communityPublicKey: overrides.communityPublicKey ?? communityAddress,
             content: overrides.content ?? `content-${cid}`,
             timestamp,
             signature: overrides.signature ?? {
@@ -258,7 +258,7 @@ describe(`subplebbit.statsCid`, function () {
     beforeEach(async () => {
         const context = await createTestDbHandler();
         dbHandler = context.dbHandler;
-        subplebbitAddress = context.subplebbitAddress;
+        communityAddress = context.communityAddress;
         cidCounter = 0;
     });
 
@@ -476,7 +476,7 @@ describe(`subplebbit.statsCid`, function () {
             const statsBefore = queryStats();
             insertPost({
                 authorSignerAddress: "foreign-author",
-                overrides: { subplebbitAddress: "other-subplebbit" }
+                overrides: { communityPublicKey: "other-subplebbit" }
             });
             const statsAfter = queryStats();
             expectDelta(activeUserCountKeys, statsBefore, statsAfter, 0);
@@ -497,7 +497,7 @@ describe(`subplebbit.statsCid`, function () {
         it(`ignores deleted comments`, () => {
             const statsBefore = queryStats();
             const post = insertPost({ authorSignerAddress: "deleted-author" });
-            insertCommentUpdate(post, { edit: createMockEdit(post, subplebbitAddress, true) });
+            insertCommentUpdate(post, { edit: createMockEdit(post, communityAddress, true) });
             const statsAfter = queryStats();
             expectDelta(activeUserCountKeys, statsBefore, statsAfter, 0);
             expectDelta(postCountKeys, statsBefore, statsAfter, 0);
@@ -528,7 +528,7 @@ describe(`subplebbit.statsCid`, function () {
             const statsBefore = queryStats();
             const foreignPost = insertPost({
                 authorSignerAddress: "foreign-post-vote",
-                overrides: { subplebbitAddress: "another-sub" }
+                overrides: { communityPublicKey: "another-sub" }
             });
             insertVote(foreignPost, { authorSignerAddress: "vote-on-foreign" });
             const statsAfter = queryStats();
@@ -563,11 +563,11 @@ describe(`subplebbit.statsCid`, function () {
             const afterInsert = queryStats();
             expectDelta(postCountKeys, statsBefore, afterInsert, 1);
 
-            insertCommentUpdate(post, { edit: createMockEdit(post, subplebbitAddress, true) });
+            insertCommentUpdate(post, { edit: createMockEdit(post, communityAddress, true) });
             const afterDelete = queryStats();
             expectDelta(postCountKeys, afterInsert, afterDelete, -1);
 
-            insertCommentUpdate(post, { edit: createMockEdit(post, subplebbitAddress, false) });
+            insertCommentUpdate(post, { edit: createMockEdit(post, communityAddress, false) });
             const afterRestore = queryStats();
             expectDelta(postCountKeys, afterDelete, afterRestore, 1);
         });

@@ -939,6 +939,11 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         const log = Logger("plebbit-js:local-subplebbit:storeCommentEdit");
         const strippedOutEditPublication = CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema.strip().parse(commentEditRaw); // we strip out here so we don't store any extra props in commentedits table
         strippedOutEditPublication.author = cleanWireAuthor(strippedOutEditPublication.author); // strip runtime-only author fields (address, publicKey, etc.)
+
+        // Normalize to new wire format: ensure communityPublicKey/communityName for DB columns
+        if (!strippedOutEditPublication.communityPublicKey) strippedOutEditPublication.communityPublicKey = this.signer.address;
+        if (!strippedOutEditPublication.communityName && isStringDomain(this.address))
+            strippedOutEditPublication.communityName = this.address;
         const commentToBeEdited = this._dbHandler.queryComment(commentEditRaw.commentCid); // We assume commentToBeEdited to be defined because we already tested for its existence above
         if (!commentToBeEdited) throw Error("The comment to edit doesn't exist"); // unlikely error to happen, but always a good idea to verify
 
@@ -953,10 +958,9 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             insertedAt: timestamp()
         };
 
-        const extraPropsInEdit = remeda.difference(
-            remeda.keys.strict(commentEditRaw),
-            remeda.keys.strict(CommentEditPubsubMessagePublicationSchema.shape)
-        );
+        const extraPropsInEdit = remeda
+            .difference(remeda.keys.strict(commentEditRaw), remeda.keys.strict(CommentEditPubsubMessagePublicationSchema.shape))
+            .filter((key) => (key as string) !== "subplebbitAddress"); // subplebbitAddress is excluded because it's been converted to communityPublicKey/communityName above
         if (extraPropsInEdit.length > 0) {
             log("Found extra props on CommentEdit", extraPropsInEdit, "Will be adding them to extraProps column");
             editTableRow.extraProps = remeda.pick(commentEditRaw, extraPropsInEdit);
@@ -990,6 +994,11 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         const log = Logger("plebbit-js:local-subplebbit:storeCommentModeration");
         const strippedOutModPublication = CommentModerationPubsubMessagePublicationSchema.strip().parse(commentModRaw); // we strip out here so we don't store any extra props in commentedits table
         strippedOutModPublication.author = cleanWireAuthor(strippedOutModPublication.author); // strip runtime-only author fields (address, publicKey, etc.)
+
+        // Normalize to new wire format: ensure communityPublicKey/communityName for DB columns
+        if (!strippedOutModPublication.communityPublicKey) strippedOutModPublication.communityPublicKey = this.signer.address;
+        if (!strippedOutModPublication.communityName && isStringDomain(this.address))
+            strippedOutModPublication.communityName = this.address;
         const commentToBeEdited = this._dbHandler.queryComment(commentModRaw.commentCid); // We assume commentToBeEdited to be defined because we already tested for its existence above
         if (!commentToBeEdited) throw Error("The comment to edit doesn't exist"); // unlikely error to happen, but always a good idea to verify
 
@@ -1023,10 +1032,9 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             throw new PlebbitError("ERR_DUPLICATE_COMMENT_MODERATION", { modTableRow });
         }
 
-        const extraPropsInMod = remeda.difference(
-            remeda.keys.strict(commentModRaw),
-            remeda.keys.strict(CommentModerationPubsubMessagePublicationSchema.shape)
-        );
+        const extraPropsInMod = remeda
+            .difference(remeda.keys.strict(commentModRaw), remeda.keys.strict(CommentModerationPubsubMessagePublicationSchema.shape))
+            .filter((key) => (key as string) !== "subplebbitAddress"); // subplebbitAddress is excluded because it's been converted to communityPublicKey/communityName above
         if (extraPropsInMod.length > 0) {
             log("Found extra props on CommentModeration", extraPropsInMod, "Will be adding them to extraProps column");
             modTableRow.extraProps = remeda.pick(commentModRaw, extraPropsInMod);
@@ -1285,6 +1293,11 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             ...(pseudonymityMode ? { pseudonymityMode } : {})
         };
 
+        // Normalize to new wire format: ensure communityPublicKey/communityName, remove old subplebbitAddress
+        commentIpfs.communityPublicKey = this.signer.address;
+        if (isStringDomain(this.address)) commentIpfs.communityName = this.address;
+        delete (commentIpfs as Record<string, unknown>).subplebbitAddress;
+
         // Strip runtime-only author fields (nameResolved, address, publicKey, etc.) before IPFS storage
         commentIpfs.author = cleanWireAuthor(commentIpfs.author);
 
@@ -1330,10 +1343,9 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             pendingApproval
         };
 
-        const unknownProps = remeda.difference(
-            remeda.keys.strict(commentPubsub),
-            remeda.keys.strict(CommentPubsubMessagePublicationSchema.shape)
-        );
+        const unknownProps = remeda
+            .difference(remeda.keys.strict(commentPubsub), remeda.keys.strict(CommentPubsubMessagePublicationSchema.shape))
+            .filter((key) => (key as string) !== "subplebbitAddress"); // subplebbitAddress is excluded because it's been converted to communityPublicKey/communityName above
 
         if (unknownProps.length > 0) {
             log("Found extra props on Comment", unknownProps, "Will be adding them to extraProps column");
@@ -3052,7 +3064,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     private async _assertDomainResolvesCorrectly(newAddressAsDomain: string) {
         if (isStringDomain(newAddressAsDomain)) {
             const resolvedIpnsFromNewDomain = await this._clientsManager.resolveCommunityNameIfNeeded({
-                subplebbitAddress: newAddressAsDomain
+                communityAddress: newAddressAsDomain
             });
             if (resolvedIpnsFromNewDomain !== this.signer.address)
                 throw new PlebbitError("ERR_DOMAIN_SUB_ADDRESS_TXT_RECORD_POINT_TO_DIFFERENT_ADDRESS", {

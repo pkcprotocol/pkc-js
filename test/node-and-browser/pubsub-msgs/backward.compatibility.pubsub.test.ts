@@ -54,7 +54,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
         describe.sequential(`ChallengeRequest with extra props`, async () => {
             it(`A challenge request with an extra prop not included in signature.signedPropertyNames will get ignored`, async () => {
-                const post = await generateMockPost({ subplebbitAddress: signers[0].address, plebbit: plebbit });
+                const post = await generateMockPost({ communityAddress: signers[0].address, plebbit: plebbit });
                 const extraProps = { extraProp: 1234 };
                 await setExtraPropOnChallengeRequestAndSign({
                     publication: post,
@@ -81,7 +81,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
             });
 
             it(`Can publish a challenge request with extra prop, as long as extra props is part of request.signature.signedPropertyNames`, async () => {
-                const post = await generateMockPost({ subplebbitAddress: signers[0].address, plebbit: plebbit });
+                const post = await generateMockPost({ communityAddress: signers[0].address, plebbit: plebbit });
                 const extraProps = { extraProp: 1234 };
                 await setExtraPropOnChallengeRequestAndSign({
                     publication: post,
@@ -109,10 +109,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         describe.sequential(`ChallengeMessage with extra props`, async () => {
             it(`A challenge message with an extra prop not included in signature.signedPropertyNames will get emit cause the Publication class to emit an error`, async () => {
                 const pubsubSigner = await plebbit.createSigner();
-                const post = await generateMockPost({ subplebbitAddress: signers[0].address, plebbit: plebbit });
+                const post = await generateMockPost({ communityAddress: signers[0].address, plebbit: plebbit });
 
-                post._getSubplebbitCache = () => ({
-                    address: post.subplebbitAddress,
+                post._getCommunityCache = (): ReturnType<typeof post._getCommunityCache> => ({
+                    address: post.communityAddress,
+                    publicKey: pubsubSigner.publicKey,
                     pubsubTopic: pubsubSigner.address,
                     encryption: {
                         type: "ed25519-aes-gcm",
@@ -144,10 +145,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
             it(`A challenge message with an extra prop included in signature.signedPropertyNames will be accepted`, async () => {
                 const pubsubSigner = await plebbit.createSigner();
-                const post = await generateMockPost({ subplebbitAddress: signers[0].address, plebbit: plebbit });
+                const post = await generateMockPost({ communityAddress: signers[0].address, plebbit: plebbit });
 
-                post._getSubplebbitCache = () => ({
-                    address: post.subplebbitAddress,
+                post._getCommunityCache = (): ReturnType<typeof post._getCommunityCache> => ({
+                    address: post.communityAddress,
+                    publicKey: pubsubSigner.publicKey,
                     pubsubTopic: pubsubSigner.address,
                     encryption: {
                         type: "ed25519-aes-gcm",
@@ -177,7 +179,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
         describe.sequential(`ChallengeAnswerMessage with extra props`, async () => {
             it(`A challenge answer message with an extra prop not included in signature.signedPropertyNames will get ignored`, async () => {
-                const post = await generateMockPost({ subplebbitAddress: mathCliSubplebbitAddress, plebbit: plebbit });
+                const post = await generateMockPost({ communityAddress: mathCliSubplebbitAddress, plebbit: plebbit });
                 await post.publish();
 
                 await new Promise((resolve) => post.once("challenge", resolve));
@@ -200,7 +202,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
             });
 
             it(`A challenge answer message with an extra prop included in signature.signedPropertyNames will be accepted`, async () => {
-                const post = await generateMockPost({ subplebbitAddress: mathCliSubplebbitAddress, plebbit: plebbit });
+                const post = await generateMockPost({ communityAddress: mathCliSubplebbitAddress, plebbit: plebbit });
                 await post.publish();
 
                 await new Promise((resolve) => post.once("challenge", resolve));
@@ -229,10 +231,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         describe.sequential(`ChallengeVerification with extra props`, async () => {
             it(`A challenge verification message with an extra prop not included in signature.signedPropertyNames will get emit cause the Publication class to emit an error`, async () => {
                 const pubsubSigner = await plebbit.createSigner();
-                const post = await generateMockPost({ subplebbitAddress: signers[0].address, plebbit: plebbit });
+                const post = await generateMockPost({ communityAddress: signers[0].address, plebbit: plebbit });
 
-                post._getSubplebbitCache = () => ({
-                    address: post.subplebbitAddress,
+                post._getCommunityCache = (): ReturnType<typeof post._getCommunityCache> => ({
+                    address: post.communityAddress,
+                    publicKey: pubsubSigner.publicKey,
                     pubsubTopic: pubsubSigner.address,
                     encryption: {
                         type: "ed25519-aes-gcm",
@@ -264,10 +267,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
             it(`A challenge verification message with an extra prop included in signature.signedPropertyNames will be accepted`, async () => {
                 const pubsubSigner = await plebbit.createSigner();
-                const post = await generateMockPost({ subplebbitAddress: signers[0].address, plebbit: plebbit });
+                const post = await generateMockPost({ communityAddress: signers[0].address, plebbit: plebbit });
 
-                post._getSubplebbitCache = () => ({
-                    address: post.subplebbitAddress,
+                post._getCommunityCache = (): ReturnType<typeof post._getCommunityCache> => ({
+                    address: post.communityAddress,
+                    publicKey: pubsubSigner.publicKey,
                     pubsubTopic: pubsubSigner.address,
                     encryption: {
                         type: "ed25519-aes-gcm",
@@ -296,10 +300,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
             it(`A challenge verification message with extra prop in challengeVerification.encrypted will be accepted`, async () => {
                 const pubsubSigner = await plebbit.createSigner();
-                const post = await generateMockPost({ subplebbitAddress: signers[0].address, plebbit: plebbit });
+                const post = await generateMockPost({ communityAddress: signers[0].address, plebbit: plebbit });
 
-                post._getSubplebbitCache = () => ({
-                    address: post.subplebbitAddress,
+                post._getCommunityCache = (): ReturnType<typeof post._getCommunityCache> => ({
+                    address: post.communityAddress,
+                    publicKey: pubsubSigner.publicKey,
                     pubsubTopic: pubsubSigner.address,
                     encryption: {
                         type: "ed25519-aes-gcm",

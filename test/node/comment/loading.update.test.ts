@@ -166,7 +166,7 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
                         const sub = await createSubWithNoChallenge({}, publisherPlebbit);
                         await sub.start();
                         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
-                        const newPost = await publishRandomPost({ subplebbitAddress: sub.address, plebbit: publisherPlebbit });
+                        const newPost = await publishRandomPost({ communityAddress: sub.address, plebbit: publisherPlebbit });
 
                         remotePlebbit = await plebbitConfig.plebbitInstancePromise();
                         await waitTillPostInSubplebbitPages(newPost as never, remotePlebbit);
@@ -179,7 +179,7 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
                         makeCommentCidFetchFail(remotePlebbit, newPost.cid!);
 
                         const errors: Error[] = [];
-                        postComment = await remotePlebbit.createComment({ cid: newPost.cid, subplebbitAddress: newPost.subplebbitAddress }); // need to include subplebbitAddress or otherwise plebbit-js cant load it from sub pages
+                        postComment = await remotePlebbit.createComment({ cid: newPost.cid, communityAddress: newPost.communityAddress }); // need to include subplebbitAddress or otherwise plebbit-js cant load it from sub pages
                         postComment.on("error", (err) => errors.push(err));
 
                         await postComment.update();
@@ -256,7 +256,7 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
 
                             replyComment = await remotePlebbit.createComment({
                                 cid: newReply.cid,
-                                subplebbitAddress: parentComment.subplebbitAddress
+                                communityAddress: parentComment.communityAddress
                             });
                             const errors: Error[] = [];
                             replyComment.on("error", (err) => errors.push(err));
@@ -502,7 +502,7 @@ async function createPostDepthTestEnvironment({
     await subplebbit.start();
     await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
-    const post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: publisherPlebbit });
+    const post = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: publisherPlebbit });
     const storedPostUpdate = await waitForStoredCommentUpdateWithAssertions(subplebbit as LocalSubplebbit, post);
 
     let forcedSubplebbitStoredUpdate: PostDepthTestContext["forcedSubplebbitStoredUpdate"];
@@ -593,7 +593,7 @@ async function buildReplyDepthChain({
     plebbit: Plebbit;
     subplebbit: LocalSubplebbit;
 }): Promise<ReplyChainResult> {
-    const root = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
+    const root = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
     let parent = root;
     let latestStoredUpdate = await waitForStoredCommentUpdateWithAssertions(subplebbit, parent);
     let parentOfLeafCid = root.cid!;

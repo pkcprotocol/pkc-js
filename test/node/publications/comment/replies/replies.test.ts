@@ -216,7 +216,7 @@ async function createLocalCommentWithPaginatedReplies(): Promise<LocalCommentWit
         predicate: async () => typeof subplebbit.updatedAt === "number"
     });
 
-    const post = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
+    const post = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
     await forceLocalSubPagesToAlwaysGenerateMultipleChunks({
         subplebbit,
         parentComment: post,

@@ -303,7 +303,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
     async fetchNewUpdateForSubplebbit(subAddress: string): Promise<ResultOfFetchingSubplebbit> {
         return this._withInflightSubplebbitFetch(subAddress, async () => {
             const ipnsName = await this.resolveCommunityNameIfNeeded({
-                subplebbitAddress: subAddress,
+                communityAddress: subAddress,
                 abortSignal: this._subplebbit._getStopAbortSignal()
             });
             // if ipnsAddress is undefined then it will be handled in postResolveTextRecordSuccess

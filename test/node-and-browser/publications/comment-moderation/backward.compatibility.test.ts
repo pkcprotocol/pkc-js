@@ -39,7 +39,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         let commentToMod: Comment;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            commentToMod = await publishRandomPost({ subplebbitAddress: signers[0].address, plebbit: plebbit });
+            commentToMod = await publishRandomPost({ communityAddress: signers[0].address, plebbit: plebbit });
             await commentToMod.update();
             await resolveWhenConditionIsTrue({ toUpdate: commentToMod, predicate: async () => typeof commentToMod.updatedAt === "number" });
         });
@@ -52,7 +52,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             // Skipped for rpc because it will generate an invalid signature, which will be thrown in rpc server
             const commentModeration = await plebbit.createCommentModeration({
                 commentCid: commentToMod.cid,
-                subplebbitAddress: commentToMod.subplebbitAddress,
+                communityAddress: commentToMod.communityAddress,
                 commentModeration: { removed: true },
                 signer: roles[0].signer
             });
@@ -73,7 +73,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         it(`publishing commentModerationPublication.extraProp should succeed with {removed:true}  if it's included in commentModeration.signature.signedPropertyNames, but it shouldn't include it in CommentUpdate`, async () => {
             const commentModeration = await plebbit.createCommentModeration({
                 commentCid: commentToMod.cid,
-                subplebbitAddress: commentToMod.subplebbitAddress,
+                communityAddress: commentToMod.communityAddress,
                 commentModeration: { removed: true },
                 signer: roles[0].signer
             });
@@ -100,7 +100,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         it(`publishing commentModerationPublication.commentModeration.extraProp should succeed, but it shouldn't include it in CommentUpdate`, async () => {
             const commentModeration = await plebbit.createCommentModeration({
                 commentCid: commentToMod.cid,
-                subplebbitAddress: commentToMod.subplebbitAddress,
+                communityAddress: commentToMod.communityAddress,
                 commentModeration: { locked: true },
                 signer: roles[0].signer
             });
@@ -127,7 +127,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         it(`Publishing commentModeration.reservedField should be rejected`, async () => {
             const commentModeration = await plebbit.createCommentModeration({
                 commentCid: commentToMod.cid,
-                subplebbitAddress: commentToMod.subplebbitAddress,
+                communityAddress: commentToMod.communityAddress,
                 commentModeration: { locked: true },
                 signer: commentToMod.signer
             });
@@ -151,7 +151,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 it(`Publishing commentModeration.author.extraProp should succeed`, async () => {
                     const commentModeration = await plebbit.createCommentModeration({
                         commentCid: commentToMod.cid,
-                        subplebbitAddress: commentToMod.subplebbitAddress,
+                        communityAddress: commentToMod.communityAddress,
                         commentModeration: { removed: true },
 
                         signer: signers[3]
@@ -176,12 +176,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             async () => {
                 it(`Publishing commentModerationPublication.commentModeration.author.extraProp`, async () => {
                     const commentToModWithAuthor = await publishRandomPost({
-                        subplebbitAddress: commentToMod.subplebbitAddress,
+                        communityAddress: commentToMod.communityAddress,
                         plebbit: plebbit
                     });
                     const commentModeration = await plebbit.createCommentModeration({
                         commentCid: commentToModWithAuthor.cid,
-                        subplebbitAddress: commentToModWithAuthor.subplebbitAddress,
+                        communityAddress: commentToModWithAuthor.communityAddress,
                         commentModeration: { removed: true },
                         signer: signers[3]
                     });

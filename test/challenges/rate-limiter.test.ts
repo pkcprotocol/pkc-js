@@ -90,7 +90,7 @@ describe("testRateLimit", () => {
         const publicationVote = { author, commentCid: "Qm...", vote: 0 };
         const publicationCommentEdit = { author, commentCid: "Qm...", content: "edited content" };
         const publicationCommentModeration = { author, commentCid: "Qm...", commentModeration: { locked: true } };
-        const publicationSubplebbitEdit = { author, subplebbitAddress: "Qm...", subplebbitEdit: { title: "New Title" } };
+        const publicationSubplebbitEdit = { author, communityAddress: "Qm...", subplebbitEdit: { title: "New Title" } };
 
         const challengeSuccess = true;
         expect(wrapTestRateLimit(exclude, { comment: publicationPost })).to.equal(true);
@@ -167,7 +167,7 @@ describe("testRateLimit", () => {
         const author = { address: getRandomAddress() };
         const exclude = { rateLimit: 1, publicationType: { subplebbitEdit: true } };
         const subplebbitChallenges = [{ exclude: [exclude] }];
-        const publicationSubplebbitEdit = { author, subplebbitAddress: "Qm...", subplebbitEdit: { title: "New Title" } };
+        const publicationSubplebbitEdit = { author, communityAddress: "Qm...", subplebbitEdit: { title: "New Title" } };
         const publicationReply = { author, parentCid: "Qm..." };
         const publicationVote = { author, commentCid: "Qm...", vote: 0 };
         const challengeSuccess = true;
@@ -395,7 +395,7 @@ describe("testRateLimit", () => {
         const publicationVote = { author, commentCid: "Qm...", vote: 0 };
         const publicationCommentEdit = { author, commentCid: "Qm...", content: "edited content" };
         const publicationCommentModeration = { author, commentCid: "Qm...", commentModeration: { locked: true } };
-        const publicationSubplebbitEdit = { author, subplebbitAddress: "Qm...", subplebbitEdit: { title: "New Title" } };
+        const publicationSubplebbitEdit = { author, communityAddress: "Qm...", subplebbitEdit: { title: "New Title" } };
 
         const challengeSuccess = false;
         expect(wrapTestRateLimit(exclude, { comment: publicationPost })).to.equal(true);

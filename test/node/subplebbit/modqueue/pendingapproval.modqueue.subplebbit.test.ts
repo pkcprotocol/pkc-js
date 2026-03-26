@@ -130,7 +130,7 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
 
         it.sequential("pending approval comments do not affect number/postNumber for later approved posts", async () => {
             const approvedPost = await publishRandomPost({
-                subplebbitAddress: subplebbit.address,
+                communityAddress: subplebbit.address,
                 plebbit: remotePlebbit,
                 postProps: { signer: modSigner }
             });
@@ -152,7 +152,7 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
         });
         it(`should not be able to publish a non-delete CommentEdit under a pending comment`, async () => {
             const edit = await plebbit.createCommentEdit({
-                subplebbitAddress: commentInPendingApproval.subplebbitAddress,
+                communityAddress: commentInPendingApproval.communityAddress,
                 commentCid: commentInPendingApproval.cid!,
                 reason: "random reason should fail",
                 content: "text to edit on pending comment",
@@ -225,7 +225,7 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
 
             await forceLocalSubPagesToAlwaysGenerateMultipleChunks({
                 subplebbit,
-                subplebbitPostsCommentProps: { signer: modSigner, subplebbitAddress: subplebbit.address }
+                subplebbitPostsCommentProps: { signer: modSigner, communityAddress: subplebbit.address }
             }); // the goal of this is to force the subplebbit.posts to have all pages and page.cids
 
             expect(subplebbit.posts.pageCids).to.not.deep.equal({}); // should not be empty
@@ -323,7 +323,7 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
 
         it.sequential(`Author should be able to delete own pending comment and it should be purged immediately`, async () => {
             const deleteEdit = await plebbit.createCommentEdit({
-                subplebbitAddress: commentInPendingApproval.subplebbitAddress,
+                communityAddress: commentInPendingApproval.communityAddress,
                 commentCid: commentInPendingApproval.cid!,
                 deleted: true,
                 signer: commentInPendingApproval.signer,

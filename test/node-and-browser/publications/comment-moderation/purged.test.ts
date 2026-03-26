@@ -25,7 +25,7 @@ import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 
-type ReplyWithRequiredFields = Required<Pick<CommentIpfsWithCidDefined, "cid" | "subplebbitAddress" | "parentCid">>;
+type ReplyWithRequiredFields = Required<Pick<CommentIpfsWithCidDefined, "cid" | "parentCid"> & { communityAddress: string }>;
 
 const subplebbitAddress = signers[6].address;
 const roles = [
@@ -109,7 +109,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             it(`Regular author can not purge a comment with depth ${commentDepth}`, async () => {
                 const purgeEdit = await plebbit.createCommentModeration({
-                    subplebbitAddress: commentToPurge.subplebbitAddress,
+                    communityAddress: commentToPurge.communityAddress,
                     commentCid: commentToPurge.cid,
                     commentModeration: { reason: "To purge a post", purged: true },
                     signer: await plebbit.createSigner() // random author
@@ -123,7 +123,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             it.sequential(`Mod can mark an author comment with depth ${commentDepth} as purged`, async () => {
                 const purgeEdit = await plebbit.createCommentModeration({
-                    subplebbitAddress: commentToPurge.subplebbitAddress,
+                    communityAddress: commentToPurge.communityAddress,
                     commentCid: commentToPurge.cid,
                     commentModeration: { reason: "To purge a post", purged: true },
                     signer: roles[2].signer // Mod role
@@ -213,7 +213,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
                 const commentToAttemptToPurge = await publishCommentWithDepth({ depth: commentDepth, subplebbit });
                 const purgeCommentModeration = await plebbit.createCommentModeration({
-                    subplebbitAddress: commentToAttemptToPurge.subplebbitAddress,
+                    communityAddress: commentToAttemptToPurge.communityAddress,
                     commentCid: commentToAttemptToPurge.cid,
                     commentModeration: { reason: "To purge a post" + Date.now(), purged: true },
                     signer: commentToAttemptToPurge.signer
@@ -227,7 +227,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             it(`Mod can't un-purge a comment with depth ${commentDepth}`, async () => {
                 const unPurgeMod = await plebbit.createCommentModeration({
-                    subplebbitAddress: commentToPurge.subplebbitAddress,
+                    communityAddress: commentToPurge.communityAddress,
                     commentCid: commentToPurge.cid,
                     commentModeration: { reason: "To unpurge a post", purged: false },
                     signer: roles[2].signer
@@ -241,7 +241,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             it(`Purged comment with depth ${commentDepth} don't show in subplebbit.posts`, async () => {
                 const plebbit = await config.plebbitInstancePromise();
-                const sub = await plebbit.createSubplebbit({ address: commentToPurge.subplebbitAddress });
+                const sub = await plebbit.createSubplebbit({ address: commentToPurge.communityAddress });
 
                 await sub.update();
 
@@ -251,7 +251,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     toUpdate: sub,
                     predicate: async () => {
                         const purgedPostInPage = await findCommentInSubplebbitInstancePagesPreloadedAndPageCids({
-                            comment: commentToPurge as CommentIpfsWithCidDefined,
+                            comment: commentToPurge as Comment & { cid: string },
                             sub
                         });
                         return purgedPostInPage === undefined; // if we can't find it then it's purged
@@ -260,7 +260,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
                 const purgedCommentInRemoteSubplebbitPage = await findCommentInSubplebbitInstancePagesPreloadedAndPageCids({
                     sub,
-                    comment: commentToPurge as CommentIpfsWithCidDefined
+                    comment: commentToPurge as Comment & { cid: string }
                 });
                 expect(purgedCommentInRemoteSubplebbitPage).to.be.undefined;
 
@@ -275,7 +275,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     if (!subplebbit.postUpdates) return; // sub has no post updates, good!
                     const postUpdatesTimes = Object.keys(subplebbit.postUpdates);
                     expect(postUpdatesTimes.length).to.equal(1);
-                    const mfsPath = `/${commentToPurge.subplebbitAddress}/postUpdates/${postUpdatesTimes[0]}/${commentToPurge.postCid}/update`;
+                    const mfsPath = `/${commentToPurge.communityAddress}/postUpdates/${postUpdatesTimes[0]}/${commentToPurge.postCid}/update`;
 
                     const ipfsClient =
                         remotePlebbitIpfs.clients.kuboRpcClients[Object.keys(remotePlebbitIpfs.clients.kuboRpcClients)[0]]._client;

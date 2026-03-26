@@ -78,7 +78,7 @@ describeSkipIfRpc("Domain-based author bans", () => {
         it.sequential("should store targetAuthorDomain when banning an author who used a domain address", async () => {
             // Publish a comment with domain address
             commentWithDomain = await generateMockPost({
-                subplebbitAddress: subplebbit.address,
+                communityAddress: subplebbit.address,
                 plebbit: plebbit,
                 postProps: {
                     author: { address: testDomain },
@@ -93,7 +93,7 @@ describeSkipIfRpc("Domain-based author bans", () => {
             // Ban the author
             authorBanExpiresAt = timestamp() + 300;
             const banMod = await plebbit.createCommentModeration({
-                subplebbitAddress: subplebbit.address,
+                communityAddress: subplebbit.address,
                 commentCid: commentWithDomain.cid,
                 commentModeration: {
                     author: { banExpiresAt: authorBanExpiresAt },
@@ -119,7 +119,7 @@ describeSkipIfRpc("Domain-based author bans", () => {
         it.sequential("banned author can't publish with same signer", async () => {
             // Try to publish with the same signer - should fail due to public key ban
             const newComment = await generateMockPost({
-                subplebbitAddress: subplebbit.address,
+                communityAddress: subplebbit.address,
                 plebbit: plebbit,
                 postProps: {
                     signer: domainAuthorSigner
@@ -141,7 +141,7 @@ describeSkipIfRpc("Domain-based author bans", () => {
 
             // Try to publish with the new signer but same domain - should fail due to domain ban
             const newComment = await generateMockPost({
-                subplebbitAddress: subplebbit.address,
+                communityAddress: subplebbit.address,
                 plebbit: plebbit,
                 postProps: {
                     author: { address: testDomain },
@@ -165,7 +165,7 @@ describeSkipIfRpc("Domain-based author bans", () => {
 
             // Publish a comment with derived address (no domain)
             commentWithDerivedAddress = await generateMockPost({
-                subplebbitAddress: subplebbit.address,
+                communityAddress: subplebbit.address,
                 plebbit: plebbit,
                 postProps: {
                     signer: regularAuthorSigner
@@ -180,7 +180,7 @@ describeSkipIfRpc("Domain-based author bans", () => {
             // Ban the author
             const authorBanExpiresAt = timestamp() + 300;
             const banMod = await plebbit.createCommentModeration({
-                subplebbitAddress: subplebbit.address,
+                communityAddress: subplebbit.address,
                 commentCid: commentWithDerivedAddress.cid,
                 commentModeration: {
                     author: { banExpiresAt: authorBanExpiresAt },
@@ -211,7 +211,7 @@ describeSkipIfRpc("Domain-based author bans", () => {
 
             // Try to publish with domain - should fail because public key is banned
             const newComment = await generateMockPost({
-                subplebbitAddress: subplebbit.address,
+                communityAddress: subplebbit.address,
                 plebbit: plebbit,
                 postProps: {
                     author: { address: newDomain },
@@ -270,7 +270,7 @@ describeSkipIfRpc("Domain bans with pseudonymity mode", () => {
     it.sequential("should store originalAuthorDomain in pseudonymityAliases when author uses domain", async () => {
         // Publish a comment with domain address
         const commentWithDomain = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: plebbit,
             postProps: {
                 author: { address: testDomain },
@@ -289,7 +289,7 @@ describeSkipIfRpc("Domain bans with pseudonymity mode", () => {
     it.sequential("banning via pseudonymous comment should store original author's domain", async () => {
         // Create another comment to ban
         const commentToBan = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: plebbit,
             postProps: {
                 author: { address: testDomain },
@@ -305,7 +305,7 @@ describeSkipIfRpc("Domain bans with pseudonymity mode", () => {
         // Ban the author via the pseudonymous comment
         const authorBanExpiresAt = timestamp() + 300;
         const banMod = await plebbit.createCommentModeration({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             commentCid: commentToBan.cid,
             commentModeration: {
                 author: { banExpiresAt: authorBanExpiresAt },
@@ -329,7 +329,7 @@ describeSkipIfRpc("Domain bans with pseudonymity mode", () => {
 
         // Verify ban works with original signer
         const newComment = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: plebbit,
             postProps: {
                 signer: domainAuthorSigner

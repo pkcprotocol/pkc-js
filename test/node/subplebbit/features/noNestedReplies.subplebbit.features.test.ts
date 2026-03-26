@@ -31,7 +31,7 @@ describe.concurrent(`subplebbit.features.noNestedReplies`, async () => {
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
         // Pre-publish a post for testing replies
-        publishedPost = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
+        publishedPost = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: remotePlebbit });
     });
 
     afterAll(async () => {
@@ -53,7 +53,7 @@ describe.concurrent(`subplebbit.features.noNestedReplies`, async () => {
     });
 
     it(`Can publish a post`, async () => {
-        const post = await generateMockPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
+        const post = await generateMockPost({ communityAddress: subplebbit.address, plebbit: remotePlebbit });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });
 

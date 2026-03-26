@@ -51,7 +51,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
             const expectedStates = ["fetching-ipns", "fetching-ipfs", "succeeded", "stopped"];
             subplebbit.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
 
-            await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: plebbit });
+            await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
             await subplebbit.update();
             await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => Number(subplebbit.updatedAt) > oldUpdatedAt });
             await subplebbit.stop();
@@ -116,7 +116,9 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
         it(`updatingState is correct when we attempt to update a subplebbit with invalid record, if we're updating with an ipfs client`, async () => {
             // Create a subplebbit with a valid address
-            const { commentCid, subplebbitAddress } = await createStaticSubplebbitRecordForComment({ invalidateSubplebbitSignature: true });
+            const { commentCid, communityAddress: subplebbitAddress } = await createStaticSubplebbitRecordForComment({
+                invalidateSubplebbitSignature: true
+            });
 
             const subplebbit = await plebbit.createSubplebbit({ address: subplebbitAddress });
 
@@ -318,7 +320,9 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
         });
 
         it(`updatingState is correct when we attempt to update a subplebbit with invalid record, if we're updating with an ipfs gateways`, async () => {
-            const { commentCid, subplebbitAddress } = await createStaticSubplebbitRecordForComment({ invalidateSubplebbitSignature: true });
+            const { commentCid, communityAddress: subplebbitAddress } = await createStaticSubplebbitRecordForComment({
+                invalidateSubplebbitSignature: true
+            });
 
             // Create a subplebbit with a valid address
             const subplebbit = await plebbit.createSubplebbit({ address: subplebbitAddress });

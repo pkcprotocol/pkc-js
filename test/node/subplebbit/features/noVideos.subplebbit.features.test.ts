@@ -30,7 +30,7 @@ describe.concurrent(`subplebbit.features.noVideos`, async () => {
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
         // Publish a post first (before enabling the feature)
-        publishedPost = await publishRandomPost({ subplebbitAddress: subplebbit.address, plebbit: remotePlebbit });
+        publishedPost = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: remotePlebbit });
     });
 
     afterAll(async () => {
@@ -53,7 +53,7 @@ describe.concurrent(`subplebbit.features.noVideos`, async () => {
 
     it(`Can't publish a post with video link`, async () => {
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: {
                 link: "https://example.com/video.mp4",
@@ -80,7 +80,7 @@ describe.concurrent(`subplebbit.features.noVideos`, async () => {
 
     it(`Can publish a post with image link (noVideos doesn't block images)`, async () => {
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: {
                 link: "https://example.com/image.png",
@@ -92,7 +92,7 @@ describe.concurrent(`subplebbit.features.noVideos`, async () => {
 
     it(`Can't publish a post with GIF link`, async () => {
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: {
                 link: "https://example.com/animation.gif",
@@ -108,7 +108,7 @@ describe.concurrent(`subplebbit.features.noVideos`, async () => {
 
     it(`Can't publish a post with APNG link`, async () => {
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: {
                 link: "https://example.com/animation.apng",
@@ -124,7 +124,7 @@ describe.concurrent(`subplebbit.features.noVideos`, async () => {
 
     it(`Can publish a post with plain content (no link)`, async () => {
         const post = await generateMockPost({
-            subplebbitAddress: subplebbit.address,
+            communityAddress: subplebbit.address,
             plebbit: remotePlebbit,
             postProps: {
                 content: "Just plain text"

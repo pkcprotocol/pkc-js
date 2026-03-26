@@ -58,8 +58,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                 "succeeded"
             ];
             const recordedStates: string[] = [];
-            const mockPost = await generatePostToAnswerMathQuestion({ subplebbitAddress: mathCliSubplebbitAddress }, plebbit);
-            mockPost._getSubplebbitCache = () => undefined;
+            const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliSubplebbitAddress }, plebbit);
+            mockPost._getCommunityCache = (): ReturnType<typeof mockPost._getCommunityCache> => undefined;
 
             mockPost.on("publishingstatechange", (newState: string) => recordedStates.push(newState));
 
@@ -80,7 +80,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
             const recordedStates: string[] = [];
             const mathCliSubplebbitAddress = signers[1].address;
             await plebbit.getSubplebbit({ address: mathCliSubplebbitAddress }); // address of math cli, we fetch it here to make sure it's cached
-            const mockPost = await generatePostToAnswerMathQuestion({ subplebbitAddress: mathCliSubplebbitAddress }, plebbit);
+            const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliSubplebbitAddress }, plebbit);
 
             mockPost.on("publishingstatechange", (newState: string) => recordedStates.push(newState));
 
@@ -99,8 +99,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                 "succeeded"
             ];
             const recordedStates: string[] = [];
-            const mockPost = await generateMockPost({ subplebbitAddress: "plebbit.bso", plebbit: plebbit });
-            mockPost._getSubplebbitCache = () => undefined;
+            const mockPost = await generateMockPost({ communityAddress: "plebbit.bso", plebbit: plebbit });
+            mockPost._getCommunityCache = (): ReturnType<typeof mockPost._getCommunityCache> => undefined;
 
             mockPost.on("publishingstatechange", (newState: string) => recordedStates.push(newState));
 
@@ -128,7 +128,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                 plebbitOptions: { pubsubKuboRpcClientsOptions: [offlinePubsubUrl] }
             });
             offlinePubsubPlebbit.on("error", () => {});
-            const mockPost = await generateMockPost({ subplebbitAddress: signers[1].address, plebbit: offlinePubsubPlebbit });
+            const mockPost = await generateMockPost({ communityAddress: signers[1].address, plebbit: offlinePubsubPlebbit });
 
             try {
                 await mockPost.publish();
@@ -180,7 +180,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
             ];
             const recordedStates: string[] = [];
             await plebbit.getSubplebbit({ address: mathCliSubplebbitAddress }); // Make sure it's cached
-            const mockPost = await generatePostToAnswerMathQuestion({ subplebbitAddress: mathCliSubplebbitAddress }, plebbit);
+            const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliSubplebbitAddress }, plebbit);
 
             mockPost.on("publishingstatechange", (newState: string) => recordedStates.push(newState));
 
@@ -200,8 +200,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
                 "succeeded"
             ];
             const recordedStates: string[] = [];
-            const mockPost = await generatePostToAnswerMathQuestion({ subplebbitAddress: mathCliSubplebbitAddress }, plebbit);
-            mockPost._getSubplebbitCache = () => undefined;
+            const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliSubplebbitAddress }, plebbit);
+            mockPost._getCommunityCache = (): ReturnType<typeof mockPost._getCommunityCache> => undefined;
 
             mockPost.on("publishingstatechange", (newState: string) => recordedStates.push(newState));
 
@@ -224,12 +224,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`publishingState is stopped by default`, async () => {
-            const comment = await generateMockPost({ subplebbitAddress: subplebbitAddress, plebbit: plebbit });
+            const comment = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             expect(comment.publishingState).to.equal("stopped");
         });
 
         it(`comment.publishingState = 'failed' if user provide incorrect answer`, async () => {
-            const mockPost = await generateMockPost({ subplebbitAddress: mathCliSubplebbitAddress, plebbit: plebbit });
+            const mockPost = await generateMockPost({ communityAddress: mathCliSubplebbitAddress, plebbit: plebbit });
             mockPost.removeAllListeners("challenge");
 
             mockPost.once("challenge", async (challengeMsg) => {
@@ -248,7 +248,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             await ipnsObj.publishToIpns("<html></html>");
 
-            const mockPost = await generateMockPost({ subplebbitAddress: ipnsObj.signer.address, plebbit: plebbit });
+            const mockPost = await generateMockPost({ communityAddress: ipnsObj.signer.address, plebbit: plebbit });
 
             const recordedPublishingStates: string[] = [];
 
@@ -276,7 +276,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             const mockedSub = await publishSubplebbitRecordWithExtraProp();
 
-            const mockPost = await generateMockPost({ subplebbitAddress: mockedSub.ipnsObj.signer.address, plebbit: plebbit });
+            const mockPost = await generateMockPost({ communityAddress: mockedSub.ipnsObj.signer.address, plebbit: plebbit });
             (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 1;
             (mockPost as unknown as CommentWithInternals)._setProviderFailureThresholdSeconds = 2;
 

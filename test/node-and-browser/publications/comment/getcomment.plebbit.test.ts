@@ -124,7 +124,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(expectedReplyProps.postCid).to.equal(expectedReplyProps.parentCid);
             expect(expectedReplyProps.protocolVersion).to.be.a("string");
             expect(expectedReplyProps.depth).to.equal(1);
-            expect(expectedReplyProps.subplebbitAddress).to.equal(subplebbit.address);
+            expect(expectedReplyProps.communityAddress).to.equal(subplebbit.address);
             expect(expectedReplyProps.timestamp).to.be.a("number");
             expect(expectedReplyProps.signature).to.be.a("object");
             expect(expectedReplyProps.author).to.be.a("object");
@@ -210,12 +210,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(expectedSubplebbitAddress).to.not.equal(validCommentFixture.subplebbitAddress);
 
             try {
-                await plebbit.getComment({ cid: commentIpfsCid, subplebbitAddress: expectedSubplebbitAddress });
+                await plebbit.getComment({ cid: commentIpfsCid, communityAddress: expectedSubplebbitAddress });
                 expect.fail("should not succeed");
             } catch (e) {
                 const error = e as PlebbitError;
                 expect(error.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
-                expect(error.details.commentIpfsValidation.reason).to.equal(messages.ERR_COMMENT_IPFS_SUBPLEBBIT_ADDRESS_MISMATCH);
+                expect(error.details.commentIpfsValidation.reason).to.equal(messages.ERR_COMMENT_IPFS_COMMUNITY_ADDRESS_MISMATCH);
             }
         });
 

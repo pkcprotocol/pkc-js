@@ -170,7 +170,7 @@ describe("encryption", () => {
             } catch (e) {
                 throw Error(`decrypted publication isn't valid JSON: ${(e as Error).message}`);
             }
-            expect(decryptedPublication.subplebbitAddress).to.equal(fixtureComment.subplebbitAddress);
+            expect(decryptedPublication.communityAddress).to.equal(fixtureComment.communityAddress);
             expect(decryptedPublication.timestamp).to.equal(fixtureComment.timestamp);
             expect(decryptedPublication.content).to.equal(fixtureComment.content);
             expect(decryptedPublication.author?.address).to.equal(fixtureComment.author.address);

@@ -34,7 +34,7 @@ describe.concurrent(`subplebbit.update - Local subs`, async () => {
 
         const oldUpdatedAt = JSON.parse(JSON.stringify(recreatedSub.updatedAt)) as number;
         await recreatedSub.update();
-        await publishRandomPost({ subplebbitAddress: recreatedSub.address, plebbit: plebbit });
+        await publishRandomPost({ communityAddress: recreatedSub.address, plebbit: plebbit });
         await resolveWhenConditionIsTrue({ toUpdate: recreatedSub, predicate: async () => recreatedSub.updatedAt !== oldUpdatedAt });
         expect(recreatedSub.updatedAt).to.be.greaterThan(oldUpdatedAt);
         await recreatedSub.stop();
