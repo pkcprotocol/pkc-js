@@ -13,6 +13,21 @@ Instructions for AI agents working on this codebase. Rules are ranked by priorit
 | Bug reported | Reproduce deterministically in a test case first |
 | Debugging CI failures | Check `test_server.log` and `test_node_${config}.stdout.log`/`.stderr.log` artifacts |
 
+## Protocol Context
+
+Before working on certain areas, read the relevant protocol doc to avoid mistakes.
+
+| Working on | Read first |
+|---|---|
+| Comment publishing, CommentIpfs, CommentUpdate | `docs/protocol/comment-lifecycle.md` |
+| Author/subplebbit wire format, `publication-author.ts`, `subplebbit-wire.ts` | `docs/protocol/wire-vs-runtime.md` |
+| Addresses, domains, `.bso`, `.eth`, `nameResolvers`, `nameResolved` | `docs/protocol/names-and-addresses.md` |
+| `src/subplebbit/`, RemoteSubplebbit, LocalSubplebbit, RPC variants | `docs/protocol/subplebbit-architecture.md` |
+| `src/signer/signatures.ts`, verification, `signedPropertyNames` | `docs/protocol/signing.md` |
+| `src/pages/`, pagination, sort types, `pageCids` | `docs/protocol/pages.md` |
+| Challenge/response, `src/pubsub-messages/`, encryption | `docs/protocol/challenge-flow.md` |
+| Data storage, IPFS CIDs, IPNS, mutability questions | `docs/protocol/data-permanence.md` |
+
 ## MUST Rules
 
 ### Build
