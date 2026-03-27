@@ -101,7 +101,8 @@ describeSkipIfRpc(`Migration to a new IPFS repo`, async () => {
         const subLoaded = await remotePlebbit.getSubplebbit({ address: subAfterMigration.address });
         const postFromPage = subLoaded.posts.pages.hot!.comments[0];
         const postIpfs = JSON.parse(await remotePlebbit.fetchCid({ cid: postFromPage.cid }));
-        expect(postIpfs.communityAddress).to.equal(subAfterMigration.address); // Make sure it was loaded correctly
+        // communityAddress is runtime-only; wire format uses communityPublicKey/communityName
+        expect(postIpfs.communityPublicKey).to.equal(subAfterMigration.address); // Make sure it was loaded correctly
     });
 
     it(`Post with extra prop can be fetched from its cid`, async () => {
@@ -128,7 +129,8 @@ describeSkipIfRpc(`Migration to a new IPFS repo`, async () => {
         const subLoaded = await remotePlebbit.getSubplebbit({ address: subAfterMigration.address });
         const postFromPage = subLoaded.posts.pages.hot!.comments[0];
         const commentIpfs = JSON.parse(await remotePlebbit.fetchCid({ cid: postFromPage.replies!.pages.best!.comments[0].cid }));
-        expect(commentIpfs.communityAddress).to.equal(subAfterMigration.address); // Make sure it was loaded correctly
+        // communityAddress is runtime-only; wire format uses communityPublicKey/communityName
+        expect(commentIpfs.communityPublicKey).to.equal(subAfterMigration.address); // Make sure it was loaded correctly
     });
     it(`Comments' CommentUpdate are republished`, async () => {
         const subLoaded = await remotePlebbit.getSubplebbit({ address: subAfterMigration.address });

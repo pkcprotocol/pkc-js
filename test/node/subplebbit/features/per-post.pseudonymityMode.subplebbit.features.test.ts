@@ -1510,8 +1510,8 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                 const originalPublication = clonePublication(originalPost.raw.pubsubMessageToPublish!);
                 await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, originalPost);
 
-                // First 3 duplicate attempts should succeed idempotently
-                for (let i = 0; i < 3; i++) {
+                // First 1 duplicate attempt should succeed idempotently
+                for (let i = 0; i < 1; i++) {
                     const idempotentDup = await context.publisherPlebbit.createComment(originalPublication);
                     try {
                         await publishWithExpectedResult({ publication: idempotentDup, expectedChallengeSuccess: true });
@@ -1519,7 +1519,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                         await idempotentDup.stop();
                     }
                 }
-                // 4th attempt should fail
+                // 2nd attempt should fail
                 duplicatePost = await context.publisherPlebbit.createComment(originalPublication);
                 await publishWithExpectedResult({
                     publication: duplicatePost,
@@ -1556,8 +1556,8 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                 const originalReplyPublication = clonePublication(originalReply.raw.pubsubMessageToPublish!);
                 await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, originalReply);
 
-                // First 3 duplicate attempts should succeed idempotently
-                for (let i = 0; i < 3; i++) {
+                // First 1 duplicate attempt should succeed idempotently
+                for (let i = 0; i < 1; i++) {
                     const idempotentDup = await context.publisherPlebbit.createComment(originalReplyPublication);
                     try {
                         await publishWithExpectedResult({ publication: idempotentDup, expectedChallengeSuccess: true });
@@ -1565,7 +1565,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                         await idempotentDup.stop();
                     }
                 }
-                // 4th attempt should fail
+                // 2nd attempt should fail
                 duplicateReply = await context.publisherPlebbit.createComment(originalReplyPublication);
                 await publishWithExpectedResult({
                     publication: duplicateReply,
