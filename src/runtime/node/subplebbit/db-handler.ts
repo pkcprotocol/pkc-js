@@ -2885,6 +2885,13 @@ export class DbHandler {
             record = { ...record, ...record[extraPropName] };
             delete record[extraPropName];
         });
+        // For old migrated rows (pre-wire-format-change), extraProps contains subplebbitAddress.
+        // The original CommentIpfs did NOT have communityPublicKey/communityName,
+        // so we must remove them to preserve CID reproducibility.
+        if ("subplebbitAddress" in record) {
+            delete record["communityPublicKey"];
+            delete record["communityName"];
+        }
         return record;
     }
 }

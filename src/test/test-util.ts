@@ -1193,6 +1193,12 @@ export async function ensurePublicationIsSigned(
 export async function setExtraPropOnCommentAndSign(comment: Comment, extraProps: Object, includeExtraPropInSignedPropertyNames: boolean) {
     const log = Logger("plebbit-js:test-util:setExtraPropOnVoteAndSign");
 
+    // With deferred signing, the publication may not be signed yet
+    if (!comment.raw.pubsubMessageToPublish) {
+        await (comment as any)._initCommunity();
+        await comment._signPublicationWithCommunityFields();
+    }
+
     const publicationWithExtraProp = { ...comment.raw.pubsubMessageToPublish!, ...extraProps };
     if (includeExtraPropInSignedPropertyNames)
         publicationWithExtraProp.signature = await _signJson(
@@ -1216,6 +1222,12 @@ export async function setExtraPropOnCommentAndSign(comment: Comment, extraProps:
 
 export async function setExtraPropOnVoteAndSign(vote: Vote, extraProps: Object, includeExtraPropInSignedPropertyNames: boolean) {
     const log = Logger("plebbit-js:test-util:setExtraPropOnVoteAndSign");
+
+    // With deferred signing, the publication may not be signed yet
+    if (!vote.raw.pubsubMessageToPublish) {
+        await (vote as any)._initCommunity();
+        await vote._signPublicationWithCommunityFields();
+    }
 
     const publicationWithExtraProp = { ...vote.raw.pubsubMessageToPublish!, ...extraProps };
     if (includeExtraPropInSignedPropertyNames)
@@ -1243,6 +1255,12 @@ export async function setExtraPropOnCommentEditAndSign(
     includeExtraPropInSignedPropertyNames: boolean
 ) {
     const log = Logger("plebbit-js:test-util:setExtraPropOnCommentEditAndSign");
+
+    // With deferred signing, the publication may not be signed yet
+    if (!commentEdit.raw.pubsubMessageToPublish) {
+        await (commentEdit as any)._initCommunity();
+        await commentEdit._signPublicationWithCommunityFields();
+    }
 
     const publicationWithExtraProp = { ...commentEdit.raw.pubsubMessageToPublish!, ...extraProps };
     if (includeExtraPropInSignedPropertyNames)

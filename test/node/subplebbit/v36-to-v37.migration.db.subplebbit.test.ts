@@ -210,6 +210,12 @@ interface DbHandlerPrivate {
     _purgeCommentEditsWithInvalidSchemaOrSignature: () => Promise<void>;
     _purgePublicationTablesWithDuplicateSignatures: () => Promise<void>;
     _subplebbit: FakeSubplebbit;
+    _spreadExtraProps: <T extends Record<string, any>>(record: T) => T;
+    _parsePrefixedComment: (row: Record<string, unknown>) => {
+        comment: Record<string, unknown>;
+        commentUpdate: Record<string, unknown>;
+        extras: Record<string, unknown>;
+    };
 }
 
 function getPrivate(handler: DbHandler): DbHandlerPrivate {
@@ -719,6 +725,54 @@ describeSkipIfRpc("v36 → v37 DB migration (subplebbitAddress → communityPubl
             expect((commentIpfs as Record<string, unknown>).communityPublicKey).to.equal(IPNS_ADDRESS);
             // Should NOT have subplebbitAddress
             expect((commentIpfs as Record<string, unknown>).subplebbitAddress).to.be.undefined;
+        });
+    });
+
+    describe("_spreadExtraProps strips communityPublicKey/communityName for old migrated rows", () => {
+        // Bug: _spreadExtraProps (used by _parsePrefixedComment in page queries) spreads
+        // extraProps.subplebbitAddress into the record but doesn't remove communityPublicKey/communityName.
+        // This causes page comments to have BOTH old and new fields → CID mismatch → invalid signature.
+
+        it("record with extraProps.subplebbitAddress should NOT have communityPublicKey or communityName after spread", () => {
+            const priv = getPrivate(dbHandler!);
+            const record: Record<string, unknown> = {
+                communityPublicKey: IPNS_ADDRESS,
+                communityName: undefined,
+                content: "test",
+                extraProps: { subplebbitAddress: IPNS_ADDRESS }
+            };
+            const result = priv._spreadExtraProps({ ...record });
+            // subplebbitAddress should be present (restored from extraProps)
+            expect(result.subplebbitAddress).to.equal(IPNS_ADDRESS);
+            // communityPublicKey/communityName should be removed to preserve CID reproducibility
+            expect(result.communityPublicKey).to.be.undefined;
+            expect(result.communityName).to.be.undefined;
+        });
+
+        it("record with extraProps.subplebbitAddress (domain) should NOT have communityPublicKey or communityName after spread", () => {
+            const priv = getPrivate(dbHandler!);
+            const record: Record<string, unknown> = {
+                communityPublicKey: undefined,
+                communityName: DOMAIN_ADDRESS,
+                content: "test",
+                extraProps: { subplebbitAddress: DOMAIN_ADDRESS }
+            };
+            const result = priv._spreadExtraProps({ ...record });
+            expect(result.subplebbitAddress).to.equal(DOMAIN_ADDRESS);
+            expect(result.communityPublicKey).to.be.undefined;
+            expect(result.communityName).to.be.undefined;
+        });
+
+        it("record WITHOUT extraProps.subplebbitAddress should keep communityPublicKey/communityName", () => {
+            const priv = getPrivate(dbHandler!);
+            const record: Record<string, unknown> = {
+                communityPublicKey: IPNS_ADDRESS,
+                content: "new format post"
+            };
+            const result = priv._spreadExtraProps({ ...record });
+            // No subplebbitAddress → new wire format, communityPublicKey should stay
+            expect(result.communityPublicKey).to.equal(IPNS_ADDRESS);
+            expect(result.subplebbitAddress).to.be.undefined;
         });
     });
 
