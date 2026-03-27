@@ -2332,7 +2332,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
                 const sig = publication.signature.signature;
                 const attempts = (this._duplicatePublicationAttempts.get(sig) || 0) + 1;
                 this._duplicatePublicationAttempts.set(sig, attempts);
-                if (attempts <= 3) {
+                if (attempts <= 1) {
                     return this._publishIdempotentDuplicateVerification(
                         decryptedRequestMsg,
                         request.challengeRequestId,
