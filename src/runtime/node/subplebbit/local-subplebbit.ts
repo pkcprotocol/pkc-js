@@ -3325,19 +3325,20 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         const parsedEditOptions = parseSubplebbitEditOptionsSchemaWithPlebbitErrorIfItFails(newSubplebbitOptions);
 
         // Convert backward-compat address → name for wire format when address is a domain
-        if (typeof parsedEditOptions.address === "string" && isStringDomain(parsedEditOptions.address)) {
-            parsedEditOptions.name = parsedEditOptions.address;
-        }
+        const editWithDerivedName =
+            typeof parsedEditOptions.address === "string" && isStringDomain(parsedEditOptions.address)
+                ? { ...parsedEditOptions, name: parsedEditOptions.address }
+                : parsedEditOptions;
 
         const newInternalProps = <Pick<InternalSubplebbitRecordAfterFirstUpdateType, "roles" | "challenges" | "_usingDefaultChallenge">>{
-            ...(parsedEditOptions.roles ? { roles: await this._parseRolesToEdit(parsedEditOptions.roles) } : undefined),
-            ...(parsedEditOptions?.settings?.challenges
-                ? await this._parseChallengesToEdit(parsedEditOptions.settings.challenges)
+            ...(editWithDerivedName.roles ? { roles: await this._parseRolesToEdit(editWithDerivedName.roles) } : undefined),
+            ...(editWithDerivedName?.settings?.challenges
+                ? await this._parseChallengesToEdit(editWithDerivedName.settings.challenges)
                 : undefined)
         };
 
         const newProps = <ParsedSubplebbitEditOptions>{
-            ...remeda.omit(parsedEditOptions, ["roles"]), // we omit here to make tsc shut up
+            ...remeda.omit(editWithDerivedName, ["roles"]), // we omit here to make tsc shut up
             ...newInternalProps
         };
 

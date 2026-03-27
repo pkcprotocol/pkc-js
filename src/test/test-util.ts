@@ -30,7 +30,9 @@ import type {
     CommentIpfsWithCidPostCidDefined,
     CommentsTableRow,
     CommentWithinRepliesPostsPageJson,
-    CreateCommentOptions
+    CreateCommentOptions,
+    CommentPubsubMessagePublication,
+    CommentOptionsToSign
 } from "../publications/comment/types.js";
 import pTimeout from "p-timeout";
 
@@ -1115,6 +1117,19 @@ export async function disableValidationOfSignatureBeforePublishing(publication: 
 
 export async function overrideCommentInstancePropsAndSign(comment: Comment, props: CreateCommentOptions) {
     if (!comment.signer) throw Error("Need comment.signer to overwrite the signature");
+
+    // If deferred signing hasn't populated pubsubMessageToPublish yet,
+    // modify the unsigned options so publish() will sign with the overridden props
+    const unsignedOpts = (comment.raw as { unsignedPublicationOptions?: CreateCommentOptions }).unsignedPublicationOptions;
+    if (!comment.raw.pubsubMessageToPublish && unsignedOpts) {
+        for (const optionKey of remeda.keys.strict(props)) {
+            //@ts-expect-error
+            comment[optionKey] = unsignedOpts[optionKey] = props[optionKey];
+        }
+        disableValidationOfSignatureBeforePublishing(comment);
+        return;
+    }
+
     const pubsubPublication = remeda.clone(comment.raw.pubsubMessageToPublish!);
 
     for (const optionKey of remeda.keys.strict(props)) {

@@ -62,8 +62,18 @@ export class TrackedInstanceRegistry<T extends object> {
             entry.add(alias);
 
             const trackedValues = this._aliases.get(alias);
-            if (trackedValues) trackedValues.add(value);
-            else this._aliases.set(alias, new Set([value]));
+            if (trackedValues) {
+                // Ensure only one instance owns an alias at a time.
+                // If another instance already claims this alias, revoke it from that instance.
+                for (const existingValue of trackedValues) {
+                    if (existingValue !== value) {
+                        trackedValues.delete(existingValue);
+                        const otherEntry = this._entries.get(existingValue);
+                        if (otherEntry) otherEntry.delete(alias);
+                    }
+                }
+                trackedValues.add(value);
+            } else this._aliases.set(alias, new Set([value]));
         }
     }
 

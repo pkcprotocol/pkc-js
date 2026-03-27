@@ -9,6 +9,7 @@ import type { SubplebbitSignature, SubplebbitSettings, SubplebbitIpfsType } from
 import type { CommentUpdatesRow, CommentsTableRow } from "../../../dist/node/publications/comment/types.js";
 import type { AddResult } from "kubo-rpc-client";
 import { CID } from "kubo-rpc-client";
+import { TrackedInstanceRegistry } from "../../../dist/node/plebbit/tracked-instance-registry.js";
 
 vi.mock("../../../dist/node/runtime/node/util.js", () => ({
     nativeFunctions: { fetch: vi.fn() },
@@ -125,7 +126,13 @@ function createTestSubplebbit(overrides: { address?: string } = {}): { subplebbi
         _pendingEditProps: [],
         _subplebbitUpdateTrigger: true,
         _firstUpdateAfterStart: false,
-        _plebbit: { publishInterval: 20, _timeouts: { "page-ipfs": 1000 } },
+        _plebbit: {
+            publishInterval: 20,
+            _timeouts: { "page-ipfs": 1000 },
+            _startedSubplebbits: new TrackedInstanceRegistry(),
+            _updatingSubplebbits: new TrackedInstanceRegistry(),
+            _updatingComments: new TrackedInstanceRegistry()
+        },
         raw: { subplebbitIpfs: {} },
         modQueue: { resetPages: vi.fn() },
         settings: { challenges: [] } as SubplebbitSettings,
@@ -308,7 +315,11 @@ describe("local subplebbit garbage collection", () => {
             address: "test-sub-delete",
             state: "stopped",
             signer: { ipnsKeyName: "key-name", address: "12D3KooMock" },
-            _plebbit: { _startedSubplebbits: {}, _updatingSubplebbits: {} },
+            _plebbit: {
+                _startedSubplebbits: new TrackedInstanceRegistry(),
+                _updatingSubplebbits: new TrackedInstanceRegistry(),
+                _updatingComments: new TrackedInstanceRegistry()
+            },
             _clientsManager: { getDefaultKuboRpcClient: vi.fn(() => kuboClient) },
             _cidsToUnPin: new Set<string>(),
             _mfsPathsToRemove: new Set<string>(),
