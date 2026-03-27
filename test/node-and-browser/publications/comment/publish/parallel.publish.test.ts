@@ -175,7 +175,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
                 }
 
                 try {
-                    expect(localPlebbit._updatingSubplebbits).to.deep.equal({});
+                    expect(localPlebbit._updatingSubplebbits.size()).to.equal(0);
 
                     const comments = await Promise.all(
                         new Array(stressPublishCount).fill(null).map(async (_, index) =>
@@ -192,7 +192,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
 
                     await new Promise((resolve) => setTimeout(resolve, 5000));
 
-                    expect(localPlebbit._updatingSubplebbits).to.deep.equal({});
+                    expect(localPlebbit._updatingSubplebbits.size()).to.equal(0);
 
                     const resolveCallsCount = fetchSpy
                         ? fetchSpy.mock.calls.filter(([input]: unknown[]) => {

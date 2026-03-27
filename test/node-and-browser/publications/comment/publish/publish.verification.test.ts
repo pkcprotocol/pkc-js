@@ -9,7 +9,8 @@ import {
     overrideCommentInstancePropsAndSign,
     setExtraPropOnCommentAndSign,
     disableValidationOfSignatureBeforePublishing,
-    itSkipIfRpc
+    itSkipIfRpc,
+    ensurePublicationIsSigned
 } from "../../../../../dist/node/test/test-util.js";
 import * as remeda from "remeda";
 import { messages } from "../../../../../dist/node/errors.js";
@@ -36,6 +37,10 @@ describe.sequential(`Client side verification`, async () => {
             plebbit: plebbit,
             postProps: { signer: signers[0] }
         });
+        // With deferred signing, pubsubMessageToPublish is undefined until publish();
+        // force signing so we can corrupt the signed message
+        const community = await plebbit.getSubplebbit({ address: subplebbitAddress });
+        await ensurePublicationIsSigned(mockComment, community as Parameters<typeof ensurePublicationIsSigned>[1]);
         const pubsubPublication = JSON.parse(JSON.stringify(mockComment.raw.pubsubMessageToPublish!));
         pubsubPublication.timestamp += 1; // corrupts signature
         mockComment.raw.pubsubMessageToPublish = pubsubPublication;

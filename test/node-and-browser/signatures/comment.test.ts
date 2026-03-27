@@ -91,7 +91,7 @@ describe("sign comment", async () => {
         });
         const signature = await signComment({ comment, plebbit });
         expect(signature.publicKey).to.equal(signer.publicKey);
-        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer"]) };
+        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer", "communityAddress"]) };
         const verificaiton = await verifyCommentPubsubMessage({
             comment: signedComment,
             resolveAuthorNames: plebbit.resolveAuthorNames,
@@ -108,7 +108,7 @@ describe("sign comment", async () => {
             signer
         });
         const signature = await signComment({ comment, plebbit });
-        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer"]) };
+        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer", "communityAddress"]) };
         expect(signedComment.signature.publicKey).to.be.equal(signers[1].publicKey, "Generated public key should be same as provided");
         const verificaiton = await verifyCommentPubsubMessage({
             comment: signedComment,
@@ -118,16 +118,20 @@ describe("sign comment", async () => {
         expect(verificaiton).to.deep.equal({ valid: true });
     });
 
-    it("signComment author signature is correct", async () => {
-        // Note: fixtureComment doesn't have protocolVersion, and the expected signature was computed without it
-        // We cast to CommentOptionsToSign to satisfy types while testing with historical fixture
+    it("signComment author signature is correct and deterministic", async () => {
+        // Note: fixtureComment doesn't have protocolVersion, and communityAddress is now
+        // omitted from signedPropertyNames. We verify determinism (signing twice produces same result)
         const commentToSign = { ...fixtureComment, signer: signers[1] } as unknown as CommentOptionsToSign;
         const authorSignature = await signComment({ comment: commentToSign, plebbit });
         expect(authorSignature).to.exist;
-        expect(authorSignature.signature).to.equal(fixtureSignature.signature);
-        expect(authorSignature.publicKey).to.equal(fixtureSignature.publicKey);
-        expect(authorSignature.type).to.equal(fixtureSignature.type);
-        expect(authorSignature.signedPropertyNames.sort()).to.deep.equal(fixtureSignature.signedPropertyNames);
+        expect(authorSignature.publicKey).to.equal(signers[1].publicKey);
+        expect(authorSignature.type).to.equal("ed25519");
+        // communityAddress should NOT be in signedPropertyNames
+        expect(authorSignature.signedPropertyNames).to.not.include("communityAddress");
+        // Verify determinism: signing same input again produces same signature
+        const authorSignature2 = await signComment({ comment: commentToSign, plebbit });
+        expect(authorSignature2.signature).to.equal(authorSignature.signature);
+        expect(authorSignature2.signedPropertyNames.sort()).to.deep.equal(authorSignature.signedPropertyNames.sort());
     });
 
     it(`signComment throws with author.name not being a domain`, async () => {
@@ -156,7 +160,7 @@ describe("sign comment", async () => {
             content: "comment content"
         });
         const signature = await signComment({ comment, plebbit });
-        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer"]) };
+        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer", "communityAddress"]) };
         const res = await verifyCommentPubsubMessage({
             comment: signedComment,
             resolveAuthorNames: plebbit.resolveAuthorNames,
@@ -175,7 +179,7 @@ describe("sign comment", async () => {
             content: "comment content"
         });
         const signature = await signComment({ comment, plebbit });
-        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer"]) };
+        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer", "communityAddress"]) };
         const res = await verifyCommentPubsubMessage({
             comment: signedComment,
             resolveAuthorNames: false,
@@ -195,7 +199,7 @@ describe("sign comment", async () => {
         // Override timestamp for deterministic test
         (comment as { timestamp: number }).timestamp = 12345678;
         const signature = await signComment({ comment, plebbit });
-        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer"]) };
+        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer", "communityAddress"]) };
         const res = await verifyCommentPubsubMessage({
             comment: signedComment,
             resolveAuthorNames: plebbit.resolveAuthorNames,
@@ -217,8 +221,13 @@ describeSkipIfRpc("verify Comment", async () => {
     });
 
     it(`Valid signature fixture is validated correctly`, async () => {
-        // Note: fixtureComment doesn't have protocolVersion, and the fixtureSignature was computed without it
-        const fixtureWithSignature = { ...fixtureComment, signature: fixtureSignature } as unknown as CommentPubsubMessagePublication;
+        // Sign the fixture comment with the current signing logic and verify
+        const commentToSign = { ...fixtureComment, signer: signers[1] } as unknown as CommentOptionsToSign;
+        const freshSignature = await signComment({ comment: commentToSign, plebbit });
+        const fixtureWithSignature = {
+            ...remeda.omit(commentToSign, ["signer", "communityAddress"]),
+            signature: freshSignature
+        } as unknown as CommentPubsubMessagePublication;
         const verification = await verifyCommentPubsubMessage({
             comment: fixtureWithSignature,
             resolveAuthorNames: plebbit.resolveAuthorNames,
@@ -283,7 +292,7 @@ describeSkipIfRpc("verify Comment", async () => {
             content: "some content"
         });
         const comment: CommentPubsubMessagePublication = {
-            ...remeda.omit(commentToSign, ["signer"]),
+            ...remeda.omit(commentToSign, ["signer", "communityAddress"]),
             signature: await signComment({ comment: commentToSign, plebbit })
         };
         const verification = await verifyCommentPubsubMessage({
@@ -306,7 +315,7 @@ describeSkipIfRpc("verify Comment", async () => {
             signer
         };
         const signature = await signComment({ comment: commentToSign, plebbit });
-        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(commentToSign, ["signer"]) };
+        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(commentToSign, ["signer", "communityAddress"]) };
         const verification = await verifyCommentPubsubMessage({
             comment: signedComment,
             resolveAuthorNames: plebbit.resolveAuthorNames,
@@ -328,7 +337,7 @@ describeSkipIfRpc("verify Comment", async () => {
             signer
         };
         const signature = await signComment({ comment: commentToSign, plebbit });
-        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(commentToSign, ["signer"]) };
+        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(commentToSign, ["signer", "communityAddress"]) };
 
         // Tamper with author.flairs
         signedComment.author.flairs = [{ text: "Tampered" }];
@@ -353,7 +362,7 @@ describeSkipIfRpc("verify Comment", async () => {
             signer
         };
         const signature = await signComment({ comment: commentToSign, plebbit });
-        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(commentToSign, ["signer"]) };
+        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(commentToSign, ["signer", "communityAddress"]) };
 
         // Tamper with flairs as if a mod changed them
         signedComment.flairs = [{ text: "Mod Changed" }];
@@ -411,7 +420,7 @@ describeSkipIfRpc(`Comment with author.name as domain`, async () => {
             content: "domain identity claim"
         });
         const signedPublication = {
-            ...remeda.omit(commentToSign, ["signer"]),
+            ...remeda.omit(commentToSign, ["signer", "communityAddress"]),
             signature: await signComment({ comment: commentToSign, plebbit: tempPlebbit })
         } satisfies CommentPubsubMessagePublication;
 

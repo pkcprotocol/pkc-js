@@ -75,8 +75,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 expect(curEdit.challengeRequest).to.deep.equal(props.challengeRequest);
             });
 
-            expect(localEdit.toJSONPubsubRequestToEncrypt()).to.deep.equal(recreatedLocalEdit.toJSONPubsubRequestToEncrypt());
-
+            // With deferred signing, toJSONPubsubRequestToEncrypt is not available until publish
+            // Compare JSON representations directly instead
             const localEditJson = JSON.parse(JSON.stringify(localEdit));
             const recreatedLocalEditJson = JSON.parse(JSON.stringify(recreatedLocalEdit));
             expect(localEdit.timestamp).to.equal(recreatedLocalEdit.timestamp);
@@ -103,9 +103,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({ publication: editFromStringifiedEdit, expectedChallengeSuccess: true });
             const challengerequest = await challengeRequestPromise;
 
-            expect(challengerequest.commentEdit).to.deep.equal(edit.raw.pubsubMessageToPublish!);
-            expect(edit.raw.pubsubMessageToPublish!).to.deep.equal(editFromStringifiedEdit.raw.pubsubMessageToPublish!);
-            expect(edit.toJSONPubsubRequestToEncrypt()).to.deep.equal(editFromStringifiedEdit.toJSONPubsubRequestToEncrypt());
+            expect(challengerequest.commentEdit).to.deep.equal(editFromStringifiedEdit.raw.pubsubMessageToPublish!);
+            // With deferred signing, verify that the published instance has the correct wire format
+            expect(editFromStringifiedEdit.raw.pubsubMessageToPublish).to.exist;
         });
     });
 

@@ -42,10 +42,11 @@ describe("Sign commentedit", async () => {
 
     it(`plebbit.createCommentEdit creates a valid CommentEdit`, async () => {
         const commentEdit = await plebbit.createCommentEdit(editProps);
-        expect(commentEdit.signature).to.deep.equal(editSignature);
+        // With deferred signing, signature is not set until publish()
+        expect(commentEdit.signature).to.be.undefined;
 
         const editWithSignature: CommentEditPubsubMessagePublication = {
-            ...remeda.omit(editProps, ["signer"]),
+            ...remeda.omit(editProps, ["signer", "communityAddress"]),
             signature: editSignature
         };
         const verification = await verifyCommentEdit({

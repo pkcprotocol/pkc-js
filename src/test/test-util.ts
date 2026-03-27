@@ -1112,7 +1112,7 @@ export async function resolveWhenConditionIsTrue(options: ResolveWhenConditionIs
 
 export async function disableValidationOfSignatureBeforePublishing(publication: Publication) {
     //@ts-expect-error
-    publication._validateSignature = () => {};
+    publication._validateSignatureHook = async () => {};
 }
 
 export async function overrideCommentInstancePropsAndSign(comment: Comment, props: CreateCommentOptions) {
@@ -1711,7 +1711,7 @@ async function getTemplateSubplebbitRecord(plebbit: Plebbit): Promise<Subplebbit
 export async function publishSubplebbitRecordWithExtraProp(opts?: { includeExtraPropInSignedPropertyNames: boolean; extraProps: Object }) {
     const ipnsObj = await createNewIpns();
     const subplebbitRecord = JSON.parse(JSON.stringify(await getTemplateSubplebbitRecord(ipnsObj.plebbit)));
-    subplebbitRecord.pubsubTopic = subplebbitRecord.address = ipnsObj.signer.address;
+    subplebbitRecord.pubsubTopic = ipnsObj.signer.address;
     delete subplebbitRecord.posts;
     if (opts?.extraProps) Object.assign(subplebbitRecord, opts.extraProps);
     const signedPropertyNames = subplebbitRecord.signature.signedPropertyNames;

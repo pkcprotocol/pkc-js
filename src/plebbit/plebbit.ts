@@ -17,7 +17,8 @@ import type {
     PubsubSubscriptionHandler,
     InputPlebbitOptions,
     AuthorPubsubType,
-    PlebbitMemCaches
+    PlebbitMemCaches,
+    CreatePublicationOptions
 } from "../types.js";
 import { Comment } from "../publications/comment/comment.js";
 import {
@@ -500,6 +501,19 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
                 signer: options.signer,
                 challengeRequest: options.challengeRequest
             });
+        else if ("signer" in options && options.signer) {
+            const unsignedOpts = (options.raw as { unsignedPublicationOptions?: CreatePublicationOptions }).unsignedPublicationOptions;
+            if (unsignedOpts) {
+                const log = Logger("plebbit-js:plebbit:createComment");
+                const finalOptions = <CommentOptionsToSign>(
+                    await this._initMissingFieldsOfPublicationBeforeSigning({ ...unsignedOpts, signer: options.signer }, log)
+                );
+                commentInstance._initUnsignedLocalProps({
+                    unsignedOptions: finalOptions,
+                    challengeRequest: options.challengeRequest
+                });
+            }
+        }
         if (options.raw.comment) commentInstance._initIpfsProps(options.raw.comment);
         // can only get one CommentUpdate
         if ("commentUpdateFromChallengeVerification" in options.raw && options.raw.commentUpdateFromChallengeVerification)
@@ -762,13 +776,23 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
 
     async _createVoteInstanceFromJsonfiedVote(jsonfied: VoteJson) {
         const voteInstance = new Vote(this);
-        // we stringify here to remove functions and create a deep copy
+        const unsignedOpts = (jsonfied.raw as { unsignedPublicationOptions?: CreatePublicationOptions }).unsignedPublicationOptions;
         if (jsonfied.raw.pubsubMessageToPublish)
             voteInstance._initLocalProps({
                 vote: jsonfied.raw.pubsubMessageToPublish,
                 signer: jsonfied.signer,
                 challengeRequest: jsonfied.challengeRequest
             });
+        else if (unsignedOpts && jsonfied.signer) {
+            const log = Logger("plebbit-js:plebbit:createVote");
+            const finalOptions = <VoteOptionsToSign>(
+                await this._initMissingFieldsOfPublicationBeforeSigning({ ...unsignedOpts, signer: jsonfied.signer }, log)
+            );
+            voteInstance._initUnsignedLocalProps({
+                unsignedOptions: finalOptions,
+                challengeRequest: jsonfied.challengeRequest
+            });
+        }
         return voteInstance;
     }
 
@@ -793,13 +817,23 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
 
     async _createCommentEditInstanceFromJsonfiedCommentEdit(jsonfied: CommentEditTypeJson) {
         const editInstance = new CommentEdit(this);
+        const unsignedOpts = (jsonfied.raw as { unsignedPublicationOptions?: CreatePublicationOptions }).unsignedPublicationOptions;
         if (jsonfied.raw.pubsubMessageToPublish)
             editInstance._initLocalProps({
                 commentEdit: jsonfied.raw.pubsubMessageToPublish,
                 signer: jsonfied.signer,
                 challengeRequest: jsonfied.challengeRequest
             });
-
+        else if (unsignedOpts && jsonfied.signer) {
+            const log = Logger("plebbit-js:plebbit:createCommentEdit");
+            const finalOptions = <CommentEditOptionsToSign>(
+                await this._initMissingFieldsOfPublicationBeforeSigning({ ...unsignedOpts, signer: jsonfied.signer }, log)
+            );
+            editInstance._initUnsignedLocalProps({
+                unsignedOptions: finalOptions,
+                challengeRequest: jsonfied.challengeRequest
+            });
+        }
         return editInstance;
     }
 
@@ -825,14 +859,25 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
     }
 
     async _createCommentModerationInstanceFromJsonfiedCommentModeration(jsonfied: CommentModerationTypeJson) {
-        const editInstance = new CommentModeration(this);
+        const modInstance = new CommentModeration(this);
+        const unsignedOpts = (jsonfied.raw as { unsignedPublicationOptions?: CreatePublicationOptions }).unsignedPublicationOptions;
         if (jsonfied.raw.pubsubMessageToPublish)
-            editInstance._initLocalProps({
+            modInstance._initLocalProps({
                 commentModeration: jsonfied.raw.pubsubMessageToPublish,
                 signer: jsonfied.signer,
                 challengeRequest: jsonfied.challengeRequest
             });
-        return editInstance;
+        else if (unsignedOpts && jsonfied.signer) {
+            const log = Logger("plebbit-js:plebbit:createCommentModeration");
+            const finalOptions = <CommentModerationOptionsToSign>(
+                await this._initMissingFieldsOfPublicationBeforeSigning({ ...unsignedOpts, signer: jsonfied.signer }, log)
+            );
+            modInstance._initUnsignedLocalProps({
+                unsignedOptions: finalOptions,
+                challengeRequest: jsonfied.challengeRequest
+            });
+        }
+        return modInstance;
     }
 
     async createCommentModeration(
@@ -860,12 +905,23 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
 
     async _createSubplebbitEditInstanceFromJsonfiedSubplebbitEdit(jsonfied: SubplebbitEditJson) {
         const subplebbitEditInstance = new SubplebbitEdit(this);
+        const unsignedOpts = (jsonfied.raw as { unsignedPublicationOptions?: CreatePublicationOptions }).unsignedPublicationOptions;
         if (jsonfied.raw.pubsubMessageToPublish)
             subplebbitEditInstance._initLocalProps({
                 subplebbitEdit: jsonfied.raw.pubsubMessageToPublish,
                 signer: jsonfied.signer,
                 challengeRequest: jsonfied.challengeRequest
             });
+        else if (unsignedOpts && jsonfied.signer) {
+            const log = Logger("plebbit-js:plebbit:createSubplebbitEdit");
+            const finalOptions = <SubplebbitEditPublicationOptionsToSign>(
+                await this._initMissingFieldsOfPublicationBeforeSigning({ ...unsignedOpts, signer: jsonfied.signer }, log)
+            );
+            subplebbitEditInstance._initUnsignedLocalProps({
+                unsignedOptions: finalOptions,
+                challengeRequest: jsonfied.challengeRequest
+            });
+        }
         return subplebbitEditInstance;
     }
 

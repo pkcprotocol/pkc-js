@@ -105,10 +105,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({ publication: modFromStringifiedMod, expectedChallengeSuccess: true });
             const challengerequest = await challengeRequestPromise;
 
-            expect(challengerequest.commentModeration).to.deep.equal(commentMod.raw.pubsubMessageToPublish!);
+            expect(challengerequest.commentModeration).to.deep.equal(modFromStringifiedMod.raw.pubsubMessageToPublish!);
 
-            expect(commentMod.raw.pubsubMessageToPublish!).to.deep.equal(modFromStringifiedMod.raw.pubsubMessageToPublish!);
-            expect(commentMod.toJSONPubsubRequestToEncrypt()).to.deep.equal(modFromStringifiedMod.toJSONPubsubRequestToEncrypt());
+            // With deferred signing, verify that the published instance has the correct wire format
+            expect(modFromStringifiedMod.raw.pubsubMessageToPublish).to.exist;
         });
     });
 

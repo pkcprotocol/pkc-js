@@ -19,6 +19,7 @@ import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { PageIpfs, PageTypeJson } from "../../../../dist/node/pages/types.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
+import type Publication from "../../../../dist/node/publications/publication.js";
 
 // Helper type for the skipped test that uses toJSON
 type CommentWithToJSON = Comment & { toJSON: () => unknown };
@@ -86,11 +87,14 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(comment.author.address).to.equal(domain);
             expect(comment.author.name).to.equal(domain);
             expect(comment.author.displayName).to.equal(displayName);
-            expect(comment.raw.pubsubMessageToPublish!.author).to.deep.equal({
+            // With deferred signing, pubsubMessageToPublish is undefined until publish();
+            // check the unsigned options instead which hold the wire-format author
+            const unsignedAuthor = (comment.raw as Publication["raw"]).unsignedPublicationOptions!.author;
+            expect(unsignedAuthor).to.deep.equal({
                 name: domain,
                 displayName
             });
-            expect(comment.raw.pubsubMessageToPublish!.author).to.not.have.property("address");
+            expect(unsignedAuthor).to.not.have.property("address");
         });
 
         it(`Can recreate a stringifed local Comment instance after publishing with plebbit.createComment`, async () => {

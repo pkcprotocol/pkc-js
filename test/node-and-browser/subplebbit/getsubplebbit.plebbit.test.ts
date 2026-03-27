@@ -54,7 +54,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 } else if (shouldMockFetchForIpns) {
                     fetchSpy = vi.spyOn(globalThis, "fetch");
                 }
-                expect(localPlebbit._updatingSubplebbits).to.deep.equal({});
+                expect(localPlebbit._updatingSubplebbits.size()).to.equal(0);
 
                 const subInstances = await Promise.all(
                     new Array(stressCount).fill(null).map(async () => {
@@ -62,7 +62,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     })
                 );
 
-                expect(localPlebbit._updatingSubplebbits).to.deep.equal({});
+                expect(localPlebbit._updatingSubplebbits.size()).to.equal(0);
 
                 const resolveCallsCount = fetchSpy
                     ? fetchSpy.mock.calls.filter(([input]: [unknown]) => {

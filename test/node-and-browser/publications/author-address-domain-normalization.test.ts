@@ -2,6 +2,13 @@ import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import signers from "../../fixtures/signers.js";
 import { getAvailablePlebbitConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
 import type { Plebbit } from "../../../dist/node/plebbit/plebbit.js";
+import type Publication from "../../../dist/node/publications/publication.js";
+
+// Helper to access the base Publication.raw.unsignedPublicationOptions, which typed subclass raw fields omit
+function getUnsignedAuthor(pub: { raw: object }): Record<string, unknown> | undefined {
+    const unsignedOpts = (pub.raw as Publication["raw"]).unsignedPublicationOptions;
+    return unsignedOpts?.author as Record<string, unknown> | undefined;
+}
 
 const subplebbitAddress = signers[0].address;
 const domainAddress = "plebbit.bso";
@@ -31,8 +38,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             expect(comment.author.name).to.equal(domainAddress);
             expect(comment.author.address).to.equal(domainAddress);
-            expect(comment.raw.pubsubMessageToPublish!.author).to.not.have.property("address");
-            expect(comment.raw.pubsubMessageToPublish!.author!.name).to.equal(domainAddress);
+            const wireAuthor = getUnsignedAuthor(comment);
+            expect(wireAuthor).to.not.have.property("address");
+            expect(wireAuthor!.name).to.equal(domainAddress);
         });
 
         it("createVote copies author.address domain to author.name and excludes address from wire", async () => {
@@ -46,8 +54,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             expect(vote.author.name).to.equal(domainAddress);
             expect(vote.author.address).to.equal(domainAddress);
-            expect(vote.raw.pubsubMessageToPublish!.author).to.not.have.property("address");
-            expect(vote.raw.pubsubMessageToPublish!.author!.name).to.equal(domainAddress);
+            const wireAuthor = getUnsignedAuthor(vote);
+            expect(wireAuthor).to.not.have.property("address");
+            expect(wireAuthor!.name).to.equal(domainAddress);
         });
 
         it("createCommentEdit copies author.address domain to author.name and excludes address from wire", async () => {
@@ -61,8 +70,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             expect(edit.author.name).to.equal(domainAddress);
             expect(edit.author.address).to.equal(domainAddress);
-            expect(edit.raw.pubsubMessageToPublish!.author).to.not.have.property("address");
-            expect(edit.raw.pubsubMessageToPublish!.author!.name).to.equal(domainAddress);
+            const wireAuthor = getUnsignedAuthor(edit);
+            expect(wireAuthor).to.not.have.property("address");
+            expect(wireAuthor!.name).to.equal(domainAddress);
         });
 
         it("createCommentModeration copies author.address domain to author.name and excludes address from wire", async () => {
@@ -76,8 +86,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             expect(mod.author.name).to.equal(domainAddress);
             expect(mod.author.address).to.equal(domainAddress);
-            expect(mod.raw.pubsubMessageToPublish!.author).to.not.have.property("address");
-            expect(mod.raw.pubsubMessageToPublish!.author!.name).to.equal(domainAddress);
+            const wireAuthor = getUnsignedAuthor(mod);
+            expect(wireAuthor).to.not.have.property("address");
+            expect(wireAuthor!.name).to.equal(domainAddress);
         });
 
         it("createSubplebbitEdit copies author.address domain to author.name and excludes address from wire", async () => {
@@ -90,8 +101,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             expect(subEdit.author.name).to.equal(domainAddress);
             expect(subEdit.author.address).to.equal(domainAddress);
-            expect(subEdit.raw.pubsubMessageToPublish!.author).to.not.have.property("address");
-            expect(subEdit.raw.pubsubMessageToPublish!.author!.name).to.equal(domainAddress);
+            const wireAuthor = getUnsignedAuthor(subEdit);
+            expect(wireAuthor).to.not.have.property("address");
+            expect(wireAuthor!.name).to.equal(domainAddress);
         });
 
         it("createComment ignores non-domain author.address and derives address from signer", async () => {
@@ -105,7 +117,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             expect(comment.author.address).to.equal(signers[3].address);
             expect(comment.author.name).to.be.undefined;
-            const wireAuthor = comment.raw.pubsubMessageToPublish!.author;
+            const wireAuthor = getUnsignedAuthor(comment);
             expect(wireAuthor === undefined || !("address" in wireAuthor)).to.be.true;
             expect(wireAuthor === undefined || !("name" in wireAuthor)).to.be.true;
         });
@@ -121,7 +133,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             expect(vote.author.address).to.equal(signers[3].address);
             expect(vote.author.name).to.be.undefined;
-            const wireAuthor = vote.raw.pubsubMessageToPublish!.author;
+            const wireAuthor = getUnsignedAuthor(vote);
             expect(wireAuthor === undefined || !("address" in wireAuthor)).to.be.true;
             expect(wireAuthor === undefined || !("name" in wireAuthor)).to.be.true;
         });
@@ -137,7 +149,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             expect(edit.author.address).to.equal(signers[3].address);
             expect(edit.author.name).to.be.undefined;
-            const wireAuthor = edit.raw.pubsubMessageToPublish!.author;
+            const wireAuthor = getUnsignedAuthor(edit);
             expect(wireAuthor === undefined || !("address" in wireAuthor)).to.be.true;
             expect(wireAuthor === undefined || !("name" in wireAuthor)).to.be.true;
         });
@@ -153,7 +165,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             expect(mod.author.address).to.equal(signers[3].address);
             expect(mod.author.name).to.be.undefined;
-            const wireAuthor = mod.raw.pubsubMessageToPublish!.author;
+            const wireAuthor = getUnsignedAuthor(mod);
             expect(wireAuthor === undefined || !("address" in wireAuthor)).to.be.true;
             expect(wireAuthor === undefined || !("name" in wireAuthor)).to.be.true;
         });
@@ -168,7 +180,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             expect(subEdit.author.address).to.equal(signers[3].address);
             expect(subEdit.author.name).to.be.undefined;
-            const wireAuthor = subEdit.raw.pubsubMessageToPublish!.author;
+            const wireAuthor = getUnsignedAuthor(subEdit);
             expect(wireAuthor === undefined || !("address" in wireAuthor)).to.be.true;
             expect(wireAuthor === undefined || !("name" in wireAuthor)).to.be.true;
         });
@@ -185,8 +197,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             // Existing name should NOT be overwritten
             expect(comment.author.name).to.equal("custom.eth");
             expect(comment.author.address).to.equal("custom.eth");
-            expect(comment.raw.pubsubMessageToPublish!.author).to.not.have.property("address");
-            expect(comment.raw.pubsubMessageToPublish!.author!.name).to.equal("custom.eth");
+            const wireAuthor = getUnsignedAuthor(comment);
+            expect(wireAuthor).to.not.have.property("address");
+            expect(wireAuthor!.name).to.equal("custom.eth");
         });
     });
 });

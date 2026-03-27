@@ -37,7 +37,7 @@ describe.concurrent("Sign Vote", async () => {
 
     it(`Can sign and validate Vote correctly`, async () => {
         const verification = await verifyVote({
-            vote: { ...voteProps, signature: voteSignature } as VotePubsubMessagePublication,
+            vote: { ...remeda.omit(voteProps, ["communityAddress"]), signature: voteSignature } as VotePubsubMessagePublication,
             resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager
         });
@@ -116,7 +116,7 @@ describeSkipIfRpc.concurrent("Verify vote", async () => {
             signer
         };
         const vote: VotePubsubMessagePublication = {
-            ...remeda.omit(voteToSign, ["signer"]),
+            ...remeda.omit(voteToSign, ["signer", "communityAddress"]),
             signature: await signVote({ vote: voteToSign, plebbit })
         };
         const verification = await verifyVote({

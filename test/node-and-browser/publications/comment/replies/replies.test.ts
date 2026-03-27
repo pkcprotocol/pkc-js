@@ -311,12 +311,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             }
         });
 
-        it("fails validation when a comment has different subplebbitAddress", async () => {
+        it("fails validation when a comment has different communityPublicKey", async () => {
             const invalidPage = postWithReplies.replies.pages.best.nextCid
                 ? await postWithReplies.replies.getPage({ cid: postWithReplies.replies.pageCids.new })
                 : JSON.parse(JSON.stringify(postWithReplies.replies.pages.best));
 
-            invalidPage.comments[0].raw.comment.communityAddress = "different-address";
+            invalidPage.comments[0].raw.comment.communityPublicKey = "different-address";
             invalidPage.comments[0].raw.commentUpdate.cid = await calculateIpfsHash(JSON.stringify(invalidPage.comments[0].raw.comment));
 
             try {

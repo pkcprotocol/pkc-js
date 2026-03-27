@@ -15,6 +15,7 @@ import {
 } from "../../../../dist/node/test/test-util.js";
 import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
 import type { PageIpfs } from "../../../../dist/node/pages/types.js";
+import type Publication from "../../../../dist/node/publications/publication.js";
 
 const subplebbitAddress = signers[0].address;
 
@@ -139,8 +140,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             expect(comment.author.nameResolved).to.equal(true);
             expect(comment.author.address).to.equal("plebbit.bso");
-            expect(comment.raw.pubsubMessageToPublish).to.be.an("object");
-            expect(comment.raw.pubsubMessageToPublish!.author).to.not.have.property("nameResolved");
+            // With deferred signing, pubsubMessageToPublish is undefined until publish();
+            // check the unsigned options instead for wire-format author assertions
+            const unsignedOpts = (comment.raw as Publication["raw"]).unsignedPublicationOptions;
+            expect(unsignedOpts).to.be.an("object");
+            expect(unsignedOpts!.author).to.not.have.property("nameResolved");
         });
 
         it("nameResolved is false when the loaded comment's author name does not match its signature public key", async () => {

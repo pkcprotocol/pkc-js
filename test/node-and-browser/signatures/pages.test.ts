@@ -7,6 +7,7 @@ import * as remeda from "remeda";
 import { v4 as uuidV4 } from "uuid";
 
 import validPageIpfsFixture from "../../fixtures/valid_page.json" with { type: "json" };
+import legacyPageIpfsFixture from "../../fixtures/valid_page_legacy_subplebbitAddress.json" with { type: "json" };
 
 import type { Plebbit as PlebbitType } from "../../../dist/node/plebbit/plebbit.js";
 import type { RemoteSubplebbit } from "../../../dist/node/subplebbit/remote-subplebbit.js";
@@ -78,35 +79,36 @@ describeSkipIfRpc(`verify pages`, async () => {
     });
 
     it(`Page from previous plebbit-js versions can be validated`, async () => {
-        const page = remeda.clone(validPageIpfsFixture) as PageIpfs;
+        const page = remeda.clone(legacyPageIpfsFixture) as PageIpfs;
         const verification = await verifyPageJsonAlongWithObject(page, plebbit, subplebbit, undefined);
         expect(verification).to.deep.equal({ valid: true });
     });
 
-    it(`verifyPage will return valid when comment.author.address (domain) resolves to address different than the signer's`, async () => {
+    it(`verifyPage will return valid when comment.author.name (domain) resolves to address different than the signer's`, async () => {
         // verifyPage would override the incorrect domain
         const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
-        const commentWithDomainAddressIndex = invalidPage.comments.findIndex(
-            (pageComment) => typeof (pageComment.comment.author as { address?: unknown }).address === "string"
+        // New wire format uses author.name for domains
+        const commentWithDomainIndex = invalidPage.comments.findIndex(
+            (pageComment) => typeof pageComment.comment.author?.name === "string"
         );
-        expect(commentWithDomainAddressIndex).to.be.greaterThanOrEqual(0);
-        const domainAddress = (invalidPage.comments[commentWithDomainAddressIndex].comment.author as { address: string }).address;
+        expect(commentWithDomainIndex).to.be.greaterThanOrEqual(0);
+        const domainName = invalidPage.comments[commentWithDomainIndex].comment.author!.name!;
 
         const tempPlebbit: PlebbitType = await mockRemotePlebbit({
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [
                     createMockNameResolver({
-                        records: new Map([[domainAddress, signers[3].address]]), // Resolve to wrong address intentionally. Correct address would be signers[6].address
+                        records: new Map([[domainName, signers[3].address]]), // Resolve to wrong address intentionally
                         includeDefaultRecords: true
                     })
                 ]
             }
         });
 
-        const verification = await verifyPageJsonAlongWithObject(invalidPage, tempPlebbit, subplebbit, undefined); // comments[commentWithDomainAddressIndex] author address should be modified after
+        const verification = await verifyPageJsonAlongWithObject(invalidPage, tempPlebbit, subplebbit, undefined);
         expect(verification).to.deep.equal({ valid: true });
-        expect((invalidPage.comments[commentWithDomainAddressIndex].comment.author as { address: string }).address).to.equal(domainAddress);
+        expect(invalidPage.comments[commentWithDomainIndex].comment.author!.name).to.equal(domainName);
         await tempPlebbit.destroy();
     });
 
@@ -134,7 +136,8 @@ describeSkipIfRpc(`verify pages`, async () => {
         });
 
         it(`comment.content (when author has modified comment.content before)`, async () => {
-            const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
+            // Use legacy fixture which has comments with commentUpdate.edit.content
+            const invalidPage = remeda.clone(legacyPageIpfsFixture) as PageIpfs;
             const commentWithEditIndex = invalidPage.comments.findIndex((pageComment) => pageComment.commentUpdate.edit?.content);
             expect(commentWithEditIndex).to.be.greaterThanOrEqual(0);
             invalidPage.comments[commentWithEditIndex].comment.content = "Content modified by sub illegally";
@@ -143,7 +146,8 @@ describeSkipIfRpc(`verify pages`, async () => {
         });
 
         it(`commentUpdate.edit.content`, async () => {
-            const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
+            // Use legacy fixture which has comments with commentUpdate.edit.content
+            const invalidPage = remeda.clone(legacyPageIpfsFixture) as PageIpfs;
             const commentWithEditIndex = invalidPage.comments.findIndex((pageComment) => pageComment.commentUpdate.edit?.content);
             invalidPage.comments[commentWithEditIndex].commentUpdate.edit!.content = "Content modified by sub illegally";
             const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
@@ -151,7 +155,8 @@ describeSkipIfRpc(`verify pages`, async () => {
         });
 
         it(`commentUpdate.edit.spoiler`, async () => {
-            const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
+            // Use legacy fixture which has comments with commentUpdate.edit.spoiler
+            const invalidPage = remeda.clone(legacyPageIpfsFixture) as PageIpfs;
             const commentWithSpoilerIndex = invalidPage.comments.findIndex((pageComment) => pageComment.commentUpdate.edit?.spoiler);
             expect(commentWithSpoilerIndex).to.be.greaterThanOrEqual(0);
             invalidPage.comments[commentWithSpoilerIndex].commentUpdate.edit!.spoiler =
@@ -161,7 +166,8 @@ describeSkipIfRpc(`verify pages`, async () => {
         });
 
         it(`commentUpdate.edit.deleted`, async () => {
-            const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
+            // Use legacy fixture which has comments with commentUpdate.edit
+            const invalidPage = remeda.clone(legacyPageIpfsFixture) as PageIpfs;
             const commentWithDeletedIndex = invalidPage.comments.findIndex((pageComment) => pageComment.commentUpdate.edit);
             expect(commentWithDeletedIndex).to.be.greaterThanOrEqual(0);
             invalidPage.comments[commentWithDeletedIndex].commentUpdate.edit!.deleted = !Boolean(
@@ -181,18 +187,26 @@ describeSkipIfRpc(`verify pages`, async () => {
         });
         it(`comment.parentCid`, async () => {
             const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
-            const commentWithRepliesIndex = invalidPage.comments.findIndex((pageComment) => pageComment.commentUpdate.replyCount > 0);
+            const commentWithRepliesIndex = invalidPage.comments.findIndex(
+                (pageComment) => pageComment.commentUpdate.replyCount > 0 && pageComment.commentUpdate.replies?.pages
+            );
             expect(commentWithRepliesIndex).to.be.greaterThanOrEqual(0);
-            const oldPreloadedPage = "topAll"; // on the fixture we're using topAll preloaded page
+            const preloadedPageSortName = Object.keys(invalidPage.comments[commentWithRepliesIndex].commentUpdate.replies!.pages)[0];
             (
-                invalidPage.comments[commentWithRepliesIndex].commentUpdate.replies!.pages[oldPreloadedPage] as PageIpfs
+                invalidPage.comments[commentWithRepliesIndex].commentUpdate.replies!.pages[preloadedPageSortName] as PageIpfs
             ).comments[0].comment.parentCid += "123"; // Should invalidate page
             const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
-        it(`comment.communityAddress`, async () => {
+        it(`comment.communityPublicKey`, async () => {
             const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
-            invalidPage.comments[0].comment.communityAddress += "1234";
+            (invalidPage.comments[0].comment as Record<string, unknown>).communityPublicKey += "1234";
+            const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
+            expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_SUB });
+        });
+        it(`comment.communityName`, async () => {
+            const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
+            (invalidPage.comments[0].comment as Record<string, unknown>).communityName = "fake.eth";
             const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_SUB });
         });

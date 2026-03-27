@@ -112,11 +112,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     const comment = await plebbit.getComment({ cid: replyPostConfig.cid });
                     expect(comment.content).to.be.a("string");
                     expect(plebbit._updatingComments[comment.cid]).to.be.undefined;
-                    expect(plebbit._updatingComments).to.deep.equal({});
+                    expect(plebbit._updatingComments.size()).to.equal(0);
                 });
 
                 it(`A single ${replyPostConfig.commentType} instance calling stop() immediately after update() should clear out _updatingComments`, async () => {
-                    expect(plebbit._updatingComments).to.deep.equal({});
+                    expect(plebbit._updatingComments.size()).to.equal(0);
 
                     const comment = await plebbit.createComment({ cid: replyPostConfig.cid });
                     await comment.update();
@@ -127,7 +127,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     await new Promise((resolve) => setTimeout(resolve, 100)); // need to wait some time to propagate events
 
                     expect(plebbit._updatingComments[comment.cid]).to.be.undefined;
-                    expect(plebbit._updatingComments).to.deep.equal({}); // post should be undefined too
+                    expect(plebbit._updatingComments.size()).to.equal(0); // post should be undefined too
                 });
 
                 it(`A single ${replyPostConfig.commentType} Comment instance updating will set up plebbit._updatingComments. Calling stop should clean up all subscriptions and remove plebbit._updatingComments`, async () => {
@@ -143,7 +143,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
                     expect(plebbit._updatingComments[comment.cid]).to.be.undefined;
                     expect(plebbit._updatingComments[comment.postCid]).to.be.undefined;
-                    expect(plebbit._updatingComments).to.deep.equal({});
+                    expect(plebbit._updatingComments.size()).to.equal(0);
                 });
 
                 it(`Multiple ${replyPostConfig.commentType} Comment instances (same address) updating. Calling stop on all of them should clean all subscriptions and remove plebbit._updatingComments`, async () => {
@@ -181,7 +181,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
                     expect(plebbit._updatingComments[replyPostConfig.cid]).to.be.undefined;
                     expect(plebbit._updatingComments[comment1.postCid]).to.be.undefined;
-                    expect(plebbit._updatingComments).to.deep.equal({});
+                    expect(plebbit._updatingComments.size()).to.equal(0);
                 });
                 it(`calling plebbit._updatingComments[${replyPostConfig.commentType}cid].stop() should stop all ${replyPostConfig.commentType} instances listening to that instance`, async () => {
                     const comment1 = await plebbit.createComment({ cid: replyPostConfig.cid });

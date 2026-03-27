@@ -66,7 +66,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     })
                 );
 
-                expect(localPlebbit._updatingSubplebbits).to.deep.equal({});
+                expect(localPlebbit._updatingSubplebbits.size()).to.equal(0);
 
                 await Promise.all(subInstances.map((sub) => sub.update()));
                 await Promise.all(

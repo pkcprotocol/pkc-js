@@ -10,7 +10,7 @@ import { describe, it, beforeEach, afterEach } from "vitest";
 import type { Plebbit } from "../../../dist/node/plebbit/plebbit.js";
 import type { PlebbitError } from "../../../dist/node/plebbit-error.js";
 // Type helper for accessing internal properties
-type CommentWithInternals = { _subplebbitForUpdating?: { subplebbit?: { raw: { subplebbitIpfs: unknown } } } };
+type CommentWithInternals = { _communityForUpdating?: { subplebbit?: { raw: { subplebbitIpfs: unknown } } } };
 
 const subplebbitAddress = signers[0].address;
 getAvailablePlebbitConfigsToTestAgainst().map((config) => {
@@ -177,33 +177,33 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 const comment1 = await plebbit.createComment({ cid: commentCid });
                 const comment2 = await plebbit.createComment({ cid: commentCid });
 
-                expect((comment1 as unknown as CommentWithInternals)._subplebbitForUpdating).to.be.undefined;
+                expect((comment1 as unknown as CommentWithInternals)._communityForUpdating).to.be.undefined;
 
                 await comment1.update();
                 await resolveWhenConditionIsTrue({ toUpdate: comment1, predicate: async () => typeof comment1.updatedAt === "number" });
 
                 const updatingCommentInstance = plebbit._updatingComments[comment1.cid] as unknown as CommentWithInternals;
                 expect(updatingCommentInstance).to.exist;
-                expect(updatingCommentInstance._subplebbitForUpdating).to.be.a("object");
+                expect(updatingCommentInstance._communityForUpdating).to.be.a("object");
 
                 // Verify that _updatingSubplebbits exists and has the expected properties
                 expect(plebbit._updatingSubplebbits[subplebbitAddress]).to.exist;
                 expect(plebbit._updatingSubplebbits[subplebbitAddress].listenerCount("update")).to.equal(1);
 
-                // Verify that _subplebbitForUpdating.subplebbit and _updatingSubplebbits[address] have the same _rawSubplebbitIpfs state
+                // Verify that _communityForUpdating.subplebbit and _updatingSubplebbits[address] have the same _rawSubplebbitIpfs state
 
                 expect(plebbit._updatingSubplebbits[subplebbitAddress].raw.subplebbitIpfs).to.deep.equal(
-                    updatingCommentInstance._subplebbitForUpdating?.subplebbit?.raw.subplebbitIpfs
+                    updatingCommentInstance._communityForUpdating?.subplebbit?.raw.subplebbitIpfs
                 );
 
                 await comment2.update();
                 await resolveWhenConditionIsTrue({ toUpdate: comment2, predicate: async () => typeof comment2.updatedAt === "number" });
-                expect(updatingCommentInstance._subplebbitForUpdating).to.be.a("object");
+                expect(updatingCommentInstance._communityForUpdating).to.be.a("object");
 
                 expect(plebbit._updatingSubplebbits[subplebbitAddress].listenerCount("update")).to.equal(1); // should not change
 
                 expect(plebbit._updatingSubplebbits[subplebbitAddress].raw.subplebbitIpfs).to.deep.equal(
-                    updatingCommentInstance._subplebbitForUpdating?.subplebbit?.raw.subplebbitIpfs
+                    updatingCommentInstance._communityForUpdating?.subplebbit?.raw.subplebbitIpfs
                 );
 
                 await comment1.stop();

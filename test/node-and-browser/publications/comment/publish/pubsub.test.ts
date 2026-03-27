@@ -15,7 +15,7 @@ import type { Plebbit } from "../../../../../dist/node/plebbit/plebbit.js";
 type CommentWithInternals = {
     _publishToDifferentProviderThresholdSeconds: number;
     _setProviderFailureThresholdSeconds: number;
-    _pubsubTopicWithfallback: () => string;
+    _communityPubsubTopicWithFallback: () => string;
     _clientsManager: PlebbitClientManager;
     _challengeExchanges: unknown[];
 };
@@ -103,7 +103,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
                 await validateKuboRpcNotListeningToPubsubTopic(
                     testPlebbit,
-                    (mockPost as unknown as CommentWithInternals)._pubsubTopicWithfallback()
+                    (mockPost as unknown as CommentWithInternals)._communityPubsubTopicWithFallback()
                 );
 
                 await testPlebbit.destroy();
@@ -144,7 +144,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
             await validateKuboRpcNotListeningToPubsubTopic(
                 testPlebbit,
-                (mockPost as unknown as CommentWithInternals)._pubsubTopicWithfallback()
+                (mockPost as unknown as CommentWithInternals)._communityPubsubTopicWithFallback()
             );
 
             await testPlebbit.destroy();
@@ -207,7 +207,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                 expect(challengeRequestCount).to.be.at.most(2);
 
                 // Verify pubsub subscription handlers are cleaned up after successful publication
-                const pubsubTopic = (mockPost as unknown as CommentWithInternals)._pubsubTopicWithfallback();
+                const pubsubTopic = (mockPost as unknown as CommentWithInternals)._communityPubsubTopicWithFallback();
                 expect(pubsubTopic).to.be.a("string");
 
                 // Check both providers for subscription cleanup using the correct access pattern

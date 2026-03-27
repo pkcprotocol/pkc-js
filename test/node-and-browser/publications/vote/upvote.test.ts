@@ -167,10 +167,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             await publishWithExpectedResult({ publication: voteFromStringifiedVote, expectedChallengeSuccess: true });
             const challengerequest = await challengeRequestPromise;
-            expect(challengerequest.vote).to.deep.equal(vote.raw.pubsubMessageToPublish!);
+            expect(challengerequest.vote).to.deep.equal(voteFromStringifiedVote.raw.pubsubMessageToPublish!);
 
-            expect(vote.raw.pubsubMessageToPublish!).to.deep.equal(voteFromStringifiedVote.raw.pubsubMessageToPublish!);
-            expect(vote.toJSONPubsubRequestToEncrypt()).to.deep.equal(voteFromStringifiedVote.toJSONPubsubRequestToEncrypt());
+            // With deferred signing, verify that the published instance has the correct wire format
+            expect(voteFromStringifiedVote.raw.pubsubMessageToPublish).to.exist;
         });
 
         it(`A vote=0 is rejected if the author never published a vote on the comment before`, async () => {

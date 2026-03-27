@@ -50,13 +50,17 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             const remotePlebbit = await config.plebbitInstancePromise();
 
-            const sub = await remotePlebbit.createSubplebbit({ address: publishedSub.subplebbitRecord.address });
+            const sub = await remotePlebbit.createSubplebbit({ address: publishedSub.ipnsObj.signer.address });
 
             await sub.update();
 
             await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
 
             expect((sub.raw.subplebbitIpfs! as Record<string, unknown>).extraProp).to.equal(opts.extraProps.extraProp);
+
+            // Verify subplebbitIpfs does not contain address or subplebbitAddress (those are runtime-only)
+            expect((sub.raw.subplebbitIpfs! as Record<string, unknown>).address).to.be.undefined;
+            expect((sub.raw.subplebbitIpfs! as Record<string, unknown>).subplebbitAddress).to.be.undefined;
 
             expect(sub.raw.subplebbitIpfs!).to.deep.equal(publishedSub.subplebbitRecord);
 
@@ -75,7 +79,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             const remotePlebbit = await config.plebbitInstancePromise();
 
-            const sub = await remotePlebbit.createSubplebbit({ address: publishedSub.subplebbitRecord.address });
+            const sub = await remotePlebbit.createSubplebbit({ address: publishedSub.ipnsObj.signer.address });
 
             const errorPromise = new Promise<PlebbitError>((resolve) => sub.once("error", resolve as (err: Error) => void));
 

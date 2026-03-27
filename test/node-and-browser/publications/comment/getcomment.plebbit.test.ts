@@ -63,7 +63,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     } else if (shouldMockFetchForIpns) {
                         fetchSpy = vi.spyOn(globalThis, "fetch");
                     }
-                    expect(localPlebbit._updatingComments).to.deep.equal({});
+                    expect(localPlebbit._updatingComments.size()).to.equal(0);
 
                     const commentInstances = await Promise.all(
                         new Array(stressCount).fill(null).map(async () => {
@@ -71,7 +71,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                         })
                     );
 
-                    expect(localPlebbit._updatingComments).to.deep.equal({});
+                    expect(localPlebbit._updatingComments.size()).to.equal(0);
 
                     const catOrFetchCallsCount = fetchSpy
                         ? fetchSpy.mock.calls.filter(([input]: [string | { url?: string }]) => {

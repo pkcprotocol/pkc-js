@@ -199,7 +199,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             it("fails validation when a comment belongs to a different subplebbit", async () => {
                 const invalidPage = JSON.parse(JSON.stringify(validPageJson));
-                invalidPage.comments[0].raw.comment.communityAddress = "different-address";
+                invalidPage.comments[0].raw.comment.communityPublicKey = "different-address";
 
                 try {
                     await subplebbit.posts.validatePage(invalidPage);

@@ -1,11 +1,21 @@
 import {
     generateMockPost,
     getAvailablePlebbitConfigsToTestAgainst,
-    publishWithExpectedResult
+    publishWithExpectedResult,
+    ensurePublicationIsSigned
 } from "../../../../../dist/node/test/test-util.js";
 import signers from "../../../../fixtures/signers.js";
 import { describe, beforeAll, afterAll, it } from "vitest";
 import type { Plebbit } from "../../../../../dist/node/plebbit/plebbit.js";
+
+// Type matching ensurePublicationIsSigned's community parameter
+type CommunityForSigning = {
+    address: string;
+    signer?: { address: string };
+    encryption: { type: string; publicKey: string };
+    pubsubTopic?: string;
+    name?: string;
+};
 
 // Type for challengerequest event data
 type ChallengeRequestEvent = {
@@ -15,9 +25,12 @@ type ChallengeRequestEvent = {
 getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Pubsub request fields in plebbit.createComment - ${config.name}`, async () => {
         let plebbit: Plebbit;
+        let community: CommunityForSigning;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
+            const sub = await plebbit.getSubplebbit({ address: signers[0].address });
+            community = sub as CommunityForSigning;
         });
 
         afterAll(async () => {
@@ -33,6 +46,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             });
             expect(comment.challengeRequest).to.deep.equal(challengeRequestFields);
 
+            // With deferred signing, force signing before calling toJSONPubsubRequestToEncrypt()
+            await ensurePublicationIsSigned(comment, community);
             expect(comment.toJSONPubsubRequestToEncrypt().challengeAnswers).to.deep.equal(challengeRequestFields.challengeAnswers);
             const challengeRequestPromise = new Promise<ChallengeRequestEvent>((resolve) =>
                 comment.once("challengerequest", resolve as (request: unknown) => void)
@@ -50,6 +65,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 postProps: { challengeRequest: challengeRequestFields }
             });
 
+            // With deferred signing, force signing before calling toJSONPubsubRequestToEncrypt()
+            await ensurePublicationIsSigned(comment, community);
             expect(comment.toJSONPubsubRequestToEncrypt().challengeCommentCids).to.deep.equal(challengeRequestFields.challengeCommentCids);
             const challengeRequestPromise = new Promise<ChallengeRequestEvent>((resolve) =>
                 comment.once("challengerequest", resolve as (request: unknown) => void)
@@ -73,6 +90,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const recreatedComment = await plebbit.createComment(JSON.parse(JSON.stringify(comment)));
             expect(recreatedComment.challengeRequest).to.deep.equal(comment.challengeRequest);
 
+            // With deferred signing, force signing before calling toJSONPubsubRequestToEncrypt()
+            await ensurePublicationIsSigned(recreatedComment, community);
             expect(recreatedComment.toJSONPubsubRequestToEncrypt().challengeCommentCids).to.deep.equal(
                 challengeRequestFields.challengeCommentCids
             );
