@@ -57,7 +57,7 @@ import {
     TIMEFRAMES_TO_SECONDS
 } from "../pages/util.js";
 import { importSignerIntoKuboNode } from "../runtime/node/util.js";
-import { getIpfsKeyFromPrivateKey, getPeerIdFromPrivateKey } from "../signer/util.js";
+import { getIpfsKeyFromPrivateKey, getPeerIdFromPrivateKey, getPlebbitAddressFromPublicKeySync } from "../signer/util.js";
 import { CommentEdit } from "../publications/comment-edit/comment-edit.js";
 import type { CreateCommentEditOptions } from "../publications/comment-edit/types.js";
 import { Buffer } from "buffer";
@@ -1792,7 +1792,7 @@ export async function createStaticSubplebbitRecordForComment(opts?: {
             // instead of fetching the (possibly invalid) record from the gateway.
             (commentToPublish as unknown as Record<string, unknown>)["_community"] = {
                 address: subplebbitAddress,
-                publicKey: subplebbitRecord.signature.publicKey,
+                publicKey: getPlebbitAddressFromPublicKeySync(subplebbitRecord.signature.publicKey),
                 encryption: subplebbitRecord.encryption,
                 pubsubTopic: subplebbitRecord.pubsubTopic
             };
