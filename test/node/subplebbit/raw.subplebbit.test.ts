@@ -94,7 +94,10 @@ describe(`createSubplebbit reconstructs from raw.localSubplebbit`, async () => {
         }
         if (sub2.signer) {
             expect(sub2.signer.publicKey).to.equal(sub.signer!.publicKey);
-            expect((sub2.signer as any).privateKey).to.be.undefined;
+            // LocalSubplebbit loads full signer from DB (including privateKey); only RPC subs should omit it
+            if (!("_dbHandler" in sub2)) {
+                expect((sub2.signer as any).privateKey).to.be.undefined;
+            }
         }
     });
 

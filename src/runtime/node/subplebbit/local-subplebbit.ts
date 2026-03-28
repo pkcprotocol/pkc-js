@@ -148,7 +148,7 @@ import type {
     PostPubsubMessageWithSubplebbitAuthor,
     ReplyPubsubMessageWithSubplebbitAuthor
 } from "../../../publications/comment/types.js";
-import { SubplebbitIpfsSchema } from "../../../subplebbit/schema.js";
+import { SubplebbitIpfsSchema, SubplebbitSignedPropertyNames } from "../../../subplebbit/schema.js";
 import {
     ChallengeAnswerMessageSchema,
     ChallengeMessageSchema,
@@ -362,7 +362,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     async initInternalSubplebbitAfterFirstUpdateNoMerge(newProps: InternalSubplebbitRecordAfterFirstUpdateType) {
-        const keysOfSubplebbitIpfs = <(keyof SubplebbitIpfsType)[]>[...newProps.signature.signedPropertyNames, "signature"];
+        const keysOfSubplebbitIpfs = <(keyof SubplebbitIpfsType)[]>[...SubplebbitSignedPropertyNames, "signature"];
         this.initRpcInternalSubplebbitAfterFirstUpdateNoMerge({
             subplebbitIpfs: remeda.pick(newProps, keysOfSubplebbitIpfs) as SubplebbitIpfsType,
             localSubplebbit: {
@@ -381,7 +381,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         if (Array.isArray(newProps._mfsPathsToRemove)) newProps._mfsPathsToRemove.forEach((path) => this._mfsPathsToRemove.add(path));
         this._updateIpnsPubsubPropsIfNeeded(newProps);
         if (processStartedSubplebbits.has(this)) syncSubplebbitRegistryEntry(processStartedSubplebbits, this);
-        this.raw.localSubplebbit = this.toJSONInternalRpcAfterFirstUpdate();
+        if (this.updateCid) this.raw.localSubplebbit = this.toJSONInternalRpcAfterFirstUpdate();
     }
 
     async initInternalSubplebbitBeforeFirstUpdateNoMerge(newProps: InternalSubplebbitRecordBeforeFirstUpdateType) {

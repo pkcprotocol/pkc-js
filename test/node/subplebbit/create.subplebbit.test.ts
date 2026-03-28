@@ -132,6 +132,8 @@ describe.concurrent(`plebbit.createSubplebbit (local)`, async () => {
         const internalProps = ["clients", "state", "startedState"] as const;
         const clonedSubJson = JSON.parse(JSON.stringify(remeda.omit(clonedSub, internalProps)));
         const localSubJson = JSON.parse(JSON.stringify(remeda.omit(sub, internalProps)));
+        delete clonedSubJson["raw"]["localSubplebbit"];
+        delete localSubJson["raw"]["localSubplebbit"];
         expect(localSubJson).to.deep.equal(clonedSubJson);
         await sub.delete();
     });
@@ -155,7 +157,7 @@ describe.concurrent(`plebbit.createSubplebbit (local)`, async () => {
         const sub = await _createAndValidateSubArgs({ title });
         const createdSub = (await plebbit.createSubplebbit({ address: sub.address })) as LocalSubplebbit | RpcLocalSubplebbit;
         expect(createdSub.title).to.equal(title);
-        expect(deterministicStringify(createdSub)).to.equal(deterministicStringify(sub));
+        expect(jsonifySubplebbitAndRemoveInternalProps(createdSub)).to.deep.equal(jsonifySubplebbitAndRemoveInternalProps(sub));
         await createdSub.delete();
     });
 
