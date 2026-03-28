@@ -228,6 +228,7 @@ export enum messages {
     ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_SUB = "The parent of this publication does not exist within the subplebbit's records",
     ERR_SUB_PUBLICATION_PARENT_CID_NOT_DEFINED = "The parent cid of this publication is not defined. Make sure either commentCid or parentCid is defined",
     ERR_PUBLICATION_INVALID_SUBPLEBBIT_ADDRESS = "The subplebbitAddress field of publication is not the same as the subplebbit being published to",
+    ERR_PUBLICATION_USES_DEPRECATED_SUBPLEBBIT_ADDRESS = "Publication uses the deprecated `subplebbitAddress` field; update your client to use `communityPublicKey`",
     ERR_PUBLICATION_INVALID_COMMUNITY_PUBLIC_KEY = "The communityPublicKey field of publication does not match the subplebbit's IPNS key",
     ERR_PUBLICATION_INVALID_COMMUNITY_NAME = "The communityName field of publication does not match the subplebbit's address",
     ERR_AUTHOR_IS_BANNED = "Author is banned",

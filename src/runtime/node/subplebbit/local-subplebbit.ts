@@ -124,11 +124,7 @@ import {
     getAuthorDomainFromWire,
     getAuthorNameFromWire
 } from "../../../publications/publication-author.js";
-import {
-    getCommunityAddressFromRecord,
-    getCommunityPublicKeyFromWire,
-    getCommunityNameFromWire
-} from "../../../publications/publication-community.js";
+import { getCommunityPublicKeyFromWire, getCommunityNameFromWire } from "../../../publications/publication-community.js";
 
 import type {
     CommentEditOptionsToSign,
@@ -1765,16 +1761,15 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     ): Promise<messages | undefined> {
         const log = Logger("plebbit-js:local-subplebbit:handleChallengeRequest:checkPublicationValidity");
 
-        const publicationCommunityAddress = getCommunityAddressFromRecord(publication as Record<string, unknown>);
-        if (!publicationCommunityAddress || !areEquivalentSubplebbitAddresses(publicationCommunityAddress, this.address))
-            return messages.ERR_PUBLICATION_INVALID_SUBPLEBBIT_ADDRESS;
+        // Reject deprecated old wire format field
+        if ("subplebbitAddress" in publication) return messages.ERR_PUBLICATION_USES_DEPRECATED_SUBPLEBBIT_ADDRESS;
 
-        // Validate communityPublicKey matches this subplebbit's IPNS key
+        // communityPublicKey must be present and match this subplebbit's IPNS key
         const pubCommunityPublicKey = getCommunityPublicKeyFromWire(publication as Record<string, unknown>);
-        if (pubCommunityPublicKey && pubCommunityPublicKey !== this.signer.address)
+        if (!pubCommunityPublicKey || pubCommunityPublicKey !== this.signer.address)
             return messages.ERR_PUBLICATION_INVALID_COMMUNITY_PUBLIC_KEY;
 
-        // Validate communityName matches this subplebbit's address (if it has a domain name)
+        // communityName, if present, must match this subplebbit's address
         const pubCommunityName = getCommunityNameFromWire(publication as Record<string, unknown>);
         if (pubCommunityName && pubCommunityName !== this.address) return messages.ERR_PUBLICATION_INVALID_COMMUNITY_NAME;
 
