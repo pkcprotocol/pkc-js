@@ -181,22 +181,27 @@ export interface InternalSubplebbitRecordAfterFirstUpdateType extends InternalSu
 
 // RPC server transmitting Internal Subplebbit records to clients
 
-export interface RpcInternalSubplebbitRecordBeforeFirstUpdateType
-    extends Omit<InternalSubplebbitRecordBeforeFirstUpdateType, "signer" | "_internalStateUpdateId" | "_pendingEditProps"> {
+// Extra local-sub properties not present in SubplebbitIpfsType
+export interface RpcLocalSubplebbitLocalProps {
     signer: Omit<InternalSubplebbitRecordBeforeFirstUpdateType["signer"], "privateKey">;
+    settings: SubplebbitSettings;
+    _usingDefaultChallenge: boolean;
+    address: string;
     started: boolean;
     startedState: RpcLocalSubplebbit["startedState"];
 }
 
-export interface RpcInternalSubplebbitRecordAfterFirstUpdateType
-    extends Omit<
-        InternalSubplebbitRecordAfterFirstUpdateType,
-        "signer" | "_internalStateUpdateId" | "_cidsToUnPin" | "_mfsPathsToRemove" | "_pendingEditProps" | "updateCid"
-    > {
-    started: RpcInternalSubplebbitRecordBeforeFirstUpdateType["started"];
-    signer: RpcInternalSubplebbitRecordBeforeFirstUpdateType["signer"];
-    startedState: RpcLocalSubplebbit["startedState"];
-    runtimeFields: Record<string, any>;
+// Before first IPNS update: all sub data is in localSubplebbit (no SubplebbitIpfs record yet)
+export interface RpcInternalSubplebbitRecordBeforeFirstUpdateType {
+    localSubplebbit: Omit<InternalSubplebbitRecordBeforeFirstUpdateType, "signer" | "_internalStateUpdateId" | "_pendingEditProps"> &
+        RpcLocalSubplebbitLocalProps;
+}
+
+// After first IPNS update: subplebbitIpfs is the signed record, localSubplebbit has only extras
+export interface RpcInternalSubplebbitRecordAfterFirstUpdateType {
+    subplebbitIpfs: SubplebbitIpfsType;
+    localSubplebbit: RpcLocalSubplebbitLocalProps;
+    runtimeFields: { updateCid: string; updatingState?: RpcLocalSubplebbit["updatingState"] };
 }
 
 export type RpcLocalSubplebbitUpdateResultType =

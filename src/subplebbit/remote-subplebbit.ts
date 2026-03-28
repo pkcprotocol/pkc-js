@@ -23,7 +23,7 @@ import type {
     SubplebbitState,
     SubplebbitStartedState,
     SubplebbitSettings,
-    RpcInternalSubplebbitRecordAfterFirstUpdateType,
+    RpcLocalSubplebbitLocalProps,
     SubplebbitEditOptions,
     SubplebbitEventArgs,
     SubplebbitEvents
@@ -73,7 +73,7 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
     // to be overridden by local subplebbit classes
     startedState?: "stopped" | SubplebbitStartedState = "stopped";
     started?: boolean;
-    signer?: SignerWithPublicKeyAddress | RpcInternalSubplebbitRecordAfterFirstUpdateType["signer"];
+    signer?: SignerWithPublicKeyAddress | RpcLocalSubplebbitLocalProps["signer"];
     settings?: SubplebbitSettings;
     editable?: Pick<RemoteSubplebbit, keyof SubplebbitEditOptions>;
 

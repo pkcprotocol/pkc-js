@@ -270,6 +270,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         it(`Extra props in decryptedVerification.commentUpdate should be accepted if they're part of commentUpdate.signature.signedPropertyNames`, async () => {
             const post = await generateMockPost({ communityAddress: subWithNoResponseSigner.address, plebbit: plebbit });
 
+            const challengeRequestPromise = new Promise((resolve) => post.once("challengerequest", resolve));
+            await post.publish();
+            await challengeRequestPromise;
+
             const mockCommentIpfs = { ...post.raw.pubsubMessageToPublish, depth: 0 };
 
             const commentUpdate = JSON.parse(JSON.stringify(validCommentUpdateFixture));
@@ -285,8 +289,6 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 subWithNoResponseSigner,
                 log
             );
-
-            await post.publish();
 
             const verificationPromise = new Promise((resolve) => post.once("challengeverification", resolve));
 
@@ -305,6 +307,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         it(`Extra props in decryptedVerification.commentUpdate.author should be accepted`, async () => {
             const post = await generateMockPost({ communityAddress: subWithNoResponseSigner.address, plebbit: plebbit });
 
+            const challengeRequestPromise = new Promise((resolve) => post.once("challengerequest", resolve));
+            await post.publish();
+            await challengeRequestPromise;
+
             const mockCommentIpfs = { ...post.raw.pubsubMessageToPublish, depth: 0 };
 
             const commentUpdate = JSON.parse(JSON.stringify(validCommentUpdateFixture));
@@ -322,8 +328,6 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             );
 
             const verificationPromise = new Promise((resolve) => post.once("challengeverification", resolve));
-
-            await post.publish();
 
             await publishChallengeVerificationMessageWithEncryption(post, subWithNoResponseSigner, {
                 commentUpdate,

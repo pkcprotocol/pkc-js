@@ -1762,24 +1762,19 @@ export async function createStaticSubplebbitRecordForComment(opts?: {
 
     const ipnsObj = await createNewIpns();
     const subplebbitAddress = ipnsObj.signer.address;
-    let subplebbitRecord: SubplebbitIpfsType | undefined;
+    const commentPlebbit = plebbit || (await mockPlebbitNoDataPathWithOnlyKuboClient());
+    const shouldDestroyCommentPlebbit = !plebbit;
     try {
-        subplebbitRecord = <SubplebbitIpfsType>{
+        const subplebbitRecord = <SubplebbitIpfsType>{
             ...(await getTemplateSubplebbitRecord(ipnsObj.plebbit)),
             posts: undefined,
             pubsubTopic: subplebbitAddress
         };
         if (!subplebbitRecord.posts) delete subplebbitRecord.posts;
+        // Always publish a valid record first so comment creation can fetch it successfully
         subplebbitRecord.signature = await signSubplebbit({ subplebbit: subplebbitRecord, signer: ipnsObj.signer });
-        if (invalidateSubplebbitSignature) subplebbitRecord.updatedAt = (subplebbitRecord.updatedAt || timestamp()) + 1234;
         await ipnsObj.publishToIpns(JSON.stringify(subplebbitRecord));
-    } finally {
-        await ipnsObj.plebbit.destroy();
-    }
 
-    const commentPlebbit = plebbit || (await mockPlebbitNoDataPathWithOnlyKuboClient());
-    const shouldDestroyCommentPlebbit = !plebbit;
-    try {
         const commentToPublish = await commentPlebbit.createComment({
             ...commentOptions,
             signer: commentOptions.signer || (await commentPlebbit.createSigner()),
@@ -1803,8 +1798,15 @@ export async function createStaticSubplebbitRecordForComment(opts?: {
 
         const commentCid = await addStringToIpfs(JSON.stringify(commentIpfs));
 
+        // Optionally re-publish with invalid signature after comment is already created
+        if (invalidateSubplebbitSignature) {
+            subplebbitRecord.updatedAt = (subplebbitRecord.updatedAt || timestamp()) + 1234;
+            await ipnsObj.publishToIpns(JSON.stringify(subplebbitRecord));
+        }
+
         return { commentCid, communityAddress: subplebbitAddress };
     } finally {
+        await ipnsObj.plebbit.destroy();
         if (shouldDestroyCommentPlebbit) await commentPlebbit.destroy();
     }
 }

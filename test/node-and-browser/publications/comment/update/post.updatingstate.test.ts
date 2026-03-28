@@ -295,7 +295,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
                 await resolveWhenConditionIsTrue({ toUpdate: createdPost, predicate: async () => errors.length >= 1, eventName: "error" });
 
                 await createdPost.stop();
-                if (Object.keys(dedicatedPlebbit._updatingComments).length > 0) throw Error("should reset updating comments");
+                if (dedicatedPlebbit._updatingComments.size() > 0) throw Error("should reset updating comments");
                 expect(createdPost.updatedAt).to.be.undefined;
                 expect(createdPost.raw.commentUpdate).to.be.undefined;
 

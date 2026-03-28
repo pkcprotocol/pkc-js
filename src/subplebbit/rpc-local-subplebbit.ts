@@ -2,6 +2,7 @@ import Logger from "@plebbit/plebbit-logger";
 import type {
     RpcInternalSubplebbitRecordAfterFirstUpdateType,
     RpcInternalSubplebbitRecordBeforeFirstUpdateType,
+    RpcLocalSubplebbitLocalProps,
     RpcLocalSubplebbitUpdateResultType,
     SubplebbitEditOptions,
     SubplebbitIpfsType,
@@ -32,22 +33,28 @@ import { deepMergeRuntimeFields, hideClassPrivateProps } from "../util.js";
 import { findStartedSubplebbit, trackStartedSubplebbit, untrackStartedSubplebbit } from "../plebbit/tracked-instance-registry-util.js";
 
 // This class is for subs that are running and publishing, over RPC. Can be used for both browser and node
-export class RpcLocalSubplebbit extends RpcRemoteSubplebbit implements RpcInternalSubplebbitRecordBeforeFirstUpdateType {
+export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
     override started: boolean; // Is the sub started and running? This is not specific to this instance, and applies to all instances of sub with this address
     override startedState!: SubplebbitStartedState;
-    override signer!: RpcInternalSubplebbitRecordAfterFirstUpdateType["signer"];
-    override settings!: RpcInternalSubplebbitRecordAfterFirstUpdateType["settings"];
+    override signer!: RpcLocalSubplebbitLocalProps["signer"];
+    override settings!: RpcLocalSubplebbitLocalProps["settings"];
     override editable!: Pick<RpcLocalSubplebbit, keyof SubplebbitEditOptions>;
 
     // mandating props
-    override challenges!: RpcInternalSubplebbitRecordBeforeFirstUpdateType["challenges"];
-    override encryption!: RpcInternalSubplebbitRecordBeforeFirstUpdateType["encryption"];
-    override createdAt!: RpcInternalSubplebbitRecordBeforeFirstUpdateType["createdAt"];
-    override protocolVersion!: RpcInternalSubplebbitRecordBeforeFirstUpdateType["protocolVersion"];
+    override challenges!: SubplebbitIpfsType["challenges"];
+    override encryption!: SubplebbitIpfsType["encryption"];
+    override createdAt!: SubplebbitIpfsType["createdAt"];
+    override protocolVersion!: SubplebbitIpfsType["protocolVersion"];
+
+    override raw: {
+        subplebbitIpfs?: SubplebbitIpfsType;
+        runtimeFieldsFromRpc?: Record<string, any>;
+        localSubplebbit?: RpcLocalSubplebbitUpdateResultType;
+    } = {};
 
     // Private stuff
     private _startRpcSubscriptionId?: z.infer<typeof SubscriptionIdSchema> = undefined;
-    _usingDefaultChallenge!: RpcInternalSubplebbitRecordAfterFirstUpdateType["_usingDefaultChallenge"];
+    _usingDefaultChallenge!: RpcLocalSubplebbitLocalProps["_usingDefaultChallenge"];
 
     constructor(plebbit: Plebbit) {
         super(plebbit);
@@ -66,8 +73,15 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit implements RpcIntern
     toJSONInternalRpcAfterFirstUpdate(): RpcInternalSubplebbitRecordAfterFirstUpdateType {
         if (!this.updateCid) throw Error("rpcLocalSubplebbit.cid should be defined before calling toJSONInternalRpcAfterFirstUpdate");
         return {
-            ...this.raw.subplebbitIpfs!,
-            ...this.toJSONInternalRpcBeforeFirstUpdate(),
+            subplebbitIpfs: this.raw.subplebbitIpfs!,
+            localSubplebbit: {
+                signer: this.signer,
+                settings: this.settings,
+                _usingDefaultChallenge: this._usingDefaultChallenge,
+                address: this.address,
+                started: this.started,
+                startedState: this.startedState
+            },
             runtimeFields: {
                 updateCid: this.updateCid,
                 updatingState: this.updatingState
@@ -78,33 +92,41 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit implements RpcIntern
     toJSONInternalRpcBeforeFirstUpdate(): RpcInternalSubplebbitRecordBeforeFirstUpdateType {
         if (!this.settings) throw Error("Attempting to transmit InternalRpc record without defining settings");
         return {
-            ...this._toJSONIpfsBaseNoPosts(),
-            address: this.address,
-            signer: this.signer,
-            settings: this.settings,
-            _usingDefaultChallenge: this._usingDefaultChallenge,
-            started: this.started,
-            startedState: this.startedState
+            localSubplebbit: {
+                ...this._toJSONIpfsBaseNoPosts(),
+                address: this.address,
+                signer: this.signer,
+                settings: this.settings,
+                _usingDefaultChallenge: this._usingDefaultChallenge,
+                started: this.started,
+                startedState: this.startedState
+            }
         };
     }
 
     initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(newProps: RpcInternalSubplebbitRecordBeforeFirstUpdateType) {
-        this.initRemoteSubplebbitPropsNoMerge(newProps);
-        this.signer = newProps.signer;
-        this.settings = newProps.settings;
-        this._usingDefaultChallenge = newProps._usingDefaultChallenge;
-        this.started = newProps.started;
+        this.initRemoteSubplebbitPropsNoMerge(newProps.localSubplebbit);
+        this.signer = newProps.localSubplebbit.signer;
+        this.settings = newProps.localSubplebbit.settings;
+        this._usingDefaultChallenge = newProps.localSubplebbit._usingDefaultChallenge;
+        this.started = newProps.localSubplebbit.started;
+        this.raw.localSubplebbit = newProps;
     }
 
     initRpcInternalSubplebbitAfterFirstUpdateNoMerge(newProps: RpcInternalSubplebbitRecordAfterFirstUpdateType) {
-        const keysOfSubplebbitIpfs = <(keyof SubplebbitIpfsType)[]>[...newProps.signature.signedPropertyNames, "signature"];
-        const subplebbitIpfsParseRes = SubplebbitIpfsSchema.loose().safeParse(remeda.pick(newProps, keysOfSubplebbitIpfs));
+        const subplebbitIpfsParseRes = SubplebbitIpfsSchema.loose().safeParse(newProps.subplebbitIpfs);
         if (subplebbitIpfsParseRes.success) {
             super.initSubplebbitIpfsPropsNoMerge(subplebbitIpfsParseRes.data);
-        } else super.initRemoteSubplebbitPropsNoMerge(newProps);
+        } else super.initRemoteSubplebbitPropsNoMerge(newProps.subplebbitIpfs);
+        // Apply address from localSubplebbit — may differ from subplebbitIpfs.name (e.g. .bso/.eth before ENS propagation)
+        if (newProps.localSubplebbit.address) this.setAddress(newProps.localSubplebbit.address);
 
-        this.initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(newProps);
+        this.signer = newProps.localSubplebbit.signer;
+        this.settings = newProps.localSubplebbit.settings;
+        this._usingDefaultChallenge = newProps.localSubplebbit._usingDefaultChallenge;
+        this.started = newProps.localSubplebbit.started;
         this.updateCid = newProps.runtimeFields.updateCid;
+        this.raw.localSubplebbit = newProps;
     }
 
     protected _updateRpcClientStateFromStartedState(startedState: RpcLocalSubplebbit["startedState"]) {
@@ -126,16 +148,16 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit implements RpcIntern
         log("Received an update event from rpc within rpcLocalSubplebbit.update for sub " + this.address);
 
         const updateRecord: RpcLocalSubplebbitUpdateResultType = args.params.result; // we're being optimistic here and hoping the rpc server sent the correct update
-        if ("updatedAt" in updateRecord) this.initRpcInternalSubplebbitAfterFirstUpdateNoMerge(updateRecord);
+        if ("subplebbitIpfs" in updateRecord) this.initRpcInternalSubplebbitAfterFirstUpdateNoMerge(updateRecord);
         else this.initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(updateRecord);
 
-        const runtimeFields = args.params.result.runtimeFields;
+        const runtimeFields = "runtimeFields" in updateRecord ? updateRecord.runtimeFields : undefined;
         if (runtimeFields) {
             this.raw.runtimeFieldsFromRpc = runtimeFields;
             deepMergeRuntimeFields(this, runtimeFields);
         }
 
-        if (updateRecord.startedState) this._setStartedStateNoEmission(updateRecord.startedState);
+        if (updateRecord.localSubplebbit.startedState) this._setStartedStateNoEmission(updateRecord.localSubplebbit.startedState);
         this.emit("update", this);
     }
 
@@ -146,18 +168,18 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit implements RpcIntern
         const updateRecord: RpcLocalSubplebbitUpdateResultType = args.params.result;
         log("Received an update event from rpc within rpcLocalSubplebbit.start for sub " + this.address);
 
-        if ("updatedAt" in updateRecord) {
+        if ("subplebbitIpfs" in updateRecord) {
             this.initRpcInternalSubplebbitAfterFirstUpdateNoMerge(updateRecord);
         } else this.initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(updateRecord);
 
-        const runtimeFields = args.params.result.runtimeFields;
+        const runtimeFields = "runtimeFields" in updateRecord ? updateRecord.runtimeFields : undefined;
         if (runtimeFields) {
             this.raw.runtimeFieldsFromRpc = runtimeFields;
             deepMergeRuntimeFields(this, runtimeFields);
         }
 
-        if (updateRecord.startedState) {
-            this._setStartedStateNoEmission(updateRecord.startedState);
+        if (updateRecord.localSubplebbit.startedState) {
+            this._setStartedStateNoEmission(updateRecord.localSubplebbit.startedState);
         }
         this.emit("update", this);
     }
@@ -298,7 +320,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit implements RpcIntern
             }
         }
         const subPropsAfterEdit = await this._plebbit._plebbitRpcClient!.editSubplebbit(this.address, newSubplebbitOptions);
-        if ("updatedAt" in subPropsAfterEdit) this.initRpcInternalSubplebbitAfterFirstUpdateNoMerge(subPropsAfterEdit);
+        if ("subplebbitIpfs" in subPropsAfterEdit) this.initRpcInternalSubplebbitAfterFirstUpdateNoMerge(subPropsAfterEdit);
         else this.initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(subPropsAfterEdit);
         this.emit("update", this);
         return this;

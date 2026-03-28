@@ -216,6 +216,7 @@ const DUPLICATE_PUBLICATION_ERRORS = new Set([
 // This is a sub we have locally in our plebbit datapath, in a NodeJS environment
 export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLocalSubplebbitParsedOptions {
     override signer!: SignerWithPublicKeyAddress;
+    override raw: RpcLocalSubplebbit["raw"] = {};
     private _postUpdatesBuckets = [86400, 604800, 2592000, 3153600000]; // 1 day, 1 week, 1 month, 100 years. Expecting to be sorted from smallest to largest
 
     private _defaultSubplebbitChallenges: SubplebbitChallengeSetting[] = [
@@ -300,7 +301,8 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     toJSONInternalAfterFirstUpdate(): InternalSubplebbitRecordAfterFirstUpdateType {
         const rpcJson = this.toJSONInternalRpcAfterFirstUpdate();
         return {
-            ...remeda.omit(rpcJson, ["started", "runtimeFields"]),
+            ...rpcJson.subplebbitIpfs,
+            ...remeda.omit(rpcJson.localSubplebbit, ["started", "startedState"]),
             updateCid: rpcJson.runtimeFields.updateCid,
             signer: remeda.pick(this.signer, ["privateKey", "type", "address", "shortAddress", "publicKey"]),
             _internalStateUpdateId: this._internalStateUpdateId,
@@ -311,8 +313,9 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     toJSONInternalBeforeFirstUpdate(): InternalSubplebbitRecordBeforeFirstUpdateType {
+        const rpcJson = this.toJSONInternalRpcBeforeFirstUpdate();
         return {
-            ...remeda.omit(this.toJSONInternalRpcBeforeFirstUpdate(), ["started"]),
+            ...remeda.omit(rpcJson.localSubplebbit, ["started", "startedState"]),
             signer: remeda.pick(this.signer, ["privateKey", "type", "address", "shortAddress", "publicKey"]),
             _internalStateUpdateId: this._internalStateUpdateId,
             _pendingEditProps: this._pendingEditProps
@@ -320,16 +323,23 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     override toJSONInternalRpcAfterFirstUpdate(): RpcInternalSubplebbitRecordAfterFirstUpdateType {
+        const base = super.toJSONInternalRpcAfterFirstUpdate();
         return {
-            ...super.toJSONInternalRpcAfterFirstUpdate(),
-            signer: remeda.pick(this.signer, ["publicKey", "address", "shortAddress", "type"])
+            ...base,
+            localSubplebbit: {
+                ...base.localSubplebbit,
+                signer: remeda.pick(this.signer, ["publicKey", "address", "shortAddress", "type"])
+            }
         };
     }
 
     override toJSONInternalRpcBeforeFirstUpdate(): RpcInternalSubplebbitRecordBeforeFirstUpdateType {
+        const base = super.toJSONInternalRpcBeforeFirstUpdate();
         return {
-            ...super.toJSONInternalRpcBeforeFirstUpdate(),
-            signer: remeda.pick(this.signer, ["publicKey", "address", "shortAddress", "type"])
+            localSubplebbit: {
+                ...base.localSubplebbit,
+                signer: remeda.pick(this.signer, ["publicKey", "address", "shortAddress", "type"])
+            }
         };
     }
 
@@ -352,10 +362,17 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     async initInternalSubplebbitAfterFirstUpdateNoMerge(newProps: InternalSubplebbitRecordAfterFirstUpdateType) {
+        const keysOfSubplebbitIpfs = <(keyof SubplebbitIpfsType)[]>[...newProps.signature.signedPropertyNames, "signature"];
         this.initRpcInternalSubplebbitAfterFirstUpdateNoMerge({
-            ...remeda.omit(newProps, ["updateCid"]),
-            started: this.started,
-            startedState: this.startedState,
+            subplebbitIpfs: remeda.pick(newProps, keysOfSubplebbitIpfs) as SubplebbitIpfsType,
+            localSubplebbit: {
+                signer: remeda.pick(newProps.signer as SignerWithPublicKeyAddress, ["publicKey", "address", "shortAddress", "type"]),
+                settings: newProps.settings,
+                _usingDefaultChallenge: newProps._usingDefaultChallenge,
+                address: newProps.address,
+                started: this.started,
+                startedState: this.startedState
+            },
             runtimeFields: { updateCid: newProps.updateCid }
         });
         await this._initSignerProps(newProps.signer);
@@ -364,13 +381,17 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         if (Array.isArray(newProps._mfsPathsToRemove)) newProps._mfsPathsToRemove.forEach((path) => this._mfsPathsToRemove.add(path));
         this._updateIpnsPubsubPropsIfNeeded(newProps);
         if (processStartedSubplebbits.has(this)) syncSubplebbitRegistryEntry(processStartedSubplebbits, this);
+        this.raw.localSubplebbit = this.toJSONInternalRpcAfterFirstUpdate();
     }
 
     async initInternalSubplebbitBeforeFirstUpdateNoMerge(newProps: InternalSubplebbitRecordBeforeFirstUpdateType) {
         this.initRpcInternalSubplebbitBeforeFirstUpdateNoMerge({
-            ...newProps,
-            started: this.started,
-            startedState: this.startedState
+            localSubplebbit: {
+                ...remeda.omit(newProps, ["signer", "_internalStateUpdateId", "_pendingEditProps"]),
+                signer: remeda.pick(newProps.signer as SignerWithPublicKeyAddress, ["publicKey", "address", "shortAddress", "type"]),
+                started: this.started,
+                startedState: this.startedState
+            }
         });
         await this._initSignerProps(newProps.signer);
         this._internalStateUpdateId = newProps._internalStateUpdateId;
@@ -379,6 +400,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         this.ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(this.ipnsName);
         this.ipnsPubsubTopicRoutingCid = pubsubTopicToDhtKey(this.ipnsPubsubTopic);
         if (processStartedSubplebbits.has(this)) syncSubplebbitRegistryEntry(processStartedSubplebbits, this);
+        this.raw.localSubplebbit = this.toJSONInternalRpcBeforeFirstUpdate();
     }
 
     private async initDbHandlerIfNeeded() {
@@ -470,6 +492,11 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             await this._dbHandler.keyvSet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_SUBPLEBBIT], mergedInternalState);
             this._internalStateUpdateId = props._internalStateUpdateId;
             log.trace("Updated sub", this.address, "internal state in db with new props", Object.keys(props));
+            if (this.updateCid && this.raw.subplebbitIpfs) {
+                this.raw.localSubplebbit = this.toJSONInternalRpcAfterFirstUpdate();
+            } else if (this.settings) {
+                this.raw.localSubplebbit = this.toJSONInternalRpcBeforeFirstUpdate();
+            }
             return mergedInternalState as InternalSubplebbitRecordBeforeFirstUpdateType | InternalSubplebbitRecordAfterFirstUpdateType;
         } catch (e) {
             log.error("Failed to update sub", this.address, "internal state in db with new props", Object.keys(props), e);

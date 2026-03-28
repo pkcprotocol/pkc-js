@@ -85,7 +85,7 @@ describeSkipIfRpc("PlebbitWsServer listener lifecycle", function () {
 
         try {
             const created = await rpcServer.createSubplebbit([{}]);
-            expect(created.address).to.be.a("string");
+            expect(created.localSubplebbit.address).to.be.a("string");
             expect(trackedCalls).to.have.length(0, "createSubplebbit should not track event listeners");
         } finally {
             rpcServerWithPrivate._trackSubplebbitListener = originalTrack;
@@ -111,7 +111,7 @@ describeSkipIfRpc("PlebbitWsServer listener lifecycle", function () {
         setupConnectionContext(rpcServer, connectionId);
 
         const createResponse = await rpcServer.createSubplebbit([{}]);
-        const address = createResponse.address;
+        const address = createResponse.localSubplebbit.address;
         expect(address).to.be.a("string");
 
         let capturedSubplebbit: LocalSubplebbit | undefined;
@@ -166,7 +166,7 @@ describeSkipIfRpc("PlebbitWsServer listener lifecycle", function () {
         setupConnectionContext(rpcServer, connectionId);
 
         const createResponse = await rpcServer.createSubplebbit([{}]);
-        const address = createResponse.address;
+        const address = createResponse.localSubplebbit.address;
         expect(address).to.be.a("string");
 
         let capturedSubplebbit: LocalSubplebbit | undefined;

@@ -7,7 +7,8 @@ import {
     createNewIpns,
     resolveWhenConditionIsTrue,
     itSkipIfRpc,
-    createMockedSubplebbitIpns
+    createMockedSubplebbitIpns,
+    publishSubplebbitRecordWithExtraProp
 } from "../../../dist/node/test/test-util.js";
 import { convertBase58IpnsNameToBase36Cid } from "../../../dist/node/signer/util.js";
 
@@ -128,11 +129,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         it.sequential(`subplebbit.update emits error if signature of subplebbit is invalid`, async () => {
             // should emit an error and keep retrying
 
-            const ipnsObj = await createNewIpns();
-
-            const rawSubplebbitJson = (await plebbit.getSubplebbit({ address: signers[0].address })).raw.subplebbitIpfs!;
-            (rawSubplebbitJson as Record<string, unknown>).address = ipnsObj.signer.address; // this will corrupt the signature
-            await ipnsObj.publishToIpns(JSON.stringify(rawSubplebbitJson));
+            // Publish a valid record signed with ipnsObj.signer first, then corrupt a signed field.
+            // We cannot just copy signers[0]'s record because its publicKey would mismatch the IPNS address,
+            // causing ERR_THE_SUBPLEBBIT_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED instead of ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID.
+            const { subplebbitRecord, ipnsObj } = await publishSubplebbitRecordWithExtraProp();
+            (subplebbitRecord as Record<string, unknown>).updatedAt = (subplebbitRecord.updatedAt || 0) + 9999; // corrupt a signed field
+            await ipnsObj.publishToIpns(JSON.stringify(subplebbitRecord));
             const tempSubplebbit = await plebbit.createSubplebbit({ address: ipnsObj.signer.address });
 
             const errorPromise = new Promise<void>((resolve) => {

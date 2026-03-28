@@ -5,13 +5,7 @@ import { parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbitErrorIfItFails
 import { CreateRpcSubplebbitFunctionArgumentSchema } from "../subplebbit/schema.js";
 import { RpcLocalSubplebbit } from "../subplebbit/rpc-local-subplebbit.js";
 import { RpcRemoteSubplebbit } from "../subplebbit/rpc-remote-subplebbit.js";
-import type {
-    RpcInternalSubplebbitRecordAfterFirstUpdateType,
-    RpcInternalSubplebbitRecordBeforeFirstUpdateType,
-    RpcLocalSubplebbitJson,
-    RpcRemoteSubplebbitJson,
-    SubplebbitIpfsType
-} from "../subplebbit/types.js";
+import type { RpcLocalSubplebbitJson, RpcLocalSubplebbitUpdateResultType, RpcRemoteSubplebbitJson } from "../subplebbit/types.js";
 import { z } from "zod";
 import { PlebbitError } from "../plebbit-error.js";
 import type { AuthorNameRpcParam, CidRpcParam } from "../clients/rpc-client/types.js";
@@ -84,8 +78,6 @@ export class PlebbitWithRpcClient extends Plebbit {
     ): Promise<RpcLocalSubplebbit | RpcRemoteSubplebbit> {
         const log = Logger("plebbit-js:plebbit-with-rpc-client:createSubplebbit");
 
-        if (options instanceof RpcRemoteSubplebbit) return options; // not sure why somebody would call createSubplebbit with an instance, will probably change later
-
         // No need to parse if it's a jsonified instance
         const parsedRpcOptions =
             "clients" in options ? options : parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbitErrorIfItFails(options);
@@ -107,18 +99,15 @@ export class PlebbitWithRpcClient extends Plebbit {
             const isSubRpcLocal = rpcSubs.includes(effectiveAddress);
 
             if ("clients" in options && isSubRpcLocal) {
-                // Jsonified local sub — rehydrate from provided data instead of doing a fresh RPC fetch
+                // Jsonified local sub — rehydrate from raw.localSubplebbit instead of doing a fresh RPC fetch
                 const sub = new RpcLocalSubplebbit(this);
                 const jsonified = parsedRpcOptions as unknown as RpcLocalSubplebbitJson;
-                if (jsonified.signature) {
-                    sub.initRpcInternalSubplebbitAfterFirstUpdateNoMerge({
-                        ...jsonified,
-                        runtimeFields: { updateCid: jsonified.updateCid }
-                    } as unknown as RpcInternalSubplebbitRecordAfterFirstUpdateType);
-                } else {
-                    sub.initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(
-                        jsonified as unknown as RpcInternalSubplebbitRecordBeforeFirstUpdateType
-                    );
+                const rawRecord = (jsonified.raw as RpcLocalSubplebbit["raw"] | undefined)?.localSubplebbit as
+                    | RpcLocalSubplebbitUpdateResultType
+                    | undefined;
+                if (rawRecord) {
+                    if ("subplebbitIpfs" in rawRecord) sub.initRpcInternalSubplebbitAfterFirstUpdateNoMerge(rawRecord);
+                    else sub.initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(rawRecord);
                 }
                 return sub;
             } else if (isSubRpcLocal) {
@@ -147,13 +136,13 @@ export class PlebbitWithRpcClient extends Plebbit {
             // We're creating a new local sub
             const subPropsAfterCreation = await this._plebbitRpcClient!.createSubplebbit(parsedRpcOptions);
             log(
-                `Created new local-RPC subplebbit (${subPropsAfterCreation.address}) with props:`,
+                `Created new local-RPC subplebbit (${subPropsAfterCreation.localSubplebbit.address}) with props:`,
                 JSON.parse(JSON.stringify(subPropsAfterCreation))
             );
             const sub = new RpcLocalSubplebbit(this);
             await sub.initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(subPropsAfterCreation);
             sub.emit("update", sub);
-            await this._awaitSubplebbitsToIncludeSub(subPropsAfterCreation.address);
+            await this._awaitSubplebbitsToIncludeSub(subPropsAfterCreation.localSubplebbit.address);
             return sub;
         } else throw Error("Failed to create subplebbit rpc instance, are you sure you provided the correct args?");
     }
