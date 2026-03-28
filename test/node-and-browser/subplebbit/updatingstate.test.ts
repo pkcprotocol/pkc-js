@@ -77,7 +77,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         it("updating states is in correct order upon updating with ipfs p2p, if the sub doesn't publish any updates", async () => {
             const newSub = await publishSubplebbitRecordWithExtraProp();
 
-            const subplebbit = await plebbit.createSubplebbit({ address: newSub.subplebbitRecord.address });
+            const subplebbit = await plebbit.createSubplebbit({ address: newSub.ipnsObj.signer.address });
 
             const recordedStates: string[] = [];
             subplebbit.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
@@ -282,7 +282,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
         it("updating states is in correct order upon updating with gateway, if the sub doesn't publish any updates", async () => {
             const newSub = await publishSubplebbitRecordWithExtraProp();
 
-            const subplebbit = await plebbit.createSubplebbit({ address: newSub.subplebbitRecord.address });
+            const subplebbit = await plebbit.createSubplebbit({ address: newSub.ipnsObj.signer.address });
 
             const recordedStates: string[] = [];
             subplebbit.on("updatingstatechange", (newState: string) => recordedStates.push(newState));

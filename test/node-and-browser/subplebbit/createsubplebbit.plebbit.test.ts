@@ -15,6 +15,7 @@ import { stringify as deterministicStringify } from "safe-stable-stringify";
 
 import * as remeda from "remeda";
 import validSubplebbitJsonfiedFixture from "../../fixtures/signatures/subplebbit/valid_subplebbit_jsonfied.json" with { type: "json" };
+import validSubplebbitJsonfiedOldWireFormatFixture from "../../fixtures/signatures/subplebbit/valid_subplebbit_jsonfied_old_wire_format.json" with { type: "json" };
 import { describe, it, beforeAll, afterAll } from "vitest";
 
 import type { Plebbit as PlebbitType } from "../../../dist/node/plebbit/plebbit.js";
@@ -110,6 +111,26 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) =>
             );
         });
 
+        it("createSubplebbit preserves runtime-only author.nameResolved in preloaded OLD-wire-format fixture pages", async () => {
+            const subJson = remeda.clone(validSubplebbitJsonfiedOldWireFormatFixture);
+            const sourceComment = subJson.posts.pages.hot.comments[0];
+            const sourceRawComment = subJson.raw.subplebbitIpfs.posts.pages.hot.comments[0];
+            Object.assign(sourceComment.author, { nameResolved: true });
+
+            expect(sourceComment.author).to.have.property("nameResolved", true);
+            expect(sourceRawComment.comment.author).to.not.have.property("nameResolved");
+
+            const recreatedSub = await plebbit.createSubplebbit(subJson);
+            const recreatedComment = recreatedSub.posts.pages.hot.comments.find((c) => c.cid === sourceComment.cid);
+
+            expect(recreatedComment, `Fixture comment ${sourceComment.cid} should exist after createSubplebbit rehydration`).to.exist;
+            expect(recreatedComment!.author).to.have.property(
+                "nameResolved",
+                true,
+                "createSubplebbit should preserve runtime-only author.nameResolved from old-wire-format preloaded pages"
+            );
+        });
+
         it(`Sub JSON props does not change by creating a Subplebbit object via plebbit.createSubplebbit`, async () => {
             const subJson = remeda.clone(validSubplebbitJsonfiedFixture);
             const subObj = await plebbit.createSubplebbit(remeda.clone(validSubplebbitJsonfiedFixture));
@@ -135,6 +156,22 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) =>
             for (const key of Object.keys(noInternalPropsSubObj)) {
                 expect(noInternalPropsSubJson[key]).to.deep.equal(noInternalPropsSubObj[key], `Mismatch for key: ${key}`);
             }
+        });
+
+        it("createSubplebbit with old-wire-format fixture correctly derives communityAddress in pages", async () => {
+            const subJson = remeda.clone(validSubplebbitJsonfiedOldWireFormatFixture);
+            const subObj = await plebbit.createSubplebbit(remeda.clone(validSubplebbitJsonfiedOldWireFormatFixture));
+
+            // Top-level fields unaffected by wire format change
+            expect(subJson.lastPostCid).to.equal(subObj.lastPostCid).and.to.be.a("string");
+            expect(subJson.address).to.equal(subObj.address).and.to.be.a("string");
+            expect(subJson.posts.pageCids).to.deep.equal(subObj.posts.pageCids).and.to.be.a("object");
+
+            // After parsing old-wire-format through parsePagesIpfs, comments must have new-format fields
+            const comment = subObj.posts.pages.hot!.comments[0];
+            expect(comment.communityAddress).to.be.a("string");
+            expect(comment.shortCommunityAddress).to.be.a("string");
+            expect(comment.communityAddress).to.equal(subJson.address);
         });
 
         it("createSubplebbit does not throw when posts has empty pages/pageCids and no updatedAt", async () => {

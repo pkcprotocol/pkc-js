@@ -226,6 +226,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const comment1 = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             const commentToPublish = await plebbit.createComment(comment1);
             await publishWithExpectedResult({ publication: commentToPublish, expectedChallengeSuccess: true });
+            // Trigger deferred signing on comment1 so pubsubMessageToPublish is available for comparison
+            if (!comment1.raw.pubsubMessageToPublish) {
+                await comment1._initCommunity();
+                await comment1._signPublicationWithCommunityFields();
+            }
             expect(commentToPublish.raw.pubsubMessageToPublish!).to.deep.equal(comment1.raw.pubsubMessageToPublish!);
         });
 
@@ -233,6 +238,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const comment1 = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             const commentToPublish = await plebbit.createComment(JSON.parse(JSON.stringify(comment1)));
             await publishWithExpectedResult({ publication: commentToPublish, expectedChallengeSuccess: true });
+            // Trigger deferred signing on comment1 so pubsubMessageToPublish is available for comparison
+            if (!comment1.raw.pubsubMessageToPublish) {
+                await comment1._initCommunity();
+                await comment1._signPublicationWithCommunityFields();
+            }
             expect(commentToPublish.raw.pubsubMessageToPublish!).to.deep.equal(comment1.raw.pubsubMessageToPublish!);
             expect(commentToPublish.toJSONPubsubRequestToEncrypt()).to.deep.equal(comment1.toJSONPubsubRequestToEncrypt());
         });
@@ -302,6 +312,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const signer = await plebbit.createSigner();
             const props: {
                 communityAddress: string;
+                communityPublicKey: string;
                 timestamp: number;
                 author: { displayName: string };
                 protocolVersion: string;
@@ -310,6 +321,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 signature?: CommentPubsubMessagPublicationSignature;
             } = {
                 communityAddress: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR",
+                communityPublicKey: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR",
                 timestamp: Math.round(Date.now() / 1000),
                 author: { displayName: "Mock Author - 1690130836.1711266" + Math.random() },
                 protocolVersion: "1.0.0",

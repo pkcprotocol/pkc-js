@@ -1195,7 +1195,7 @@ export async function setExtraPropOnCommentAndSign(comment: Comment, extraProps:
 
     // With deferred signing, the publication may not be signed yet
     if (!comment.raw.pubsubMessageToPublish) {
-        await (comment as any)._initCommunity();
+        await comment._initCommunity();
         await comment._signPublicationWithCommunityFields();
     }
 
@@ -1225,7 +1225,7 @@ export async function setExtraPropOnVoteAndSign(vote: Vote, extraProps: Object, 
 
     // With deferred signing, the publication may not be signed yet
     if (!vote.raw.pubsubMessageToPublish) {
-        await (vote as any)._initCommunity();
+        await vote._initCommunity();
         await vote._signPublicationWithCommunityFields();
     }
 
@@ -1258,7 +1258,7 @@ export async function setExtraPropOnCommentEditAndSign(
 
     // With deferred signing, the publication may not be signed yet
     if (!commentEdit.raw.pubsubMessageToPublish) {
-        await (commentEdit as any)._initCommunity();
+        await commentEdit._initCommunity();
         await commentEdit._signPublicationWithCommunityFields();
     }
 
@@ -1288,6 +1288,11 @@ export async function setExtraPropOnCommentModerationAndSign(
     includeExtraPropInSignedPropertyNames: boolean
 ) {
     const log = Logger("plebbit-js:test-util:setExtraPropOnCommentModerationAndSign");
+
+    if (!commentModeration.raw.pubsubMessageToPublish) {
+        await commentModeration._initCommunity();
+        await commentModeration._signPublicationWithCommunityFields();
+    }
 
     const newPubsubPublicationWithExtraProp = <CommentModerationPubsubMessagePublication>(
         remeda.mergeDeep(commentModeration.raw.pubsubMessageToPublish!, extraProps)
@@ -1784,6 +1789,11 @@ export async function createStaticSubplebbitRecordForComment(opts?: {
         });
 
         const depth = typeof commentOptions.depth === "number" ? commentOptions.depth : commentOptions.parentCid ? 1 : 0;
+
+        if (!commentToPublish.raw.pubsubMessageToPublish) {
+            await commentToPublish._initCommunity();
+            await commentToPublish._signPublicationWithCommunityFields();
+        }
 
         const commentIpfs: Record<string, any> = { ...commentToPublish.raw.pubsubMessageToPublish, depth };
         if (commentOptions.parentCid) {

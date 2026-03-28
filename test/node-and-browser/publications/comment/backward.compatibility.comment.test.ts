@@ -20,7 +20,6 @@ import type { CommentWithinRepliesPostsPageJson } from "../../../../dist/node/pu
 
 type CommentWithExtraProp = Comment & { extraProp?: string };
 type AuthorWithExtraProp = { extraProp?: string };
-type LegacyRawAuthor = { address?: string; name?: string; publicKey?: string };
 
 const subplebbitAddress = signers[0].address;
 
@@ -167,7 +166,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 const post = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
                 await setExtraPropOnCommentAndSign(
                     post,
-                    { author: { ...post.raw.pubsubMessageToPublish.author, subplebbit: "random" } },
+                    {
+                        author: {
+                            ...(post.raw.pubsubMessageToPublish?.author ?? (post.raw as any).unsignedPublicationOptions?.author),
+                            subplebbit: "random"
+                        }
+                    },
                     true
                 );
 
@@ -184,7 +188,16 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             it(`Publishing with extra prop for author should succeed`, async () => {
                 const post = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
                 const extraProps = { extraProp: "1234" };
-                await setExtraPropOnCommentAndSign(post, { author: { ...post.raw.pubsubMessageToPublish.author, ...extraProps } }, true);
+                await setExtraPropOnCommentAndSign(
+                    post,
+                    {
+                        author: {
+                            ...(post.raw.pubsubMessageToPublish?.author ?? (post.raw as any).unsignedPublicationOptions?.author),
+                            ...extraProps
+                        }
+                    },
+                    true
+                );
 
                 const challengeRequestPromise = new Promise((resolve) => post.once("challengerequest", resolve));
 
@@ -276,40 +289,34 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await plebbit.destroy();
         });
 
-        it(`loads a legacy page and computes runtime author fields without rewriting raw wire author`, async () => {
+        it(`loads a page and correctly derives runtime author fields from wire format`, async () => {
             const pageCid = await addStringToIpfs(JSON.stringify(validPageIpfsFixture));
             const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
             const loadedPage = await subplebbit.posts.getPage({ cid: pageCid });
 
-            const legacyDomainComment = loadedPage.comments.find(
-                (comment) =>
-                    typeof (comment.raw.comment.author as LegacyRawAuthor | undefined)?.address === "string" &&
-                    (comment.raw.comment.author as LegacyRawAuthor).address!.includes(".")
-            ) as CommentWithinRepliesPostsPageJson | undefined;
-            const legacyBase58Comment = loadedPage.comments.find(
-                (comment) =>
-                    typeof (comment.raw.comment.author as LegacyRawAuthor | undefined)?.address === "string" &&
-                    !(comment.raw.comment.author as LegacyRawAuthor).address!.includes(".")
-            ) as CommentWithinRepliesPostsPageJson | undefined;
+            // Find a domain author comment (author.name on wire)
+            const domainComment = loadedPage.comments.find((comment) => typeof comment.raw.comment.author?.name === "string") as
+                | CommentWithinRepliesPostsPageJson
+                | undefined;
+            // Find a non-domain comment (no author.name on wire)
+            const base58Comment = loadedPage.comments.find((comment) => !comment.raw.comment.author?.name) as
+                | CommentWithinRepliesPostsPageJson
+                | undefined;
 
-            expect(legacyDomainComment).to.exist;
-            expect(legacyBase58Comment).to.exist;
+            expect(domainComment).to.exist;
+            expect(base58Comment).to.exist;
 
-            const expectedDomainPublicKey = getPlebbitAddressFromPublicKeySync(legacyDomainComment!.raw.comment.signature.publicKey);
-            expect(legacyDomainComment!.author.publicKey).to.equal(expectedDomainPublicKey);
-            expect(legacyDomainComment!.author.name).to.equal("plebbit.eth");
-            expect(legacyDomainComment!.author.address).to.equal("plebbit.eth");
-            expect((legacyDomainComment!.raw.comment.author as LegacyRawAuthor).address).to.equal("plebbit.eth");
-            expect((legacyDomainComment!.raw.comment.author as LegacyRawAuthor).name).to.be.undefined;
-            expect((legacyDomainComment!.raw.comment.author as LegacyRawAuthor).publicKey).to.be.undefined;
+            // Domain author: runtime address = domain name, publicKey derived from signature
+            const expectedDomainPublicKey = getPlebbitAddressFromPublicKeySync(domainComment!.raw.comment.signature.publicKey);
+            expect(domainComment!.author.publicKey).to.equal(expectedDomainPublicKey);
+            expect(domainComment!.author.name).to.equal("plebbit.bso");
+            expect(domainComment!.author.address).to.equal("plebbit.bso");
 
-            const expectedBase58PublicKey = getPlebbitAddressFromPublicKeySync(legacyBase58Comment!.raw.comment.signature.publicKey);
-            expect(legacyBase58Comment!.author.publicKey).to.equal(expectedBase58PublicKey);
-            expect(legacyBase58Comment!.author.name).to.be.undefined;
-            expect(legacyBase58Comment!.author.address).to.equal(expectedBase58PublicKey);
-            expect((legacyBase58Comment!.raw.comment.author as LegacyRawAuthor).address).to.equal(expectedBase58PublicKey);
-            expect((legacyBase58Comment!.raw.comment.author as LegacyRawAuthor).name).to.be.undefined;
-            expect((legacyBase58Comment!.raw.comment.author as LegacyRawAuthor).publicKey).to.be.undefined;
+            // Base58 author: runtime address = derived B58 address from signature
+            const expectedBase58PublicKey = getPlebbitAddressFromPublicKeySync(base58Comment!.raw.comment.signature.publicKey);
+            expect(base58Comment!.author.publicKey).to.equal(expectedBase58PublicKey);
+            expect(base58Comment!.author.name).to.be.undefined;
+            expect(base58Comment!.author.address).to.equal(expectedBase58PublicKey);
         });
     });
 });

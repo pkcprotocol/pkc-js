@@ -475,7 +475,16 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         const finalOptions = remeda.clone(pubOptions);
         if (!finalOptions.signer) throw Error("User did not provide a signer to create a local publication");
         const normalizedAuthor = normalizeCreatePublicationAuthor(finalOptions.author);
-        const cleanedAuthor = cleanWireAuthor(normalizedAuthor);
+        let cleanedAuthor = cleanWireAuthor(normalizedAuthor);
+        // Strip empty objects from author — empty {} should not be signed
+        if (cleanedAuthor) {
+            for (const key of Object.keys(cleanedAuthor)) {
+                const val = (cleanedAuthor as Record<string, unknown>)[key];
+                if (typeof val === "object" && val !== null && !Array.isArray(val) && Object.keys(val).length === 0)
+                    delete (cleanedAuthor as Record<string, unknown>)[key];
+            }
+            if (remeda.isEmpty(cleanedAuthor)) cleanedAuthor = undefined;
+        }
         const filledTimestamp = typeof finalOptions.timestamp !== "number" ? timestamp() : finalOptions.timestamp;
         const filledSigner = await this.createSigner(finalOptions.signer);
         const filledProtocolVersion = finalOptions.protocolVersion || env.PROTOCOL_VERSION;

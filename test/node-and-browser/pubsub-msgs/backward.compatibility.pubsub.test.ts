@@ -312,6 +312,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                     }
                 });
 
+                // Trigger deferred signing so pubsubMessageToPublish is populated before we compute the CID
+                if (!post.raw.pubsubMessageToPublish) {
+                    await post._initCommunity();
+                    await post._signPublicationWithCommunityFields();
+                }
                 const mockCommentIpfs = { ...post.raw.pubsubMessageToPublish, depth: 0 };
 
                 const commentUpdate = JSON.parse(JSON.stringify(validCommentUpdateFixture));

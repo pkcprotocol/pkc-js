@@ -43,8 +43,8 @@ async function createMockPageOfSize(baseSize: number, nextCid: string | null = n
 
         // Calculate how many comments we need to add, being more conservative
         const bytesNeeded = baseSize - currentSize;
-        // Use a larger buffer (1KB) to ensure we don't exceed the limit
-        const safetyBuffer = 1024;
+        // Use a larger buffer to ensure we don't exceed the limit (wire format size may vary)
+        const safetyBuffer = singleCommentSize * 2;
         const commentsToAdd = Math.floor((bytesNeeded - safetyBuffer) / singleCommentSize);
 
         // Add the calculated number of comments at once using Array.fill
@@ -63,7 +63,7 @@ async function createMockPageOfSize(baseSize: number, nextCid: string | null = n
         // We won't be able to hit the exact size without modifying content
         // So we'll accept being under the target size by a small margin
         const underSizeMargin = baseSize - finalSize;
-        if (underSizeMargin > singleCommentSize * 2) {
+        if (underSizeMargin > singleCommentSize * 4) {
             throw new Error(`Failed to reach close to target size: ${finalSize} < ${baseSize} bytes (gap: ${underSizeMargin} bytes)`);
         }
     }

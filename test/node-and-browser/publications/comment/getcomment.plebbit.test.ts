@@ -124,7 +124,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(expectedReplyProps.postCid).to.equal(expectedReplyProps.parentCid);
             expect(expectedReplyProps.protocolVersion).to.be.a("string");
             expect(expectedReplyProps.depth).to.equal(1);
-            expect(expectedReplyProps.communityAddress).to.equal(subplebbit.address);
+            // communityAddress is runtime-only; wire format has communityPublicKey/communityName/subplebbitAddress
+            const rawCommunityAddr =
+                expectedReplyProps.communityName || expectedReplyProps.communityPublicKey || expectedReplyProps.subplebbitAddress;
+            expect(rawCommunityAddr).to.equal(subplebbit.address);
             expect(expectedReplyProps.timestamp).to.be.a("number");
             expect(expectedReplyProps.signature).to.be.a("object");
             expect(expectedReplyProps.author).to.be.a("object");

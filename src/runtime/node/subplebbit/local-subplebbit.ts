@@ -2094,10 +2094,8 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
                 return messages.ERR_SUBPLEBBIT_EDIT_ATTEMPTED_TO_MODIFY_SUB_WITHOUT_BEING_OWNER_OR_ADMIN;
             }
 
-            if (
-                remeda.difference(remeda.keys.strict(subplebbitEdit.subplebbitEdit), remeda.keys.strict(SubplebbitIpfsSchema.shape))
-                    .length > 0
-            ) {
+            const allowedSubplebbitEditKeys = [...remeda.keys.strict(SubplebbitIpfsSchema.shape), "address"] as string[];
+            if (remeda.difference(remeda.keys.strict(subplebbitEdit.subplebbitEdit), allowedSubplebbitEditKeys).length > 0) {
                 // should only be allowed to modify public props from SubplebbitIpfs
                 // shouldn't be able to modify settings for example
                 return messages.ERR_SUBPLEBBIT_EDIT_ATTEMPTED_TO_NON_PUBLIC_PROPS;

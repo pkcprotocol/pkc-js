@@ -131,7 +131,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
                 await setExtraPropOnCommentEditAndSign(
                     commentEdit,
-                    { author: { ...commentEdit.raw.pubsubMessageToPublish.author, subplebbit: "random" } },
+                    {
+                        author: {
+                            ...(commentEdit.raw.pubsubMessageToPublish?.author ??
+                                (commentEdit.raw as any).unsignedPublicationOptions?.author),
+                            subplebbit: "random"
+                        }
+                    },
                     true
                 );
 
@@ -157,7 +163,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 const extraProps = { extraProp: "1234" };
                 await setExtraPropOnCommentEditAndSign(
                     commentEdit,
-                    { author: { ...commentEdit.raw.pubsubMessageToPublish.author, ...extraProps } },
+                    {
+                        author: {
+                            ...(commentEdit.raw.pubsubMessageToPublish?.author ??
+                                (commentEdit.raw as any).unsignedPublicationOptions?.author),
+                            ...extraProps
+                        }
+                    },
                     true
                 );
 

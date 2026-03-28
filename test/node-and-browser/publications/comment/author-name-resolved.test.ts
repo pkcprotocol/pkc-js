@@ -269,16 +269,16 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(rawAuthor).to.not.have.property("shortAddress");
         });
 
-        it("createComment rejects author.name without a dot that is not a valid B58 address", async () => {
-            await expect(
-                plebbit.createComment({
-                    author: { displayName: "Test", name: "notadomain" },
-                    signer: signers[6],
-                    content: `No dot test - ${Date.now()}`,
-                    title: "Test",
-                    communityAddress: subplebbitAddress
-                })
-            ).rejects.toThrow();
+        it("publish() rejects author.name without a dot that is not a valid B58 address", async () => {
+            const comment = await plebbit.createComment({
+                author: { displayName: "Test", name: "notadomain" },
+                signer: signers[6],
+                content: `No dot test - ${Date.now()}`,
+                title: "Test",
+                communityAddress: subplebbitAddress
+            });
+            // With deferred signing, validation happens at publish() time
+            await expect(comment.publish()).rejects.toThrow();
         });
 
         // === Tests that require non-RPC (mock resolvers or local verification) ===

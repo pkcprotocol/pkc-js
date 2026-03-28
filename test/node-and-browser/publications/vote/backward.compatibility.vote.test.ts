@@ -88,7 +88,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 const vote = await generateMockVote(commentToVoteOn as unknown as CommentIpfsWithCidDefined, 1, plebbit);
                 await setExtraPropOnVoteAndSign(
                     vote,
-                    { author: { ...vote.raw.pubsubMessageToPublish.author, subplebbit: "random" } },
+                    {
+                        author: {
+                            ...(vote.raw.pubsubMessageToPublish?.author ?? (vote.raw as any).unsignedPublicationOptions?.author),
+                            subplebbit: "random"
+                        }
+                    },
                     true
                 );
 
@@ -107,7 +112,16 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             it(`Publishing with extra prop for author should succeed`, async () => {
                 const vote = await generateMockVote(commentToVoteOn as unknown as CommentIpfsWithCidDefined, 1, plebbit);
                 const extraProps = { extraProp: "1234" };
-                await setExtraPropOnVoteAndSign(vote, { author: { ...vote.raw.pubsubMessageToPublish.author, ...extraProps } }, true);
+                await setExtraPropOnVoteAndSign(
+                    vote,
+                    {
+                        author: {
+                            ...(vote.raw.pubsubMessageToPublish?.author ?? (vote.raw as any).unsignedPublicationOptions?.author),
+                            ...extraProps
+                        }
+                    },
+                    true
+                );
 
                 await plebbit.createVote(JSON.parse(JSON.stringify(vote))); // attempt to create just to see if createVote will throw due to extra prop
                 const challengeRequestPromise = new Promise<ChallengeRequestWithVote>((resolve) =>

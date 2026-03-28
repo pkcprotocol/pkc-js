@@ -959,7 +959,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         return challengeRequest;
     }
 
-    private async _initCommunity() {
+    async _initCommunity() {
         if (this._community) return;
         try {
             this._community = await this._fetchCommunityForPublishing();

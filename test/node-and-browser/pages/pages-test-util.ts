@@ -53,7 +53,10 @@ export const testCommentFieldsInPageJson = (
         expect((comment.edit as any).challengeRequestId).to.be.undefined;
         expect(comment.edit.commentCid).to.equal(comment.cid);
         expect(comment.edit.signature).to.be.a("object");
-        expect(comment.edit.communityAddress).to.equal(comment.communityAddress);
+        // edit is in wire format — communityAddress is runtime-only, check wire fields instead
+        const editCommunityAddr =
+            (comment.edit as any).communityName || (comment.edit as any).communityPublicKey || (comment.edit as any).subplebbitAddress;
+        expect(editCommunityAddr).to.equal(comment.communityAddress);
         expect(comment.timestamp).to.be.a("number");
     }
 
