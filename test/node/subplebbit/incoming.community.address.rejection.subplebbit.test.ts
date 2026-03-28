@@ -1,5 +1,5 @@
 import { beforeAll, afterAll, it } from "vitest";
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "@pkc/pkc-logger";
 import {
     createSubWithNoChallenge,
     describeSkipIfRpc,

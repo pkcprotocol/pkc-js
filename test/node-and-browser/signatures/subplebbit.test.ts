@@ -14,7 +14,7 @@ import validSubplebbitFixture from "../../fixtures/signatures/subplebbit/valid_s
 import newFormatFixture from "../../fixtures/signatures/subplebbit/valid_subplebbit_ipfs_new_format.json" with { type: "json" };
 import newFormatWithNameFixture from "../../fixtures/signatures/subplebbit/valid_subplebbit_ipfs_new_format_with_name.json" with { type: "json" };
 import { removeUndefinedValuesRecursively } from "../../../dist/node/util.js";
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "@pkc/pkc-logger";
 
 import type { Plebbit as PlebbitType } from "../../../dist/node/plebbit/plebbit.js";
 import type { SubplebbitIpfsType } from "../../../dist/node/subplebbit/types.js";

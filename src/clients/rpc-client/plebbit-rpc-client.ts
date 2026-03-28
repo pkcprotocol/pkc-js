@@ -1,4 +1,4 @@
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "@pkc/pkc-logger";
 import { Client as WebSocketClient } from "rpc-websockets";
 import assert from "assert";
 import { PlebbitError } from "../../plebbit-error.js";

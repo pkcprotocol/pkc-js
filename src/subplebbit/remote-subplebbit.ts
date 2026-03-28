@@ -10,7 +10,7 @@ import {
 } from "../util.js";
 import { Plebbit } from "../plebbit/plebbit.js";
 
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "@pkc/pkc-logger";
 
 import { TypedEmitter } from "tiny-typed-emitter";
 import { FailedToFetchSubplebbitFromGatewaysError, PlebbitError } from "../plebbit-error.js";

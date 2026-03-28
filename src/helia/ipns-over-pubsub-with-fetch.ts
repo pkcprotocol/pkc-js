@@ -1,5 +1,5 @@
 import { GetOptions as ipnsGetOptions, IPNSRouting, PutOptions } from "@helia/ipns/routing";
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "@pkc/pkc-logger";
 import pLimit from "p-limit";
 import pTimeout from "p-timeout";
 

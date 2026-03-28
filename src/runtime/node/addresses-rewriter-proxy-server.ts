@@ -1,7 +1,7 @@
 import http from "node:http";
 import https from "node:https";
 import path from "node:path";
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "@pkc/pkc-logger";
 import * as remeda from "remeda";
 import retry from "retry";
 import { Plebbit } from "../../plebbit/plebbit.js";

@@ -1,6 +1,6 @@
 import type { KuboRpcClient, NativeFunctions } from "../../types.js";
 import { default as browserNativeFunctions } from "./native-functions.js";
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "@pkc/pkc-logger";
 import { create as CreateKuboRpcClient } from "kubo-rpc-client";
 import { PlebbitError } from "../../plebbit-error.js";
 

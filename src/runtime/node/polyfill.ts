@@ -3,7 +3,7 @@
 
 // nothing to polyfill in node
 import { setGlobalDispatcher, Agent, WebSocket } from "undici";
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "@pkc/pkc-logger";
 
 // Add Promise.withResolvers polyfill for Node.js < 22
 import "@enhances/with-resolvers";

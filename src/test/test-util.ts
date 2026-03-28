@@ -12,7 +12,7 @@ import Publication from "../publications/publication.js";
 import { v4 as uuidv4 } from "uuid";
 import { createMockPubsubClient } from "./mock-ipfs-client.js";
 import { EventEmitter } from "events";
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "@pkc/pkc-logger";
 import * as remeda from "remeda";
 import { LocalSubplebbit } from "../runtime/node/subplebbit/local-subplebbit.js";
 import { RpcLocalSubplebbit } from "../subplebbit/rpc-local-subplebbit.js";
@@ -1771,7 +1771,7 @@ export async function createStaticSubplebbitRecordForComment(opts?: {
             pubsubTopic: subplebbitAddress
         };
         if (!subplebbitRecord.posts) delete subplebbitRecord.posts;
-        // Always publish a valid record first so comment creation can fetch it successfully
+        // Always publish a valid record first so the IPNS key is established for gateway discovery
         subplebbitRecord.signature = await signSubplebbit({ subplebbit: subplebbitRecord, signer: ipnsObj.signer });
         await ipnsObj.publishToIpns(JSON.stringify(subplebbitRecord));
 
@@ -1786,7 +1786,16 @@ export async function createStaticSubplebbitRecordForComment(opts?: {
         const depth = typeof commentOptions.depth === "number" ? commentOptions.depth : commentOptions.parentCid ? 1 : 0;
 
         if (!commentToPublish.raw.pubsubMessageToPublish) {
-            await commentToPublish._initCommunity();
+            // Directly set _community from in-memory data to avoid fetching from the gateway.
+            // This prevents caching the valid subplebbit record in dedicatedPlebbit's memory,
+            // which would otherwise cause the subsequent update() to get the cached valid record
+            // instead of fetching the (possibly invalid) record from the gateway.
+            (commentToPublish as unknown as Record<string, unknown>)["_community"] = {
+                address: subplebbitAddress,
+                publicKey: subplebbitRecord.signature.publicKey,
+                encryption: subplebbitRecord.encryption,
+                pubsubTopic: subplebbitRecord.pubsubTopic
+            };
             await commentToPublish._signPublicationWithCommunityFields();
         }
 

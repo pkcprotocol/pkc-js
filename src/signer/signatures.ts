@@ -36,7 +36,7 @@ import type {
     PublicationFromDecryptedChallengeRequest,
     PubsubMessage
 } from "../pubsub-messages/types.js";
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "@pkc/pkc-logger";
 import { messages } from "../errors.js";
 import assert from "assert";
 import { BaseClientsManager } from "../clients/base-client-manager.js";

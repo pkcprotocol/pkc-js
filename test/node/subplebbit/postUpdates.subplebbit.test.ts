@@ -11,7 +11,7 @@ import {
     forceLocalSubPagesToAlwaysGenerateMultipleChunks,
     publishCommentWithDepth
 } from "../../../dist/node/test/test-util.js";
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "@pkc/pkc-logger";
 import { describe, it, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 
 import type { Plebbit } from "../../../dist/node/plebbit/plebbit.js";

@@ -1,4 +1,4 @@
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "@pkc/pkc-logger";
 import { Plebbit } from "../../../plebbit/plebbit.js";
 import type {
     Challenge,

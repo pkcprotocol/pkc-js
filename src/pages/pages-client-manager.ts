@@ -1,7 +1,7 @@
 import { BaseClientsManager, OptionsToLoadFromGateway } from "../clients/base-client-manager.js";
 import type { ModQueuePageIpfs, ModQueueSortName, PageIpfs } from "./types.js";
 import * as remeda from "remeda";
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "@pkc/pkc-logger";
 import { BasePages, ModQueuePages, PostsPages, RepliesPages } from "./pages.js";
 import { POSTS_SORT_TYPES, POST_REPLIES_SORT_TYPES, type PageRuntimeFields } from "./util.js";
 import {

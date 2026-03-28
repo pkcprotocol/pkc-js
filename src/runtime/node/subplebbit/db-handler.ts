@@ -10,7 +10,7 @@ import path from "path";
 import assert from "assert";
 import fs from "fs";
 import os from "os";
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "@pkc/pkc-logger";
 import { deleteOldSubplebbitInWindows, getDefaultSubplebbitDbConfig } from "../util.js";
 import env from "../../../version.js";
 import Database, { type Database as BetterSqlite3Database } from "better-sqlite3";

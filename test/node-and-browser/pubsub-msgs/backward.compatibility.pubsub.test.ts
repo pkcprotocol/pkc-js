@@ -15,7 +15,7 @@ import { describe, it, beforeAll, afterAll } from "vitest";
 
 import { _signJson, _signPubsubMsg } from "../../../dist/node/signer/signatures.js";
 import { messages } from "../../../dist/node/errors.js";
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "@pkc/pkc-logger";
 import type { Plebbit } from "../../../dist/node/plebbit/plebbit.js";
 
 // Types for pubsub messages and errors

@@ -1,7 +1,7 @@
 import { RemoteSubplebbit } from "../../subplebbit/remote-subplebbit.js";
 import type { PageIpfs, PageTypeJson } from "../../pages/types.js";
 import type { CommentIpfsWithCidDefined, CommentUpdateType } from "./types.js";
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "@pkc/pkc-logger";
 
 export async function loadAllPagesUnderSubplebbitToFindComment(opts: {
     commentCidToFind: CommentIpfsWithCidDefined["cid"];

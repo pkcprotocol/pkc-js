@@ -5,7 +5,7 @@ import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import { CID } from "multiformats/cid";
 import { bases } from "multiformats/basics";
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "@pkc/pkc-logger";
 
 export const generatePrivateKey = async (): Promise<string> => {
     const privateKeyBuffer = ed.utils.randomPrivateKey();

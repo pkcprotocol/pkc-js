@@ -13,7 +13,7 @@ import type { DecryptedChallengeVerification } from "../../pubsub-messages/types
 import type { AuthorWithOptionalCommentUpdateJson, PublicationTypeName } from "../../types.js";
 
 import type { RepliesPagesTypeIpfs } from "../../pages/types.js";
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "@pkc/pkc-logger";
 import { Plebbit } from "../../plebbit/plebbit.js";
 import { verifyCommentIpfs, verifyCommentPubsubMessage, verifyCommentUpdate } from "../../signer/signatures.js";
 import assert from "assert";
