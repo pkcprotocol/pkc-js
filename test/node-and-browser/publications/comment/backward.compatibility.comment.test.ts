@@ -216,7 +216,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 postWithExtraAuthorProp = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
                 await setExtraPropOnCommentAndSign(
                     postWithExtraAuthorProp,
-                    { author: { ...postWithExtraAuthorProp.raw.pubsubMessageToPublish.author, ...extraProps } },
+                    {
+                        author: {
+                            ...(postWithExtraAuthorProp.raw.pubsubMessageToPublish?.author ??
+                                (postWithExtraAuthorProp.raw as any).unsignedPublicationOptions?.author),
+                            ...extraProps
+                        }
+                    },
                     true
                 );
 

@@ -570,12 +570,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         } else if ("signature" in options) {
             // parsedOptions is CommentPubsubMessage
             const parsedOptions = parseCommentPubsubMessagePublicationWithPlebbitErrorIfItFails(options);
-            // Strip any fields not in signedPropertyNames (e.g. communityAddress) to prevent signature verification failures
-            const cleanedForPubsub = remeda.pick(parsedOptions, <(keyof CommentPubsubMessagePublication)[]>[
-                ...parsedOptions.signature.signedPropertyNames,
-                "signature"
-            ]);
-            commentInstance._initPubsubMessageProps(cleanedForPubsub);
+            commentInstance._initPubsubMessageProps(parsedOptions);
         } else if ("signer" in options) {
             // options is CreateCommentOptions
             const runtimeAuthorNameResolved = typeof options.author?.nameResolved === "boolean" ? options.author.nameResolved : undefined;

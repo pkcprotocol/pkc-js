@@ -4,6 +4,7 @@ import {
     hideClassPrivateProps,
     ipnsNameToIpnsOverPubsubTopic,
     isIpns,
+    isStringDomain,
     pubsubTopicToDhtKey,
     shortifyAddress,
     timestamp
@@ -359,6 +360,8 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
 
         this.address = newAddress;
         this.shortAddress = shortifyAddress(this.address);
+        // Sync wire-format name field: domains go into `name`, non-domains clear it
+        this.name = isStringDomain(newAddress) ? newAddress : undefined;
         this.posts._subplebbit = this;
         this.modQueue._subplebbit = this;
         refreshTrackedSubplebbitAliases(this._plebbit, this);
