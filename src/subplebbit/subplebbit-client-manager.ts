@@ -62,6 +62,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
         nameResolvers: { [resolverKey: string]: NameResolverClient };
     };
     private _subplebbit: RemoteSubplebbit;
+    private _suppressUpdatingStateForNameResolution = 0;
     _ipnsLoadingOperation?: RetryOperation = undefined;
     _updateCidsAlreadyLoaded: LimitedSet<string> = new LimitedSet<string>(30); // we will keep track of the last 50 subplebbit update cids that we loaded
 
@@ -129,6 +130,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
 
     override preResolveNameResolver(opts: PreResolveNameResolverOptions): void {
         super.preResolveNameResolver(opts);
+        if (this._suppressUpdatingStateForNameResolution > 0) return;
         this._subplebbit._setUpdatingStateWithEventEmissionIfNewState("resolving-name");
     }
 
@@ -301,14 +303,27 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
 
     // fetching subplebbit ipns here
 
+    private async _resolveCommunityNameWithoutUpdatingState({
+        communityAddress,
+        abortSignal
+    }: {
+        communityAddress: string;
+        abortSignal?: AbortSignal;
+    }): Promise<string | null> {
+        this._suppressUpdatingStateForNameResolution++;
+        try {
+            return await this.resolveCommunityNameIfNeeded({ communityAddress, abortSignal });
+        } finally {
+            this._suppressUpdatingStateForNameResolution--;
+        }
+    }
+
     private _resolveNameInBackground(name: string) {
         const log = Logger("plebbit-js:subplebbit-client-manager:_resolveNameInBackground");
-        // Use plebbit-level client manager to avoid triggering subplebbit updatingState changes
-        this._plebbit._clientsManager
-            .resolveCommunityNameIfNeeded({
-                communityAddress: name,
-                abortSignal: this._subplebbit._getStopAbortSignal()
-            })
+        this._resolveCommunityNameWithoutUpdatingState({
+            communityAddress: name,
+            abortSignal: this._subplebbit._getStopAbortSignal()
+        })
             .then((resolved) => {
                 this._subplebbit.nameResolved = resolved === this._subplebbit.publicKey;
             })
