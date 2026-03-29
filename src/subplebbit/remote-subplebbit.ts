@@ -58,7 +58,8 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
     suggested?: SubplebbitIpfsType["suggested"];
     flairs?: SubplebbitIpfsType["flairs"];
     name?: SubplebbitIpfsType["name"];
-    publicKey?: string; // derived from signature.publicKey
+    publicKey?: string; // derived from signature.publicKey, or explicit publicKey passed via createSubplebbit
+    nameResolved?: boolean; // whether the domain name resolves to the correct publicKey
     address!: string;
     shortAddress!: string;
     statsCid?: SubplebbitIpfsType["statsCid"];
@@ -330,14 +331,16 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
         this.signature = newProps.signature;
 
         // Compute runtime fields: publicKey, name, address
+        const explicitPublicKey = "publicKey" in newProps ? (newProps.publicKey as string) : undefined;
         if (newProps.signature?.publicKey) {
             this.publicKey = getPlebbitAddressFromPublicKeySync(newProps.signature.publicKey);
+        } else if (explicitPublicKey) {
+            this.publicKey = explicitPublicKey;
         }
         this.name = newProps.name;
 
         // Compute address: name || publicKey (from signature) || explicit publicKey || explicit address
         const explicitAddress = "address" in newProps ? (newProps.address as string) : undefined;
-        const explicitPublicKey = "publicKey" in newProps ? (newProps.publicKey as string) : undefined;
         const derivedAddress = this.name || this.publicKey || explicitPublicKey || explicitAddress;
         if (derivedAddress) this.setAddress(derivedAddress);
 
@@ -478,7 +481,8 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
             err.code === "ERR_INVALID_SUBPLEBBIT_IPFS_SCHEMA" ||
             err.code === "ERR_THE_SUBPLEBBIT_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED" ||
             err.code === "ERR_OVER_DOWNLOAD_LIMIT" ||
-            err.code === "ERR_INVALID_JSON"
+            err.code === "ERR_INVALID_JSON" ||
+            err.code === "ERR_NO_RESOLVER_FOR_NAME"
         )
             return false;
 
@@ -520,6 +524,7 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
             update: () => {
                 this.initSubplebbitIpfsPropsNoMerge(subInstance.raw.subplebbitIpfs!);
                 this.updateCid = subInstance.updateCid;
+                if (typeof subInstance.nameResolved === "boolean") this.nameResolved = subInstance.nameResolved;
                 log(
                     `Remote Subplebbit instance`,
                     this.address,
@@ -547,7 +552,12 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
         const log = Logger("plebbit-js:remote-subplebbit:update:updateOnce");
 
         if (!findUpdatingSubplebbit(this._plebbit, { address: this.address })) {
-            const updatingSub = await this._plebbit.createSubplebbit({ address: this.address });
+            // Pass publicKey alongside name/address so the updating sub can use publicKey fallback
+            const createOpts =
+                this.publicKey && isStringDomain(this.address)
+                    ? { name: this.address, publicKey: this.publicKey }
+                    : { address: this.address };
+            const updatingSub = await this._plebbit.createSubplebbit(createOpts);
             trackUpdatingSubplebbit(this._plebbit, updatingSub);
             log("Creating a new entry for this._plebbit._updatingSubplebbits", this.address);
         }

@@ -20,6 +20,7 @@ import {
     hideClassPrivateProps,
     ipnsNameToIpnsOverPubsubTopic,
     isAbortError,
+    isStringDomain,
     pubsubTopicToDhtKey,
     throwIfAbortSignalAborted,
     timestamp
@@ -300,13 +301,39 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
 
     // fetching subplebbit ipns here
 
+    private _resolveNameInBackground(name: string) {
+        const log = Logger("plebbit-js:subplebbit-client-manager:_resolveNameInBackground");
+        // Use plebbit-level client manager to avoid triggering subplebbit updatingState changes
+        this._plebbit._clientsManager
+            .resolveCommunityNameIfNeeded({
+                communityAddress: name,
+                abortSignal: this._subplebbit._getStopAbortSignal()
+            })
+            .then((resolved) => {
+                this._subplebbit.nameResolved = resolved === this._subplebbit.publicKey;
+            })
+            .catch((e) => {
+                log.trace("Background name resolution failed for", name, e);
+                this._subplebbit.nameResolved = false;
+            });
+    }
+
     async fetchNewUpdateForSubplebbit(subAddress: string): Promise<ResultOfFetchingSubplebbit> {
         return this._withInflightSubplebbitFetch(subAddress, async () => {
-            const ipnsName = await this.resolveCommunityNameIfNeeded({
-                communityAddress: subAddress,
-                abortSignal: this._subplebbit._getStopAbortSignal()
-            });
-            // if ipnsAddress is undefined then it will be handled in postResolveTextRecordSuccess
+            let ipnsName: string | null;
+            const isDomain = isStringDomain(subAddress);
+
+            if (isDomain && this._subplebbit.publicKey) {
+                // Both name and publicKey available: use publicKey immediately, resolve name in background
+                ipnsName = this._subplebbit.publicKey;
+                this._resolveNameInBackground(subAddress);
+            } else {
+                // Name only or publicKey only: use existing resolution flow
+                ipnsName = await this.resolveCommunityNameIfNeeded({
+                    communityAddress: subAddress,
+                    abortSignal: this._subplebbit._getStopAbortSignal()
+                });
+            }
 
             if (!ipnsName) throw Error("Failed to resolve subplebbit address to an IPNS name");
 
@@ -681,7 +708,13 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
     ): Promise<PlebbitError | undefined> {
         const subInstanceAddress = this._getSubplebbitAddressFromInstance();
         const recordAddress = this._deriveAddressFromWireRecord(subJson);
-        if (!this._areEquivalentSubplebbitAddresses(recordAddress, subInstanceAddress)) {
+        const addressMatchesInstance = this._areEquivalentSubplebbitAddresses(recordAddress, subInstanceAddress);
+        // When address is a domain but we loaded via publicKey fallback, the record's derived address
+        // might be the publicKey (if the record has no name field) — also accept that as a match
+        const addressMatchesPublicKey = this._subplebbit.publicKey
+            ? this._areEquivalentSubplebbitAddresses(recordAddress, this._subplebbit.publicKey)
+            : false;
+        if (!addressMatchesInstance && !addressMatchesPublicKey) {
             // Did the gateway supply us with a different subplebbit's ipns
 
             const error = new PlebbitError("ERR_THE_SUBPLEBBIT_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED", {

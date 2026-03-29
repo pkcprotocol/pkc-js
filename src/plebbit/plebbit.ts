@@ -537,7 +537,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         options:
             | CommentIpfsType
             | CommentPubsubMessagePublication
-            | { cid: CommentUpdateType["cid"]; communityAddress?: string; subplebbitAddress?: string }
+            | { cid: CommentUpdateType["cid"]; communityAddress?: string; subplebbitAddress?: string; communityPublicKey?: string }
             | MinimumCommentFieldsToFetchPages
             | CreateCommentOptions
             | CommentJson
@@ -557,6 +557,9 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
             commentInstance.setCommunityAddress(parseSubplebbitAddressWithPlebbitErrorIfItFails(options.communityAddress));
         else if ("subplebbitAddress" in options && options.subplebbitAddress)
             commentInstance.setCommunityAddress(parseSubplebbitAddressWithPlebbitErrorIfItFails(options.subplebbitAddress as string));
+
+        if ("communityPublicKey" in options && typeof options.communityPublicKey === "string")
+            commentInstance.communityPublicKey = options.communityPublicKey;
 
         if ("depth" in options) {
             // Options is CommentIpfs | CommentIpfsWithCidDefined | MinimumCommentFieldsToFetchPages

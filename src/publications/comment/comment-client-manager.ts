@@ -443,7 +443,11 @@ export class CommentClientsManager extends PublicationClientsManager {
         // - download all comments under a sub and look for our specific comment
         if (!this._comment.communityAddress) throw Error("Comment communityAddress should be defined");
         if (!this._comment.cid) throw Error("Comment cid should be defined");
-        const sub = await this._plebbit.createSubplebbit({ address: this._comment.communityAddress });
+        const sub = await this._plebbit.createSubplebbit({
+            name: this._comment.communityName,
+            publicKey: this._comment.communityPublicKey,
+            address: this._comment.communityAddress
+        });
 
         const abortController = new AbortController();
         const abortIfNeeded = async () => {

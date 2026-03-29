@@ -165,7 +165,13 @@ export class PublicationClientsManager extends PlebbitClientsManager {
         const directSubInstance =
             findUpdatingSubplebbit(this._plebbit, { address: this._publication.communityAddress }) ||
             findStartedSubplebbit(this._plebbit, { address: this._publication.communityAddress });
-        const sub = directSubInstance || (await this._plebbit.createSubplebbit({ address: this._publication.communityAddress }));
+        const sub =
+            directSubInstance ||
+            (await this._plebbit.createSubplebbit({
+                name: this._publication.communityName,
+                publicKey: this._publication.communityPublicKey,
+                address: this._publication.communityAddress
+            }));
 
         this._communityForUpdating = {
             subplebbit: sub,
