@@ -37,10 +37,9 @@ describe.sequential(`Client side verification`, async () => {
             plebbit: plebbit,
             postProps: { signer: signers[0] }
         });
-        // With deferred signing, pubsubMessageToPublish is undefined until publish();
-        // force signing so we can corrupt the signed message
         const community = await plebbit.getSubplebbit({ address: subplebbitAddress });
-        await ensurePublicationIsSigned(mockComment, community as Parameters<typeof ensurePublicationIsSigned>[1]);
+        if (!mockComment.raw.pubsubMessageToPublish)
+            await ensurePublicationIsSigned(mockComment, community as Parameters<typeof ensurePublicationIsSigned>[1]);
         const pubsubPublication = JSON.parse(JSON.stringify(mockComment.raw.pubsubMessageToPublish!));
         pubsubPublication.timestamp += 1; // corrupts signature
         mockComment.raw.pubsubMessageToPublish = pubsubPublication;

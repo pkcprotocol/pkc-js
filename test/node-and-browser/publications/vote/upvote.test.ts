@@ -169,7 +169,6 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const challengerequest = await challengeRequestPromise;
             expect(challengerequest.vote).to.deep.equal(voteFromStringifiedVote.raw.pubsubMessageToPublish!);
 
-            // With deferred signing, verify that the published instance has the correct wire format
             expect(voteFromStringifiedVote.raw.pubsubMessageToPublish).to.exist;
         });
 

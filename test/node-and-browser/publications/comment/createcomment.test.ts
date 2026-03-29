@@ -87,14 +87,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(comment.author.address).to.equal(domain);
             expect(comment.author.name).to.equal(domain);
             expect(comment.author.displayName).to.equal(displayName);
-            // With deferred signing, pubsubMessageToPublish is undefined until publish();
-            // check the unsigned options instead which hold the wire-format author
-            const unsignedAuthor = (comment.raw as Publication["raw"]).unsignedPublicationOptions!.author;
-            expect(unsignedAuthor).to.deep.equal({
+            const wireAuthor =
+                comment.raw.pubsubMessageToPublish?.author ?? (comment.raw as Publication["raw"]).unsignedPublicationOptions!.author;
+            expect(wireAuthor).to.deep.equal({
                 name: domain,
                 displayName
             });
-            expect(unsignedAuthor).to.not.have.property("address");
+            expect(wireAuthor).to.not.have.property("address");
         });
 
         it(`Can recreate a stringifed local Comment instance after publishing with plebbit.createComment`, async () => {
@@ -152,6 +151,14 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
                 for (const pageComment of page.comments) {
                     const originalJson = jsonifyCommentAndRemoveInstanceProps(pageComment as unknown as Comment);
+                    const originalJsonFromRaw = JSON.parse(JSON.stringify(originalJson)) as Record<string, unknown>;
+                    const originalAuthorFromRaw = originalJsonFromRaw.author;
+                    if (
+                        typeof originalAuthorFromRaw === "object" &&
+                        originalAuthorFromRaw !== null &&
+                        "nameResolved" in originalAuthorFromRaw
+                    )
+                        delete (originalAuthorFromRaw as { nameResolved?: boolean }).nameResolved;
 
                     const commentClone = await plebbit.createComment(pageComment);
                     const commentCloneFromStringified = await plebbit.createComment(JSON.parse(JSON.stringify(pageComment)));
@@ -179,7 +186,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     expect(
                         jsonifyCommentAndRemoveInstanceProps(commentCloneFromRaw),
                         `{raw: pageComment.raw} mutated props for page ${pageName}`
-                    ).to.deep.equal(originalJson);
+                    ).to.deep.equal(originalJsonFromRaw);
 
                     testedComments += 1;
                 }

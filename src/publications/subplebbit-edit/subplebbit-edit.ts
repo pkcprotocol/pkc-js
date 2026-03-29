@@ -9,7 +9,7 @@ import type {
     SubplebbitEditPubsubMessagePublication
 } from "./types.js";
 import type { SignerType } from "../../signer/types.js";
-import { verifySubplebbitEdit } from "../../signer/signatures.js";
+import { signSubplebbitEdit, verifySubplebbitEdit } from "../../signer/signatures.js";
 import type { CreatePublicationOptions } from "../../types.js";
 
 // subplebbitEdit.signer is inherited from Publication
@@ -51,6 +51,15 @@ class SubplebbitEdit extends Publication implements SubplebbitEditPubsubMessageP
         this._initRemoteProps(props.subplebbitEdit);
         this.challengeRequest = props.challengeRequest;
         this.signer = props.signer;
+    }
+
+    protected override async _signPublicationOptionsToPublish(
+        cleanedPublication: unknown
+    ): Promise<SubplebbitEditPubsubMessagePublication["signature"]> {
+        return signSubplebbitEdit({
+            subplebbitEdit: cleanedPublication as SubplebbitEditPublicationOptionsToSign,
+            plebbit: this._plebbit
+        });
     }
 
     _initRemoteProps(props: SubplebbitEditPubsubMessagePublication): void {

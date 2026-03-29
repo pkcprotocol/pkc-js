@@ -4,7 +4,9 @@ import {
     DUMMY_CID,
     buildNewFormatCommentIpfs,
     buildOldFormatCommentIpfs,
-    buildNewFormatCommentPubsubMessage
+    buildNewFormatCommentPubsubMessage,
+    expectDeferredUnsignedLocalPublication,
+    expectEagerSignedLocalPublication
 } from "../community-fields-test-util.js";
 import { mockRemotePlebbit } from "../../../../dist/node/test/test-util.js";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
@@ -51,7 +53,7 @@ describe("Comment - community fields", () => {
                 communityAddress: "myforum.eth",
                 communityPublicKey: signers[0].address,
                 communityName: "myforum.eth"
-            } as any);
+            });
             expect(comment.communityAddress).to.equal("myforum.eth");
             expect(comment.communityPublicKey).to.equal(signers[0].address);
             expect(comment.communityName).to.equal("myforum.eth");
@@ -72,14 +74,14 @@ describe("Comment - community fields", () => {
             expect(comment.communityAddress).to.equal("test.eth");
             expect(comment.communityPublicKey).to.be.undefined;
             expect(comment.communityName).to.equal("test.eth");
+            expectDeferredUnsignedLocalPublication(comment);
         });
 
-        it("communityPublicKey + communityName provided: both set", async () => {
+        it("domain communityAddress + communityPublicKey eagerly signs and derives communityName", async () => {
             const signer = await plebbit.createSigner();
             const comment = await plebbit.createComment({
                 communityAddress: "myforum.eth",
                 communityPublicKey: signers[0].address,
-                communityName: "myforum.eth",
                 content: "test",
                 title: "test",
                 signer
@@ -87,6 +89,30 @@ describe("Comment - community fields", () => {
             expect(comment.communityAddress).to.equal("myforum.eth");
             expect(comment.communityPublicKey).to.equal(signers[0].address);
             expect(comment.communityName).to.equal("myforum.eth");
+            expectEagerSignedLocalPublication({
+                publication: comment,
+                type: "comment",
+                communityPublicKey: signers[0].address,
+                communityName: "myforum.eth"
+            });
+        });
+
+        it("non-domain communityAddress eagerly signs with derived communityPublicKey", async () => {
+            const signer = await plebbit.createSigner();
+            const comment = await plebbit.createComment({
+                communityAddress: signers[0].address,
+                content: "test",
+                title: "test",
+                signer
+            });
+            expect(comment.communityAddress).to.equal(signers[0].address);
+            expect(comment.communityPublicKey).to.equal(signers[0].address);
+            expect(comment.communityName).to.be.undefined;
+            expectEagerSignedLocalPublication({
+                publication: comment,
+                type: "comment",
+                communityPublicKey: signers[0].address
+            });
         });
     });
 

@@ -8,17 +8,12 @@ import { verifyCommentEdit, signCommentEdit } from "../../../dist/node/signer/si
 import validCommentEditFixture from "../../fixtures/signatures/commentEdit/valid_comment_edit.json" with { type: "json" };
 import type { Plebbit as PlebbitType } from "../../../dist/node/plebbit/plebbit.js";
 import type { RemoteSubplebbit } from "../../../dist/node/subplebbit/remote-subplebbit.js";
-import type {
-    CommentEditOptionsToSign,
-    CommentEditSignature,
-    CommentEditPubsubMessagePublication
-} from "../../../dist/node/publications/comment-edit/types.js";
+import type { CommentEditOptionsToSign, CommentEditPubsubMessagePublication } from "../../../dist/node/publications/comment-edit/types.js";
 
 describe("Sign commentedit", async () => {
     let plebbit: PlebbitType;
     let subplebbit: RemoteSubplebbit;
     let editProps: CommentEditOptionsToSign;
-    let editSignature: CommentEditSignature;
     beforeAll(async () => {
         plebbit = await mockRemotePlebbit();
         subplebbit = await plebbit.getSubplebbit({ address: signers[0].address });
@@ -32,8 +27,6 @@ describe("Sign commentedit", async () => {
             timestamp: timestamp(),
             protocolVersion: "1.0.0"
         };
-
-        editSignature = await signCommentEdit({ edit: editProps, plebbit });
     });
 
     afterAll(async () => {
@@ -42,15 +35,13 @@ describe("Sign commentedit", async () => {
 
     it(`plebbit.createCommentEdit creates a valid CommentEdit`, async () => {
         const commentEdit = await plebbit.createCommentEdit(editProps);
-        // With deferred signing, signature is not set until publish()
-        expect(commentEdit.signature).to.be.undefined;
+        expect(commentEdit.signature).to.be.an("object");
+        expect(commentEdit.raw.pubsubMessageToPublish).to.be.an("object");
+        expect(commentEdit.raw.pubsubMessageToPublish!.communityPublicKey).to.equal(subplebbit.address);
+        expect(commentEdit.toJSONPubsubRequestToEncrypt().commentEdit).to.deep.equal(commentEdit.raw.pubsubMessageToPublish);
 
-        const editWithSignature: CommentEditPubsubMessagePublication = {
-            ...remeda.omit(editProps, ["signer", "communityAddress"]),
-            signature: editSignature
-        };
         const verification = await verifyCommentEdit({
-            edit: editWithSignature,
+            edit: commentEdit.raw.pubsubMessageToPublish as CommentEditPubsubMessagePublication,
             resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager
         });

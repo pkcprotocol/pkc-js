@@ -1,4 +1,10 @@
-import { signers, DUMMY_COMMENT_CID, buildSignedPubsubMessage } from "../community-fields-test-util.js";
+import {
+    signers,
+    DUMMY_COMMENT_CID,
+    buildSignedPubsubMessage,
+    expectDeferredUnsignedLocalPublication,
+    expectEagerSignedLocalPublication
+} from "../community-fields-test-util.js";
 import { mockRemotePlebbit } from "../../../../dist/node/test/test-util.js";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
@@ -30,14 +36,14 @@ describe("CommentEdit - community fields", () => {
         expect(edit.communityAddress).to.equal("test.eth");
         expect(edit.communityPublicKey).to.be.undefined;
         expect(edit.communityName).to.equal("test.eth");
+        expectDeferredUnsignedLocalPublication(edit);
     });
 
-    it("unsigned creation with communityPublicKey + communityName: both set", async () => {
+    it("domain communityAddress + communityPublicKey eagerly signs and derives communityName", async () => {
         const signer = await plebbit.createSigner();
         const edit = await plebbit.createCommentEdit({
             communityAddress: "myforum.eth",
             communityPublicKey: signers[0].address,
-            communityName: "myforum.eth",
             commentCid: DUMMY_COMMENT_CID,
             content: "edited",
             signer
@@ -45,6 +51,30 @@ describe("CommentEdit - community fields", () => {
         expect(edit.communityAddress).to.equal("myforum.eth");
         expect(edit.communityPublicKey).to.equal(signers[0].address);
         expect(edit.communityName).to.equal("myforum.eth");
+        expectEagerSignedLocalPublication({
+            publication: edit,
+            type: "commentEdit",
+            communityPublicKey: signers[0].address,
+            communityName: "myforum.eth"
+        });
+    });
+
+    it("non-domain communityAddress eagerly signs with derived communityPublicKey", async () => {
+        const signer = await plebbit.createSigner();
+        const edit = await plebbit.createCommentEdit({
+            communityAddress: signers[0].address,
+            commentCid: DUMMY_COMMENT_CID,
+            content: "edited",
+            signer
+        });
+        expect(edit.communityAddress).to.equal(signers[0].address);
+        expect(edit.communityPublicKey).to.equal(signers[0].address);
+        expect(edit.communityName).to.be.undefined;
+        expectEagerSignedLocalPublication({
+            publication: edit,
+            type: "commentEdit",
+            communityPublicKey: signers[0].address
+        });
     });
 
     it("signed PubsubMessage with communityPublicKey + communityName sets both", async () => {

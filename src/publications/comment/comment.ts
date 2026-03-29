@@ -15,7 +15,7 @@ import type { AuthorWithOptionalCommentUpdateJson, PublicationTypeName } from ".
 import type { RepliesPagesTypeIpfs } from "../../pages/types.js";
 import Logger from "@pkc/pkc-logger";
 import { Plebbit } from "../../plebbit/plebbit.js";
-import { verifyCommentIpfs, verifyCommentPubsubMessage, verifyCommentUpdate } from "../../signer/signatures.js";
+import { signComment, verifyCommentIpfs, verifyCommentPubsubMessage, verifyCommentUpdate } from "../../signer/signatures.js";
 import assert from "assert";
 import { FailedToFetchCommentIpfsFromGatewaysError, PlebbitError } from "../../plebbit-error.js";
 import * as remeda from "remeda";
@@ -221,6 +221,12 @@ export class Comment
         this._initPubsubMessageProps(props.comment);
         this.challengeRequest = props.challengeRequest;
         this.signer = props.signer;
+    }
+
+    protected override async _signPublicationOptionsToPublish(
+        cleanedPublication: unknown
+    ): Promise<CommentPubsubMessagePublication["signature"]> {
+        return signComment({ comment: cleanedPublication as CommentOptionsToSign, plebbit: this._plebbit });
     }
 
     _initPubsubMessageProps(props: CommentPubsubMessagePublication) {

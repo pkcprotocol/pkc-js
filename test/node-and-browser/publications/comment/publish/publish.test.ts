@@ -226,7 +226,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const comment1 = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             const commentToPublish = await plebbit.createComment(comment1);
             await publishWithExpectedResult({ publication: commentToPublish, expectedChallengeSuccess: true });
-            // Trigger deferred signing on comment1 so pubsubMessageToPublish is available for comparison
+            // Ensure comment1 has a signed pubsub message for comparison.
             if (!comment1.raw.pubsubMessageToPublish) {
                 await comment1._initCommunity();
                 await comment1._signPublicationWithCommunityFields();
@@ -238,7 +238,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const comment1 = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             const commentToPublish = await plebbit.createComment(JSON.parse(JSON.stringify(comment1)));
             await publishWithExpectedResult({ publication: commentToPublish, expectedChallengeSuccess: true });
-            // Trigger deferred signing on comment1 so pubsubMessageToPublish is available for comparison
+            // Ensure comment1 has a signed pubsub message for comparison.
             if (!comment1.raw.pubsubMessageToPublish) {
                 await comment1._initCommunity();
                 await comment1._signPublicationWithCommunityFields();
@@ -310,7 +310,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`Can publish a post whose signature is defined prior to plebbit.createComment()`, async () => {
             const signer = await plebbit.createSigner();
-            const props: {
+            const communityPublicKey = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
+            const propsToSign: {
                 communityAddress: string;
                 communityPublicKey: string;
                 timestamp: number;
@@ -318,20 +319,26 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 protocolVersion: string;
                 content: string;
                 title: string;
-                signature?: CommentPubsubMessagPublicationSignature;
             } = {
-                communityAddress: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR",
-                communityPublicKey: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR",
+                communityAddress: communityPublicKey,
+                communityPublicKey,
                 timestamp: Math.round(Date.now() / 1000),
                 author: { displayName: "Mock Author - 1690130836.1711266" + Math.random() },
                 protocolVersion: "1.0.0",
                 content: "Mock content - 1690130836.1711266" + Math.random(),
                 title: "Mock Post - 1690130836.1711266" + Math.random()
             };
-
-            props.signature = await signComment({ comment: { ...props, signer }, plebbit });
-            const post = await plebbit.createComment(props as Parameters<typeof plebbit.createComment>[0]);
-            expect(post.signature).to.deep.equal(props.signature);
+            const signature = await signComment({ comment: { ...propsToSign, signer }, plebbit });
+            const post = await plebbit.createComment({
+                communityPublicKey,
+                timestamp: propsToSign.timestamp,
+                author: propsToSign.author,
+                protocolVersion: propsToSign.protocolVersion,
+                content: propsToSign.content,
+                title: propsToSign.title,
+                signature
+            });
+            expect(post.signature).to.deep.equal(signature);
             await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
             await post.stop();
         });

@@ -1,7 +1,7 @@
 import Publication from "../publication.js";
 import type { PublicationTypeName } from "../../types.js";
 import { Plebbit } from "../../plebbit/plebbit.js";
-import { verifyVote } from "../../signer/index.js";
+import { signVote, verifyVote } from "../../signer/signatures.js";
 import { hideClassPrivateProps } from "../../util.js";
 import { PlebbitError } from "../../plebbit-error.js";
 import type { CreateVoteOptions, VoteOptionsToSign, VotePubsubMessagePublication } from "./types.js";
@@ -50,6 +50,12 @@ class Vote extends Publication implements VotePubsubMessagePublication {
         this._initRemoteProps(props.vote);
         this.challengeRequest = props.challengeRequest;
         this.signer = props.signer;
+    }
+
+    protected override async _signPublicationOptionsToPublish(
+        cleanedPublication: unknown
+    ): Promise<VotePubsubMessagePublication["signature"]> {
+        return signVote({ vote: cleanedPublication as VoteOptionsToSign, plebbit: this._plebbit });
     }
 
     _initRemoteProps(props: VotePubsubMessagePublication): void {

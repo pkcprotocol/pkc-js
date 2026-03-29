@@ -46,8 +46,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             });
             expect(comment.challengeRequest).to.deep.equal(challengeRequestFields);
 
-            // With deferred signing, force signing before calling toJSONPubsubRequestToEncrypt()
-            await ensurePublicationIsSigned(comment, community);
+            if (!comment.raw.pubsubMessageToPublish) await ensurePublicationIsSigned(comment, community);
             expect(comment.toJSONPubsubRequestToEncrypt().challengeAnswers).to.deep.equal(challengeRequestFields.challengeAnswers);
             const challengeRequestPromise = new Promise<ChallengeRequestEvent>((resolve) =>
                 comment.once("challengerequest", resolve as (request: unknown) => void)
@@ -65,8 +64,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 postProps: { challengeRequest: challengeRequestFields }
             });
 
-            // With deferred signing, force signing before calling toJSONPubsubRequestToEncrypt()
-            await ensurePublicationIsSigned(comment, community);
+            if (!comment.raw.pubsubMessageToPublish) await ensurePublicationIsSigned(comment, community);
             expect(comment.toJSONPubsubRequestToEncrypt().challengeCommentCids).to.deep.equal(challengeRequestFields.challengeCommentCids);
             const challengeRequestPromise = new Promise<ChallengeRequestEvent>((resolve) =>
                 comment.once("challengerequest", resolve as (request: unknown) => void)
@@ -90,8 +88,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const recreatedComment = await plebbit.createComment(JSON.parse(JSON.stringify(comment)));
             expect(recreatedComment.challengeRequest).to.deep.equal(comment.challengeRequest);
 
-            // With deferred signing, force signing before calling toJSONPubsubRequestToEncrypt()
-            await ensurePublicationIsSigned(recreatedComment, community);
+            if (!recreatedComment.raw.pubsubMessageToPublish) await ensurePublicationIsSigned(recreatedComment, community);
             expect(recreatedComment.toJSONPubsubRequestToEncrypt().challengeCommentCids).to.deep.equal(
                 challengeRequestFields.challengeCommentCids
             );

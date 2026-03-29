@@ -4,7 +4,7 @@ import { hideClassPrivateProps, isIpfsCid } from "../../util.js";
 import { PlebbitError } from "../../plebbit-error.js";
 import type { CommentModerationOptionsToSign, CommentModerationPubsubMessagePublication, CreateCommentModerationOptions } from "./types.js";
 import type { PublicationTypeName } from "../../types.js";
-import { verifyCommentModeration } from "../../signer/signatures.js";
+import { signCommentModeration, verifyCommentModeration } from "../../signer/signatures.js";
 import type { SignerType } from "../../signer/types.js";
 import type { CreatePublicationOptions } from "../../types.js";
 
@@ -48,6 +48,12 @@ export class CommentModeration extends Publication implements CommentModerationP
         this._initPubsubPublication(props.commentModeration);
         this.challengeRequest = props.challengeRequest;
         this.signer = props.signer;
+    }
+
+    protected override async _signPublicationOptionsToPublish(
+        cleanedPublication: unknown
+    ): Promise<CommentModerationPubsubMessagePublication["signature"]> {
+        return signCommentModeration({ commentMod: cleanedPublication as CommentModerationOptionsToSign, plebbit: this._plebbit });
     }
 
     _initPubsubPublication(pubsubMsgPub: CommentModerationPubsubMessagePublication) {

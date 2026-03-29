@@ -79,6 +79,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 expect(curMod.challengeRequest).to.deep.equal(props.challengeRequest);
             });
 
+            if (localMod.raw.pubsubMessageToPublish && recreatedLocalMod.raw.pubsubMessageToPublish) {
+                expect(localMod.toJSONPubsubRequestToEncrypt().commentModeration).to.deep.equal(localMod.raw.pubsubMessageToPublish);
+                expect(recreatedLocalMod.toJSONPubsubRequestToEncrypt().commentModeration).to.deep.equal(
+                    recreatedLocalMod.raw.pubsubMessageToPublish
+                );
+            }
+
             const localModJson = JSON.parse(JSON.stringify(localMod));
             const recreatedLocalModJson = JSON.parse(JSON.stringify(recreatedLocalMod));
             expect(localMod.timestamp).to.equal(recreatedLocalMod.timestamp);
@@ -106,8 +113,6 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const challengerequest = await challengeRequestPromise;
 
             expect(challengerequest.commentModeration).to.deep.equal(modFromStringifiedMod.raw.pubsubMessageToPublish!);
-
-            // With deferred signing, verify that the published instance has the correct wire format
             expect(modFromStringifiedMod.raw.pubsubMessageToPublish).to.exist;
         });
     });

@@ -1,4 +1,9 @@
-import { signers, buildSignedPubsubMessage } from "../community-fields-test-util.js";
+import {
+    signers,
+    buildSignedPubsubMessage,
+    expectDeferredUnsignedLocalPublication,
+    expectEagerSignedLocalPublication
+} from "../community-fields-test-util.js";
 import { mockRemotePlebbit } from "../../../../dist/node/test/test-util.js";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
@@ -29,20 +34,43 @@ describe("SubplebbitEdit - community fields", () => {
         expect(subEdit.communityAddress).to.equal("test.eth");
         expect(subEdit.communityPublicKey).to.be.undefined;
         expect(subEdit.communityName).to.equal("test.eth");
+        expectDeferredUnsignedLocalPublication(subEdit);
     });
 
-    it("unsigned creation with communityPublicKey + communityName: both set", async () => {
+    it("domain communityAddress + communityPublicKey eagerly signs and derives communityName", async () => {
         const signer = await plebbit.createSigner();
         const subEdit = await plebbit.createSubplebbitEdit({
             communityAddress: "myforum.eth",
             communityPublicKey: signers[0].address,
-            communityName: "myforum.eth",
             subplebbitEdit: { description: "test" },
             signer
         });
         expect(subEdit.communityAddress).to.equal("myforum.eth");
         expect(subEdit.communityPublicKey).to.equal(signers[0].address);
         expect(subEdit.communityName).to.equal("myforum.eth");
+        expectEagerSignedLocalPublication({
+            publication: subEdit,
+            type: "subplebbitEdit",
+            communityPublicKey: signers[0].address,
+            communityName: "myforum.eth"
+        });
+    });
+
+    it("non-domain communityAddress eagerly signs with derived communityPublicKey", async () => {
+        const signer = await plebbit.createSigner();
+        const subEdit = await plebbit.createSubplebbitEdit({
+            communityAddress: signers[0].address,
+            subplebbitEdit: { description: "test" },
+            signer
+        });
+        expect(subEdit.communityAddress).to.equal(signers[0].address);
+        expect(subEdit.communityPublicKey).to.equal(signers[0].address);
+        expect(subEdit.communityName).to.be.undefined;
+        expectEagerSignedLocalPublication({
+            publication: subEdit,
+            type: "subplebbitEdit",
+            communityPublicKey: signers[0].address
+        });
     });
 
     it("signed PubsubMessage with communityPublicKey + communityName sets both", async () => {

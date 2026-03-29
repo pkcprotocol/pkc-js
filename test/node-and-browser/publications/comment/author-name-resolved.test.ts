@@ -140,11 +140,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             expect(comment.author.nameResolved).to.equal(true);
             expect(comment.author.address).to.equal("plebbit.bso");
-            // With deferred signing, pubsubMessageToPublish is undefined until publish();
-            // check the unsigned options instead for wire-format author assertions
-            const unsignedOpts = (comment.raw as Publication["raw"]).unsignedPublicationOptions;
-            expect(unsignedOpts).to.be.an("object");
-            expect(unsignedOpts!.author).to.not.have.property("nameResolved");
+            const wireAuthor =
+                comment.raw.pubsubMessageToPublish?.author ?? (comment.raw as Publication["raw"]).unsignedPublicationOptions?.author;
+            expect(wireAuthor).to.be.an("object");
+            expect(wireAuthor!).to.not.have.property("nameResolved");
         });
 
         it("nameResolved is false when the loaded comment's author name does not match its signature public key", async () => {
@@ -269,16 +268,16 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(rawAuthor).to.not.have.property("shortAddress");
         });
 
-        it("publish() rejects author.name without a dot that is not a valid B58 address", async () => {
-            const comment = await plebbit.createComment({
-                author: { displayName: "Test", name: "notadomain" },
-                signer: signers[6],
-                content: `No dot test - ${Date.now()}`,
-                title: "Test",
-                communityAddress: subplebbitAddress
-            });
-            // With deferred signing, validation happens at publish() time
-            await expect(comment.publish()).rejects.toThrow();
+        it("createComment rejects author.name without a dot that is not a valid B58 address when the community key is known", async () => {
+            await expect(
+                plebbit.createComment({
+                    author: { displayName: "Test", name: "notadomain" },
+                    signer: signers[6],
+                    content: `No dot test - ${Date.now()}`,
+                    title: "Test",
+                    communityAddress: subplebbitAddress
+                })
+            ).rejects.toThrow();
         });
 
         // === Tests that require non-RPC (mock resolvers or local verification) ===

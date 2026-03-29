@@ -44,6 +44,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(subplebbitEdit.subplebbitEdit.description).to.equal(description);
             expect(subplebbitEdit.communityAddress).to.equal(subplebbitAddress);
             expect(subplebbitEdit.author.address).to.equal(signer.address);
+            expect(subplebbitEdit.raw.pubsubMessageToPublish).to.exist;
+            expect(subplebbitEdit.toJSONPubsubRequestToEncrypt().subplebbitEdit).to.deep.equal(subplebbitEdit.raw.pubsubMessageToPublish);
         });
 
         it(`(subplebbitEdit: SubplebbitEdit) === plebbit.createSubplebbitEdit(JSON.parse(JSON.stringify(subplebbitEdit)))`, async () => {
@@ -87,8 +89,6 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({ publication: subplebbitEditFromStringifiedSubplebbitEdit, expectedChallengeSuccess: true });
             const challengerequest = await challengeRequestPromise;
             expect(challengerequest.subplebbitEdit).to.deep.equal(subplebbitEditFromStringifiedSubplebbitEdit.raw.pubsubMessageToPublish!);
-
-            // With deferred signing, verify that the published instance has the correct wire format
             expect(subplebbitEditFromStringifiedSubplebbitEdit.raw.pubsubMessageToPublish).to.exist;
         });
     });

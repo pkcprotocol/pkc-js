@@ -1,4 +1,10 @@
-import { signers, DUMMY_COMMENT_CID, buildSignedPubsubMessage } from "../community-fields-test-util.js";
+import {
+    signers,
+    DUMMY_COMMENT_CID,
+    buildSignedPubsubMessage,
+    expectDeferredUnsignedLocalPublication,
+    expectEagerSignedLocalPublication
+} from "../community-fields-test-util.js";
 import { mockRemotePlebbit } from "../../../../dist/node/test/test-util.js";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
@@ -27,14 +33,14 @@ describe("Vote - community fields", () => {
         expect(vote.communityAddress).to.equal("test.eth");
         expect(vote.communityPublicKey).to.be.undefined;
         expect(vote.communityName).to.equal("test.eth");
+        expectDeferredUnsignedLocalPublication(vote);
     });
 
-    it("unsigned creation with communityPublicKey + communityName: both set", async () => {
+    it("domain communityAddress + communityPublicKey eagerly signs and derives communityName", async () => {
         const signer = await plebbit.createSigner();
         const vote = await plebbit.createVote({
             communityAddress: "myforum.eth",
             communityPublicKey: signers[0].address,
-            communityName: "myforum.eth",
             commentCid: DUMMY_COMMENT_CID,
             vote: 1,
             signer
@@ -42,6 +48,30 @@ describe("Vote - community fields", () => {
         expect(vote.communityAddress).to.equal("myforum.eth");
         expect(vote.communityPublicKey).to.equal(signers[0].address);
         expect(vote.communityName).to.equal("myforum.eth");
+        expectEagerSignedLocalPublication({
+            publication: vote,
+            type: "vote",
+            communityPublicKey: signers[0].address,
+            communityName: "myforum.eth"
+        });
+    });
+
+    it("non-domain communityAddress eagerly signs with derived communityPublicKey", async () => {
+        const signer = await plebbit.createSigner();
+        const vote = await plebbit.createVote({
+            communityAddress: signers[0].address,
+            commentCid: DUMMY_COMMENT_CID,
+            vote: 1,
+            signer
+        });
+        expect(vote.communityAddress).to.equal(signers[0].address);
+        expect(vote.communityPublicKey).to.equal(signers[0].address);
+        expect(vote.communityName).to.be.undefined;
+        expectEagerSignedLocalPublication({
+            publication: vote,
+            type: "vote",
+            communityPublicKey: signers[0].address
+        });
     });
 
     it("signed PubsubMessage with communityPublicKey + communityName sets both", async () => {

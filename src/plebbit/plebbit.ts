@@ -522,6 +522,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
                     unsignedOptions: finalOptions,
                     challengeRequest: options.challengeRequest
                 });
+                await commentInstance._signPublicationWithKnownCommunityFieldsIfAvailable();
             }
         }
         if (options.raw.comment) commentInstance._initIpfsProps(options.raw.comment);
@@ -597,6 +598,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
                 unsignedOptions: fieldsFilled,
                 challengeRequest: parsedOptions.challengeRequest
             });
+            await commentInstance._signPublicationWithKnownCommunityFieldsIfAvailable();
             if (typeof runtimeAuthorNameResolved === "boolean") commentInstance.author.nameResolved = runtimeAuthorNameResolved;
         } else if ("cid" in options) {
             // {cid: string, subplebbitAddress?: string}
@@ -816,6 +818,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
                 unsignedOptions: finalOptions,
                 challengeRequest: jsonfied.challengeRequest
             });
+            await voteInstance._signPublicationWithKnownCommunityFieldsIfAvailable();
         }
         return voteInstance;
     }
@@ -835,6 +838,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
                 unsignedOptions: finalOptions,
                 challengeRequest: parsedOptions.challengeRequest
             });
+            await voteInstance._signPublicationWithKnownCommunityFieldsIfAvailable();
         }
         return voteInstance;
     }
@@ -857,6 +861,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
                 unsignedOptions: finalOptions,
                 challengeRequest: jsonfied.challengeRequest
             });
+            await editInstance._signPublicationWithKnownCommunityFieldsIfAvailable();
         }
         return editInstance;
     }
@@ -878,6 +883,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
                 unsignedOptions: finalOptions,
                 challengeRequest: parsedOptions.challengeRequest
             });
+            await editInstance._signPublicationWithKnownCommunityFieldsIfAvailable();
         }
         return editInstance;
     }
@@ -900,6 +906,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
                 unsignedOptions: finalOptions,
                 challengeRequest: jsonfied.challengeRequest
             });
+            await modInstance._signPublicationWithKnownCommunityFieldsIfAvailable();
         }
         return modInstance;
     }
@@ -923,6 +930,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
                 unsignedOptions: finalOptions,
                 challengeRequest: parsedOptions.challengeRequest
             });
+            await modInstance._signPublicationWithKnownCommunityFieldsIfAvailable();
         }
         return modInstance;
     }
@@ -945,6 +953,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
                 unsignedOptions: finalOptions,
                 challengeRequest: jsonfied.challengeRequest
             });
+            await subplebbitEditInstance._signPublicationWithKnownCommunityFieldsIfAvailable();
         }
         return subplebbitEditInstance;
     }
@@ -968,6 +977,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
                 unsignedOptions: finalOptions,
                 challengeRequest: parsedOptions.challengeRequest
             });
+            await subplebbitEditInstance._signPublicationWithKnownCommunityFieldsIfAvailable();
         }
         return subplebbitEditInstance;
     }

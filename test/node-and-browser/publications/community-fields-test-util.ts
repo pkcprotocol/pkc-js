@@ -2,7 +2,9 @@ import signers from "../../fixtures/signers.js";
 import { _signJson, cleanUpBeforePublishing } from "../../../dist/node/signer/signatures.js";
 import validCommentIpfsFixture from "../../fixtures/signatures/comment/commentUpdate/valid_comment_ipfs.json" with { type: "json" };
 import Logger from "@pkc/pkc-logger";
+import { expect } from "vitest";
 import type { SignerType } from "../../../dist/node/signer/types.js";
+import type Publication from "../../../dist/node/publications/publication.js";
 
 const log = Logger("plebbit-js:test:community-fields");
 
@@ -130,6 +132,44 @@ export async function buildSignedPubsubMessage(opts: {
             ...(opts.subplebbitAddress ? { subplebbitAddress: opts.subplebbitAddress } : {})
         }
     });
+}
+
+type PublicationTypeKey = "comment" | "vote" | "commentEdit" | "commentModeration" | "subplebbitEdit";
+
+type LocalPublicationLike = {
+    raw: object;
+    signature?: unknown;
+    toJSONPubsubRequestToEncrypt: () => Record<string, unknown>;
+};
+
+export function getPublicationRaw(publication: { raw: object }): Publication["raw"] {
+    return publication.raw as Publication["raw"];
+}
+
+export function expectEagerSignedLocalPublication(opts: {
+    publication: LocalPublicationLike;
+    type: PublicationTypeKey;
+    communityPublicKey: string;
+    communityName?: string;
+}) {
+    const raw = getPublicationRaw(opts.publication);
+
+    expect(opts.publication.signature).to.be.an("object");
+    expect(raw.pubsubMessageToPublish).to.be.an("object");
+    expect(raw.unsignedPublicationOptions).to.be.undefined;
+    expect(raw.pubsubMessageToPublish!.signature).to.deep.equal(opts.publication.signature);
+    expect(raw.pubsubMessageToPublish!.communityPublicKey).to.equal(opts.communityPublicKey);
+    if (opts.communityName) expect(raw.pubsubMessageToPublish!.communityName).to.equal(opts.communityName);
+    else expect((raw.pubsubMessageToPublish as Record<string, unknown>).communityName).to.be.undefined;
+    expect(opts.publication.toJSONPubsubRequestToEncrypt()[opts.type]).to.deep.equal(raw.pubsubMessageToPublish);
+}
+
+export function expectDeferredUnsignedLocalPublication(publication: { raw: object; signature?: unknown }) {
+    const raw = getPublicationRaw(publication);
+
+    expect(publication.signature).to.be.undefined;
+    expect(raw.pubsubMessageToPublish).to.be.undefined;
+    expect(raw.unsignedPublicationOptions).to.be.an("object");
 }
 
 export { signers, validCommentIpfsFixture };

@@ -1,6 +1,6 @@
 import { Plebbit } from "../../plebbit/plebbit.js";
 import Publication from "../publication.js";
-import { verifyCommentEdit } from "../../signer/signatures.js";
+import { signCommentEdit, verifyCommentEdit } from "../../signer/signatures.js";
 import { hideClassPrivateProps, isIpfsCid } from "../../util.js";
 import { PlebbitError } from "../../plebbit-error.js";
 import type { CommentEditOptionsToSign, CommentEditPubsubMessagePublication, CreateCommentEditOptions } from "./types.js";
@@ -59,6 +59,12 @@ export class CommentEdit extends Publication implements CommentEditPubsubMessage
         this._initPubsubPublicationProps(props.commentEdit);
         this.challengeRequest = props.challengeRequest;
         this.signer = props.signer;
+    }
+
+    protected override async _signPublicationOptionsToPublish(
+        cleanedPublication: unknown
+    ): Promise<CommentEditPubsubMessagePublication["signature"]> {
+        return signCommentEdit({ edit: cleanedPublication as CommentEditOptionsToSign, plebbit: this._plebbit });
     }
 
     _initPubsubPublicationProps(props: CommentEditPubsubMessagePublication): void {

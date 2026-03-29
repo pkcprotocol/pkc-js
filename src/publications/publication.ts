@@ -71,7 +71,7 @@ import PlebbitRpcClient from "../clients/rpc-client/plebbit-rpc-client.js";
 import { PublicationClientsManager } from "./publication-client-manager.js";
 import { LocalSubplebbit } from "../runtime/node/subplebbit/local-subplebbit.js";
 import { buildRuntimeAuthor } from "./publication-author.js";
-import { buildRuntimeCommunityFields } from "./publication-community.js";
+import { buildRuntimeCommunityFields, normalizeCommunityInputFromSubplebbit } from "./publication-community.js";
 
 class Publication extends TypedEmitter<PublicationEvents> {
     // Only publication props
@@ -202,51 +202,50 @@ class Publication extends TypedEmitter<PublicationEvents> {
         this.author = { ...runtimeAuthor, shortAddress: shortifyAddress(runtimeAuthor.address) };
     }
 
-    async _signPublicationWithCommunityFields() {
-        if (!this.raw.unsignedPublicationOptions) throw Error("No unsigned publication options to sign");
-        if (!this._community) throw Error("Community must be loaded before signing");
+    protected async _signPublicationOptionsToPublish(
+        _cleanedPublication: unknown
+    ): Promise<PublicationFromDecryptedChallengeRequest["signature"]> {
+        throw new Error(`Should be implemented by children of Publication`);
+    }
 
-        const { normalizeCommunityInputFromSubplebbit } = await import("./publication-community.js");
-        const communityFields = normalizeCommunityInputFromSubplebbit({ communityInstance: this._community });
+    private async _signPublication({ communityFields }: { communityFields: { communityPublicKey: string; communityName?: string } }) {
+        if (!this.raw.unsignedPublicationOptions) throw Error("No unsigned publication options to sign");
 
         const optionsWithCommunity = {
             ...this.raw.unsignedPublicationOptions,
             ...communityFields
         };
-        const cleaned = cleanUpBeforePublishing(optionsWithCommunity);
-
-        // Dynamically sign based on publication type
-        const { signComment, signVote, signCommentEdit, signCommentModeration, signSubplebbitEdit } = await import(
-            "../signer/signatures.js"
+        const cleaned = cleanUpBeforePublishing(optionsWithCommunity) as Record<string, unknown>;
+        const signature = await this._signPublicationOptionsToPublish(cleaned);
+        const signedPublicationFields = Object.fromEntries(
+            signature.signedPropertyNames.map((propertyName) => [propertyName, cleaned[propertyName]])
         );
-        const type = this.getType();
-        let signature;
-        switch (type) {
-            case "comment":
-                signature = await signComment({ comment: cleaned as any, plebbit: this._plebbit });
-                break;
-            case "vote":
-                signature = await signVote({ vote: cleaned as any, plebbit: this._plebbit });
-                break;
-            case "commentEdit":
-                signature = await signCommentEdit({ edit: cleaned as any, plebbit: this._plebbit });
-                break;
-            case "commentModeration":
-                signature = await signCommentModeration({ commentMod: cleaned as any, plebbit: this._plebbit });
-                break;
-            case "subplebbitEdit":
-                signature = await signSubplebbitEdit({ subplebbitEdit: cleaned as any, plebbit: this._plebbit });
-                break;
-            default:
-                throw new Error(`Unknown publication type: ${type}`);
-        }
 
         const signedPublication = <PublicationFromDecryptedChallengeRequest>{
-            ...remeda.pick(cleaned, signature.signedPropertyNames as (keyof typeof cleaned)[]),
+            ...signedPublicationFields,
             signature
         };
         this.raw.pubsubMessageToPublish = signedPublication;
+        delete this.raw.unsignedPublicationOptions;
         this._initBaseRemoteProps(signedPublication);
+    }
+
+    async _signPublicationWithCommunityFields() {
+        if (!this._community) throw Error("Community must be loaded before signing");
+        const communityFields = normalizeCommunityInputFromSubplebbit({ communityInstance: this._community });
+
+        await this._signPublication({ communityFields });
+    }
+
+    async _signPublicationWithKnownCommunityFieldsIfAvailable() {
+        if (!this.communityPublicKey || this.raw.pubsubMessageToPublish || !this.raw.unsignedPublicationOptions) return;
+
+        await this._signPublication({
+            communityFields: {
+                communityPublicKey: this.communityPublicKey,
+                ...(this.communityName ? { communityName: this.communityName } : {})
+            }
+        });
     }
 
     protected async _validateSignatureHook(): Promise<void> {
