@@ -27,6 +27,7 @@ import {
     deepMergeRuntimeFields,
     doesDomainAddressHaveCapitalLetter,
     hideClassPrivateProps,
+    isStringDomain,
     removeUndefinedValuesRecursively,
     timestamp,
     resolveWhenPredicateIsTrue
@@ -537,7 +538,13 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         options:
             | CommentIpfsType
             | CommentPubsubMessagePublication
-            | { cid: CommentUpdateType["cid"]; communityAddress?: string; subplebbitAddress?: string; communityPublicKey?: string }
+            | {
+                  cid: CommentUpdateType["cid"];
+                  communityAddress?: string;
+                  subplebbitAddress?: string;
+                  communityPublicKey?: string;
+                  communityName?: string;
+              }
             | MinimumCommentFieldsToFetchPages
             | CreateCommentOptions
             | CommentJson
@@ -560,6 +567,12 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
 
         if ("communityPublicKey" in options && typeof options.communityPublicKey === "string")
             commentInstance.communityPublicKey = options.communityPublicKey;
+        else if (commentInstance.communityAddress && !isStringDomain(commentInstance.communityAddress))
+            commentInstance.communityPublicKey = commentInstance.communityAddress;
+
+        if ("communityName" in options && typeof options.communityName === "string") commentInstance.communityName = options.communityName;
+        else if (commentInstance.communityAddress && isStringDomain(commentInstance.communityAddress))
+            commentInstance.communityName = commentInstance.communityAddress;
 
         if ("depth" in options) {
             // Options is CommentIpfs | CommentIpfsWithCidDefined | MinimumCommentFieldsToFetchPages

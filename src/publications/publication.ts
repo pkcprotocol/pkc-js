@@ -30,7 +30,7 @@ import {
     verifyChallengeMessage,
     verifyChallengeVerification
 } from "../signer/signatures.js";
-import { deepMergeRuntimeFields, hideClassPrivateProps, shortifyAddress, timestamp } from "../util.js";
+import { deepMergeRuntimeFields, hideClassPrivateProps, isStringDomain, shortifyAddress, timestamp } from "../util.js";
 import { TypedEmitter } from "tiny-typed-emitter";
 import { Comment } from "./comment/comment.js";
 import { PlebbitError } from "../plebbit-error.js";
@@ -176,6 +176,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
         T extends {
             signer: SignerType;
             communityAddress: string;
+            communityPublicKey?: string;
+            communityName?: string;
             timestamp: number;
             protocolVersion: string;
             author?: Record<string, unknown>;
@@ -186,6 +188,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
         this.signer = opts.unsignedOptions.signer;
         this.communityAddress = opts.unsignedOptions.communityAddress;
         this.shortCommunityAddress = shortifyAddress(opts.unsignedOptions.communityAddress);
+        // Derive communityName/communityPublicKey from communityAddress if not explicitly provided
+        if (opts.unsignedOptions.communityPublicKey) this.communityPublicKey = opts.unsignedOptions.communityPublicKey;
+        else if (!isStringDomain(opts.unsignedOptions.communityAddress)) this.communityPublicKey = opts.unsignedOptions.communityAddress;
+        if (opts.unsignedOptions.communityName) this.communityName = opts.unsignedOptions.communityName;
+        else if (isStringDomain(opts.unsignedOptions.communityAddress)) this.communityName = opts.unsignedOptions.communityAddress;
         this.timestamp = opts.unsignedOptions.timestamp;
         this.protocolVersion = opts.unsignedOptions.protocolVersion;
         const runtimeAuthor = buildRuntimeAuthor({
