@@ -1231,3 +1231,13 @@ These repositories are outside plebbit-js but will need coordinated updates:
 | plebbit-protocol-test | Rename repo to pkc-protocol-test, update wire format test fixtures for new field names, add backward compat tests for old records | [ ] Not Started |
 | plebbit-react-hooks | Update all API references (method names, type imports, event names). Depends on pkc-js rename completing first | [ ] Not Started |
 | DNS TXT records | Migrate `subplebbit-address` and `plebbit-author-address` → single `bitsocial` record | [ ] Not Started |
+
+---
+
+## Additional TODOs
+
+- [ ] Update inaccuracies in `README.md`
+- [ ] Replace outdated schemas and types in `README.md` with the current ones
+- [ ] Add missing schemas and publication coverage to `README.md`
+- [ ] Update `README.md` references from `plebbit-js` to `pkc-js`
+- [ ] Add libraries that use `pkc-js` to `README.md`
