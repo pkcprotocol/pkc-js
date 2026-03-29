@@ -176,7 +176,11 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
         const log = Logger("plebbit-js:rpc-remote-subplebbit:_initRpcUpdateSubscription");
         this._setState("updating");
         try {
-            this._updateRpcSubscriptionId = await this._plebbit._plebbitRpcClient!.subplebbitUpdateSubscribe({ address: this.address });
+            this._updateRpcSubscriptionId = await this._plebbit._plebbitRpcClient!.subplebbitUpdateSubscribe({
+                address: this.address,
+                ...(this.name ? { name: this.name } : undefined),
+                ...(this.publicKey ? { publicKey: this.publicKey } : undefined)
+            });
         } catch (e) {
             log.error("Failed to receive subplebbitUpdate from RPC due to error", e);
             this._setState("stopped");
@@ -195,7 +199,12 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
     async _createAndSubscribeToNewUpdatingSubplebbit(updatingSubplebbit?: RpcRemoteSubplebbit) {
         const log = Logger("plebbit-js:rpc-remote-subplebbit:_createNewUpdatingSubplebbit");
         const updatingSub =
-            updatingSubplebbit || ((await this._plebbit.createSubplebbit({ address: this.address })) as RpcRemoteSubplebbit);
+            updatingSubplebbit ||
+            ((await this._plebbit.createSubplebbit({
+                address: this.address,
+                ...(this.name ? { name: this.name } : undefined),
+                ...(this.publicKey ? { publicKey: this.publicKey } : undefined)
+            })) as RpcRemoteSubplebbit);
         trackUpdatingSubplebbit(this._plebbit, updatingSub);
         log("Creating a new entry for this._plebbit._updatingSubplebbits", this.address);
 

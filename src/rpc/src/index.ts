@@ -69,6 +69,7 @@ import type { ModQueuePageIpfs, PageIpfs } from "../../pages/types.js";
 import { buildPageRuntimeFields, buildPagesRuntimeFields } from "../../pages/util.js";
 import {
     parseRpcSubplebbitAddressParam,
+    parseRpcSubplebbitLookupParam,
     parseRpcAuthorNameParam,
     parseRpcCidParam,
     parseRpcCommentRepliesPageParam,
@@ -77,7 +78,8 @@ import {
     parseRpcPublishChallengeAnswersParam,
     parseRpcUnsubscribeParam
 } from "../../clients/rpc-client/rpc-schema-util.js";
-import { SubplebbitAddressRpcParam } from "../../clients/rpc-client/types.js";
+import { SubplebbitAddressRpcParam, SubplebbitLookupRpcParam } from "../../clients/rpc-client/types.js";
+import { findStartedSubplebbit } from "../../plebbit/tracked-instance-registry-util.js";
 
 // store started subplebbits  to be able to stop them
 // store as a singleton because not possible to start the same sub twice at the same time
@@ -925,7 +927,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
     }
 
     async subplebbitUpdateSubscribe(params: any, connectionId: string) {
-        const parsedSubplebbitUpdateArgs = parseRpcSubplebbitAddressParam(params[0]);
+        const parsedSubplebbitUpdateArgs = parseRpcSubplebbitLookupParam(params[0]);
         const subscriptionId = generateSubscriptionId();
 
         await this._bindSubplebbitUpdateSubscription(parsedSubplebbitUpdateArgs, connectionId, subscriptionId);
@@ -933,7 +935,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
         return subscriptionId;
     }
 
-    private async _bindSubplebbitUpdateSubscription(parsedArgs: SubplebbitAddressRpcParam, connectionId: string, subscriptionId: number) {
+    private async _bindSubplebbitUpdateSubscription(parsedArgs: SubplebbitLookupRpcParam, connectionId: string, subscriptionId: number) {
         const sendEvent = (event: string, result: any) =>
             this.jsonRpcSendNotification({
                 method: "subplebbitUpdateNotification",
@@ -943,11 +945,10 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
                 connectionId
             });
 
-        const isSubStarted = parsedArgs.address in this._startedSubplebbits;
         const plebbit = await this._getPlebbitInstance();
-        const subplebbit = isSubStarted
-            ? await this.getStartedSubplebbit(parsedArgs.address)
-            : <LocalSubplebbit | RemoteSubplebbit>await plebbit.createSubplebbit(parsedArgs);
+        const startedSubplebbit = findStartedSubplebbit(plebbit, parsedArgs);
+        const isStartedSubplebbit = Boolean(startedSubplebbit);
+        const subplebbit = startedSubplebbit || <LocalSubplebbit | RemoteSubplebbit>await plebbit.createSubplebbit(parsedArgs);
 
         const sendSubJson = () => {
             let jsonToSend:
@@ -980,7 +981,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
 
         // listener for startestatechange
         const startedStateListener = () => sendEvent("updatingstatechange", { state: subplebbit.startedState });
-        if (isSubStarted) {
+        if (isStartedSubplebbit) {
             subplebbit.on("startedstatechange", startedStateListener);
         }
 
@@ -997,7 +998,6 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
         // cleanup function
         this.subscriptionCleanups[connectionId][subscriptionId] = async () => {
             log("Cleaning up subplebbit", subplebbit.address, "client subscription");
-            const isSubStarted = parsedArgs.address in this._startedSubplebbits;
             subplebbit.removeListener("update", updateListener);
             subplebbit.removeListener("updatingstatechange", updatingStateListener);
             subplebbit.removeListener("error", errorListener);
@@ -1006,14 +1006,12 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
 
             // We don't wanna stop the local sub if it's running already, this function is just for fetching updates
             // if we comment this out remove test passes
-            if (!isSubStarted && subplebbit.state !== "stopped") await subplebbit.stop();
+            if (!isStartedSubplebbit && subplebbit.state !== "stopped") await subplebbit.stop();
         };
 
         this._onSettingsChange[connectionId][subscriptionId] = async ({ newPlebbit }: { newPlebbit: Plebbit }) => {
-            const isSubStarted = parsedArgs.address in this._startedSubplebbits;
-
             // TODO this may need changing
-            if (!isSubStarted) {
+            if (!isStartedSubplebbit) {
                 subplebbit._plebbit = newPlebbit;
                 await subplebbit.stop();
                 await subplebbit.update();
@@ -1026,7 +1024,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
             if ("signer" in subplebbit || subplebbit.raw.subplebbitIpfs) sendSubJson();
 
             // No need to call .update() if it's already running locally because we're listening to update event
-            if (!isSubStarted) await subplebbit.update();
+            if (!isStartedSubplebbit) await subplebbit.update();
         } catch (e) {
             const cleanup = this.subscriptionCleanups?.[connectionId]?.[subscriptionId];
             if (cleanup) await cleanup();

@@ -337,11 +337,12 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
         } else if (explicitPublicKey) {
             this.publicKey = explicitPublicKey;
         }
-        this.name = newProps.name;
+        if (typeof newProps.name === "string") this.name = newProps.name;
 
-        // Compute address: name || publicKey (from signature) || explicit publicKey || explicit address
+        // Preserve the existing domain name/address when we loaded via publicKey fallback
+        // and the fetched wire record has no `name` field.
         const explicitAddress = "address" in newProps ? (newProps.address as string) : undefined;
-        const derivedAddress = this.name || this.publicKey || explicitPublicKey || explicitAddress;
+        const derivedAddress = this.name || this.publicKey || explicitPublicKey || explicitAddress || this.address;
         if (derivedAddress) this.setAddress(derivedAddress);
 
         this._updateLocalPostsInstance(newProps.posts);
@@ -382,7 +383,8 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
             subplebbit: this.raw.subplebbitIpfs,
             runtimeFields: {
                 updateCid: this.updateCid,
-                updatingState: this.updatingState
+                updatingState: this.updatingState,
+                nameResolved: this.nameResolved
             }
         };
     }

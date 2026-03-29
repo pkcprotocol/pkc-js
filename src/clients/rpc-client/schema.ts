@@ -20,6 +20,13 @@ export const RpcChallengeVerificationEventResultSchema = z.object({
 
 export const RpcCidParamSchema = z.object({ cid: CidStringSchema }).loose();
 export const RpcSubplebbitAddressParamSchema = z.object({ address: SubplebbitAddressSchema });
+export const RpcSubplebbitLookupParamSchema = z
+    .object({
+        address: SubplebbitAddressSchema.optional(),
+        name: z.string().min(1).optional(),
+        publicKey: z.string().min(1).optional()
+    })
+    .refine((args) => args.address || args.name || args.publicKey, "At least one of address, name, or publicKey must be provided");
 export const RpcAuthorNameParamSchema = z.object({ address: AuthorAddressSchema });
 export const RpcSubplebbitPageParamSchema = RpcCidParamSchema.extend({
     subplebbitAddress: SubplebbitAddressSchema,

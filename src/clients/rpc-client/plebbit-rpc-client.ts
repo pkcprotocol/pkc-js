@@ -25,9 +25,16 @@ import { TypedEmitter } from "tiny-typed-emitter";
 import type { PlebbitRpcClientEvents } from "../../types.js";
 import type { RpcPublishResult } from "../../publications/types.js";
 import { messages } from "../../errors.js";
-import type { SubplebbitAddressRpcParam, CidRpcParam, CommentPageRpcParam, SubplebbitPageRpcParam } from "./types.js";
+import type {
+    SubplebbitAddressRpcParam,
+    SubplebbitLookupRpcParam,
+    CidRpcParam,
+    CommentPageRpcParam,
+    SubplebbitPageRpcParam
+} from "./types.js";
 import {
     parseRpcSubplebbitAddressParam,
+    parseRpcSubplebbitLookupParam,
     parseRpcAuthorNameParam,
     parseRpcCidParam,
     parseRpcCommentRepliesPageParam,
@@ -377,8 +384,8 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
         if (res !== true) throw Error("Calling RPC function deleteSubplebbit should either return true or throw");
     }
 
-    async subplebbitUpdateSubscribe(subplebbitAddress: SubplebbitAddressRpcParam): Promise<number> {
-        const parsedSubplebbitUpdateArgs = parseRpcSubplebbitAddressParam(subplebbitAddress);
+    async subplebbitUpdateSubscribe(subplebbitAddress: SubplebbitLookupRpcParam): Promise<number> {
+        const parsedSubplebbitUpdateArgs = parseRpcSubplebbitLookupParam(subplebbitAddress);
         const subscriptionId = SubscriptionIdSchema.parse(
             await this._webSocketClient.call("subplebbitUpdateSubscribe", [parsedSubplebbitUpdateArgs])
         );

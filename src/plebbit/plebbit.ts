@@ -127,8 +127,8 @@ import { PlebbitTypedEmitter } from "../clients/plebbit-typed-emitter.js";
 import type { PageTypeJson } from "../pages/types.js";
 import { createLibp2pJsClientOrUseExistingOne } from "../helia/helia-for-plebbit.js";
 import { Libp2pJsClient } from "../helia/libp2pjsClient.js";
-import { AuthorNameRpcParam, CidRpcParam, SubplebbitAddressRpcParam } from "../clients/rpc-client/types.js";
-import { parseRpcAuthorNameParam, parseRpcCidParam, parseRpcSubplebbitAddressParam } from "../clients/rpc-client/rpc-schema-util.js";
+import { AuthorNameRpcParam, CidRpcParam, SubplebbitLookupRpcParam } from "../clients/rpc-client/types.js";
+import { parseRpcAuthorNameParam, parseRpcCidParam, parseRpcSubplebbitLookupParam } from "../clients/rpc-client/rpc-schema-util.js";
 import { cleanWireAuthor, normalizeCreatePublicationAuthor } from "../publications/publication-author.js";
 import { IndexedTrackedInstanceRegistry, TrackedInstanceRegistry } from "./tracked-instance-registry.js";
 import {
@@ -423,8 +423,8 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         hideClassPrivateProps(this);
     }
 
-    async getSubplebbit(getSubplebbitArgs: SubplebbitAddressRpcParam) {
-        const parsedArgs = parseRpcSubplebbitAddressParam(getSubplebbitArgs);
+    async getSubplebbit(getSubplebbitArgs: SubplebbitLookupRpcParam) {
+        const parsedArgs = parseRpcSubplebbitLookupParam(getSubplebbitArgs);
         const subplebbit = await this.createSubplebbit(parsedArgs);
 
         if (typeof subplebbit.createdAt === "number") return <RpcLocalSubplebbit | LocalSubplebbit>subplebbit; // It's a local sub, and alreadh has been loaded, no need to wait
