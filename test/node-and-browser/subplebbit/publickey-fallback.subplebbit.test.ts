@@ -1,9 +1,7 @@
 import {
     createMockedSubplebbitIpns,
     createMockNameResolver,
-    describeSkipIfRpc,
     getAvailablePlebbitConfigsToTestAgainst,
-    itSkipIfRpc,
     mockPlebbitV2,
     mockRemotePlebbit,
     resolveWhenConditionIsTrue

@@ -4,7 +4,6 @@ import {
     createMockNameResolver,
     generateMockPost,
     publishWithExpectedResult,
-    describeSkipIfRpc,
     publishRandomPost,
     mockPlebbitV2,
     resolveWhenConditionIsTrue,
@@ -46,7 +45,7 @@ async function createPlebbitWithMockResolver({
     return { plebbit, records };
 }
 
-describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
+describe(`comment.clients.nameResolvers`, async () => {
     let plebbit: Plebbit;
     beforeAll(async () => {
         ({ plebbit } = await createPlebbitWithMockResolver({
@@ -93,32 +92,6 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
         expect(actualStates.slice(0, expectedStates.length)).to.deep.equal(expectedStates);
 
         await differentPlebbit.destroy();
-    });
-
-    // Skipped: the new nameResolvers plugin system has no resolver-level caching,
-    // so cached vs uncached tests for resolver state changes are now redundant
-    it.skip(`Correct order of nameResolvers state when updating a comment whose sub is a domain - cached`, async () => {
-        const mockPost = await publishRandomPost({ communityAddress: "plebbit.bso", plebbit: plebbit });
-
-        await mockPost.stop();
-
-        const updatingPost = await plebbit.createComment({ cid: mockPost.cid });
-
-        const expectedStates = ["resolving-community-name", "stopped"];
-
-        const actualStates: string[] = [];
-
-        const resolverKey = Object.keys(mockPost.clients.nameResolvers)[0];
-
-        updatingPost.clients.nameResolvers[resolverKey].on("statechange", (newState: string) => actualStates.push(newState));
-
-        await updatingPost.update();
-
-        await resolveWhenConditionIsTrue({ toUpdate: updatingPost, predicate: async () => typeof updatingPost.updatedAt === "number" });
-
-        await updatingPost.stop();
-
-        expect(actualStates.slice(0, expectedStates.length)).to.deep.equal(expectedStates);
     });
 
     it(`Correct order of nameResolvers state when updating a comment whose author address is a domain - uncached`, async () => {
@@ -272,40 +245,5 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
         await loadedPost.stop();
 
         expect(actualStates.slice(0, expectedStates.length)).to.deep.equal(expectedStates);
-    });
-
-    // Skipped: the new nameResolvers plugin system has no resolver-level caching,
-    // so cached vs uncached tests for resolver state changes are now redundant
-    it.skip(`Correct order of nameResolvers state when comment has a reply with author.address as domain - cached`, async () => {
-        const mockPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
-        const reply = await publishRandomReply({
-            parentComment: mockPost as CommentIpfsWithCidDefined,
-            plebbit: plebbit,
-            commentProps: {
-                author: { address: "plebbit.eth" },
-                signer: signers[3]
-            }
-        });
-        await waitTillReplyInParentPages(reply as CommentWithRequiredFields, plebbit); // make sure until reply is in mockPost.replies
-
-        const { plebbit: differentPlebbit } = await createPlebbitWithMockResolver({
-            remotePlebbit: true,
-            stubStorage: false
-        });
-        const loadedPost = await differentPlebbit.createComment({ cid: mockPost.cid });
-        const expectedStates: string[] = [];
-        const actualStates: string[] = [];
-
-        const resolverKey = Object.keys(loadedPost.clients.nameResolvers)[0];
-
-        loadedPost.clients.nameResolvers[resolverKey].on("statechange", (newState: string) => actualStates.push(newState));
-
-        await loadedPost.update();
-
-        await resolveWhenConditionIsTrue({ toUpdate: loadedPost, predicate: async () => typeof loadedPost.updatedAt === "number" });
-
-        await loadedPost.stop();
-
-        expect(actualStates).to.deep.equal(expectedStates);
     });
 });

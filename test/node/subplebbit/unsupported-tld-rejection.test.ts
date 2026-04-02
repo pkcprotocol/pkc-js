@@ -5,8 +5,7 @@ import {
     createSubWithNoChallenge,
     publishWithExpectedResult,
     publishRandomPost,
-    resolveWhenConditionIsTrue,
-    itSkipIfRpc
+    resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
 import { messages } from "../../../dist/node/errors.js";
 import signers from "../../fixtures/signers.js";
@@ -49,10 +48,12 @@ describe("Subplebbit rejects publications with unsupported author TLDs", () => {
         await plebbit.destroy();
     });
 
-    itSkipIfRpc("rejects Comment with unsupported TLD (.xyz)", async () => {
+    it("rejects Comment with unsupported TLD (.xyz)", async () => {
         const unsupportedTldAddress = "user.xyz";
         const signer = await plebbit.createSigner();
 
+        // even we as a rpc client, the rpc server shouldn't refuse to publish it even if it doesn't have .xyz resolver
+        // rpc server should just trust the rpc client and publish it, the sub owner will take care of validation
         const comment = await plebbit.createComment({
             author: { address: unsupportedTldAddress },
             signer,
@@ -68,7 +69,10 @@ describe("Subplebbit rejects publications with unsupported author TLDs", () => {
         });
     });
 
-    itSkipIfRpc("rejects Vote with unsupported TLD (.xyz)", async () => {
+    it("rejects Vote with unsupported TLD (.xyz)", async () => {
+        // even we as a rpc client, the rpc server shouldn't refuse to publish it even if it doesn't have .xyz resolver
+        // rpc server should just trust the rpc client and publish it, the sub owner will take care of validation
+
         const unsupportedTldAddress = "voter.xyz";
         const signer = await plebbit.createSigner();
 
@@ -87,7 +91,10 @@ describe("Subplebbit rejects publications with unsupported author TLDs", () => {
         });
     });
 
-    itSkipIfRpc("rejects CommentEdit with unsupported TLD (.xyz)", async () => {
+    it("rejects CommentEdit with unsupported TLD (.xyz)", async () => {
+        // even we as a rpc client, the rpc server shouldn't refuse to publish it even if it doesn't have .xyz resolver
+        // rpc server should just trust the rpc client and publish it, the sub owner will take care of validation
+
         const unsupportedTldAddress = "editor.xyz";
         const signer = await plebbit.createSigner();
 
