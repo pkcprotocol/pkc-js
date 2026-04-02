@@ -35,7 +35,7 @@ export class TrackedInstanceRegistry<T extends object> {
                 if (typeof property === "string" && !Reflect.has(target, property)) return target.findByAlias(property) !== undefined;
                 return Reflect.has(target, property);
             },
-            ownKeys: (target) => [...new Set([...Reflect.ownKeys(target), ...target.aliases()])],
+            ownKeys: (target) => target.aliases(),
             set: (target, property, value) => {
                 if (typeof property === "string" && !Reflect.has(target, property)) {
                     if (typeof value !== "object" || value === null) return false;

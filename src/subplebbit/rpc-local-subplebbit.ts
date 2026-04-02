@@ -127,6 +127,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
         this.started = newProps.localSubplebbit.started;
         this.updateCid = newProps.runtimeFields.updateCid;
         this.raw.localSubplebbit = newProps;
+        this.editable = remeda.pick(this, remeda.keys.strict(SubplebbitEditOptionsSchema.shape));
     }
 
     protected _updateRpcClientStateFromStartedState(startedState: RpcLocalSubplebbit["startedState"]) {

@@ -109,6 +109,7 @@ export class PlebbitWithRpcClient extends Plebbit {
                     if ("subplebbitIpfs" in rawRecord) sub.initRpcInternalSubplebbitAfterFirstUpdateNoMerge(rawRecord);
                     else sub.initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(rawRecord);
                 }
+                if (jsonified.raw) Object.assign(sub.raw, jsonified.raw);
                 return sub;
             } else if (isSubRpcLocal) {
                 // No jsonified data — do a fresh fetch
@@ -133,6 +134,12 @@ export class PlebbitWithRpcClient extends Plebbit {
                 return remoteSub;
             }
         } else if (!hasIdentifier) {
+            // Check if this looks like a SubplebbitIpfs record — handle as remote sub init
+            if ("signature" in parsedRpcOptions) {
+                const remoteSub = new RpcRemoteSubplebbit(this);
+                await this._setSubplebbitIpfsOnInstanceIfPossible(remoteSub, parsedRpcOptions);
+                return remoteSub;
+            }
             // We're creating a new local sub
             const subPropsAfterCreation = await this._plebbitRpcClient!.createSubplebbit(parsedRpcOptions);
             log(
