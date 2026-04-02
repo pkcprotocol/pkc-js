@@ -2,7 +2,6 @@ import signers from "../../fixtures/signers.js";
 
 import {
     createMockNameResolver,
-    describeSkipIfRpc,
     processAllCommentsRecursively,
     publishRandomPost,
     mockPlebbitV2,
@@ -34,7 +33,7 @@ async function createRemotePlebbitWithMockResolver({
     return { plebbit, records };
 }
 
-describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
+describe(`subplebbit.clients.nameResolvers`, async () => {
     it(`subplebbit.clients.nameResolvers[resolverKey].state is stopped by default`, async () => {
         const { plebbit } = await createRemotePlebbitWithMockResolver();
         const mockSub = await plebbit.getSubplebbit({ address: subplebbitAddress });
@@ -45,6 +44,10 @@ describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
     });
 
     it(`Correct order of nameResolvers state when sub pages has comments with author.address as domain - uncached`, async () => {
+        // These tests can't work with RPC clients because:
+        // - RPC clients have empty clients.nameResolvers (nameResolvers contain functions that can't be serialized over RPC, see plebbit.ts)
+        // - The RPC server resolves names server-side and doesn't transmit resolver state changes to the client
+        // - Until the RPC protocol is extended to relay nameResolver state changes, these tests only exercise the non-RPC path
         const plebbit = await mockPlebbitV2({ stubStorage: true, plebbitOptions: { validatePages: false }, remotePlebbit: true }); // no storage so it wouldn't be cached
 
         const mockPost = await publishRandomPost({
@@ -87,37 +90,6 @@ describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
         await differentPlebbit.destroy();
     });
 
-    // Skipped: the new nameResolvers plugin system has no resolver-level caching,
-    // so cached vs uncached tests for resolver state changes are now redundant
-    it.skip(`Correct order of nameResolvers state when sub pages has a comment with author.address as domain - cached`, async () => {
-        const { plebbit: differentPlebbit, records } = await createRemotePlebbitWithMockResolver({
-            stubStorage: false
-        });
-        const sub = await differentPlebbit.createSubplebbit({ address: subplebbitAddress });
-
-        records.set("plebbit.eth", signers[6].address);
-        const recordedStates: string[] = [];
-        const expectedStates: string[] = []; // should be empty cause it's cached
-        const resolverKey = Object.keys(sub.clients.nameResolvers)[0];
-        sub.clients.nameResolvers[resolverKey].on("statechange", (newState: string) => recordedStates.push(newState));
-
-        const updatePromise = new Promise((resolve) => sub.once("update", resolve));
-
-        await sub.update();
-
-        await updatePromise;
-        await sub.stop();
-
-        const commentsWithDomainAuthor: { author: { address: string } }[] = [];
-        processAllCommentsRecursively(
-            sub.posts.pages.hot.comments,
-            (comment) => comment.author.address.includes(".") && commentsWithDomainAuthor.push(comment)
-        );
-        expect(commentsWithDomainAuthor.length).to.be.greaterThan(0);
-        expect(recordedStates).to.deep.equal(expectedStates);
-        await differentPlebbit.destroy();
-    });
-
     it(`Correct order of nameResolvers state when updating a subplebbit that was created with plebbit.createSubplebbit({address}) - uncached`, async () => {
         const { plebbit: remotePlebbit } = await createRemotePlebbitWithMockResolver({
             stubStorage: true
@@ -140,33 +112,5 @@ describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
 
         expect(recordedStates.slice(0, 2)).to.deep.equal(expectedStates);
         await remotePlebbit.destroy();
-    });
-
-    // Skipped: the new nameResolvers plugin system has no resolver-level caching,
-    // so cached vs uncached tests for resolver state changes are now redundant
-    it.skip(`Correct order of nameResolvers state when updating a subplebbit that was created with plebbit.createSubplebbit({address}) - cached`, async () => {
-        const { plebbit, records } = await createRemotePlebbitWithMockResolver({
-            stubStorage: false
-        });
-        const sub = await plebbit.createSubplebbit({ address: "plebbit.bso" });
-
-        records.set(sub.address, signers[3].address);
-
-        const recordedStates: string[] = [];
-
-        const expectedStates = ["resolving-community-name", "stopped"];
-
-        const resolverKey = Object.keys(sub.clients.nameResolvers)[0];
-        sub.clients.nameResolvers[resolverKey].on("statechange", (newState: string) => recordedStates.push(newState));
-
-        const updatePromise = new Promise((resolve) => sub.once("update", resolve));
-
-        await sub.update();
-
-        await updatePromise;
-        await sub.stop();
-
-        expect(recordedStates).to.deep.equal(expectedStates);
-        await plebbit.destroy();
     });
 });

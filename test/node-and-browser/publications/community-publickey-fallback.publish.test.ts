@@ -1,9 +1,7 @@
 import signers from "../../fixtures/signers.js";
 import {
     createMockNameResolver,
-    describeSkipIfRpc,
-    mockPlebbitV2,
-    mockRemotePlebbit,
+    getAvailablePlebbitConfigsToTestAgainst,
     publishWithExpectedResult
 } from "../../../dist/node/test/test-util.js";
 import { afterAll, beforeAll, it, vi } from "vitest";
@@ -28,21 +26,6 @@ type WirePublication = Record<string, unknown> & {
     subplebbitAddress?: string;
 };
 
-async function createRestrictedPlebbit(): Promise<Plebbit> {
-    return mockPlebbitV2({
-        remotePlebbit: true,
-        mockResolve: false,
-        plebbitOptions: {
-            nameResolvers: [
-                createMockNameResolver({
-                    includeDefaultRecords: true,
-                    canResolve: ({ name }: { name: string }) => /\.eth$/i.test(name)
-                })
-            ]
-        }
-    });
-}
-
 function expectCreateSubplebbitFallbackArgs(plebbitSpy: SpyWithCalls) {
     expect(plebbitSpy.mock.calls.length).to.be.greaterThan(0);
 
@@ -66,123 +49,209 @@ function expectWireCommunityFields(publication: Publication) {
     expect(wirePublication).to.not.have.property("subplebbitAddress");
 }
 
-async function publishAndAssertCommunityFallback<T extends Publication>({
-    createPublication
-}: {
-    createPublication: (plebbit: Plebbit) => Promise<T>;
-}) {
-    const plebbit = await createRestrictedPlebbit();
-    let publication: T | undefined;
+getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+    describe.sequential(`Publication publish community publicKey fallback - ${config.name}`, async () => {
+        let fixturePlebbit: Plebbit;
+        let fixturePost: Comment;
+        let fixturePostSigner: SignerType;
 
-    try {
-        publication = await createPublication(plebbit);
-        const createSubplebbitSpy = vi.spyOn(plebbit, "createSubplebbit");
+        beforeAll(async () => {
+            fixturePlebbit = await config.plebbitInstancePromise();
+            fixturePostSigner = await fixturePlebbit.createSigner();
+            fixturePost = await fixturePlebbit.createComment({
+                communityAddress: communityName,
+                communityPublicKey,
+                signer: fixturePostSigner,
+                title: `Community fallback fixture post ${Date.now()}`,
+                content: `Community fallback fixture content ${Date.now()}`
+            });
+            await publishWithExpectedResult({ publication: fixturePost, expectedChallengeSuccess: true });
 
-        try {
-            await publishWithExpectedResult({ publication, expectedChallengeSuccess: true });
-            expectCreateSubplebbitFallbackArgs(createSubplebbitSpy);
-            expectWireCommunityFields(publication);
-        } finally {
-            createSubplebbitSpy.mockRestore();
-        }
-    } finally {
-        if (publication) await publication.stop();
-        await plebbit.destroy();
-    }
-}
-
-describeSkipIfRpc.sequential("Publication publish community publicKey fallback", async () => {
-    let fixturePlebbit: Plebbit;
-    let fixturePost: Comment;
-    let fixturePostSigner: SignerType;
-
-    beforeAll(async () => {
-        fixturePlebbit = await mockRemotePlebbit();
-        fixturePostSigner = await fixturePlebbit.createSigner();
-        fixturePost = await fixturePlebbit.createComment({
-            communityAddress: communityName,
-            communityPublicKey,
-            signer: fixturePostSigner,
-            title: `Community fallback fixture post ${Date.now()}`,
-            content: `Community fallback fixture content ${Date.now()}`
+            if (!fixturePost.cid) throw Error("Expected fixture post to have a CID after publishing");
+            if (!fixturePost.signer) throw Error("Expected fixture post to retain its signer after publishing");
         });
-        await publishWithExpectedResult({ publication: fixturePost, expectedChallengeSuccess: true });
 
-        if (!fixturePost.cid) throw Error("Expected fixture post to have a CID after publishing");
-        if (!fixturePost.signer) throw Error("Expected fixture post to retain its signer after publishing");
-    });
-
-    afterAll(async () => {
-        await fixturePost.stop();
-        await fixturePlebbit.destroy();
-    });
-
-    it("Comment publish passes name and publicKey to createSubplebbit and succeeds without a .bso resolver", async () => {
-        await publishAndAssertCommunityFallback({
-            createPublication: async (plebbit) =>
-                plebbit.createComment({
-                    communityAddress: communityName,
-                    communityPublicKey,
-                    signer: await plebbit.createSigner(),
-                    title: `Comment fallback publish ${Date.now()}`,
-                    content: `Comment fallback content ${Date.now()}`
-                })
+        afterAll(async () => {
+            await fixturePost.stop();
+            await fixturePlebbit.destroy();
         });
-    });
 
-    it("Vote publish passes name and publicKey to createSubplebbit and succeeds without a .bso resolver", async () => {
-        await publishAndAssertCommunityFallback({
-            createPublication: async (plebbit) =>
-                plebbit.createVote({
-                    communityAddress: communityName,
-                    communityPublicKey,
-                    commentCid: fixturePost.cid!,
-                    vote: 1,
-                    signer: await plebbit.createSigner()
-                })
+        it("Comment publish succeeds with community publicKey fallback", async () => {
+            // Create plebbit with resolver that only handles .eth (not .bso)
+            // For RPC, resolver options are stripped but the server still resolves .bso normally
+            const plebbit = await config.plebbitInstancePromise({
+                mockResolve: false,
+                plebbitOptions: {
+                    nameResolvers: [
+                        createMockNameResolver({
+                            includeDefaultRecords: true,
+                            canResolve: ({ name }: { name: string }) => /\.eth$/i.test(name)
+                        })
+                    ]
+                }
+            });
+            const publication = await plebbit.createComment({
+                communityAddress: communityName,
+                communityPublicKey,
+                signer: await plebbit.createSigner(),
+                title: `Comment fallback publish ${Date.now()}`,
+                content: `Comment fallback content ${Date.now()}`
+            });
+            const createSubplebbitSpy = vi.spyOn(plebbit, "createSubplebbit");
+
+            try {
+                await publishWithExpectedResult({ publication, expectedChallengeSuccess: true });
+                // Spy and wire format assertions only work for non-RPC
+                // (RPC delegates createSubplebbit to server, and raw.pubsubMessageToPublish may not be populated)
+                if (config.testConfigCode !== "remote-plebbit-rpc") {
+                    expectCreateSubplebbitFallbackArgs(createSubplebbitSpy);
+                    expectWireCommunityFields(publication);
+                }
+            } finally {
+                createSubplebbitSpy.mockRestore();
+                await publication.stop();
+                await plebbit.destroy();
+            }
         });
-    });
 
-    it("CommentEdit publish passes name and publicKey to createSubplebbit and succeeds without a .bso resolver", async () => {
-        await publishAndAssertCommunityFallback({
-            createPublication: async (plebbit) =>
-                plebbit.createCommentEdit({
-                    communityAddress: communityName,
-                    communityPublicKey,
-                    commentCid: fixturePost.cid!,
-                    content: `Comment edit fallback ${Date.now()}`,
-                    signer: fixturePost.signer!
-                })
+        it("Vote publish succeeds with community publicKey fallback", async () => {
+            const plebbit = await config.plebbitInstancePromise({
+                mockResolve: false,
+                plebbitOptions: {
+                    nameResolvers: [
+                        createMockNameResolver({
+                            includeDefaultRecords: true,
+                            canResolve: ({ name }: { name: string }) => /\.eth$/i.test(name)
+                        })
+                    ]
+                }
+            });
+            const publication = await plebbit.createVote({
+                communityAddress: communityName,
+                communityPublicKey,
+                commentCid: fixturePost.cid!,
+                vote: 1,
+                signer: await plebbit.createSigner()
+            });
+            const createSubplebbitSpy = vi.spyOn(plebbit, "createSubplebbit");
+
+            try {
+                await publishWithExpectedResult({ publication, expectedChallengeSuccess: true });
+                if (config.testConfigCode !== "remote-plebbit-rpc") {
+                    expectCreateSubplebbitFallbackArgs(createSubplebbitSpy);
+                    expectWireCommunityFields(publication);
+                }
+            } finally {
+                createSubplebbitSpy.mockRestore();
+                await publication.stop();
+                await plebbit.destroy();
+            }
         });
-    });
 
-    it("CommentModeration publish passes name and publicKey to createSubplebbit and succeeds without a .bso resolver", async () => {
-        await publishAndAssertCommunityFallback({
-            createPublication: async (plebbit) =>
-                plebbit.createCommentModeration({
-                    communityAddress: communityName,
-                    communityPublicKey,
-                    commentCid: fixturePost.cid!,
-                    commentModeration: {
-                        spoiler: true,
-                        reason: `Comment moderation fallback ${Date.now()}`
-                    },
-                    signer: await plebbit.createSigner(signers[3])
-                })
+        it("CommentEdit publish succeeds with community publicKey fallback", async () => {
+            const plebbit = await config.plebbitInstancePromise({
+                mockResolve: false,
+                plebbitOptions: {
+                    nameResolvers: [
+                        createMockNameResolver({
+                            includeDefaultRecords: true,
+                            canResolve: ({ name }: { name: string }) => /\.eth$/i.test(name)
+                        })
+                    ]
+                }
+            });
+            const publication = await plebbit.createCommentEdit({
+                communityAddress: communityName,
+                communityPublicKey,
+                commentCid: fixturePost.cid!,
+                content: `Comment edit fallback ${Date.now()}`,
+                signer: fixturePost.signer!
+            });
+            const createSubplebbitSpy = vi.spyOn(plebbit, "createSubplebbit");
+
+            try {
+                await publishWithExpectedResult({ publication, expectedChallengeSuccess: true });
+                if (config.testConfigCode !== "remote-plebbit-rpc") {
+                    expectCreateSubplebbitFallbackArgs(createSubplebbitSpy);
+                    expectWireCommunityFields(publication);
+                }
+            } finally {
+                createSubplebbitSpy.mockRestore();
+                await publication.stop();
+                await plebbit.destroy();
+            }
         });
-    });
 
-    it("SubplebbitEdit publish passes name and publicKey to createSubplebbit and succeeds without a .bso resolver", async () => {
-        await publishAndAssertCommunityFallback({
-            createPublication: async (plebbit) =>
-                plebbit.createSubplebbitEdit({
-                    communityAddress: communityName,
-                    communityPublicKey,
-                    subplebbitEdit: {
-                        description: `Subplebbit edit fallback ${Date.now()}`
-                    },
-                    signer: await plebbit.createSigner(signers[1])
-                })
+        it("CommentModeration publish succeeds with community publicKey fallback", async () => {
+            const plebbit = await config.plebbitInstancePromise({
+                mockResolve: false,
+                plebbitOptions: {
+                    nameResolvers: [
+                        createMockNameResolver({
+                            includeDefaultRecords: true,
+                            canResolve: ({ name }: { name: string }) => /\.eth$/i.test(name)
+                        })
+                    ]
+                }
+            });
+            const publication = await plebbit.createCommentModeration({
+                communityAddress: communityName,
+                communityPublicKey,
+                commentCid: fixturePost.cid!,
+                commentModeration: {
+                    spoiler: true,
+                    reason: `Comment moderation fallback ${Date.now()}`
+                },
+                signer: await plebbit.createSigner(signers[3])
+            });
+            const createSubplebbitSpy = vi.spyOn(plebbit, "createSubplebbit");
+
+            try {
+                await publishWithExpectedResult({ publication, expectedChallengeSuccess: true });
+                if (config.testConfigCode !== "remote-plebbit-rpc") {
+                    expectCreateSubplebbitFallbackArgs(createSubplebbitSpy);
+                    expectWireCommunityFields(publication);
+                }
+            } finally {
+                createSubplebbitSpy.mockRestore();
+                await publication.stop();
+                await plebbit.destroy();
+            }
+        });
+
+        it("SubplebbitEdit publish succeeds with community publicKey fallback", async () => {
+            const plebbit = await config.plebbitInstancePromise({
+                mockResolve: false,
+                plebbitOptions: {
+                    nameResolvers: [
+                        createMockNameResolver({
+                            includeDefaultRecords: true,
+                            canResolve: ({ name }: { name: string }) => /\.eth$/i.test(name)
+                        })
+                    ]
+                }
+            });
+            const publication = await plebbit.createSubplebbitEdit({
+                communityAddress: communityName,
+                communityPublicKey,
+                subplebbitEdit: {
+                    description: `Subplebbit edit fallback ${Date.now()}`
+                },
+                signer: await plebbit.createSigner(signers[1])
+            });
+            const createSubplebbitSpy = vi.spyOn(plebbit, "createSubplebbit");
+
+            try {
+                await publishWithExpectedResult({ publication, expectedChallengeSuccess: true });
+                if (config.testConfigCode !== "remote-plebbit-rpc") {
+                    expectCreateSubplebbitFallbackArgs(createSubplebbitSpy);
+                    expectWireCommunityFields(publication);
+                }
+            } finally {
+                createSubplebbitSpy.mockRestore();
+                await publication.stop();
+                await plebbit.destroy();
+            }
         });
     });
 });

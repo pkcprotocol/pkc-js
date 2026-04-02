@@ -133,6 +133,21 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects publications with wrong co
         });
     });
 
+    it("rejects a comment with wrong communityName", async () => {
+        const comment = await plebbit.createComment({
+            communityAddress: "wrong-community.eth",
+            communityPublicKey: subplebbit.address,
+            title: `Wrong communityName comment ${Date.now()}`,
+            content: `Content ${Date.now()}`,
+            signer: await plebbit.createSigner()
+        });
+        await publishWithExpectedResult({
+            publication: comment,
+            expectedChallengeSuccess: false,
+            expectedReason: messages.ERR_PUBLICATION_INVALID_COMMUNITY_NAME
+        });
+    });
+
     // --- vote ---
 
     it("rejects a vote with deprecated subplebbitAddress field", async () => {
@@ -164,6 +179,22 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects publications with wrong co
             publication: vote,
             expectedChallengeSuccess: false,
             expectedReason: messages.ERR_PUBLICATION_INVALID_COMMUNITY_PUBLIC_KEY
+        });
+    });
+
+    it("rejects a vote with wrong communityName", async () => {
+        if (!targetPost.cid) throw Error("Expected target post to have a CID");
+        const vote = await plebbit.createVote({
+            commentCid: targetPost.cid,
+            vote: 1,
+            communityAddress: "wrong-community.eth",
+            communityPublicKey: subplebbit.address,
+            signer: await plebbit.createSigner()
+        });
+        await publishWithExpectedResult({
+            publication: vote,
+            expectedChallengeSuccess: false,
+            expectedReason: messages.ERR_PUBLICATION_INVALID_COMMUNITY_NAME
         });
     });
 
@@ -203,6 +234,23 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects publications with wrong co
         });
     });
 
+    it("rejects a commentEdit with wrong communityName", async () => {
+        if (!targetPost.cid) throw Error("Expected target post to have a CID");
+        if (!targetPost.signer) throw Error("Expected target post instance to retain its signer");
+        const commentEdit = await plebbit.createCommentEdit({
+            commentCid: targetPost.cid,
+            content: `Wrong communityName edit ${Date.now()}`,
+            communityAddress: "wrong-community.eth",
+            communityPublicKey: subplebbit.address,
+            signer: targetPost.signer
+        });
+        await publishWithExpectedResult({
+            publication: commentEdit,
+            expectedChallengeSuccess: false,
+            expectedReason: messages.ERR_PUBLICATION_INVALID_COMMUNITY_NAME
+        });
+    });
+
     // --- commentModeration ---
 
     it("rejects a commentModeration with deprecated subplebbitAddress field", async () => {
@@ -237,6 +285,22 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects publications with wrong co
         });
     });
 
+    it("rejects a commentModeration with wrong communityName", async () => {
+        if (!targetPost.cid) throw Error("Expected target post to have a CID");
+        const commentModeration = await plebbit.createCommentModeration({
+            communityAddress: "wrong-community.eth",
+            communityPublicKey: subplebbit.address,
+            commentCid: targetPost.cid,
+            commentModeration: { reason: `Wrong communityName mod ${Date.now()}`, spoiler: true },
+            signer: moderatorSigner
+        });
+        await publishWithExpectedResult({
+            publication: commentModeration,
+            expectedChallengeSuccess: false,
+            expectedReason: messages.ERR_PUBLICATION_INVALID_COMMUNITY_NAME
+        });
+    });
+
     // --- subplebbitEdit ---
 
     it("rejects a subplebbitEdit with deprecated subplebbitAddress field", async () => {
@@ -268,6 +332,22 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects publications with wrong co
             publication: subplebbitEdit,
             expectedChallengeSuccess: false,
             expectedReason: messages.ERR_PUBLICATION_INVALID_COMMUNITY_PUBLIC_KEY
+        });
+    });
+
+    it("rejects a subplebbitEdit with wrong communityName", async () => {
+        if (!subplebbit.signer || !("privateKey" in subplebbit.signer) || typeof subplebbit.signer.privateKey !== "string")
+            throw Error("Expected local subplebbit to expose its owner signer with a private key");
+        const subplebbitEdit = await plebbit.createSubplebbitEdit({
+            communityAddress: "wrong-community.eth",
+            communityPublicKey: subplebbit.address,
+            subplebbitEdit: { description: `Wrong communityName sub edit ${Date.now()}` },
+            signer: subplebbit.signer as SignerType
+        });
+        await publishWithExpectedResult({
+            publication: subplebbitEdit,
+            expectedChallengeSuccess: false,
+            expectedReason: messages.ERR_PUBLICATION_INVALID_COMMUNITY_NAME
         });
     });
 });
