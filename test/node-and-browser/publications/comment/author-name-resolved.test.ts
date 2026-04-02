@@ -8,7 +8,6 @@ import {
     mockNameResolvers,
     createMockNameResolver,
     resolveWhenConditionIsTrue,
-    mockPlebbitV2,
     getAvailablePlebbitConfigsToTestAgainst,
     createStaticSubplebbitRecordForComment,
     addStringToIpfs
@@ -175,9 +174,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         itSkipIfRpc("nameResolved is undefined when resolveAuthorNames is false", async () => {
-            const noResolvePlebbit = await mockPlebbitV2({
+            const noResolvePlebbit = await config.plebbitInstancePromise({
                 stubStorage: false,
-                remotePlebbit: true,
                 plebbitOptions: { resolveAuthorNames: false }
             });
 
@@ -195,10 +193,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await noResolvePlebbit.destroy();
         });
 
-        itSkipIfRpc("nameResolved is false when resolver throws", async () => {
-            const readerPlebbit = await mockPlebbitV2({
+        it("nameResolved is false when resolver throws", async () => {
+            const readerPlebbit = await config.plebbitInstancePromise({
                 stubStorage: false,
-                remotePlebbit: true,
                 mockResolve: false
             });
             mockNameResolvers({
@@ -461,9 +458,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             }
         });
 
-        // === Tests that require non-RPC (mock resolvers or local verification) ===
-
-        itSkipIfRpc("nameResolved is false when reader has no resolver for the author's TLD", async () => {
+        it("nameResolved is false when reader has no resolver for the author's TLD", async () => {
             // Create a comment with .xyz TLD using default plebbit (which accepts all TLDs)
             const xyzComment = await createStaticSubplebbitRecordForComment({
                 plebbit,
@@ -474,9 +469,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             });
 
             // Create a reader plebbit with a restricted resolver (only .eth/.bso)
-            const readerPlebbit = await mockPlebbitV2({
+            // even for RPC servers they should not be able to resolve .xyz
+            const readerPlebbit = await config.plebbitInstancePromise({
                 stubStorage: false,
-                remotePlebbit: true,
                 mockResolve: false,
                 plebbitOptions: {
                     nameResolvers: [

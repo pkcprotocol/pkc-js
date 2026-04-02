@@ -1,7 +1,9 @@
 import {
     createMockedSubplebbitIpns,
     createMockNameResolver,
+    describeSkipIfRpc,
     getAvailablePlebbitConfigsToTestAgainst,
+    itSkipIfRpc,
     mockPlebbitV2,
     mockRemotePlebbit,
     resolveWhenConditionIsTrue
@@ -62,8 +64,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const { communityAddress: subplebbitAddress } = await createMockedSubplebbitIpns({});
 
             // Create plebbit with resolver that only handles .eth/.bso (not .sol)
-            const testPlebbit = await mockPlebbitV2({
-                remotePlebbit: true,
+            const testPlebbit = await config.plebbitInstancePromise({
                 mockResolve: false,
                 plebbitOptions: {
                     nameResolvers: [
@@ -97,8 +98,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const { communityAddress: subplebbitAddress } = await createMockedSubplebbitIpns({});
 
             // Create plebbit with resolver that returns null for our domain
-            const testPlebbit = await mockPlebbitV2({
-                remotePlebbit: true,
+            const testPlebbit = await config.plebbitInstancePromise({
                 mockResolve: false,
                 plebbitOptions: {
                     nameResolvers: [
@@ -128,8 +128,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const { communityAddress: subplebbitAddress } = await createMockedSubplebbitIpns({});
 
             // Create plebbit with resolver that returns the correct publicKey for our domain
-            const testPlebbit = await mockPlebbitV2({
-                remotePlebbit: true,
+            const testPlebbit = await config.plebbitInstancePromise({
                 mockResolve: false,
                 plebbitOptions: {
                     nameResolvers: [
@@ -237,8 +236,7 @@ describe(`publicKey fallback - .sol community loading`, () => {
             });
 
             it(`createSubplebbit({ address: "mycommunity.sol" }).update() fails (no resolver for .sol)`, async () => {
-                const testPlebbit = await mockPlebbitV2({
-                    remotePlebbit: true,
+                const testPlebbit = await config.plebbitInstancePromise({
                     mockResolve: false,
                     plebbitOptions: {
                         nameResolvers: [
@@ -266,8 +264,7 @@ describe(`publicKey fallback - .sol community loading`, () => {
             it(`createSubplebbit({ name: "mycommunity.sol", publicKey }) succeeds via publicKey fallback`, async () => {
                 const { communityAddress: subplebbitAddress } = await createMockedSubplebbitIpns({});
 
-                const testPlebbit = await mockPlebbitV2({
-                    remotePlebbit: true,
+                const testPlebbit = await config.plebbitInstancePromise({
                     mockResolve: false,
                     plebbitOptions: {
                         nameResolvers: [
