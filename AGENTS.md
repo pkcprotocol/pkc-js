@@ -47,6 +47,7 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 - When you modify a function in `test/test-util.ts`, search all test files under `test/` that import or call that function (e.g. `grep -r "functionName" test/`), then run those tests and make sure they pass.
 - You should still run tests without waiting for me and assume the test server is running by me. You should not run run test server `npm run test:server:node` yourself — instead ask me to do it or assume I'm doing it. Test server is not the same as test files, but many test files need test server running.
 - When bumping `DB_VERSION`, add a migration test that creates an in-memory DB with the old schema, inserts representative rows, runs migration via `createOrMigrateTablesIfNeeded()`, and asserts the migrated data is correct. Focus on tables whose schema changed.
+- When using `describeSkipIfRpc`, `itSkipIfRpc`, or otherwise skipping tests for RPC, you MUST add a comment above explaining why the test cannot run under RPC.
 
 ### Code
 
