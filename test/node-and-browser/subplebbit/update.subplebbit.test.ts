@@ -42,6 +42,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await plebbit.destroy();
         });
 
+        // Cannot run under RPC: test spies on name.resolve/fetch which happen server-side, not observable from the client
         itSkipIfRpc("calling update() on many instances of the same subplebbit resolves IPNS only once", async () => {
             const localPlebbit = await config.plebbitInstancePromise();
             const randomSub = await createMockedSubplebbitIpns({});
@@ -144,22 +145,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         // Scenario B + name resolves to different key: triggers key migration
-        itSkipIfRpc(`subplebbit loaded by raw IPNS key triggers key migration when record's name resolves to different key`, async () => {
-            // Cannot mock name resolvers over RPC since resolver functions can't be serialized
+        it(`subplebbit loaded by raw IPNS key triggers key migration when record's name resolves to different key`, async () => {
+            // "migration-test.bso" is in defaultMockResolverRecords → signers[0].address,
+            // which differs from the mocked record's signer → triggers key migration
             const { communityAddress: ipnsKey } = await createMockedSubplebbitIpns({ name: "migration-test.bso" });
             const differentKey = signers[0].address;
 
-            const testPlebbit = await config.plebbitInstancePromise({
-                mockResolve: false,
-                plebbitOptions: {
-                    nameResolvers: [
-                        createMockNameResolver({
-                            // "migration-test.bso" resolves to a DIFFERENT key than the record's signer
-                            records: new Map([["migration-test.bso", differentKey]])
-                        })
-                    ]
-                }
-            });
+            const testPlebbit = await config.plebbitInstancePromise();
 
             try {
                 const sub = await testPlebbit.createSubplebbit({ address: ipnsKey });
@@ -201,8 +193,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         // Scenario B + name fails to resolve: nameResolved becomes false
+        // Cannot run under RPC: nameResolved is set in the 2nd update loop (after name is parsed from record),
+        // but the 2nd loop finds the same CID so no "update" event fires and the RPC client never receives nameResolved=false
+        // TODO: revisit once nameResolved changes emit an "update" event
         itSkipIfRpc(`subplebbit loaded by raw IPNS key sets nameResolved=false when record's name cannot be resolved`, async () => {
-            // Cannot mock name resolvers over RPC since resolver functions can't be serialized
             const { communityAddress: ipnsKey } = await createMockedSubplebbitIpns({ name: "unresolvable-name.bso" });
 
             const testPlebbit = await config.plebbitInstancePromise({
@@ -399,21 +393,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         // Scenario A: {address: domain, publicKey: pkA} where domain resolves to pkB (key migration)
-        itSkipIfRpc(`subplebbit.update() performs key migration when name resolves to different public key`, async () => {
-            // Cannot mock name resolvers over RPC since resolver functions can't be serialized
+        it(`subplebbit.update() performs key migration when name resolves to different public key`, async () => {
+            // "migrating.bso" is in defaultMockResolverRecords → signers[0].address,
+            // which differs from the mocked record's signer → triggers key migration
             const { communityAddress: oldPublicKey } = await createMockedSubplebbitIpns({});
             const newPublicKey = signers[0].address; // domain will resolve to this different key
 
-            const testPlebbit = await config.plebbitInstancePromise({
-                mockResolve: false,
-                plebbitOptions: {
-                    nameResolvers: [
-                        createMockNameResolver({
-                            records: new Map([["migrating.bso", newPublicKey]])
-                        })
-                    ]
-                }
-            });
+            const testPlebbit = await config.plebbitInstancePromise();
 
             try {
                 const sub = await testPlebbit.createSubplebbit({ address: "migrating.bso", publicKey: oldPublicKey });
@@ -476,20 +462,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         // Scenario C: {address: domain} where record has name: "other.eth" (different name)
-        itSkipIfRpc(`subplebbit.update() rejects record when record name differs from loaded domain address`, async () => {
-            // Cannot mock name resolvers over RPC since resolver functions can't be serialized
-            // signers[3] has name: "plebbit.bso" in its record
-            // We resolve a different domain to that same key -- record's name won't match the domain
-            const testPlebbit = await config.plebbitInstancePromise({
-                mockResolve: false,
-                plebbitOptions: {
-                    nameResolvers: [
-                        createMockNameResolver({
-                            records: new Map([["wrong-name.bso", nameSubplebbitSigner.address]])
-                        })
-                    ]
-                }
-            });
+        it(`subplebbit.update() rejects record when record name differs from loaded domain address`, async () => {
+            // "wrong-name.bso" is in defaultMockResolverRecords → signers[3].address
+            // signers[3]'s record has name: "plebbit.bso", so "wrong-name.bso" ≠ "plebbit.bso" → rejection
+            const testPlebbit = await config.plebbitInstancePromise();
 
             try {
                 const sub = await testPlebbit.createSubplebbit({ address: "wrong-name.bso" });
@@ -519,21 +495,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         // Scenario D: {address: domain, publicKey: pkA} where domain fails to resolve
-        itSkipIfRpc(`subplebbit.update() falls back to publicKey when name resolution fails, nameResolved stays undefined`, async () => {
-            // Cannot mock name resolvers over RPC since resolver functions can't be serialized
+        it(`subplebbit.update() falls back to publicKey when name resolution fails, nameResolved stays undefined`, async () => {
+            // Default mock resolver can't resolve "unresolvable.bso" (not in default records) → falls back to publicKey
             const { communityAddress: publicKey } = await createMockedSubplebbitIpns({});
 
-            const testPlebbit = await config.plebbitInstancePromise({
-                mockResolve: false,
-                plebbitOptions: {
-                    nameResolvers: [
-                        createMockNameResolver({
-                            // Resolver handles .bso but returns undefined (no record found)
-                            records: new Map([["unresolvable.bso", undefined]])
-                        })
-                    ]
-                }
-            });
+            const testPlebbit = await config.plebbitInstancePromise();
 
             try {
                 const sub = await testPlebbit.createSubplebbit({ address: "unresolvable.bso", publicKey });

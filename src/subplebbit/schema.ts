@@ -223,12 +223,16 @@ export const SubplebbitIpfsSchema = z
 export const SubplebbitSignedPropertyNames = remeda.keys.strict(remeda.omit(SubplebbitIpfsSchema.shape, ["signature"]));
 
 // This is object transmitted by RPC server to RPC client when it's fetching a remote subplebbit
+// When resetInstance is true, subplebbit/updateCid are absent — the client should clear its state
 export const RpcRemoteSubplebbitUpdateEventResultSchema = z.object({
-    subplebbit: SubplebbitIpfsSchema.loose(),
+    subplebbit: SubplebbitIpfsSchema.loose().optional(),
+    resetInstance: z.boolean().optional(),
     runtimeFields: z
         .object({
-            updateCid: CidStringSchema,
-            updatingState: z.custom<LocalSubplebbit["updatingState"]>().optional()
+            updateCid: CidStringSchema.optional(),
+            updatingState: z.custom<LocalSubplebbit["updatingState"]>().optional(),
+            newPublicKey: z.string().optional(),
+            nameResolved: z.boolean().optional()
         })
         .passthrough()
 });
@@ -328,6 +332,7 @@ export const SubplebbitIpfsReservedFields = remeda.difference(
         "updateCid",
         "shortUpdateCid",
         "shortAddress",
+        "nameResolved",
         "raw",
         "shortSubplebbitAddress",
         "deleted",

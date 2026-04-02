@@ -96,7 +96,12 @@ const defaultMockResolverRecords = new Map<string, string>([
     ["plebbit.eth", "12D3KooWNMYPSuNadceoKsJ6oUQcxGcfiAsHNpVTt1RQ1zSrKKpo"],
     ["plebbit.bso", "12D3KooWNMYPSuNadceoKsJ6oUQcxGcfiAsHNpVTt1RQ1zSrKKpo"],
     ["rpc-edit-test.eth", "12D3KooWMZPQsQdYtrakc4D1XtzGXwN1X3DBnAobcCjcPYYXTB6o"],
-    ["rpc-edit-test.bso", "12D3KooWMZPQsQdYtrakc4D1XtzGXwN1X3DBnAobcCjcPYYXTB6o"]
+    ["rpc-edit-test.bso", "12D3KooWMZPQsQdYtrakc4D1XtzGXwN1X3DBnAobcCjcPYYXTB6o"],
+    // Resolves to signers[0] — used by key migration tests where record is signed by a different key
+    ["migration-test.bso", "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR"],
+    ["migrating.bso", "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR"],
+    // Resolves to signers[3] but record has name "plebbit.bso" — used by name mismatch rejection test
+    ["wrong-name.bso", "12D3KooWNMYPSuNadceoKsJ6oUQcxGcfiAsHNpVTt1RQ1zSrKKpo"]
 ]);
 
 function getMockResolverRecord(records: MockResolverRecords | undefined, name: string): { found: boolean; value: string | undefined } {

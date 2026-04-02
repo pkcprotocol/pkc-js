@@ -80,8 +80,16 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
             throw e;
         }
 
-        this.initSubplebbitIpfsPropsNoMerge(updateRecord.subplebbit);
-        this.updateCid = updateRecord.runtimeFields.updateCid;
+        // Key migration: server cleared its state, client should do the same
+        if (updateRecord.resetInstance && updateRecord.runtimeFields.newPublicKey) {
+            this._clearDataForKeyMigration(updateRecord.runtimeFields.newPublicKey);
+            if (typeof updateRecord.runtimeFields.nameResolved === "boolean") this.nameResolved = updateRecord.runtimeFields.nameResolved;
+            this.emit("update", this);
+            return;
+        }
+
+        this.initSubplebbitIpfsPropsNoMerge(updateRecord.subplebbit!);
+        this.updateCid = updateRecord.runtimeFields.updateCid!;
         this._setUpdatingStateNoEmission(updateRecord.runtimeFields.updatingState || "succeeded");
         this.raw.runtimeFieldsFromRpc = updateRecord.runtimeFields;
         deepMergeRuntimeFields(this, updateRecord.runtimeFields);

@@ -395,8 +395,17 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
     }
 
     toJSONRpcRemote(): RpcRemoteSubplebbitType {
-        if (!this.updateCid) throw Error("subplebbit.updateCid should be defined before calling toJSONRpcRemote");
-        if (!this.raw.subplebbitIpfs) throw Error("subplebbit.raw.subplebbitIpfs should be defined before calling toJSONRpcRemote");
+        if (!this.updateCid || !this.raw.subplebbitIpfs) {
+            // Post key-migration cleared state — tell client to reset its instance
+            return {
+                resetInstance: true,
+                runtimeFields: {
+                    newPublicKey: this.publicKey!,
+                    nameResolved: this.nameResolved,
+                    updatingState: this.updatingState
+                }
+            };
+        }
         return {
             subplebbit: this.raw.subplebbitIpfs,
             runtimeFields: {
