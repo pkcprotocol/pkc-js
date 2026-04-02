@@ -339,18 +339,22 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
         }
         if (typeof newProps.name === "string") this.name = newProps.name;
 
-        // Preserve the existing domain name/address when we loaded via publicKey fallback
-        // and the fetched wire record has no `name` field.
-        const explicitAddress = "address" in newProps ? (newProps.address as string) : undefined;
-        const derivedAddress = this.name || this.publicKey || explicitPublicKey || explicitAddress || this.address;
-        if (derivedAddress) this.setAddress(derivedAddress);
+        // Only set address during initial creation (no address yet).
+        // Once set, address is immutable -- record updates must not override it.
+        if (!this.address) {
+            const explicitAddress = "address" in newProps ? (newProps.address as string) : undefined;
+            const derivedAddress = this.name || this.publicKey || explicitPublicKey || explicitAddress;
+            if (derivedAddress) this.setAddress(derivedAddress);
+        } else {
+            // Address already set -- refresh tracking aliases without changing address
+            refreshTrackedSubplebbitAliases(this._plebbit, this);
+        }
 
         this._updateLocalPostsInstance(newProps.posts);
         this._updateLocalModQueueInstance(newProps.modQueue);
 
         // Exclusive Instance props
         if ("updateCid" in newProps && newProps.updateCid) this.updateCid = newProps.updateCid as string;
-        refreshTrackedSubplebbitAliases(this._plebbit, this);
     }
 
     setAddress(newAddress: string) {
@@ -369,6 +373,20 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
         this.posts._subplebbit = this;
         this.modQueue._subplebbit = this;
         refreshTrackedSubplebbitAliases(this._plebbit, this);
+    }
+
+    _clearDataForKeyMigration(newPublicKey: string) {
+        this.raw.subplebbitIpfs = undefined;
+        this.updateCid = undefined;
+        // Clear all display fields via initRemoteSubplebbitPropsNoMerge with empty props.
+        // Address immutability in initRemoteSubplebbitPropsNoMerge ensures address won't change.
+        this.initRemoteSubplebbitPropsNoMerge({} as CreateRemoteSubplebbitOptions);
+
+        // Update to new key and IPNS routing props
+        this.publicKey = newPublicKey;
+        this.ipnsName = newPublicKey;
+        this.ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(newPublicKey);
+        this.ipnsPubsubTopicRoutingCid = pubsubTopicToDhtKey(this.ipnsPubsubTopic);
     }
 
     protected _toJSONIpfsBaseNoPosts() {

@@ -325,11 +325,41 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
             abortSignal: this._subplebbit._getStopAbortSignal()
         })
             .then((resolved) => {
-                this._subplebbit.nameResolved = resolved === this._subplebbit.publicKey;
+                if (resolved && resolved !== this._subplebbit.publicKey) {
+                    // Key change detected: name now points to a different key.
+                    // Most likely: cached publicKey is stale after community key migration.
+                    log("Key migration detected for", name, "old:", this._subplebbit.publicKey, "new:", resolved);
+                    const error = new PlebbitError("ERR_SUBPLEBBIT_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY", {
+                        communityName: name,
+                        previousPublicKey: this._subplebbit.publicKey,
+                        newPublicKey: resolved
+                    });
+                    this._subplebbit.emit("error", error);
+
+                    // Clear all data immediately (old data may be from compromised key)
+                    this._subplebbit._clearDataForKeyMigration(resolved);
+                    this._updateCidsAlreadyLoaded.clear();
+
+                    // Abort in-flight fetch (using old key) by aborting the stop controller,
+                    // then immediately create a new one so the update loop continues.
+                    this._subplebbit._abortStopOperations("Key migration: name resolved to different public key");
+                    this._subplebbit._createStopAbortController();
+
+                    // Emit update so UI drops stale data right away
+                    this._subplebbit.emit("update", this._subplebbit);
+
+                    this._subplebbit.nameResolved = true;
+                } else if (resolved) {
+                    this._subplebbit.nameResolved = true;
+                }
+                // If resolved is null but subplebbit has a name, the name is not resolving
+                if (!resolved && this._subplebbit.name) {
+                    this._subplebbit.nameResolved = false;
+                }
             })
             .catch((e) => {
                 log.trace("Background name resolution failed for", name, e);
-                this._subplebbit.nameResolved = false;
+                // Transient failure -- leave nameResolved as undefined
             });
     }
 
@@ -348,6 +378,11 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                     communityAddress: subAddress,
                     abortSignal: this._subplebbit._getStopAbortSignal()
                 });
+            }
+
+            // When loaded by raw IPNS key, verify the record's name claim in background (once)
+            if (!isDomain && this._subplebbit.name && this._subplebbit.publicKey && typeof this._subplebbit.nameResolved !== "boolean") {
+                this._resolveNameInBackground(this._subplebbit.name);
             }
 
             if (!ipnsName) throw Error("Failed to resolve subplebbit address to an IPNS name");
@@ -729,7 +764,14 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
         const addressMatchesPublicKey = this._subplebbit.publicKey
             ? this._areEquivalentSubplebbitAddresses(recordAddress, this._subplebbit.publicKey)
             : false;
-        if (!addressMatchesInstance && !addressMatchesPublicKey) {
+        // Accept when user loaded by raw IPNS key and the record's signature key matches.
+        // Handles: {address: "12D3Koo..."} loads record with name: "plebbit.bso".
+        // NOT applied for domain addresses (Scenario C stays rejected).
+        const instanceAddressIsDomain = isStringDomain(subInstanceAddress);
+        const signatureKeyMatchesIpnsName = !instanceAddressIsDomain
+            ? this._areEquivalentSubplebbitAddresses(getPlebbitAddressFromPublicKeySync(subJson.signature.publicKey), ipnsNameOfSub)
+            : false;
+        if (!addressMatchesInstance && !addressMatchesPublicKey && !signatureKeyMatchesIpnsName) {
             // Did the gateway supply us with a different subplebbit's ipns
 
             const error = new PlebbitError("ERR_THE_SUBPLEBBIT_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED", {
