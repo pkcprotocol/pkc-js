@@ -53,6 +53,7 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 
 - Never use `removeAllListeners` — it removes the error listener initialized in the constructor, which may cause the process to crash.
 - `author.address` and `subplebbit.address` are immutable — never override or fall back to a derived address; use `author.nameResolved` to indicate whether a domain resolved correctly.
+- Every time you add a runtime-only field, ask whether it should also be added to the corresponding reserved-field list before you finish the change.
 - A comment's bytes size during publication is limited to 40kb.
 - An author and a community cannot share the same domain name for now.
 - Never use the `any` type or cast to `any` without consulting the user first — this repo should remain fully typed.
