@@ -530,8 +530,6 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         if ("commentUpdateFromChallengeVerification" in options.raw && options.raw.commentUpdateFromChallengeVerification)
             commentInstance._initCommentUpdateFromChallengeVerificationProps(options.raw.commentUpdateFromChallengeVerification);
         if (options.raw.commentUpdate) commentInstance._initCommentUpdate(options.raw.commentUpdate);
-        if (commentInstance.author && typeof options.author?.nameResolved === "boolean")
-            commentInstance.author.nameResolved = options.author.nameResolved;
         return commentInstance;
     }
 
@@ -590,7 +588,6 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
             commentInstance._initPubsubMessageProps(parsedOptions);
         } else if ("signer" in options) {
             // options is CreateCommentOptions
-            const runtimeAuthorNameResolved = typeof options.author?.nameResolved === "boolean" ? options.author.nameResolved : undefined;
             const parsedOptions = parseCreateCommentOptionsSchemaWithPlebbitErrorIfItFails(options);
             // Defer signing to publish() — just fill missing fields and store unsigned options
             const fieldsFilled = <CommentOptionsToSign>await this._initMissingFieldsOfPublicationBeforeSigning(parsedOptions, log);
@@ -599,7 +596,6 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
                 challengeRequest: parsedOptions.challengeRequest
             });
             await commentInstance._signPublicationWithKnownCommunityFieldsIfAvailable();
-            if (typeof runtimeAuthorNameResolved === "boolean") commentInstance.author.nameResolved = runtimeAuthorNameResolved;
         } else if ("cid" in options) {
             // {cid: string, subplebbitAddress?: string}
             commentInstance.setCid(parseCidStringSchemaWithPlebbitErrorIfItFails(options.cid));

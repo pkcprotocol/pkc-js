@@ -124,7 +124,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(comment.author.address).to.equal("plebbit.bso");
         });
 
-        it("createComment preserves author.nameResolved on the runtime instance only", async () => {
+        it("createComment does not preserve author.nameResolved passed via CreateCommentOptions", async () => {
             const comment = await plebbit.createComment({
                 author: {
                     displayName: `Test Author - ${Date.now()}`,
@@ -137,12 +137,76 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 communityAddress: subplebbitAddress
             });
 
-            expect(comment.author.nameResolved).to.equal(true);
+            // nameResolved is strictly runtime — passing it in options has no effect
+            expect(comment.author.nameResolved).to.be.undefined;
             expect(comment.author.address).to.equal("plebbit.bso");
             const wireAuthor =
                 comment.raw.pubsubMessageToPublish?.author ?? (comment.raw as Publication["raw"]).unsignedPublicationOptions?.author;
             expect(wireAuthor).to.be.an("object");
             expect(wireAuthor!).to.not.have.property("nameResolved");
+        });
+
+        it("createComment({...publishedComment}) does not carry over author.nameResolved", async () => {
+            const comment = await publishRandomPost({
+                communityAddress: subplebbitAddress,
+                plebbit,
+                postProps: {
+                    author: { name: "plebbit.bso" },
+                    signer: signers[3]
+                }
+            });
+            await comment.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: comment,
+                predicate: async () => typeof comment.updatedAt === "number"
+            });
+            await comment.stop();
+
+            expect(comment.author.nameResolved).to.equal(true);
+
+            const cloned = await plebbit.createComment({ ...comment });
+            expect(cloned.author.nameResolved).to.be.undefined;
+            expect(cloned.author.address).to.equal("plebbit.bso");
+        });
+
+        it("createComment(JSON.parse(JSON.stringify(publishedComment))) does not carry over author.nameResolved", async () => {
+            const comment = await publishRandomPost({
+                communityAddress: subplebbitAddress,
+                plebbit,
+                postProps: {
+                    author: { name: "plebbit.bso" },
+                    signer: signers[3]
+                }
+            });
+            await comment.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: comment,
+                predicate: async () => typeof comment.updatedAt === "number"
+            });
+            await comment.stop();
+
+            expect(comment.author.nameResolved).to.equal(true);
+
+            const cloned = await plebbit.createComment(JSON.parse(JSON.stringify(comment)));
+            expect(cloned.author.nameResolved).to.be.undefined;
+            expect(cloned.author.address).to.equal("plebbit.bso");
+        });
+
+        it("createComment({...pageComment}) does not carry over author.nameResolved from pages", async () => {
+            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => sub.posts?.pages?.hot?.comments?.some((c) => c.cid === domainCommentCid) ?? false
+            });
+            await sub.stop();
+
+            const pageComment = sub.posts.pages.hot!.comments.find((c) => c.cid === domainCommentCid)!;
+            expect(pageComment.author.nameResolved).to.equal(true);
+
+            const cloned = await plebbit.createComment({ ...pageComment });
+            expect(cloned.author.nameResolved).to.be.undefined;
+            expect(cloned.author.address).to.equal("plebbit.bso");
         });
 
         it("nameResolved is false when the loaded comment's author name does not match its signature public key", async () => {
