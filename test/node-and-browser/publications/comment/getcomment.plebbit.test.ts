@@ -222,6 +222,21 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             }
         });
 
+        it(`plebbit.getComment succeeds when communityPublicKey differs from sub but communityName matches (key rotation)`, async () => {
+            // Simulate a domain-based sub that rotated its key: old comments have communityPublicKey set to the old key,
+            // but communityName matches the sub's domain address. This should NOT be an error because
+            // getCommunityAddressFromRecord returns communityName first, so the address check uses the domain.
+            const commentIpfs = JSON.parse(JSON.stringify(validCommentFixture));
+            commentIpfs.communityName = "example.eth";
+            commentIpfs.communityPublicKey = signers[6].address; // "old" key, differs from sub's current key
+            const cid = await addStringToIpfs(JSON.stringify(commentIpfs));
+
+            const loadedComment = await plebbit.getComment({ cid, communityAddress: "example.eth" });
+            expect(loadedComment.communityAddress).to.equal("example.eth");
+            expect(loadedComment.communityPublicKey).to.equal(signers[6].address);
+            expect(loadedComment.communityName).to.equal("example.eth");
+        });
+
         itSkipIfRpc(`plebbit.getComment times out if commentCid does not exist`, async () => {
             const commentCid = "QmbSiusGgY4Uk5LdAe91bzLkBzidyKyKHRKwhXPDz7gGzx"; // random cid doesn't exist anywhere
             const customPlebbit: Plebbit = await config.plebbitInstancePromise();

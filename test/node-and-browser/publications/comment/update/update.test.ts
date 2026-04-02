@@ -336,6 +336,38 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(updateHasBeenEmitted).to.be.false;
         });
 
+        it(`comment.update() loads CommentUpdate when communityPublicKey differs from initially provided value (key rotation)`, async () => {
+            // Pass a communityPublicKey that differs from what the CommentIpfs actually has.
+            // After CommentIpfs loads, the real communityPublicKey from the record takes over.
+            // The full pipeline (CommentIpfs + CommentUpdate) should complete without errors.
+            const sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const commentCid = sub.posts.pages.hot.comments[0].cid;
+
+            const createdComment = await plebbit.createComment({ cid: commentCid, communityPublicKey: signers[6].address });
+            expect(createdComment.communityPublicKey).to.equal(signers[6].address); // initially set to the "old" key
+
+            const errors: PlebbitError[] = [];
+            createdComment.on("error", (err) => errors.push(err as PlebbitError));
+            await createdComment.update();
+
+            // Wait for CommentUpdate to load (implies CommentIpfs already loaded successfully)
+            await resolveWhenConditionIsTrue({
+                toUpdate: createdComment,
+                predicate: async () => createdComment.raw.commentUpdate !== undefined,
+                eventName: "update"
+            });
+
+            // No community address mismatch error should have been emitted
+            const addressMismatchErrors = errors.filter(
+                (e) => e.details?.commentIpfsValidation?.reason === messages.ERR_COMMENT_IPFS_COMMUNITY_ADDRESS_MISMATCH
+            );
+            expect(addressMismatchErrors).to.deep.equal([]);
+            // After loading, communityPublicKey is set from the actual CommentIpfs record
+            expect(createdComment.communityPublicKey).to.be.a("string");
+            expect(createdComment.updatedAt).to.be.a("number");
+            await createdComment.stop();
+        });
+
         itSkipIfRpc.sequential(`comment.update() emit an error if CommentUpdate signature is invalid `, async () => {
             // Should emit an error as well but stay subscribed to sub updates
 

@@ -398,6 +398,24 @@ describeSkipIfRpc("verify Comment", async () => {
         });
         expect(tamperedVerification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
+
+    it(`verifyCommentIpfs passes when communityPublicKey differs from sub but communityName matches (key rotation)`, async () => {
+        const comment = remeda.clone(validCommentFixture) as CommentIpfsType;
+        // Simulate key rotation: comment was published under old key, sub now has new key.
+        // Add new-format fields; old subplebbitAddress stays for signature validity since it's in signedPropertyNames.
+        // getCommunityAddressFromRecord returns communityName first, so the address check uses the domain, not the key.
+        (comment as Record<string, unknown>).communityName = "example.eth";
+        (comment as Record<string, unknown>).communityPublicKey = signers[6].address; // "old" key, differs from sub's current
+
+        const verification = await verifyCommentIpfs({
+            comment,
+            clientsManager: plebbit._clientsManager,
+            resolveAuthorNames: false,
+            calculatedCommentCid: "QmKeyRotationTest",
+            communityAddressFromInstance: "example.eth" // matches communityName
+        });
+        expect(verification).to.deep.equal({ valid: true });
+    });
 });
 
 // Clients of RPC will trust the response of RPC and won't validate
