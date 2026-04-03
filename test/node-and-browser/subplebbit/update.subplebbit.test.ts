@@ -22,15 +22,6 @@ import type { PlebbitError } from "../../../dist/node/plebbit-error.js";
 
 const nameSubplebbitSigner = signers[3];
 
-// Poll a condition every 100ms, throw if not met within timeoutMs
-async function pollUntil(predicate: () => boolean, timeoutMs: number) {
-    const start = Date.now();
-    while (!predicate()) {
-        if (Date.now() - start > timeoutMs) throw new Error(`pollUntil timed out after ${timeoutMs}ms`);
-        await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-}
-
 getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     describe.concurrent("subplebbit.update (remote) - " + config.name, async () => {
         let plebbit: PlebbitType;
@@ -135,10 +126,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             // On subsequent update loops, the name "plebbit.bso" is resolved in background.
             // The default mock resolver maps "plebbit.bso" → nameSubplebbitSigner.address (same key),
-            // so nameResolved should eventually become true.
-            // TODO: decide whether nameResolved changing should trigger an "update" event
-            // For now we poll since nameResolved changes don't emit "update"
-            await pollUntil(() => loadedSubplebbit.nameResolved === true, 5000);
+            // so nameResolved should eventually become true — and that change emits an "update" event.
+            await resolveWhenConditionIsTrue({
+                toUpdate: loadedSubplebbit,
+                predicate: async () => loadedSubplebbit.nameResolved === true
+            });
             expect(loadedSubplebbit.nameResolved).to.equal(true);
             expect(loadedSubplebbit.address).to.equal(nameSubplebbitSigner.address);
             await loadedSubplebbit.stop();
@@ -199,10 +191,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         // Scenario B + name fails to resolve: nameResolved becomes false
-        // Cannot run under RPC: nameResolved is set in the 2nd update loop (after name is parsed from record),
-        // but the 2nd loop finds the same CID so no "update" event fires and the RPC client never receives nameResolved=false
-        // TODO: revisit once nameResolved changes emit an "update" event
-        itSkipIfRpc(`subplebbit loaded by raw IPNS key sets nameResolved=false when record's name cannot be resolved`, async () => {
+        it(`subplebbit loaded by raw IPNS key sets nameResolved=false when record's name cannot be resolved`, async () => {
             const { communityAddress: ipnsKey } = await createMockedSubplebbitIpns({ name: "unresolvable-name.bso" });
 
             const testPlebbit = await config.plebbitInstancePromise({
@@ -237,9 +226,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 expect(sub.name).to.equal("unresolvable-name.bso");
 
                 // On subsequent update loop, background resolution of "unresolvable-name.bso"
-                // returns null — nameResolved should become false
-                // TODO: decide whether nameResolved changing should trigger an "update" event
-                await pollUntil(() => sub.nameResolved === false, 5000);
+                // returns null — nameResolved should become false, which emits an "update" event.
+                await resolveWhenConditionIsTrue({
+                    toUpdate: sub,
+                    predicate: async () => sub.nameResolved === false
+                });
                 expect(sub.nameResolved).to.equal(false);
                 // No key migration error — just a name that doesn't resolve
                 expect(keyMigrationErrorEmitted).to.be.false;
@@ -347,18 +338,21 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const sub = await plebbit.createSubplebbit({ address: "this-sub-does-not-exist.bso" });
             // Should emit an error and keep on retrying in the next update loop
             let errorCount = 0;
+            let resolveErrorPromise: () => void;
             const errorPromise = new Promise<void>((resolve) => {
-                sub.on("error", (err: PlebbitError | Error) => {
-                    expect((err as PlebbitError).code).to.equal("ERR_DOMAIN_TXT_RECORD_NOT_FOUND");
-                    expect(sub.updatingState).to.equal("waiting-retry");
-                    errorCount++;
-                    if (errorCount === 3) resolve();
-                });
+                resolveErrorPromise = resolve;
             });
+            const errorListener = (err: PlebbitError | Error) => {
+                expect((err as PlebbitError).code).to.equal("ERR_DOMAIN_TXT_RECORD_NOT_FOUND");
+                expect(sub.updatingState).to.equal("waiting-retry");
+                errorCount++;
+                if (errorCount === 3) resolveErrorPromise();
+            };
+            sub.on("error", errorListener);
             await sub.update();
             await errorPromise;
             await sub.stop();
-            await sub.removeAllListeners("error");
+            sub.removeListener("error", errorListener);
         });
 
         it(`subplebbit.stop() stops subplebbit updates`, async () => {
@@ -500,9 +494,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             }
         });
 
-        // Cannot run under RPC: background name resolution does not currently propagate
-        // the nameResolved=false transition for the publicKey fallback path to the client.
-        itSkipIfRpc(`subplebbit.update() falls back to publicKey when name resolution fails and sets nameResolved=false`, async () => {
+        it(`subplebbit.update() falls back to publicKey when name resolution fails and sets nameResolved=false`, async () => {
             // Default mock resolver can't resolve "unresolvable.bso" (not in default records) → falls back to publicKey
             const { communityAddress: publicKey } = await createMockedSubplebbitIpns({});
 
@@ -530,7 +522,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 expect(sub.address).to.equal("unresolvable.bso");
                 expect(sub.publicKey).to.equal(publicKey);
                 // Name could not be resolved (null returned), and sub.name is "unresolvable.bso",
-                // so nameResolved should be false
+                // so nameResolved should become false — background resolution emits "update"
+                await resolveWhenConditionIsTrue({
+                    toUpdate: sub,
+                    predicate: async () => sub.nameResolved === false
+                });
                 expect(sub.nameResolved).to.equal(false);
                 expect(keyMigrationErrorEmitted).to.be.false;
 
@@ -617,6 +613,75 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     expect((err.details.gatewayToError[gatewayUrl] as PlebbitError).code).to.equal("ERR_OVER_DOWNLOAD_LIMIT");
             } else expect(err.code).to.equal("ERR_OVER_DOWNLOAD_LIMIT");
             await ipnsObj.plebbit.destroy();
+        });
+
+        // Verify that background name resolution emits "update" independently of subplebbitIpfs changes
+        it(`background name resolution emits update with nameResolved=true without a new subplebbitIpfs record`, async () => {
+            const sub = await plebbit.createSubplebbit({ address: nameSubplebbitSigner.address });
+            await sub.update();
+            // Wait for the initial record to load
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => typeof sub.updatedAt === "number"
+            });
+            // Capture the record state — nameResolved may still be undefined (background resolution is async)
+            const updatedAtBeforeNameResolved = sub.updatedAt;
+            const updateCidBeforeNameResolved = sub.updateCid;
+
+            // Wait for background resolution to set nameResolved=true via an "update" event
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => sub.nameResolved === true
+            });
+            // The subplebbitIpfs record should be unchanged — update was triggered solely by nameResolved
+            expect(sub.updatedAt).to.equal(updatedAtBeforeNameResolved);
+            expect(sub.updateCid).to.equal(updateCidBeforeNameResolved);
+            expect(sub.nameResolved).to.equal(true);
+            expect(sub.address).to.equal(nameSubplebbitSigner.address);
+            await sub.stop();
+        });
+
+        it(`background name resolution emits update with nameResolved=false without a new subplebbitIpfs record`, async () => {
+            const { communityAddress: ipnsKey } = await createMockedSubplebbitIpns({ name: "unresolvable-name-independent.bso" });
+
+            const testPlebbit = await config.plebbitInstancePromise({
+                mockResolve: false,
+                plebbitOptions: {
+                    nameResolvers: [
+                        createMockNameResolver({
+                            records: new Map([["unresolvable-name-independent.bso", undefined]])
+                        })
+                    ]
+                }
+            });
+
+            try {
+                const sub = await testPlebbit.createSubplebbit({ address: ipnsKey });
+                await sub.update();
+                // Wait for the initial record to load
+                await resolveWhenConditionIsTrue({
+                    toUpdate: sub,
+                    predicate: async () => typeof sub.updatedAt === "number"
+                });
+                expect(sub.name).to.equal("unresolvable-name-independent.bso");
+                // Capture the record state
+                const updatedAtBeforeNameResolved = sub.updatedAt;
+                const updateCidBeforeNameResolved = sub.updateCid;
+
+                // Wait for background resolution to set nameResolved=false via an "update" event
+                await resolveWhenConditionIsTrue({
+                    toUpdate: sub,
+                    predicate: async () => sub.nameResolved === false
+                });
+                // The subplebbitIpfs record should be unchanged — update was triggered solely by nameResolved
+                expect(sub.updatedAt).to.equal(updatedAtBeforeNameResolved);
+                expect(sub.updateCid).to.equal(updateCidBeforeNameResolved);
+                expect(sub.nameResolved).to.equal(false);
+                expect(sub.address).to.equal(ipnsKey);
+                await sub.stop();
+            } finally {
+                await testPlebbit.destroy();
+            }
         });
     });
 });
