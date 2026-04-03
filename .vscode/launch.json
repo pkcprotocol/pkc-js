@@ -10,7 +10,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "env": {
-                "DEBUG": "plebbit*,libp2p*, helia*",
+                "DEBUG": "pkc*,libp2p*,helia*",
                 "USE_RPC": "1"
             }
         },
@@ -23,7 +23,7 @@
             "program": "${workspaceFolder}/test/server/test-server.js",
             "console": "integratedTerminal",
             "env": {
-                "DEBUG": "plebbit-js:*, -plebbit*trace",
+                "DEBUG": "pkc-js*,pkc-react-hooks*,-pkc*trace",
                 "REMOTE_PLEBBIT_CONFIGS": "remote-kubo-rpc",
                 "START_RPC_SERVER": "1"
             }
@@ -37,7 +37,7 @@
             "program": "${workspaceFolder}/test/server/plebbit-ws-server.js",
             "console": "integratedTerminal",
             "env": {
-                "DEBUG": "plebbit*, -plebbit*trace"
+                "DEBUG": "pkc*,-pkc*trace"
             }
         },
         {
@@ -57,7 +57,7 @@
             "skipFiles": ["<node_internals>/**"],
             "type": "node",
             "env": {
-                "DEBUG": "plebbit-js:*, -plebbit*trace"
+                "DEBUG": "pkc-js*,pkc-react-hooks*,-pkc*trace"
             }
         },
         {
@@ -73,7 +73,7 @@
             "skipFiles": ["<node_internals>/**", "**/node_modules/**", "${workspaceFolder}/dist/browser/**"],
             "type": "node",
             "env": {
-                "DEBUG": "plebbit*, -plebbit*trace",
+                "DEBUG": "pkc*,-pkc*trace",
                 "PLEBBIT_CONFIGS": "remote-ipfs-gateway,remote-kubo-rpc,remote-libp2pjs"
             }
         },
@@ -90,7 +90,7 @@
             "skipFiles": ["<node_internals>/**", "**/node_modules/**", "${workspaceFolder}/dist/browser/**"],
             "type": "node",
             "env": {
-                "DEBUG": "plebbit-js:*, -plebbit*trace",
+                "DEBUG": "pkc-js*,pkc-react-hooks*,-pkc*trace",
                 "PLEBBIT_CONFIGS": "local-kubo-rpc"
             }
         },
@@ -115,7 +115,7 @@
             "skipFiles": ["<node_internals>/**", "**/node_modules/**", "${workspaceFolder}/dist/browser/**"],
             "type": "node",
             "env": {
-                "DEBUG": "plebbit-js:*",
+                "DEBUG": "pkc-js*,pkc-react-hooks*",
                 "PLEBBIT_CONFIGS": "remote-plebbit-rpc",
                 "USE_RPC": "1"
             }
@@ -143,7 +143,7 @@
             "skipFiles": ["<node_internals>/**", "**/node_modules/**", "${workspaceFolder}/dist/browser/**"],
             "type": "node",
             "env": {
-                "DEBUG": "plebbit-js:*, -plebbit-js*trace",
+                "DEBUG": "pkc-js*,pkc-react-hooks*,-pkc*trace",
                 "PLEBBIT_CONFIGS": "remote-libp2pjs"
             }
         },

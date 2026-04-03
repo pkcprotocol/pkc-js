@@ -21,6 +21,6 @@ jobs:
             # Setup plebbit-js deps
             - run: npm ci
             - run: npm run build
-            - run: DEBUG="plebbit*" npm run test:server:node & npm run test:server:wait-on
-            - run: DEBUG="plebbit*, -plebbit*trace" npm run test:node:parallel:local
-            - run: DEBUG="plebbit*, -plebbit*trace" npm run test:node:parallel:remote
+            - run: DEBUG="pkc*" npm run test:server:node & npm run test:server:wait-on
+            - run: DEBUG="pkc*,-pkc*trace" npm run test:node:parallel:local
+            - run: DEBUG="pkc*,-pkc*trace" npm run test:node:parallel:remote
