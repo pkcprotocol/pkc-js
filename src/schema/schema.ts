@@ -155,3 +155,6 @@ export const AuthorReservedFields = remeda.difference(
     [...remeda.keys.strict(AuthorWithOptionalCommentUpdateSchema.shape), "address", "publicKey", "shortAddress", "nameResolved"],
     remeda.keys.strict(AuthorPubsubSchema.shape)
 );
+
+// Old CommentIpfs records had author.address — exclude it from the CommentIpfs verification check
+export const AuthorCommentIpfsReservedFields = remeda.difference(AuthorReservedFields, ["address"]);
