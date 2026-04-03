@@ -11,7 +11,7 @@ import {
 } from "../util.js";
 import { Plebbit } from "../plebbit/plebbit.js";
 
-import Logger from "@pkc/pkc-logger";
+import Logger from "../logger.js";
 
 import { TypedEmitter } from "tiny-typed-emitter";
 import { FailedToFetchSubplebbitFromGatewaysError, PlebbitError } from "../plebbit-error.js";

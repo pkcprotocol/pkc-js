@@ -35,7 +35,7 @@ import {
 import Vote from "../publications/vote/vote.js";
 import { createSigner, verifyCommentPubsubMessage } from "../signer/index.js";
 import { CommentEdit } from "../publications/comment-edit/comment-edit.js";
-import Logger from "@pkc/pkc-logger";
+import Logger from "../logger.js";
 import env from "../version.js";
 import { verifyCommentEdit, verifyCommentIpfs, verifyCommentUpdate, verifySubplebbitEdit } from "../signer/signatures.js";
 import Stats from "../stats.js";

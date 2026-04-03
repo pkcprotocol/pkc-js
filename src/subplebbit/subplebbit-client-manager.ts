@@ -13,7 +13,7 @@ import * as remeda from "remeda";
 import type { SubplebbitIpfsType, SubplebbitJson } from "./types.js";
 import { getSubplebbitNameFromWire } from "./subplebbit-wire.js";
 import { getPlebbitAddressFromPublicKeySync } from "../signer/util.js";
-import Logger from "@pkc/pkc-logger";
+import Logger from "../logger.js";
 
 import {
     areEquivalentSubplebbitAddresses,

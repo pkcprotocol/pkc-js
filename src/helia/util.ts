@@ -1,7 +1,7 @@
 import type { HeliaWithLibp2pPubsub } from "./types.js";
 import type { PeerId, PeerInfo } from "@libp2p/interface";
 import { CID } from "multiformats/cid";
-import Logger from "@pkc/pkc-logger";
+import Logger from "../logger.js";
 import { PlebbitError } from "../plebbit-error.js";
 import { pubsubTopicToDhtKeyCid } from "../util.js";
 

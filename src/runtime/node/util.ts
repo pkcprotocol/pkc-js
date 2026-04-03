@@ -16,7 +16,7 @@ import { Agent as HttpAgent } from "http";
 import { Agent as HttpsAgent } from "https";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { create as CreateKuboRpcClient } from "kubo-rpc-client";
-import Logger from "@pkc/pkc-logger";
+import Logger from "../../logger.js";
 import * as remeda from "remeda";
 import type { SubplebbitIpfsType } from "../../subplebbit/types.js";
 import type {

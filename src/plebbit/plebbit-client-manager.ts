@@ -13,7 +13,7 @@ import {
     PostResolveNameResolverFailureOptions
 } from "../clients/base-client-manager.js";
 
-import Logger from "@pkc/pkc-logger";
+import Logger from "../logger.js";
 import { PlebbitIpfsGatewayClient, PlebbitKuboRpcClient, PlebbitLibp2pJsClient } from "./plebbit-clients.js";
 import { GenericStateClient } from "../generic-state-client.js";
 

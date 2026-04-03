@@ -1,4 +1,4 @@
-import Logger from "@pkc/pkc-logger";
+import Logger from "../logger.js";
 import { RemoteSubplebbit } from "./remote-subplebbit.js";
 import type { RpcRemoteSubplebbitType, SubplebbitEvents, SubplebbitRpcErrorToTransmit } from "./types.js";
 import * as remeda from "remeda";

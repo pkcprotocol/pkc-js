@@ -20,7 +20,7 @@ import type {
     PublicationFromDecryptedChallengeRequest
 } from "../pubsub-messages/types.js";
 import type { AuthorPubsubJsonType, CreatePublicationOptions, IpfsHttpClientPubsubMessage, PublicationTypeName } from "../types.js";
-import Logger from "@pkc/pkc-logger";
+import Logger from "../logger.js";
 import env from "../version.js";
 import { Plebbit } from "../plebbit/plebbit.js";
 import {

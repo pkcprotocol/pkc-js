@@ -324,7 +324,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
                 const extraPropsInEncrypted = { extraProp: 1234 };
 
-                const log = Logger("plebbit-js:test:backward-compat-pubsub");
+                const log = Logger("pkc-js:test:backward-compat-pubsub");
                 commentUpdate.signature = await _signJson(
                     remeda.keys.strict(remeda.omit(commentUpdate, ["signature"])),
                     commentUpdate,

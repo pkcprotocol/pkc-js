@@ -11,7 +11,7 @@ import {
     FailedToFetchSubplebbitFromGatewaysError,
     PlebbitError
 } from "../plebbit-error.js";
-import Logger from "@pkc/pkc-logger";
+import Logger from "../logger.js";
 import type { PubsubMessage } from "../pubsub-messages/types.js";
 import type { PubsubSubscriptionHandler, ResultOfFetchingSubplebbit } from "../types.js";
 import * as cborg from "cborg";

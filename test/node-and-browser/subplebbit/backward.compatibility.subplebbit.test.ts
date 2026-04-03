@@ -287,7 +287,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 signedPropertyNames,
                 record,
                 publishedSub.ipnsObj.signer,
-                Logger("plebbit-js:test:subplebbit-nameResolved-reserved")
+                Logger("pkc-js:test:community-nameResolved-reserved")
             );
             await publishedSub.ipnsObj.publishToIpns(JSON.stringify(record));
         });

@@ -11,7 +11,7 @@ import {
     encodeChallengeVerificationMessage,
     generateSubscriptionId
 } from "./utils.js";
-import Logger from "@pkc/pkc-logger";
+import Logger from "../../logger.js";
 import type {
     PlebbitWsServerClassOptions,
     JsonRpcSendNotificationOptions,

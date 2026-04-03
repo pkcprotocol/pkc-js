@@ -12,7 +12,7 @@ import Publication from "../publications/publication.js";
 import { v4 as uuidv4 } from "uuid";
 import { createMockPubsubClient } from "./mock-ipfs-client.js";
 import { EventEmitter } from "events";
-import Logger from "@pkc/pkc-logger";
+import Logger from "../logger.js";
 import * as remeda from "remeda";
 import { LocalSubplebbit } from "../runtime/node/subplebbit/local-subplebbit.js";
 import { RpcLocalSubplebbit } from "../subplebbit/rpc-local-subplebbit.js";

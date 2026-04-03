@@ -17,7 +17,7 @@
 - `npm run test:node` for node tests and node-and-browser tests
 - `npm run test:browser` for browser tests and node-and-browser tests
 - `npm test` for all tests
-- `DEBUG=plebbit-js:* npm test` for tests with logs
+- `DEBUG="pkc-js*,pkc-react-hooks*" npm test` for tests with logs
 
 #### Build
 

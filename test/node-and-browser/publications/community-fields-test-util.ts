@@ -6,7 +6,7 @@ import { expect } from "vitest";
 import type { SignerType } from "../../../dist/node/signer/types.js";
 import type Publication from "../../../dist/node/publications/publication.js";
 
-const log = Logger("plebbit-js:test:community-fields");
+const log = Logger("pkc-js:test:community-fields");
 
 export const DUMMY_CID = "QmYHzA8euDgUpNy3fh7JRwpPwt6jCgF35YTutYkyGGyr8f";
 export const DUMMY_COMMENT_CID = "QmeaD98zCjbs3h9GSCMixCGxMSJC3vUgW2i9pZoJpwkN7u";

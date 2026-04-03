@@ -4,7 +4,7 @@
 import Plebbit from "../../../../index.js";
 
 import assert from "assert";
-import Logger from "@pkc/pkc-logger";
+import Logger from "../../../../logger.js";
 const log = Logger("plebbit-react-hooks:plebbit-js");
 
 const PlebbitJs = {

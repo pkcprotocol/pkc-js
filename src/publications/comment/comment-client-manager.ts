@@ -12,7 +12,7 @@ import {
 } from "../../schema/schema-util.js";
 import { FailedToFetchCommentUpdateFromGatewaysError, PlebbitError } from "../../plebbit-error.js";
 import { verifyCommentIpfs, verifyCommentUpdate } from "../../signer/signatures.js";
-import Logger from "@pkc/pkc-logger";
+import Logger from "../../logger.js";
 import { getPostUpdateTimestampRange, hideClassPrivateProps, isAbortError, resolveWhenPredicateIsTrue } from "../../util.js";
 import { PublicationClientsManager } from "../publication-client-manager.js";
 import { RemoteSubplebbit } from "../../subplebbit/remote-subplebbit.js";

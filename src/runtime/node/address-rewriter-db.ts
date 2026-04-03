@@ -1,7 +1,7 @@
 import path from "node:path";
 import fs from "node:fs/promises";
 import Database from "better-sqlite3";
-import Logger from "@pkc/pkc-logger";
+import Logger from "../../logger.js";
 
 const debug = Logger("plebbit-js:address-rewriter-db");
 

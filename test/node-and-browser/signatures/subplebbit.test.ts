@@ -18,7 +18,7 @@ import Logger from "@pkc/pkc-logger";
 
 import type { Plebbit as PlebbitType } from "../../../dist/node/plebbit/plebbit.js";
 import type { SubplebbitIpfsType } from "../../../dist/node/subplebbit/types.js";
-const log = Logger("plebbit-js:test:signatures:subplebbit");
+const log = Logger("pkc-js:test:signatures:community");
 
 // Clients of RPC will trust the response of RPC and won't validate
 describeSkipIfRpc.concurrent("Sign subplebbit", async () => {

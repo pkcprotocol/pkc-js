@@ -67,7 +67,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects publications with wrong co
     // --- helpers ---
 
     async function injectWrongSubplebbitAddress(publication: PublicationWithSigner) {
-        const log = Logger("plebbit-js:test:injectWrongSubplebbitAddress");
+        const log = Logger("pkc-js:test:injectWrongCommunityAddress");
         if (!publication.signer) throw Error("Expected publication to have a signer");
         await ensurePublicationIsSigned(publication, subplebbit);
 
@@ -88,7 +88,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects publications with wrong co
     }
 
     async function injectWrongCommunityPublicKey(publication: PublicationWithSigner) {
-        const log = Logger("plebbit-js:test:injectWrongCommunityPublicKey");
+        const log = Logger("pkc-js:test:injectWrongCommunityPublicKey");
         if (!publication.signer) throw Error("Expected publication to have a signer");
         await ensurePublicationIsSigned(publication, subplebbit);
 

@@ -1,4 +1,4 @@
-import Logger from "@pkc/pkc-logger";
+import Logger from "../logger.js";
 import type {
     RpcInternalSubplebbitRecordAfterFirstUpdateType,
     RpcInternalSubplebbitRecordBeforeFirstUpdateType,

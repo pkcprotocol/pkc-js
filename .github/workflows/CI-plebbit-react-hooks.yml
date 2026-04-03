@@ -47,7 +47,7 @@ jobs:
       # installing the browsers shouldn't be needed, but doesn't work without it for some reason
       - run: yarn playwright install
       # test
-      - run: DEBUG=plebbit-js:* yarn test:server & yarn test:server:wait-on
+      - run: DEBUG="pkc-js*,pkc-react-hooks*" yarn test:server & yarn test:server:wait-on
       - run: CHROME_BIN=$(which chromium-browser) yarn test:e2e:mock
-      - run: DEBUG="plebbit-js:*" CHROME_BIN=$(which chromium-browser) yarn test:e2e:chrome
-      - run: DEBUG="plebbit-js:*" FIREFOX_BIN=$(which firefox) yarn test:e2e:firefox
+      - run: DEBUG="pkc-js*,pkc-react-hooks*" CHROME_BIN=$(which chromium-browser) yarn test:e2e:chrome
+      - run: DEBUG="pkc-js*,pkc-react-hooks*" FIREFOX_BIN=$(which firefox) yarn test:e2e:firefox

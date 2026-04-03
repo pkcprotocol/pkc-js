@@ -39,6 +39,6 @@ jobs:
       - run: sudo echo "255.255.255.255 cloudflare-ipfs.com" | sudo tee -a /etc/hosts
       - run: sudo echo "255.255.255.255 pubsubprovider.xyz" | sudo tee -a /etc/hosts
       # test
-      - run: DEBUG="plebbit-js:*" TESTING=1 yarn test:server & yarn test:server:wait-on
-      - run: DEBUG="plebbit-js:*" npm run test
-      - run: DEBUG="plebbit-js:*" npm run test:browser
+      - run: DEBUG="pkc-js*,pkc-react-hooks*" TESTING=1 yarn test:server & yarn test:server:wait-on
+      - run: DEBUG="pkc-js*,pkc-react-hooks*" npm run test
+      - run: DEBUG="pkc-js*,pkc-react-hooks*" npm run test:browser

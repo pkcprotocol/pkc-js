@@ -38,7 +38,7 @@ import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import { sha256 } from "js-sha256";
 import { base32 } from "multiformats/bases/base32";
 import { Plebbit } from "./plebbit/plebbit.js";
-import Logger from "@pkc/pkc-logger";
+import Logger from "./logger.js";
 import retry from "retry";
 import PeerId from "peer-id";
 import { unmarshalIPNSRecord } from "ipns";

@@ -1,4 +1,4 @@
-import Logger from "@pkc/pkc-logger";
+import Logger from "../logger.js";
 import { Plebbit } from "./plebbit.js";
 import type { InputPlebbitOptions } from "../types.js";
 import { parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbitErrorIfItFails } from "../schema/schema-util.js";

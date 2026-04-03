@@ -22,7 +22,7 @@ import type { Comment } from "../../../../dist/node/publications/comment/comment
 import type { RemoteSubplebbit } from "../../../../dist/node/subplebbit/remote-subplebbit.js";
 import type { PlebbitError } from "../../../../dist/node/plebbit-error.js";
 
-const log = Logger("plebbit-js:test:backward-compatibility-commentupdate");
+const log = Logger("pkc-js:test:backward-compatibility-commentupdate");
 
 type CommentWithExtraProp = Comment & { extraPropUpdate?: string };
 type AuthorWithExtraProp = { extraPropUpdate?: string };
