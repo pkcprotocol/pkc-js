@@ -58,7 +58,8 @@ export const VotePubsubReservedFields = remeda.difference(
         "state",
         "publishingState",
         "signer",
-        "clients"
+        "clients",
+        "nameResolved"
     ],
     remeda.keys.strict(VotePubsubMessagePublicationSchema.shape)
 );

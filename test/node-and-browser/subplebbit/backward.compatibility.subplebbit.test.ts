@@ -7,10 +7,13 @@ import {
     publishSubplebbitRecordWithExtraProp,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
-import { describe, it } from "vitest";
+import { _signJson } from "../../../dist/node/signer/signatures.js";
+import Logger from "@pkc/pkc-logger";
+import { describe, it, afterAll, beforeAll } from "vitest";
 
 import type { PlebbitError } from "../../../dist/node/plebbit-error.js";
 import type { SubplebbitIpfsType } from "../../../dist/node/subplebbit/types.js";
+import type { Plebbit } from "../../../dist/node/plebbit/plebbit.js";
 
 getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     describe.concurrent(`plebbit.createSubplebbit - Backward Compatiblity - ${config.name}`, async () => {
@@ -267,6 +270,75 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(updatedJson.roles?.[testAddress]?.extraRoleProp).to.equal("roleValue");
 
             await subToUpdate.stop();
+            await remotePlebbit.destroy();
+        });
+    });
+
+    describe.sequential(`SubplebbitIpfs with nameResolved reserved field is rejected - ${config.name}`, async () => {
+        let publishedSub: Awaited<ReturnType<typeof publishSubplebbitRecordWithExtraProp>>;
+
+        beforeAll(async () => {
+            // Create a valid subplebbit record, then re-publish with nameResolved injected
+            publishedSub = await publishSubplebbitRecordWithExtraProp();
+            const record = JSON.parse(JSON.stringify(publishedSub.subplebbitRecord));
+            record.nameResolved = true;
+            const signedPropertyNames = [...record.signature.signedPropertyNames, "nameResolved"];
+            record.signature = await _signJson(
+                signedPropertyNames,
+                record,
+                publishedSub.ipnsObj.signer,
+                Logger("plebbit-js:test:subplebbit-nameResolved-reserved")
+            );
+            await publishedSub.ipnsObj.publishToIpns(JSON.stringify(record));
+        });
+
+        afterAll(async () => {
+            await publishedSub.ipnsObj.plebbit.destroy();
+        });
+
+        it(`subplebbit.update() rejects SubplebbitIpfs with nameResolved reserved field`, async () => {
+            const remotePlebbit = await config.plebbitInstancePromise();
+
+            const sub = await remotePlebbit.createSubplebbit({ address: publishedSub.ipnsObj.signer.address });
+            const errorPromise = new Promise<PlebbitError>((resolve) => sub.once("error", resolve as (err: Error) => void));
+
+            await sub.update();
+            const error = await errorPromise;
+
+            if (isPlebbitFetchingUsingGateways(remotePlebbit)) {
+                expect(error.code).to.equal("ERR_FAILED_TO_FETCH_SUBPLEBBIT_FROM_GATEWAYS");
+                const gatewayError = Object.values(error.details.gatewayToError)[0] as PlebbitError;
+                expect(gatewayError.code).to.equal("ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID");
+                expect(gatewayError.details.signatureValidity.reason).to.equal(messages.ERR_SUBPLEBBIT_RECORD_INCLUDES_RESERVED_FIELD);
+            } else {
+                expect(error.code).to.equal("ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID");
+                expect(error.details.signatureValidity.reason).to.equal(messages.ERR_SUBPLEBBIT_RECORD_INCLUDES_RESERVED_FIELD);
+            }
+
+            expect(sub.updatedAt).to.be.undefined;
+            await sub.stop();
+            await remotePlebbit.destroy();
+        });
+
+        it(`getSubplebbit() throws when SubplebbitIpfs has nameResolved reserved field`, async () => {
+            const remotePlebbit = await config.plebbitInstancePromise();
+
+            try {
+                await remotePlebbit.getSubplebbit({ address: publishedSub.ipnsObj.signer.address });
+                expect.fail("Should have thrown");
+            } catch (e) {
+                const error = e as PlebbitError;
+                if (isPlebbitFetchingUsingGateways(remotePlebbit)) {
+                    expect(error.code).to.equal("ERR_FAILED_TO_FETCH_SUBPLEBBIT_FROM_GATEWAYS");
+                    const gatewayError = Object.values(error.details.gatewayToError)[0] as PlebbitError;
+                    expect(gatewayError.code).to.equal("ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID");
+                    expect(gatewayError.details.signatureValidity.reason).to.equal(messages.ERR_SUBPLEBBIT_RECORD_INCLUDES_RESERVED_FIELD);
+                } else {
+                    expect(error.code).to.equal("ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID");
+                    expect(error.details.signatureValidity.reason).to.equal(messages.ERR_SUBPLEBBIT_RECORD_INCLUDES_RESERVED_FIELD);
+                }
+            }
+
             await remotePlebbit.destroy();
         });
     });

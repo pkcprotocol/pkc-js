@@ -83,6 +83,37 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(challengeRequest.vote.insertedAt).to.equal("1234");
         });
 
+        it(`Publishing vote.nameResolved should be rejected as reserved field`, async () => {
+            const vote = await generateMockVote(commentToVoteOn as unknown as CommentIpfsWithCidDefined, 1, plebbit);
+            await setExtraPropOnVoteAndSign(vote, { nameResolved: true }, true);
+
+            await publishWithExpectedResult({
+                publication: vote,
+                expectedChallengeSuccess: false,
+                expectedReason: messages.ERR_VOTE_HAS_RESERVED_FIELD
+            });
+        });
+
+        it(`Publishing vote.author.nameResolved should be rejected as reserved field`, async () => {
+            const vote = await generateMockVote(commentToVoteOn as unknown as CommentIpfsWithCidDefined, 1, plebbit);
+            await setExtraPropOnVoteAndSign(
+                vote,
+                {
+                    author: {
+                        ...(vote.raw.pubsubMessageToPublish?.author ?? (vote.raw as any).unsignedPublicationOptions?.author),
+                        nameResolved: true
+                    }
+                },
+                true
+            );
+
+            await publishWithExpectedResult({
+                publication: vote,
+                expectedChallengeSuccess: false,
+                expectedReason: messages.ERR_PUBLICATION_AUTHOR_HAS_RESERVED_FIELD
+            });
+        });
+
         describe.concurrent(`Publishing vote with extra props in author field - ${config.name}`, async () => {
             it(`Publishing with extra prop for author should fail if it's a reserved field`, async () => {
                 const vote = await generateMockVote(commentToVoteOn as unknown as CommentIpfsWithCidDefined, 1, plebbit);

@@ -222,7 +222,8 @@ const additionalCommentReservedFields = [
     "clients",
     "publishingState",
     "updatingState",
-    "rowid"
+    "rowid",
+    "nameResolved"
 ] as const;
 
 type AdditionalCommentReservedField = (typeof additionalCommentReservedFields)[number];
@@ -264,6 +265,12 @@ type CommentReservedFields = (typeof CommentPubsubMessageReservedFields)[number]
 type MissingCommentReservedField = Exclude<CommentJsonFields, CommentPublicationFields | CommentReservedFields>;
 
 type _EnsureAllCommentFieldsAreReserved = AssertTrue<MissingCommentReservedField extends never ? true : false>;
+
+// Reserved fields for CommentIpfs — CommentPubsubMessage reserved fields minus fields that are legitimate in CommentIpfs
+export const CommentIpfsReservedFields = remeda.difference(
+    CommentPubsubMessageReservedFields,
+    remeda.keys.strict(CommentIpfsSchema.shape) as typeof CommentPubsubMessageReservedFields
+);
 
 export const CommentUpdateReservedFields = remeda.difference(CommentPubsubMessageReservedFields, [
     ...remeda.keys.strict(CommentUpdateSchema.shape),

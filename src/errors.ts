@@ -166,6 +166,8 @@ export enum messages {
     ERR_SUBPLEBBIT_POSTS_INVALID = "subplebbit.posts signature is invalid",
     ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID = "CommentIpfs signature is invalid",
     ERR_COMMENT_UPDATE_SIGNATURE_IS_INVALID = "CommentUpdate signature is invalid",
+    ERR_COMMENT_IPFS_RECORD_INCLUDES_RESERVED_FIELD = "CommentIpfs record includes a reserved field",
+    ERR_COMMENT_IPFS_AUTHOR_INCLUDES_RESERVED_FIELD = "CommentIpfs author includes a reserved field",
     ERR_COMMENT_UPDATE_RECORD_INCLUDES_RESERVED_FIELD = "CommentUpdate record includes a reserved field",
     ERR_SUBPLEBBIT_EDIT_HAS_RESERVED_FIELD = "SubplebbitEdit record includes a reserved field",
     ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID = "Subplebbit signature is invalid",

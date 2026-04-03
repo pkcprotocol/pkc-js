@@ -259,7 +259,8 @@ describe.concurrent(`Posts with forbidden fields are rejected during challenge e
         { locked: true },
         { removed: true },
         { reason: "Test forbidden" },
-        { shortCid: "QmVZR5Ts9MhRc66hr6TsYnX1A2oPhJ2H1fRJknxgjLLwrh" }
+        { shortCid: "QmVZR5Ts9MhRc66hr6TsYnX1A2oPhJ2H1fRJknxgjLLwrh" },
+        { nameResolved: true }
     ];
     forbiddenFieldsWithValue.map((forbiddenType) =>
         itSkipIfRpc(`comment.${Object.keys(forbiddenType)[0]} is rejected by sub`, async () => {
@@ -286,7 +287,8 @@ describe("Posts with forbidden author fields are rejected", async () => {
 
     const forbiddenFieldsWithValue: Record<string, unknown> = {
         subplebbit: { lastCommentCid: "QmRxNUGsYYg3hxRnhnbvETdYSc16PXqzgF8WP87UXpb9Rs", postScore: 0, replyScore: 0, banExpiresAt: 0 },
-        shortAddress: "12345"
+        shortAddress: "12345",
+        nameResolved: true
     };
     Object.keys(forbiddenFieldsWithValue).map((forbiddenFieldName) =>
         it(`publication.author.${forbiddenFieldName} is rejected by sub`, async () => {

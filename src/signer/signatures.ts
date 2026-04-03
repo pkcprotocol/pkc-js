@@ -65,6 +65,7 @@ import type {
 import { CommentEditSignedPropertyNames } from "../publications/comment-edit/schema.js";
 import { VoteSignedPropertyNames } from "../publications/vote/schema.js";
 import {
+    CommentIpfsReservedFields,
     CommentSignedPropertyNames,
     CommentUpdateForChallengeVerificationSignedPropertyNames,
     CommentUpdateReservedFields,
@@ -90,6 +91,7 @@ import type {
     SubplebbitEditPubsubMessagePublication
 } from "../publications/subplebbit-edit/types.js";
 import { SubplebbitEditPublicationSignedPropertyNames } from "../publications/subplebbit-edit/schema.js";
+import { AuthorReservedFields } from "../schema/schema.js";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { RemoteSubplebbit } from "../subplebbit/remote-subplebbit.js";
@@ -621,6 +623,14 @@ export async function verifyCommentIpfs(opts: {
     )
         return { valid: false, reason: messages.ERR_COMMENT_IPFS_COMMUNITY_ADDRESS_MISMATCH };
 
+    // Reject CommentIpfs records that contain reserved (runtime-only) fields
+    if (_isThereReservedFieldInRecord(opts.comment, CommentIpfsReservedFields))
+        return { valid: false, reason: messages.ERR_COMMENT_IPFS_RECORD_INCLUDES_RESERVED_FIELD };
+
+    // Reject CommentIpfs records where author contains reserved fields (e.g. nameResolved)
+    if (opts.comment.author && remeda.intersection(Object.keys(opts.comment.author), AuthorReservedFields).length > 0)
+        return { valid: false, reason: messages.ERR_COMMENT_IPFS_AUTHOR_INCLUDES_RESERVED_FIELD };
+
     const keysCasted = <(keyof CommentPubsubMessagePublication)[]>opts.comment.signature.signedPropertyNames;
 
     const validRes = await verifyCommentPubsubMessage({
@@ -729,8 +739,8 @@ async function _validateSignatureOfPubsubMsg(publication: PubsubMessage): Promis
 }
 
 function _isThereReservedFieldInRecord(
-    record: CommentUpdateType | SubplebbitIpfsType | CommentUpdateForChallengeVerification,
-    reservedFields: string[]
+    record: CommentUpdateType | SubplebbitIpfsType | CommentUpdateForChallengeVerification | CommentIpfsType,
+    reservedFields: readonly string[]
 ) {
     return remeda.intersection(Object.keys(record), reservedFields).length > 0;
 }

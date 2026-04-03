@@ -72,7 +72,8 @@ export const CommentEditReservedFields = remeda.difference(
         "publishingState",
         "signer",
         "clients",
-        "commentEdit"
+        "commentEdit",
+        "nameResolved"
     ]),
     remeda.keys.strict(CommentEditPubsubMessagePublicationSchema.shape)
 );

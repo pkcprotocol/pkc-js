@@ -7,7 +7,8 @@ import {
     resolveWhenConditionIsTrue,
     iterateThroughPagesToFindCommentInParentPagesInstance,
     waitTillPostInSubplebbitPages,
-    addStringToIpfs
+    addStringToIpfs,
+    isPlebbitFetchingUsingGateways
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { _signJson } from "../../../../dist/node/signer/signatures.js";
@@ -17,6 +18,7 @@ import validPageIpfsFixture from "../../../fixtures/valid_page.json" with { type
 import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentWithinRepliesPostsPageJson } from "../../../../dist/node/publications/comment/types.js";
+import type { PlebbitError } from "../../../../dist/node/plebbit-error.js";
 
 type CommentWithExtraProp = Comment & { extraProp?: string };
 type AuthorWithExtraProp = { extraProp?: string };
@@ -323,6 +325,130 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(base58Comment!.author.publicKey).to.equal(expectedBase58PublicKey);
             expect(base58Comment!.author.name).to.be.undefined;
             expect(base58Comment!.author.address).to.equal(expectedBase58PublicKey);
+        });
+    });
+
+    describe.sequential(`Loading CommentIpfs with reserved fields is rejected - ${config.name}`, async () => {
+        let plebbit: Plebbit;
+        let validCommentIpfsRaw: Record<string, unknown>;
+
+        beforeAll(async () => {
+            plebbit = await config.plebbitInstancePromise();
+
+            // Publish a normal comment to get a valid CommentIpfs
+            const post = await generateMockPost({ communityAddress: subplebbitAddress, plebbit });
+            await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
+
+            const loadedComment = await plebbit.getComment({ cid: post.cid });
+            validCommentIpfsRaw = JSON.parse(JSON.stringify(loadedComment.raw.comment));
+        });
+
+        afterAll(async () => {
+            await plebbit.destroy();
+        });
+
+        it(`getComment() throws when CommentIpfs has top-level nameResolved`, async () => {
+            const maliciousRecord = { ...validCommentIpfsRaw, nameResolved: true };
+            const maliciousCid = await addStringToIpfs(JSON.stringify(maliciousRecord));
+
+            try {
+                await plebbit.getComment({ cid: maliciousCid });
+                expect.fail("Should have thrown");
+            } catch (e) {
+                const error = e as PlebbitError;
+                if (isPlebbitFetchingUsingGateways(plebbit)) {
+                    expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMENT_IPFS_FROM_GATEWAYS");
+                    const gatewayError = Object.values(error.details.gatewayToError)[0] as PlebbitError;
+                    expect(gatewayError.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
+                    expect(gatewayError.details.commentIpfsValidation.reason).to.equal(
+                        messages.ERR_COMMENT_IPFS_RECORD_INCLUDES_RESERVED_FIELD
+                    );
+                } else {
+                    expect(error.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
+                    expect(error.details.commentIpfsValidation.reason).to.equal(messages.ERR_COMMENT_IPFS_RECORD_INCLUDES_RESERVED_FIELD);
+                }
+            }
+        });
+
+        it(`getComment() throws when CommentIpfs has author.nameResolved`, async () => {
+            const maliciousRecord = {
+                ...validCommentIpfsRaw,
+                author: { ...(validCommentIpfsRaw.author as Record<string, unknown>), nameResolved: true }
+            };
+            const maliciousCid = await addStringToIpfs(JSON.stringify(maliciousRecord));
+
+            try {
+                await plebbit.getComment({ cid: maliciousCid });
+                expect.fail("Should have thrown");
+            } catch (e) {
+                const error = e as PlebbitError;
+                if (isPlebbitFetchingUsingGateways(plebbit)) {
+                    expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMENT_IPFS_FROM_GATEWAYS");
+                    const gatewayError = Object.values(error.details.gatewayToError)[0] as PlebbitError;
+                    expect(gatewayError.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
+                    expect(gatewayError.details.commentIpfsValidation.reason).to.equal(
+                        messages.ERR_COMMENT_IPFS_AUTHOR_INCLUDES_RESERVED_FIELD
+                    );
+                } else {
+                    expect(error.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
+                    expect(error.details.commentIpfsValidation.reason).to.equal(messages.ERR_COMMENT_IPFS_AUTHOR_INCLUDES_RESERVED_FIELD);
+                }
+            }
+        });
+
+        it(`comment.update() emits error when CommentIpfs has top-level nameResolved`, async () => {
+            const maliciousRecord = { ...validCommentIpfsRaw, nameResolved: true };
+            const maliciousCid = await addStringToIpfs(JSON.stringify(maliciousRecord));
+
+            const comment = await plebbit.createComment({ cid: maliciousCid });
+            const errorPromise = new Promise<PlebbitError>((resolve) => comment.once("error", resolve as (err: Error) => void));
+
+            await comment.update();
+            const error = await errorPromise;
+
+            if (isPlebbitFetchingUsingGateways(plebbit)) {
+                expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMENT_IPFS_FROM_GATEWAYS");
+                const gatewayError = Object.values(error.details.gatewayToError)[0] as PlebbitError;
+                expect(gatewayError.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
+                expect(gatewayError.details.commentIpfsValidation.reason).to.equal(
+                    messages.ERR_COMMENT_IPFS_RECORD_INCLUDES_RESERVED_FIELD
+                );
+            } else {
+                expect(error.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
+                expect(error.details.commentIpfsValidation.reason).to.equal(messages.ERR_COMMENT_IPFS_RECORD_INCLUDES_RESERVED_FIELD);
+            }
+
+            expect(comment.state).to.equal("stopped");
+            await comment.stop();
+        });
+
+        it(`comment.update() emits error when CommentIpfs has author.nameResolved`, async () => {
+            const maliciousRecord = {
+                ...validCommentIpfsRaw,
+                author: { ...(validCommentIpfsRaw.author as Record<string, unknown>), nameResolved: true }
+            };
+            const maliciousCid = await addStringToIpfs(JSON.stringify(maliciousRecord));
+
+            const comment = await plebbit.createComment({ cid: maliciousCid });
+            const errorPromise = new Promise<PlebbitError>((resolve) => comment.once("error", resolve as (err: Error) => void));
+
+            await comment.update();
+            const error = await errorPromise;
+
+            if (isPlebbitFetchingUsingGateways(plebbit)) {
+                expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMENT_IPFS_FROM_GATEWAYS");
+                const gatewayError = Object.values(error.details.gatewayToError)[0] as PlebbitError;
+                expect(gatewayError.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
+                expect(gatewayError.details.commentIpfsValidation.reason).to.equal(
+                    messages.ERR_COMMENT_IPFS_AUTHOR_INCLUDES_RESERVED_FIELD
+                );
+            } else {
+                expect(error.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
+                expect(error.details.commentIpfsValidation.reason).to.equal(messages.ERR_COMMENT_IPFS_AUTHOR_INCLUDES_RESERVED_FIELD);
+            }
+
+            expect(comment.state).to.equal("stopped");
+            await comment.stop();
         });
     });
 });
