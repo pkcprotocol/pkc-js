@@ -240,6 +240,15 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
         ) {
             this._subplebbit.initSubplebbitIpfsPropsNoMerge(subLoadingRes.subplebbit);
             this._subplebbit.updateCid = subLoadingRes.cid;
+            // If we just discovered a name, trigger background resolution now (don't wait for next loop)
+            if (
+                !isStringDomain(this._subplebbit.address) &&
+                this._subplebbit.name &&
+                this._subplebbit.publicKey &&
+                typeof this._subplebbit.nameResolved !== "boolean"
+            ) {
+                this._resolveNameInBackground(this._subplebbit.name);
+            }
             log(
                 `Remote Subplebbit`,
                 this._subplebbit.address,
@@ -320,6 +329,11 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
 
     private _resolveNameInBackground(name: string) {
         const log = Logger("plebbit-js:subplebbit-client-manager:_resolveNameInBackground");
+        const setNameResolvedAndEmitUpdate = (newNameResolved: boolean) => {
+            if (this._subplebbit.nameResolved === newNameResolved) return;
+            this._subplebbit.nameResolved = newNameResolved;
+            this._subplebbit.emit("update", this._subplebbit);
+        };
         this._resolveCommunityNameWithoutUpdatingState({
             communityAddress: name,
             abortSignal: this._subplebbit._getStopAbortSignal()
@@ -329,16 +343,17 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                     // Key change detected: name now points to a different key.
                     // Most likely: cached publicKey is stale after community key migration.
                     log("Key migration detected for", name, "old:", this._subplebbit.publicKey, "new:", resolved);
+                    const previousPublicKey = this._subplebbit.publicKey;
                     const error = new PlebbitError("ERR_SUBPLEBBIT_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY", {
                         communityName: name,
-                        previousPublicKey: this._subplebbit.publicKey,
+                        previousPublicKey,
                         newPublicKey: resolved
                     });
-                    this._subplebbit.emit("error", error);
 
                     // Clear all data immediately (old data may be from compromised key)
                     this._subplebbit._clearDataForKeyMigration(resolved);
                     this._updateCidsAlreadyLoaded.clear();
+                    this._subplebbit.nameResolved = true;
 
                     // Abort in-flight fetch (using old key) by aborting the stop controller,
                     // then immediately create a new one so the update loop continues.
@@ -347,19 +362,23 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
 
                     // Emit update so UI drops stale data right away
                     this._subplebbit.emit("update", this._subplebbit);
-
-                    this._subplebbit.nameResolved = true;
+                    this._subplebbit.emit("error", error);
                 } else if (resolved) {
-                    this._subplebbit.nameResolved = true;
+                    setNameResolvedAndEmitUpdate(true);
                 }
                 // If resolved is null but subplebbit has a name, the name is not resolving
                 if (!resolved && this._subplebbit.name) {
-                    this._subplebbit.nameResolved = false;
+                    setNameResolvedAndEmitUpdate(false);
                 }
             })
             .catch((e) => {
-                log.trace("Background name resolution failed for", name, e);
-                // Transient failure -- leave nameResolved as undefined
+                if (e instanceof PlebbitError && (e.code === "ERR_NO_RESOLVER_FOR_NAME" || e.code === "ERR_DOMAIN_TXT_RECORD_NOT_FOUND")) {
+                    // Definitive: either no resolver can handle this TLD, or the domain has no community TXT record.
+                    setNameResolvedAndEmitUpdate(false);
+                } else {
+                    log.trace("Background name resolution failed for", name, e);
+                    // Transient failure -- leave nameResolved as undefined
+                }
             });
     }
 
@@ -368,10 +387,14 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
             let ipnsName: string | null;
             const isDomain = isStringDomain(subAddress);
 
-            if (isDomain && this._subplebbit.publicKey) {
-                // Both name and publicKey available: use publicKey immediately, resolve name in background
+            if (
+                this._subplebbit.publicKey &&
+                (isDomain || (!isDomain && this._subplebbit.name && this._subplebbit.nameResolved === true))
+            ) {
+                // Once a domain has been verified against a public key, keep fetching through the current public key
+                // even if the immutable address on the instance is a raw IPNS key.
                 ipnsName = this._subplebbit.publicKey;
-                this._resolveNameInBackground(subAddress);
+                if (isDomain) this._resolveNameInBackground(subAddress);
             } else {
                 // Name only or publicKey only: use existing resolution flow
                 ipnsName = await this.resolveCommunityNameIfNeeded({

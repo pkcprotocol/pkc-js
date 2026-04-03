@@ -105,7 +105,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 ...(expectedPostProps.author || {}),
                 address: loadedPost.author.address,
                 publicKey: loadedPost.author.publicKey,
-                shortAddress: loadedPost.author.shortAddress
+                shortAddress: loadedPost.author.shortAddress,
+                ...(loadedPost.author.nameResolved !== undefined ? { nameResolved: loadedPost.author.nameResolved } : {})
             };
             expectedPostProps.cid = loadedPost.cid;
 
@@ -141,7 +142,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 ...(expectedReplyProps.author || {}),
                 address: loadedReply.author.address,
                 publicKey: loadedReply.author.publicKey,
-                shortAddress: loadedReply.author.shortAddress
+                shortAddress: loadedReply.author.shortAddress,
+                ...(loadedReply.author.nameResolved !== undefined ? { nameResolved: loadedReply.author.nameResolved } : {})
             };
             if (loadedReply.author.subplebbit) delete loadedReply.author.subplebbit; // If it's running on RPC then it will fetch both CommentIpfs and CommentUpdate
             for (const key of Object.keys(expectedReplyProps))

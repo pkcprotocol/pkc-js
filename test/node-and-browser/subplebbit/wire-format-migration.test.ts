@@ -28,11 +28,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await plebbit.destroy();
         });
 
-        it(`address is computed as name || publicKey when loading new-format record with name`, async () => {
+        it(`address stays immutable when loading new-format record with name`, async () => {
             const sub = await plebbit.createSubplebbit({ address: signers[0].address });
             sub.initSubplebbitIpfsPropsNoMerge(remeda.clone(newFormatWithNameFixture) as SubplebbitIpfsType);
             expect(sub.name).to.equal("test-sub.eth");
-            expect(sub.address).to.equal("test-sub.eth"); // name takes priority
+            expect(sub.address).to.equal(signers[0].address); // address is immutable
         });
 
         it(`address falls back to publicKey when no name is present`, async () => {

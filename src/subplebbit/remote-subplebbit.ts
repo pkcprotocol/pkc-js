@@ -338,6 +338,14 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
             this.publicKey = explicitPublicKey;
         }
         if (typeof newProps.name === "string") this.name = newProps.name;
+        else if (
+            !this.name &&
+            "address" in newProps &&
+            typeof newProps.address === "string" &&
+            isStringDomain(newProps.address as string)
+        ) {
+            this.name = newProps.address as string;
+        }
 
         // Only set address during initial creation (no address yet).
         // Once set, address is immutable -- record updates must not override it.
@@ -551,8 +559,12 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
         return <NonNullable<this["_updatingSubInstanceWithListeners"]>>{
             subplebbit: subInstance,
             update: () => {
-                this.initSubplebbitIpfsPropsNoMerge(subInstance.raw.subplebbitIpfs!);
-                this.updateCid = subInstance.updateCid;
+                if (!subInstance.raw.subplebbitIpfs || !subInstance.updateCid) {
+                    if (subInstance.publicKey) this._clearDataForKeyMigration(subInstance.publicKey);
+                } else {
+                    this.initSubplebbitIpfsPropsNoMerge(subInstance.raw.subplebbitIpfs);
+                    this.updateCid = subInstance.updateCid;
+                }
                 if (typeof subInstance.nameResolved === "boolean") this.nameResolved = subInstance.nameResolved;
                 log(
                     `Remote Subplebbit instance`,

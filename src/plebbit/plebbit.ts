@@ -530,6 +530,8 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         if ("commentUpdateFromChallengeVerification" in options.raw && options.raw.commentUpdateFromChallengeVerification)
             commentInstance._initCommentUpdateFromChallengeVerificationProps(options.raw.commentUpdateFromChallengeVerification);
         if (options.raw.commentUpdate) commentInstance._initCommentUpdate(options.raw.commentUpdate);
+        // nameResolved is strictly runtime — never carry it over when cloning
+        if (commentInstance.author?.nameResolved !== undefined) delete commentInstance.author.nameResolved;
         return commentInstance;
     }
 
@@ -582,6 +584,8 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
             // if it has signature it means it's a full CommentIpfs
             if (!("signature" in options)) Object.assign(commentInstance, options);
             else commentInstance._initIpfsProps(parseCommentIpfsSchemaWithPlebbitErrorIfItFails(commentIpfs));
+            // nameResolved is strictly runtime — never carry it over
+            if (commentInstance.author?.nameResolved !== undefined) delete commentInstance.author.nameResolved;
         } else if ("signature" in options) {
             // parsedOptions is CommentPubsubMessage
             const parsedOptions = parseCommentPubsubMessagePublicationWithPlebbitErrorIfItFails(options);

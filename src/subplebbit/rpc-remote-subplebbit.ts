@@ -111,13 +111,16 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
             error: (err) => this.emit("error", err),
             updatingstatechange: (updatingState) => this._setUpdatingStateWithEventEmissionIfNewState.bind(this)(updatingState),
             update: (updatingSubplebbit) => {
-                if (updatingSubplebbit.raw.subplebbitIpfs) {
+                if (!updatingSubplebbit.raw.subplebbitIpfs || !updatingSubplebbit.updateCid) {
+                    if (updatingSubplebbit.publicKey) this._clearDataForKeyMigration(updatingSubplebbit.publicKey);
+                } else {
                     this.initSubplebbitIpfsPropsNoMerge(updatingSubplebbit.raw.subplebbitIpfs);
                     this.updateCid = updatingSubplebbit.updateCid;
                     if (updatingSubplebbit.raw.runtimeFieldsFromRpc)
                         deepMergeRuntimeFields(this, updatingSubplebbit.raw.runtimeFieldsFromRpc);
-                    this.emit("update", this);
                 }
+                if (typeof updatingSubplebbit.nameResolved === "boolean") this.nameResolved = updatingSubplebbit.nameResolved;
+                this.emit("update", this);
             },
             statechange: async (newState) => {
                 if (newState === "stopped" && this.state !== "stopped")
@@ -165,18 +168,26 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
                     this.clients[clientType][clientUrl].mirror(updatingSubplebbit.clients[clientType][clientUrl]);
 
         this._updatingRpcSubInstanceWithListeners.subplebbit._numOfListenersForUpdatingInstance++;
-        if (updatingSubplebbit.raw.subplebbitIpfs) {
+        if (!updatingSubplebbit.raw.subplebbitIpfs || !updatingSubplebbit.updateCid) {
+            if (updatingSubplebbit.publicKey) this._clearDataForKeyMigration(updatingSubplebbit.publicKey);
+        } else {
             this.initSubplebbitIpfsPropsNoMerge(updatingSubplebbit.raw.subplebbitIpfs);
             this.updateCid = updatingSubplebbit.updateCid;
             if (updatingSubplebbit.raw.runtimeFieldsFromRpc) deepMergeRuntimeFields(this, updatingSubplebbit.raw.runtimeFieldsFromRpc);
-            this.emit("update", this);
         }
+        if (typeof updatingSubplebbit.nameResolved === "boolean") this.nameResolved = updatingSubplebbit.nameResolved;
+        if (updatingSubplebbit.publicKey) this.emit("update", this);
     }
 
     protected _handleRpcErrorEvent(args: any) {
         const error: SubplebbitRpcErrorToTransmit = args.params.result;
         if (error.details?.newUpdatingState) this._setUpdatingStateNoEmission(error.details.newUpdatingState);
         if (error.details?.newStartedState) this._setStartedStateNoEmission(error.details.newStartedState);
+        if ("code" in error && error.code === "ERR_SUBPLEBBIT_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY" && error.details?.newPublicKey) {
+            this._clearDataForKeyMigration(error.details.newPublicKey);
+            this.nameResolved = true;
+            this.emit("update", this);
+        }
         this.emit("error", error);
     }
 

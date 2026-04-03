@@ -356,17 +356,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 expect.fail("Should have thrown");
             } catch (e) {
                 const error = e as PlebbitError;
-                if (isPlebbitFetchingUsingGateways(plebbit)) {
-                    expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMENT_IPFS_FROM_GATEWAYS");
-                    const gatewayError = Object.values(error.details.gatewayToError)[0] as PlebbitError;
-                    expect(gatewayError.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
-                    expect(gatewayError.details.commentIpfsValidation.reason).to.equal(
-                        messages.ERR_COMMENT_IPFS_RECORD_INCLUDES_RESERVED_FIELD
-                    );
-                } else {
-                    expect(error.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
-                    expect(error.details.commentIpfsValidation.reason).to.equal(messages.ERR_COMMENT_IPFS_RECORD_INCLUDES_RESERVED_FIELD);
-                }
+                expect(error.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
+                expect(error.details.commentIpfsValidation.reason).to.equal(messages.ERR_COMMENT_IPFS_RECORD_INCLUDES_RESERVED_FIELD);
             }
         });
 
@@ -382,17 +373,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 expect.fail("Should have thrown");
             } catch (e) {
                 const error = e as PlebbitError;
-                if (isPlebbitFetchingUsingGateways(plebbit)) {
-                    expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMENT_IPFS_FROM_GATEWAYS");
-                    const gatewayError = Object.values(error.details.gatewayToError)[0] as PlebbitError;
-                    expect(gatewayError.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
-                    expect(gatewayError.details.commentIpfsValidation.reason).to.equal(
-                        messages.ERR_COMMENT_IPFS_AUTHOR_INCLUDES_RESERVED_FIELD
-                    );
-                } else {
-                    expect(error.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
-                    expect(error.details.commentIpfsValidation.reason).to.equal(messages.ERR_COMMENT_IPFS_AUTHOR_INCLUDES_RESERVED_FIELD);
-                }
+                expect(error.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
+                expect(error.details.commentIpfsValidation.reason).to.equal(messages.ERR_COMMENT_IPFS_AUTHOR_INCLUDES_RESERVED_FIELD);
             }
         });
 
@@ -406,17 +388,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await comment.update();
             const error = await errorPromise;
 
-            if (isPlebbitFetchingUsingGateways(plebbit)) {
-                expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMENT_IPFS_FROM_GATEWAYS");
-                const gatewayError = Object.values(error.details.gatewayToError)[0] as PlebbitError;
-                expect(gatewayError.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
-                expect(gatewayError.details.commentIpfsValidation.reason).to.equal(
-                    messages.ERR_COMMENT_IPFS_RECORD_INCLUDES_RESERVED_FIELD
-                );
-            } else {
-                expect(error.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
-                expect(error.details.commentIpfsValidation.reason).to.equal(messages.ERR_COMMENT_IPFS_RECORD_INCLUDES_RESERVED_FIELD);
-            }
+            expect(error.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
+            expect(error.details.commentIpfsValidation.reason).to.equal(messages.ERR_COMMENT_IPFS_RECORD_INCLUDES_RESERVED_FIELD);
 
             expect(comment.state).to.equal("stopped");
             await comment.stop();
@@ -435,17 +408,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await comment.update();
             const error = await errorPromise;
 
-            if (isPlebbitFetchingUsingGateways(plebbit)) {
-                expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMENT_IPFS_FROM_GATEWAYS");
-                const gatewayError = Object.values(error.details.gatewayToError)[0] as PlebbitError;
-                expect(gatewayError.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
-                expect(gatewayError.details.commentIpfsValidation.reason).to.equal(
-                    messages.ERR_COMMENT_IPFS_AUTHOR_INCLUDES_RESERVED_FIELD
-                );
-            } else {
-                expect(error.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
-                expect(error.details.commentIpfsValidation.reason).to.equal(messages.ERR_COMMENT_IPFS_AUTHOR_INCLUDES_RESERVED_FIELD);
-            }
+            expect(error.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
+            expect(error.details.commentIpfsValidation.reason).to.equal(messages.ERR_COMMENT_IPFS_AUTHOR_INCLUDES_RESERVED_FIELD);
 
             expect(comment.state).to.equal("stopped");
             await comment.stop();

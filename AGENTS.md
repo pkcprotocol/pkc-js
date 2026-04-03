@@ -8,7 +8,6 @@ Instructions for AI agents working on this codebase. Rules are ranked by priorit
 |---|---|
 | Modifying `src/` | Run `npm run build`, ensure no errors |
 | Modifying `test/` | Run `npx tsc --project test/tsconfig.json --noEmit` |
-| Editing schema | Check local zod version in `package.json` first |
 | Running tests | Use `node test/run-test-config.js --plebbit-config ${plebbit-config} ${testPath}` |
 | Bug reported | Reproduce deterministically in a test case first |
 | Debugging CI failures | Check `test_server.log` and `test_node_${config}.stdout.log`/`.stderr.log` artifacts |
