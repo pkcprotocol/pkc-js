@@ -562,6 +562,21 @@ const runBrowserTests = () => {
     });
 };
 
+const ensureTestServerIsRunning = async () => {
+    try {
+        await fetch("http://localhost:14952", { signal: AbortSignal.timeout(2000) });
+    } catch {
+        console.error("========================================");
+        console.error("ERROR: Test server is not running!");
+        console.error("Start it with: npm run test:server:node");
+        console.error("========================================");
+        process.exit(1);
+    }
+};
+
+// Ensure test server is reachable before doing anything else
+await ensureTestServerIsRunning();
+
 // Type check TypeScript files before running tests
 typeCheckTests();
 
