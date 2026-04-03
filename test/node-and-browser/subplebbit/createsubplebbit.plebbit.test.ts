@@ -21,6 +21,7 @@ import { describe, it, beforeAll, afterAll } from "vitest";
 import type { Plebbit as PlebbitType } from "../../../dist/node/plebbit/plebbit.js";
 import type { RemoteSubplebbit } from "../../../dist/node/subplebbit/remote-subplebbit.js";
 const subplebbitAddress = signers[0].address;
+const namedSubplebbitAddress = "plebbit.bso";
 
 getAvailablePlebbitConfigsToTestAgainst().map((config) =>
     describe.concurrent(`plebbit.createSubplebbit - Remote (${config.name})`, async () => {
@@ -90,6 +91,61 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) =>
             const createdSubJson = JSON.parse(JSON.stringify(createdSubplebbit));
             expect(deterministicStringify(loadedSubJson)).to.equal(deterministicStringify(createdSubJson));
         });
+
+        const loadSubplebbitWithResolvedName = async (testPlebbit: PlebbitType) => {
+            const loadedSubplebbit = await testPlebbit.createSubplebbit({ address: namedSubplebbitAddress });
+            await loadedSubplebbit.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: loadedSubplebbit,
+                predicate: async () => typeof loadedSubplebbit.updatedAt === "number"
+            });
+            loadedSubplebbit.nameResolved = true;
+            expect(loadedSubplebbit.nameResolved).to.equal(true);
+            await loadedSubplebbit.stop();
+
+            return loadedSubplebbit;
+        };
+
+        it.sequential("createSubplebbit from a spread subplebbit does not restore top-level runtime-only nameResolved", async () => {
+            const testPlebbit = await config.plebbitInstancePromise();
+            try {
+                const loadedSubplebbit = await loadSubplebbitWithResolvedName(testPlebbit);
+                const spread = { ...loadedSubplebbit };
+                expect(spread.nameResolved).to.equal(true);
+
+                const recreatedSubplebbit = await testPlebbit.createSubplebbit(spread);
+
+                expect(recreatedSubplebbit.nameResolved).to.be.undefined;
+                expect(recreatedSubplebbit.address).to.equal(loadedSubplebbit.address);
+                expect(recreatedSubplebbit.name).to.equal(loadedSubplebbit.name);
+                expect(recreatedSubplebbit.publicKey).to.equal(loadedSubplebbit.publicKey);
+                expect(recreatedSubplebbit.raw.subplebbitIpfs).to.deep.equal(loadedSubplebbit.raw.subplebbitIpfs);
+            } finally {
+                await testPlebbit.destroy();
+            }
+        });
+
+        it.sequential(
+            "createSubplebbit from a JSON-stringified subplebbit does not restore top-level runtime-only nameResolved",
+            async () => {
+                const testPlebbit = await config.plebbitInstancePromise();
+                try {
+                    const loadedSubplebbit = await loadSubplebbitWithResolvedName(testPlebbit);
+                    const json = JSON.parse(JSON.stringify(loadedSubplebbit));
+                    expect(json.nameResolved).to.equal(true);
+
+                    const recreatedSubplebbit = await testPlebbit.createSubplebbit(json);
+
+                    expect(recreatedSubplebbit.nameResolved).to.be.undefined;
+                    expect(recreatedSubplebbit.address).to.equal(loadedSubplebbit.address);
+                    expect(recreatedSubplebbit.name).to.equal(loadedSubplebbit.name);
+                    expect(recreatedSubplebbit.publicKey).to.equal(loadedSubplebbit.publicKey);
+                    expect(recreatedSubplebbit.raw.subplebbitIpfs).to.deep.equal(loadedSubplebbit.raw.subplebbitIpfs);
+                } finally {
+                    await testPlebbit.destroy();
+                }
+            }
+        );
 
         it("createSubplebbit preserves runtime-only author.nameResolved in preloaded fixture pages", async () => {
             const subJson = remeda.clone(validSubplebbitJsonfiedFixture);

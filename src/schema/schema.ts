@@ -152,6 +152,6 @@ export const AuthorWithOptionalCommentUpdateSchema = AuthorPubsubSchema.extend({
 });
 
 export const AuthorReservedFields = remeda.difference(
-    [...remeda.keys.strict(AuthorWithOptionalCommentUpdateSchema.shape), "address", "publicKey", "shortAddress"],
+    [...remeda.keys.strict(AuthorWithOptionalCommentUpdateSchema.shape), "address", "publicKey", "shortAddress", "nameResolved"],
     remeda.keys.strict(AuthorPubsubSchema.shape)
 );

@@ -348,4 +348,28 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
         });
         await tempPlebbit.destroy();
     });
+
+    it(`A subplebbit record is rejected if it includes runtime-only nameResolved even when signed`, async () => {
+        const tempPlebbit: PlebbitType = await mockRemotePlebbit();
+
+        const subFixture = remeda.clone(newFormatFixture) as SubplebbitIpfsType;
+        const subFixtureClone = remeda.clone(subFixture) as SubplebbitIpfsType & { nameResolved?: boolean };
+        subFixtureClone.nameResolved = true;
+        const signature = await _signJson([...subFixture.signature.signedPropertyNames, "nameResolved"], subFixtureClone, signers[0], log);
+
+        (subFixtureClone as Record<string, unknown>).signature = signature;
+
+        const validation = await verifySubplebbit({
+            subplebbit: subFixtureClone as SubplebbitIpfsType,
+            subplebbitIpnsName: signers[0].address,
+            resolveAuthorNames: tempPlebbit.resolveAuthorNames,
+            clientsManager: tempPlebbit._clientsManager,
+            validatePages: false
+        });
+        expect(validation).to.deep.equal({
+            valid: false,
+            reason: messages.ERR_SUBPLEBBIT_RECORD_INCLUDES_RESERVED_FIELD
+        });
+        await tempPlebbit.destroy();
+    });
 });
