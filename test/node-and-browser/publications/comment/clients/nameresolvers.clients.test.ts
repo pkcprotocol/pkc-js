@@ -213,7 +213,7 @@ describe(`comment.clients.nameResolvers`, async () => {
         await localPlebbit.destroy();
     });
 
-    it(`Correct order of nameResolvers state when comment has a reply with author.address as domain - uncached`, async () => {
+    it(`nameResolvers state does not show resolving-author-name for reply page authors`, async () => {
         const mockPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
         const reply = await publishRandomReply({
             parentComment: mockPost as CommentIpfsWithCidDefined,
@@ -231,7 +231,6 @@ describe(`comment.clients.nameResolvers`, async () => {
             plebbitOptions: { validatePages: true }
         });
         const loadedPost = await differentPlebbit.createComment({ cid: mockPost.cid });
-        const expectedStates = ["resolving-author-name", "stopped"];
         const actualStates: string[] = [];
 
         const resolverKey = Object.keys(loadedPost.clients.nameResolvers)[0];
@@ -244,6 +243,9 @@ describe(`comment.clients.nameResolvers`, async () => {
 
         await loadedPost.stop();
 
-        expect(actualStates.slice(0, expectedStates.length)).to.deep.equal(expectedStates);
+        // The post itself has no domain author, so the post's nameResolver should not show resolving-author-name.
+        // Reply page authors are resolved through the plebbit-level manager, not the comment's.
+        const authorNameStates = actualStates.filter((s) => s === "resolving-author-name");
+        expect(authorNameStates).to.have.length(0);
     });
 });

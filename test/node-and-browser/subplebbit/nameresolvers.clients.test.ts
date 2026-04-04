@@ -72,10 +72,18 @@ describe(`subplebbit.clients.nameResolvers`, async () => {
         sub.clients.nameResolvers[resolverKey].on("statechange", (newState: string) => recordedStates.push(newState));
 
         const updatePromise = new Promise((resolve) => sub.once("update", resolve));
-
         await sub.update();
-
         await updatePromise;
+
+        // Wait for background page-author resolution to complete (nameResolved set on domain-author comments).
+        // Background resolution doesn't emit "update", so poll instead of using resolveWhenConditionIsTrue.
+        const deadline = Date.now() + 30_000;
+        while (Date.now() < deadline) {
+            const domainComments = sub.posts?.pages?.hot?.comments?.filter((c) => c.author.address.includes(".")) ?? [];
+            if (domainComments.length > 0 && domainComments.every((c) => typeof c.author.nameResolved === "boolean")) break;
+            await new Promise((r) => setTimeout(r, 100));
+        }
+
         await sub.stop();
 
         const commentsWithDomainAuthor: { author: { address: string } }[] = [];
@@ -85,8 +93,12 @@ describe(`subplebbit.clients.nameResolvers`, async () => {
         );
 
         expect(commentsWithDomainAuthor.length).to.be.greaterThan(0);
-        expect(recordedStates.length).to.equal(commentsWithDomainAuthor.length * 2);
-        expect(recordedStates).to.deep.equal(Array(commentsWithDomainAuthor.length).fill(["resolving-author-name", "stopped"]).flat());
+        // With concurrent resolution (pLimit), the resolver state transitions once to resolving-author-name
+        // and once to stopped, regardless of how many authors are resolved through the same resolver key.
+        expect(recordedStates).to.include("resolving-author-name");
+        expect(recordedStates).to.include("stopped");
+        // The last state should be stopped
+        expect(recordedStates[recordedStates.length - 1]).to.equal("stopped");
         await differentPlebbit.destroy();
     });
 

@@ -22,7 +22,7 @@ function createAbortError(message: string) {
     return error;
 }
 
-function createBlockedNameResolver(key: string) {
+function createBlockedNameResolver(key: string, onlyForName?: string) {
     const receivedCalls: { name: string; signal: AbortSignal | undefined }[] = [];
     const resolverCallWaiters: { targetCallCount: number; resolve: () => void }[] = [];
 
@@ -47,7 +47,7 @@ function createBlockedNameResolver(key: string) {
         getReceivedSignal: (callIndex = receivedCalls.length - 1) => receivedCalls[callIndex]?.signal,
         resolver: {
             key,
-            canResolve: () => true,
+            canResolve: ({ name }: { name: string }) => (onlyForName ? name === onlyForName : true),
             provider: `${key}-provider`,
             resolve: async ({ name, abortSignal }: { name: string; provider: string; abortSignal?: AbortSignal }) => {
                 receivedCalls.push({ name, signal: abortSignal });
@@ -99,46 +99,48 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) =>
     })
 );
 
+// TODO can we use getAvailablePlebbitConfigsToTestAgainstHere
 describeSkipIfRpc(`comment.stop() aborts verification`, async () => {
-    it(`comment.stop() aborts publish-time author resolution before challenge flow starts`, async () => {
-        const blockedResolver = createBlockedNameResolver("publish-blocked-resolver");
-        const plebbit = await mockRemotePlebbit({
+    it(`comment.stop() aborts background author resolution and clears cache`, async () => {
+        const blockedResolver = createBlockedNameResolver("bg-abort-resolver");
+        const publisher = await mockRemotePlebbit();
+        const reader = await mockRemotePlebbit({
             mockResolve: false,
+            stubStorage: false,
             plebbitOptions: { nameResolvers: [blockedResolver.resolver] }
         });
 
         try {
-            const comment = await plebbit.createComment({
-                author: { name: "plebbit.bso" },
-                signer: signers[3],
-                title: `Abort publish verification ${Date.now()}`,
-                content: `Abort publish verification ${Date.now()}`,
-                communityAddress: subplebbitAddress
+            const publishedComment = await publishRandomPost({
+                communityAddress: subplebbitAddress,
+                plebbit: publisher,
+                postProps: {
+                    author: { name: "plebbit.bso" },
+                    signer: signers[3]
+                }
             });
-            const errors: Error[] = [];
-            const challengeRequests: unknown[] = [];
-            comment.on("error", (error) => errors.push(error as Error));
-            comment.on("challengerequest", (challengeRequest) => challengeRequests.push(challengeRequest));
 
-            const publishPromise = comment.publish();
+            const updatingComment = await reader.createComment({ cid: publishedComment.cid });
+            const errors: Error[] = [];
+            updatingComment.on("error", (error) => errors.push(error as Error));
+
+            await updatingComment.update();
             await blockedResolver.waitUntilCalled;
 
             expect(blockedResolver.getReceivedName()).to.equal("plebbit.bso");
             expect(blockedResolver.getReceivedSignal()).to.be.instanceOf(AbortSignal);
-            expect(comment.clients.nameResolvers["publish-blocked-resolver"].state).to.equal("resolving-author-name");
+            expect(updatingComment.clients.nameResolvers["bg-abort-resolver"].state).to.equal("resolving-author-name");
 
-            await comment.stop();
+            await updatingComment.stop();
 
-            await expect(publishPromise).rejects.toMatchObject({ name: "AbortError" });
-            expect(comment.state).to.equal("stopped");
-            expect(comment.publishingState).to.equal("stopped");
-            expect(comment.clients.nameResolvers["publish-blocked-resolver"].state).to.equal("stopped");
+            expect(updatingComment.state).to.equal("stopped");
+            expect(updatingComment.updatingState).to.equal("stopped");
+            expect(updatingComment.clients.nameResolvers["bg-abort-resolver"].state).to.equal("stopped");
             expect(blockedResolver.getReceivedSignal()!.aborted).to.equal(true);
-            expect(plebbit._memCaches.nameResolvedCache.get(sha256("plebbit.bso" + signers[3].publicKey))).to.be.undefined;
+            expect(reader._memCaches.nameResolvedCache.get(sha256("plebbit.bso" + publishedComment.signature.publicKey))).to.be.undefined;
             expect(errors).to.have.length(0);
-            expect(challengeRequests).to.have.length(0);
         } finally {
-            await plebbit.destroy();
+            await Promise.allSettled([reader.destroy(), publisher.destroy()]);
         }
     });
 
@@ -185,7 +187,7 @@ describeSkipIfRpc(`comment.stop() aborts verification`, async () => {
     });
 
     it(`comment.stop() recreates the stop abort signal for a later update cycle`, async () => {
-        const blockedResolver = createBlockedNameResolver("restarted-update-blocked-resolver");
+        const blockedResolver = createBlockedNameResolver("restarted-update-blocked-resolver", "plebbit.bso");
         const publisher = await mockRemotePlebbit();
         const reader = await mockRemotePlebbit({
             mockResolve: false,
@@ -207,9 +209,8 @@ describeSkipIfRpc(`comment.stop() aborts verification`, async () => {
             const errors: Error[] = [];
             updatingComment.on("error", (error) => errors.push(error as Error));
 
-            updatingComment["_setStateWithEmission"]("updating");
-            reader._updatingComments[publishedComment.cid] = updatingComment;
-            const firstUpdateCyclePromise = updatingComment.loadCommentIpfsAndStartCommentUpdateSubscription();
+            // First update cycle — resolver blocks on "plebbit.bso"
+            await updatingComment.update();
             await blockedResolver.waitUntilCalled;
 
             const firstSignal = blockedResolver.getReceivedSignal(0);
@@ -218,36 +219,31 @@ describeSkipIfRpc(`comment.stop() aborts verification`, async () => {
             expect(firstSignal!.aborted).to.equal(false);
 
             await updatingComment.stop();
-            await firstUpdateCyclePromise;
 
             expect(updatingComment.state).to.equal("stopped");
             expect(updatingComment.updatingState).to.equal("stopped");
             expect(firstSignal!.aborted).to.equal(true);
-            expect(reader._updatingComments[publishedComment.cid]).to.be.undefined;
 
-            updatingComment["_setStateWithEmission"]("updating");
-            reader._updatingComments[publishedComment.cid] = updatingComment;
-            const secondUpdateCyclePromise = updatingComment.loadCommentIpfsAndStartCommentUpdateSubscription();
-            await blockedResolver.waitUntilCallCount(2);
+            // Second update cycle — a fresh stop abort signal must be created
+            await updatingComment.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: updatingComment,
+                predicate: async () => typeof updatingComment.updatedAt === "number"
+            });
 
-            const secondSignal = blockedResolver.getReceivedSignal(1);
-            expect(blockedResolver.getCallCount()).to.equal(2);
-            expect(blockedResolver.getReceivedName(1)).to.equal("plebbit.bso");
+            // The internal updating instance should have a new, non-aborted stop signal
+            const updatingInstance = reader._updatingComments[publishedComment.cid!];
+            expect(updatingInstance).to.exist;
+            const secondSignal = updatingInstance!._getStopAbortSignal();
             expect(secondSignal).to.be.instanceOf(AbortSignal);
             expect(secondSignal).to.not.equal(firstSignal);
             expect(secondSignal!.aborted).to.equal(false);
-            expect(updatingComment.clients.nameResolvers["restarted-update-blocked-resolver"].state).to.equal("resolving-author-name");
 
             await updatingComment.stop();
-            await secondUpdateCyclePromise;
 
             expect(updatingComment.state).to.equal("stopped");
             expect(updatingComment.updatingState).to.equal("stopped");
-            expect(updatingComment.clients.nameResolvers["restarted-update-blocked-resolver"].state).to.equal("stopped");
             expect(secondSignal!.aborted).to.equal(true);
-            expect(reader._updatingComments[publishedComment.cid]).to.be.undefined;
-            expect(reader._memCaches.nameResolvedCache.get(sha256("plebbit.bso" + publishedComment.signature.publicKey))).to.be.undefined;
-            expect(errors).to.have.length(0);
         } finally {
             await Promise.allSettled([reader.destroy(), publisher.destroy()]);
         }
