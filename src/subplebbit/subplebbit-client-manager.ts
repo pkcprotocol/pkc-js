@@ -37,6 +37,7 @@ import {
     SubplebbitPlebbitRpcStateClient
 } from "./subplebbit-clients.js";
 import { CID } from "kubo-rpc-client";
+import { getAuthorDomainFromRuntime } from "../publications/publication-author.js";
 
 type SubplebbitGatewayFetch = {
     [gatewayUrl: string]: {
@@ -262,6 +263,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                 event: { name: "update", args: [this._subplebbit] },
                 newUpdatingState: "succeeded"
             });
+            this._resolvePageAuthorNamesInBackground();
         } else if (subLoadingRes === undefined) {
             // we loaded a sub record that we already consumed
             // we will retry later
@@ -380,6 +382,37 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                     // Transient failure -- leave nameResolved as undefined
                 }
             });
+    }
+
+    _resolvePageAuthorNamesInBackground() {
+        if (!this._plebbit.resolveAuthorNames) return;
+        const pages = this._subplebbit.posts?.pages;
+        if (!pages) return;
+
+        const authors: Array<{ authorName: string; signaturePublicKey: string }> = [];
+        for (const page of Object.values(pages)) {
+            if (!page) continue;
+            for (const comment of page.comments) {
+                const domain = getAuthorDomainFromRuntime(comment.author);
+                if (domain && typeof comment.author.nameResolved !== "boolean") {
+                    authors.push({ authorName: domain, signaturePublicKey: comment.signature.publicKey });
+                }
+            }
+        }
+
+        if (authors.length === 0) return;
+
+        this.resolveAuthorNamesInBackground({
+            authors,
+            onResolved: () => {
+                // Silently re-apply cache to all pages — no update emission.
+                // Only subplebbit.nameResolved changes should emit updates (handled by _resolveNameInBackground).
+                for (const page of Object.values(this._subplebbit.posts?.pages || {})) {
+                    if (page) this._subplebbit.posts._applyNameResolvedCacheToPage(page);
+                }
+            },
+            abortSignal: this._subplebbit._getStopAbortSignal()
+        });
     }
 
     async fetchNewUpdateForSubplebbit(subAddress: string): Promise<ResultOfFetchingSubplebbit> {

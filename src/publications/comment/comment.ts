@@ -259,6 +259,51 @@ export class Comment
         if (typeof sourceComment?.author?.nameResolved === "boolean") this.author.nameResolved = sourceComment.author.nameResolved;
     }
 
+    _resolveAuthorNamesInBackground() {
+        if (!this._plebbit.resolveAuthorNames) return;
+
+        const authors: Array<{ authorName: string; signaturePublicKey: string }> = [];
+
+        // Collect comment's own author if nameResolved is not yet set
+        const domain = getAuthorDomainFromRuntime(this.author);
+        if (domain && typeof this.author.nameResolved !== "boolean") {
+            authors.push({ authorName: domain, signaturePublicKey: this.signature.publicKey });
+        }
+
+        // Collect page comment authors from replies that still need resolution
+        if (this.replies?.pages) {
+            for (const page of Object.values(this.replies.pages)) {
+                if (!page) continue;
+                for (const comment of page.comments) {
+                    const commentDomain = getAuthorDomainFromRuntime(comment.author);
+                    if (commentDomain && typeof comment.author.nameResolved !== "boolean") {
+                        authors.push({ authorName: commentDomain, signaturePublicKey: comment.signature.publicKey });
+                    }
+                }
+            }
+        }
+
+        if (authors.length === 0) return;
+
+        const previousNameResolved = this.author.nameResolved;
+        this._clientsManager.resolveAuthorNamesInBackground({
+            authors,
+            onResolved: () => {
+                this._setAuthorNameResolvedFromCache();
+                if (this.replies?.pages) {
+                    for (const page of Object.values(this.replies.pages)) {
+                        if (page) this.replies._applyNameResolvedCacheToPage(page);
+                    }
+                }
+                // Only emit update if this comment's own author.nameResolved changed
+                if (this.author.nameResolved !== previousNameResolved) {
+                    this.emit("update", this);
+                }
+            },
+            abortSignal: this._getStopAbortSignal()
+        });
+    }
+
     _initProps(props: CommentIpfsType | CommentPubsubMessagePublication) {
         // Initializing CommentPubsubMessage
         super._initBaseRemoteProps(props);
@@ -533,6 +578,7 @@ export class Comment
             Object.assign(this, remeda.pick(decryptedVerification.commentUpdate, unknownProps));
         }
         this.emit("update", this);
+        this._resolveAuthorNamesInBackground();
     }
 
     protected override async _verifyDecryptedChallengeVerificationAndUpdateCommentProps(
@@ -667,6 +713,7 @@ export class Comment
                     newUpdatingState: "succeeded",
                     event: { name: "update", args: [this] }
                 });
+                this._resolveAuthorNamesInBackground();
             }
         }
     }
@@ -831,6 +878,7 @@ export class Comment
             }
 
             this.emit("update", this);
+            this._resolveAuthorNamesInBackground();
         }
     }
 
@@ -919,10 +967,12 @@ export class Comment
                 if (!this.raw.comment) {
                     this._initIpfsProps(commentInSubplebbitPosts.comment);
                     this.emit("update", this);
+                    this._resolveAuthorNamesInBackground();
                 }
                 if ((this.updatedAt || 0) < commentInSubplebbitPosts.commentUpdate.updatedAt) {
                     this._initCommentUpdate(commentInSubplebbitPosts.commentUpdate, updatingSubplebbitInstance.raw.subplebbitIpfs);
                     this.emit("update", this);
+                    this._resolveAuthorNamesInBackground();
                 }
             }
         }
@@ -937,6 +987,7 @@ export class Comment
                 this._initIpfsProps(updatingCommentInstance.raw.comment);
                 this._copyNameResolvedFromComment(updatingCommentInstance);
                 this.emit("update", this);
+                this._resolveAuthorNamesInBackground();
             }
             if (updatingCommentInstance.raw.commentUpdate && (this.updatedAt || 0) < updatingCommentInstance.raw.commentUpdate.updatedAt) {
                 this._initCommentUpdate(
@@ -948,6 +999,7 @@ export class Comment
                 if (updatingCommentInstance.raw.runtimeFieldsFromRpc)
                     deepMergeRuntimeFields(this, updatingCommentInstance.raw.runtimeFieldsFromRpc);
                 this.emit("update", this);
+                this._resolveAuthorNamesInBackground();
             }
         } else {
             const ancestorAndUpdatingCids = [
@@ -964,6 +1016,7 @@ export class Comment
                         if (!this.raw.comment) {
                             this._initIpfsProps(commentInAncestor.comment);
                             this.emit("update", this);
+                            this._resolveAuthorNamesInBackground();
                         }
                         if ((this.updatedAt || 0) < commentInAncestor.commentUpdate.updatedAt) {
                             this._initCommentUpdate(
@@ -971,6 +1024,7 @@ export class Comment
                                 findUpdatingSubplebbit(this._plebbit, { address: this.communityAddress })?.raw?.subplebbitIpfs
                             );
                             this.emit("update", this);
+                            this._resolveAuthorNamesInBackground();
                         }
                         break; // if we found it once we won't be finding it in other comments
                     }

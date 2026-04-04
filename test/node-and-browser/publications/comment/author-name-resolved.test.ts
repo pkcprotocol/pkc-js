@@ -99,7 +99,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await loaded.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: loaded,
-                predicate: async () => Boolean(loaded.content)
+                predicate: async () => loaded.author?.nameResolved === true
             });
             await loaded.stop();
 
@@ -107,7 +107,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(loaded.author.address).to.equal("plebbit.bso");
         });
 
-        it("nameResolved is true immediately after challenge verification", async () => {
+        it("nameResolved is set after challenge verification via background resolution", async () => {
             const comment = await plebbit.createComment({
                 author: { displayName: `Test Author - ${Date.now()}`, name: "plebbit.bso" },
                 signer: signers[3],
@@ -118,8 +118,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             await publishWithExpectedResult({ publication: comment, expectedChallengeSuccess: true });
 
-            // On non-RPC path, verifyCommentIpfs runs during challenge verification,
-            // populating nameResolvedCache before _initIpfsProps reads it
+            // Background resolution fires after challenge verification emits "update".
+            // nameResolved may be undefined initially but becomes true after resolution completes.
+            await resolveWhenConditionIsTrue({
+                toUpdate: comment,
+                predicate: async () => comment.author?.nameResolved === true
+            });
             expect(comment.author.nameResolved).to.equal(true);
             expect(comment.author.address).to.equal("plebbit.bso");
         });
@@ -158,7 +162,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await comment.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: comment,
-                predicate: async () => typeof comment.updatedAt === "number"
+                predicate: async () => comment.author?.nameResolved === true
             });
             await comment.stop();
 
@@ -181,7 +185,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await comment.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: comment,
-                predicate: async () => typeof comment.updatedAt === "number"
+                predicate: async () => comment.author?.nameResolved === true
             });
             await comment.stop();
 
@@ -197,7 +201,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
-                predicate: async () => sub.posts?.pages?.hot?.comments?.some((c) => c.cid === domainCommentCid) ?? false
+                predicate: async () => {
+                    const c = sub.posts?.pages?.hot?.comments?.find((c) => c.cid === domainCommentCid);
+                    return c?.author.nameResolved === true;
+                }
             });
             await sub.stop();
 
@@ -214,7 +221,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await comment.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: comment,
-                predicate: async () => Boolean(comment.content)
+                predicate: async () => comment.author?.nameResolved === false
             });
             await comment.stop();
 
@@ -228,7 +235,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await comment.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: comment,
-                predicate: async () => Boolean(comment.content)
+                predicate: async () => comment.author?.nameResolved === false
             });
             await comment.stop();
 
@@ -273,7 +280,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await comment.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: comment,
-                predicate: async () => Boolean(comment.content)
+                predicate: async () => comment.author?.nameResolved === false
             });
             await comment.stop();
 
@@ -291,14 +298,15 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await instance1.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: instance1,
-                predicate: async () => Boolean(instance1.content)
+                predicate: async () => instance1.author?.nameResolved === true
             });
             await instance1.stop();
 
+            // instance2 should pick up nameResolved from cache immediately (or via background resolution)
             await instance2.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: instance2,
-                predicate: async () => Boolean(instance2.content)
+                predicate: async () => instance2.author?.nameResolved === true
             });
             await instance2.stop();
 
@@ -316,6 +324,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 }
             });
 
+            await resolveWhenConditionIsTrue({
+                toUpdate: comment,
+                predicate: async () => comment.author?.nameResolved === true
+            });
             expect(comment.author.nameResolved).to.equal(true);
 
             // raw.comment holds the CommentIpfs as stored on IPFS
@@ -350,7 +362,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
-                predicate: async () => Boolean(sub.posts?.pages?.hot?.comments?.length)
+                predicate: async () => {
+                    const domainComment = sub.posts?.pages?.hot?.comments?.find((c) => c.cid === domainCommentCid);
+                    return domainComment?.author.nameResolved === true;
+                }
             });
             await sub.stop();
 
@@ -377,11 +392,16 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         it("nameResolved is true for domain author in pages fetched via sub.posts.getPage()", async () => {
             const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
             await sub.update();
+            // Wait for background resolution to populate the cache first
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
-                predicate: async () => Boolean(sub.posts?.pages?.hot?.comments?.length)
+                predicate: async () => {
+                    const c = sub.posts?.pages?.hot?.comments?.find((c) => c.cid === domainCommentCid);
+                    return c?.author.nameResolved === true;
+                }
             });
 
+            // Now getPage will find nameResolved in cache
             const page = await sub.posts.getPage({ cid: manualPageCid });
             await sub.stop();
 
@@ -417,6 +437,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await sub.stop();
 
             const mismatchComment = sub.posts.pages.hot!.comments.find((c) => c.cid === mismatchedDomainCommentCid);
+            // mismatchedDomainCommentCid is a standalone record, may not be in the hot page
             if (mismatchComment) {
                 expect(mismatchComment.author.nameResolved).to.equal(false);
                 expect(mismatchComment.author.address).to.equal("plebbit.bso");
@@ -433,6 +454,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await sub.stop();
 
             const unresolvableComment = sub.posts.pages.hot!.comments.find((c) => c.cid === unresolvableDomainCommentCid);
+            // unresolvableDomainCommentCid is a standalone record, may not be in the hot page
             if (unresolvableComment) {
                 expect(unresolvableComment.author.nameResolved).to.equal(false);
                 expect(unresolvableComment.author.address).to.equal("hello.scam");
@@ -456,12 +478,15 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 }
             });
 
-            // Load the parent comment and wait for replies
+            // Load the parent comment and wait for replies with nameResolved set
             const parent = await plebbit.createComment({ cid: noDomainCommentCid });
             await parent.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: parent,
-                predicate: async () => Boolean(parent.replies?.pages?.best?.comments?.length)
+                predicate: async () => {
+                    const r = parent.replies?.pages?.best?.comments?.find((c) => c.cid === reply.cid);
+                    return r?.author.nameResolved === true;
+                }
             });
             await parent.stop();
 
@@ -474,14 +499,19 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         it("nameResolved is true for domain author in comment.replies fetched via getPage()", async () => {
             const parent = await plebbit.createComment({ cid: noDomainCommentCid });
             await parent.update();
+            // Wait for background resolution to populate cache
             await resolveWhenConditionIsTrue({
                 toUpdate: parent,
-                predicate: async () => Boolean(parent.replies?.pages?.best?.comments?.length)
+                predicate: async () => {
+                    const r = parent.replies?.pages?.best?.comments?.find((c) => c.author.address === "plebbit.bso");
+                    return r?.author.nameResolved === true;
+                }
             });
 
             const rawReplyPage: PageIpfs = { comments: parent.replies.pages.best!.comments.map((c) => c.raw) };
             const replyPageCid = await addStringToIpfs(JSON.stringify(rawReplyPage));
 
+            // getPage reads from cache which was populated by background resolution
             const page = await parent.replies.getPage({ cid: replyPageCid });
             await parent.stop();
 
@@ -517,6 +547,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await sub.stop();
 
             const mismatchComment = page.comments.find((c) => c.cid === mismatchedDomainCommentCid);
+            // mismatchedDomainCommentCid is a standalone record, may not be in the page
             if (mismatchComment) {
                 expect(mismatchComment.author.nameResolved).to.equal(false);
             }
@@ -551,7 +582,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await comment.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: comment,
-                predicate: async () => Boolean(comment.content)
+                predicate: async () => comment.author?.nameResolved === false
             });
             await comment.stop();
 
@@ -560,6 +591,72 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(comment.author.address).to.equal("testuser.xyz");
 
             await readerPlebbit.destroy();
+        });
+
+        it("nameResolved change emits a separate update event", async () => {
+            // Use a fresh plebbit instance so the cache is empty
+            const freshPlebbit = await config.plebbitInstancePromise();
+
+            const comment = await freshPlebbit.createComment({ cid: domainCommentCid });
+            let updateCount = 0;
+            let nameResolvedOnUpdateWhenSet: boolean | undefined;
+
+            comment.on("update", () => {
+                updateCount++;
+                if (typeof comment.author.nameResolved === "boolean" && nameResolvedOnUpdateWhenSet === undefined) {
+                    nameResolvedOnUpdateWhenSet = comment.author.nameResolved;
+                }
+            });
+
+            await comment.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: comment,
+                predicate: async () => comment.author?.nameResolved === true
+            });
+            await comment.stop();
+
+            // nameResolved should be true once background resolution completes
+            expect(nameResolvedOnUpdateWhenSet).to.equal(true);
+            // There should have been at least 2 update events (initial load + nameResolved change)
+            expect(updateCount).to.be.greaterThanOrEqual(2);
+
+            await freshPlebbit.destroy();
+        });
+
+        it("background resolution of reply page authors does not emit spurious update on comment", async () => {
+            // noDomainComment is a B58-address author (no domain to resolve)
+            // but it has reply pages containing domain-author comments (plebbit.bso)
+            const parent = await plebbit.createComment({ cid: noDomainCommentCid });
+            await parent.update();
+            // Wait until we have replies with a domain author
+            await resolveWhenConditionIsTrue({
+                toUpdate: parent,
+                predicate: async () => parent.replies?.pages?.best?.comments?.some((c) => c.author.address.includes(".")) ?? false
+            });
+
+            // At this point parent.author.nameResolved should be undefined (B58 address, no domain)
+            expect(parent.author.nameResolved).to.be.undefined;
+
+            // Track whether nameResolved ever changes — background resolution of reply page
+            // domain authors should NOT cause parent.author.nameResolved to change
+            let nameResolvedEverChanged = false;
+            const onUpdate = () => {
+                if (typeof parent.author.nameResolved === "boolean") {
+                    nameResolvedEverChanged = true;
+                }
+            };
+            parent.on("update", onUpdate);
+
+            // Wait a bit to let any pending background resolution settle
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+
+            parent.removeListener("update", onUpdate);
+            await parent.stop();
+
+            // parent.author.nameResolved should still be undefined (no domain to resolve)
+            expect(parent.author.nameResolved).to.be.undefined;
+            // nameResolved should never have been set to a boolean
+            expect(nameResolvedEverChanged).to.be.false;
         });
     });
 });

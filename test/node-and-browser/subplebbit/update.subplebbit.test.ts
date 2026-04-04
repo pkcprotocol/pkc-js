@@ -683,5 +683,35 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await testPlebbit.destroy();
             }
         });
+
+        it(`page comment author background resolution does not emit spurious update on subplebbit`, async () => {
+            // Load a subplebbit that has pages with domain-author comments
+            const sub = await plebbit.createSubplebbit({ address: signers[0].address });
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => Boolean(sub.posts?.pages?.hot?.comments?.length)
+            });
+
+            // Track whether nameResolved ever gets set on the subplebbit itself
+            // (it shouldn't — signers[0].address is a B58 key, not a domain)
+            let nameResolvedEverChanged = false;
+            const onUpdate = () => {
+                if (typeof sub.nameResolved === "boolean") {
+                    nameResolvedEverChanged = true;
+                }
+            };
+            sub.on("update", onUpdate);
+
+            // Wait to let any pending background page author resolution settle
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+
+            sub.removeListener("update", onUpdate);
+            await sub.stop();
+
+            // subplebbit.nameResolved should remain undefined (no community domain to resolve)
+            expect(sub.nameResolved).to.be.undefined;
+            expect(nameResolvedEverChanged).to.be.false;
+        });
     });
 });

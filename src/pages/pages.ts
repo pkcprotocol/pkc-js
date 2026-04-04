@@ -62,7 +62,7 @@ export class BasePages {
         }
     }
 
-    private _applyNameResolvedCacheToPage(page: PageTypeJson | ModQueuePageTypeJson) {
+    _applyNameResolvedCacheToPage(page: PageTypeJson | ModQueuePageTypeJson) {
         const cache = this._clientsManager._plebbit._memCaches.nameResolvedCache;
         for (const comment of page.comments) {
             const domain = getAuthorDomainFromRuntime(comment.author);

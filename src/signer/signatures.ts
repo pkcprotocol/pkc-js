@@ -12,13 +12,7 @@ import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import * as ed from "@noble/ed25519";
 
 import PeerId from "peer-id";
-import {
-    areEquivalentSubplebbitAddresses,
-    isAbortError,
-    isStringDomain,
-    removeNullUndefinedEmptyObjectsValuesRecursively,
-    timestamp
-} from "../util.js";
+import { areEquivalentSubplebbitAddresses, isStringDomain, removeNullUndefinedEmptyObjectsValuesRecursively, timestamp } from "../util.js";
 import { getCommunityAddressFromRecord } from "../publications/publication-community.js";
 import { PlebbitError } from "../plebbit-error.js";
 import { Plebbit } from "../plebbit/plebbit.js";
@@ -381,49 +375,22 @@ export async function signChallengeVerification({
 
 // Verify functions
 
-// Resolves author domain and updates nameResolvedCache as a side effect.
-// Domain failures return { valid: true } — domain resolution is a display concern (nameResolved), not a signature concern.
+// Validates author address against signature public key.
+// Domain authors return { valid: true } immediately — domain resolution is a display concern (nameResolved),
+// handled in the background by the caller, not during verification.
 // B58 failures return { valid: false } — these are data integrity issues.
-const _verifyAuthorDomainResolvesToSignatureAddress = async ({
-    publicationJson,
-    resolveAuthorNames,
-    clientsManager,
-    abortSignal
+const _verifyAuthorAddressMatchesSignature = async ({
+    publicationJson
 }: {
     publicationJson: PublicationFromDecryptedChallengeRequest;
-    resolveAuthorNames: boolean;
-    clientsManager: BaseClientsManager;
-    abortSignal?: AbortSignal;
 }): Promise<ValidationResult> => {
-    const log = Logger("plebbit-js:signatures:verifyAuthor");
     const authorName = getAuthorNameFromWire(publicationJson.author);
 
     if (!authorName) return { valid: true };
 
     if (authorName.includes(".")) {
-        if (!resolveAuthorNames) return { valid: true };
-        const nameResolvedCacheKey = sha256(authorName + publicationJson.signature.publicKey);
-        let resolvedAuthorAddress: string | null;
-        try {
-            resolvedAuthorAddress = await clientsManager.resolveAuthorNameIfNeeded({ authorAddress: authorName, abortSignal });
-        } catch (e) {
-            if (isAbortError(e)) throw e;
-            log.error("Failed to resolve author address to verify author", e);
-            if (e instanceof PlebbitError && e.code === "ERR_NO_RESOLVER_FOR_NAME") {
-                // No resolver can handle this TLD — this is permanent, not transient
-                clientsManager._plebbit._memCaches.nameResolvedCache.set(nameResolvedCacheKey, false);
-            }
-            // For transient failures (timeout, network error) — leave nameResolved as undefined so it can be retried
-            return { valid: true };
-        }
-        const signerAddress = await getPlebbitAddressFromPublicKey(publicationJson.signature.publicKey);
-        if (resolvedAuthorAddress !== signerAddress) {
-            log.error(
-                `author address (${authorName}) resolved address (${resolvedAuthorAddress}) does not match signature address (${signerAddress}). `
-            );
-            clientsManager._plebbit._memCaches.nameResolvedCache.set(nameResolvedCacheKey, false);
-            return { valid: true };
-        } else clientsManager._plebbit._memCaches.nameResolvedCache.set(nameResolvedCacheKey, true);
+        // Domain resolution is a display concern (nameResolved), handled in background by caller
+        return { valid: true };
     } else {
         let authorPeerId: PeerId, signaturePeerId: PeerId;
         try {
@@ -479,22 +446,13 @@ const _verifyPubsubSignature = async (msg: PubsubMessage): Promise<boolean> => {
 };
 
 const _verifyPublicationSignatureAndAuthor = async ({
-    publicationJson,
-    resolveAuthorNames,
-    clientsManager,
-    abortSignal
+    publicationJson
 }: {
     publicationJson: PublicationFromDecryptedChallengeRequest;
-    resolveAuthorNames: boolean;
-    clientsManager: BaseClientsManager;
-    abortSignal?: AbortSignal;
 }): Promise<ValidationResult> => {
-    // Validate author (also sets nameResolvedCache as side effect)
-    const authorValidity = await _verifyAuthorDomainResolvesToSignatureAddress({
-        publicationJson,
-        resolveAuthorNames,
-        clientsManager,
-        abortSignal
+    // Validate author address matches signature (B58 only; domain resolution is handled in background)
+    const authorValidity = await _verifyAuthorAddressMatchesSignature({
+        publicationJson
     });
     if (!authorValidity.valid) return authorValidity;
 
@@ -517,7 +475,7 @@ export async function verifyVote({
     if (!_allFieldsOfRecordInSignedPropertyNames(vote))
         return { valid: false, reason: messages.ERR_VOTE_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
 
-    const res = await _verifyPublicationSignatureAndAuthor({ publicationJson: vote, resolveAuthorNames, clientsManager });
+    const res = await _verifyPublicationSignatureAndAuthor({ publicationJson: vote });
     if (!res.valid) return res;
     return { valid: true };
 }
@@ -534,7 +492,7 @@ export async function verifySubplebbitEdit({
     if (!_allFieldsOfRecordInSignedPropertyNames(subplebbitEdit))
         return { valid: false, reason: messages.ERR_SUBPLEBBIT_EDIT_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
 
-    const res = await _verifyPublicationSignatureAndAuthor({ publicationJson: subplebbitEdit, resolveAuthorNames, clientsManager });
+    const res = await _verifyPublicationSignatureAndAuthor({ publicationJson: subplebbitEdit });
     if (!res.valid) return res;
     return { valid: true };
 }
@@ -551,7 +509,7 @@ export async function verifyCommentEdit({
     if (!_allFieldsOfRecordInSignedPropertyNames(edit))
         return { valid: false, reason: messages.ERR_COMMENT_EDIT_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
 
-    const res = await _verifyPublicationSignatureAndAuthor({ publicationJson: edit, resolveAuthorNames, clientsManager });
+    const res = await _verifyPublicationSignatureAndAuthor({ publicationJson: edit });
     if (!res.valid) return res;
     return { valid: true };
 }
@@ -568,7 +526,7 @@ export async function verifyCommentModeration({
     if (!_allFieldsOfRecordInSignedPropertyNames(moderation))
         return { valid: false, reason: messages.ERR_COMMENT_MODERATION_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
 
-    const res = await _verifyPublicationSignatureAndAuthor({ publicationJson: moderation, resolveAuthorNames, clientsManager });
+    const res = await _verifyPublicationSignatureAndAuthor({ publicationJson: moderation });
     if (!res.valid) return res;
     return { valid: true };
 }
@@ -587,10 +545,7 @@ export async function verifyCommentPubsubMessage({
     if (!_allFieldsOfRecordInSignedPropertyNames(comment))
         return { valid: false, reason: messages.ERR_COMMENT_PUBSUB_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
     const validation = await _verifyPublicationSignatureAndAuthor({
-        publicationJson: comment,
-        resolveAuthorNames,
-        clientsManager,
-        abortSignal
+        publicationJson: comment
     });
     if (!validation.valid) return validation;
 
@@ -609,8 +564,7 @@ export async function verifyCommentIpfs(opts: {
         opts.comment.signature.signature +
             opts.comment.signature.publicKey +
             opts.calculatedCommentCid +
-            Number(opts.resolveAuthorNames) +
-            opts.communityAddressFromInstance || ""
+            (opts.communityAddressFromInstance || "")
     );
     if (opts.clientsManager._plebbit._memCaches.commentVerificationCache.get(cacheKey)) return { valid: true };
 
@@ -684,7 +638,7 @@ export async function verifySubplebbit({
     const signatureValidity = await _verifyJsonSignature(subplebbit);
     if (!signatureValidity) return { valid: false, reason: messages.ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID };
     const cacheIfValidWithDefault = typeof cacheIfValid === "boolean" ? cacheIfValid : true;
-    const cacheKey = sha256(subplebbit.signature.signature + resolveAuthorNames + validatePages + subplebbitIpnsName);
+    const cacheKey = sha256(subplebbit.signature.signature + validatePages + subplebbitIpnsName);
     if (cacheIfValidWithDefault && clientsManager._plebbit._memCaches.subplebbitVerificationCache.get(cacheKey)) return { valid: true };
 
     // Derive address for page verification: name || publicKey || ipnsName
@@ -778,12 +732,7 @@ export async function verifyCommentUpdate({
     }
 
     const cacheKey = sha256(
-        update.signature.signature +
-            resolveAuthorNames +
-            subplebbit.address +
-            JSON.stringify(comment) +
-            validatePages +
-            validateUpdateSignature
+        update.signature.signature + subplebbit.address + JSON.stringify(comment) + validatePages + validateUpdateSignature
     );
 
     if (clientsManager._plebbit._memCaches.commentUpdateVerificationCache.get(cacheKey)) return { valid: true };
@@ -1034,7 +983,6 @@ export async function verifyPage({
         pageCid &&
         sha256(
             pageCid +
-                resolveAuthorNames +
                 subplebbit.address +
                 subplebbit.signature?.publicKey +
                 JSON.stringify(parentComment) +
@@ -1083,10 +1031,7 @@ export async function verifyModQueuePage({
     abortSignal?: AbortSignal;
 }): Promise<ValidationResult> {
     const cacheKey =
-        pageCid &&
-        sha256(
-            pageCid + resolveAuthorNames + subplebbit.address + subplebbit.signature?.publicKey + validatePages + validateUpdateSignature
-        );
+        pageCid && sha256(pageCid + subplebbit.address + subplebbit.signature?.publicKey + validatePages + validateUpdateSignature);
     if (cacheKey) if (clientsManager._plebbit._memCaches.pageVerificationCache.get(cacheKey)) return { valid: true };
 
     for (const pageComment of page.comments) {

@@ -1,6 +1,8 @@
 import { Plebbit } from "../plebbit/plebbit.js";
 import assert from "assert";
 import { calculateIpfsCidV0, hideClassPrivateProps, isAbortError, isIpns, isStringDomain, throwIfAbortSignalAborted } from "../util.js";
+import { sha256 } from "js-sha256";
+import { getPlebbitAddressFromPublicKey } from "../signer/util.js";
 import { nativeFunctions } from "../runtime/node/util.js";
 import pLimit from "p-limit";
 import {
@@ -764,6 +766,62 @@ export class BaseClientsManager {
         if (typeof result === "string" && !isIpns(result))
             throw new PlebbitError("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: authorAddress });
         return result;
+    }
+
+    // Background author name resolution — fire-and-forget, populates nameResolvedCache
+    resolveAuthorNamesInBackground({
+        authors,
+        onResolved,
+        abortSignal
+    }: {
+        authors: Array<{ authorName: string; signaturePublicKey: string }>;
+        onResolved: () => void;
+        abortSignal?: AbortSignal;
+    }): void {
+        const log = Logger("plebbit-js:base-client-manager:resolveAuthorNamesInBackground");
+        const cache = this._plebbit._memCaches.nameResolvedCache;
+
+        // Deduplicate and skip already-cached entries
+        const seen = new Set<string>();
+        const toResolve: Array<{ authorName: string; signaturePublicKey: string; cacheKey: string }> = [];
+        for (const { authorName, signaturePublicKey } of authors) {
+            if (!isStringDomain(authorName)) continue;
+            const cacheKey = sha256(authorName + signaturePublicKey);
+            if (seen.has(cacheKey)) continue;
+            seen.add(cacheKey);
+            if (typeof cache.get(cacheKey) === "boolean") continue;
+            toResolve.push({ authorName, signaturePublicKey, cacheKey });
+        }
+
+        if (toResolve.length === 0) return;
+
+        const limit = pLimit(5);
+        const resolveOne = async (entry: (typeof toResolve)[0]) => {
+            if (abortSignal?.aborted) return false;
+            try {
+                const resolved = await this.resolveAuthorNameIfNeeded({ authorAddress: entry.authorName, abortSignal });
+                const signerAddress = await getPlebbitAddressFromPublicKey(entry.signaturePublicKey);
+                const matches = resolved === signerAddress;
+                cache.set(entry.cacheKey, matches);
+                return true; // newly set
+            } catch (e) {
+                if (isAbortError(e)) return false;
+                log.error("Failed to resolve author name in background", entry.authorName, e);
+                if (e instanceof PlebbitError && e.code === "ERR_NO_RESOLVER_FOR_NAME") {
+                    cache.set(entry.cacheKey, false);
+                    return true; // newly set
+                }
+                // Transient failure — leave undefined for retry on next update
+                return false;
+            }
+        };
+
+        Promise.allSettled(toResolve.map((entry) => limit(() => resolveOne(entry))))
+            .then((results) => {
+                const anyNewlySet = results.some((r) => r.status === "fulfilled" && r.value === true);
+                if (anyNewlySet) onResolved();
+            })
+            .catch((e) => log.error("Unexpected error in resolveAuthorNamesInBackground", e));
     }
 
     // Misc functions
