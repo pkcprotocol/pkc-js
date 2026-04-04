@@ -78,6 +78,7 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 - When creating a Plebbit instance pointing at local test Kubo (`http://localhost:15001/api/v0`), always pass `httpRoutersOptions: []` to prevent the Zod default from adding production routers, which triggers a Kubo shutdown/restart and breaks parallel tests with ECONNREFUSED.
 - When running RPC tests (e.g. `remove.test.js`), set `USE_RPC=1` in the environment.
 - If RPC tests are failing, consider the RPC server may be outdated and carrying old `dist/`.
+- When writing tests related to loading (e.g., loading a comment, subplebbit, or page), prefer generating a fixture to test against instead of relying on a live subplebbit or community.
 
 ### Code Patterns
 
