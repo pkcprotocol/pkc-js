@@ -151,6 +151,7 @@ export enum messages {
     ERR_THE_SUBPLEBBIT_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED = "The subplebbit record address does not correspond to the requested subplebbit. requestedSubplebbit.address !== providedSubplebbit.address",
     ERR_SUBPLEBBIT_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY = "The community name resolves to a different public key than the one provided. The community may have migrated to a new key.",
     ERR_AUTHOR_NOT_MATCHING_SIGNATURE = "comment.author.address doesn't match comment.signature.publicKey",
+    ERR_AUTHOR_NAME_MUST_BE_A_DOMAIN = "author.name must be a domain name (e.g. 'example.bso')",
     ERR_SUBPLEBBIT_IPNS_NAME_DOES_NOT_MATCH_SIGNATURE_PUBLIC_KEY = "The IPNS name of subplebbit doesn't match subplebbit.signature.publicKey",
     ERR_COMMENT_SHOULD_BE_THE_LATEST_EDIT = "comment.content is not set to the latest comment.authorEdit.content",
     ERR_COMMENT_UPDATE_IS_NOT_SIGNED_BY_SUBPLEBBIT = "Comment update is not signed by the subplebbit",

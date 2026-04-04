@@ -95,7 +95,7 @@ describeSkipIfRpc("Verify CommentEdit", async () => {
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
 
-    it(`verifyCommentEdit invalidates a commentEdit with author.name not a domain`, async () => {
+    it(`verifyCommentEdit invalidates a commentEdit with tampered author.name`, async () => {
         const edit = remeda.clone(validCommentEditFixture) as CommentEditPubsubMessagePublication;
         edit.author = { ...(edit.author || {}), name: "gibbresish" };
         const verification = await verifyCommentEdit({
@@ -103,7 +103,8 @@ describeSkipIfRpc("Verify CommentEdit", async () => {
             resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager
         });
-        expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58 });
+        // Modifying author.name without re-signing invalidates the signature
+        expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
     it("verifyCommentEdit invalidates a legacy commentEdit with author removed because the signature changes", async () => {
         const edit = remeda.clone(validCommentEditFixture) as CommentEditPubsubMessagePublication;

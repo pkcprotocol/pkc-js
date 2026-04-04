@@ -273,7 +273,7 @@ describeSkipIfRpc("verify Comment", async () => {
         expect(verification).to.deep.equal({ valid: true });
     });
 
-    it(`verifyCommentPubsubMessage invalidates a comment with author.name not a domain`, async () => {
+    it(`verifyCommentPubsubMessage invalidates a comment with tampered author.name`, async () => {
         const comment = remeda.clone({ ...fixtureComment, signature: fixtureSignature }) as unknown as LegacyCommentPublication;
         comment.author.name = "gibbresish";
         const verification = await verifyCommentPubsubMessage({
@@ -281,7 +281,8 @@ describeSkipIfRpc("verify Comment", async () => {
             resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager
         });
-        expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58 });
+        // Modifying author.name without re-signing invalidates the signature
+        expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
     it("verifyCommentPubsubMessage validates a comment without author", async () => {
         const signer = await plebbit.createSigner();

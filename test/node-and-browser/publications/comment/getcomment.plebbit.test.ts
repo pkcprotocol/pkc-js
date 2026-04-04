@@ -12,6 +12,8 @@ import validCommentFixture from "../../../fixtures/signatures/comment/commentUpd
 import validCommentAuthorAddressDomainFixture from "../../../fixtures/signatures/comment/valid_comment_author_address_as_domain.json" with { type: "json" };
 import { messages } from "../../../../dist/node/errors.js";
 import { getPlebbitAddressFromPublicKeySync } from "../../../../dist/node/signer/util.js";
+import { _signJson, cleanUpBeforePublishing } from "../../../../dist/node/signer/signatures.js";
+import Logger from "@pkc/pkc-logger";
 import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
 import type { PlebbitError } from "../../../../dist/node/plebbit-error.js";
 
@@ -181,6 +183,56 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(rawAuthor.address).to.equal("plebbit.eth");
             expect(rawAuthor.name).to.be.undefined;
             expect(rawAuthor.publicKey).to.be.undefined;
+        });
+
+        it("loads a new-format CommentIpfs (no wire author.address) and derives author.publicKey and author.address from signature", async () => {
+            const signer = signers[7];
+            const log = Logger("plebbit-js:test:getcomment:new-format-derivation");
+            const signedPropertyNames = ["content", "title", "author", "subplebbitAddress", "protocolVersion", "timestamp", "depth"];
+            const commentIpfs = {
+                content: `New format no author.address ${Date.now()}`,
+                title: `New format title ${Date.now()}`,
+                author: { displayName: "Test Author" },
+                subplebbitAddress: subplebbitSigner.address,
+                protocolVersion: "1.0.0",
+                timestamp: Math.floor(Date.now() / 1000),
+                depth: 0
+            };
+            const signature = await _signJson(signedPropertyNames, cleanUpBeforePublishing(commentIpfs), signer, log);
+            const commentIpfsWithSignature = { ...commentIpfs, signature };
+
+            const cid = await addStringToIpfs(JSON.stringify(commentIpfsWithSignature));
+            const loadedComment = await plebbit.getComment({ cid });
+            const expectedPublicKey = getPlebbitAddressFromPublicKeySync(signer.publicKey!);
+
+            expect(loadedComment.author.publicKey).to.equal(expectedPublicKey);
+            expect(loadedComment.author.name).to.be.undefined;
+            expect(loadedComment.author.address).to.equal(expectedPublicKey);
+        });
+
+        it("loads a new-format CommentIpfs with domain author.name and derives author.publicKey from signature", async () => {
+            const signer = signers[7];
+            const log = Logger("plebbit-js:test:getcomment:new-format-domain");
+            const signedPropertyNames = ["content", "title", "author", "subplebbitAddress", "protocolVersion", "timestamp", "depth"];
+            const commentIpfs = {
+                content: `New format domain author ${Date.now()}`,
+                title: `New format domain title ${Date.now()}`,
+                author: { name: "plebbit.bso", displayName: "Domain Author" },
+                subplebbitAddress: subplebbitSigner.address,
+                protocolVersion: "1.0.0",
+                timestamp: Math.floor(Date.now() / 1000),
+                depth: 0
+            };
+            const signature = await _signJson(signedPropertyNames, cleanUpBeforePublishing(commentIpfs), signer, log);
+            const commentIpfsWithSignature = { ...commentIpfs, signature };
+
+            const cid = await addStringToIpfs(JSON.stringify(commentIpfsWithSignature));
+            const loadedComment = await plebbit.getComment({ cid });
+            const expectedPublicKey = getPlebbitAddressFromPublicKeySync(signer.publicKey!);
+
+            expect(loadedComment.author.publicKey).to.equal(expectedPublicKey);
+            expect(loadedComment.author.name).to.equal("plebbit.bso");
+            expect(loadedComment.author.address).to.equal("plebbit.bso");
         });
 
         it(`plebbit.getComment is not fetching comment updates in background after fulfilling its promise`, async () => {

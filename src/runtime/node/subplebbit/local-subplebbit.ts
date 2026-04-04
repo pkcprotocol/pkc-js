@@ -1809,8 +1809,14 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         if (publication.author && remeda.intersection(remeda.keys.strict(publication.author), AuthorReservedFields).length > 0)
             return messages.ERR_PUBLICATION_AUTHOR_HAS_RESERVED_FIELD;
 
-        // Reject publications with author domains that can't be resolved or don't match the signer
+        // Reject publications with non-domain author.name — author.name must be a domain or absent
         const authorName = getAuthorNameFromWire(publication.author);
+        if (authorName && !isStringDomain(authorName)) {
+            log("Rejecting publication: author.name is not a domain", authorName);
+            return messages.ERR_AUTHOR_NAME_MUST_BE_A_DOMAIN;
+        }
+
+        // Reject publications with author domains that can't be resolved or don't match the signer
         if (authorName && isStringDomain(authorName) && this._plebbit.resolveAuthorNames) {
             let resolvedAddress: string | null;
             try {

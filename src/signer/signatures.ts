@@ -375,39 +375,6 @@ export async function signChallengeVerification({
 
 // Verify functions
 
-// Validates author address against signature public key.
-// Domain authors return { valid: true } immediately — domain resolution is a display concern (nameResolved),
-// handled in the background by the caller, not during verification.
-// B58 failures return { valid: false } — these are data integrity issues.
-const _verifyAuthorAddressMatchesSignature = async ({
-    publicationJson
-}: {
-    publicationJson: PublicationFromDecryptedChallengeRequest;
-}): Promise<ValidationResult> => {
-    const authorName = getAuthorNameFromWire(publicationJson.author);
-
-    if (!authorName) return { valid: true };
-
-    if (authorName.includes(".")) {
-        // Domain resolution is a display concern (nameResolved), handled in background by caller
-        return { valid: true };
-    } else {
-        let authorPeerId: PeerId, signaturePeerId: PeerId;
-        try {
-            authorPeerId = PeerId.createFromB58String(authorName);
-        } catch {
-            return { valid: false, reason: messages.ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58 };
-        }
-        try {
-            signaturePeerId = await getPeerIdFromPublicKey(publicationJson.signature.publicKey);
-        } catch {
-            return { valid: false, reason: messages.ERR_SIGNATURE_PUBLIC_KEY_IS_NOT_B58 };
-        }
-        if (!signaturePeerId.equals(authorPeerId)) return { valid: false, reason: messages.ERR_AUTHOR_NOT_MATCHING_SIGNATURE };
-    }
-    return { valid: true };
-};
-
 // DO NOT MODIFY THIS FUNCTION, OTHERWISE YOU RISK BREAKING BACKWARD COMPATIBILITY
 const _verifyJsonSignature = async (publicationToBeVerified: PlebbitRecordToVerify): Promise<boolean> => {
     const propsToSign = {};
@@ -450,13 +417,6 @@ const _verifyPublicationSignatureAndAuthor = async ({
 }: {
     publicationJson: PublicationFromDecryptedChallengeRequest;
 }): Promise<ValidationResult> => {
-    // Validate author address matches signature (B58 only; domain resolution is handled in background)
-    const authorValidity = await _verifyAuthorAddressMatchesSignature({
-        publicationJson
-    });
-    if (!authorValidity.valid) return authorValidity;
-
-    // Validate signature
     const signatureValidity = await _verifyJsonSignature(publicationJson);
     if (!signatureValidity) return { valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID };
 

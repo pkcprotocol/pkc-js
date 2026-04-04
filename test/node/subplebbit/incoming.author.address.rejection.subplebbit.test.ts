@@ -1,5 +1,6 @@
 import { beforeAll, afterAll, it, expect } from "vitest";
 import Logger from "@pkc/pkc-logger";
+import signers from "../../fixtures/signers.js";
 import {
     createSubWithNoChallenge,
     describeSkipIfRpc,
@@ -231,6 +232,96 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects incoming signed wire autho
             injectAuthorAddress: async (authorAddress) => {
                 await injectSignedAuthorAddressIntoSubplebbitEdit(subplebbitEdit, authorAddress);
             }
+        });
+    });
+});
+
+// RPC skipped because these tests require direct subplebbit interaction with crafted wire payloads
+describeSkipIfRpc.sequential("LocalSubplebbit rejects incoming non-domain author.name", async () => {
+    let plebbit: Plebbit;
+    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    let targetPost: Comment;
+
+    beforeAll(async () => {
+        plebbit = await mockPlebbit();
+        subplebbit = await createSubWithNoChallenge({}, plebbit);
+
+        await subplebbit.start();
+        await resolveWhenConditionIsTrue({
+            toUpdate: subplebbit,
+            predicate: async () => typeof subplebbit.updatedAt === "number"
+        });
+
+        targetPost = await publishRandomPost({
+            communityAddress: subplebbit.address,
+            plebbit
+        });
+    });
+
+    afterAll(async () => {
+        await subplebbit.delete();
+        await plebbit.destroy();
+    });
+
+    it("rejects a comment with author.name set to another user's B58 address", async () => {
+        const signer = await plebbit.createSigner();
+        const comment = await plebbit.createComment({
+            communityAddress: subplebbit.address,
+            title: `Spoofed B58 author.name ${Date.now()}`,
+            content: `Content ${Date.now()}`,
+            signer
+        });
+
+        // Inject author.name as a different signer's B58 address (spoofing attempt)
+        await ensurePublicationIsSigned(comment, subplebbit);
+        const currentAuthor = comment.raw.pubsubMessageToPublish!.author || {};
+        await setExtraPropOnCommentAndSign(comment, { author: { ...currentAuthor, name: signers[2].address } }, true);
+
+        await publishWithExpectedResult({
+            publication: comment,
+            expectedChallengeSuccess: false,
+            expectedReason: messages.ERR_AUTHOR_NAME_MUST_BE_A_DOMAIN
+        });
+    });
+
+    it("rejects a comment with author.name set to gibberish (not a domain or B58)", async () => {
+        const signer = await plebbit.createSigner();
+        const comment = await plebbit.createComment({
+            communityAddress: subplebbit.address,
+            title: `Gibberish author.name ${Date.now()}`,
+            content: `Content ${Date.now()}`,
+            signer
+        });
+
+        await ensurePublicationIsSigned(comment, subplebbit);
+        const currentAuthor = comment.raw.pubsubMessageToPublish!.author || {};
+        await setExtraPropOnCommentAndSign(comment, { author: { ...currentAuthor, name: "not-a-valid-address" } }, true);
+
+        await publishWithExpectedResult({
+            publication: comment,
+            expectedChallengeSuccess: false,
+            expectedReason: messages.ERR_AUTHOR_NAME_MUST_BE_A_DOMAIN
+        });
+    });
+
+    it("rejects a vote with author.name set to another user's B58 address", async () => {
+        if (!targetPost.cid) throw Error("Expected target post to have a CID");
+        const signer = await plebbit.createSigner();
+        const vote = await plebbit.createVote({
+            commentCid: targetPost.cid,
+            vote: 1,
+            communityAddress: subplebbit.address,
+            signer
+        });
+
+        await ensurePublicationIsSigned(vote, subplebbit);
+        const currentAuthor = vote.raw.pubsubMessageToPublish!.author || {};
+        await setExtraPropOnVoteAndSign(vote as Vote, { author: { ...currentAuthor, name: signers[3].address } }, true);
+
+        await publishWithExpectedResult({
+            publication: vote,
+            expectedChallengeSuccess: false,
+            expectedReason: messages.ERR_AUTHOR_NAME_MUST_BE_A_DOMAIN
         });
     });
 });

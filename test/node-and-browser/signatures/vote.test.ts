@@ -95,7 +95,7 @@ describeSkipIfRpc.concurrent("Verify vote", async () => {
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
 
-    it(`verifyVote invalidates a vote with author.name not a domain`, async () => {
+    it(`verifyVote invalidates a vote with tampered author.name`, async () => {
         const vote = remeda.clone(validVoteFixture) as unknown as VotePubsubMessagePublication;
         vote.author = { ...(vote.author || {}), name: "gibbresish" };
         const verification = await verifyVote({
@@ -103,7 +103,8 @@ describeSkipIfRpc.concurrent("Verify vote", async () => {
             resolveAuthorNames: plebbit.resolveAuthorNames,
             clientsManager: plebbit._clientsManager
         });
-        expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58 });
+        // Modifying author.name without re-signing invalidates the signature
+        expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
     it("verifyVote validates a vote that was signed without author", async () => {
         const signer = signers[7];
