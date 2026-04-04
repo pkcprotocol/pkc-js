@@ -1007,6 +1007,15 @@ export class Comment
                     deepMergeRuntimeFields(this, updatingCommentInstance.raw.runtimeFieldsFromRpc);
                 this.emit("update", this);
             }
+            // Propagate nameResolved changes even when neither CommentIpfs nor CommentUpdate
+            // triggered a copy — background resolution can complete between those events
+            if (this.raw.comment) {
+                const prevNameResolved = this.author.nameResolved;
+                this._copyNameResolvedFromComment(updatingCommentInstance);
+                if (this.author.nameResolved !== prevNameResolved) {
+                    this.emit("update", this);
+                }
+            }
         } else {
             const ancestorAndUpdatingCids = [
                 this.postCid,
