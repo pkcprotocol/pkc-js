@@ -10,7 +10,7 @@ import { binaryKeyToPubsubTopic, pubsubTopicToDhtKey, pubsubTopicToDhtKeyCid } f
 import { PlebbitError } from "../plebbit-error.js";
 import { CID } from "kubo-rpc-client";
 
-const log = Logger("plebbit-js:helia:ipns:routing:pubsub-with-fetch");
+const log = Logger("pkc-js:helia:ipns:routing:pubsub-with-fetch");
 
 export type PlebbitIpnsGetOptions = ipnsGetOptions & {
     ipnsName: string;

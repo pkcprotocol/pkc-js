@@ -272,7 +272,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
         pageCid: string,
         overridePageMaxSize?: number
     ): Promise<{ page: PageIpfs | ModQueuePageIpfs; runtimeFields?: PageRuntimeFields }> {
-        const log = Logger("plebbit-js:pages:getPage");
+        const log = Logger("pkc-js:pages:getPage");
         const sortTypesFromPageCids = remeda.keys
             .strict(this._pages.pageCids)
             .filter((sortType) => this._pages.pageCids[sortType] === pageCid);

@@ -38,7 +38,7 @@ function _mergeRouterConfigs(existingConfig: any, newConfig: any) {
 }
 
 async function _setProvideDhtSweepEnabledOnKuboNode(kuboClient: Plebbit["clients"]["kuboRpcClients"][string], sweepEnabled: boolean) {
-    const log = Logger("plebbit-js:plebbit:_init:retrySettingHttpRoutersOnIpfsNodes:setProvideDhtSweepEnabledOnIpfsNode");
+    const log = Logger("pkc-js:pkc:_init:retrySettingHttpRoutersOnIpfsNodes:setProvideDhtSweepEnabledOnIpfsNode");
     const configKey = "Provide.DHT.SweepEnabled";
     const url = `${kuboClient._clientOptions.url}/config?arg=${configKey}&arg=${JSON.stringify(sweepEnabled)}&json=true`;
     try {
@@ -58,7 +58,7 @@ async function _setProvideDhtSweepEnabledOnKuboNode(kuboClient: Plebbit["clients
 }
 
 async function _setHttpRouterOptionsOnKuboNode(kuboClient: Plebbit["clients"]["kuboRpcClients"][string], routingValue: any) {
-    const log = Logger("plebbit-js:plebbit:_init:retrySettingHttpRoutersOnIpfsNodes:setHttpRouterOptionsOnIpfsNode");
+    const log = Logger("pkc-js:pkc:_init:retrySettingHttpRoutersOnIpfsNodes:setHttpRouterOptionsOnIpfsNode");
     const routingKey = "Routing";
 
     let routingConfigBeforeChanging: typeof routingValue | undefined;
@@ -153,7 +153,7 @@ export async function setupKuboAddressesRewriterAndHttpRouters(plebbit: Plebbit)
     if (!Array.isArray(plebbit.httpRoutersOptions) || plebbit.httpRoutersOptions.length <= 0)
         throw Error("Need http router options to defined");
 
-    const log = Logger("plebbit-js:node:setupKuboAddressesRewriterAndHttpRouters");
+    const log = Logger("pkc-js:node:setupKuboAddressesRewriterAndHttpRouters");
     // Set up http proxies first to rewrite addresses
 
     const httpRouterProxyUrls: string[] = [];

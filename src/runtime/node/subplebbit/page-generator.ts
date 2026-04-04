@@ -77,7 +77,7 @@ export class PageGenerator {
             if (!modQueuePageIpfs.nextCid) delete modQueuePageIpfs.nextCid; // we don't to include undefined anywhere in the protocol
             const addRes = await retryKuboIpfsAddAndProvide({
                 ipfsClient: ipfsClient._client,
-                log: Logger("plebbit-js:page-generator:addQueuedCommentChunksToIpfs"),
+                log: Logger("pkc-js:page-generator:addQueuedCommentChunksToIpfs"),
                 content: deterministicStringify(modQueuePageIpfs),
                 addOptions: { pin: true },
                 provideOptions: { recursive: true },
@@ -126,7 +126,7 @@ export class PageGenerator {
 
             const addRes = await retryKuboIpfsAddAndProvide({
                 ipfsClient: ipfsClient._client,
-                log: Logger("plebbit-js:page-generator:addCommentChunksToIpfs"),
+                log: Logger("pkc-js:page-generator:addCommentChunksToIpfs"),
                 content: stringifiedPageIpfs,
                 addOptions: { pin: true },
                 provideOptions: { recursive: true },
@@ -173,7 +173,7 @@ export class PageGenerator {
 
             const addRes = await retryKuboIpfsAddAndProvide({
                 ipfsClient: ipfsClient._client,
-                log: Logger("plebbit-js:page-generator:addPreloadedCommentChunksToIpfs"),
+                log: Logger("pkc-js:page-generator:addPreloadedCommentChunksToIpfs"),
                 content: stringifiedPageIpfs,
                 addOptions: { pin: true },
                 provideOptions: { recursive: true },
@@ -277,7 +277,7 @@ export class PageGenerator {
                         accumulatedSize = OBJECT_WRAPPER_WITH_CID;
                     }
                 } else if (commentSize > maxSize - SAFETY_MARGIN) {
-                    const log = Logger("plebbit-js:page-generator:_chunkComments");
+                    const log = Logger("pkc-js:page-generator:_chunkComments");
                     log.trace(
                         `Single comment at index ${i} (size ${commentSize}) is large relative to page size limit (${maxSize}) for page ${chunkIndex}`
                     );

@@ -187,7 +187,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it("loads a new-format CommentIpfs (no wire author.address) and derives author.publicKey and author.address from signature", async () => {
             const signer = signers[7];
-            const log = Logger("plebbit-js:test:getcomment:new-format-derivation");
+            const log = Logger("pkc-js:test:getcomment:new-format-derivation");
             const signedPropertyNames = ["content", "title", "author", "subplebbitAddress", "protocolVersion", "timestamp", "depth"];
             const commentIpfs = {
                 content: `New format no author.address ${Date.now()}`,
@@ -212,7 +212,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it("loads a new-format CommentIpfs with domain author.name and derives author.publicKey from signature", async () => {
             const signer = signers[7];
-            const log = Logger("plebbit-js:test:getcomment:new-format-domain");
+            const log = Logger("pkc-js:test:getcomment:new-format-domain");
             const signedPropertyNames = ["content", "title", "author", "subplebbitAddress", "protocolVersion", "timestamp", "depth"];
             const commentIpfs = {
                 content: `New format domain author ${Date.now()}`,

@@ -13,7 +13,7 @@ export async function loadAllPagesUnderSubplebbitToFindComment(opts: {
     const { commentCidToFind, subplebbit, signal, postCid, parentCid } = opts;
     if (!commentCidToFind) throw Error("commentCidToFind should be defined");
 
-    const log = Logger("plebbit-js:comment:loadAllPagesUnderSubplebbitToFindComment");
+    const log = Logger("pkc-js:comment:loadAllPagesUnderSubplebbitToFindComment");
 
     type PendingPageCid = { cid: string; source: "posts" | "replies"; parentCommentCid?: string };
     const queue: PendingPageCid[] = [];

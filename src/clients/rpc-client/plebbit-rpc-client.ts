@@ -41,7 +41,7 @@ import {
     parseRpcSubplebbitPageParam
 } from "./rpc-schema-util.js";
 
-const log = Logger("plebbit-js:PlebbitRpcClient");
+const log = Logger("pkc-js:PlebbitRpcClient");
 
 export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvents> {
     state: "stopped" | "connecting" | "failed" | "connected";
@@ -92,7 +92,7 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
     }
 
     async _init() {
-        const log = Logger("plebbit-js:plebbit-rpc-client:_init");
+        const log = Logger("pkc-js:pkc-rpc-client:_init");
         if (this._destroyRequested) return;
         // wait for websocket connection to open
         let lastWebsocketError: Error | undefined;

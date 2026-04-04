@@ -87,7 +87,7 @@ export async function getThumbnailPropsOfLink(
     subplebbit: RemoteSubplebbit,
     proxyHttpUrl?: string
 ): Promise<{ thumbnailUrl: string; thumbnailUrlWidth?: number; thumbnailUrlHeight?: number } | undefined> {
-    const log = Logger(`plebbit-js:subplebbit:getThumbnailUrlOfLink`);
+    const log = Logger(`pkc-js:community:getThumbnailUrlOfLink`);
 
     const agent = proxyHttpUrl
         ? {
@@ -155,7 +155,7 @@ export const setNativeFunctions = (newNativeFunctions: Partial<NativeFunctions>)
 };
 
 export const deleteOldSubplebbitInWindows = async (subPath: string, plebbit: Pick<Plebbit, "_storage">) => {
-    const log = Logger("plebbit-js:subplebbit:deleteStaleSubplebbitInWindows");
+    const log = Logger("pkc-js:community:deleteStaleSubplebbitInWindows");
     const subAddress = path.basename(subPath);
     await new Promise((resolve) => setTimeout(resolve, 10000)); // give windows time to release the file
     try {
@@ -213,7 +213,7 @@ export async function trytoDeleteSubsThatFailedToBeDeletedBefore(plebbit: Plebbi
 }
 
 export function listSubplebbitsSync(plebbit: Plebbit) {
-    const log = Logger("plebbit-js:listSubplebbitsSync");
+    const log = Logger("pkc-js:listSubplebbitsSync");
     if (typeof plebbit.dataPath !== "string") throw Error("plebbit.dataPath needs to be defined to listSubplebbits");
     const subplebbitsPath = path.join(plebbit.dataPath, "subplebbits");
 
@@ -258,7 +258,7 @@ export async function importSignerIntoKuboNode(
     ipfsKey: Uint8Array,
     kuboRpcClientOptions: KuboRpcClient["_clientOptions"]
 ) {
-    const log = Logger("plebbit-js:local-subplebbit:importSignerIntoKuboNode");
+    const log = Logger("pkc-js:local-community:importSignerIntoKuboNode");
     const data = new FormData();
     if (typeof ipnsKeyName !== "string") throw Error("ipnsKeyName needs to be defined before importing key into IPFS node");
     if (!ipfsKey || ipfsKey.constructor?.name !== "Uint8Array" || ipfsKey.byteLength <= 0)
@@ -323,7 +323,7 @@ export async function moveSubplebbitDbToDeletedDirectory(subplebbitAddress: stri
 }
 
 export function createKuboRpcClient(kuboRpcClientOptions: KuboRpcClient["_clientOptions"]): KuboRpcClient["_client"] {
-    const log = Logger("plebbit-js:plebbit:createKuboRpcClient");
+    const log = Logger("pkc-js:pkc:createKuboRpcClient");
     log.trace("Creating a new kubo client on node with options", kuboRpcClientOptions);
     const isHttpsAgent =
         (typeof kuboRpcClientOptions.url === "string" && kuboRpcClientOptions.url.startsWith("https")) ||

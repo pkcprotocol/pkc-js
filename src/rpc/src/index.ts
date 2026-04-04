@@ -84,7 +84,7 @@ import { findStartedSubplebbit } from "../../plebbit/tracked-instance-registry-u
 // store started subplebbits  to be able to stop them
 // store as a singleton because not possible to start the same sub twice at the same time
 
-const log = Logger("plebbit-js-rpc:plebbit-ws-server");
+const log = Logger("pkc-js-rpc:pkc-ws-server");
 
 // TODO need to think how to update Plebbit instance of publication after setSettings?
 
@@ -113,7 +113,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
 
     constructor({ port, server, plebbit, authKey, startStartedSubplebbitsOnStartup }: PlebbitWsServerClassOptions) {
         super();
-        const log = Logger("plebbit-js:PlebbitWsServer");
+        const log = Logger("pkc-js:PlebbitWsServer");
         this.authKey = authKey;
         this._autoStartOnBoot = startStartedSubplebbitsOnStartup ?? true;
         // don't instantiate plebbit in constructor because it's an async function
@@ -280,7 +280,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
     async _autoStartPreviousSubplebbits(): Promise<void> {
         if (!this._autoStartOnBoot) return;
 
-        const autoStartLog = Logger("plebbit-js-rpc:plebbit-ws-server:auto-start");
+        const autoStartLog = Logger("pkc-js-rpc:pkc-ws-server:auto-start");
         autoStartLog("Checking for previously started subplebbits to auto-start");
 
         const db = this._getRpcStateDb();
@@ -840,7 +840,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
     }
 
     async commentUpdateSubscribe(params: any, connectionId: string) {
-        const logUpdate = Logger("plebbit-js-rpc:plebbit-ws-server:commentUpdateSubscribe");
+        const logUpdate = Logger("pkc-js-rpc:pkc-ws-server:commentUpdateSubscribe");
         const parsedCommentUpdateArgs = parseRpcCidParam(params[0]);
         const subscriptionId = generateSubscriptionId();
 

@@ -195,7 +195,7 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
     _updateLocalPostsInstance(
         newPosts: SubplebbitIpfsType["posts"] | SubplebbitJson["posts"] | Pick<NonNullable<SubplebbitIpfsType["posts"]>, "pageCids">
     ) {
-        const log = Logger("plebbit-js:remote-subplebbit:_updateLocalPostsInstanceIfNeeded");
+        const log = Logger("pkc-js:remote-community:_updateLocalPostsInstanceIfNeeded");
         const postsPagesCreationTimestamp = this.updatedAt;
         this.posts._subplebbit = this;
         if (!newPosts)
@@ -268,7 +268,7 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
     }
 
     initSubplebbitIpfsPropsNoMerge(newProps: SubplebbitIpfsType) {
-        const log = Logger("plebbit-js:remote-subplebbit:initSubplebbitIpfsPropsNoMerge");
+        const log = Logger("pkc-js:remote-community:initSubplebbitIpfsPropsNoMerge");
         this.raw.subplebbitIpfs = newProps;
         this.initRemoteSubplebbitPropsNoMerge(newProps);
         const unknownProps = remeda.difference(remeda.keys.strict(this.raw.subplebbitIpfs), remeda.keys.strict(SubplebbitIpfsSchema.shape));
@@ -533,7 +533,7 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
     }
 
     _setSubplebbitIpfsPropsFromUpdatingSubplebbitsIfPossible() {
-        const log = Logger("plebbit-js:comment:_setSubplebbitIpfsPropsFromUpdatingSubplebbitsIfPossible");
+        const log = Logger("pkc-js:comment:_setSubplebbitIpfsPropsFromUpdatingSubplebbitsIfPossible");
         const updatingSub = findUpdatingSubplebbit(this._plebbit, { address: this.address });
         if (updatingSub?.raw?.subplebbitIpfs && (this.updatedAt || 0) < updatingSub.raw.subplebbitIpfs.updatedAt) {
             this.initSubplebbitIpfsPropsNoMerge(updatingSub.raw.subplebbitIpfs);
@@ -554,7 +554,7 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
     private async _initSubInstanceWithListeners() {
         const trackedUpdatingSub = findUpdatingSubplebbit(this._plebbit, { address: this.address });
         if (!trackedUpdatingSub) throw Error("should be defined at this stage");
-        const log = Logger("plebbit-js:remote-subplebbit:update");
+        const log = Logger("pkc-js:remote-community:update");
         const subInstance = trackedUpdatingSub;
         return <NonNullable<this["_updatingSubInstanceWithListeners"]>>{
             subplebbit: subInstance,
@@ -590,7 +590,7 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
     }
 
     private async fetchLatestSubOrSubscribeToEvent() {
-        const log = Logger("plebbit-js:remote-subplebbit:update:updateOnce");
+        const log = Logger("pkc-js:remote-community:update:updateOnce");
 
         if (!findUpdatingSubplebbit(this._plebbit, { address: this.address })) {
             // Pass publicKey alongside name/address so the updating sub can use publicKey fallback
@@ -640,7 +640,7 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
     async update() {
         if (this.state !== "stopped") return; // No need to do anything if subplebbit is already updating
 
-        const log = Logger("plebbit-js:remote-subplebbit:update");
+        const log = Logger("pkc-js:remote-community:update");
 
         this._setState("updating");
 
@@ -651,7 +651,7 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
     private async _cleanUpUpdatingSubInstanceWithListeners() {
         if (!this._updatingSubInstanceWithListeners) throw Error("should be defined at this stage");
 
-        const log = Logger("plebbit-js:remote-subplebbit:stop:cleanUpUpdatingSubInstanceWithListeners");
+        const log = Logger("pkc-js:remote-community:stop:cleanUpUpdatingSubInstanceWithListeners");
         const updatingSubplebbit = this._updatingSubInstanceWithListeners.subplebbit;
         if (typeof updatingSubplebbit.ipnsName === "string") this._ipnsName = updatingSubplebbit.ipnsName;
         if (typeof updatingSubplebbit.ipnsPubsubTopic === "string") this._ipnsPubsubTopic = updatingSubplebbit.ipnsPubsubTopic;
@@ -689,7 +689,7 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
         if (this.state === "stopped") return; // no-op if already stopped, mirrors update()'s idempotency
         if (this.state !== "updating") throw new PlebbitError("ERR_CALLED_SUBPLEBBIT_STOP_WITHOUT_UPDATE", { address: this.address });
 
-        const log = Logger("plebbit-js:remote-subplebbit:stop");
+        const log = Logger("pkc-js:remote-community:stop");
         this._abortStopOperations(`Aborting subplebbit operations for ${this.address} because subplebbit.stop() was called`);
 
         if (this._updatingSubInstanceWithListeners) await this._cleanUpUpdatingSubInstanceWithListeners();

@@ -368,7 +368,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
     }
 
     private async _setupHttpRoutersWithKuboNodeInBackground() {
-        const log = Logger("plebbit-js:plebbit:_initHttpRoutersWithIpfsInBackground");
+        const log = Logger("pkc-js:pkc:_initHttpRoutersWithIpfsInBackground");
 
         if (this.destroyed) return;
 
@@ -398,7 +398,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
     }
 
     async _init() {
-        const log = Logger("plebbit-js:plebbit:_init");
+        const log = Logger("pkc-js:pkc:_init");
         // Init storage
         this._storage = new Storage(this);
         await this._storage.init();
@@ -435,7 +435,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
     }
 
     async getComment(cid: CidRpcParam): Promise<Comment> {
-        const log = Logger("plebbit-js:plebbit:getComment");
+        const log = Logger("pkc-js:pkc:getComment");
         const parsedGetCommentArgs = parseRpcCidParam(cid);
         // getComment is interested in loading CommentIpfs only
         const comment = await this.createComment(parsedGetCommentArgs);
@@ -514,7 +514,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         else if ("signer" in options && options.signer) {
             const unsignedOpts = (options.raw as { unsignedPublicationOptions?: CreatePublicationOptions }).unsignedPublicationOptions;
             if (unsignedOpts) {
-                const log = Logger("plebbit-js:plebbit:createComment");
+                const log = Logger("pkc-js:pkc:createComment");
                 const finalOptions = <CommentOptionsToSign>(
                     await this._initMissingFieldsOfPublicationBeforeSigning({ ...unsignedOpts, signer: options.signer }, log)
                 );
@@ -553,7 +553,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
             | CommentWithinRepliesPostsPageJson
             | CommentIpfsWithCidDefined
     ): Promise<Comment> {
-        const log = Logger("plebbit-js:plebbit:createComment");
+        const log = Logger("pkc-js:pkc:createComment");
 
         if ("clients" in options || "raw" in options || "original" in options || options instanceof Comment)
             return this._createCommentInstanceFromAnotherCommentInstance(
@@ -679,7 +679,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
     }
 
     private async _createRemoteSubplebbitInstance(options: z.infer<typeof CreateRemoteSubplebbitFunctionArgumentSchema>) {
-        const log = Logger("plebbit-js:plebbit:createRemoteSubplebbit");
+        const log = Logger("pkc-js:pkc:createRemoteSubplebbit");
 
         log.trace("Received subplebbit options to create a remote subplebbit instance:", options);
         const subplebbit = new RemoteSubplebbit(this);
@@ -692,7 +692,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
     private async _createLocalSub(
         options: CreateNewLocalSubplebbitParsedOptions | CreateInstanceOfLocalOrRemoteSubplebbitOptions
     ): Promise<LocalSubplebbit> {
-        const log = Logger("plebbit-js:plebbit:createLocalSubplebbit");
+        const log = Logger("pkc-js:pkc:createLocalSubplebbit");
         log.trace("Received subplebbit options to create a local subplebbit instance:", options);
 
         const canCreateLocalSub = this._canCreateNewLocalSub();
@@ -731,7 +731,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
     async createSubplebbit(
         options: z.infer<typeof CreateSubplebbitFunctionArgumentsSchema> | SubplebbitJson = {}
     ): Promise<RemoteSubplebbit | RpcRemoteSubplebbit | RpcLocalSubplebbit | LocalSubplebbit> {
-        const log = Logger("plebbit-js:plebbit:createSubplebbit");
+        const log = Logger("pkc-js:pkc:createSubplebbit");
         if ("clients" in options) return this._createSubInstanceFromJsonifiedSub(<SubplebbitJson>options);
         const parsedOptions = <z.infer<typeof CreateSubplebbitFunctionArgumentsSchema>>options;
         log.trace("Received options: ", parsedOptions);
@@ -810,7 +810,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
                 challengeRequest: jsonfied.challengeRequest
             });
         else if (unsignedOpts && jsonfied.signer) {
-            const log = Logger("plebbit-js:plebbit:createVote");
+            const log = Logger("pkc-js:pkc:createVote");
             const finalOptions = <VoteOptionsToSign>(
                 await this._initMissingFieldsOfPublicationBeforeSigning({ ...unsignedOpts, signer: jsonfied.signer }, log)
             );
@@ -824,7 +824,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
     }
 
     async createVote(options: CreateVoteOptions | VotePubsubMessagePublication | VoteJson): Promise<Vote> {
-        const log = Logger("plebbit-js:plebbit:createVote");
+        const log = Logger("pkc-js:pkc:createVote");
         if ("clients" in options) return this._createVoteInstanceFromJsonfiedVote(options);
         const voteInstance = new Vote(this);
 
@@ -853,7 +853,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
                 challengeRequest: jsonfied.challengeRequest
             });
         else if (unsignedOpts && jsonfied.signer) {
-            const log = Logger("plebbit-js:plebbit:createCommentEdit");
+            const log = Logger("pkc-js:pkc:createCommentEdit");
             const finalOptions = <CommentEditOptionsToSign>(
                 await this._initMissingFieldsOfPublicationBeforeSigning({ ...unsignedOpts, signer: jsonfied.signer }, log)
             );
@@ -869,7 +869,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
     async createCommentEdit(
         options: CreateCommentEditOptions | CommentEditPubsubMessagePublication | CommentEditTypeJson
     ): Promise<CommentEdit> {
-        const log = Logger("plebbit-js:plebbit:createCommentEdit");
+        const log = Logger("pkc-js:pkc:createCommentEdit");
         if ("clients" in options) return this._createCommentEditInstanceFromJsonfiedCommentEdit(options);
         const editInstance = new CommentEdit(this);
 
@@ -898,7 +898,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
                 challengeRequest: jsonfied.challengeRequest
             });
         else if (unsignedOpts && jsonfied.signer) {
-            const log = Logger("plebbit-js:plebbit:createCommentModeration");
+            const log = Logger("pkc-js:pkc:createCommentModeration");
             const finalOptions = <CommentModerationOptionsToSign>(
                 await this._initMissingFieldsOfPublicationBeforeSigning({ ...unsignedOpts, signer: jsonfied.signer }, log)
             );
@@ -914,7 +914,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
     async createCommentModeration(
         options: CreateCommentModerationOptions | CommentModerationPubsubMessagePublication | CommentModerationTypeJson
     ): Promise<CommentModeration> {
-        const log = Logger("plebbit-js:plebbit:createCommentEdit");
+        const log = Logger("pkc-js:pkc:createCommentEdit");
         if ("clients" in options) return this._createCommentModerationInstanceFromJsonfiedCommentModeration(options);
         const modInstance = new CommentModeration(this);
 
@@ -945,7 +945,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
                 challengeRequest: jsonfied.challengeRequest
             });
         else if (unsignedOpts && jsonfied.signer) {
-            const log = Logger("plebbit-js:plebbit:createSubplebbitEdit");
+            const log = Logger("pkc-js:pkc:createSubplebbitEdit");
             const finalOptions = <SubplebbitEditPublicationOptionsToSign>(
                 await this._initMissingFieldsOfPublicationBeforeSigning({ ...unsignedOpts, signer: jsonfied.signer }, log)
             );
@@ -961,7 +961,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
     async createSubplebbitEdit(
         options: CreateSubplebbitEditPublicationOptions | SubplebbitEditPubsubMessagePublication | SubplebbitEditJson
     ): Promise<SubplebbitEdit> {
-        const log = Logger("plebbit-js:plebbit:createSubplebbitEdit");
+        const log = Logger("pkc-js:pkc:createSubplebbitEdit");
         if ("clients" in options) return this._createSubplebbitEditInstanceFromJsonfiedSubplebbitEdit(options);
         const subplebbitEditInstance = new SubplebbitEdit(this);
 
@@ -1069,7 +1069,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
     }
 
     async destroy() {
-        const log = Logger("plebbit-js:plebbit:destroy");
+        const log = Logger("pkc-js:pkc:destroy");
         if (this.destroyed) return;
         this.destroyed = true;
         // Clean up connections

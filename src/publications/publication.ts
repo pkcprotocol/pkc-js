@@ -273,7 +273,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         verification: DecryptedChallengeVerificationMessageType,
         runtimeFields?: Record<string, any>
     ) {
-        const log = Logger("plebbit-js:publication:_handleRpcChallengeVerification");
+        const log = Logger("pkc-js:publication:_handleRpcChallengeVerification");
         if (verification.comment)
             await this._verifyDecryptedChallengeVerificationAndUpdateCommentProps(<DecryptedChallengeVerification>verification);
         if (this instanceof Comment && runtimeFields) deepMergeRuntimeFields(this, runtimeFields);
@@ -298,7 +298,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     private async _handleIncomingChallengePubsubMessage(msg: ChallengeMessageType) {
-        const log = Logger("plebbit-js:publication:_handleIncomingChallengePubsubMessage");
+        const log = Logger("pkc-js:publication:_handleIncomingChallengePubsubMessage");
         if (Object.values(this._challengeExchanges).some((exchange) => exchange.challenge)) return; // We only process one challenge
         const challengeMsgValidity = await verifyChallengeMessage({
             challenge: msg,
@@ -379,7 +379,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     private async _handleIncomingChallengeVerificationPubsubMessage(msg: ChallengeVerificationMessageType) {
-        const log = Logger("plebbit-js:publication:_handleIncomingChallengeVerificationPubsubMessage");
+        const log = Logger("pkc-js:publication:_handleIncomingChallengeVerificationPubsubMessage");
         if (this._challengeExchanges[msg.challengeRequestId.toString()].challengeVerification) return;
         const signatureValidation = await verifyChallengeVerification({
             verification: msg,
@@ -478,7 +478,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     private async _handleChallengeExchange(pubsubMsg: IpfsHttpClientPubsubMessage) {
-        const log = Logger("plebbit-js:publication:handleChallengeExchange");
+        const log = Logger("pkc-js:publication:handleChallengeExchange");
 
         let decodedJson: string;
         try {
@@ -535,7 +535,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     async publishChallengeAnswers(challengeAnswers: DecryptedChallengeAnswerMessageType["challengeAnswers"]) {
-        const log = Logger("plebbit-js:publication:publishChallengeAnswers");
+        const log = Logger("pkc-js:publication:publishChallengeAnswers");
 
         const toEncryptAnswers = parseDecryptedChallengeAnswerWithPlebbitErrorIfItFails(<DecryptedChallengeAnswer>{
             challengeAnswers: challengeAnswers
@@ -723,7 +723,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     async _fetchCommunityForPublishing(): Promise<NonNullable<Publication["_community"]>> {
-        const log = Logger("plebbit-js:publish:_fetchCommunityForPublishing");
+        const log = Logger("pkc-js:publish:_fetchCommunityForPublishing");
         const cachedCommunity = this._getCommunityCache();
 
         if (cachedCommunity) {
@@ -761,7 +761,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     private async _postSucessOrFailurePublishing() {
-        const log = Logger("plebbit-js:publication:_postSucessOrFailurePublishing");
+        const log = Logger("pkc-js:publication:_postSucessOrFailurePublishing");
         this._setStateWithEmission("stopped");
         if (this._rpcPublishSubscriptionId) {
             try {
@@ -836,7 +836,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     private async _handleIncomingErrorFromRpc(args: any) {
-        const log = Logger("plebbit-js:publication:publish:_publishWithRpc:_handleIncomingErrorFromRpc");
+        const log = Logger("pkc-js:publication:publish:_publishWithRpc:_handleIncomingErrorFromRpc");
         const error: PublicationRpcErrorToTransmit = args.params.result;
         if (error.details?.newPublishingState) this._updatePublishingStateNoEmission(error.details.newPublishingState);
         if (error.details?.publishThrowError) {
@@ -920,7 +920,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         providerUrl: string,
         acceptedChallengeTypes: DecryptedChallengeRequestMessageType["acceptedChallengeTypes"]
     ) {
-        const log = Logger("plebbit-js:publication:publish:_generateChallengeRequestToPublish");
+        const log = Logger("pkc-js:publication:publish:_generateChallengeRequestToPublish");
         const pubsubMessageSigner = await this._plebbit.createSigner();
 
         const pubsubMsgToEncrypt = this.toJSONPubsubRequestToEncrypt();
@@ -1005,7 +1005,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         const currentPubsubProvider = providers[currentPubsubProviderIndex];
         this._plebbit._stats.recordGatewayFailure(currentPubsubProvider, "pubsub-publish");
         this._plebbit._stats.recordGatewayFailure(currentPubsubProvider, "pubsub-subscribe");
-        const log = Logger("plebbit-js:publication:publish:_handleNotReceivingResponseToChallengeRequest");
+        const log = Logger("pkc-js:publication:publish:_handleNotReceivingResponseToChallengeRequest");
 
         if (this._isAllAttemptsExhausted(providers.length)) {
             // plebbit-js tried all providers and still no response is received
@@ -1105,7 +1105,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
     private async _publishWithLocalSubplebbit(sub: LocalSubplebbit, challengeRequest: ChallengeRequestMessageType) {
         this._publishingToLocalSubplebbit = sub;
-        const log = Logger("plebbit-js:publication:publish:_publishWithLocalSubplebbit");
+        const log = Logger("pkc-js:publication:publish:_publishWithLocalSubplebbit");
         log(
             "Sub is local, will not publish over pubsub, and instead will publish directly to the subplebbit by accessing plebbit._startedSubplebbits"
         );
@@ -1157,7 +1157,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     async publish() {
-        const log = Logger("plebbit-js:publication:publish");
+        const log = Logger("pkc-js:publication:publish");
         this._validatePublicationFields();
         this._setStateWithEmission("publishing");
 

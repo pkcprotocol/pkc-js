@@ -30,7 +30,7 @@ import { InflightResourceTypes } from "../../util/inflight-fetch-manager.js";
 import { loadAllPagesUnderSubplebbitToFindComment } from "./comment-util.js";
 import { findStartedSubplebbit, findUpdatingComment, findUpdatingSubplebbit } from "../../plebbit/tracked-instance-registry-util.js";
 
-const fetchCommentLogger = Logger("plebbit-js:comment:client-manager:fetchAndVerifyCommentCid");
+const fetchCommentLogger = Logger("pkc-js:comment:client-manager:fetchAndVerifyCommentCid");
 
 type NewCommentUpdate =
     | { commentUpdate: CommentUpdateType; commentUpdateIpfsPath: NonNullable<Comment["_commentUpdateIpfsPath"]> }
@@ -326,7 +326,7 @@ export class CommentClientsManager extends PublicationClientsManager {
     }
 
     async useSubplebbitPostUpdatesToFetchCommentUpdateForPost(subIpfs: SubplebbitIpfsType) {
-        const log = Logger("plebbit-js:comment:useSubplebbitPostUpdatesToFetchCommentUpdate");
+        const log = Logger("pkc-js:comment:useSubplebbitPostUpdatesToFetchCommentUpdate");
         if (!subIpfs.postUpdates) {
             throw new PlebbitError("ERR_SUBPLEBBIT_HAS_NO_POST_UPDATES", { subIpfs, postCid: this._comment.cid });
         }
@@ -407,7 +407,7 @@ export class CommentClientsManager extends PublicationClientsManager {
     private async _fetchCommentIpfsFromGateways(parentCid: string): Promise<string> {
         // We only need to validate once, because with Comment Ipfs the fetchFromMultipleGateways already validates if the response is the same as its cid
 
-        const log = Logger("plebbit-js:comment:client-manager:_fetchCommentIpfsFromGateways");
+        const log = Logger("pkc-js:comment:client-manager:_fetchCommentIpfsFromGateways");
         const res = await this.fetchFromMultipleGateways({
             recordIpfsType: "ipfs",
             recordPlebbitType: "comment",
@@ -598,7 +598,7 @@ export class CommentClientsManager extends PublicationClientsManager {
     // will handling sub states down here
     // this is for posts with depth === 0
     override async handleUpdateEventFromSub(sub: RemoteSubplebbit) {
-        const log = Logger("plebbit-js:comment:update");
+        const log = Logger("pkc-js:comment:update");
         if (!this._comment.cid) {
             log("comment.cid is not defined because comment is publishing, waiting until cid is defined");
             return;
@@ -620,7 +620,7 @@ export class CommentClientsManager extends PublicationClientsManager {
             postInUpdatingSubplebbit &&
             postInUpdatingSubplebbit.commentUpdate.updatedAt > (this._comment.raw?.commentUpdate?.updatedAt || 0)
         ) {
-            const log = Logger("plebbit-js:comment:update:handleUpdateEventFromSub:find-comment-update-in-updating-sub-or-comments-pages");
+            const log = Logger("pkc-js:comment:update:handleUpdateEventFromSub:find-comment-update-in-updating-sub-or-comments-pages");
             this._useLoadedCommentUpdateIfNewInfo({ commentUpdate: postInUpdatingSubplebbit.commentUpdate }, sub.raw.subplebbitIpfs, log);
         } else
             try {
@@ -659,7 +659,7 @@ export class CommentClientsManager extends PublicationClientsManager {
     }
 
     async usePageCidsOfParentToFetchCommentUpdateForReply(postCommentInstance: Comment) {
-        const log = Logger("plebbit-js:comment:update:usePageCidsOfParentToFetchCommentUpdateForReply");
+        const log = Logger("pkc-js:comment:update:usePageCidsOfParentToFetchCommentUpdateForReply");
         if (!this._comment.cid) throw Error("comment.cid needs to be defined to fetch comment update of reply");
         if (!this._comment.parentCid) throw Error("comment.parentCid needs to be defined to fetch comment update of reply");
         const subplebbitWithSignature = <Required<Pick<RemoteSubplebbit, "signature">>>postCommentInstance.replies._subplebbit;
@@ -824,7 +824,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         else if (this._communityForUpdating?.subplebbit?.updatingState === "failed") {
             // let's make sure
             // we're updating a comment
-            const log = Logger("plebbit-js:comment:update");
+            const log = Logger("pkc-js:comment:update");
             log.error(
                 this._comment.depth === 0 ? "Post" : "Reply",
                 this._comment.cid,
@@ -917,7 +917,7 @@ export class CommentClientsManager extends PublicationClientsManager {
 
     async handleUpdateEventFromPostToFetchReplyCommentUpdate(postInstance: Comment) {
         if (!this._comment.cid) throw Error("comment.cid should be defined");
-        const log = Logger("plebbit-js:comment:update:handleUpdateEventFromPost");
+        const log = Logger("pkc-js:comment:update:handleUpdateEventFromPost");
         log("Received update event from post", postInstance.cid, "for reply", this._comment.cid, "with depth", this._comment.depth);
         if (Object.keys(postInstance.replies.pageCids).length === 0 && Object.keys(postInstance.replies.pages).length === 0) {
             log(

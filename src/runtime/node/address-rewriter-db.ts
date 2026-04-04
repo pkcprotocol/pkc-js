@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import Database from "better-sqlite3";
 import Logger from "../../logger.js";
 
-const debug = Logger("plebbit-js:address-rewriter-db");
+const debug = Logger("pkc-js:address-rewriter-db");
 
 export type RequestLogEntry = {
     keys: string[];

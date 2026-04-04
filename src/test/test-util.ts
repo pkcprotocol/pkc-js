@@ -599,7 +599,7 @@ export async function mockPlebbitV2({ plebbitOptions, forceMockPubsub, stubStora
 }
 
 export async function mockPlebbit(plebbitOptions?: InputPlebbitOptions, forceMockPubsub = false, stubStorage = true, mockResolve = true) {
-    const log = Logger("plebbit-js:test-util:mockPlebbit");
+    const log = Logger("pkc-js:test-util:mockPlebbit");
     if (plebbitOptions?.plebbitRpcClientsOptions && plebbitOptions?.kuboRpcClientsOptions)
         throw Error("Can't have both kubo and RPC config. Is this a mistake?");
     if (plebbitOptions?.plebbitRpcClientsOptions && plebbitOptions?.libp2pJsClientsOptions)
@@ -946,7 +946,7 @@ export async function findReplyInParentCommentPagesInstancePreloadedAndPageCids(
     parentComment: Comment;
 }): Promise<CommentWithinRepliesPostsPageJson | undefined> {
     const { parentComment, reply } = opts;
-    const log = Logger("plebbit-js:test-util:waitTillReplyInParentPagesInstance");
+    const log = Logger("pkc-js:test-util:waitTillReplyInParentPagesInstance");
     if (reply?.parentCid !== parentComment?.cid) throw Error("You need to provide a reply that's direct child of parentComment");
     log("waiting for reply", reply.cid, "in parent comment", parentComment.cid, "replyCount of parent comment", parentComment.replyCount);
 
@@ -1196,7 +1196,7 @@ export async function ensurePublicationIsSigned(
 }
 
 export async function setExtraPropOnCommentAndSign(comment: Comment, extraProps: Object, includeExtraPropInSignedPropertyNames: boolean) {
-    const log = Logger("plebbit-js:test-util:setExtraPropOnVoteAndSign");
+    const log = Logger("pkc-js:test-util:setExtraPropOnVoteAndSign");
 
     // With deferred signing, the publication may not be signed yet
     if (!comment.raw.pubsubMessageToPublish) {
@@ -1226,7 +1226,7 @@ export async function setExtraPropOnCommentAndSign(comment: Comment, extraProps:
 }
 
 export async function setExtraPropOnVoteAndSign(vote: Vote, extraProps: Object, includeExtraPropInSignedPropertyNames: boolean) {
-    const log = Logger("plebbit-js:test-util:setExtraPropOnVoteAndSign");
+    const log = Logger("pkc-js:test-util:setExtraPropOnVoteAndSign");
 
     // With deferred signing, the publication may not be signed yet
     if (!vote.raw.pubsubMessageToPublish) {
@@ -1259,7 +1259,7 @@ export async function setExtraPropOnCommentEditAndSign(
     extraProps: Object,
     includeExtraPropInSignedPropertyNames: boolean
 ) {
-    const log = Logger("plebbit-js:test-util:setExtraPropOnCommentEditAndSign");
+    const log = Logger("pkc-js:test-util:setExtraPropOnCommentEditAndSign");
 
     // With deferred signing, the publication may not be signed yet
     if (!commentEdit.raw.pubsubMessageToPublish) {
@@ -1292,7 +1292,7 @@ export async function setExtraPropOnCommentModerationAndSign(
     extraProps: any,
     includeExtraPropInSignedPropertyNames: boolean
 ) {
-    const log = Logger("plebbit-js:test-util:setExtraPropOnCommentModerationAndSign");
+    const log = Logger("pkc-js:test-util:setExtraPropOnCommentModerationAndSign");
 
     if (!commentModeration.raw.pubsubMessageToPublish) {
         await commentModeration._initCommunity();
@@ -1329,7 +1329,7 @@ export async function setExtraPropOnChallengeRequestAndSign({
     extraProps: Object;
     includeExtraPropsInRequestSignedPropertyNames: boolean;
 }) {
-    const log = Logger("plebbit-js:test-util:setExtraPropOnChallengeRequestAndSign");
+    const log = Logger("pkc-js:test-util:setExtraPropOnChallengeRequestAndSign");
 
     //@ts-expect-error
     publication._signAndValidateChallengeRequestBeforePublishing = async (requestWithoutSignature, signer) => {
@@ -1354,7 +1354,7 @@ export async function publishChallengeAnswerMessageWithExtraProps({
 }) {
     // we're crafting a challenge answer from scratch here
 
-    const log = Logger("plebbit-js:test-util:setExtraPropsOnChallengeAnswerMessageAndSign");
+    const log = Logger("pkc-js:test-util:setExtraPropsOnChallengeAnswerMessageAndSign");
     const signer = Object.values(publication._challengeExchanges)[0].signer;
     if (!signer) throw Error("Signer is undefined for this challenge exchange");
     const encryptedChallengeAnswers = await encryptEd25519AesGcm(
@@ -1392,7 +1392,7 @@ export async function publishChallengeMessageWithExtraProps({
     extraProps: Object;
     includeExtraPropsInChallengeSignedPropertyNames: boolean;
 }) {
-    const log = Logger("plebbit-js:test-util:publishChallengeMessageWithExtraProps");
+    const log = Logger("pkc-js:test-util:publishChallengeMessageWithExtraProps");
 
     const encryptedChallenges = await encryptEd25519AesGcmPublicKeyBuffer(
         deterministicStringify({ challenges: [] })!,
@@ -1435,7 +1435,7 @@ export async function publishChallengeVerificationMessageWithExtraProps({
     extraProps: Object;
     includeExtraPropsInChallengeSignedPropertyNames: boolean;
 }) {
-    const log = Logger("plebbit-js:test-util:publishChallengeVerificationMessageWithExtraProps");
+    const log = Logger("pkc-js:test-util:publishChallengeVerificationMessageWithExtraProps");
 
     const toSignChallengeVerification: Omit<ChallengeVerificationMessageType, "signature"> = cleanUpBeforePublishing({
         type: "CHALLENGEVERIFICATION",
@@ -1468,7 +1468,7 @@ export async function publishChallengeVerificationMessageWithEncryption(
     toEncrypt: Object,
     verificationProps?: Partial<ChallengeVerificationMessageType>
 ) {
-    const log = Logger("plebbit-js:test-util:publishChallengeVerificationMessageWithExtraProps");
+    const log = Logger("pkc-js:test-util:publishChallengeVerificationMessageWithExtraProps");
 
     const challengeRequest = Object.values(publication._challengeExchanges)[0].challengeRequest;
     const toSignChallengeVerification: Omit<ChallengeVerificationMessageType, "signature"> = cleanUpBeforePublishing({
@@ -1494,8 +1494,7 @@ export async function publishChallengeVerificationMessageWithEncryption(
 export async function addStringToIpfs(content: string): Promise<string> {
     const plebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
     const ipfsClient = plebbit._clientsManager.getDefaultKuboRpcClient();
-    const cid = (await retryKuboIpfsAdd({ content, ipfsClient: ipfsClient._client, log: Logger("plebbit-js:test-util:addStringToIpfs") }))
-        .path;
+    const cid = (await retryKuboIpfsAdd({ content, ipfsClient: ipfsClient._client, log: Logger("pkc-js:test-util:addStringToIpfs") })).path;
     await plebbit.destroy();
     return cid;
 }
@@ -1730,7 +1729,7 @@ export async function publishSubplebbitRecordWithExtraProp(opts?: { includeExtra
         signedPropertyNames,
         subplebbitRecord,
         ipnsObj.signer,
-        Logger("plebbit-js:test-util:publishSubplebbitRecordWithExtraProp")
+        Logger("pkc-js:test-util:publishSubplebbitRecordWithExtraProp")
     );
 
     await ipnsObj.publishToIpns(JSON.stringify(subplebbitRecord));

@@ -25,7 +25,7 @@ export class PlebbitWithRpcClient extends Plebbit {
 
     override async _init(): Promise<void> {
         await super._init();
-        const log = Logger("plebbit-js:plebbit-with-rpc-client:_init");
+        const log = Logger("pkc-js:pkc-with-rpc-client:_init");
 
         this.subplebbits = [];
 
@@ -76,7 +76,7 @@ export class PlebbitWithRpcClient extends Plebbit {
     override async createSubplebbit(
         options: z.infer<typeof CreateRpcSubplebbitFunctionArgumentSchema> | RpcRemoteSubplebbitJson | RpcLocalSubplebbitJson = {}
     ): Promise<RpcLocalSubplebbit | RpcRemoteSubplebbit> {
-        const log = Logger("plebbit-js:plebbit-with-rpc-client:createSubplebbit");
+        const log = Logger("pkc-js:pkc-with-rpc-client:createSubplebbit");
 
         // No need to parse if it's a jsonified instance
         const parsedRpcOptions =

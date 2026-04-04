@@ -898,7 +898,7 @@ export async function removeMfsFilesSafely({
     inputNumOfRetries?: number;
     rmOptions?: FilesRmOptions;
 }) {
-    const logger = log ?? Logger("plebbit-js:util:removeMfsFilesSafely");
+    const logger = log ?? Logger("pkc-js:util:removeMfsFilesSafely");
     const numOfRetries = inputNumOfRetries ?? 3;
 
     return new Promise<void>((resolve, reject) => {

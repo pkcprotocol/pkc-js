@@ -235,7 +235,7 @@ export class Comment
     }
 
     _initIpfsProps(props: CommentIpfsType) {
-        const log = Logger("plebbit-js:comment:_initIpfsProps");
+        const log = Logger("pkc-js:comment:_initIpfsProps");
         // we're loading remote CommentIpfs
         this.raw.comment = props;
         this._initProps(props);
@@ -339,7 +339,7 @@ export class Comment
     }
 
     _initCommentUpdate(props: CommentUpdateType | CommentWithinRepliesPostsPageJson, subplebbit?: Pick<SubplebbitIpfsType, "signature">) {
-        const log = Logger("plebbit-js:comment:_initCommentUpdate");
+        const log = Logger("pkc-js:comment:_initCommentUpdate");
         if ("depth" in props) {
             // CommentWithinPageJson — no extra setup needed
         } else {
@@ -401,7 +401,7 @@ export class Comment
         subplebbit?: Pick<SubplebbitIpfsType, "signature">
     ) {
         assert(this.cid, "Can't update comment.replies without comment.cid being defined");
-        const log = Logger("plebbit-js:comment:_updateRepliesPostsInstanceIfNeeded");
+        const log = Logger("pkc-js:comment:_updateRepliesPostsInstanceIfNeeded");
         const subplebbitSignature = subplebbit?.signature || this.replies._subplebbit.signature;
         const repliesCreationTimestamp = this.updatedAt;
         if (typeof repliesCreationTimestamp !== "number") throw Error("comment.updatedAt should be defined when updating replies");
@@ -445,7 +445,7 @@ export class Comment
     private async _verifyChallengeVerificationCommentProps(
         decryptedVerification: DecryptedChallengeVerification
     ): Promise<PlebbitError | undefined> {
-        const log = Logger("plebbit-js:comment:publish:_verifyChallengeVerificationCommentProps");
+        const log = Logger("pkc-js:comment:publish:_verifyChallengeVerificationCommentProps");
 
         if (!this.raw.pubsubMessageToPublish) throw Error("comment._pubsubMsgToPublish should be defined at this point");
         // verify that the sub did not change any props that we published
@@ -523,7 +523,7 @@ export class Comment
         // Will add and pin our own comment to IPFS
         // only if we're connected to kubo or helia/libp2p
 
-        const log = Logger("plebbit-js:comment:publish:_addOwnCommentToIpfsIfConnectedToIpfsClient");
+        const log = Logger("pkc-js:comment:publish:_addOwnCommentToIpfsIfConnectedToIpfsClient");
         if (!this.raw.comment) throw Error("comment.raw.commentIpfs should be defined after challenge verification");
         if (Object.keys(this._plebbit.clients.kuboRpcClients).length === 0) {
             log("No kubo rpc client found, will not add newly published comment", this.cid, "to ipfs");
@@ -543,7 +543,7 @@ export class Comment
         // use p-retry here, 3 times maybe?
         const addRes = await retryKuboIpfsAdd({
             ipfsClient: kuboRpcClient._client,
-            log: Logger("plebbit-js:comment:publish:_addOwnCommentToIpfsIfConnectedToIpfsClient"),
+            log: Logger("pkc-js:comment:publish:_addOwnCommentToIpfsIfConnectedToIpfsClient"),
             content: JSON.stringify(this.raw.comment),
             options: { pin: true }
         });
@@ -568,7 +568,7 @@ export class Comment
     }
 
     private async _updateCommentPropsFromDecryptedChallengeVerification(decryptedVerification: DecryptedChallengeVerification) {
-        const log = Logger("plebbit-js:comment:publish:_updateCommentPropsFromDecryptedChallengeVerification");
+        const log = Logger("pkc-js:comment:publish:_updateCommentPropsFromDecryptedChallengeVerification");
 
         this.setCid(decryptedVerification.commentUpdate.cid);
         this._initIpfsProps(decryptedVerification.comment);
@@ -591,7 +591,7 @@ export class Comment
         decryptedVerification: DecryptedChallengeVerification
     ) {
         // We're gonna update Comment instance with DecryptedChallengeVerification.{comment, commentUpdate}
-        const log = Logger("plebbit-js:comment:publish:_verifyDecryptedChallengeVerificationAndUpdateCommentProps");
+        const log = Logger("pkc-js:comment:publish:_verifyDecryptedChallengeVerificationAndUpdateCommentProps");
         log(
             "Received update props from subplebbit after succcessful challenge exchange. Will attempt to validate if not connected to RPC",
             decryptedVerification
@@ -725,7 +725,7 @@ export class Comment
     }
 
     async _attemptInfintelyToLoadCommentIpfs() {
-        const log = Logger("plebbit-js:comment:update:attemptInfintelyToLoadCommentIpfs");
+        const log = Logger("pkc-js:comment:update:attemptInfintelyToLoadCommentIpfs");
 
         this._commentIpfsloadingOperation = retry.operation({ forever: true, factor: 2 });
         await this._attemptToFetchCommentIpfsIfNeeded(log);
@@ -733,7 +733,7 @@ export class Comment
     }
 
     async startCommentUpdateSubplebbitSubscription() {
-        const log = Logger("plebbit-js:comment:update:startCommentUpdateSubplebbitSubscription");
+        const log = Logger("pkc-js:comment:update:startCommentUpdateSubplebbitSubscription");
         if (this.state === "stopped") return; // we may have called stop() before reaching comment update subscription and after loading commentipfs
         if (this.depth === 0) {
             if (!this._communityForUpdating)
@@ -758,7 +758,7 @@ export class Comment
     }
 
     async loadCommentIpfsAndStartCommentUpdateSubscription() {
-        const log = Logger("plebbit-js:update:loadCommentIpfsAndStartCommentUpdateSubscription");
+        const log = Logger("pkc-js:update:loadCommentIpfsAndStartCommentUpdateSubscription");
         this._createStopAbortController();
         await this._attemptInfintelyToLoadCommentIpfs();
         if (!this.raw.comment) {
@@ -848,7 +848,7 @@ export class Comment
     }
 
     private _handleCommentEventFromRpc(args: any) {
-        const log = Logger("plebbit-js:comment:_handleCommentEventFromRpc");
+        const log = Logger("pkc-js:comment:_handleCommentEventFromRpc");
         let parsed: RpcCommentResultType;
         try {
             parsed = parseRpcCommentEventWithPlebbitErrorIfItFails(args.params.result);
@@ -865,7 +865,7 @@ export class Comment
     }
 
     private _handleUpdateEventFromRpc(args: any) {
-        const log = Logger("plebbit-js:comment:_handleUpdateEventFromRpc");
+        const log = Logger("pkc-js:comment:_handleUpdateEventFromRpc");
         let parsed: RpcCommentUpdateResultType;
         try {
             parsed = parseRpcCommentUpdateEventWithPlebbitErrorIfItFails(args.params.result) as RpcCommentUpdateResultType;
@@ -900,7 +900,7 @@ export class Comment
     }
 
     private async _handleErrorEventFromRpc(args: any) {
-        const log = Logger("plebbit-js:comment:update:_handleErrorEventFromRpc");
+        const log = Logger("pkc-js:comment:update:_handleErrorEventFromRpc");
         const err = <CommentRpcErrorToTransmit>args.params.result;
         log("Received 'error' event from RPC", err);
         if (err.details?.newUpdatingState) this._setUpdatingStateNoEmission(err.details.newUpdatingState);
@@ -916,7 +916,7 @@ export class Comment
     }
 
     private async _updateViaRpc() {
-        const log = Logger("plebbit-js:comment:update:_updateViaRpc");
+        const log = Logger("pkc-js:comment:update:_updateViaRpc");
 
         const rpcUrl = this._plebbit.plebbitRpcClientsOptions![0];
         if (!rpcUrl) throw Error("Failed to get rpc url");
@@ -1076,7 +1076,7 @@ export class Comment
 
     async _setUpNewUpdatingCommentInstance() {
         // create a new plebbit._updatingComments[this.cid]
-        const log = Logger("plebbit-js:comment:update:_setUpNewUpdatingCommentInstance");
+        const log = Logger("pkc-js:comment:update:_setUpNewUpdatingCommentInstance");
 
         const updatingCommentInstance = await this._plebbit.createComment(this);
 
@@ -1095,7 +1095,7 @@ export class Comment
     }
 
     async update() {
-        const log = Logger("plebbit-js:comment:update");
+        const log = Logger("pkc-js:comment:update");
         if (this.state === "updating") return; // Do nothing if it's already updating
 
         if (!this.cid) throw Error("Can't call comment.update() without defining cid");
@@ -1117,7 +1117,7 @@ export class Comment
     }
 
     private async _stopUpdateLoop() {
-        const log = Logger("plebbit-js:comment:update:_stopUpdateLoop");
+        const log = Logger("pkc-js:comment:update:_stopUpdateLoop");
         if (!this.cid) return;
         this._commentIpfsloadingOperation?.stop();
         if (this._updateRpcSubscriptionId) {

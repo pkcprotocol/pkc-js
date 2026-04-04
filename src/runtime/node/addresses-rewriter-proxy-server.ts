@@ -8,7 +8,7 @@ import { Plebbit } from "../../plebbit/plebbit.js";
 import { hideClassPrivateProps } from "../../util.js";
 import { RoutingQueryEvent } from "kubo-rpc-client";
 import { AddressRewriterDatabase, RequestLogEntry } from "./address-rewriter-db.js";
-const debug = Logger("plebbit-js:addresses-rewriter");
+const debug = Logger("pkc-js:addresses-rewriter");
 const MAX_BODY_PREVIEW_BYTES = 4096;
 
 type AddressesRewriterOptions = {

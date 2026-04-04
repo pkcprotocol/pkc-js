@@ -215,7 +215,7 @@ export async function signComment({
     comment: CommentOptionsToSign;
     plebbit: Plebbit;
 }): Promise<CommentPubsubMessagPublicationSignature> {
-    const log = Logger("plebbit-js:signatures:signComment");
+    const log = Logger("pkc-js:signatures:signComment");
     await _validateAuthorAddressBeforeSigning(comment.author, comment.signer, plebbit);
     return <CommentPubsubMessagPublicationSignature>(
         await _signJson(<JsonSignature["signedPropertyNames"]>CommentSignedPropertyNames, comment, comment.signer, log)
@@ -229,7 +229,7 @@ export async function signCommentUpdate({
     update: Omit<CommentUpdateType, "signature">;
     signer: SignerType;
 }): Promise<CommentUpdateSignature> {
-    const log = Logger("plebbit-js:signatures:signCommentUpdate");
+    const log = Logger("pkc-js:signatures:signCommentUpdate");
     // Not sure, should we validate update.authorEdit here?
     return <CommentUpdateSignature>(
         await _signJson(<JsonSignature["signedPropertyNames"]>CommentUpdateSignedPropertyNames, update, signer, log)
@@ -243,7 +243,7 @@ export async function signCommentUpdateForChallengeVerification({
     update: Omit<DecryptedChallengeVerification["commentUpdate"], "signature">;
     signer: SignerType;
 }): Promise<CommentUpdateForChallengeVerificationSignature> {
-    const log = Logger("plebbit-js:signatures:signCommentUpdateForChallengeVerification");
+    const log = Logger("pkc-js:signatures:signCommentUpdateForChallengeVerification");
     // Not sure, should we validate update.authorEdit here?
     return <CommentUpdateForChallengeVerificationSignature>(
         await _signJson(CommentUpdateForChallengeVerificationSignedPropertyNames, update, signer, log)
@@ -251,7 +251,7 @@ export async function signCommentUpdateForChallengeVerification({
 }
 
 export async function signVote({ vote, plebbit }: { vote: VoteOptionsToSign; plebbit: Plebbit }): Promise<VoteSignature> {
-    const log = Logger("plebbit-js:signatures:signVote");
+    const log = Logger("pkc-js:signatures:signVote");
     await _validateAuthorAddressBeforeSigning(vote.author, vote.signer, plebbit);
     return <VoteSignature>await _signJson(VoteSignedPropertyNames, vote, vote.signer, log);
 }
@@ -263,7 +263,7 @@ export async function signSubplebbitEdit({
     subplebbitEdit: SubplebbitEditPublicationOptionsToSign;
     plebbit: Plebbit;
 }): Promise<SubplebbitEditPublicationSignature> {
-    const log = Logger("plebbit-js:signatures:signSubplebbitEdit");
+    const log = Logger("pkc-js:signatures:signSubplebbitEdit");
     await _validateAuthorAddressBeforeSigning(subplebbitEdit.author, subplebbitEdit.signer, plebbit);
     return <SubplebbitEditPublicationSignature>(
         await _signJson(SubplebbitEditPublicationSignedPropertyNames, subplebbitEdit, subplebbitEdit.signer, log)
@@ -277,7 +277,7 @@ export async function signCommentEdit({
     edit: CommentEditOptionsToSign;
     plebbit: Plebbit;
 }): Promise<CommentEditSignature> {
-    const log = Logger("plebbit-js:signatures:signCommentEdit");
+    const log = Logger("pkc-js:signatures:signCommentEdit");
     await _validateAuthorAddressBeforeSigning(edit.author, edit.signer, plebbit);
     return <CommentEditSignature>(
         await _signJson(<JsonSignature["signedPropertyNames"]>CommentEditSignedPropertyNames, edit, edit.signer, log)
@@ -291,7 +291,7 @@ export async function signCommentModeration({
     commentMod: CommentModerationOptionsToSign;
     plebbit: Plebbit;
 }): Promise<CommentModerationSignature> {
-    const log = Logger("plebbit-js:signatures:signCommentModeration");
+    const log = Logger("pkc-js:signatures:signCommentModeration");
     await _validateAuthorAddressBeforeSigning(commentMod.author, commentMod.signer, plebbit);
     return <CommentModerationSignature>await _signJson(CommentModerationSignedPropertyNames, commentMod, commentMod.signer, log);
 }
@@ -303,7 +303,7 @@ export async function signSubplebbit({
     subplebbit: Omit<SubplebbitIpfsType, "signature">;
     signer: SignerType;
 }): Promise<SubplebbitSignature> {
-    const log = Logger("plebbit-js:signatures:signSubplebbit");
+    const log = Logger("pkc-js:signatures:signSubplebbit");
     return <SubplebbitSignature>(
         await _signJson(<JsonSignature["signedPropertyNames"]>SubplebbitSignedPropertyNames, subplebbit, signer, log)
     );
@@ -316,7 +316,7 @@ export async function signChallengeRequest({
     request: Omit<ChallengeRequestMessageType, "signature">;
     signer: SignerType;
 }): Promise<ChallengeRequestMessageSignature> {
-    const log = Logger("plebbit-js:signatures:signChallengeRequest");
+    const log = Logger("pkc-js:signatures:signChallengeRequest");
     return <ChallengeRequestMessageSignature>await _signPubsubMsg({
         signedPropertyNames: <PubsubSignature["signedPropertyNames"]>ChallengeRequestMessageSignedPropertyNames,
         msg: request,
@@ -332,7 +332,7 @@ export async function signChallengeMessage({
     challengeMessage: Omit<ChallengeMessageType, "signature">;
     signer: SignerType;
 }): Promise<ChallengeMessageSignature> {
-    const log = Logger("plebbit-js:signatures:signChallengeMessage");
+    const log = Logger("pkc-js:signatures:signChallengeMessage");
     return <ChallengeMessageSignature>await _signPubsubMsg({
         signedPropertyNames: <PubsubSignature["signedPropertyNames"]>ChallengeMessageSignedPropertyNames,
         msg: challengeMessage,
@@ -348,7 +348,7 @@ export async function signChallengeAnswer({
     challengeAnswer: Omit<ChallengeAnswerMessageType, "signature">;
     signer: SignerType;
 }): Promise<ChallengeAnswerMessageSignature> {
-    const log = Logger("plebbit-js:signatures:signChallengeAnswer");
+    const log = Logger("pkc-js:signatures:signChallengeAnswer");
     return <ChallengeAnswerMessageSignature>await _signPubsubMsg({
         signedPropertyNames: <PubsubSignature["signedPropertyNames"]>ChallengeAnswerMessageSignedPropertyNames,
         msg: challengeAnswer,
@@ -364,7 +364,7 @@ export async function signChallengeVerification({
     challengeVerification: Omit<ChallengeVerificationMessageType, "signature">;
     signer: SignerType;
 }): Promise<ChallengeVerificationMessageSignature> {
-    const log = Logger("plebbit-js:signatures:signChallengeVerification");
+    const log = Logger("pkc-js:signatures:signChallengeVerification");
     return <ChallengeVerificationMessageSignature>await _signPubsubMsg({
         signedPropertyNames: <PubsubSignature["signedPropertyNames"]>ChallengeVerificationMessageSignedPropertyNames,
         msg: challengeVerification,
@@ -590,7 +590,7 @@ export async function verifySubplebbit({
     cacheIfValid?: boolean;
     abortSignal?: AbortSignal;
 }): Promise<ValidationResult> {
-    const log = Logger("plebbit-js:signatures:verifySubplebbit");
+    const log = Logger("pkc-js:signatures:verifySubplebbit");
     if (!_allFieldsOfRecordInSignedPropertyNames(subplebbit))
         return { valid: false, reason: messages.ERR_SUBPLEBBIT_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
     if (_isThereReservedFieldInRecord(subplebbit, SubplebbitIpfsReservedFields))
@@ -683,7 +683,7 @@ export async function verifyCommentUpdate({
     if (_isThereReservedFieldInRecord(update, CommentUpdateReservedFields))
         return { valid: false, reason: messages.ERR_COMMENT_UPDATE_RECORD_INCLUDES_RESERVED_FIELD };
 
-    const log = Logger("plebbit-js:signatures:verifyCommentUpdate");
+    const log = Logger("pkc-js:signatures:verifyCommentUpdate");
 
     if (validateUpdateSignature) {
         const jsonValidation = await _validateSignatureOfPlebbitRecord(update);

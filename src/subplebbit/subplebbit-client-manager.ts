@@ -165,7 +165,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
     private async _retryLoadingSubplebbitAddress(
         subplebbitAddress: string
     ): Promise<ResultOfFetchingSubplebbit | { criticalError: Error | PlebbitError } | { aborted: true }> {
-        const log = Logger("plebbit-js:remote-subplebbit:update:_retryLoadingSubplebbitIpns");
+        const log = Logger("pkc-js:remote-community:update:_retryLoadingSubplebbitIpns");
 
         return new Promise((resolve) => {
             this._ipnsLoadingOperation!.attempt(async (curAttempt) => {
@@ -212,7 +212,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
     }
 
     async updateOnce() {
-        const log = Logger("plebbit-js:remote-subplebbit:update");
+        const log = Logger("pkc-js:remote-community:update");
 
         this._ipnsLoadingOperation = retry.operation({ forever: true, factor: 2, maxTimeout: 30000 });
         const subLoadingRes = await this._retryLoadingSubplebbitAddress(this._subplebbit.address); // will return undefined if no new sub CID is found
@@ -274,7 +274,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
     }
 
     async startUpdatingLoop() {
-        const log = Logger("plebbit-js:remote-subplebbit:update");
+        const log = Logger("pkc-js:remote-community:update");
         this._subplebbit._createStopAbortController();
 
         const areWeConnectedToKuboOrHelia =
@@ -330,7 +330,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
     }
 
     private _resolveNameInBackground(name: string) {
-        const log = Logger("plebbit-js:subplebbit-client-manager:_resolveNameInBackground");
+        const log = Logger("pkc-js:community-client-manager:_resolveNameInBackground");
         const setNameResolvedAndEmitUpdate = (newNameResolved: boolean) => {
             if (this._subplebbit.nameResolved === newNameResolved) return;
             this._subplebbit.nameResolved = newNameResolved;
@@ -508,7 +508,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
     }
 
     private async _fetchSubplebbitIpnsP2PAndVerify(ipnsName: string): Promise<ResultOfFetchingSubplebbit> {
-        const log = Logger("plebbit-js:clients-manager:_fetchSubplebbitIpnsP2PAndVerify");
+        const log = Logger("pkc-js:clients-manager:_fetchSubplebbitIpnsP2PAndVerify");
         const kuboRpcOrHelia = this.getDefaultKuboRpcClientOrHelia();
         if ("_helia" in kuboRpcOrHelia) {
             this.updateLibp2pJsClientState("fetching-ipns", kuboRpcOrHelia._libp2pJsClientsOptions.key);
@@ -576,7 +576,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
     }
 
     private async _fetchSubplebbitFromGateways(ipnsName: string): Promise<ResultOfFetchingSubplebbit> {
-        const log = Logger("plebbit-js:subplebbit:fetchSubplebbitFromGateways");
+        const log = Logger("pkc-js:community:fetchSubplebbitFromGateways");
         const concurrencyLimit = 3;
         const timeoutMs = this._plebbit._timeouts["subplebbit-ipns"];
 
@@ -631,7 +631,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                 if (errorWithinRecord) {
                     delete errorWithinRecord["stack"];
                     if (errorWithinRecord.code === "ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID") {
-                        const log = Logger("plebbit-js:subplebbit-client-manager:throwIfGatewayRespondsWithInvalidSubplebbit");
+                        const log = Logger("pkc-js:community-client-manager:throwIfGatewayRespondsWithInvalidSubplebbit");
                         const etag = gatewayRes?.res?.headers?.get("etag");
                         log.error(
                             `Gateway ${gatewayUrl} returned subplebbit record with invalid signature. ` +

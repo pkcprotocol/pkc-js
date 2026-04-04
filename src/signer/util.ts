@@ -118,7 +118,7 @@ export const getPeerIdFromPublicKeyBuffer = async (publicKeyBuffer: Uint8Array) 
 };
 
 export const convertBase58IpnsNameToBase36Cid = (ipnsName: string): string => {
-    const log = Logger("plebbit-js:signer:util:convertBase58IpnsNameToBase32");
+    const log = Logger("pkc-js:signer:util:convertBase58IpnsNameToBase32");
     let peerId: PeerId;
     try {
         peerId = PeerId.createFromB58String(ipnsName);

@@ -145,7 +145,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
 
     protected override _processUpdateEventFromRpcUpdate(args: any) {
         // This function is gonna be called with every update event from rpcLocalSubplebbit.update()
-        const log = Logger("plebbit-js:rpc-local-subplebbit:_processUpdateEventFromRpcUpdate");
+        const log = Logger("pkc-js:rpc-local-community:_processUpdateEventFromRpcUpdate");
         log("Received an update event from rpc within rpcLocalSubplebbit.update for sub " + this.address);
 
         const updateRecord: RpcLocalSubplebbitUpdateResultType = args.params.result; // we're being optimistic here and hoping the rpc server sent the correct update
@@ -165,7 +165,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
     private _handleRpcUpdateEventFromStart(args: any) {
         // This function is gonna be called with every update event from rpcLocalSubplebbit.start()
 
-        const log = Logger("plebbit-js:rpc-local-subplebbit:_handleRpcUpdateEventFromStart");
+        const log = Logger("pkc-js:rpc-local-community:_handleRpcUpdateEventFromStart");
         const updateRecord: RpcLocalSubplebbitUpdateResultType = args.params.result;
         log("Received an update event from rpc within rpcLocalSubplebbit.start for sub " + this.address);
 
@@ -186,7 +186,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
     }
 
     private _handleRpcStartedStateChangeEvent(args: any) {
-        const log = Logger("plebbit-js:rpc-local-subplebbit:_handleRpcStartedStateChangeEvent");
+        const log = Logger("pkc-js:rpc-local-community:_handleRpcStartedStateChangeEvent");
 
         const newStartedState: RpcLocalSubplebbit["startedState"] = args.params.result.state; // we're being optimistic that the rpc server transmitted a valid string here
         log("Received a startedstatechange for sub " + this.address, "new started state is", newStartedState);
@@ -230,7 +230,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
     }
 
     override async start() {
-        const log = Logger("plebbit-js:rpc-local-subplebbit:start");
+        const log = Logger("pkc-js:rpc-local-community:start");
         if (this.state === "updating") throw new PlebbitError("ERR_NEED_TO_STOP_UPDATING_SUB_BEFORE_STARTING", { address: this.address });
         // we can't start the same instance multiple times
         if (typeof this._startRpcSubscriptionId === "number")
@@ -279,7 +279,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
     }
 
     async stopWithoutRpcCall() {
-        const log = Logger("plebbit-js:rpc-local-subplebbit:stop");
+        const log = Logger("pkc-js:rpc-local-community:stop");
         await this._cleanUpRpcConnection(log);
         this.posts._stop();
         this._setState("stopped");
@@ -295,7 +295,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
             return super.stop();
         } else if (this.state === "started") {
             // Need to be careful not to stop an already running sub
-            const log = Logger("plebbit-js:rpc-local-subplebbit:stop");
+            const log = Logger("pkc-js:rpc-local-community:stop");
             try {
                 await this._plebbit._plebbitRpcClient!.stopSubplebbit({ address: this.address });
             } catch (e) {

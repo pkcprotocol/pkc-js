@@ -161,7 +161,7 @@ export class BaseClientsManager {
     // Pubsub methods
 
     async pubsubSubscribeOnProvider(pubsubTopic: string, handler: PubsubSubscriptionHandler, kuboPubsubRpcUrlOrLibp2pJsKey: string) {
-        const log = Logger("plebbit-js:plebbit:client-manager:pubsubSubscribeOnProvider");
+        const log = Logger("pkc-js:pkc:client-manager:pubsubSubscribeOnProvider");
 
         const pubsubClient =
             this._plebbit.clients.libp2pJsClients[kuboPubsubRpcUrlOrLibp2pJsKey]?.heliaWithKuboRpcClientFunctions ||
@@ -261,7 +261,7 @@ export class BaseClientsManager {
     }
 
     async pubsubPublishOnProvider(pubsubTopic: string, data: PubsubMessage, kuboPubsubRpcUrlOrLibp2pJsKey: string) {
-        const log = Logger("plebbit-js:plebbit:pubsubPublish");
+        const log = Logger("pkc-js:pkc:pubsubPublish");
         const pubsubClient =
             this._plebbit.clients.libp2pJsClients[kuboPubsubRpcUrlOrLibp2pJsKey]?.heliaWithKuboRpcClientFunctions ||
             this._plebbit.clients.pubsubKuboRpcClients[kuboPubsubRpcUrlOrLibp2pJsKey]._client;
@@ -281,7 +281,7 @@ export class BaseClientsManager {
     }
 
     async pubsubPublish(pubsubTopic: string, data: PubsubMessage): Promise<void> {
-        const log = Logger("plebbit-js:plebbit:client-manager:pubsubPublish");
+        const log = Logger("pkc-js:pkc:client-manager:pubsubPublish");
         const providersSorted = await this._plebbit._stats.sortGatewaysAccordingToScore("pubsub-publish");
         if (providersSorted.length === 0)
             throw new PlebbitError("ERR_NO_PUBSUB_PROVIDERS_AVAILABLE_TO_PUBLISH_OVER_PUBSUB", { pubsubTopic, data });
@@ -447,7 +447,7 @@ export class BaseClientsManager {
         gateway: string,
         loadOpts: OptionsToLoadFromGateway
     ): Promise<{ res: Response; resText: string | undefined } | { error: PlebbitError }> {
-        const log = Logger("plebbit-js:plebbit:fetchWithGateway");
+        const log = Logger("pkc-js:pkc:fetchWithGateway");
 
         const url = GATEWAYS_THAT_SUPPORT_SUBDOMAIN_RESOLUTION[gateway]
             ? createUrlFromSubdomainResolution(gateway, loadOpts)
@@ -698,7 +698,7 @@ export class BaseClientsManager {
         resolveType: ResolveType;
         abortSignal?: AbortSignal;
     }): Promise<string | null> {
-        const log = Logger("plebbit-js:client-manager:_resolveViaNameResolvers");
+        const log = Logger("pkc-js:client-manager:_resolveViaNameResolvers");
         const nameResolvers = this._plebbit.nameResolvers;
         if (!nameResolvers || nameResolvers.length === 0) {
             throw new PlebbitError("ERR_NO_RESOLVER_FOR_NAME", { address });
@@ -778,7 +778,7 @@ export class BaseClientsManager {
         onResolved: () => void;
         abortSignal?: AbortSignal;
     }): void {
-        const log = Logger("plebbit-js:base-client-manager:resolveAuthorNamesInBackground");
+        const log = Logger("pkc-js:base-client-manager:resolveAuthorNamesInBackground");
         const cache = this._plebbit._memCaches.nameResolvedCache;
 
         // Deduplicate and skip already-cached entries

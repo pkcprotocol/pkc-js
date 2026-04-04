@@ -166,7 +166,7 @@ export class PlebbitClientsManager extends BaseClientsManager {
         if (Object.keys(this.clients.kuboRpcClients).length > 0 || Object.keys(this.clients.libp2pJsClients).length > 0)
             return this._fetchCidP2P(cid, { maxFileSizeBytes: 1024 * 1024, timeoutMs });
         else {
-            const log = Logger("plebbit-js:clients-manager:fetchCid");
+            const log = Logger("pkc-js:clients-manager:fetchCid");
             const resObj = await this.fetchFromMultipleGateways({
                 root: cid,
                 recordIpfsType: "ipfs",

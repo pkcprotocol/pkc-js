@@ -21,7 +21,7 @@ import { PlebbitError } from "../plebbit-error.js";
 import { Libp2pJsClient } from "./libp2pjsClient.js";
 import { connectToPubsubPeers } from "./util.js";
 
-const log = Logger("plebbit-js:libp2p-js");
+const log = Logger("pkc-js:libp2p-js");
 
 const libp2pJsClients: Partial<Record<string, Libp2pJsClient>> = {}; // key => plebbit.clients.libp2pJsClients[key]
 const creatingLibp2pJsClients: Partial<Record<string, Promise<Libp2pJsClient>>> = {};
@@ -176,7 +176,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                             pubsubTopic: topic,
                             maxPeers: 2,
                             options,
-                            log: Logger("plebbit-js:helia:pubsub:publish:connectToPeersProvidingCid")
+                            log: Logger("pkc-js:helia:pubsub:publish:connectToPeersProvidingCid")
                         });
                         console.log("after", "pubsub publish", "connectToPeersProvidingCid", topic);
                     }
@@ -194,7 +194,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                             pubsubTopic: topic,
                             maxPeers: 2,
                             options,
-                            log: Logger("plebbit-js:helia:pubsub:subscribe:connectToPeersProvidingCid")
+                            log: Logger("pkc-js:helia:pubsub:subscribe:connectToPeersProvidingCid")
                         });
                         console.log("after pubsub-subscribe", "connectToPeersProvidingCid", topic);
                     }
@@ -243,7 +243,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 helia,
                 pubsubTopic: topic,
                 maxPeers: 2,
-                log: Logger("plebbit-js:helia:pubsub:subscribe:connectToPeersProvidingTopic")
+                log: Logger("pkc-js:helia:pubsub:subscribe:connectToPeersProvidingTopic")
             });
             console.log("after", "native pubsub-subscribe", "connectToPeersProvidingTopic", topic, "done");
         };

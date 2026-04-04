@@ -53,7 +53,7 @@ export async function importSignerIntoKuboNode(ipnsKeyName: string, ipfsKey: Uin
 }
 
 export function createKuboRpcClient(kuboRpcClientOptions: KuboRpcClient["_clientOptions"]): KuboRpcClient["_client"] {
-    const log = Logger("plebbit-js:plebbit:createKuboRpcClient");
+    const log = Logger("pkc-js:pkc:createKuboRpcClient");
     log("Creating a new ipfs client on browser with options", kuboRpcClientOptions);
 
     const kuboRpcClient = CreateKuboRpcClient({

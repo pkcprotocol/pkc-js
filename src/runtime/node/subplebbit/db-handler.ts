@@ -147,7 +147,7 @@ export class DbHandler {
     }
 
     async initDbIfNeeded(dbConfigOptions?: Partial<DbHandler["_dbConfig"]>) {
-        const log = Logger("plebbit-js:local-subplebbit:db-handler:initDbIfNeeded");
+        const log = Logger("pkc-js:local-community:db-handler:initDbIfNeeded");
         assert(
             typeof this._subplebbit.address === "string" && this._subplebbit.address.length > 0,
             `DbHandler needs to be an instantiated with a Subplebbit that has a valid address, (${this._subplebbit.address}) was provided`
@@ -168,7 +168,7 @@ export class DbHandler {
     }
 
     async createOrMigrateTablesIfNeeded() {
-        const log = Logger("plebbit-js:local-subplebbit:db-handler:createOrMigrateTablesIfNeeded");
+        const log = Logger("pkc-js:local-community:db-handler:createOrMigrateTablesIfNeeded");
         if (this._createdTables) return;
 
         try {
@@ -212,7 +212,7 @@ export class DbHandler {
     }
 
     destoryConnection() {
-        const log = Logger("plebbit-js:local-subplebbit:dbHandler:destroyConnection");
+        const log = Logger("pkc-js:local-community:dbHandler:destroyConnection");
         if (this._db && this._db.open) {
             this._db.exec("PRAGMA checkpoint"); // write all wal to disk
             this._db.close();
@@ -243,7 +243,7 @@ export class DbHandler {
     }
 
     rollbackTransaction(): void {
-        const log = Logger("plebbit-js:local-subplebbit:db-handler:rollbackTransaction");
+        const log = Logger("pkc-js:local-community:db-handler:rollbackTransaction");
         if (this._transactionDepth > 0) {
             if (this._transactionDepth === 1) {
                 try {
@@ -266,7 +266,7 @@ export class DbHandler {
     }
 
     async rollbackAllTransactions() {
-        const log = Logger("plebbit-js:local-subplebbit:db-handler:rollbackAllTransactions");
+        const log = Logger("pkc-js:local-community:db-handler:rollbackAllTransactions");
         let initialDepth = this._transactionDepth;
         while (this._transactionDepth > 0) {
             this.rollbackTransaction();
@@ -441,7 +441,7 @@ export class DbHandler {
     }
 
     async _createOrMigrateTablesIfNeeded() {
-        const log = Logger("plebbit-js:local-subplebbit:db-handler:createOrMigrateTablesIfNeeded");
+        const log = Logger("pkc-js:local-community:db-handler:createOrMigrateTablesIfNeeded");
         const currentDbVersion = this.getDbVersion();
         log.trace(`current db version: ${currentDbVersion}`);
 
@@ -566,7 +566,7 @@ export class DbHandler {
     }
 
     private _backfillApprovedCommentNumbers() {
-        const log = Logger("plebbit-js:local-subplebbit:db-handler:_backfillApprovedCommentNumbers");
+        const log = Logger("pkc-js:local-community:db-handler:_backfillApprovedCommentNumbers");
         const comments = this._db
             .prepare(`SELECT cid, depth FROM ${TABLES.COMMENTS} WHERE pendingApproval IS NULL OR pendingApproval != 1 ORDER BY rowid ASC`)
             .all() as { cid: string; depth: number }[];
@@ -587,7 +587,7 @@ export class DbHandler {
     }
 
     private _backfillTargetAuthorSignerAddress() {
-        const log = Logger("plebbit-js:local-subplebbit:db-handler:_backfillTargetAuthorSignerAddress");
+        const log = Logger("pkc-js:local-community:db-handler:_backfillTargetAuthorSignerAddress");
 
         // Find comment moderations that have author-related edits (bans/flairs) but no targetAuthorSignerAddress
         const moderationsToUpdate = this._db
@@ -640,7 +640,7 @@ export class DbHandler {
     }
 
     private _backfillTargetAuthorDomain() {
-        const log = Logger("plebbit-js:local-subplebbit:db-handler:_backfillTargetAuthorDomain");
+        const log = Logger("pkc-js:local-community:db-handler:_backfillTargetAuthorDomain");
 
         // Find comment moderations that have author-related edits (bans/flairs) but no targetAuthorDomain
         // and the comment author used a domain address
@@ -700,7 +700,7 @@ export class DbHandler {
     }
 
     private async _copyTable(srcTable: string, dstTable: string, currentDbVersion: number) {
-        const log = Logger("plebbit-js:local-subplebbit:db-handler:createTablesIfNeeded:copyTable");
+        const log = Logger("pkc-js:local-community:db-handler:createTablesIfNeeded:copyTable");
         const dstTableColumns = this._getColumnNames(dstTable);
         // Include rowid in the SELECT to preserve it
         const srcRecordsRaw: any[] = this._db.prepare(`SELECT rowid, * FROM ${srcTable} ORDER BY rowid ASC`).all();
@@ -790,7 +790,7 @@ export class DbHandler {
     }
 
     private async _purgePublicationTablesWithDuplicateSignatures() {
-        const log = Logger("plebbit-js:local-subplebbit:db-handler:_purgePublicationTablesWithDuplicateSignatures");
+        const log = Logger("pkc-js:local-community:db-handler:_purgePublicationTablesWithDuplicateSignatures");
         const publicationTables = [TABLES.COMMENTS, TABLES.COMMENT_EDITS, TABLES.COMMENT_MODERATIONS, TABLES.COMMENT_UPDATES] as const;
 
         for (const tableName of publicationTables) {
@@ -860,7 +860,7 @@ export class DbHandler {
     }
 
     private async _purgeCommentEditsWithInvalidSchemaOrSignature() {
-        const log = Logger("plebbit-js:local-subplebbit:db-handler:_purgeCommentEditsWithInvalidSchemaOrSignature");
+        const log = Logger("pkc-js:local-community:db-handler:_purgeCommentEditsWithInvalidSchemaOrSignature");
 
         const commentEditsOrderedByASC = this._db
             .prepare(`SELECT rowid as rowid, * FROM ${TABLES.COMMENT_EDITS} ORDER BY rowid ASC`)
@@ -912,7 +912,7 @@ export class DbHandler {
     }
 
     private async _purgeCommentsWithInvalidSchemaOrSignature() {
-        const log = Logger("plebbit-js:local-subplebbit:db-handler:_purgeCommentsWithInvalidSchema");
+        const log = Logger("pkc-js:local-community:db-handler:_purgeCommentsWithInvalidSchema");
 
         const commentsOrderedByASC = this._db.prepare(`SELECT * FROM ${TABLES.COMMENTS} ORDER BY rowid ASC`).all() as CommentsTableRow[];
 
@@ -1923,14 +1923,14 @@ export class DbHandler {
     }
 
     removeCommentFromPendingApproval(comment: Pick<CommentsTableRow, "cid">): void {
-        const log = Logger("plebbit-js:local-subplebbit:db-handler:removeCommentFromPendingApproval");
+        const log = Logger("pkc-js:local-community:db-handler:removeCommentFromPendingApproval");
         const stmt = this._db.prepare(`UPDATE ${TABLES.COMMENTS} SET pendingApproval = 0 WHERE cid = ?`);
         const res = stmt.run(comment.cid);
         log.trace(`Removed pendingApproval for cid=${comment.cid}, changes=${res.changes}`);
     }
 
     approvePendingComment(comment: Pick<CommentsTableRow, "cid">): { number?: number; postNumber?: number } {
-        const log = Logger("plebbit-js:local-subplebbit:db-handler:approvePendingComment");
+        const log = Logger("pkc-js:local-community:db-handler:approvePendingComment");
         const assignNumbers = this._db.transaction((commentCid: string) => {
             this._db.prepare(`UPDATE ${TABLES.COMMENTS} SET pendingApproval = 0 WHERE cid = ?`).run(commentCid);
             return this._assignNumbersForComment(commentCid);
@@ -2000,7 +2000,7 @@ export class DbHandler {
 
     // Remove oldest comments pending approval when exceeding the configured limit
     removeOldestPendingCommentIfWeHitMaxPendingCount(maxPendingApprovalCount: number): void {
-        const log = Logger("plebbit-js:local-subplebbit:db-handler:removeOldestPendingCommentIfWeHitMaxPendingCount");
+        const log = Logger("pkc-js:local-community:db-handler:removeOldestPendingCommentIfWeHitMaxPendingCount");
 
         // Assume maxPendingApprovalCount is a valid integer > 0
         try {
@@ -2035,7 +2035,7 @@ export class DbHandler {
     purgeDisapprovedCommentsOlderThan(
         retentionSeconds: number
     ): { cid: string; parentCid?: string | null; postUpdatesBucket?: number; purgedTableRows: PurgedCommentTableRows[] }[] | undefined {
-        const log = Logger("plebbit-js:local-subplebbit:db-handler:purgeDisapprovedCommentsOlderThan");
+        const log = Logger("pkc-js:local-community:db-handler:purgeDisapprovedCommentsOlderThan");
         if (!Number.isFinite(retentionSeconds) || retentionSeconds <= 0) return;
 
         const now = timestamp();
@@ -2505,7 +2505,7 @@ export class DbHandler {
     }
 
     purgeComment(cid: string, isNestedCall: boolean = false): PurgedCommentTableRows[] {
-        const log = Logger("plebbit-js:local-subplebbit:db-handler:purgeComment");
+        const log = Logger("pkc-js:local-community:db-handler:purgeComment");
         const purgedRecords: PurgedCommentTableRows[] = [];
         const detachedPageCids: string[] = [];
         if (!isNestedCall) this.createTransaction();
@@ -2613,7 +2613,7 @@ export class DbHandler {
     }
 
     async changeDbFilename(oldDbName: string, newDbName: string) {
-        const log = Logger("plebbit-js:local-subplebbit:db-handler:changeDbFilename");
+        const log = Logger("pkc-js:local-community:db-handler:changeDbFilename");
         if (this._db || this._keyv) await this.destoryConnection();
 
         this._transactionDepth = 0;
@@ -2646,7 +2646,7 @@ export class DbHandler {
     }
 
     async lockSubStart(subAddress = this._subplebbit.address) {
-        const log = Logger("plebbit-js:local-subplebbit:db-handler:lock:start");
+        const log = Logger("pkc-js:local-community:db-handler:lock:start");
 
         const lockfilePath = path.join(this._subplebbit._plebbit.dataPath!, "subplebbits", `${subAddress}.start.lock`);
         const subDbPath = path.join(this._subplebbit._plebbit.dataPath!, "subplebbits", subAddress);
@@ -2668,7 +2668,7 @@ export class DbHandler {
     }
 
     async unlockSubStart(subAddress = this._subplebbit.address) {
-        const log = Logger("plebbit-js:local-subplebbit:db-handler:unlock:start");
+        const log = Logger("pkc-js:local-community:db-handler:unlock:start");
         log.trace(`Attempting to unlock the start of sub (${subAddress})`);
 
         const lockfilePath = path.join(this._subplebbit._plebbit.dataPath!, "subplebbits", `${subAddress}.start.lock`);
@@ -2694,7 +2694,7 @@ export class DbHandler {
     // Subplebbit state lock
 
     async lockSubState() {
-        const log = Logger("plebbit-js:local-subplebbit:db-handler:lock:lockSubState");
+        const log = Logger("pkc-js:local-community:db-handler:lock:lockSubState");
         const lockfilePath = path.join(this._subplebbit._plebbit.dataPath!, "subplebbits", `${this._subplebbit.address}.state.lock`);
         const subDbPath = path.join(this._subplebbit._plebbit.dataPath!, "subplebbits", this._subplebbit.address);
         try {
@@ -2712,7 +2712,7 @@ export class DbHandler {
     }
 
     async unlockSubState() {
-        const log = Logger("plebbit-js:local-subplebbit:db-handler:lock:unlockSubState");
+        const log = Logger("pkc-js:local-community:db-handler:lock:unlockSubState");
 
         const lockfilePath = path.join(this._subplebbit._plebbit.dataPath!, "subplebbits", `${this._subplebbit.address}.state.lock`);
         const subDbPath = path.join(this._subplebbit._plebbit.dataPath!, "subplebbits", this._subplebbit.address);
@@ -2752,7 +2752,7 @@ export class DbHandler {
     }
 
     queryAllCommentCidsAndTheirReplies(): CommentCidWithReplies[] {
-        const log = Logger("plebbit-js:local-subplebbit:db-handler:queryAllCidsUnderThisSubplebbit");
+        const log = Logger("pkc-js:local-community:db-handler:queryAllCidsUnderThisSubplebbit");
 
         const rows = this._db
             .prepare(

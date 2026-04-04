@@ -416,7 +416,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         // if it's started in another process, we will throw an error
         // if sub is not started, load the InternalSubplebbit props from the local db
 
-        const log = Logger("plebbit-js:local-subplebbit:_updateInstancePropsWithStartedSubOrDb");
+        const log = Logger("pkc-js:local-community:_updateInstancePropsWithStartedSubOrDb");
         const startedSubplebbit = <LocalSubplebbit | undefined>(
             (findStartedSubplebbit(this._plebbit, { address: this.address }) ||
                 findSubplebbitInRegistry(processStartedSubplebbits, { address: this.address }))
@@ -478,7 +478,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     async _updateDbInternalState(
         props: Partial<InternalSubplebbitRecordBeforeFirstUpdateType | InternalSubplebbitRecordAfterFirstUpdateType>
     ): Promise<InternalSubplebbitRecordBeforeFirstUpdateType | InternalSubplebbitRecordAfterFirstUpdateType> {
-        const log = Logger("plebbit-js:local-subplebbit:_updateDbInternalState");
+        const log = Logger("pkc-js:local-community:_updateDbInternalState");
         if (remeda.isEmpty(props)) throw Error("props to update DB internal state should not be empty");
         await this._dbHandler.initDbIfNeeded();
 
@@ -509,7 +509,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     private async _getDbInternalState(
         lock: boolean
     ): Promise<InternalSubplebbitRecordAfterFirstUpdateType | InternalSubplebbitRecordBeforeFirstUpdateType> {
-        const log = Logger("plebbit-js:local-subplebbit:_getDbInternalState");
+        const log = Logger("pkc-js:local-community:_getDbInternalState");
         if (!this._dbHandler.keyvHas(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_SUBPLEBBIT]))
             throw new PlebbitError("ERR_SUB_HAS_NO_INTERNAL_STATE", { address: this.address, dataPath: this._plebbit.dataPath });
         let lockedIt = false;
@@ -553,7 +553,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     async _createNewLocalSubDb() {
         // We're creating a totally new subplebbit here with a new db
         // This function should be called only once per sub
-        const log = Logger("plebbit-js:local-subplebbit:_createNewLocalSubDb");
+        const log = Logger("pkc-js:local-community:_createNewLocalSubDb");
         await this.initDbHandlerIfNeeded();
         await this._dbHandler.initDbIfNeeded({ fileMustExist: false });
         await this._dbHandler.createOrMigrateTablesIfNeeded();
@@ -625,7 +625,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     async _resolveIpnsAndLogIfPotentialProblematicSequence() {
-        const log = Logger("plebbit-js:local-subplebbit:_resolveIpnsAndLogIfPotentialProblematicSequence");
+        const log = Logger("pkc-js:local-community:_resolveIpnsAndLogIfPotentialProblematicSequence");
         if (!this.signer.ipnsKeyName) throw Error("IPNS key name is not defined");
         if (!this.updateCid) return;
         try {
@@ -685,7 +685,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     private async updateSubplebbitIpnsIfNeeded(commentUpdateRowsToPublishToIpfs: CommentUpdateToWriteToDbAndPublishToIpfs[]) {
-        const log = Logger("plebbit-js:local-subplebbit:start:updateSubplebbitIpnsIfNeeded");
+        const log = Logger("pkc-js:local-community:start:updateSubplebbitIpnsIfNeeded");
 
         this._calculateLatestUpdateTrigger();
 
@@ -890,7 +890,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     private async _validateSubSizeSchemaAndSignatureBeforePublishing(recordToPublishRaw: SubplebbitIpfsType) {
-        const log = Logger("plebbit-js:local-subplebbit:_validateSubSchemaAndSignatureBeforePublishing");
+        const log = Logger("pkc-js:local-community:_validateSubSchemaAndSignatureBeforePublishing");
 
         const stringifiedNewSubplebbitRecord = deterministicStringify(recordToPublishRaw);
         const calculatedSizeOfNewSubplebbitRecord = await calculateStringSizeSameAsIpfsAddCidV0(stringifiedNewSubplebbitRecord);
@@ -973,7 +973,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         commentEditRaw: CommentEditPubsubMessagePublication,
         challengeRequestId: ChallengeRequestMessageType["challengeRequestId"]
     ): Promise<undefined> {
-        const log = Logger("plebbit-js:local-subplebbit:storeCommentEdit");
+        const log = Logger("pkc-js:local-community:storeCommentEdit");
         const strippedOutEditPublication = CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema.strip().parse(commentEditRaw); // we strip out here so we don't store any extra props in commentedits table
         strippedOutEditPublication.author = cleanWireAuthor(strippedOutEditPublication.author); // strip runtime-only author fields (address, publicKey, etc.)
 
@@ -1028,7 +1028,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         commentModRaw: CommentModerationPubsubMessagePublication,
         challengeRequestId: ChallengeRequestMessageType["challengeRequestId"]
     ): Promise<undefined> {
-        const log = Logger("plebbit-js:local-subplebbit:storeCommentModeration");
+        const log = Logger("pkc-js:local-community:storeCommentModeration");
         const strippedOutModPublication = CommentModerationPubsubMessagePublicationSchema.strip().parse(commentModRaw); // we strip out here so we don't store any extra props in commentedits table
         strippedOutModPublication.author = cleanWireAuthor(strippedOutModPublication.author); // strip runtime-only author fields (address, publicKey, etc.)
 
@@ -1108,7 +1108,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
 
                 await this._addCommentRowToIPFS(
                     commentToBeEdited,
-                    Logger("plebbit-js:local-subplebbit:storeCommentModeration:_addCommentRowToIPFS")
+                    Logger("pkc-js:local-community:storeCommentModeration:_addCommentRowToIPFS")
                 );
                 this._dbHandler.approvePendingComment({ cid: modTableRow.commentCid });
             } else {
@@ -1133,7 +1133,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         newVoteProps: VotePubsubMessagePublication,
         challengeRequestId: ChallengeRequestMessageType["challengeRequestId"]
     ) {
-        const log = Logger("plebbit-js:local-subplebbit:storeVote");
+        const log = Logger("pkc-js:local-community:storeVote");
 
         const authorSignerAddress = await getPlebbitAddressFromPublicKey(newVoteProps.signature.publicKey);
         this._dbHandler.deleteVote(authorSignerAddress, newVoteProps.commentCid);
@@ -1160,7 +1160,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         editProps: SubplebbitEditPubsubMessagePublication,
         challengeRequestId: ChallengeRequestMessageType["challengeRequestId"]
     ) {
-        const log = Logger("plebbit-js:local-subplebbit:storeSubplebbitEdit");
+        const log = Logger("pkc-js:local-community:storeSubplebbitEdit");
 
         const authorSignerAddress = await getPlebbitAddressFromPublicKey(editProps.signature.publicKey);
         const authorIdentity = getAuthorNameFromWire(editProps.author) || authorSignerAddress;
@@ -1320,7 +1320,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         originalCommentSignatureEncoded?: string;
     }): Promise<{ comment: CommentIpfsType; cid: CommentUpdateType["cid"] }> {
         const { commentPubsub, pendingApproval, pseudonymityMode, originalCommentSignatureEncoded } = opts;
-        const log = Logger("plebbit-js:local-subplebbit:handleChallengeExchange:storeComment");
+        const log = Logger("pkc-js:local-community:handleChallengeExchange:storeComment");
 
         const commentIpfs = <CommentIpfsType>{
             ...commentPubsub,
@@ -1445,7 +1445,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     private async _decryptOrRespondWithFailure(request: ChallengeRequestMessageType | ChallengeAnswerMessageType): Promise<string> {
-        const log = Logger("plebbit-js:local-subplebbit:_decryptOrRespondWithFailure");
+        const log = Logger("pkc-js:local-community:_decryptOrRespondWithFailure");
         try {
             return await decryptEd25519AesGcmPublicKeyBuffer(request.encrypted, this.signer.privateKey, request.signature.publicKey);
         } catch (e) {
@@ -1503,7 +1503,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         challenges: Omit<Challenge, "verify">[],
         request: DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor
     ) {
-        const log = Logger("plebbit-js:local-subplebbit:_publishChallenges");
+        const log = Logger("pkc-js:local-community:_publishChallenges");
         const toEncryptChallenge = <DecryptedChallenge>{ challenges };
         const toSignChallenge: Omit<ChallengeMessageType, "signature"> = cleanUpBeforePublishing({
             type: "CHALLENGE",
@@ -1546,7 +1546,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         challengeRequestId: ChallengeRequestMessageType["challengeRequestId"]
     ) {
         // challengeSucess=false
-        const log = Logger("plebbit-js:local-subplebbit:_publishFailedChallengeVerification");
+        const log = Logger("pkc-js:local-community:_publishFailedChallengeVerification");
 
         const toSignVerification: Omit<ChallengeVerificationMessageType, "signature"> = cleanUpBeforePublishing({
             type: "CHALLENGEVERIFICATION",
@@ -1586,7 +1586,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         challengeRequestId: ChallengeRequestMessageType["challengeRequestId"],
         duplicateReason: string
     ) {
-        const log = Logger("plebbit-js:local-subplebbit:_publishIdempotentDuplicateVerification");
+        const log = Logger("pkc-js:local-community:_publishIdempotentDuplicateVerification");
 
         let encrypted: ChallengeVerificationMessageType["encrypted"] | undefined;
         let toEncryptDecrypted: DecryptedChallengeVerification | undefined;
@@ -1707,7 +1707,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         request: DecryptedChallengeRequestMessageType,
         pendingApproval?: boolean
     ) {
-        const log = Logger("plebbit-js:local-subplebbit:_publishChallengeVerification");
+        const log = Logger("pkc-js:local-community:_publishChallengeVerification");
         if (!challengeResult.challengeSuccess) return this._publishFailedChallengeVerification(challengeResult, request.challengeRequestId);
         else {
             // Challenge has passed, we store the publication (except if there's an issue with the publication)
@@ -1786,7 +1786,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         publication: PublicationFromDecryptedChallengeRequest,
         authorSubplebbit?: PublicationWithSubplebbitAuthorFromDecryptedChallengeRequest["author"]["subplebbit"]
     ): Promise<messages | undefined> {
-        const log = Logger("plebbit-js:local-subplebbit:handleChallengeRequest:checkPublicationValidity");
+        const log = Logger("pkc-js:local-community:handleChallengeRequest:checkPublicationValidity");
 
         // Reject deprecated old wire format field
         if ("subplebbitAddress" in publication) return messages.ERR_PUBLICATION_USES_DEPRECATED_SUBPLEBBIT_ADDRESS;
@@ -2284,7 +2284,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     async handleChallengeRequest(request: ChallengeRequestMessageType, isLocalPublisher: boolean) {
-        const log = Logger("plebbit-js:local-subplebbit:handleChallengeRequest");
+        const log = Logger("pkc-js:local-community:handleChallengeRequest");
 
         if (this._ongoingChallengeExchanges.has(request.challengeRequestId.toString())) {
             log("Received a duplicate challenge request", request.challengeRequestId.toString());
@@ -2440,7 +2440,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     async handleChallengeAnswer(challengeAnswer: ChallengeAnswerMessageType) {
-        const log = Logger("plebbit-js:local-subplebbit:handleChallengeAnswer");
+        const log = Logger("pkc-js:local-community:handleChallengeAnswer");
 
         if (!this._ongoingChallengeExchanges.has(challengeAnswer.challengeRequestId.toString()))
             // Respond with error to answers without challenge request
@@ -2474,7 +2474,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     private async handleChallengeExchange(pubsubMsg: IpfsHttpClientPubsubMessage) {
-        const log = Logger("plebbit-js:local-subplebbit:handleChallengeExchange");
+        const log = Logger("pkc-js:local-community:handleChallengeExchange");
 
         const timeReceived = timestamp();
 
@@ -2545,7 +2545,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     private async _calculateNewCommentUpdate(comment: CommentsTableRow): Promise<CommentUpdateToWriteToDbAndPublishToIpfs> {
-        const log = Logger("plebbit-js:local-subplebbit:_calculateNewCommentUpdate");
+        const log = Logger("pkc-js:local-community:_calculateNewCommentUpdate");
 
         // If we're here that means we're gonna calculate the new update and publish it
         log.trace(`Attempting to calculate new CommentUpdate for comment (${comment.cid}) on subplebbit`, this.address);
@@ -2666,7 +2666,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     private async _listenToIncomingRequests() {
-        const log = Logger("plebbit-js:local-subplebbit:sync:_listenToIncomingRequests");
+        const log = Logger("pkc-js:local-community:sync:_listenToIncomingRequests");
         // Make sure subplebbit listens to pubsub topic
         // Code below is to handle in case the ipfs node restarted and the subscription got lost or something
         const pubsubClient = this._clientsManager.getDefaultKuboPubsubClient();
@@ -2680,7 +2680,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     private async _movePostUpdatesFolderToNewAddress(oldAddress: string, newAddress: string) {
-        const log = Logger("plebbit-js:local-subplebbit:_movePostUpdatesFolderToNewAddress");
+        const log = Logger("pkc-js:local-community:_movePostUpdatesFolderToNewAddress");
         const kuboRpc = this._clientsManager.getDefaultKuboRpcClient();
         try {
             await kuboRpc._client.files.mv(`/${oldAddress}`, `/${newAddress}`); // Could throw
@@ -2693,7 +2693,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     private async _updateCommentsThatNeedToBeUpdated(): Promise<CommentUpdateToWriteToDbAndPublishToIpfs[]> {
-        const log = Logger(`plebbit-js:local-subplebbit:_updateCommentsThatNeedToBeUpdated`);
+        const log = Logger(`pkc-js:local-community:_updateCommentsThatNeedToBeUpdated`);
 
         // Get all comments that need to be updated
         const commentsToUpdate = this._dbHandler.queryCommentsToBeUpdated();
@@ -2783,7 +2783,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     private async _repinCommentsIPFSIfNeeded() {
-        const log = Logger("plebbit-js:local-subplebbit:start:_repinCommentsIPFSIfNeeded");
+        const log = Logger("pkc-js:local-community:start:_repinCommentsIPFSIfNeeded");
         const latestCommentCid = this._dbHandler.queryLatestCommentCid(); // latest comment ordered by id
         if (!latestCommentCid) return;
         const kuboRpcOrHelia = this._clientsManager.getDefaultKuboRpcClient();
@@ -2809,7 +2809,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
                 if (unpinnedCommentRow.pendingApproval) return; // we don't pin comments waiting to get approved
                 await this._addCommentRowToIPFS(
                     unpinnedCommentRow,
-                    Logger("plebbit-js:local-subplebbit:start:_repinCommentsIPFSIfNeeded:_addCommentRowToIPFS")
+                    Logger("pkc-js:local-community:start:_repinCommentsIPFSIfNeeded:_addCommentRowToIPFS")
                 );
             })
         );
@@ -2822,7 +2822,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     private async _unpinStaleCids() {
-        const log = Logger("plebbit-js:local-subplebbit:sync:unpinStaleCids");
+        const log = Logger("pkc-js:local-community:sync:unpinStaleCids");
 
         if (this._cidsToUnPin.size > 0) {
             const sizeBefore = this._cidsToUnPin.size;
@@ -2855,7 +2855,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     private async _rmUnneededMfsPaths(): Promise<string[]> {
-        const log = Logger("plebbit-js:local-subplebbit:sync:_rmUnneededMfsPaths");
+        const log = Logger("pkc-js:local-community:sync:_rmUnneededMfsPaths");
 
         if (this._mfsPathsToRemove.size > 0) {
             const toDeleteMfsPaths = Array.from(this._mfsPathsToRemove.values());
@@ -2884,7 +2884,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     private async _repinCommentUpdateIfNeeded() {
-        const log = Logger("plebbit-js:start:_repinCommentUpdateIfNeeded");
+        const log = Logger("pkc-js:start:_repinCommentUpdateIfNeeded");
 
         // iterating on all comment updates is not efficient, we should figure out a better way
         // Most of the time we run this function, the comment updates are already written to ipfs rpeo
@@ -2905,7 +2905,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     private async _syncPostUpdatesWithIpfs(commentUpdateRowsToPublishToIpfs: CommentUpdateToWriteToDbAndPublishToIpfs[]) {
-        const log = Logger("plebbit-js:local-subplebbit:sync:_syncPostUpdatesFilesystemWithIpfs");
+        const log = Logger("pkc-js:local-community:sync:_syncPostUpdatesFilesystemWithIpfs");
 
         const postUpdatesDirectory = `/${this.address}`;
         const commentUpdatesWithLocalPath = commentUpdateRowsToPublishToIpfs.filter(
@@ -2965,7 +2965,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         if (!this.postUpdates) return;
         // Look for posts whose buckets should be changed
 
-        const log = Logger("plebbit-js:local-subplebbit:start:_adjustPostUpdatesBucketsIfNeeded");
+        const log = Logger("pkc-js:local-community:start:_adjustPostUpdatesBucketsIfNeeded");
         const postsWithOutdatedPostUpdateBucket = this._dbHandler.queryPostsWithOutdatedBuckets(this._postUpdatesBuckets);
         if (postsWithOutdatedPostUpdateBucket.length === 0) return;
 
@@ -2975,7 +2975,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     private async _cleanUpIpfsRepoRarely(force = false) {
-        const log = Logger("plebbit-js:local-subplebbit:syncIpnsWithDb:_cleanUpIpfsRepoRarely");
+        const log = Logger("pkc-js:local-community:syncIpnsWithDb:_cleanUpIpfsRepoRarely");
         if (Math.random() < 0.00001 || force) {
             let gcCids = 0;
             const kuboRpc = this._clientsManager.getDefaultKuboRpcClient();
@@ -2994,7 +2994,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     private async _providePubsubTopicRoutingCidsIfNeeded(force = false) {
-        const log = Logger("plebbit-js:local-subplebbit:_providePubsubTopicRoutingCidsIfNeeded");
+        const log = Logger("pkc-js:local-community:_providePubsubTopicRoutingCidsIfNeeded");
         const reprovideIntervalMs = 6 * 60 * 60 * 1000;
         const now = Date.now();
         if (!force && this._lastPubsubTopicRoutingProvideAt && now - this._lastPubsubTopicRoutingProvideAt < reprovideIntervalMs) return;
@@ -3019,7 +3019,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     async _addAllCidsUnderPurgedCommentToBeRemoved(purgedCommentAndCommentUpdate: PurgedCommentTableRows) {
-        const log = Logger("plebbit-js:_addAllCidsUnderPurgedCommentToBeRemoved");
+        const log = Logger("pkc-js:_addAllCidsUnderPurgedCommentToBeRemoved");
         this._cidsToUnPin.add(purgedCommentAndCommentUpdate.commentTableRow.cid);
         this._blocksToRm.push(purgedCommentAndCommentUpdate.commentTableRow.cid);
         if (typeof purgedCommentAndCommentUpdate.commentUpdateTableRow?.postUpdatesBucket === "number") {
@@ -3038,7 +3038,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     private async _purgeDisapprovedCommentsOlderThan() {
         if (typeof this.settings?.purgeDisapprovedCommentsOlderThan !== "number") return;
 
-        const log = Logger("plebbit-js:local-subplebbit:_purgeDisapprovedCommentsOlderThan");
+        const log = Logger("pkc-js:local-community:_purgeDisapprovedCommentsOlderThan");
         const purgedComments = this._dbHandler.purgeDisapprovedCommentsOlderThan(this.settings.purgeDisapprovedCommentsOlderThan);
 
         if (!purgedComments || purgedComments.length === 0) return;
@@ -3065,7 +3065,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     private async syncIpnsWithDb() {
-        const log = Logger("plebbit-js:local-subplebbit:sync");
+        const log = Logger("pkc-js:local-community:sync");
 
         const kuboRpc = this._clientsManager.getDefaultKuboRpcClient();
         try {
@@ -3131,7 +3131,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     private async _publishLoop(syncIntervalMs: number) {
-        const log = Logger("plebbit-js:local-subplebbit:_publishLoop");
+        const log = Logger("pkc-js:local-community:_publishLoop");
         // we need to continue the loop if there's at least one pending edit
 
         const shouldStopPublishLoop = () => {
@@ -3246,7 +3246,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     async _editPropsOnStartedSubplebbit(parsedEditOptions: ParsedSubplebbitEditOptions): Promise<typeof this> {
         // 'this' is the started subplebbit with state="started"
         // this._plebbit._startedSubplebbits[this.address] === this
-        const log = Logger("plebbit-js:local-subplebbit:start:editPropsOnStartedSubplebbit");
+        const log = Logger("pkc-js:local-community:start:editPropsOnStartedSubplebbit");
         const oldAddress = remeda.clone(this.address);
         if (typeof parsedEditOptions.address === "string" && this.address !== parsedEditOptions.address) {
             await this._validateNewAddressBeforeEditing(parsedEditOptions.address, log);
@@ -3290,7 +3290,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
 
     async _editPropsOnNotStartedSubplebbit(parsedEditOptions: ParsedSubplebbitEditOptions): Promise<typeof this> {
         // sceneario 3, the sub is not running anywhere, we need to edit the db and update this instance
-        const log = Logger("plebbit-js:local-subplebbit:edit:editPropsOnNotStartedSubplebbit");
+        const log = Logger("pkc-js:local-community:edit:editPropsOnNotStartedSubplebbit");
         const oldAddress = remeda.clone(this.address);
         await this.initDbHandlerIfNeeded();
         await this._dbHandler.initDbIfNeeded();
@@ -3381,7 +3381,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     override async start() {
-        const log = Logger("plebbit-js:local-subplebbit:start");
+        const log = Logger("pkc-js:local-community:start");
         if (this.state === "updating") throw new PlebbitError("ERR_NEED_TO_STOP_UPDATING_SUB_BEFORE_STARTING", { address: this.address });
         this._stopHasBeenCalled = false;
         this._firstUpdateAfterStart = true;
@@ -3553,7 +3553,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     private async _updateOnce() {
-        const log = Logger("plebbit-js:local-subplebbit:_updateOnce");
+        const log = Logger("pkc-js:local-community:_updateOnce");
         await this.initDbHandlerIfNeeded();
         await this._updateStartedValue();
         const startedSubplebbit = <LocalSubplebbit | undefined>(
@@ -3592,7 +3592,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     private async _updateLoop() {
-        const log = Logger("plebbit-js:local-subplebbit:update:_updateLoop");
+        const log = Logger("pkc-js:local-community:update:_updateLoop");
         while (this.state === "updating" && !this._stopHasBeenCalled) {
             try {
                 await this._updateOnce();
@@ -3632,7 +3632,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     override async stop() {
-        const log = Logger("plebbit-js:local-subplebbit:stop");
+        const log = Logger("pkc-js:local-community:stop");
         this._stopHasBeenCalled = true;
         if (this._updateLoopAbortController) {
             this._updateLoopAbortController.abort();
@@ -3705,7 +3705,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     override async delete() {
-        const log = Logger("plebbit-js:local-subplebbit:delete");
+        const log = Logger("pkc-js:local-community:delete");
         log.trace(`Attempting to stop the subplebbit (${this.address}) before deleting, if needed`);
 
         const startedSubplebbit = <LocalSubplebbit | undefined>(
