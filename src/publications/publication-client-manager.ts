@@ -122,6 +122,8 @@ export class PublicationClientsManager extends PlebbitClientsManager {
         subplebbitNewResolverState: RemoteSubplebbit["clients"]["nameResolvers"][string]["state"],
         resolverKey: string
     ) {
+        // Don't forward page-author resolution states from the subplebbit — only community-name resolution is relevant
+        if (subplebbitNewResolverState === "resolving-author-name") return;
         this.updateNameResolverState(subplebbitNewResolverState, resolverKey);
     }
 

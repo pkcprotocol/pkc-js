@@ -334,7 +334,11 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
         const setNameResolvedAndEmitUpdate = (newNameResolved: boolean) => {
             if (this._subplebbit.nameResolved === newNameResolved) return;
             this._subplebbit.nameResolved = newNameResolved;
-            this._subplebbit.emit("update", this._subplebbit);
+            // Only emit update if the subplebbit has been loaded at least once —
+            // otherwise we'd fire a premature "update" before the IPNS fetch completes.
+            if (typeof this._subplebbit.updatedAt === "number") {
+                this._subplebbit.emit("update", this._subplebbit);
+            }
         };
         this._resolveCommunityNameWithoutUpdatingState({
             communityAddress: name,

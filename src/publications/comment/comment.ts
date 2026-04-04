@@ -262,46 +262,52 @@ export class Comment
     _resolveAuthorNamesInBackground() {
         if (!this._plebbit.resolveAuthorNames) return;
 
-        const authors: Array<{ authorName: string; signaturePublicKey: string }> = [];
-
         // Collect comment's own author if nameResolved is not yet set
         const domain = getAuthorDomainFromRuntime(this.author);
-        if (domain && typeof this.author.nameResolved !== "boolean") {
-            authors.push({ authorName: domain, signaturePublicKey: this.signature.publicKey });
-        }
+        const ownAuthor =
+            domain && typeof this.author.nameResolved !== "boolean"
+                ? [{ authorName: domain, signaturePublicKey: this.signature.publicKey }]
+                : [];
 
         // Collect page comment authors from replies that still need resolution
+        const replyAuthors: Array<{ authorName: string; signaturePublicKey: string }> = [];
         if (this.replies?.pages) {
             for (const page of Object.values(this.replies.pages)) {
                 if (!page) continue;
                 for (const comment of page.comments) {
                     const commentDomain = getAuthorDomainFromRuntime(comment.author);
                     if (commentDomain && typeof comment.author.nameResolved !== "boolean") {
-                        authors.push({ authorName: commentDomain, signaturePublicKey: comment.signature.publicKey });
+                        replyAuthors.push({ authorName: commentDomain, signaturePublicKey: comment.signature.publicKey });
                     }
                 }
             }
         }
 
-        if (authors.length === 0) return;
+        if (ownAuthor.length === 0 && replyAuthors.length === 0) return;
 
         const previousNameResolved = this.author.nameResolved;
-        this._clientsManager.resolveAuthorNamesInBackground({
-            authors,
-            onResolved: () => {
-                this._setAuthorNameResolvedFromCache();
-                if (this.replies?.pages) {
-                    for (const page of Object.values(this.replies.pages)) {
-                        if (page) this.replies._applyNameResolvedCacheToPage(page);
-                    }
+        const onResolved = () => {
+            this._setAuthorNameResolvedFromCache();
+            if (this.replies?.pages) {
+                for (const page of Object.values(this.replies.pages)) {
+                    if (page) this.replies._applyNameResolvedCacheToPage(page);
                 }
-                // Only emit update if this comment's own author.nameResolved changed
-                if (this.author.nameResolved !== previousNameResolved) {
-                    this.emit("update", this);
-                }
-            },
-            abortSignal: this._getStopAbortSignal()
-        });
+            }
+            // Only emit update if this comment's own author.nameResolved changed
+            if (this.author.nameResolved !== previousNameResolved) {
+                this.emit("update", this);
+            }
+        };
+        const abortSignal = this._getStopAbortSignal();
+
+        // Resolve comment's own author through this._clientsManager (triggers state changes on the comment)
+        if (ownAuthor.length > 0) {
+            this._clientsManager.resolveAuthorNamesInBackground({ authors: ownAuthor, onResolved, abortSignal });
+        }
+        // Resolve reply page authors through plebbit-level manager (no state changes on this comment)
+        if (replyAuthors.length > 0) {
+            this._plebbit._clientsManager.resolveAuthorNamesInBackground({ authors: replyAuthors, onResolved, abortSignal });
+        }
     }
 
     _initProps(props: CommentIpfsType | CommentPubsubMessagePublication) {
@@ -967,12 +973,12 @@ export class Comment
                 if (!this.raw.comment) {
                     this._initIpfsProps(commentInSubplebbitPosts.comment);
                     this.emit("update", this);
-                    this._resolveAuthorNamesInBackground();
+                    // Don't call _resolveAuthorNamesInBackground() here — this runs during createComment()
+                    // before the stop abort controller exists. Resolution is handled by the update loop.
                 }
                 if ((this.updatedAt || 0) < commentInSubplebbitPosts.commentUpdate.updatedAt) {
                     this._initCommentUpdate(commentInSubplebbitPosts.commentUpdate, updatingSubplebbitInstance.raw.subplebbitIpfs);
                     this.emit("update", this);
-                    this._resolveAuthorNamesInBackground();
                 }
             }
         }
@@ -987,7 +993,8 @@ export class Comment
                 this._initIpfsProps(updatingCommentInstance.raw.comment);
                 this._copyNameResolvedFromComment(updatingCommentInstance);
                 this.emit("update", this);
-                this._resolveAuthorNamesInBackground();
+                // Don't call _resolveAuthorNamesInBackground() here — the updating instance already handles resolution.
+                // This mirroring comment copies results via _copyNameResolvedFromComment.
             }
             if (updatingCommentInstance.raw.commentUpdate && (this.updatedAt || 0) < updatingCommentInstance.raw.commentUpdate.updatedAt) {
                 this._initCommentUpdate(
@@ -999,7 +1006,6 @@ export class Comment
                 if (updatingCommentInstance.raw.runtimeFieldsFromRpc)
                     deepMergeRuntimeFields(this, updatingCommentInstance.raw.runtimeFieldsFromRpc);
                 this.emit("update", this);
-                this._resolveAuthorNamesInBackground();
             }
         } else {
             const ancestorAndUpdatingCids = [
@@ -1016,7 +1022,6 @@ export class Comment
                         if (!this.raw.comment) {
                             this._initIpfsProps(commentInAncestor.comment);
                             this.emit("update", this);
-                            this._resolveAuthorNamesInBackground();
                         }
                         if ((this.updatedAt || 0) < commentInAncestor.commentUpdate.updatedAt) {
                             this._initCommentUpdate(
@@ -1024,7 +1029,6 @@ export class Comment
                                 findUpdatingSubplebbit(this._plebbit, { address: this.communityAddress })?.raw?.subplebbitIpfs
                             );
                             this.emit("update", this);
-                            this._resolveAuthorNamesInBackground();
                         }
                         break; // if we found it once we won't be finding it in other comments
                     }

@@ -1825,12 +1825,24 @@ export async function createStaticSubplebbitRecordForComment(opts?: {
     }
 }
 
+function _stripNameResolvedFromPages(pagesContainer: any) {
+    if (!pagesContainer?.pages) return;
+    for (const page of Object.values(pagesContainer.pages)) {
+        if (!page || !(page as any).comments) continue;
+        for (const c of (page as any).comments) {
+            if (c?.author) delete c.author.nameResolved;
+        }
+    }
+}
+
 export function jsonifySubplebbitAndRemoveInternalProps(sub: RemoteSubplebbit) {
     const jsonfied = JSON.parse(JSON.stringify(sub));
     delete jsonfied["posts"]["clients"];
     delete jsonfied["modQueue"]["clients"];
     delete jsonfied["raw"]["runtimeFieldsFromRpc"];
     delete jsonfied["raw"]["localSubplebbit"];
+    _stripNameResolvedFromPages(jsonfied["posts"]);
+    _stripNameResolvedFromPages(jsonfied["modQueue"]);
 
     return remeda.omit(jsonfied, ["startedState", "started", "signer", "settings", "editable", "clients", "updatingState", "state"]);
 }

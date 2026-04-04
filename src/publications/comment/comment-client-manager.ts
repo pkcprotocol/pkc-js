@@ -910,6 +910,8 @@ export class CommentClientsManager extends PublicationClientsManager {
     }
 
     _handleNameResolverPostState(newState: Comment["clients"]["nameResolvers"][string]["state"], resolverKey: string) {
+        // Don't forward page-author resolution states from the post — only community-name resolution is relevant
+        if (newState === "resolving-author-name") return;
         this.updateNameResolverState(newState, resolverKey);
     }
 
