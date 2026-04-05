@@ -58,6 +58,32 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await plebbit.destroy();
         });
 
+        it(`update() populates name from IPNS record when loaded with only publicKey`, async () => {
+            // communityAddress here is the B58 IPNS key (e.g. 12D3KooW...), not the domain
+            // The domain "myforum.eth" is only inside the IPNS record's wire format
+            const { communityAddress: communityPublicKey } = await createMockedSubplebbitIpns({ name: "myforum.eth" });
+
+            const sub = await plebbit.createSubplebbit({ publicKey: communityPublicKey });
+            expect(sub.publicKey).to.equal(communityPublicKey);
+            expect(sub.address).to.equal(communityPublicKey);
+            expect(sub.name).to.be.undefined;
+
+            await sub.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: sub,
+                predicate: async () => typeof sub.updatedAt === "number"
+            });
+
+            // name gets populated from the IPNS record after update
+            expect(sub.name).to.equal("myforum.eth");
+            // address stays immutable at the publicKey it was created with
+            expect(sub.address).to.equal(communityPublicKey);
+            expect(sub.publicKey).to.equal(communityPublicKey);
+            expect(sub.updatedAt).to.be.a("number");
+
+            await sub.stop();
+        });
+
         it(`update() succeeds via publicKey when no resolver handles .sol`, async () => {
             // Create a real IPNS record
             const { communityAddress: subplebbitAddress } = await createMockedSubplebbitIpns({});
