@@ -592,7 +592,7 @@ for (const commentMod of commentModProps) {
                     }
                 });
 
-                it(`Should not be able to fetch rejected comment with only its CID since it's not provided anymore`, async () => {
+                itSkipIfRpc(`Should not be able to fetch rejected comment with only its CID since it's not provided anymore`, async () => {
                     const originalTimeout = JSON.parse(JSON.stringify(plebbit._timeouts["generic-ipfs"]));
                     plebbit._timeouts["generic-ipfs"] = 1000;
                     try {
