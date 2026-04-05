@@ -36,7 +36,12 @@ import { RemoteSubplebbit } from "../../subplebbit/remote-subplebbit.js";
 import { hideClassPrivateProps, replaceXWithY } from "../../util.js";
 import * as remeda from "remeda";
 import type { IncomingMessage } from "http";
-import type { CommentChallengeRequestToEncryptType, CommentIpfsType, CommentRpcErrorToTransmit } from "../../publications/comment/types.js";
+import type {
+    CommentChallengeRequestToEncryptType,
+    CommentIpfsType,
+    CommentRpcErrorToTransmit,
+    RpcCommentUpdateResultType
+} from "../../publications/comment/types.js";
 import type {
     RpcInternalSubplebbitRecordAfterFirstUpdateType,
     RpcInternalSubplebbitRecordBeforeFirstUpdateType,
@@ -865,22 +870,10 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
                 });
                 sentCommentIpfsUpdateEvent = true;
                 lastSentNameResolved = comment.author.nameResolved;
-            } else if (
-                sentCommentIpfsUpdateEvent &&
-                !comment.raw.commentUpdate &&
-                typeof comment.author.nameResolved === "boolean" &&
-                comment.author.nameResolved !== lastSentNameResolved
-            ) {
-                // nameResolved changed but no commentUpdate yet — re-send comment event with updated runtimeFields
-                sendEvent("comment", {
-                    comment: comment.raw.comment,
-                    runtimeFields: { author: { nameResolved: comment.author.nameResolved } }
-                });
-                lastSentNameResolved = comment.author.nameResolved;
             }
             if (comment.raw.commentUpdate) {
-                const updateEvent: Record<string, any> = { commentUpdate: comment.raw.commentUpdate };
-                const runtimeFields: Record<string, any> = {};
+                const updateEvent: RpcCommentUpdateResultType = { commentUpdate: comment.raw.commentUpdate };
+                const runtimeFields: NonNullable<RpcCommentUpdateResultType["runtimeFields"]> = {};
                 if (comment.raw.commentUpdate.replies?.pages) {
                     runtimeFields.replies = {
                         pages: buildPagesRuntimeFields(comment.raw.commentUpdate.replies.pages, plebbit._memCaches.nameResolvedCache)
@@ -893,6 +886,14 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
                     updateEvent.runtimeFields = runtimeFields;
                 }
                 sendEvent("update", updateEvent);
+                lastSentNameResolved = comment.author.nameResolved;
+            } else if (
+                sentCommentIpfsUpdateEvent &&
+                typeof comment.author.nameResolved === "boolean" &&
+                comment.author.nameResolved !== lastSentNameResolved
+            ) {
+                // nameResolved changed but no commentUpdate to piggyback on — send dedicated runtimeupdate event
+                sendEvent("runtimeupdate", { author: { nameResolved: comment.author.nameResolved } });
                 lastSentNameResolved = comment.author.nameResolved;
             }
         };

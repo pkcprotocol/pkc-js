@@ -895,6 +895,14 @@ export class Comment
         }
     }
 
+    private _handleRuntimeUpdateEventFromRpc(args: any) {
+        const runtimeFields = args.params.result;
+        if (runtimeFields) {
+            deepMergeRuntimeFields(this, runtimeFields);
+        }
+        this.emit("update", this);
+    }
+
     private _handleUpdatingStateChangeFromRpc(args: any) {
         const updateState: Comment["updatingState"] = args.params.result.state; // optimistic, rpc server could transmit an updating state that is not known to us
         this._setUpdatingStateWithEmissionIfNewState(updateState);
@@ -949,6 +957,7 @@ export class Comment
             ._plebbitRpcClient!.getSubscription(this._updateRpcSubscriptionId)
             .on("update", this._handleUpdateEventFromRpc.bind(this))
             .on("comment", this._handleCommentEventFromRpc.bind(this))
+            .on("runtimeupdate", this._handleRuntimeUpdateEventFromRpc.bind(this))
             .on("updatingstatechange", this._handleUpdatingStateChangeFromRpc.bind(this))
             .on("statechange", this._handleStateChangeFromRpc.bind(this))
             .on("error", this._handleErrorEventFromRpc.bind(this));

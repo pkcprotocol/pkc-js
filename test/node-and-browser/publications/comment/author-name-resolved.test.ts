@@ -598,7 +598,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await comment.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: comment,
-                predicate: async () => comment.author?.nameResolved === true
+                predicate: async () => typeof comment.updatedAt === "number" && comment.author?.nameResolved === true
             });
             await comment.stop();
 
