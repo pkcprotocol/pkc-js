@@ -301,7 +301,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     toJSONInternalAfterFirstUpdate(): InternalSubplebbitRecordAfterFirstUpdateType {
         const rpcJson = this.toJSONInternalRpcAfterFirstUpdate();
         return {
-            ...rpcJson.subplebbitIpfs,
+            ...rpcJson.subplebbit,
             ...remeda.omit(rpcJson.localSubplebbit, ["started", "startedState"]),
             updateCid: rpcJson.runtimeFields.updateCid,
             signer: remeda.pick(this.signer, ["privateKey", "type", "address", "shortAddress", "publicKey"]),
@@ -364,7 +364,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     async initInternalSubplebbitAfterFirstUpdateNoMerge(newProps: InternalSubplebbitRecordAfterFirstUpdateType) {
         const keysOfSubplebbitIpfs = <(keyof SubplebbitIpfsType)[]>[...SubplebbitSignedPropertyNames, "signature"];
         this.initRpcInternalSubplebbitAfterFirstUpdateNoMerge({
-            subplebbitIpfs: remeda.pick(newProps, keysOfSubplebbitIpfs) as SubplebbitIpfsType,
+            subplebbit: remeda.pick(newProps, keysOfSubplebbitIpfs) as SubplebbitIpfsType,
             localSubplebbit: {
                 signer: remeda.pick(newProps.signer as SignerWithPublicKeyAddress, ["publicKey", "address", "shortAddress", "type"]),
                 settings: newProps.settings,

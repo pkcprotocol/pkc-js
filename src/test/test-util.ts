@@ -1857,6 +1857,9 @@ export function jsonifyCommentAndRemoveInstanceProps(comment: Comment) {
     const jsonfied = cleanUpBeforePublishing(JSON.parse(JSON.stringify(comment)));
     if ("replies" in jsonfied) delete jsonfied["replies"]["clients"];
     if ("replies" in jsonfied && remeda.isEmpty(jsonfied.replies)) delete jsonfied["replies"];
+    // nameResolved is runtime-only — strip it like jsonifySubplebbitAndRemoveInternalProps does
+    if (jsonfied.author?.nameResolved !== undefined) delete jsonfied.author.nameResolved;
+    _stripNameResolvedFromPages(jsonfied["replies"]);
     return remeda.omit(jsonfied, ["clients", "state", "updatingState", "state", "publishingState", "raw"]);
 }
 

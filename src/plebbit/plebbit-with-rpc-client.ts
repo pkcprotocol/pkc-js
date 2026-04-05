@@ -106,7 +106,7 @@ export class PlebbitWithRpcClient extends Plebbit {
                     | RpcLocalSubplebbitUpdateResultType
                     | undefined;
                 if (rawRecord) {
-                    if ("subplebbitIpfs" in rawRecord) sub.initRpcInternalSubplebbitAfterFirstUpdateNoMerge(rawRecord);
+                    if ("subplebbit" in rawRecord) sub.initRpcInternalSubplebbitAfterFirstUpdateNoMerge(rawRecord);
                     else sub.initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(rawRecord);
                 }
                 if (jsonified.raw) Object.assign(sub.raw, jsonified.raw);

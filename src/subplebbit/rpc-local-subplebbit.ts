@@ -15,7 +15,7 @@ import * as remeda from "remeda";
 import { Plebbit } from "../plebbit/plebbit.js";
 import { PlebbitError } from "../plebbit-error.js";
 
-import { SubplebbitEditOptionsSchema, SubplebbitIpfsSchema } from "./schema.js";
+import { SubplebbitEditOptionsSchema } from "./schema.js";
 import {
     decodeRpcChallengeAnswerPubsubMsg,
     decodeRpcChallengePubsubMsg,
@@ -73,7 +73,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
     toJSONInternalRpcAfterFirstUpdate(): RpcInternalSubplebbitRecordAfterFirstUpdateType {
         if (!this.updateCid) throw Error("rpcLocalSubplebbit.cid should be defined before calling toJSONInternalRpcAfterFirstUpdate");
         return {
-            subplebbitIpfs: this.raw.subplebbitIpfs!,
+            subplebbit: this.raw.subplebbitIpfs!,
             localSubplebbit: {
                 signer: this.signer,
                 settings: this.settings,
@@ -84,7 +84,8 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
             },
             runtimeFields: {
                 updateCid: this.updateCid,
-                updatingState: this.updatingState
+                updatingState: this.updatingState,
+                nameResolved: this.nameResolved
             }
         };
     }
@@ -116,11 +117,8 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
     }
 
     initRpcInternalSubplebbitAfterFirstUpdateNoMerge(newProps: RpcInternalSubplebbitRecordAfterFirstUpdateType) {
-        const subplebbitIpfsParseRes = SubplebbitIpfsSchema.loose().safeParse(newProps.subplebbitIpfs);
-        if (subplebbitIpfsParseRes.success) {
-            super.initSubplebbitIpfsPropsNoMerge(subplebbitIpfsParseRes.data);
-        } else super.initRemoteSubplebbitPropsNoMerge(newProps.subplebbitIpfs);
-        // Apply address from localSubplebbit — may differ from subplebbitIpfs.name (e.g. .bso/.eth before ENS propagation)
+        super.initSubplebbitIpfsPropsNoMerge(newProps.subplebbit);
+        // Apply address from localSubplebbit — may differ from subplebbit record's name (e.g. .bso/.eth before ENS propagation)
         if (newProps.localSubplebbit.address) this.setAddress(newProps.localSubplebbit.address);
 
         this.signer = newProps.localSubplebbit.signer;
@@ -151,7 +149,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
         log("Received an update event from rpc within rpcLocalSubplebbit.update for sub " + this.address);
 
         const updateRecord: RpcLocalSubplebbitUpdateResultType = args.params.result; // we're being optimistic here and hoping the rpc server sent the correct update
-        if ("subplebbitIpfs" in updateRecord) this.initRpcInternalSubplebbitAfterFirstUpdateNoMerge(updateRecord);
+        if ("subplebbit" in updateRecord) this.initRpcInternalSubplebbitAfterFirstUpdateNoMerge(updateRecord);
         else this.initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(updateRecord);
 
         const runtimeFields = "runtimeFields" in updateRecord ? updateRecord.runtimeFields : undefined;
@@ -171,7 +169,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
         const updateRecord: RpcLocalSubplebbitUpdateResultType = args.params.result;
         log("Received an update event from rpc within rpcLocalSubplebbit.start for sub " + this.address);
 
-        if ("subplebbitIpfs" in updateRecord) {
+        if ("subplebbit" in updateRecord) {
             this.initRpcInternalSubplebbitAfterFirstUpdateNoMerge(updateRecord);
         } else this.initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(updateRecord);
 
@@ -323,7 +321,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
             }
         }
         const subPropsAfterEdit = await this._plebbit._plebbitRpcClient!.editSubplebbit(this.address, newSubplebbitOptions);
-        if ("subplebbitIpfs" in subPropsAfterEdit) this.initRpcInternalSubplebbitAfterFirstUpdateNoMerge(subPropsAfterEdit);
+        if ("subplebbit" in subPropsAfterEdit) this.initRpcInternalSubplebbitAfterFirstUpdateNoMerge(subPropsAfterEdit);
         else this.initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(subPropsAfterEdit);
         this.emit("update", this);
         return this;

@@ -197,11 +197,11 @@ export interface RpcInternalSubplebbitRecordBeforeFirstUpdateType {
         RpcLocalSubplebbitLocalProps;
 }
 
-// After first IPNS update: subplebbitIpfs is the signed record, localSubplebbit has only extras
+// After first IPNS update: subplebbit is the signed record, localSubplebbit has only extras
 export interface RpcInternalSubplebbitRecordAfterFirstUpdateType {
-    subplebbitIpfs: SubplebbitIpfsType;
+    subplebbit: SubplebbitIpfsType;
     localSubplebbit: RpcLocalSubplebbitLocalProps;
-    runtimeFields: { updateCid: string; updatingState?: RpcLocalSubplebbit["updatingState"] };
+    runtimeFields: { updateCid: string; updatingState?: RpcLocalSubplebbit["updatingState"]; nameResolved?: boolean };
 }
 
 export type RpcLocalSubplebbitUpdateResultType =

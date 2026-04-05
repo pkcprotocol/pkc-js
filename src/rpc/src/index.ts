@@ -854,6 +854,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
             });
 
         let sentCommentIpfsUpdateEvent = false;
+        let lastSentNameResolved: boolean | undefined = undefined;
         const plebbit = await this._getPlebbitInstance();
         const comment = await plebbit.createComment(parsedCommentUpdateArgs);
         const sendUpdate = () => {
@@ -863,6 +864,19 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
                     runtimeFields: { author: { nameResolved: comment.author.nameResolved } }
                 });
                 sentCommentIpfsUpdateEvent = true;
+                lastSentNameResolved = comment.author.nameResolved;
+            } else if (
+                sentCommentIpfsUpdateEvent &&
+                !comment.raw.commentUpdate &&
+                typeof comment.author.nameResolved === "boolean" &&
+                comment.author.nameResolved !== lastSentNameResolved
+            ) {
+                // nameResolved changed but no commentUpdate yet — re-send comment event with updated runtimeFields
+                sendEvent("comment", {
+                    comment: comment.raw.comment,
+                    runtimeFields: { author: { nameResolved: comment.author.nameResolved } }
+                });
+                lastSentNameResolved = comment.author.nameResolved;
             }
             if (comment.raw.commentUpdate) {
                 const updateEvent: Record<string, any> = { commentUpdate: comment.raw.commentUpdate };
@@ -879,6 +893,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
                     updateEvent.runtimeFields = runtimeFields;
                 }
                 sendEvent("update", updateEvent);
+                lastSentNameResolved = comment.author.nameResolved;
             }
         };
         const updateListener = () => sendUpdate();

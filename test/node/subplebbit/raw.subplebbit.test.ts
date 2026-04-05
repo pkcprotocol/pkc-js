@@ -45,10 +45,10 @@ describe(`raw.localSubplebbit is populated`, async () => {
 
         expect(sub.raw.localSubplebbit).to.not.be.undefined;
         const record = sub.raw.localSubplebbit as RpcInternalSubplebbitRecordAfterFirstUpdateType;
-        // after-first-update shape: has subplebbitIpfs and runtimeFields
-        expect(record.subplebbitIpfs).to.not.be.undefined;
-        expect(record.subplebbitIpfs.updatedAt).to.be.a("number");
-        expect(record.subplebbitIpfs.signature).to.not.be.undefined;
+        // after-first-update shape: has subplebbit and runtimeFields
+        expect(record.subplebbit).to.not.be.undefined;
+        expect(record.subplebbit.updatedAt).to.be.a("number");
+        expect(record.subplebbit.signature).to.not.be.undefined;
         expect(record.localSubplebbit).to.not.be.undefined;
         expect(record.localSubplebbit.address).to.equal(sub.address);
         expect(record.localSubplebbit.settings).to.not.be.undefined;
