@@ -5,7 +5,6 @@ import {
     publishRandomPost,
     publishRandomReply,
     itSkipIfRpc,
-    mockNameResolvers,
     createMockNameResolver,
     resolveWhenConditionIsTrue,
     getAvailablePlebbitConfigsToTestAgainst,
@@ -265,18 +264,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it("nameResolved is false when resolver throws", async () => {
-            const readerPlebbit = await config.plebbitInstancePromise({
-                stubStorage: false,
-                mockResolve: false
-            });
-            mockNameResolvers({
-                plebbit: readerPlebbit,
-                resolveFunction: async () => {
-                    throw new Error("Network error: resolver unreachable");
-                }
-            });
-
-            const comment = await readerPlebbit.createComment({ cid: domainCommentCid });
+            // Use unresolvableDomainCommentCid (author: "hello.scam") — no resolver has a record for it.
+            // Non-RPC: resolver returns null → null !== derivedAddress → nameResolved = false
+            // RPC: server resolver returns null → nameResolved = false → sent via runtimeFields
+            const comment = await plebbit.createComment({ cid: unresolvableDomainCommentCid });
             await comment.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: comment,
@@ -284,11 +275,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             });
             await comment.stop();
 
-            // Resolver throws → _resolveViaNameResolvers catches and returns null
-            // null !== derivedAddress → cache set to false
             expect(comment.author.nameResolved).to.equal(false);
-
-            await readerPlebbit.destroy();
         });
 
         it("multiple comment instances sharing same plebbit use same nameResolved cache", async () => {

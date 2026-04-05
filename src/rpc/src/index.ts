@@ -866,12 +866,17 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
             }
             if (comment.raw.commentUpdate) {
                 const updateEvent: Record<string, any> = { commentUpdate: comment.raw.commentUpdate };
+                const runtimeFields: Record<string, any> = {};
                 if (comment.raw.commentUpdate.replies?.pages) {
-                    updateEvent.runtimeFields = {
-                        replies: {
-                            pages: buildPagesRuntimeFields(comment.raw.commentUpdate.replies.pages, plebbit._memCaches.nameResolvedCache)
-                        }
+                    runtimeFields.replies = {
+                        pages: buildPagesRuntimeFields(comment.raw.commentUpdate.replies.pages, plebbit._memCaches.nameResolvedCache)
                     };
+                }
+                if (typeof comment.author.nameResolved === "boolean") {
+                    runtimeFields.author = { nameResolved: comment.author.nameResolved };
+                }
+                if (Object.keys(runtimeFields).length > 0) {
+                    updateEvent.runtimeFields = runtimeFields;
                 }
                 sendEvent("update", updateEvent);
             }

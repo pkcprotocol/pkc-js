@@ -111,6 +111,7 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
             error: (err) => this.emit("error", err),
             updatingstatechange: (updatingState) => this._setUpdatingStateWithEventEmissionIfNewState.bind(this)(updatingState),
             update: (updatingSubplebbit) => {
+                const keyChanged = updatingSubplebbit.publicKey && updatingSubplebbit.publicKey !== this.publicKey;
                 if (!updatingSubplebbit.raw.subplebbitIpfs || !updatingSubplebbit.updateCid) {
                     if (updatingSubplebbit.publicKey) this._clearDataForKeyMigration(updatingSubplebbit.publicKey);
                 } else {
@@ -120,7 +121,10 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
                         deepMergeRuntimeFields(this, updatingSubplebbit.raw.runtimeFieldsFromRpc);
                 }
                 if (typeof updatingSubplebbit.nameResolved === "boolean") this.nameResolved = updatingSubplebbit.nameResolved;
-                this.emit("update", this);
+                // Only emit when there's actual data or a key migration — avoid spurious updates for empty subs
+                if ((updatingSubplebbit.raw.subplebbitIpfs && updatingSubplebbit.updateCid) || keyChanged) {
+                    this.emit("update", this);
+                }
             },
             statechange: async (newState) => {
                 if (newState === "stopped" && this.state !== "stopped")
@@ -176,7 +180,9 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
             if (updatingSubplebbit.raw.runtimeFieldsFromRpc) deepMergeRuntimeFields(this, updatingSubplebbit.raw.runtimeFieldsFromRpc);
         }
         if (typeof updatingSubplebbit.nameResolved === "boolean") this.nameResolved = updatingSubplebbit.nameResolved;
-        if (updatingSubplebbit.publicKey) this.emit("update", this);
+        if (updatingSubplebbit.raw.subplebbitIpfs || updatingSubplebbit.updateCid) {
+            this.emit("update", this);
+        }
     }
 
     protected _handleRpcErrorEvent(args: any) {

@@ -584,7 +584,10 @@ export class Comment
             Object.assign(this, remeda.pick(decryptedVerification.commentUpdate, unknownProps));
         }
         this.emit("update", this);
-        this._resolveAuthorNamesInBackground();
+        // RPC clients rely on the server for name resolution (sent via runtimeFields)
+        if (!this._plebbit._plebbitRpcClient) {
+            this._resolveAuthorNamesInBackground();
+        }
     }
 
     protected override async _verifyDecryptedChallengeVerificationAndUpdateCommentProps(
@@ -884,7 +887,11 @@ export class Comment
             }
 
             this.emit("update", this);
-            this._resolveAuthorNamesInBackground();
+            // RPC clients rely on the server for name resolution (sent via runtimeFields);
+            // client-side resolution would incorrectly set nameResolved=false since nameResolvers is undefined
+            if (!this._plebbit._plebbitRpcClient) {
+                this._resolveAuthorNamesInBackground();
+            }
         }
     }
 

@@ -193,7 +193,9 @@ describe(`publicKey fallback - failure cases without publicKey`, () => {
         const sub = await testPlebbit.createSubplebbit({ address: "test.sol" });
         const errorPromise = new Promise<void>((resolve) => {
             sub.on("error", (err: PlebbitError | Error) => {
-                expect((err as PlebbitError).code).to.equal("ERR_NO_RESOLVER_FOR_NAME");
+                // ERR_NO_RESOLVER_FOR_NAME when client resolver doesn't handle .sol;
+                // ERR_DOMAIN_TXT_RECORD_NOT_FOUND when RPC server resolver handles .sol but finds no record
+                expect((err as PlebbitError).code).to.be.oneOf(["ERR_NO_RESOLVER_FOR_NAME", "ERR_DOMAIN_TXT_RECORD_NOT_FOUND"]);
                 resolve();
             });
         });
@@ -201,8 +203,13 @@ describe(`publicKey fallback - failure cases without publicKey`, () => {
         await sub.update();
         await errorPromise;
 
-        // ERR_NO_RESOLVER_FOR_NAME is non-retriable, so state should be stopped
-        expect(sub.updatingState).to.equal("failed");
+        if (testPlebbit._plebbitRpcClient) {
+            // ERR_DOMAIN_TXT_RECORD_NOT_FOUND is retriable
+            expect(sub.updatingState).to.equal("waiting-retry");
+        } else {
+            // ERR_NO_RESOLVER_FOR_NAME is non-retriable
+            expect(sub.updatingState).to.equal("failed");
+        }
 
         await sub.stop();
         await testPlebbit.destroy();

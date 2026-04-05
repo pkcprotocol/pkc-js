@@ -106,6 +106,8 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
 
     initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(newProps: RpcInternalSubplebbitRecordBeforeFirstUpdateType) {
         this.initRemoteSubplebbitPropsNoMerge(newProps.localSubplebbit);
+        // Apply address from localSubplebbit — may differ after edit (same as afterFirstUpdate variant)
+        if (newProps.localSubplebbit.address) this.setAddress(newProps.localSubplebbit.address);
         this.signer = newProps.localSubplebbit.signer;
         this.settings = newProps.localSubplebbit.settings;
         this._usingDefaultChallenge = newProps.localSubplebbit._usingDefaultChallenge;
