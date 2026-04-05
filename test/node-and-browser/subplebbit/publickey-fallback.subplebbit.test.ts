@@ -6,6 +6,7 @@ import {
     mockRemotePlebbit,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
+import signers from "../../fixtures/signers.js";
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import type { PlebbitError } from "../../../dist/node/plebbit-error.js";
 import type { Plebbit } from "../../../dist/node/plebbit/plebbit.js";
@@ -123,21 +124,16 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`update() succeeds via publicKey and nameResolved=true when name resolves correctly`, async () => {
-            const { communityAddress: subplebbitAddress } = await createMockedSubplebbitIpns({});
+            // Use "plebbit.bso" from defaultMockResolverRecords so both RPC server and client resolve it
+            const subplebbitAddress = signers[3].address; // plebbit.bso resolves to signers[3]
 
-            // Create plebbit with resolver that returns the correct publicKey for our domain
             const testPlebbit = await config.plebbitInstancePromise({
-                mockResolve: false,
                 plebbitOptions: {
-                    nameResolvers: [
-                        createMockNameResolver({
-                            records: { "correct.eth": subplebbitAddress }
-                        })
-                    ]
+                    nameResolvers: [createMockNameResolver({ includeDefaultRecords: true })]
                 }
             });
 
-            const sub = await testPlebbit.createSubplebbit({ name: "correct.eth", publicKey: subplebbitAddress });
+            const sub = await testPlebbit.createSubplebbit({ name: "plebbit.bso", publicKey: subplebbitAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -246,15 +242,22 @@ describe(`publicKey fallback - .sol community loading`, () => {
                 });
 
                 const sub = await testPlebbit.createSubplebbit({ address: "mycommunity.sol" });
+                let emittedError: PlebbitError | Error | undefined;
                 const errorPromise = new Promise<void>((resolve) => {
-                    sub.on("error", (err: PlebbitError | Error) => {
-                        expect((err as PlebbitError).code).to.equal("ERR_NO_RESOLVER_FOR_NAME");
+                    sub.once("error", (err) => {
+                        emittedError = err;
                         resolve();
                     });
                 });
 
                 await sub.update();
                 await errorPromise;
+
+                // ERR_NO_RESOLVER_FOR_NAME when client resolver doesn't handle .sol;
+                // ERR_DOMAIN_TXT_RECORD_NOT_FOUND when RPC server resolver handles .sol but finds no record
+                expect((emittedError as PlebbitError).code).to.be.oneOf(["ERR_NO_RESOLVER_FOR_NAME", "ERR_DOMAIN_TXT_RECORD_NOT_FOUND"]);
+                expect(sub.raw.subplebbitIpfs).to.be.undefined;
+
                 await sub.stop();
                 await testPlebbit.destroy();
             });

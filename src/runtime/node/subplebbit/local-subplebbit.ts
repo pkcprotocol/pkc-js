@@ -1825,6 +1825,10 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
                 log("Rejecting publication with unresolvable author domain", authorName, e);
                 return messages.ERR_FAILED_TO_RESOLVE_AUTHOR_DOMAIN;
             }
+            if (resolvedAddress === null) {
+                log("Rejecting publication: author domain could not be resolved", authorName);
+                return messages.ERR_FAILED_TO_RESOLVE_AUTHOR_DOMAIN;
+            }
             const signerAddress = await getPlebbitAddressFromPublicKey(publication.signature.publicKey);
             if (resolvedAddress !== signerAddress) {
                 log("Rejecting publication: author domain resolves to different signer", authorName, resolvedAddress, signerAddress);

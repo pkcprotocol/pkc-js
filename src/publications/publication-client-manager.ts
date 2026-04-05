@@ -355,7 +355,11 @@ export class PublicationClientsManager extends PlebbitClientsManager {
             await this.cleanUpUpdatingSubInstance();
         }
 
-        if (!subIpfs) throw Error("Should fail properly here");
+        if (!subIpfs)
+            throw new PlebbitError("ERR_GET_SUBPLEBBIT_TIMED_OUT", {
+                subplebbitAddress: updatingSubInstance.subplebbit.address,
+                timeoutMs: this._plebbit._timeouts["subplebbit-ipns"]
+            });
         return {
             address: updatingSubInstance.subplebbit.address,
             publicKey: updatingSubInstance.subplebbit.publicKey!,

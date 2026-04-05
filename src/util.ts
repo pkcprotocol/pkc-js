@@ -558,7 +558,18 @@ export async function waitForUpdateInSubInstanceWithErrorAndTimeout(subplebbit: 
     const updatingStates: RemoteSubplebbit["updatingState"][] = [];
     const updatingStateChangeListener = (state: RemoteSubplebbit["updatingState"]) => updatingStates.push(state);
     subplebbit.on("updatingstatechange", updatingStateChangeListener);
-    const updatePromise = new Promise((resolve) => subplebbit.once("update", resolve));
+    // Wait specifically for subplebbitIpfs to be defined — intermediate "update" events
+    // (e.g. resetInstance, toJSONInternalRpcBeforeFirstUpdate) may fire without it
+    let updateListener: (() => void) | undefined;
+    const updatePromise = new Promise<void>((resolve) => {
+        updateListener = () => {
+            if (subplebbit.raw.subplebbitIpfs) {
+                subplebbit.removeListener("update", updateListener!);
+                resolve();
+            }
+        };
+        subplebbit.on("update", updateListener);
+    });
     let updateError: PlebbitError | Error | undefined;
     const errorListener = (err: PlebbitError | Error) => (updateError = err);
     subplebbit.on("error", errorListener);
@@ -584,6 +595,7 @@ export async function waitForUpdateInSubInstanceWithErrorAndTimeout(subplebbit: 
             throw updatingSubplebbit._clientsManager._ipnsLoadingOperation.mainError();
         throw e;
     } finally {
+        if (updateListener) subplebbit.removeListener("update", updateListener);
         subplebbit.removeListener("error", errorListener);
         subplebbit.removeListener("updatingstatechange", updatingStateChangeListener);
         if (!wasUpdating && subplebbit.state !== "started") await subplebbit.stop();

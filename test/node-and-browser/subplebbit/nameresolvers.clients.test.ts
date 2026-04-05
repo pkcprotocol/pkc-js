@@ -2,7 +2,8 @@ import signers from "../../fixtures/signers.js";
 
 import { createMockNameResolver, processAllCommentsRecursively, mockPlebbitV2, createNewIpns } from "../../../dist/node/test/test-util.js";
 import { signSubplebbit } from "../../../dist/node/signer/signatures.js";
-import { describe, it } from "vitest";
+import { it } from "vitest";
+import { describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
 import type { InputPlebbitOptions } from "../../../dist/node/types.js";
 
 const subplebbitAddress = signers[9].address;
@@ -180,7 +181,8 @@ async function createSubplebbitFixtureWithDomainAuthors() {
     return { communityAddress };
 }
 
-describe(`subplebbit.clients.nameResolvers`, async () => {
+// RPC clients don't have nameResolvers clients — name resolution happens server-side, so resolver state is not exposed to the client
+describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
     it(`subplebbit.clients.nameResolvers[resolverKey].state is stopped by default`, async () => {
         const { plebbit } = await createRemotePlebbitWithMockResolver();
         const mockSub = await plebbit.getSubplebbit({ address: subplebbitAddress });

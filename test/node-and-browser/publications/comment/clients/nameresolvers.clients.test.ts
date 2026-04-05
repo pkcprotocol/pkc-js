@@ -8,7 +8,8 @@ import {
     mockPlebbitV2,
     resolveWhenConditionIsTrue,
     publishRandomReply,
-    waitTillReplyInParentPages
+    waitTillReplyInParentPages,
+    describeSkipIfRpc
 } from "../../../../../dist/node/test/test-util.js";
 import type { Plebbit } from "../../../../../dist/node/plebbit/plebbit.js";
 import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
@@ -45,7 +46,8 @@ async function createPlebbitWithMockResolver({
     return { plebbit, records };
 }
 
-describe(`comment.clients.nameResolvers`, async () => {
+// RPC clients don't have nameResolvers clients — name resolution happens server-side, so resolver state is not exposed to the client
+describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
     let plebbit: Plebbit;
     beforeAll(async () => {
         ({ plebbit } = await createPlebbitWithMockResolver({
