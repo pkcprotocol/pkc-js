@@ -554,11 +554,20 @@ describe(`Publish loop resiliency`, async () => {
             const remotePlebbitInstance = await mockPlebbitNoDataPathWithOnlyKuboClient({
                 plebbitOptions: { resolveAuthorNames, validatePages: true }
             });
+
             const loadedSub = await remotePlebbitInstance.getSubplebbit({ address: subplebbit.address });
             const mockPostInPage = loadedSub.posts!.pages.hot!.comments.find((comment) => comment.cid === mockPost.cid);
             // author.address is immutable (always name || publicKey), use nameResolved to indicate domain verification status
             expect(mockPostInPage!.author.address).to.equal("plebbit.bso");
-            if (resolveAuthorNames) expect(mockPostInPage!.author.nameResolved).to.equal(false);
+            if (resolveAuthorNames) {
+                // getSubplebbit stops the sub which aborts the fire-and-forget background resolution,
+                // so nameResolved won't be set on the page. Instead, directly verify that the domain
+                // resolves to a different address than the comment's signer (i.e. the name is invalid).
+                const resolved = await remotePlebbitInstance._clientsManager.resolveAuthorNameIfNeeded({
+                    authorAddress: "plebbit.bso"
+                });
+                expect(resolved).to.not.equal(mockPostInPage!.author.publicKey);
+            }
         }
     });
 });

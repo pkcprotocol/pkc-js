@@ -915,14 +915,18 @@ export class DbHandler {
         const log = Logger("pkc-js:local-community:db-handler:_purgeCommentsWithInvalidSchema");
 
         const commentsOrderedByASC = this._db.prepare(`SELECT * FROM ${TABLES.COMMENTS} ORDER BY rowid ASC`).all() as CommentsTableRow[];
+        const alreadyPurgedCids = new Set<string>();
 
         for (const rawCommentRecord of commentsOrderedByASC) {
+            if (alreadyPurgedCids.has(rawCommentRecord.cid)) continue;
+
             let commentRecord: CommentsTableRow;
             try {
                 commentRecord = this._parseCommentsTableRow(rawCommentRecord);
             } catch (error) {
                 if (error instanceof ZodError) {
-                    this.purgeComment(rawCommentRecord.cid);
+                    const purged = this.purgeComment(rawCommentRecord.cid);
+                    for (const p of purged) alreadyPurgedCids.add(p.commentTableRow.cid);
                     continue;
                 }
                 throw error;
@@ -932,7 +936,8 @@ export class DbHandler {
                 CommentIpfsSchema.strip().parse(commentRecord);
             } catch (e) {
                 log.error(`Comment (${commentRecord.cid}) in DB has an invalid schema, will be purged.`, e);
-                this.purgeComment(commentRecord.cid);
+                const purged = this.purgeComment(commentRecord.cid);
+                for (const p of purged) alreadyPurgedCids.add(p.commentTableRow.cid);
                 continue;
             }
             const validRes = await verifyCommentIpfs({
@@ -943,7 +948,8 @@ export class DbHandler {
             });
             if (!validRes.valid) {
                 log.error(`Comment ${commentRecord.cid} in DB has invalid signature due to ${validRes.reason}. Will be purged.`);
-                this.purgeComment(commentRecord.cid);
+                const purged = this.purgeComment(commentRecord.cid);
+                for (const p of purged) alreadyPurgedCids.add(p.commentTableRow.cid);
             }
         }
     }
