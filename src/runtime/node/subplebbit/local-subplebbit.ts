@@ -460,8 +460,13 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
                 parseSubplebbitIpfsSchemaPassthroughWithPlebbitErrorIfItFails(this.raw.subplebbitIpfs);
             } catch (e) {
                 if (e instanceof Error) {
-                    e.message = "Local subplebbit" + this.address + " has an invalid schema: " + e.message;
-                    throw e;
+                    log(
+                        "Local subplebbit",
+                        this.address,
+                        "has an invalid subplebbitIpfs schema from DB, clearing for re-generation after migration:",
+                        e.message
+                    );
+                    this.raw.subplebbitIpfs = undefined;
                 }
             }
     }
