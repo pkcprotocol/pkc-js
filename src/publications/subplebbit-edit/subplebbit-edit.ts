@@ -9,7 +9,7 @@ import type {
     SubplebbitEditPubsubMessagePublication
 } from "./types.js";
 import type { SignerType } from "../../signer/types.js";
-import { signSubplebbitEdit, verifySubplebbitEdit } from "../../signer/signatures.js";
+import { signCommunityEdit, verifyCommunityEdit } from "../../signer/signatures.js";
 import type { CreatePublicationOptions } from "../../types.js";
 
 // subplebbitEdit.signer is inherited from Publication
@@ -56,7 +56,7 @@ class SubplebbitEdit extends Publication implements SubplebbitEditPubsubMessageP
     protected override async _signPublicationOptionsToPublish(
         cleanedPublication: unknown
     ): Promise<SubplebbitEditPubsubMessagePublication["signature"]> {
-        return signSubplebbitEdit({
+        return signCommunityEdit({
             subplebbitEdit: cleanedPublication as SubplebbitEditPublicationOptionsToSign,
             plebbit: this._plebbit
         });
@@ -74,7 +74,7 @@ class SubplebbitEdit extends Publication implements SubplebbitEditPubsubMessageP
 
     protected override async _validateSignatureHook() {
         const subplebbitEditObj = JSON.parse(JSON.stringify(this.raw.pubsubMessageToPublish!)); // Stringified here to simulate a message sent through IPNS/PUBSUB
-        const signatureValidity = await verifySubplebbitEdit({
+        const signatureValidity = await verifyCommunityEdit({
             subplebbitEdit: subplebbitEditObj,
             resolveAuthorNames: this._plebbit.resolveAuthorNames,
             clientsManager: this._clientsManager

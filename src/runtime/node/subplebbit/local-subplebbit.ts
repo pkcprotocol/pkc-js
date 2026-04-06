@@ -82,13 +82,13 @@ import {
     signCommentEdit,
     signCommentUpdate,
     signCommentUpdateForChallengeVerification,
-    signSubplebbit,
+    signCommunity,
     verifyChallengeAnswer,
     verifyChallengeRequest,
     verifyCommentEdit,
     verifyCommentModeration,
     verifyCommentUpdate,
-    verifySubplebbitEdit
+    verifyCommunityEdit
 } from "../../../signer/signatures.js";
 import {
     calculateExpectedSignatureSize,
@@ -103,7 +103,7 @@ import {
     decryptEd25519AesGcmPublicKeyBuffer,
     verifyCommentIpfs,
     verifyCommentPubsubMessage,
-    verifySubplebbit,
+    verifyCommunity,
     verifyVote
 } from "../../../signer/index.js";
 import { encryptEd25519AesGcmPublicKeyBuffer } from "../../../signer/encryption.js";
@@ -783,7 +783,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             this.modQueue.resetPages();
         }
 
-        const signature = await signSubplebbit({ subplebbit: newIpns, signer: this.signer });
+        const signature = await signCommunity({ subplebbit: newIpns, signer: this.signer });
         const newSubplebbitRecord = <SubplebbitIpfsType>{ ...newIpns, signature };
 
         await this._validateSubSizeSchemaAndSignatureBeforePublishing(newSubplebbitRecord);
@@ -934,7 +934,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             cacheIfValid: false
         };
         try {
-            const validation = await verifySubplebbit(verificationOpts);
+            const validation = await verifyCommunity(verificationOpts);
             if (!validation.valid) {
                 throw new PlebbitError("ERR_LOCAL_COMMUNITY_PRODUCED_INVALID_SIGNATURE", {
                     validation,
@@ -948,7 +948,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
 
         verificationOpts.subplebbit = JSON.parse(stringifiedNewSubplebbitRecord); // let's stringify and parse again to make sure we're not using any invalid data
         try {
-            const validation = await verifySubplebbit(verificationOpts);
+            const validation = await verifyCommunity(verificationOpts);
             if (!validation.valid) {
                 throw new PlebbitError("ERR_LOCAL_COMMUNITY_PRODUCED_INVALID_SIGNATURE", {
                     validation,
@@ -1491,7 +1491,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
                 clientsManager: this._clientsManager
             });
         else if (request.subplebbitEdit)
-            validity = await verifySubplebbitEdit({
+            validity = await verifyCommunityEdit({
                 subplebbitEdit: request.subplebbitEdit,
                 resolveAuthorNames: this._plebbit.resolveAuthorNames,
                 clientsManager: this._clientsManager

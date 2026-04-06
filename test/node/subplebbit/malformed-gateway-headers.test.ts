@@ -1,7 +1,7 @@
 import http, { IncomingMessage, ServerResponse, Server } from "http";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import { mockGatewayPlebbit, mockPlebbit } from "../../../dist/node/test/test-util.js";
-import { signSubplebbit } from "../../../dist/node/signer/signatures.js";
+import { signCommunity } from "../../../dist/node/signer/signatures.js";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { convertBase58IpnsNameToBase36Cid } from "../../../dist/node/signer/util.js";
 
@@ -71,7 +71,7 @@ describe("Test gateway response with malformed etag headers", async () => {
 
     // Sign a subplebbit record
     const signRecord = async (record: Omit<SubplebbitIpfsType, "signature">): Promise<SubplebbitIpfsType> => {
-        const signature = await signSubplebbit({ subplebbit: record, signer: testSigner });
+        const signature = await signCommunity({ subplebbit: record, signer: testSigner });
         return { ...record, signature };
     };
 

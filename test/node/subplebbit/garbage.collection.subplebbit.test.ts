@@ -279,7 +279,7 @@ describe("local subplebbit garbage collection", () => {
         retrySpy.mockResolvedValueOnce(createMockAddResult(VALID_CID_C, 5));
         retrySpy.mockResolvedValueOnce(createMockAddResult(VALID_CID_D, 5));
 
-        vi.spyOn(signatures, "signSubplebbit").mockResolvedValue({
+        vi.spyOn(signatures, "signCommunity").mockResolvedValue({
             signature: "sig",
             publicKey: "pk",
             signedPropertyNames: [],

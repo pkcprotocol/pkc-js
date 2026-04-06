@@ -37,7 +37,7 @@ import { createSigner, verifyCommentPubsubMessage } from "../signer/index.js";
 import { CommentEdit } from "../publications/comment-edit/comment-edit.js";
 import Logger from "../logger.js";
 import env from "../version.js";
-import { verifyCommentEdit, verifyCommentIpfs, verifyCommentUpdate, verifySubplebbitEdit } from "../signer/signatures.js";
+import { verifyCommentEdit, verifyCommentIpfs, verifyCommentUpdate, verifyCommunityEdit } from "../signer/signatures.js";
 import Stats from "../stats.js";
 import Storage from "../runtime/node/storage.js";
 import { PlebbitClientsManager } from "./plebbit-client-manager.js";

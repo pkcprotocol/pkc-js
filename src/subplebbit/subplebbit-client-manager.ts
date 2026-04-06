@@ -27,7 +27,7 @@ import {
 } from "../util.js";
 import pLimit from "p-limit";
 import { parseSubplebbitIpfsSchemaPassthroughWithPlebbitErrorIfItFails, parseJsonWithPlebbitErrorIfFails } from "../schema/schema-util.js";
-import { verifySubplebbit } from "../signer/index.js";
+import { verifyCommunity } from "../signer/index.js";
 import { LimitedSet } from "../general-util/limited-set.js";
 import {
     SubplebbitIpfsGatewayClient,
@@ -854,7 +854,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
             validatePages: this._plebbit.validatePages,
             abortSignal: this._subplebbit._getStopAbortSignal()
         };
-        const updateValidity = await verifySubplebbit(verificationOpts);
+        const updateValidity = await verifyCommunity(verificationOpts);
         if (!updateValidity.valid) {
             const error = new PlebbitError("ERR_COMMUNITY_SIGNATURE_IS_INVALID", {
                 signatureValidity: updateValidity,

@@ -43,7 +43,7 @@ import {
     cleanUpBeforePublishing,
     _signPubsubMsg,
     signChallengeVerification,
-    signSubplebbit
+    signCommunity
 } from "../signer/signatures.js";
 import { BasePages, PostsPages, RepliesPages } from "../pages/pages.js";
 import {
@@ -1748,7 +1748,7 @@ export async function createMockedSubplebbitIpns(subplebbitOpts: CreateNewLocalS
     }; // default sub, will be using its props
     if (!subplebbitRecord.posts) delete subplebbitRecord.posts;
 
-    subplebbitRecord.signature = await signSubplebbit({ subplebbit: subplebbitRecord, signer: ipnsObj.signer });
+    subplebbitRecord.signature = await signCommunity({ subplebbit: subplebbitRecord, signer: ipnsObj.signer });
     await ipnsObj.publishToIpns(JSON.stringify(subplebbitRecord));
 
     await ipnsObj.plebbit.destroy();
@@ -1776,7 +1776,7 @@ export async function createStaticSubplebbitRecordForComment(opts?: {
         };
         if (!subplebbitRecord.posts) delete subplebbitRecord.posts;
         // Always publish a valid record first so the IPNS key is established for gateway discovery
-        subplebbitRecord.signature = await signSubplebbit({ subplebbit: subplebbitRecord, signer: ipnsObj.signer });
+        subplebbitRecord.signature = await signCommunity({ subplebbit: subplebbitRecord, signer: ipnsObj.signer });
         await ipnsObj.publishToIpns(JSON.stringify(subplebbitRecord));
 
         const commentToPublish = await commentPlebbit.createComment({

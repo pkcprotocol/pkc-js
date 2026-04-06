@@ -256,14 +256,14 @@ export async function signVote({ vote, plebbit }: { vote: VoteOptionsToSign; ple
     return <VoteSignature>await _signJson(VoteSignedPropertyNames, vote, vote.signer, log);
 }
 
-export async function signSubplebbitEdit({
+export async function signCommunityEdit({
     subplebbitEdit,
     plebbit
 }: {
     subplebbitEdit: SubplebbitEditPublicationOptionsToSign;
     plebbit: Plebbit;
 }): Promise<SubplebbitEditPublicationSignature> {
-    const log = Logger("pkc-js:signatures:signSubplebbitEdit");
+    const log = Logger("pkc-js:signatures:signCommunityEdit");
     await _validateAuthorAddressBeforeSigning(subplebbitEdit.author, subplebbitEdit.signer, plebbit);
     return <SubplebbitEditPublicationSignature>(
         await _signJson(SubplebbitEditPublicationSignedPropertyNames, subplebbitEdit, subplebbitEdit.signer, log)
@@ -296,14 +296,14 @@ export async function signCommentModeration({
     return <CommentModerationSignature>await _signJson(CommentModerationSignedPropertyNames, commentMod, commentMod.signer, log);
 }
 
-export async function signSubplebbit({
+export async function signCommunity({
     subplebbit,
     signer
 }: {
     subplebbit: Omit<SubplebbitIpfsType, "signature">;
     signer: SignerType;
 }): Promise<SubplebbitSignature> {
-    const log = Logger("pkc-js:signatures:signSubplebbit");
+    const log = Logger("pkc-js:signatures:signCommunity");
     return <SubplebbitSignature>(
         await _signJson(<JsonSignature["signedPropertyNames"]>SubplebbitSignedPropertyNames, subplebbit, signer, log)
     );
@@ -440,7 +440,7 @@ export async function verifyVote({
     return { valid: true };
 }
 
-export async function verifySubplebbitEdit({
+export async function verifyCommunityEdit({
     subplebbitEdit,
     resolveAuthorNames,
     clientsManager
@@ -573,7 +573,7 @@ function _allFieldsOfRecordInSignedPropertyNames(
 
     return true;
 }
-export async function verifySubplebbit({
+export async function verifyCommunity({
     subplebbit,
     subplebbitIpnsName,
     resolveAuthorNames,
@@ -590,7 +590,7 @@ export async function verifySubplebbit({
     cacheIfValid?: boolean;
     abortSignal?: AbortSignal;
 }): Promise<ValidationResult> {
-    const log = Logger("pkc-js:signatures:verifySubplebbit");
+    const log = Logger("pkc-js:signatures:verifyCommunity");
     if (!_allFieldsOfRecordInSignedPropertyNames(subplebbit))
         return { valid: false, reason: messages.ERR_COMMUNITY_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
     if (_isThereReservedFieldInRecord(subplebbit, SubplebbitIpfsReservedFields))

@@ -8,7 +8,7 @@ import {
     mockPlebbitV2
 } from "../../../dist/node/test/test-util.js";
 import { messages } from "../../../dist/node/errors.js";
-import { verifySubplebbit, signSubplebbit, cleanUpBeforePublishing, _signJson } from "../../../dist/node/signer/signatures.js";
+import { verifyCommunity, signCommunity, cleanUpBeforePublishing, _signJson } from "../../../dist/node/signer/signatures.js";
 import * as remeda from "remeda";
 import validSubplebbitFixture from "../../fixtures/signatures/subplebbit/valid_subplebbit_ipfs.json" with { type: "json" };
 import newFormatFixture from "../../fixtures/signatures/subplebbit/valid_subplebbit_ipfs_new_format.json" with { type: "json" };
@@ -35,7 +35,7 @@ describeSkipIfRpc.concurrent("Sign subplebbit", async () => {
         const subFixture = remeda.clone(validSubplebbitFixture) as SubplebbitIpfsType;
         const subFixtureClone = remeda.clone(subFixture) as Record<string, unknown>;
         delete subFixtureClone["signature"];
-        const signature = await signSubplebbit({
+        const signature = await signCommunity({
             subplebbit: subFixtureClone as Omit<SubplebbitIpfsType, "signature">,
             signer: signers[0]
         });
@@ -55,13 +55,13 @@ describeSkipIfRpc.concurrent("Sign subplebbit", async () => {
             posts: removeUndefinedValuesRecursively(subjsonIpfs.posts)
         };
         delete subplebbitToSign["signature"];
-        subplebbitToSign.signature = await signSubplebbit({
+        subplebbitToSign.signature = await signCommunity({
             subplebbit: subplebbitToSign as Omit<SubplebbitIpfsType, "signature">,
             signer: signers[0]
         });
         expect(subplebbitToSign.signature).to.deep.equal(subplebbit.signature);
 
-        const verification = await verifySubplebbit({
+        const verification = await verifyCommunity({
             subplebbit: subplebbitToSign as SubplebbitIpfsType,
             subplebbitIpnsName: signers[0].address,
             resolveAuthorNames: plebbit.resolveAuthorNames,
@@ -76,7 +76,7 @@ describeSkipIfRpc.concurrent("Sign subplebbit", async () => {
         const subFixture = remeda.clone(newFormatFixture) as SubplebbitIpfsType;
         const subFixtureClone = remeda.clone(subFixture) as Record<string, unknown>;
         delete subFixtureClone["signature"];
-        const signature = await signSubplebbit({
+        const signature = await signCommunity({
             subplebbit: subFixtureClone as Omit<SubplebbitIpfsType, "signature">,
             signer: signers[0]
         });
@@ -88,7 +88,7 @@ describeSkipIfRpc.concurrent("Sign subplebbit", async () => {
         const subFixture = remeda.clone(newFormatWithNameFixture) as SubplebbitIpfsType;
         const subFixtureClone = remeda.clone(subFixture) as Record<string, unknown>;
         delete subFixtureClone["signature"];
-        const signature = await signSubplebbit({
+        const signature = await signCommunity({
             subplebbit: subFixtureClone as Omit<SubplebbitIpfsType, "signature">,
             signer: signers[0]
         });
@@ -119,7 +119,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
         });
 
         expect(
-            await verifySubplebbit({
+            await verifyCommunity({
                 subplebbit: loadedSubplebbit.raw.subplebbitIpfs!,
                 subplebbitIpnsName: signers[0].address,
                 resolveAuthorNames: plebbit.resolveAuthorNames,
@@ -132,7 +132,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
     it(`Valid subplebbit fixture is validated correctly`, async () => {
         const sub = remeda.clone(validSubplebbitFixture) as SubplebbitIpfsType;
         expect(
-            await verifySubplebbit({
+            await verifyCommunity({
                 subplebbit: sub,
                 subplebbitIpnsName: signers[0].address,
                 resolveAuthorNames: plebbit.resolveAuthorNames,
@@ -147,7 +147,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
         const sub = remeda.clone(validSubplebbitFixture) as SubplebbitIpfsType;
         expect(sub.signature.signedPropertyNames).to.include("address");
         expect(
-            await verifySubplebbit({
+            await verifyCommunity({
                 subplebbit: sub,
                 subplebbitIpnsName: signers[0].address,
                 resolveAuthorNames: plebbit.resolveAuthorNames,
@@ -163,7 +163,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
         expect(sub.signature.signedPropertyNames).to.not.include("address");
         expect((sub as Record<string, unknown>).address).to.be.undefined;
         expect(
-            await verifySubplebbit({
+            await verifyCommunity({
                 subplebbit: sub,
                 subplebbitIpnsName: signers[0].address,
                 resolveAuthorNames: plebbit.resolveAuthorNames,
@@ -180,7 +180,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
         expect(sub.signature.signedPropertyNames).to.not.include("address");
         expect(sub.name).to.equal("test-sub.eth");
         expect(
-            await verifySubplebbit({
+            await verifyCommunity({
                 subplebbit: sub,
                 subplebbitIpnsName: signers[0].address,
                 resolveAuthorNames: plebbit.resolveAuthorNames,
@@ -203,7 +203,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
         const sub = await plebbit.createSubplebbit({ address: "plebbit.bso" });
         await sub.update();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
-        const verification = await verifySubplebbit({
+        const verification = await verifyCommunity({
             subplebbit: sub.raw.subplebbitIpfs!,
             subplebbitIpnsName: signers[4].address,
             resolveAuthorNames: tempPlebbit.resolveAuthorNames,
@@ -227,7 +227,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
         await loadedSubplebbit.stop();
         const subJson = remeda.clone(loadedSubplebbit.raw.subplebbitIpfs!);
         expect(
-            await verifySubplebbit({
+            await verifyCommunity({
                 subplebbit: subJson,
                 subplebbitIpnsName: signers[0].address,
                 resolveAuthorNames: plebbit.resolveAuthorNames,
@@ -240,7 +240,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
 
         subJson.posts.pages.hot.comments[0].comment.content += "1234"; // Invalidate signature
         expect(
-            await verifySubplebbit({
+            await verifyCommunity({
                 subplebbit: subJson,
                 subplebbitIpnsName: signers[0].address,
                 resolveAuthorNames: plebbit.resolveAuthorNames,
@@ -278,7 +278,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
 
         expect(getLatestComment().comment.author.address).to.equal("plebbit.eth");
         expect(
-            await verifySubplebbit({
+            await verifyCommunity({
                 subplebbit: subIpfs,
                 subplebbitIpnsName: signers[0].address,
                 resolveAuthorNames: tempPlebbit.resolveAuthorNames,
@@ -301,7 +301,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
         const subFixture = remeda.clone(newFormatFixture) as SubplebbitIpfsType;
         const subFixtureClone = remeda.clone(subFixture) as SubplebbitIpfsType & { extraProp?: string };
         subFixtureClone.extraProp = "1234";
-        const signature = await signSubplebbit({
+        const signature = await signCommunity({
             subplebbit: subFixtureClone as Omit<SubplebbitIpfsType, "signature">,
             signer: signers[0]
         });
@@ -311,7 +311,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
 
         expect(signature.signedPropertyNames).to.not.include("extraProp");
 
-        const validation = await verifySubplebbit({
+        const validation = await verifyCommunity({
             subplebbit: subFixtureClone as SubplebbitIpfsType,
             subplebbitIpnsName: signers[0].address,
             resolveAuthorNames: tempPlebbit.resolveAuthorNames,
@@ -336,7 +336,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
 
         (subFixtureClone as Record<string, unknown>).signature = signature;
 
-        const validation = await verifySubplebbit({
+        const validation = await verifyCommunity({
             subplebbit: subFixtureClone as SubplebbitIpfsType,
             subplebbitIpnsName: signers[0].address,
             resolveAuthorNames: tempPlebbit.resolveAuthorNames,
@@ -359,7 +359,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
 
         (subFixtureClone as Record<string, unknown>).signature = signature;
 
-        const validation = await verifySubplebbit({
+        const validation = await verifyCommunity({
             subplebbit: subFixtureClone as SubplebbitIpfsType,
             subplebbitIpnsName: signers[0].address,
             resolveAuthorNames: tempPlebbit.resolveAuthorNames,

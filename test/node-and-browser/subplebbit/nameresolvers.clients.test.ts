@@ -1,7 +1,7 @@
 import signers from "../../fixtures/signers.js";
 
 import { createMockNameResolver, processAllCommentsRecursively, mockPlebbitV2, createNewIpns } from "../../../dist/node/test/test-util.js";
-import { signSubplebbit } from "../../../dist/node/signer/signatures.js";
+import { signCommunity } from "../../../dist/node/signer/signatures.js";
 import { it } from "vitest";
 import { describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
 import type { InputPlebbitOptions } from "../../../dist/node/types.js";
@@ -174,7 +174,7 @@ async function createSubplebbitFixtureWithDomainAuthors() {
         pubsubTopic: communityAddress
     };
 
-    subplebbitRecord.signature = await signSubplebbit({ subplebbit: subplebbitRecord, signer: ipnsObj.signer });
+    subplebbitRecord.signature = await signCommunity({ subplebbit: subplebbitRecord, signer: ipnsObj.signer });
     await ipnsObj.publishToIpns(JSON.stringify(subplebbitRecord));
     await ipnsObj.plebbit.destroy();
 

@@ -2,7 +2,7 @@ import signers from "../../fixtures/signers.js";
 
 import { createNewIpns, resolveWhenConditionIsTrue, getAvailablePlebbitConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
 
-import { signSubplebbit } from "../../../dist/node/signer/signatures.js";
+import { signCommunity } from "../../../dist/node/signer/signatures.js";
 
 import type { Plebbit as PlebbitType } from "../../../dist/node/plebbit/plebbit.js";
 
@@ -31,8 +31,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbi
 
             const record: Record<string, unknown> = JSON.parse(JSON.stringify(actualSub.raw.subplebbitIpfs));
             delete record["posts"];
-            record.signature = await signSubplebbit({
-                subplebbit: record as Parameters<typeof signSubplebbit>[0]["subplebbit"],
+            record.signature = await signCommunity({
+                subplebbit: record as Parameters<typeof signCommunity>[0]["subplebbit"],
                 signer: newIpns.signer
             });
 

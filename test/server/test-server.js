@@ -3,7 +3,7 @@
 import { path as getIpfsPath } from "kubo";
 import { execSync, spawn } from "child_process";
 import { startSubplebbits, mockPlebbitNoDataPathWithOnlyKuboClient } from "../../dist/node/test/test-util.js";
-import { cleanUpBeforePublishing, signSubplebbit } from "../../dist/node/signer/signatures.js";
+import { cleanUpBeforePublishing, signCommunity } from "../../dist/node/signer/signatures.js";
 import { convertBase32ToBase58btc } from "../../dist/node/signer/util.js";
 
 import signers from "../fixtures/signers.js";
@@ -410,7 +410,7 @@ const setUpMockGateways = async () => {
         const subplebbitRecordThirtyMinuteOld = await fetchLatestSubplebbit(); // very old Subplebbit ipns record from subplebbitAddress
         const subplebbitRecordThirtyMinuteOldIpfs = JSON.parse(JSON.stringify(subplebbitRecordThirtyMinuteOld.raw.subplebbitIpfs));
         subplebbitRecordThirtyMinuteOldIpfs.updatedAt = Math.round(Date.now() / 1000) - 30 * 60; // make sure updatedAt is 30 minutes old
-        subplebbitRecordThirtyMinuteOldIpfs.signature = await signSubplebbit({
+        subplebbitRecordThirtyMinuteOldIpfs.signature = await signCommunity({
             subplebbit: subplebbitRecordThirtyMinuteOldIpfs,
             signer: signers[0]
         });
@@ -433,7 +433,7 @@ const setUpMockGateways = async () => {
         const subplebbitRecordHourOldIpfs = JSON.parse(JSON.stringify(latestRecord.raw.subplebbitIpfs));
 
         subplebbitRecordHourOldIpfs.updatedAt = Math.round(Date.now() / 1000) - 60 * 60; // make sure updatedAt is 30 minutes old
-        subplebbitRecordHourOldIpfs.signature = await signSubplebbit({ subplebbit: subplebbitRecordHourOldIpfs, signer: signers[0] });
+        subplebbitRecordHourOldIpfs.signature = await signCommunity({ subplebbit: subplebbitRecordHourOldIpfs, signer: signers[0] });
         const updateCid = await calculateIpfsHash(JSON.stringify(subplebbitRecordHourOldIpfs));
         res.setHeader("x-ipfs-roots", updateCid);
         res.setHeader("etag", updateCid);
@@ -453,7 +453,7 @@ const setUpMockGateways = async () => {
         const subplebbitRecordTwoHoursOldIpfs = JSON.parse(JSON.stringify(subplebbitRecordTwoHoursOld.raw.subplebbitIpfs));
 
         subplebbitRecordTwoHoursOldIpfs.updatedAt = Math.round(Date.now() / 1000) - 2 * 60 * 60; // make sure updatedAt is 30 minutes old
-        subplebbitRecordTwoHoursOldIpfs.signature = await signSubplebbit({
+        subplebbitRecordTwoHoursOldIpfs.signature = await signCommunity({
             subplebbit: subplebbitRecordTwoHoursOldIpfs,
             signer: signers[0]
         });
