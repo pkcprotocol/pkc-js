@@ -1,28 +1,28 @@
 import { beforeAll, afterAll, describe, it, expect, beforeEach, afterEach } from "vitest";
-import PlebbitWsServer from "../../../../dist/node/rpc/src/index.js";
-import { describeSkipIfRpc, mockPlebbit } from "../../../../dist/node/test/test-util.js";
+import PKCWsServer from "../../../../dist/node/rpc/src/index.js";
+import { describeSkipIfRpc, mockPKC } from "../../../../dist/node/test/test-util.js";
 import tempy from "tempy";
 import path from "path";
 import Database from "better-sqlite3";
 
-import Plebbit from "../../../../dist/node/index.js";
-import type { Plebbit as PlebbitType } from "../../../../dist/node/pkc/pkc.js";
-import type { RpcLocalSubplebbit } from "../../../../dist/node/community/rpc-local-community.js";
-import type { CreatePlebbitWsServerOptions } from "../../../../dist/node/rpc/src/types.js";
+import PKC from "../../../../dist/node/index.js";
+import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
+import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
+import type { CreatePKCWsServerOptions } from "../../../../dist/node/rpc/src/types.js";
 
-type PlebbitWsServerType = Awaited<ReturnType<typeof PlebbitWsServer.PlebbitWsServer>>;
+type PKCWsServerType = Awaited<ReturnType<typeof PKCWsServer.PKCWsServer>>;
 
 // Interface for accessing private members
-interface PlebbitWsServerPrivateAccess {
-    _startedSubplebbits: Record<string, unknown>;
-    _autoStartPreviousSubplebbits: () => Promise<void>;
+interface PKCWsServerPrivateAccess {
+    _startedCommunitys: Record<string, unknown>;
+    _autoStartPreviousCommunitys: () => Promise<void>;
 }
 
-const waitForSubToBeStarted = async (rpcServer: PlebbitWsServerType, address: string, timeout = 10000): Promise<void> => {
+const waitForSubToBeStarted = async (rpcServer: PKCWsServerType, address: string, timeout = 10000): Promise<void> => {
     const startTime = Date.now();
     while (Date.now() - startTime < timeout) {
-        const privateAccess = rpcServer as unknown as PlebbitWsServerPrivateAccess;
-        if (address in privateAccess._startedSubplebbits && privateAccess._startedSubplebbits[address] !== "pending") {
+        const privateAccess = rpcServer as unknown as PKCWsServerPrivateAccess;
+        if (address in privateAccess._startedCommunitys && privateAccess._startedCommunitys[address] !== "pending") {
             return;
         }
         await new Promise((resolve) => setTimeout(resolve, 100));
@@ -30,21 +30,21 @@ const waitForSubToBeStarted = async (rpcServer: PlebbitWsServerType, address: st
     throw new Error(`Timeout waiting for sub ${address} to be started`);
 };
 
-describeSkipIfRpc(`RPC Server Auto-Start Subplebbits`, async () => {
-    let basePlebbit: PlebbitType;
+describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
+    let basePKC: PKCType;
 
     beforeAll(async () => {
-        basePlebbit = await mockPlebbit();
+        basePKC = await mockPKC();
     });
 
     afterAll(async () => {
-        await basePlebbit.destroy();
+        await basePKC.destroy();
     });
 
     /**
      * Matrix Scenario Tests:
      *
-     * | # | Sub state on last RPC exit             | startStartedSubplebbitsOnStartup | Expected behavior        |
+     * | # | Sub state on last RPC exit             | startStartedCommunitysOnStartup | Expected behavior        |
      * |---|----------------------------------------|----------------------------------|--------------------------|
      * | 1 | Was running (not stopped explicitly)   | true                             | Auto-start               |
      * | 2 | Was running (not stopped explicitly)   | false                            | Do nothing               |
@@ -54,29 +54,29 @@ describeSkipIfRpc(`RPC Server Auto-Start Subplebbits`, async () => {
      * | 6 | Never started in this RPC session      | false                            | Do nothing               |
      */
 
-    describe("Scenario 1: Was running (not stopped explicitly) + startStartedSubplebbitsOnStartup=true", () => {
+    describe("Scenario 1: Was running (not stopped explicitly) + startStartedCommunitysOnStartup=true", () => {
         it("should auto-start the subplebbit on RPC server restart", async () => {
             const dataPath = tempy.directory();
             const rpcServerPort = 19150;
 
             // Create first RPC server and start a sub
-            const options1: CreatePlebbitWsServerOptions = {
+            const options1: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
                 plebbitOptions: {
                     kuboRpcClientsOptions:
-                        basePlebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                    httpRoutersOptions: basePlebbit.httpRoutersOptions,
+                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                    httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedSubplebbitsOnStartup: true
+                startStartedCommunitysOnStartup: true
             };
 
-            const rpcServer1 = await PlebbitWsServer.PlebbitWsServer(options1);
+            const rpcServer1 = await PKCWsServer.PKCWsServer(options1);
             const rpcUrl = `ws://localhost:${rpcServerPort}`;
-            const clientPlebbit1 = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+            const clientPKC1 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
             // Create and start a subplebbit
-            const sub = (await clientPlebbit1.createSubplebbit({})) as RpcLocalSubplebbit;
+            const sub = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
             const subAddress = sub.address;
             await sub.start();
 
@@ -84,323 +84,323 @@ describeSkipIfRpc(`RPC Server Auto-Start Subplebbits`, async () => {
             expect(sub.started).to.be.true;
 
             // Destroy without stopping (simulating crash/restart)
-            await clientPlebbit1.destroy();
+            await clientPKC1.destroy();
             await rpcServer1.destroy();
 
             // Create second RPC server with auto-start enabled
-            const options2: CreatePlebbitWsServerOptions = {
+            const options2: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
                 plebbitOptions: {
                     kuboRpcClientsOptions:
-                        basePlebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                    httpRoutersOptions: basePlebbit.httpRoutersOptions,
+                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                    httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedSubplebbitsOnStartup: true
+                startStartedCommunitysOnStartup: true
             };
 
-            const rpcServer2 = await PlebbitWsServer.PlebbitWsServer(options2);
+            const rpcServer2 = await PKCWsServer.PKCWsServer(options2);
 
             // Wait for auto-start to complete
             await waitForSubToBeStarted(rpcServer2, subAddress);
 
             // Verify it was auto-started
-            const privateAccess = rpcServer2 as unknown as PlebbitWsServerPrivateAccess;
-            expect(subAddress in privateAccess._startedSubplebbits).to.be.true;
+            const privateAccess = rpcServer2 as unknown as PKCWsServerPrivateAccess;
+            expect(subAddress in privateAccess._startedCommunitys).to.be.true;
 
             // Clean up
-            const clientPlebbit2 = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
-            const sub2 = (await clientPlebbit2.createSubplebbit({ address: subAddress })) as RpcLocalSubplebbit;
+            const clientPKC2 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+            const sub2 = (await clientPKC2.createCommunity({ address: subAddress })) as RpcLocalCommunity;
             await sub2.stop();
             await sub2.delete();
-            await clientPlebbit2.destroy();
+            await clientPKC2.destroy();
             await rpcServer2.destroy();
         });
     });
 
-    describe("Scenario 2: Was running (not stopped explicitly) + startStartedSubplebbitsOnStartup=false", () => {
+    describe("Scenario 2: Was running (not stopped explicitly) + startStartedCommunitysOnStartup=false", () => {
         it("should NOT auto-start the subplebbit on RPC server restart", async () => {
             const dataPath = tempy.directory();
             const rpcServerPort = 19151;
 
             // Create first RPC server with auto-start enabled to create the state
-            const options1: CreatePlebbitWsServerOptions = {
+            const options1: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
                 plebbitOptions: {
                     kuboRpcClientsOptions:
-                        basePlebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                    httpRoutersOptions: basePlebbit.httpRoutersOptions,
+                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                    httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedSubplebbitsOnStartup: true
+                startStartedCommunitysOnStartup: true
             };
 
-            const rpcServer1 = await PlebbitWsServer.PlebbitWsServer(options1);
+            const rpcServer1 = await PKCWsServer.PKCWsServer(options1);
             const rpcUrl = `ws://localhost:${rpcServerPort}`;
-            const clientPlebbit1 = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+            const clientPKC1 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
             // Create and start a subplebbit
-            const sub = (await clientPlebbit1.createSubplebbit({})) as RpcLocalSubplebbit;
+            const sub = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
             const subAddress = sub.address;
             await sub.start();
 
             // Destroy without stopping
-            await clientPlebbit1.destroy();
+            await clientPKC1.destroy();
             await rpcServer1.destroy();
 
             // Create second RPC server with auto-start DISABLED
-            const options2: CreatePlebbitWsServerOptions = {
+            const options2: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
                 plebbitOptions: {
                     kuboRpcClientsOptions:
-                        basePlebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                    httpRoutersOptions: basePlebbit.httpRoutersOptions,
+                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                    httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedSubplebbitsOnStartup: false
+                startStartedCommunitysOnStartup: false
             };
 
-            const rpcServer2 = await PlebbitWsServer.PlebbitWsServer(options2);
+            const rpcServer2 = await PKCWsServer.PKCWsServer(options2);
 
             // Wait a bit to ensure auto-start would have happened if enabled
             await new Promise((resolve) => setTimeout(resolve, 1000));
 
             // Verify it was NOT auto-started
-            const privateAccess = rpcServer2 as unknown as PlebbitWsServerPrivateAccess;
-            expect(subAddress in privateAccess._startedSubplebbits).to.be.false;
+            const privateAccess = rpcServer2 as unknown as PKCWsServerPrivateAccess;
+            expect(subAddress in privateAccess._startedCommunitys).to.be.false;
 
             // Clean up
-            const clientPlebbit2 = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
-            const sub2 = (await clientPlebbit2.createSubplebbit({ address: subAddress })) as RpcLocalSubplebbit;
+            const clientPKC2 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+            const sub2 = (await clientPKC2.createCommunity({ address: subAddress })) as RpcLocalCommunity;
             await sub2.delete();
-            await clientPlebbit2.destroy();
+            await clientPKC2.destroy();
             await rpcServer2.destroy();
         });
     });
 
-    describe("Scenario 3: Was stopped explicitly by user + startStartedSubplebbitsOnStartup=true", () => {
+    describe("Scenario 3: Was stopped explicitly by user + startStartedCommunitysOnStartup=true", () => {
         it("should NOT auto-start the subplebbit that was explicitly stopped", async () => {
             const dataPath = tempy.directory();
             const rpcServerPort = 19152;
 
-            const options1: CreatePlebbitWsServerOptions = {
+            const options1: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
                 plebbitOptions: {
                     kuboRpcClientsOptions:
-                        basePlebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                    httpRoutersOptions: basePlebbit.httpRoutersOptions,
+                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                    httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedSubplebbitsOnStartup: true
+                startStartedCommunitysOnStartup: true
             };
 
-            const rpcServer1 = await PlebbitWsServer.PlebbitWsServer(options1);
+            const rpcServer1 = await PKCWsServer.PKCWsServer(options1);
             const rpcUrl = `ws://localhost:${rpcServerPort}`;
-            const clientPlebbit1 = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+            const clientPKC1 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
             // Create, start, then EXPLICITLY STOP a subplebbit
-            const sub = (await clientPlebbit1.createSubplebbit({})) as RpcLocalSubplebbit;
+            const sub = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
             const subAddress = sub.address;
             await sub.start();
             await sub.stop(); // Explicitly stopped!
 
-            await clientPlebbit1.destroy();
+            await clientPKC1.destroy();
             await rpcServer1.destroy();
 
             // Create second RPC server with auto-start enabled
-            const options2: CreatePlebbitWsServerOptions = {
+            const options2: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
                 plebbitOptions: {
                     kuboRpcClientsOptions:
-                        basePlebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                    httpRoutersOptions: basePlebbit.httpRoutersOptions,
+                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                    httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedSubplebbitsOnStartup: true
+                startStartedCommunitysOnStartup: true
             };
 
-            const rpcServer2 = await PlebbitWsServer.PlebbitWsServer(options2);
+            const rpcServer2 = await PKCWsServer.PKCWsServer(options2);
 
             // Wait a bit
             await new Promise((resolve) => setTimeout(resolve, 1000));
 
             // Verify it was NOT auto-started (because it was explicitly stopped)
-            const privateAccess = rpcServer2 as unknown as PlebbitWsServerPrivateAccess;
-            expect(subAddress in privateAccess._startedSubplebbits).to.be.false;
+            const privateAccess = rpcServer2 as unknown as PKCWsServerPrivateAccess;
+            expect(subAddress in privateAccess._startedCommunitys).to.be.false;
 
             // Clean up
-            const clientPlebbit2 = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
-            const sub2 = (await clientPlebbit2.createSubplebbit({ address: subAddress })) as RpcLocalSubplebbit;
+            const clientPKC2 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+            const sub2 = (await clientPKC2.createCommunity({ address: subAddress })) as RpcLocalCommunity;
             await sub2.delete();
-            await clientPlebbit2.destroy();
+            await clientPKC2.destroy();
             await rpcServer2.destroy();
         });
     });
 
-    describe("Scenario 4: Was stopped explicitly by user + startStartedSubplebbitsOnStartup=false", () => {
+    describe("Scenario 4: Was stopped explicitly by user + startStartedCommunitysOnStartup=false", () => {
         it("should NOT auto-start the subplebbit", async () => {
             const dataPath = tempy.directory();
             const rpcServerPort = 19153;
 
-            const options1: CreatePlebbitWsServerOptions = {
+            const options1: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
                 plebbitOptions: {
                     kuboRpcClientsOptions:
-                        basePlebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                    httpRoutersOptions: basePlebbit.httpRoutersOptions,
+                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                    httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedSubplebbitsOnStartup: false
+                startStartedCommunitysOnStartup: false
             };
 
-            const rpcServer1 = await PlebbitWsServer.PlebbitWsServer(options1);
+            const rpcServer1 = await PKCWsServer.PKCWsServer(options1);
             const rpcUrl = `ws://localhost:${rpcServerPort}`;
-            const clientPlebbit1 = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+            const clientPKC1 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
             // Create, start, then explicitly stop
-            const sub = (await clientPlebbit1.createSubplebbit({})) as RpcLocalSubplebbit;
+            const sub = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
             const subAddress = sub.address;
             await sub.start();
             await sub.stop();
 
-            await clientPlebbit1.destroy();
+            await clientPKC1.destroy();
             await rpcServer1.destroy();
 
             // Create second RPC server with auto-start disabled
-            const options2: CreatePlebbitWsServerOptions = {
+            const options2: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
                 plebbitOptions: {
                     kuboRpcClientsOptions:
-                        basePlebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                    httpRoutersOptions: basePlebbit.httpRoutersOptions,
+                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                    httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedSubplebbitsOnStartup: false
+                startStartedCommunitysOnStartup: false
             };
 
-            const rpcServer2 = await PlebbitWsServer.PlebbitWsServer(options2);
+            const rpcServer2 = await PKCWsServer.PKCWsServer(options2);
 
             await new Promise((resolve) => setTimeout(resolve, 1000));
 
-            const privateAccess = rpcServer2 as unknown as PlebbitWsServerPrivateAccess;
-            expect(subAddress in privateAccess._startedSubplebbits).to.be.false;
+            const privateAccess = rpcServer2 as unknown as PKCWsServerPrivateAccess;
+            expect(subAddress in privateAccess._startedCommunitys).to.be.false;
 
             // Clean up
-            const clientPlebbit2 = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
-            const sub2 = (await clientPlebbit2.createSubplebbit({ address: subAddress })) as RpcLocalSubplebbit;
+            const clientPKC2 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+            const sub2 = (await clientPKC2.createCommunity({ address: subAddress })) as RpcLocalCommunity;
             await sub2.delete();
-            await clientPlebbit2.destroy();
+            await clientPKC2.destroy();
             await rpcServer2.destroy();
         });
     });
 
-    describe("Scenario 5: Never started in this RPC session + startStartedSubplebbitsOnStartup=true", () => {
+    describe("Scenario 5: Never started in this RPC session + startStartedCommunitysOnStartup=true", () => {
         it("should NOT auto-start a subplebbit that was never started", async () => {
             const dataPath = tempy.directory();
             const rpcServerPort = 19154;
 
-            const options1: CreatePlebbitWsServerOptions = {
+            const options1: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
                 plebbitOptions: {
                     kuboRpcClientsOptions:
-                        basePlebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                    httpRoutersOptions: basePlebbit.httpRoutersOptions,
+                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                    httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedSubplebbitsOnStartup: true
+                startStartedCommunitysOnStartup: true
             };
 
-            const rpcServer1 = await PlebbitWsServer.PlebbitWsServer(options1);
+            const rpcServer1 = await PKCWsServer.PKCWsServer(options1);
             const rpcUrl = `ws://localhost:${rpcServerPort}`;
-            const clientPlebbit1 = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+            const clientPKC1 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
             // Create a subplebbit but NEVER START IT
-            const sub = (await clientPlebbit1.createSubplebbit({})) as RpcLocalSubplebbit;
+            const sub = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
             const subAddress = sub.address;
             // Not calling sub.start()!
 
-            await clientPlebbit1.destroy();
+            await clientPKC1.destroy();
             await rpcServer1.destroy();
 
             // Create second RPC server
-            const options2: CreatePlebbitWsServerOptions = {
+            const options2: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
                 plebbitOptions: {
                     kuboRpcClientsOptions:
-                        basePlebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                    httpRoutersOptions: basePlebbit.httpRoutersOptions,
+                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                    httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedSubplebbitsOnStartup: true
+                startStartedCommunitysOnStartup: true
             };
 
-            const rpcServer2 = await PlebbitWsServer.PlebbitWsServer(options2);
+            const rpcServer2 = await PKCWsServer.PKCWsServer(options2);
 
             await new Promise((resolve) => setTimeout(resolve, 1000));
 
-            const privateAccess = rpcServer2 as unknown as PlebbitWsServerPrivateAccess;
-            expect(subAddress in privateAccess._startedSubplebbits).to.be.false;
+            const privateAccess = rpcServer2 as unknown as PKCWsServerPrivateAccess;
+            expect(subAddress in privateAccess._startedCommunitys).to.be.false;
 
             // Clean up
-            const clientPlebbit2 = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
-            const sub2 = (await clientPlebbit2.createSubplebbit({ address: subAddress })) as RpcLocalSubplebbit;
+            const clientPKC2 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+            const sub2 = (await clientPKC2.createCommunity({ address: subAddress })) as RpcLocalCommunity;
             await sub2.delete();
-            await clientPlebbit2.destroy();
+            await clientPKC2.destroy();
             await rpcServer2.destroy();
         });
     });
 
-    describe("Scenario 6: Never started in this RPC session + startStartedSubplebbitsOnStartup=false", () => {
+    describe("Scenario 6: Never started in this RPC session + startStartedCommunitysOnStartup=false", () => {
         it("should NOT auto-start a subplebbit that was never started", async () => {
             const dataPath = tempy.directory();
             const rpcServerPort = 19155;
 
-            const options1: CreatePlebbitWsServerOptions = {
+            const options1: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
                 plebbitOptions: {
                     kuboRpcClientsOptions:
-                        basePlebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                    httpRoutersOptions: basePlebbit.httpRoutersOptions,
+                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                    httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedSubplebbitsOnStartup: false
+                startStartedCommunitysOnStartup: false
             };
 
-            const rpcServer1 = await PlebbitWsServer.PlebbitWsServer(options1);
+            const rpcServer1 = await PKCWsServer.PKCWsServer(options1);
             const rpcUrl = `ws://localhost:${rpcServerPort}`;
-            const clientPlebbit1 = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+            const clientPKC1 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
             // Create a subplebbit but NEVER START IT
-            const sub = (await clientPlebbit1.createSubplebbit({})) as RpcLocalSubplebbit;
+            const sub = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
             const subAddress = sub.address;
 
-            await clientPlebbit1.destroy();
+            await clientPKC1.destroy();
             await rpcServer1.destroy();
 
             // Create second RPC server
-            const options2: CreatePlebbitWsServerOptions = {
+            const options2: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
                 plebbitOptions: {
                     kuboRpcClientsOptions:
-                        basePlebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                    httpRoutersOptions: basePlebbit.httpRoutersOptions,
+                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                    httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedSubplebbitsOnStartup: false
+                startStartedCommunitysOnStartup: false
             };
 
-            const rpcServer2 = await PlebbitWsServer.PlebbitWsServer(options2);
+            const rpcServer2 = await PKCWsServer.PKCWsServer(options2);
 
             await new Promise((resolve) => setTimeout(resolve, 1000));
 
-            const privateAccess = rpcServer2 as unknown as PlebbitWsServerPrivateAccess;
-            expect(subAddress in privateAccess._startedSubplebbits).to.be.false;
+            const privateAccess = rpcServer2 as unknown as PKCWsServerPrivateAccess;
+            expect(subAddress in privateAccess._startedCommunitys).to.be.false;
 
             // Clean up
-            const clientPlebbit2 = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
-            const sub2 = (await clientPlebbit2.createSubplebbit({ address: subAddress })) as RpcLocalSubplebbit;
+            const clientPKC2 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+            const sub2 = (await clientPKC2.createCommunity({ address: subAddress })) as RpcLocalCommunity;
             await sub2.delete();
-            await clientPlebbit2.destroy();
+            await clientPKC2.destroy();
             await rpcServer2.destroy();
         });
     });
@@ -410,23 +410,23 @@ describeSkipIfRpc(`RPC Server Auto-Start Subplebbits`, async () => {
             const dataPath = tempy.directory();
             const rpcServerPort = 19156;
 
-            const options1: CreatePlebbitWsServerOptions = {
+            const options1: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
                 plebbitOptions: {
                     kuboRpcClientsOptions:
-                        basePlebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                    httpRoutersOptions: basePlebbit.httpRoutersOptions,
+                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                    httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedSubplebbitsOnStartup: true
+                startStartedCommunitysOnStartup: true
             };
 
-            const rpcServer1 = await PlebbitWsServer.PlebbitWsServer(options1);
+            const rpcServer1 = await PKCWsServer.PKCWsServer(options1);
             const rpcUrl = `ws://localhost:${rpcServerPort}`;
-            const clientPlebbit1 = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+            const clientPKC1 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
             // Create and start a subplebbit
-            const sub = (await clientPlebbit1.createSubplebbit({})) as RpcLocalSubplebbit;
+            const sub = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
             const subAddress = sub.address;
             await sub.start();
 
@@ -434,7 +434,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Subplebbits`, async () => {
             await sub.stop();
             await sub.delete();
 
-            await clientPlebbit1.destroy();
+            await clientPKC1.destroy();
             await rpcServer1.destroy();
 
             // Manually add the deleted sub address back to the SQLite DB to simulate stale state
@@ -446,25 +446,25 @@ describeSkipIfRpc(`RPC Server Auto-Start Subplebbits`, async () => {
             db.close();
 
             // Create second RPC server
-            const options2: CreatePlebbitWsServerOptions = {
+            const options2: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
                 plebbitOptions: {
                     kuboRpcClientsOptions:
-                        basePlebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                    httpRoutersOptions: basePlebbit.httpRoutersOptions,
+                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                    httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedSubplebbitsOnStartup: true
+                startStartedCommunitysOnStartup: true
             };
 
-            const rpcServer2 = await PlebbitWsServer.PlebbitWsServer(options2);
+            const rpcServer2 = await PKCWsServer.PKCWsServer(options2);
 
             // Wait for auto-start attempt
             await new Promise((resolve) => setTimeout(resolve, 2000));
 
             // Should NOT have started the deleted sub
-            const privateAccess = rpcServer2 as unknown as PlebbitWsServerPrivateAccess;
-            expect(subAddress in privateAccess._startedSubplebbits).to.be.false;
+            const privateAccess = rpcServer2 as unknown as PKCWsServerPrivateAccess;
+            expect(subAddress in privateAccess._startedCommunitys).to.be.false;
 
             // Verify the stale entry was removed from state
             const dbAfter = new Database(dbPath);
@@ -479,29 +479,29 @@ describeSkipIfRpc(`RPC Server Auto-Start Subplebbits`, async () => {
             const dataPath = tempy.directory();
             const rpcServerPort = 19157;
 
-            const options: CreatePlebbitWsServerOptions = {
+            const options: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
                 plebbitOptions: {
                     kuboRpcClientsOptions:
-                        basePlebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                    httpRoutersOptions: basePlebbit.httpRoutersOptions,
+                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                    httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedSubplebbitsOnStartup: true
+                startStartedCommunitysOnStartup: true
             };
 
             // Should not throw, should handle gracefully
-            const rpcServer = await PlebbitWsServer.PlebbitWsServer(options);
+            const rpcServer = await PKCWsServer.PKCWsServer(options);
 
             // Server should be functional
             const rpcUrl = `ws://localhost:${rpcServerPort}`;
-            const clientPlebbit = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+            const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-            const sub = (await clientPlebbit.createSubplebbit({})) as RpcLocalSubplebbit;
+            const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
             expect(sub.address).to.exist;
 
             await sub.delete();
-            await clientPlebbit.destroy();
+            await clientPKC.destroy();
             await rpcServer.destroy();
         });
 
@@ -509,29 +509,29 @@ describeSkipIfRpc(`RPC Server Auto-Start Subplebbits`, async () => {
             const dataPath = tempy.directory();
             const rpcServerPort = 19158;
 
-            const options: CreatePlebbitWsServerOptions = {
+            const options: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
                 plebbitOptions: {
                     kuboRpcClientsOptions:
-                        basePlebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                    httpRoutersOptions: basePlebbit.httpRoutersOptions,
+                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                    httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedSubplebbitsOnStartup: true
+                startStartedCommunitysOnStartup: true
             };
 
             // Should not throw on first run
-            const rpcServer = await PlebbitWsServer.PlebbitWsServer(options);
+            const rpcServer = await PKCWsServer.PKCWsServer(options);
 
             // Server should be functional
             const rpcUrl = `ws://localhost:${rpcServerPort}`;
-            const clientPlebbit = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+            const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-            const sub = (await clientPlebbit.createSubplebbit({})) as RpcLocalSubplebbit;
+            const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
             expect(sub.address).to.exist;
 
             await sub.delete();
-            await clientPlebbit.destroy();
+            await clientPKC.destroy();
             await rpcServer.destroy();
         });
 
@@ -541,22 +541,22 @@ describeSkipIfRpc(`RPC Server Auto-Start Subplebbits`, async () => {
             const dataPath = tempy.directory();
             const rpcServerPort = 19159;
 
-            const options: CreatePlebbitWsServerOptions = {
+            const options: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
                 plebbitOptions: {
                     kuboRpcClientsOptions:
-                        basePlebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                    httpRoutersOptions: basePlebbit.httpRoutersOptions,
+                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                    httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedSubplebbitsOnStartup: true
+                startStartedCommunitysOnStartup: true
             };
 
-            const rpcServer = await PlebbitWsServer.PlebbitWsServer(options);
+            const rpcServer = await PKCWsServer.PKCWsServer(options);
             const rpcUrl = `ws://localhost:${rpcServerPort}`;
-            const clientPlebbit = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+            const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-            const sub = (await clientPlebbit.createSubplebbit({})) as RpcLocalSubplebbit;
+            const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
             const oldAddress = sub.address;
             await sub.start();
 
@@ -572,7 +572,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Subplebbits`, async () => {
 
             await sub.stop();
             await sub.delete();
-            await clientPlebbit.destroy();
+            await clientPKC.destroy();
             await rpcServer.destroy();
         });
 
@@ -580,18 +580,18 @@ describeSkipIfRpc(`RPC Server Auto-Start Subplebbits`, async () => {
             const dataPath = tempy.directory();
             const rpcServerPort = 19160;
 
-            const options: CreatePlebbitWsServerOptions = {
+            const options: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
                 plebbitOptions: {
                     kuboRpcClientsOptions:
-                        basePlebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                    httpRoutersOptions: basePlebbit.httpRoutersOptions,
+                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                    httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedSubplebbitsOnStartup: false
+                startStartedCommunitysOnStartup: false
             };
 
-            const rpcServer = await PlebbitWsServer.PlebbitWsServer(options);
+            const rpcServer = await PKCWsServer.PKCWsServer(options);
             const rpcUrl = `ws://localhost:${rpcServerPort}`;
 
             // Track errors emitted by the RPC server
@@ -600,11 +600,11 @@ describeSkipIfRpc(`RPC Server Auto-Start Subplebbits`, async () => {
 
             // Create multiple subplebbits
             const subCount = 5;
-            const clientPlebbit = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+            const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-            const subs: RpcLocalSubplebbit[] = [];
+            const subs: RpcLocalCommunity[] = [];
             for (let i = 0; i < subCount; i++) {
-                const sub = (await clientPlebbit.createSubplebbit({})) as RpcLocalSubplebbit;
+                const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
                 subs.push(sub);
             }
 
@@ -638,7 +638,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Subplebbits`, async () => {
             for (const sub of subs) {
                 await sub.delete();
             }
-            await clientPlebbit.destroy();
+            await clientPKC.destroy();
             await rpcServer.destroy();
         });
     });

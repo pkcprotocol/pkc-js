@@ -4,10 +4,10 @@ import {
     CreatePublicationUserOptionsSchema,
     FlairSchema,
     JsonSignatureSchema,
-    PlebbitTimestampSchema,
+    PKCTimestampSchema,
     PublicationBaseBeforeSigning,
     SignerWithAddressPublicKeySchema,
-    SubplebbitAuthorSchema
+    CommunityAuthorSchema
 } from "../../schema/schema.js";
 import * as remeda from "remeda";
 import { keysToOmitFromSignedPropertyNames } from "../../signer/constants.js";
@@ -24,7 +24,7 @@ export const ModeratorOptionsSchema = z
         removed: z.boolean().optional(),
         purged: z.boolean().optional(),
         reason: z.string().optional(),
-        author: SubplebbitAuthorSchema.pick({ banExpiresAt: true, flairs: true }).loose().optional()
+        author: CommunityAuthorSchema.pick({ banExpiresAt: true, flairs: true }).loose().optional()
     })
     .strict();
 
@@ -53,7 +53,7 @@ export const CommentModerationPubsubMessagePublicationSchema = CreateCommentMode
     .strict();
 
 export const CommentModerationsTableRowSchema = CommentModerationPubsubMessagePublicationSchema.extend({
-    insertedAt: PlebbitTimestampSchema,
+    insertedAt: PKCTimestampSchema,
     modSignerAddress: SignerWithAddressPublicKeySchema.shape.address,
     extraProps: z.looseObject({}).optional(),
     targetAuthorSignerAddress: SignerWithAddressPublicKeySchema.shape.address.optional(), // the signer address of the comment author being moderated (for bans/flairs)
@@ -70,7 +70,7 @@ export const CommentModerationReservedFields = remeda.difference(
     [
         ...remeda.keys.strict(CommentModerationsTableRowSchema.shape),
         ...remeda.keys.strict(CommentModerationChallengeRequestToEncryptSchema.shape),
-        "shortSubplebbitAddress",
+        "shortCommunityAddress",
         "shortCommunityAddress",
         "communityAddress",
         "communityPublicKey",

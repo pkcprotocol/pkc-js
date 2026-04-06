@@ -5,18 +5,18 @@ import {
     shouldExcludeChallengeSuccess
 } from "../../dist/node/runtime/node/community/challenges/exclude/index.js";
 import { addToRateLimiter } from "../../dist/node/runtime/node/community/challenges/exclude/rate-limiter.js";
-import type { DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor } from "../../dist/node/pubsub-messages/types.js";
-import type { LocalSubplebbit } from "../../dist/node/runtime/node/community/local-community.js";
+import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../../dist/node/pubsub-messages/types.js";
+import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
 import * as remeda from "remeda";
-import { Plebbit, authors } from "./fixtures/fixtures.ts";
+import { PKC, authors } from "./fixtures/fixtures.ts";
 import validCommentEditFixture from "../fixtures/signatures/commentEdit/valid_comment_edit.json" with { type: "json" };
 import validCommentFixture from "..//fixtures/signatures/comment/commentUpdate/valid_comment_ipfs.json" with { type: "json" };
 import validVoteFixture from "../fixtures/valid_vote.json" with { type: "json" };
 
 // Type helpers for function signatures
-type SubplebbitChallengeArg = Parameters<typeof shouldExcludePublication>[0];
+type CommunityChallengeArg = Parameters<typeof shouldExcludePublication>[0];
 type ChallengeRequestArg = Parameters<typeof shouldExcludePublication>[1];
-type SubplebbitArg = Parameters<typeof shouldExcludePublication>[2];
+type CommunityArg = Parameters<typeof shouldExcludePublication>[2];
 
 type AddToRateLimiterChallenges = Parameters<typeof addToRateLimiter>[0];
 type AddToRateLimiterRequest = Parameters<typeof addToRateLimiter>[1];
@@ -27,7 +27,7 @@ type ShouldExcludeChallengeSuccessChallengeResults = Parameters<typeof shouldExc
 
 type ShouldExcludeChallengeCommentCidsChallenge = Parameters<typeof shouldExcludeChallengeCommentCids>[0];
 type ShouldExcludeChallengeCommentCidsRequest = Parameters<typeof shouldExcludeChallengeCommentCids>[1];
-type ShouldExcludeChallengeCommentCidsPlebbit = Parameters<typeof shouldExcludeChallengeCommentCids>[2];
+type ShouldExcludeChallengeCommentCidsPKC = Parameters<typeof shouldExcludeChallengeCommentCids>[2];
 
 // Wrapper functions to reduce type assertion boilerplate
 const testShouldExcludePublication = (
@@ -36,9 +36,9 @@ const testShouldExcludePublication = (
     subplebbit?: Record<string, unknown>
 ): boolean => {
     return shouldExcludePublication(
-        subplebbitChallenge as unknown as SubplebbitChallengeArg,
+        subplebbitChallenge as unknown as CommunityChallengeArg,
         request as unknown as ChallengeRequestArg,
-        (subplebbit ?? undefined) as unknown as SubplebbitArg
+        (subplebbit ?? undefined) as unknown as CommunityArg
     );
 };
 
@@ -74,7 +74,7 @@ const testShouldExcludeChallengeCommentCids = (
     return shouldExcludeChallengeCommentCids(
         subplebbitChallenge as unknown as ShouldExcludeChallengeCommentCidsChallenge,
         challengeRequestMessage as unknown as ShouldExcludeChallengeCommentCidsRequest,
-        plebbit as unknown as ShouldExcludeChallengeCommentCidsPlebbit
+        plebbit as unknown as ShouldExcludeChallengeCommentCidsPKC
     );
 };
 
@@ -98,7 +98,7 @@ describe("shouldExcludePublication", () => {
         const authorScoreUndefined = {
             author: { subplebbit: {} }
         };
-        const authorSubplebbitUndefined = {
+        const authorCommunityUndefined = {
             author: {}
         };
         const authorPostScoreLow = {
@@ -146,7 +146,7 @@ describe("shouldExcludePublication", () => {
             }
         };
         expect(testShouldExcludePublication(subplebbitChallenge, { comment: authorScoreUndefined })).to.equal(false);
-        expect(testShouldExcludePublication(subplebbitChallenge, { comment: authorSubplebbitUndefined })).to.equal(false);
+        expect(testShouldExcludePublication(subplebbitChallenge, { comment: authorCommunityUndefined })).to.equal(false);
         expect(testShouldExcludePublication(subplebbitChallenge, { comment: authorPostScoreLow })).to.equal(false);
         expect(testShouldExcludePublication(subplebbitChallenge, { comment: authorPostScoreHigh })).to.equal(true);
         expect(testShouldExcludePublication(subplebbitChallenge, { comment: authorReplyScoreLow })).to.equal(false);
@@ -310,9 +310,9 @@ describe("shouldExcludePublication", () => {
         expect(testShouldExcludePublication(subplebbitChallenge, { vote })).to.equal(true);
     });
 
-    it("publicationType.subplebbitEdit and publicationType.commentEdit", () => {
+    it("publicationType.communityEdit and publicationType.commentEdit", () => {
         const subplebbitChallenge = {
-            exclude: [{ publicationType: { subplebbitEdit: true, commentEdit: true } }]
+            exclude: [{ publicationType: { communityEdit: true, commentEdit: true } }]
         };
         expect(testShouldExcludePublication(subplebbitChallenge, { comment: post })).to.equal(false);
         expect(testShouldExcludePublication(subplebbitChallenge, { comment: reply })).to.equal(false);
@@ -342,9 +342,9 @@ describe("shouldExcludePublication", () => {
         expect(testShouldExcludePublication(subplebbitChallenge, { commentModeration })).to.equal(true);
     });
 
-    it("publicationType.subplebbitEdit", () => {
+    it("publicationType.communityEdit", () => {
         const subplebbitChallenge = {
-            exclude: [{ publicationType: { subplebbitEdit: true } }]
+            exclude: [{ publicationType: { communityEdit: true } }]
         };
         expect(testShouldExcludePublication(subplebbitChallenge, { comment: post })).to.equal(false);
         expect(testShouldExcludePublication(subplebbitChallenge, { comment: reply })).to.equal(false);
@@ -415,26 +415,26 @@ describe("shouldExcludePublication", () => {
         };
 
         // BUG: When subplebbit parameter is missing, both should return false but might not
-        const resultRegularUserWithoutSubplebbit = testShouldExcludePublication(subplebbitChallenge, { comment: postByRegularUser });
-        const resultModWithoutSubplebbit = testShouldExcludePublication(subplebbitChallenge, { comment: postByMod });
+        const resultRegularUserWithoutCommunity = testShouldExcludePublication(subplebbitChallenge, { comment: postByRegularUser });
+        const resultModWithoutCommunity = testShouldExcludePublication(subplebbitChallenge, { comment: postByMod });
 
         // Expected behavior: regular user should NOT be excluded
-        expect(resultRegularUserWithoutSubplebbit).to.equal(false);
+        expect(resultRegularUserWithoutCommunity).to.equal(false);
         // Expected behavior: mod should also NOT be excluded without role info
-        expect(resultModWithoutSubplebbit).to.equal(false);
+        expect(resultModWithoutCommunity).to.equal(false);
 
         // CORRECT: When subplebbit parameter is provided with roles
-        const resultRegularUserWithSubplebbit = testShouldExcludePublication(
+        const resultRegularUserWithCommunity = testShouldExcludePublication(
             subplebbitChallenge,
             { comment: postByRegularUser },
             subplebbit
         );
-        const resultModWithSubplebbit = testShouldExcludePublication(subplebbitChallenge, { comment: postByMod }, subplebbit);
+        const resultModWithCommunity = testShouldExcludePublication(subplebbitChallenge, { comment: postByMod }, subplebbit);
 
         // Expected behavior: regular user should NOT be excluded
-        expect(resultRegularUserWithSubplebbit).to.equal(false);
+        expect(resultRegularUserWithCommunity).to.equal(false);
         // Expected behavior: mod should be excluded
-        expect(resultModWithSubplebbit).to.equal(true);
+        expect(resultModWithCommunity).to.equal(true);
     });
 
     it("postCount", () => {
@@ -442,26 +442,26 @@ describe("shouldExcludePublication", () => {
             exclude: [{ postCount: 10 }]
         };
         const publication = { author: { address: "Qm..." }, signature: { publicKey: "ojU0zK7ZudZomVjSQPir7/ZT1u0G7J0IvlqbSx7s1S0" } };
-        const mockSubplebbitExact = {
+        const mockCommunityExact = {
             _dbHandler: { queryAuthorPublicationCounts: () => ({ postCount: 10, replyCount: 0 }) }
         };
-        const mockSubplebbitAbove = {
+        const mockCommunityAbove = {
             _dbHandler: { queryAuthorPublicationCounts: () => ({ postCount: 11, replyCount: 0 }) }
         };
-        const mockSubplebbitBelow = {
+        const mockCommunityBelow = {
             _dbHandler: { queryAuthorPublicationCounts: () => ({ postCount: 9, replyCount: 0 }) }
         };
-        const mockSubplebbitZero = {
+        const mockCommunityZero = {
             _dbHandler: { queryAuthorPublicationCounts: () => ({ postCount: 0, replyCount: 0 }) }
         };
         // exact threshold -> excluded
-        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publication }, mockSubplebbitExact)).to.equal(true);
+        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publication }, mockCommunityExact)).to.equal(true);
         // above threshold -> excluded
-        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publication }, mockSubplebbitAbove)).to.equal(true);
+        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publication }, mockCommunityAbove)).to.equal(true);
         // below threshold -> not excluded
-        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publication }, mockSubplebbitBelow)).to.equal(false);
+        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publication }, mockCommunityBelow)).to.equal(false);
         // zero posts -> not excluded
-        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publication }, mockSubplebbitZero)).to.equal(false);
+        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publication }, mockCommunityZero)).to.equal(false);
     });
 
     it("replyCount", () => {
@@ -469,21 +469,21 @@ describe("shouldExcludePublication", () => {
             exclude: [{ replyCount: 5 }]
         };
         const publication = { author: { address: "Qm..." }, signature: { publicKey: "ojU0zK7ZudZomVjSQPir7/ZT1u0G7J0IvlqbSx7s1S0" } };
-        const mockSubplebbitExact = {
+        const mockCommunityExact = {
             _dbHandler: { queryAuthorPublicationCounts: () => ({ postCount: 0, replyCount: 5 }) }
         };
-        const mockSubplebbitAbove = {
+        const mockCommunityAbove = {
             _dbHandler: { queryAuthorPublicationCounts: () => ({ postCount: 0, replyCount: 20 }) }
         };
-        const mockSubplebbitBelow = {
+        const mockCommunityBelow = {
             _dbHandler: { queryAuthorPublicationCounts: () => ({ postCount: 0, replyCount: 4 }) }
         };
         // exact threshold -> excluded
-        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publication }, mockSubplebbitExact)).to.equal(true);
+        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publication }, mockCommunityExact)).to.equal(true);
         // above threshold -> excluded
-        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publication }, mockSubplebbitAbove)).to.equal(true);
+        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publication }, mockCommunityAbove)).to.equal(true);
         // below threshold -> not excluded
-        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publication }, mockSubplebbitBelow)).to.equal(false);
+        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publication }, mockCommunityBelow)).to.equal(false);
     });
 
     it("postCount OR replyCount (separate exclude rules)", () => {
@@ -556,16 +556,16 @@ describe("shouldExcludePublication", () => {
             exclude: [{ postCount: 0 }]
         };
         const publication = { author: { address: "Qm..." }, signature: { publicKey: "ojU0zK7ZudZomVjSQPir7/ZT1u0G7J0IvlqbSx7s1S0" } };
-        const mockSubplebbitZero = {
+        const mockCommunityZero = {
             _dbHandler: { queryAuthorPublicationCounts: () => ({ postCount: 0, replyCount: 0 }) }
         };
-        const mockSubplebbitSome = {
+        const mockCommunitySome = {
             _dbHandler: { queryAuthorPublicationCounts: () => ({ postCount: 3, replyCount: 0 }) }
         };
         // 0 >= 0 -> excluded
-        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publication }, mockSubplebbitZero)).to.equal(true);
+        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publication }, mockCommunityZero)).to.equal(true);
         // 3 >= 0 -> excluded
-        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publication }, mockSubplebbitSome)).to.equal(true);
+        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publication }, mockCommunitySome)).to.equal(true);
     });
 
     it("postCount AND postScore in same exclude rule (AND logic)", () => {
@@ -580,20 +580,18 @@ describe("shouldExcludePublication", () => {
             author: { address: "Qm...", subplebbit: { postScore: 99 } },
             signature: { publicKey: "ojU0zK7ZudZomVjSQPir7/ZT1u0G7J0IvlqbSx7s1S0" }
         };
-        const mockSubplebbitHighCount = {
+        const mockCommunityHighCount = {
             _dbHandler: { queryAuthorPublicationCounts: () => ({ postCount: 5, replyCount: 0 }) }
         };
-        const mockSubplebbitLowCount = {
+        const mockCommunityLowCount = {
             _dbHandler: { queryAuthorPublicationCounts: () => ({ postCount: 4, replyCount: 0 }) }
         };
         // both postCount (5 >= 5) AND postScore (100 >= 100) meet threshold -> excluded
-        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publication }, mockSubplebbitHighCount)).to.equal(true);
+        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publication }, mockCommunityHighCount)).to.equal(true);
         // postCount too low -> not excluded despite postScore being high
-        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publication }, mockSubplebbitLowCount)).to.equal(false);
+        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publication }, mockCommunityLowCount)).to.equal(false);
         // postScore too low -> not excluded despite postCount being high
-        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publicationLowScore }, mockSubplebbitHighCount)).to.equal(
-            false
-        );
+        expect(testShouldExcludePublication(subplebbitChallenge, { comment: publicationLowScore }, mockCommunityHighCount)).to.equal(false);
     });
 
     it("postCount AND firstCommentTimestamp in same exclude rule", () => {
@@ -737,7 +735,7 @@ describe("shouldExcludePublication", () => {
         const authorScoreUndefined = {
             author: { address, subplebbit: {} }
         };
-        const authorSubplebbitUndefined = {
+        const authorCommunityUndefined = {
             author: { address }
         };
         const authorPostScoreLow = {
@@ -757,7 +755,7 @@ describe("shouldExcludePublication", () => {
             }
         };
         expect(testShouldExcludePublication(subplebbitChallenge, { comment: authorScoreUndefined })).to.equal(false);
-        expect(testShouldExcludePublication(subplebbitChallenge, { comment: authorSubplebbitUndefined })).to.equal(false);
+        expect(testShouldExcludePublication(subplebbitChallenge, { comment: authorCommunityUndefined })).to.equal(false);
         expect(testShouldExcludePublication(subplebbitChallenge, { comment: authorPostScoreLow })).to.equal(false);
         expect(testShouldExcludePublication(subplebbitChallenge, { comment: authorPostScoreHigh })).to.equal(true);
 
@@ -766,7 +764,7 @@ describe("shouldExcludePublication", () => {
         const challengeSuccess = true;
         testAddToRateLimiter(subplebbitChallenges, { comment: authorPostScoreHigh }, challengeSuccess);
         expect(testShouldExcludePublication(subplebbitChallenge, { comment: authorScoreUndefined })).to.equal(false);
-        expect(testShouldExcludePublication(subplebbitChallenge, { comment: authorSubplebbitUndefined })).to.equal(false);
+        expect(testShouldExcludePublication(subplebbitChallenge, { comment: authorCommunityUndefined })).to.equal(false);
         expect(testShouldExcludePublication(subplebbitChallenge, { comment: authorPostScoreLow })).to.equal(false);
         expect(testShouldExcludePublication(subplebbitChallenge, { comment: authorPostScoreHigh })).to.equal(false);
     });
@@ -1048,16 +1046,16 @@ describe("shouldExcludeChallengeCommentCids", () => {
         };
     };
 
-    let plebbit: ReturnType<typeof Plebbit>;
+    let plebbit: ReturnType<typeof PKC>;
     beforeAll(async () => {
-        plebbit = await Plebbit();
+        plebbit = await PKC();
     });
 
     it("firstCommentTimestamp", async () => {
         const subplebbitChallenge = {
             exclude: [
                 {
-                    subplebbit: {
+                    community: {
                         addresses: ["friendly-sub.bso"],
                         firstCommentTimestamp: 60 * 60 * 24 * 100, // 100 days
                         maxCommentCids: 2
@@ -1068,10 +1066,10 @@ describe("shouldExcludeChallengeCommentCids", () => {
 
         const commentCidsOld = getChallengeRequestMessage(["Qm...friendly-sub.bso,high,old", "Qm...friendly-sub.bso,high,old"]);
         const commentCidsNew = getChallengeRequestMessage(["Qm...friendly-sub.bso,high,new", "Qm...friendly-sub.bso,high,new"]);
-        const commentCidsNoAuthorSubplebbit = getChallengeRequestMessage(["Qm...friendly-sub.bso", "Qm...friendly-sub.bso"]);
+        const commentCidsNoAuthorCommunity = getChallengeRequestMessage(["Qm...friendly-sub.bso", "Qm...friendly-sub.bso"]);
         const commentCidsEmpty = getChallengeRequestMessage([]);
         const commentCidsUndefined = getChallengeRequestMessage(undefined);
-        const commentCidsWrongSubplebbitAddress = getChallengeRequestMessage(["Qm...wrong.bso,high,old", "Qm...wrong.bso,high,old"]);
+        const commentCidsWrongCommunityAddress = getChallengeRequestMessage(["Qm...wrong.bso,high,old", "Qm...wrong.bso,high,old"]);
         const commentCidsMoreThanMax = getChallengeRequestMessage([
             "Qm...friendly-sub.bso,high,new",
             "Qm...friendly-sub.bso,high,new",
@@ -1080,12 +1078,10 @@ describe("shouldExcludeChallengeCommentCids", () => {
 
         expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsOld, plebbit)).to.equal(true);
         expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsNew, plebbit)).to.equal(false);
-        expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsNoAuthorSubplebbit, plebbit)).to.equal(false);
+        expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsNoAuthorCommunity, plebbit)).to.equal(false);
         expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsEmpty, plebbit)).to.equal(false);
         expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsUndefined, plebbit)).to.equal(false);
-        expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsWrongSubplebbitAddress, plebbit)).to.equal(
-            false
-        );
+        expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsWrongCommunityAddress, plebbit)).to.equal(false);
         expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsMoreThanMax, plebbit)).to.equal(false);
     });
 
@@ -1093,7 +1089,7 @@ describe("shouldExcludeChallengeCommentCids", () => {
         const subplebbitChallenge = {
             exclude: [
                 {
-                    subplebbit: {
+                    community: {
                         addresses: ["friendly-sub.bso"],
                         postScore: 100,
                         firstCommentTimestamp: 60 * 60 * 24 * 100, // 100 days
@@ -1106,9 +1102,9 @@ describe("shouldExcludeChallengeCommentCids", () => {
         const commentCidsHighKarmaOld = getChallengeRequestMessage(["Qm...friendly-sub.bso,high,old", "Qm...friendly-sub.bso,high"]);
         const commentCidsHighKarmaNew = getChallengeRequestMessage(["Qm...friendly-sub.bso,high,new", "Qm...friendly-sub.bso,high"]);
         const commentCidsLowKarmaOld = getChallengeRequestMessage(["Qm...friendly-sub.bso,low,old", "Qm...friendly-sub.bso,low,old"]);
-        const commentCidsNoAuthorSubplebbit = getChallengeRequestMessage(["Qm...friendly-sub.bso", "Qm...friendly-sub.bso"]);
+        const commentCidsNoAuthorCommunity = getChallengeRequestMessage(["Qm...friendly-sub.bso", "Qm...friendly-sub.bso"]);
         const commentCidsEmpty = getChallengeRequestMessage([]);
-        const commentCidsWrongSubplebbitAddress = getChallengeRequestMessage(["Qm...wrong.bso,high", "Qm...wrong.bso,high"]);
+        const commentCidsWrongCommunityAddress = getChallengeRequestMessage(["Qm...wrong.bso,high", "Qm...wrong.bso,high"]);
         const commentCidsMoreThanMax = getChallengeRequestMessage([
             "Qm...friendly-sub.bso,low",
             "Qm...friendly-sub.bso,low",
@@ -1119,11 +1115,9 @@ describe("shouldExcludeChallengeCommentCids", () => {
         expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsHighKarmaOld, plebbit)).to.equal(true);
         expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsHighKarmaNew, plebbit)).to.equal(false);
         expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsLowKarmaOld, plebbit)).to.equal(false);
-        expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsNoAuthorSubplebbit, plebbit)).to.equal(false);
+        expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsNoAuthorCommunity, plebbit)).to.equal(false);
         expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsEmpty, plebbit)).to.equal(false);
-        expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsWrongSubplebbitAddress, plebbit)).to.equal(
-            false
-        );
+        expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsWrongCommunityAddress, plebbit)).to.equal(false);
         expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsMoreThanMax, plebbit)).to.equal(false);
     });
 
@@ -1131,14 +1125,14 @@ describe("shouldExcludeChallengeCommentCids", () => {
         const subplebbitChallenge = {
             exclude: [
                 {
-                    subplebbit: {
+                    community: {
                         addresses: ["friendly-sub.bso"],
                         firstCommentTimestamp: 60 * 60 * 24 * 100, // 100 days
                         maxCommentCids: 2
                     }
                 },
                 {
-                    subplebbit: {
+                    community: {
                         addresses: ["friendly-sub.bso"],
                         replyScore: 100,
                         postScore: 100,
@@ -1152,9 +1146,9 @@ describe("shouldExcludeChallengeCommentCids", () => {
         const commentCidsHighKarmaNew = getChallengeRequestMessage(["Qm...friendly-sub.bso,high,new", "Qm...friendly-sub.bso,high"]);
         const commentCidsLowKarmaOld = getChallengeRequestMessage(["Qm...friendly-sub.bso,low,old", "Qm...friendly-sub.bso,low,old"]);
         const commentCidsLowKarmaNew = getChallengeRequestMessage(["Qm...friendly-sub.bso,low,new", "Qm...friendly-sub.bso,low,new"]);
-        const commentCidsNoAuthorSubplebbit = getChallengeRequestMessage(["Qm...friendly-sub.bso", "Qm...friendly-sub.bso"]);
+        const commentCidsNoAuthorCommunity = getChallengeRequestMessage(["Qm...friendly-sub.bso", "Qm...friendly-sub.bso"]);
         const commentCidsEmpty = getChallengeRequestMessage([]);
-        const commentCidsWrongSubplebbitAddress = getChallengeRequestMessage(["Qm...wrong.bso,high", "Qm...wrong.bso,high"]);
+        const commentCidsWrongCommunityAddress = getChallengeRequestMessage(["Qm...wrong.bso,high", "Qm...wrong.bso,high"]);
         const commentCidsMoreThanMax = getChallengeRequestMessage([
             "Qm...friendly-sub.bso,low",
             "Qm...friendly-sub.bso,low",
@@ -1166,11 +1160,9 @@ describe("shouldExcludeChallengeCommentCids", () => {
         expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsHighKarmaNew, plebbit)).to.equal(true);
         expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsLowKarmaOld, plebbit)).to.equal(true);
         expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsLowKarmaNew, plebbit)).to.equal(false);
-        expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsNoAuthorSubplebbit, plebbit)).to.equal(false);
+        expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsNoAuthorCommunity, plebbit)).to.equal(false);
         expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsEmpty, plebbit)).to.equal(false);
-        expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsWrongSubplebbitAddress, plebbit)).to.equal(
-            false
-        );
+        expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsWrongCommunityAddress, plebbit)).to.equal(false);
         expect(await testShouldExcludeChallengeCommentCids(subplebbitChallenge, commentCidsMoreThanMax, plebbit)).to.equal(false);
     });
 });

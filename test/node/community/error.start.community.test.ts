@@ -1,22 +1,22 @@
 import { beforeAll, afterAll } from "vitest";
 import {
-    mockPlebbit,
+    mockPKC,
     createSubWithNoChallenge,
     resolveWhenConditionIsTrue,
     publishRandomPost,
     describeSkipIfRpc,
-    mockPlebbitNoDataPathWithOnlyKuboClient
+    mockPKCNoDataPathWithOnlyKuboClient
 } from "../../../dist/node/test/test-util.js";
 
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../dist/node/community/rpc-local-community.js";
-import type { PlebbitError } from "../../../dist/node/pkc-error.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
+import type { PKCError } from "../../../dist/node/pkc-error.js";
 
 describeSkipIfRpc(`Local subplebbit emits errors properly in the publish loop`, async () => {
-    let plebbit: PlebbitType;
+    let plebbit: PKCType;
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
+        plebbit = await mockPKC();
     });
 
     afterAll(async () => {
@@ -24,12 +24,12 @@ describeSkipIfRpc(`Local subplebbit emits errors properly in the publish loop`, 
     });
 
     it(`subplebbit.start() emits errors and recovers if the sync loop crashes once`, async () => {
-        const sub = (await createSubWithNoChallenge({}, plebbit)) as LocalSubplebbit;
+        const sub = (await createSubWithNoChallenge({}, plebbit)) as LocalCommunity;
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
-        const errors: PlebbitError[] = [];
-        sub.on("error", (err: PlebbitError | Error) => {
-            errors.push(err as PlebbitError);
+        const errors: PKCError[] = [];
+        sub.on("error", (err: PKCError | Error) => {
+            errors.push(err as PKCError);
         });
         // @ts-expect-error _listenToIncomingRequests is private but we need to mock it for testing
         sub._listenToIncomingRequests = async () => {
@@ -49,12 +49,12 @@ describeSkipIfRpc(`Local subplebbit emits errors properly in the publish loop`, 
     });
 
     it(`subplebbit.start() emits errors if kubo API call  fails`, async () => {
-        const sub = (await createSubWithNoChallenge({}, plebbit)) as LocalSubplebbit;
+        const sub = (await createSubWithNoChallenge({}, plebbit)) as LocalCommunity;
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
-        const errors: PlebbitError[] = [];
-        sub.on("error", (err: PlebbitError | Error) => {
-            errors.push(err as PlebbitError);
+        const errors: PKCError[] = [];
+        sub.on("error", (err: PKCError | Error) => {
+            errors.push(err as PKCError);
         });
 
         const ipfsClient = sub._clientsManager.getDefaultKuboRpcClient()!._client;
@@ -77,12 +77,12 @@ describeSkipIfRpc(`Local subplebbit emits errors properly in the publish loop`, 
     });
 
     it(`subplebbit.start can recover if pubsub.ls() fails`, async () => {
-        const sub = (await createSubWithNoChallenge({}, plebbit)) as LocalSubplebbit | RpcLocalSubplebbit;
+        const sub = (await createSubWithNoChallenge({}, plebbit)) as LocalCommunity | RpcLocalCommunity;
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
-        const errors: PlebbitError[] = [];
-        sub.on("error", (err: PlebbitError | Error) => {
-            errors.push(err as PlebbitError);
+        const errors: PKCError[] = [];
+        sub.on("error", (err: PKCError | Error) => {
+            errors.push(err as PKCError);
         });
 
         const pubsubClient = Object.values(plebbit.clients.pubsubKuboRpcClients)[0]._client;
@@ -96,9 +96,9 @@ describeSkipIfRpc(`Local subplebbit emits errors properly in the publish loop`, 
 
         pubsubClient.pubsub.ls = originalPubsub;
 
-        const remotePlebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
-        await publishRandomPost({ communityAddress: sub.address, plebbit: remotePlebbit }); // pubsub topic is working
-        await remotePlebbit.destroy();
+        const remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
+        await publishRandomPost({ communityAddress: sub.address, plebbit: remotePKC }); // pubsub topic is working
+        await remotePKC.destroy();
 
         await sub.delete();
         expect(errors.length).to.be.greaterThan(0);

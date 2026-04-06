@@ -4,13 +4,13 @@ import {
     getChallengeVerificationFromChallengeAnswers,
     getChallengeVerification,
     plebbitJsChallenges,
-    getSubplebbitChallengeFromSubplebbitChallengeSettings
+    getCommunityChallengeFromCommunityChallengeSettings
 } from "../../dist/node/runtime/node/community/challenges/index.js";
 import type { GetChallengeAnswers } from "../../dist/node/runtime/node/community/challenges/index.js";
-import type { DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor } from "../../dist/node/pubsub-messages/types.js";
-import type { LocalSubplebbit } from "../../dist/node/runtime/node/community/local-community.js";
+import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../../dist/node/pubsub-messages/types.js";
+import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
 import * as remeda from "remeda";
-import { Plebbit, subplebbits, authors, subplebbitAuthors, challengeAnswers, challengeCommentCids, results } from "./fixtures/fixtures.ts";
+import { PKC, subplebbits, authors, subplebbitAuthors, challengeAnswers, challengeCommentCids, results } from "./fixtures/fixtures.ts";
 
 // Type for challenge verification results (union of success, pending, failure)
 type ChallengeVerificationResult = Awaited<ReturnType<typeof getPendingChallengesOrChallengeVerification>>;
@@ -73,13 +73,13 @@ describe("getPendingChallengesOrChallengeVerification", () => {
                     challengeCommentCids: challengeCommentCids[author.address],
                     // define mock challenge answers in challenge request
                     challengeAnswers: challengeAnswers[author.address]?.[subplebbit.title]
-                } as unknown as DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor;
+                } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
                 // get the expected results from fixtures
                 const expectedChallengeResult = results[subplebbit?.title]?.[author?.address];
                 const challengeResult = (await getPendingChallengesOrChallengeVerification(
                     challengeRequestMessage,
-                    subplebbit as unknown as LocalSubplebbit
+                    subplebbit as unknown as LocalCommunity
                 )) as ChallengeVerificationResult & {
                     challengeSuccess?: boolean;
                     challengeErrors?: Record<number, string>;
@@ -115,7 +115,7 @@ type GetChallengeVerificationResult = Awaited<ReturnType<typeof getChallengeVeri
 
 describe("getChallengeVerification", () => {
     const author = { address: "Qm..." };
-    const subplebbit: { settings: { challenges: Array<Record<string, unknown>> }; _plebbit?: ReturnType<typeof Plebbit> } = {
+    const subplebbit: { settings: { challenges: Array<Record<string, unknown>> }; _plebbit?: ReturnType<typeof PKC> } = {
         settings: {
             challenges: [
                 // add random exlcuded challenges to tests
@@ -140,10 +140,10 @@ describe("getChallengeVerification", () => {
         comment: { author },
         // define mock challenge answers in challenge request
         challengeAnswers: [undefined, undefined, undefined, undefined, undefined, "password"]
-    } as unknown as DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor;
+    } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
     beforeAll(async () => {
-        subplebbit._plebbit = await Plebbit();
+        subplebbit._plebbit = await PKC();
     });
 
     it("only 50% of challenges must succeed", async () => {
@@ -153,7 +153,7 @@ describe("getChallengeVerification", () => {
         };
         let challengeVerification = (await getChallengeVerification(
             challengeRequestMessage,
-            subplebbit as unknown as LocalSubplebbit,
+            subplebbit as unknown as LocalCommunity,
             getChallengeAnswersFail1
         )) as GetChallengeVerificationResult;
         expect(challengeVerification.challengeSuccess).to.equal(true);
@@ -164,7 +164,7 @@ describe("getChallengeVerification", () => {
         };
         challengeVerification = (await getChallengeVerification(
             challengeRequestMessage,
-            subplebbit as unknown as LocalSubplebbit,
+            subplebbit as unknown as LocalCommunity,
             getChallengeAnswersFail2
         )) as GetChallengeVerificationResult;
         expect(challengeVerification.challengeSuccess).to.equal(true);
@@ -175,7 +175,7 @@ describe("getChallengeVerification", () => {
         };
         challengeVerification = (await getChallengeVerification(
             challengeRequestMessage,
-            subplebbit as unknown as LocalSubplebbit,
+            subplebbit as unknown as LocalCommunity,
             getChallengeAnswersFailAll
         )) as GetChallengeVerificationResult;
         expect(challengeVerification.challengeSuccess).to.equal(false);
@@ -191,14 +191,14 @@ describe("getChallengeVerification", () => {
         };
         challengeVerification = (await getChallengeVerification(
             challengeRequestMessage,
-            subplebbit as unknown as LocalSubplebbit,
+            subplebbit as unknown as LocalCommunity,
             getChallengeAnswersSucceedAll
         )) as GetChallengeVerificationResult;
         expect(challengeVerification.challengeSuccess).to.equal(true);
     });
 
     it("password preanswer and no preanswer", async () => {
-        const localSubplebbit = {
+        const localCommunity = {
             settings: {
                 challenges: [
                     {
@@ -210,20 +210,20 @@ describe("getChallengeVerification", () => {
                     }
                 ]
             },
-            _plebbit: await Plebbit()
-        } as unknown as LocalSubplebbit;
+            _plebbit: await PKC()
+        } as unknown as LocalCommunity;
 
         // correct preanswered
         let mockChallengeRequestMessage = {
             comment: { author },
             challengeAnswers: ["password"]
-        } as unknown as DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor;
+        } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
         const shouldNotCall = async () => {
             throw Error("should not call");
         };
         let challengeVerification = (await getChallengeVerification(
             mockChallengeRequestMessage,
-            localSubplebbit,
+            localCommunity,
             shouldNotCall
         )) as GetChallengeVerificationResult;
         expect(challengeVerification.challengeSuccess).to.equal(true);
@@ -232,10 +232,10 @@ describe("getChallengeVerification", () => {
         mockChallengeRequestMessage = {
             comment: { author },
             challengeAnswers: ["wrong"]
-        } as unknown as DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor;
+        } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
         challengeVerification = (await getChallengeVerification(
             mockChallengeRequestMessage,
-            localSubplebbit,
+            localCommunity,
             shouldNotCall
         )) as GetChallengeVerificationResult;
         expect(challengeVerification.challengeSuccess).to.equal(false);
@@ -244,13 +244,13 @@ describe("getChallengeVerification", () => {
         // correct answered via challenge
         mockChallengeRequestMessage = {
             comment: { author }
-        } as unknown as DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor;
+        } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
         const getChallengeAnswers = async (_challenges: unknown[]): Promise<string[]> => {
             return ["password"];
         };
         challengeVerification = (await getChallengeVerification(
             mockChallengeRequestMessage,
-            localSubplebbit,
+            localCommunity,
             getChallengeAnswers
         )) as GetChallengeVerificationResult;
         expect(challengeVerification.challengeSuccess).to.equal(true);
@@ -261,7 +261,7 @@ describe("getChallengeVerification", () => {
         };
         challengeVerification = (await getChallengeVerification(
             mockChallengeRequestMessage,
-            localSubplebbit,
+            localCommunity,
             getChallengeAnswersWrong
         )) as GetChallengeVerificationResult;
         expect(challengeVerification.challengeSuccess).to.equal(false);
@@ -269,7 +269,7 @@ describe("getChallengeVerification", () => {
     });
 
     it("rate limited", async () => {
-        const rateLimitSubplebbit = {
+        const rateLimitCommunity = {
             settings: {
                 challenges: [
                     {
@@ -288,12 +288,12 @@ describe("getChallengeVerification", () => {
                     }
                 ]
             },
-            _plebbit: await Plebbit()
-        } as unknown as LocalSubplebbit;
+            _plebbit: await PKC()
+        } as unknown as LocalCommunity;
 
         const rateLimitChallengeRequestMessage = {
             comment: { author: { address: getRandomAddress() } }
-        } as unknown as DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor;
+        } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
         const shouldNotCall = async () => {
             throw Error("should not call");
         };
@@ -301,7 +301,7 @@ describe("getChallengeVerification", () => {
         // first rate limit not triggered
         let challengeVerification = (await getChallengeVerification(
             rateLimitChallengeRequestMessage,
-            rateLimitSubplebbit,
+            rateLimitCommunity,
             shouldNotCall
         )) as GetChallengeVerificationResult;
         expect(challengeVerification.challengeSuccess).to.equal(true);
@@ -309,7 +309,7 @@ describe("getChallengeVerification", () => {
         // first rate limit triggered
         challengeVerification = (await getChallengeVerification(
             rateLimitChallengeRequestMessage,
-            rateLimitSubplebbit,
+            rateLimitCommunity,
             shouldNotCall
         )) as GetChallengeVerificationResult;
         expect(challengeVerification).to.deep.equal({ challengeErrors: { 0: "rate limited 1" }, challengeSuccess: false });
@@ -317,7 +317,7 @@ describe("getChallengeVerification", () => {
         // second rate limit triggered
         challengeVerification = (await getChallengeVerification(
             rateLimitChallengeRequestMessage,
-            rateLimitSubplebbit,
+            rateLimitCommunity,
             shouldNotCall
         )) as GetChallengeVerificationResult;
         expect(challengeVerification).to.deep.equal({
@@ -327,7 +327,7 @@ describe("getChallengeVerification", () => {
     });
 
     it("getChallenge function throws", async () => {
-        const throwSubplebbit = {
+        const throwCommunity = {
             settings: {
                 challenges: [
                     {
@@ -339,12 +339,12 @@ describe("getChallengeVerification", () => {
                     }
                 ]
             },
-            _plebbit: await Plebbit()
-        } as unknown as LocalSubplebbit;
+            _plebbit: await PKC()
+        } as unknown as LocalCommunity;
 
         const throwChallengeRequestMessage = {
             comment: { author: { address: getRandomAddress() } }
-        } as unknown as DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor;
+        } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
         const shouldNotCall = async () => {
             throw Error("should not call");
         };
@@ -354,7 +354,7 @@ describe("getChallengeVerification", () => {
         try {
             challengeVerification = (await getChallengeVerification(
                 throwChallengeRequestMessage,
-                throwSubplebbit,
+                throwCommunity,
                 shouldNotCall
             )) as GetChallengeVerificationResult;
         } catch (e) {
@@ -369,7 +369,7 @@ describe("getChallengeVerification", () => {
     it("getChallengeVerificationFromChallengeAnswers", async () => {
         const challengeResult = (await getPendingChallengesOrChallengeVerification(
             challengeRequestMessage,
-            subplebbit as unknown as LocalSubplebbit
+            subplebbit as unknown as LocalCommunity
         )) as ChallengeVerificationResult & {
             challengeSuccess?: boolean;
             challengeErrors?: Record<number, string>;
@@ -388,7 +388,7 @@ describe("getChallengeVerification", () => {
         let challengeVerification = (await getChallengeVerificationFromChallengeAnswers(
             pendingChallenges as Parameters<typeof getChallengeVerificationFromChallengeAnswers>[0],
             challengeAnswersFail1,
-            subplebbit as unknown as LocalSubplebbit
+            subplebbit as unknown as LocalCommunity
         )) as Awaited<ReturnType<typeof getChallengeVerificationFromChallengeAnswers>>;
         expect(challengeVerification).to.deep.equal({
             challengeSuccess: true,
@@ -400,7 +400,7 @@ describe("getChallengeVerification", () => {
         challengeVerification = (await getChallengeVerificationFromChallengeAnswers(
             pendingChallenges as Parameters<typeof getChallengeVerificationFromChallengeAnswers>[0],
             challengeAnswersFail2,
-            subplebbit as unknown as LocalSubplebbit
+            subplebbit as unknown as LocalCommunity
         )) as Awaited<ReturnType<typeof getChallengeVerificationFromChallengeAnswers>>;
         expect(challengeVerification).to.deep.equal({
             challengeSuccess: true,
@@ -412,7 +412,7 @@ describe("getChallengeVerification", () => {
         challengeVerification = (await getChallengeVerificationFromChallengeAnswers(
             pendingChallenges as Parameters<typeof getChallengeVerificationFromChallengeAnswers>[0],
             challengeAnswersFailAll,
-            subplebbit as unknown as LocalSubplebbit
+            subplebbit as unknown as LocalCommunity
         )) as Awaited<ReturnType<typeof getChallengeVerificationFromChallengeAnswers>>;
         expect(challengeVerification.challengeSuccess).to.equal(false);
         expect((challengeVerification as { challengeErrors: Record<number, string> }).challengeErrors[1]).to.equal("Wrong answer.");
@@ -421,7 +421,7 @@ describe("getChallengeVerification", () => {
     });
 });
 
-describe("await getSubplebbitChallengeFromSubplebbitChallengeSettings", () => {
+describe("await getCommunityChallengeFromCommunityChallengeSettings", () => {
     // skip these tests when soloing subplebbits
     if (subplebbits.length < 5) {
         return;
@@ -429,21 +429,21 @@ describe("await getSubplebbitChallengeFromSubplebbitChallengeSettings", () => {
 
     it("has challenge prop", async () => {
         const subplebbit = subplebbits.filter((subplebbit) => subplebbit.title === "password challenge subplebbit")[0];
-        const subplebbitChallenge = await getSubplebbitChallengeFromSubplebbitChallengeSettings(subplebbit.settings.challenges[0]);
+        const subplebbitChallenge = await getCommunityChallengeFromCommunityChallengeSettings(subplebbit.settings.challenges[0]);
         expect(typeof subplebbitChallenge.challenge).to.equal("string");
         expect(subplebbitChallenge.challenge).to.equal(subplebbit.settings.challenges[0].options.question);
     });
 
     it("has description prop", async () => {
         const subplebbit = subplebbits.filter((subplebbit) => subplebbit.title === "text-math challenge subplebbit")[0];
-        const subplebbitChallenge = await getSubplebbitChallengeFromSubplebbitChallengeSettings(subplebbit.settings.challenges[0]);
+        const subplebbitChallenge = await getCommunityChallengeFromCommunityChallengeSettings(subplebbit.settings.challenges[0]);
         expect(typeof subplebbitChallenge.description).to.equal("string");
         expect(subplebbitChallenge.description).to.equal(subplebbit.settings.challenges[0].description);
     });
 
     it("has exclude prop", async () => {
         const subplebbit = subplebbits.filter((subplebbit) => subplebbit.title === "exclude high karma challenge subplebbit")[0];
-        const subplebbitChallenge = await getSubplebbitChallengeFromSubplebbitChallengeSettings(subplebbit.settings.challenges[0]);
+        const subplebbitChallenge = await getCommunityChallengeFromCommunityChallengeSettings(subplebbit.settings.challenges[0]);
         expect(subplebbitChallenge.exclude).to.not.equal(undefined);
         expect(subplebbitChallenge.exclude).to.deep.equal(subplebbit.settings.challenges[0].exclude);
     });

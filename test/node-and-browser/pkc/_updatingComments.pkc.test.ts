@@ -1,33 +1,33 @@
 import { beforeAll, describe, it, beforeEach, afterEach } from "vitest";
 import {
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     findOrPublishCommentWithDepth,
     itSkipIfRpc,
     publishRandomPost,
     publishRandomReply,
     resolveWhenConditionIsTrue,
     addStringToIpfs,
-    createMockedSubplebbitIpns
+    createMockedCommunityIpns
 } from "../../../dist/node/test/test-util.js";
 import signers from "../../fixtures/signers.js";
-import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
-import type { RemoteSubplebbit } from "../../../dist/node/community/remote-community.js";
-import type { PlebbitError } from "../../../dist/node/pkc-error.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
+import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
+import type { PKCError } from "../../../dist/node/pkc-error.js";
 import type { CommentIpfsWithCidDefined } from "../../../dist/node/publications/comment/types.js";
 import {
     findUpdatingComment,
-    findUpdatingSubplebbit,
+    findUpdatingCommunity,
     listUpdatingComments,
-    listUpdatingSubplebbits
+    listUpdatingCommunitys
 } from "../../../dist/node/pkc/tracked-instance-registry-util.js";
 
 const subplebbitAddress = signers[0].address;
 
 // TODO write a better way to wait for events to propgate other than setTimeout
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe(`plebbit._updatingComments - ${config.name}`, async () => {
-        let plebbit: Plebbit;
-        let sub: RemoteSubplebbit;
+        let plebbit: PKC;
+        let sub: RemoteCommunity;
 
         beforeEach(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -37,7 +37,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
         beforeAll(async () => {
             const plebbit = await config.plebbitInstancePromise();
-            sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            sub = await plebbit.getCommunity({ address: subplebbitAddress });
 
             const replyWithDepth1Cid = await findOrPublishCommentWithDepth({ depth: 1, subplebbit: sub });
             const replyWithDepth2Cid = await findOrPublishCommentWithDepth({ depth: 2, subplebbit: sub });
@@ -73,7 +73,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         // Function to define test cases for a specific comment type
         function runTestsForCommentType(replyPostConfig: { commentType: string; cid: string }) {
-            let plebbit: Plebbit;
+            let plebbit: PKC;
 
             beforeEach(async () => {
                 plebbit = await config.plebbitInstancePromise();
@@ -267,7 +267,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         itSkipIfRpc(
-            `Stopping the first updating comment shouldn't tear down _updatingSubplebbits while another comment from the same sub is still updating`,
+            `Stopping the first updating comment shouldn't tear down _updatingCommunitys while another comment from the same sub is still updating`,
             async () => {
                 const firstPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
                 const secondPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
@@ -288,27 +288,27 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 });
 
                 const subAddress = firstComment.communityAddress;
-                expect(findUpdatingSubplebbit(plebbit, { address: subAddress })).to.exist;
+                expect(findUpdatingCommunity(plebbit, { address: subAddress })).to.exist;
 
                 await firstComment.stop();
                 await new Promise((resolve) => setTimeout(resolve, 200));
 
-                expect(findUpdatingSubplebbit(plebbit, { address: subAddress })).to.exist;
+                expect(findUpdatingCommunity(plebbit, { address: subAddress })).to.exist;
                 expect(secondComment.state).to.equal("updating");
                 expect(findUpdatingComment(plebbit, { cid: secondComment.cid! })).to.exist;
 
                 await secondComment.stop();
                 await new Promise((resolve) => setTimeout(resolve, 200));
 
-                expect(findUpdatingSubplebbit(plebbit, { address: subAddress })).to.not.exist;
+                expect(findUpdatingCommunity(plebbit, { address: subAddress })).to.not.exist;
                 expect(listUpdatingComments(plebbit)).to.deep.equal([]);
             }
         );
 
         it(`doesn't resurrect _updatingComments after stop() when the subplebbit record is invalid`, async () => {
-            const { subplebbitRecord, communityAddress: subplebbitAddress, ipnsObj } = await createMockedSubplebbitIpns({});
-            const invalidSubplebbitRecord = { ...subplebbitRecord, updatedAt: subplebbitRecord.updatedAt + 9999 };
-            await ipnsObj.publishToIpns(JSON.stringify(invalidSubplebbitRecord));
+            const { subplebbitRecord, communityAddress: subplebbitAddress, ipnsObj } = await createMockedCommunityIpns({});
+            const invalidCommunityRecord = { ...subplebbitRecord, updatedAt: subplebbitRecord.updatedAt + 9999 };
+            await ipnsObj.publishToIpns(JSON.stringify(invalidCommunityRecord));
 
             const postToPublish = await plebbit.createComment({
                 signer: await plebbit.createSigner(),
@@ -320,9 +320,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const postCid = await addStringToIpfs(JSON.stringify(postIpfs));
 
             const post = await plebbit.createComment({ cid: postCid });
-            const errors: PlebbitError[] = [];
-            post.on("error", (e: PlebbitError | Error) => {
-                errors.push(e as PlebbitError);
+            const errors: PKCError[] = [];
+            post.on("error", (e: PKCError | Error) => {
+                errors.push(e as PKCError);
             });
 
             await post.update();
@@ -331,7 +331,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await post.stop();
 
             expect(listUpdatingComments(plebbit)).to.deep.equal([]);
-            expect(listUpdatingSubplebbits(plebbit)).to.deep.equal([]);
+            expect(listUpdatingCommunitys(plebbit)).to.deep.equal([]);
         });
 
         it(`Calling comment.stop() and update() should behave as normal with plebbit._updatingComments`, async () => {
@@ -432,47 +432,47 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         // with rpc clients we don't create a subplebbit instance, the rpc server does it for us
         itSkipIfRpc(
-            `Updating a post should create a new entry in _updatingSubplebbits if we haven't been updating the sub already`,
+            `Updating a post should create a new entry in _updatingCommunitys if we haven't been updating the sub already`,
             async () => {
-                const subplebbit = await plebbit.getSubplebbit({ address: signers[0].address });
+                const subplebbit = await plebbit.getCommunity({ address: signers[0].address });
                 const commentCid = subplebbit.posts.pages.hot.comments[0].cid;
 
                 const comment = await plebbit.createComment({ cid: commentCid });
 
                 expect(findUpdatingComment(plebbit, { cid: commentCid })).to.not.exist;
-                expect(findUpdatingSubplebbit(plebbit, { address: comment.communityAddress })).to.not.exist;
+                expect(findUpdatingCommunity(plebbit, { address: comment.communityAddress })).to.not.exist;
 
                 await comment.update();
                 await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });
                 expect(findUpdatingComment(plebbit, { cid: commentCid })).to.exist;
-                expect(findUpdatingSubplebbit(plebbit, { address: comment.communityAddress })).to.exist;
+                expect(findUpdatingCommunity(plebbit, { address: comment.communityAddress })).to.exist;
 
                 await comment.stop();
                 await new Promise((resolve) => setTimeout(resolve, 500)); // need to wait some time to propgate events
                 expect(findUpdatingComment(plebbit, { cid: commentCid })).to.not.exist;
-                expect(findUpdatingSubplebbit(plebbit, { address: comment.communityAddress })).to.not.exist;
+                expect(findUpdatingCommunity(plebbit, { address: comment.communityAddress })).to.not.exist;
             }
         );
 
-        itSkipIfRpc(`Updating a post should use entry in _updatingSubplebbits if it's already updating`, async () => {
-            const subplebbit = await plebbit.getSubplebbit({ address: signers[0].address });
+        itSkipIfRpc(`Updating a post should use entry in _updatingCommunitys if it's already updating`, async () => {
+            const subplebbit = await plebbit.getCommunity({ address: signers[0].address });
             await subplebbit.update();
             const commentCid = subplebbit.posts.pages.hot.comments[0].cid;
 
             const comment = await plebbit.createComment({ cid: commentCid });
 
             expect(findUpdatingComment(plebbit, { cid: commentCid })).to.not.exist;
-            expect(findUpdatingSubplebbit(plebbit, { address: subplebbit.address })).to.exist;
+            expect(findUpdatingCommunity(plebbit, { address: subplebbit.address })).to.exist;
 
             await comment.update();
             await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });
             expect(findUpdatingComment(plebbit, { cid: commentCid })).to.exist;
-            expect(findUpdatingSubplebbit(plebbit, { address: comment.communityAddress })).to.exist;
+            expect(findUpdatingCommunity(plebbit, { address: comment.communityAddress })).to.exist;
 
             await comment.stop();
             await new Promise((resolve) => setTimeout(resolve, 500)); // need to wait some time to propgate events
             expect(findUpdatingComment(plebbit, { cid: commentCid })).to.not.exist;
-            expect(findUpdatingSubplebbit(plebbit, { address: comment.communityAddress })).to.exist;
+            expect(findUpdatingCommunity(plebbit, { address: comment.communityAddress })).to.exist;
         });
     });
 });

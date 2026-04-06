@@ -5,7 +5,7 @@ import {
     publishRandomReply,
     jsonifyCommentAndRemoveInstanceProps,
     resolveWhenConditionIsTrue,
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     publishWithExpectedResult,
     addStringToIpfs,
     findOrPublishCommentWithDepth,
@@ -15,7 +15,7 @@ import {
 import validCommentWithRepliesFixture from "../../../fixtures/signatures/comment/valid_comment_with_replies_raw.json" with { type: "json" };
 import { describe, it, beforeAll, afterAll } from "vitest";
 import { calculateIpfsCidV0 } from "../../../../dist/node/util.js";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { PageIpfs, PageTypeJson } from "../../../../dist/node/pages/types.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
@@ -28,9 +28,9 @@ type CommentWithRequiredFields = Required<Pick<CommentIpfsWithCidDefined, "cid" 
 
 const subplebbitAddress = signers[0].address;
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`plebbit.createComment - Remote (${config.name})`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
         });
@@ -120,7 +120,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can create a Comment instance with subplebbit.posts.pages.hot.comments[0]`, async () => {
-            const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
             const commentFromPage = subplebbit.posts.pages.hot.comments[0];
             const commentClone = await plebbit.createComment(commentFromPage);
             const commentCloneJson = jsonifyCommentAndRemoveInstanceProps(commentClone);
@@ -141,7 +141,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`Creating comment instances from all subplebbit.pages comments doesn't mutate props`, async () => {
-            const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
             const pages = subplebbit.posts.pages || {};
             expect(Object.keys(pages).length, "subplebbit.posts.pages should not be empty").to.be.greaterThan(0);
             let testedComments = 0;
@@ -196,7 +196,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can recreate a Comment instance with replies with plebbit.createComment`, async () => {
-            const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
             const postWithReplyToCloneFromPage = subplebbit.posts.pages.hot.comments.find((comment) => comment.replies);
             expect(postWithReplyToCloneFromPage!.replies).to.be.a("object");
             const commentCloneInstance = await plebbit.createComment(postWithReplyToCloneFromPage!);
@@ -207,7 +207,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can recreate a stringified Comment instance with replies with plebbit.createComment`, async () => {
-            const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
             const postWithReplyToCloneFromPage = subplebbit.posts.pages.hot.comments.find((comment) => comment.replies);
             expect(postWithReplyToCloneFromPage!.replies).to.be.a("object");
             const commentCloneInstance = await plebbit.createComment(JSON.parse(JSON.stringify(postWithReplyToCloneFromPage)));
@@ -360,11 +360,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`Creating a post that exists in updating subplebbit posts should automatically get CommentIpfs and CommentUpdate from it`, async () => {
-            const subplebbit = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            const subplebbit = await plebbit.createCommunity({ address: subplebbitAddress });
             await subplebbit.update();
             await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
-            expect(plebbit._updatingSubplebbits[subplebbit.address]).to.be.ok;
+            expect(plebbit._updatingCommunitys[subplebbit.address]).to.be.ok;
 
             const postCid = subplebbit.posts.pages.hot.comments[0].cid;
 
@@ -383,7 +383,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     // TODO how do you guarantee reply with this depth will be there?
 
                     const parentComment = await findOrPublishCommentWithDepth({
-                        subplebbit: await plebbit.getSubplebbit({ address: subplebbitAddress }),
+                        subplebbit: await plebbit.getCommunity({ address: subplebbitAddress }),
                         depth: replyDepth - 1
                     });
                     await parentComment.update();

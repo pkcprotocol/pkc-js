@@ -6,7 +6,7 @@ import {
     publishChallengeMessageWithExtraProps,
     publishChallengeAnswerMessageWithExtraProps,
     publishChallengeVerificationMessageWithExtraProps,
-    getAvailablePlebbitConfigsToTestAgainst
+    getAvailablePKCConfigsToTestAgainst
 } from "../../../dist/node/test/test-util.js";
 import validCommentUpdateFixture from "../../fixtures/signatures/comment/commentUpdate/valid_comment_update.json" with { type: "json" };
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
@@ -16,10 +16,10 @@ import { describe, it, beforeAll, afterAll } from "vitest";
 import { _signJson, _signPubsubMsg } from "../../../dist/node/signer/signatures.js";
 import { messages } from "../../../dist/node/errors.js";
 import Logger from "@pkc/pkc-logger";
-import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
 
 // Types for pubsub messages and errors
-type PlebbitError = {
+type PKCError = {
     code: string;
     details: { reason: string };
 };
@@ -37,12 +37,12 @@ type ChallengeVerification = {
     extraProp?: unknown;
 };
 
-const mathCliSubplebbitAddress = signers[1].address;
+const mathCliCommunityAddress = signers[1].address;
 
 // TODO make these tests work with RPC clients
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
     describe.sequential(`Publishing  and receiving pubsub messages with extra props - ${config.name}`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -135,7 +135,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                     includeExtraPropsInChallengeSignedPropertyNames: false
                 });
 
-                const error = await new Promise<PlebbitError>((resolve) => post.once("error", resolve as (err: unknown) => void));
+                const error = await new Promise<PKCError>((resolve) => post.once("error", resolve as (err: unknown) => void));
                 expect(error.code).to.equal("ERR_CHALLENGE_SIGNATURE_IS_INVALID");
                 expect(error.details.reason).to.equal(messages.ERR_CHALLENGE_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES);
 
@@ -179,7 +179,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
         describe.sequential(`ChallengeAnswerMessage with extra props`, async () => {
             it(`A challenge answer message with an extra prop not included in signature.signedPropertyNames will get ignored`, async () => {
-                const post = await generateMockPost({ communityAddress: mathCliSubplebbitAddress, plebbit: plebbit });
+                const post = await generateMockPost({ communityAddress: mathCliCommunityAddress, plebbit: plebbit });
                 await post.publish();
 
                 await new Promise((resolve) => post.once("challenge", resolve));
@@ -202,7 +202,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
             });
 
             it(`A challenge answer message with an extra prop included in signature.signedPropertyNames will be accepted`, async () => {
-                const post = await generateMockPost({ communityAddress: mathCliSubplebbitAddress, plebbit: plebbit });
+                const post = await generateMockPost({ communityAddress: mathCliCommunityAddress, plebbit: plebbit });
                 await post.publish();
 
                 await new Promise((resolve) => post.once("challenge", resolve));
@@ -257,7 +257,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                     includeExtraPropsInChallengeSignedPropertyNames: false
                 });
 
-                const error = await new Promise<PlebbitError>((resolve) => post.once("error", resolve as (err: unknown) => void));
+                const error = await new Promise<PKCError>((resolve) => post.once("error", resolve as (err: unknown) => void));
                 expect(error.code).to.equal("ERR_CHALLENGE_VERIFICATION_SIGNATURE_IS_INVALID");
                 expect(error.details.reason).to.equal(messages.ERR_CHALLENGE_VERIFICATION_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES);
 

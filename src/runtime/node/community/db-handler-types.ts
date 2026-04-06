@@ -1,6 +1,6 @@
 import type { CommentsTableRow, CommentUpdatesRow } from "../../../publications/comment/types.js";
 import type { SignerType } from "../../../signer/types.js";
-import type { SubplebbitIpfsType } from "../../../community/types.js";
+import type { CommunityIpfsType } from "../../../community/types.js";
 
 export type PurgedCommentTableRows = {
     commentTableRow: CommentsTableRow;
@@ -9,7 +9,7 @@ export type PurgedCommentTableRows = {
 
 export type CommentCidWithReplies = Pick<CommentsTableRow, "cid"> & Pick<CommentUpdatesRow, "replies">;
 
-type Features = NonNullable<SubplebbitIpfsType["features"]>;
+type Features = NonNullable<CommunityIpfsType["features"]>;
 type PseudonymityMode = NonNullable<Features["pseudonymityMode"]>;
 
 export type PseudonymityAliasRow = {

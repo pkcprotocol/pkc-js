@@ -5,11 +5,11 @@ import {
     publishRandomReply,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
-    getAvailablePlebbitConfigsToTestAgainst
+    getAvailablePKCConfigsToTestAgainst
 } from "../../../../dist/node/test/test-util.js";
 import * as remeda from "remeda";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 import type { SignerWithPublicKeyAddress } from "../../../../dist/node/signer/index.js";
@@ -17,11 +17,11 @@ import type Vote from "../../../../dist/node/publications/vote/vote.js";
 
 const subplebbitAddress = signers[0].address;
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Test Downvote - ${config.name}`, async () => {
         const previousVotes: Vote[] = [];
 
-        let plebbit: Plebbit, postToVote: Comment, replyToVote: Comment, signer: SignerWithPublicKeyAddress;
+        let plebbit: PKC, postToVote: Comment, replyToVote: Comment, signer: SignerWithPublicKeyAddress;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             signer = await plebbit.createSigner();
@@ -139,7 +139,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             }
         });
 
-        it(`Subplebbits rejects votes with invalid commentCid`);
+        it(`Communitys rejects votes with invalid commentCid`);
 
         // TODO add a test for spreading Vote instance
     });

@@ -4,20 +4,20 @@
 // export const simulateLoadingTime = () => new Promise((r) => setTimeout(r, loadingTime));
 
 // // keep a list of created and edited owner subplebbits
-// // to reinitialize them with plebbit.createSubplebbit()
-// let createdOwnerSubplebbits: any = {};
-// let editedOwnerSubplebbits: any = {};
+// // to reinitialize them with plebbit.createCommunity()
+// let createdOwnerCommunitys: any = {};
+// let editedOwnerCommunitys: any = {};
 
 // // reset the plebbit-js global state in between tests
-// export const resetPlebbitJsMock = () => {
-//     createdOwnerSubplebbits = {};
-//     editedOwnerSubplebbits = {};
+// export const resetPKCJsMock = () => {
+//     createdOwnerCommunitys = {};
+//     editedOwnerCommunitys = {};
 // };
-// export const debugPlebbitJsMock = () => {
-//     console.log({ createdOwnerSubplebbits, editedOwnerSubplebbits });
+// export const debugPKCJsMock = () => {
+//     console.log({ createdOwnerCommunitys, editedOwnerCommunitys });
 // };
 
-// export class Plebbit extends EventEmitter {
+// export class PKC extends EventEmitter {
 //     async resolveAuthorAddress(authorAddress: { address: string }) {}
 
 //     async createSigner() {
@@ -27,48 +27,48 @@
 //         };
 //     }
 
-//     async createSubplebbit(createSubplebbitOptions: any) {
-//         if (!createSubplebbitOptions) {
-//             createSubplebbitOptions = {};
+//     async createCommunity(createCommunityOptions: any) {
+//         if (!createCommunityOptions) {
+//             createCommunityOptions = {};
 //         }
 
 //         // no address provided so probably a user creating an owner subplebbit
-//         if (!createSubplebbitOptions.address && !createdOwnerSubplebbits[createSubplebbitOptions.address]) {
-//             createSubplebbitOptions = { ...createSubplebbitOptions, address: "created subplebbit address" };
-//             // createdSubplebbitAddresses.push('created subplebbit address')
-//             createdOwnerSubplebbits[createSubplebbitOptions.address] = { ...createSubplebbitOptions };
+//         if (!createCommunityOptions.address && !createdOwnerCommunitys[createCommunityOptions.address]) {
+//             createCommunityOptions = { ...createCommunityOptions, address: "created subplebbit address" };
+//             // createdCommunityAddresses.push('created subplebbit address')
+//             createdOwnerCommunitys[createCommunityOptions.address] = { ...createCommunityOptions };
 //         }
 //         // only address provided, so could be a previously created owner subplebbit
 //         // add props from previously created sub
 //         else if (
-//             createdOwnerSubplebbits[createSubplebbitOptions.address] &&
-//             JSON.stringify(Object.keys(createSubplebbitOptions)) === '["address"]'
+//             createdOwnerCommunitys[createCommunityOptions.address] &&
+//             JSON.stringify(Object.keys(createCommunityOptions)) === '["address"]'
 //         ) {
-//             for (const prop in createdOwnerSubplebbits[createSubplebbitOptions.address]) {
-//                 if (createdOwnerSubplebbits[createSubplebbitOptions.address][prop]) {
-//                     createSubplebbitOptions[prop] = createdOwnerSubplebbits[createSubplebbitOptions.address][prop];
+//             for (const prop in createdOwnerCommunitys[createCommunityOptions.address]) {
+//                 if (createdOwnerCommunitys[createCommunityOptions.address][prop]) {
+//                     createCommunityOptions[prop] = createdOwnerCommunitys[createCommunityOptions.address][prop];
 //                 }
 //             }
 //         }
 
 //         // add edited props if owner subplebbit was edited in the past
-//         if (editedOwnerSubplebbits[createSubplebbitOptions.address]) {
-//             for (const prop in editedOwnerSubplebbits[createSubplebbitOptions.address]) {
-//                 if (editedOwnerSubplebbits[createSubplebbitOptions.address][prop]) {
-//                     createSubplebbitOptions[prop] = editedOwnerSubplebbits[createSubplebbitOptions.address][prop];
+//         if (editedOwnerCommunitys[createCommunityOptions.address]) {
+//             for (const prop in editedOwnerCommunitys[createCommunityOptions.address]) {
+//                 if (editedOwnerCommunitys[createCommunityOptions.address][prop]) {
+//                     createCommunityOptions[prop] = editedOwnerCommunitys[createCommunityOptions.address][prop];
 //                 }
 //             }
 //         }
 
-//         return new Subplebbit(createSubplebbitOptions);
+//         return new Community(createCommunityOptions);
 //     }
 
-//     async getSubplebbit({address: subplebbitAddress}: { address: string }) {
+//     async getCommunity({address: subplebbitAddress}: { address: string }) {
 //         await simulateLoadingTime();
-//         const createSubplebbitOptions = {
+//         const createCommunityOptions = {
 //             address: subplebbitAddress
 //         };
-//         const subplebbit: any = new Subplebbit(createSubplebbitOptions);
+//         const subplebbit: any = new Community(createCommunityOptions);
 //         subplebbit.title = subplebbit.address + " title";
 //         const hotPageCid = subplebbit.address + " page cid hot";
 //         subplebbit.posts.pages.hot = getCommentsPage(hotPageCid, subplebbit);
@@ -81,8 +81,8 @@
 //         return subplebbit;
 //     }
 
-//     async listSubplebbits() {
-//         return ["list subplebbit address 1", "list subplebbit address 2", ...Object.keys(createdOwnerSubplebbits)];
+//     async listCommunitys() {
+//         return ["list subplebbit address 1", "list subplebbit address 2", ...Object.keys(createdOwnerCommunitys)];
 //     }
 
 //     async createComment(createCommentOptions: any) {
@@ -118,8 +118,8 @@
 //         return new CommentEdit(createCommentEditOptions);
 //     }
 
-//     async createSubplebbitEdit(createSubplebbitEditOptions: any) {
-//         return new SubplebbitEdit(createSubplebbitEditOptions);
+//     async createCommunityEdit(createCommunityEditOptions: any) {
+//         return new CommunityEdit(createCommunityEditOptions);
 //     }
 
 //     async fetchCid({cid}: { cid: string }) {
@@ -155,7 +155,7 @@
 //     }
 // }
 
-// export class Subplebbit extends EventEmitter {
+// export class Community extends EventEmitter {
 //     updateCalledTimes = 0;
 //     updating = false;
 //     firstUpdate = true;
@@ -168,27 +168,27 @@
 //     state: string;
 //     updatingState: string;
 
-//     constructor(createSubplebbitOptions?: any) {
+//     constructor(createCommunityOptions?: any) {
 //         super();
-//         this.address = createSubplebbitOptions?.address;
-//         this.title = createSubplebbitOptions?.title;
-//         this.description = createSubplebbitOptions?.description;
+//         this.address = createCommunityOptions?.address;
+//         this.title = createCommunityOptions?.title;
+//         this.description = createCommunityOptions?.description;
 //         this.statsCid = "statscid";
 //         this.state = "stopped";
 //         this.updatingState = "stopped";
 
 //         this.posts = new Pages({ subplebbit: this });
 
-//         // add subplebbit.posts from createSubplebbitOptions
-//         if (createSubplebbitOptions?.posts?.pages) {
-//             this.posts.pages = createSubplebbitOptions?.posts?.pages;
+//         // add subplebbit.posts from createCommunityOptions
+//         if (createCommunityOptions?.posts?.pages) {
+//             this.posts.pages = createCommunityOptions?.posts?.pages;
 //         }
-//         if (createSubplebbitOptions?.posts?.pageCids) {
-//             this.posts.pageCids = createSubplebbitOptions?.posts?.pageCids;
+//         if (createCommunityOptions?.posts?.pageCids) {
+//             this.posts.pageCids = createCommunityOptions?.posts?.pageCids;
 //         }
 
 //         // only trigger a first update if argument is only ({address})
-//         if (!createSubplebbitOptions?.address || Object.keys(createSubplebbitOptions).length !== 1) {
+//         if (!createCommunityOptions?.address || Object.keys(createCommunityOptions).length !== 1) {
 //             this.firstUpdate = false;
 //         }
 //     }
@@ -241,8 +241,8 @@
 
 //     async delete() {
 //         if (this.address) {
-//             delete createdOwnerSubplebbits[this.address];
-//             delete editedOwnerSubplebbits[this.address];
+//             delete createdOwnerCommunitys[this.address];
+//             delete editedOwnerCommunitys[this.address];
 //         }
 //     }
 
@@ -260,7 +260,7 @@
 //         this.emit("updatingstatechange", "succeeded");
 //     }
 
-//     // the first update event adds all the field from getSubplebbit
+//     // the first update event adds all the field from getCommunity
 //     async simulateFirstUpdateEvent() {
 //         this.firstUpdate = false;
 
@@ -297,51 +297,51 @@
 //         return {};
 //     }
 
-//     async edit(editSubplebbitOptions: any) {
+//     async edit(editCommunityOptions: any) {
 //         if (!this.address || typeof this.address !== "string") {
 //             throw Error(`can't subplebbit.edit with no subplebbit.address`);
 //         }
 //         const previousAddress = this.address;
 
 //         // do subplebbit.edit
-//         for (const prop in editSubplebbitOptions) {
-//             if (editSubplebbitOptions[prop]) {
+//         for (const prop in editCommunityOptions) {
+//             if (editCommunityOptions[prop]) {
 //                 // @ts-ignore
-//                 this[prop] = editSubplebbitOptions[prop];
+//                 this[prop] = editCommunityOptions[prop];
 //             }
 //         }
 
 //         // keep a list of edited subplebbits to reinitialize
-//         // them with plebbit.createSubplebbit()
-//         editedOwnerSubplebbits[this.address] = {
+//         // them with plebbit.createCommunity()
+//         editedOwnerCommunitys[this.address] = {
 //             address: this.address,
 //             title: this.title,
 //             description: this.description
 //         };
 
 //         // handle change of subplebbit.address
-//         if (editSubplebbitOptions.address) {
-//             // apply address change to editedOwnerSubplebbits
-//             editedOwnerSubplebbits[previousAddress] = {
+//         if (editCommunityOptions.address) {
+//             // apply address change to editedOwnerCommunitys
+//             editedOwnerCommunitys[previousAddress] = {
 //                 address: this.address,
 //                 title: this.title,
 //                 description: this.description
 //             };
-//             delete editedOwnerSubplebbits[previousAddress];
+//             delete editedOwnerCommunitys[previousAddress];
 
-//             // apply address change to createdOwnerSubplebbits
-//             createdOwnerSubplebbits[this.address] = {
-//                 ...createdOwnerSubplebbits[previousAddress],
+//             // apply address change to createdOwnerCommunitys
+//             createdOwnerCommunitys[this.address] = {
+//                 ...createdOwnerCommunitys[previousAddress],
 //                 address: this.address
 //             };
-//             delete createdOwnerSubplebbits[previousAddress];
+//             delete createdOwnerCommunitys[previousAddress];
 //         }
 //     }
 // }
 // // make roles enumarable so it acts like a regular prop
-// Object.defineProperty(Subplebbit.prototype, "roles", { enumerable: true });
+// Object.defineProperty(Community.prototype, "roles", { enumerable: true });
 
-// // define it here because also used it plebbit.getSubplebbit({address: )
+// // define it here because also used it plebbit.getCommunity({address: )
 // const getCommentsPage = (pageCid: string, subplebbit: any}) => {
 //     const page: any = {
 //         nextCid: subplebbit.address + " " + pageCid + " - next page cid",
@@ -519,8 +519,8 @@
 //     }
 
 //     async simulateFetchCommentIpfsUpdateEvent() {
-//         // use plebbit.getComment({cid: ) so mocking Plebbit.prototype.getComment works
-//         const commentIpfs = await new Plebbit(}).getComment({cid: this.cid || ""});
+//         // use plebbit.getComment({cid: ) so mocking PKC.prototype.getComment works
+//         const commentIpfs = await new PKC(}).getComment({cid: this.cid || ""});
 //         this.ipnsName = commentIpfs.ipnsName;
 //         this.content = commentIpfs.content;
 //         this.author = commentIpfs.author;
@@ -542,8 +542,8 @@
 
 // export class CommentEdit extends Publication {}
 
-// export class SubplebbitEdit extends Publication {}
+// export class CommunityEdit extends Publication {}
 
 // export default async function () {
-//     return new Plebbit();
+//     return new PKC();
 // }

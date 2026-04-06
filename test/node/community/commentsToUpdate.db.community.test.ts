@@ -61,9 +61,9 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
 
     async function createTestDbHandler(): Promise<DbHandler> {
         communityAddress = `test-sub-${Date.now()}-${Math.random()}`;
-        const fakePlebbit = { noData: true };
-        const fakeSubplebbit = { address: communityAddress, _plebbit: fakePlebbit };
-        const handler = new DbHandler(fakeSubplebbit as DbHandler["_subplebbit"]);
+        const fakePKC = { noData: true };
+        const fakeCommunity = { address: communityAddress, _plebbit: fakePKC };
+        const handler = new DbHandler(fakeCommunity as DbHandler["_subplebbit"]);
         await handler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
         await handler.createOrMigrateTablesIfNeeded();
         return handler;

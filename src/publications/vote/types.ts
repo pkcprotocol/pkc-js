@@ -27,7 +27,7 @@ export interface VoteSignature extends JsonSignature {
 
 export type VotePubsubMessagePublication = z.infer<typeof VotePubsubMessagePublicationSchema>;
 
-export interface VotePubsubMessageWithSubplebbitAuthor extends VotePubsubMessagePublication {
+export interface VotePubsubMessageWithCommunityAuthor extends VotePubsubMessagePublication {
     author: RuntimeAuthorWithCommentUpdateType;
 }
 

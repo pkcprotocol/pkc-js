@@ -1,7 +1,7 @@
 import { describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
 import signers from "../../fixtures/signers.js";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
-import { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
+import { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import { createSigner } from "../../../dist/node/signer/index.js";
 import { of as calculateIpfsCidV0Lib } from "typestub-ipfs-only-hash";
 import type {
@@ -108,7 +108,7 @@ async function createPublishingTestContext({ targetDepth }: { targetDepth: numbe
 
     // Bind the private method using prototype access
     type PrivateMethod = (...args: unknown[]) => unknown;
-    const localSubPrototype = LocalSubplebbit.prototype as never as Record<string, PrivateMethod>;
+    const localSubPrototype = LocalCommunity.prototype as never as Record<string, PrivateMethod>;
     (fakeSub as Record<string, unknown>)._calculateLocalMfsPathForCommentUpdate =
         localSubPrototype._calculateLocalMfsPathForCommentUpdate.bind(fakeSub);
     (fakeSub as Record<string, unknown>)._validateCommentUpdateSignature = async () => {};
@@ -130,9 +130,9 @@ async function createPublishingTestContext({ targetDepth }: { targetDepth: numbe
 
 async function createTestDbHandler(): Promise<DbHandler> {
     const subplebbitAddress = `${SUBPLEBBIT_ADDRESS}-${Date.now()}-${Math.random()}`;
-    const fakePlebbit = { noData: true };
-    const fakeSubplebbit = { address: subplebbitAddress, _plebbit: fakePlebbit };
-    const handler = new DbHandler(fakeSubplebbit as never);
+    const fakePKC = { noData: true };
+    const fakeCommunity = { address: subplebbitAddress, _plebbit: fakePKC };
+    const handler = new DbHandler(fakeCommunity as never);
     await handler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
     await handler.createOrMigrateTablesIfNeeded();
     return handler;

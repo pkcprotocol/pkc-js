@@ -1,66 +1,66 @@
 import { beforeAll, afterAll, describe, it } from "vitest";
-import Plebbit from "../../../dist/node/index.js";
+import PKC from "../../../dist/node/index.js";
 import signers from "../../fixtures/signers.js";
 import {
-    mockRemotePlebbit,
+    mockRemotePKC,
     itIfRpc,
     describeIfRpc,
-    mockPlebbitNoDataPathWithOnlyKuboClient,
+    mockPKCNoDataPathWithOnlyKuboClient,
     resolveWhenConditionIsTrue,
-    mockRpcRemotePlebbit
+    mockRpcRemotePKC
 } from "../../../dist/node/test/test-util.js";
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { SignerType } from "../../../dist/node/signer/types.js";
-import type { PlebbitError } from "../../../dist/node/pkc-error.js";
+import type { PKCError } from "../../../dist/node/pkc-error.js";
 
 const fixtureSigner = signers[0];
 
 let defaultIpfsGatewayUrls: string[];
 
-describe("Plebbit options", async () => {
+describe("PKC options", async () => {
     beforeAll(async () => {
-        const plebbit = await Plebbit({ httpRoutersOptions: [] });
+        const plebbit = await PKC({ httpRoutersOptions: [] });
         defaultIpfsGatewayUrls = plebbit.ipfsGatewayUrls;
         plebbit.destroy().catch((err) => console.error("failed to destroy plebbit", err));
     });
-    it("Plebbit() uses correct default plebbit options", async () => {
-        const defaultPlebbit = await Plebbit({ httpRoutersOptions: [] });
-        expect(Object.keys(defaultPlebbit.clients.ipfsGateways).sort()).to.deep.equal(defaultIpfsGatewayUrls.sort());
-        expect(Object.keys(defaultPlebbit.clients.pubsubKuboRpcClients).sort()).to.deep.equal(
+    it("PKC() uses correct default plebbit options", async () => {
+        const defaultPKC = await PKC({ httpRoutersOptions: [] });
+        expect(Object.keys(defaultPKC.clients.ipfsGateways).sort()).to.deep.equal(defaultIpfsGatewayUrls.sort());
+        expect(Object.keys(defaultPKC.clients.pubsubKuboRpcClients).sort()).to.deep.equal(
             ["https://pubsubprovider.xyz/api/v0", "https://plebpubsub.xyz/api/v0"].sort()
         );
-        expect((defaultPlebbit.pubsubKuboRpcClientsOptions[0] as { headers?: { authorization?: string } })?.headers?.authorization).to.be
+        expect((defaultPKC.pubsubKuboRpcClientsOptions[0] as { headers?: { authorization?: string } })?.headers?.authorization).to.be
             .undefined;
 
         // no dataPath in browser
         if (typeof window === "undefined") {
-            expect(defaultPlebbit.dataPath).to.match(/\.plebbit$/);
+            expect(defaultPKC.dataPath).to.match(/\.plebbit$/);
         } else {
-            expect(defaultPlebbit.dataPath).to.equal(undefined);
+            expect(defaultPKC.dataPath).to.equal(undefined);
         }
-        JSON.stringify(defaultPlebbit); // Will throw an error if circular json
-        await defaultPlebbit.destroy();
+        JSON.stringify(defaultPKC); // Will throw an error if circular json
+        await defaultPKC.destroy();
     });
 
-    it("Plebbit Options is set up correctly when only kuboRpcClientsOptions is provided", async () => {
+    it("PKC Options is set up correctly when only kuboRpcClientsOptions is provided", async () => {
         // RPC exception
         const url = "http://localhost:15018/api/v0"; // offline API
         const options = { kuboRpcClientsOptions: [url], httpRoutersOptions: [] as string[], dataPath: undefined as undefined };
-        const testPlebbit = await Plebbit(options);
-        expect(testPlebbit.clients.kuboRpcClients[url]).to.exist;
-        expect(testPlebbit.clients.pubsubKuboRpcClients[url]).to.exist;
-        expect(Object.keys(testPlebbit.clients.ipfsGateways).sort()).to.deep.equal(defaultIpfsGatewayUrls.sort());
-        expect(Object.keys(testPlebbit.clients.kuboRpcClients)).to.deep.equal([url]);
+        const testPKC = await PKC(options);
+        expect(testPKC.clients.kuboRpcClients[url]).to.exist;
+        expect(testPKC.clients.pubsubKuboRpcClients[url]).to.exist;
+        expect(Object.keys(testPKC.clients.ipfsGateways).sort()).to.deep.equal(defaultIpfsGatewayUrls.sort());
+        expect(Object.keys(testPKC.clients.kuboRpcClients)).to.deep.equal([url]);
 
-        expect(Object.keys(testPlebbit.clients.pubsubKuboRpcClients)).to.deep.equal([url]);
-        JSON.stringify(testPlebbit); // Will throw an error if circular json
-        await testPlebbit.destroy();
+        expect(Object.keys(testPKC.clients.pubsubKuboRpcClients)).to.deep.equal([url]);
+        JSON.stringify(testPKC); // Will throw an error if circular json
+        await testPKC.destroy();
     });
 
-    it(`Plebbit({kuboRpcClientsOptions}) uses specified node even if ipfs node is down`, async () => {
+    it(`PKC({kuboRpcClientsOptions}) uses specified node even if ipfs node is down`, async () => {
         // RPC exception
         const url = "http://localhost:12323/api/v0"; // Should be offline
-        const plebbit = await Plebbit({ kuboRpcClientsOptions: [url], httpRoutersOptions: [] });
+        const plebbit = await PKC({ kuboRpcClientsOptions: [url], httpRoutersOptions: [] });
 
         expect(Object.keys(plebbit.clients.ipfsGateways).sort()).to.deep.equal(defaultIpfsGatewayUrls.sort());
         expect(Object.keys(plebbit.clients.pubsubKuboRpcClients)).to.deep.equal([url]);
@@ -72,11 +72,11 @@ describe("Plebbit options", async () => {
         await plebbit.destroy();
     });
 
-    itIfRpc(`Plebbit({plebbitRpcClientsOptions}) sets up correctly`, async () => {
+    itIfRpc(`PKC({pkcRpcClientsOptions}) sets up correctly`, async () => {
         const rpcUrl = "ws://localhost:39652";
-        const plebbit = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], httpRoutersOptions: [] });
+        const plebbit = await PKC({ pkcRpcClientsOptions: [rpcUrl], httpRoutersOptions: [] });
         plebbit.on("error", () => {}); // so it doesn't throw when we destroy
-        expect(plebbit.plebbitRpcClientsOptions).to.deep.equal([rpcUrl]);
+        expect(plebbit.pkcRpcClientsOptions).to.deep.equal([rpcUrl]);
         expect(Object.keys(plebbit.clients.plebbitRpcClients)).to.deep.equal([rpcUrl]);
         expect(plebbit.pubsubKuboRpcClientsOptions).to.be.undefined;
         expect(plebbit.nameResolvers).to.be.undefined;
@@ -88,66 +88,66 @@ describe("Plebbit options", async () => {
         await plebbit.destroy();
     });
 
-    it(`Plebbit({dataPath: undefined}) sets plebbit.dataPath to undefined`, async () => {
-        const plebbit = await Plebbit({ dataPath: undefined, httpRoutersOptions: [] });
+    it(`PKC({dataPath: undefined}) sets plebbit.dataPath to undefined`, async () => {
+        const plebbit = await PKC({ dataPath: undefined, httpRoutersOptions: [] });
         expect(plebbit.dataPath).to.be.undefined;
         await plebbit.destroy();
     });
 
     itIfRpc("Error is thrown if RPC is down", async () => {
-        const plebbit = await mockRpcRemotePlebbit({ plebbitOptions: { plebbitRpcClientsOptions: ["ws://localhost:39650"] } }); // Already has RPC config
+        const plebbit = await mockRpcRemotePKC({ plebbitOptions: { pkcRpcClientsOptions: ["ws://localhost:39650"] } }); // Already has RPC config
         // plebbit.subplebbits will take 20s to timeout and throw this error
         try {
             await plebbit.fetchCid({ cid: "QmYHzA8euDgUpNy3fh7JRwpPwt6jCgF35YTutYkyGGyr8f" }); // random cid
             expect.fail("Should have thrown");
         } catch (e) {
-            expect((e as PlebbitError).code).to.equal("ERR_FAILED_TO_OPEN_CONNECTION_TO_RPC"); // Use the rpc so it would detect it's not loading
+            expect((e as PKCError).code).to.equal("ERR_FAILED_TO_OPEN_CONNECTION_TO_RPC"); // Use the rpc so it would detect it's not loading
         }
         await plebbit.destroy();
     });
 
-    it(`Plebbit({ipfsGateways: undefined}) uses default gateways`, async () => {
-        const plebbit = await Plebbit({ ipfsGatewayUrls: undefined, httpRoutersOptions: [] });
+    it(`PKC({ipfsGateways: undefined}) uses default gateways`, async () => {
+        const plebbit = await PKC({ ipfsGatewayUrls: undefined, httpRoutersOptions: [] });
         expect(Object.keys(plebbit.clients.ipfsGateways).sort()).to.deep.equal(defaultIpfsGatewayUrls.sort());
         expect(plebbit.ipfsGatewayUrls.sort()).to.deep.equal(defaultIpfsGatewayUrls.sort());
         JSON.stringify(plebbit); // Will throw an error if circular json
         await plebbit.destroy();
     });
 
-    it(`Plebbit({ipfsGateways: []}) sets plebbit instance to not use gateways`, async () => {
-        const plebbit = await Plebbit({ ipfsGatewayUrls: [], httpRoutersOptions: [] });
+    it(`PKC({ipfsGateways: []}) sets plebbit instance to not use gateways`, async () => {
+        const plebbit = await PKC({ ipfsGatewayUrls: [], httpRoutersOptions: [] });
         expect(plebbit.clients.ipfsGateways).to.deep.equal({});
         expect(plebbit.ipfsGatewayUrls).to.be.undefined;
         JSON.stringify(plebbit); // Will throw an error if circular json
         await plebbit.destroy();
     });
 
-    it(`Plebbit({pubsubKuboRpcClientsOptions: []}) sets plebbit instance to not use pubsub providers`, async () => {
-        const plebbit = await Plebbit({ pubsubKuboRpcClientsOptions: [], httpRoutersOptions: [] });
+    it(`PKC({pubsubKuboRpcClientsOptions: []}) sets plebbit instance to not use pubsub providers`, async () => {
+        const plebbit = await PKC({ pubsubKuboRpcClientsOptions: [], httpRoutersOptions: [] });
         expect(Object.keys(plebbit.clients.pubsubKuboRpcClients)).to.deep.equal([]);
         expect(plebbit.pubsubKuboRpcClientsOptions).to.deep.equal([]);
         JSON.stringify(plebbit); // Will throw an error if circular json
         await plebbit.destroy();
     });
 
-    it(`Plebbit({pubsubKuboRpcClientsOptions: undefined}) sets Plebbit instance to use default pubsub providers`, async () => {
-        const plebbit = await Plebbit({ httpRoutersOptions: [] });
+    it(`PKC({pubsubKuboRpcClientsOptions: undefined}) sets PKC instance to use default pubsub providers`, async () => {
+        const plebbit = await PKC({ httpRoutersOptions: [] });
         const defaultPubsubKuboRpcClientsOptions = ["https://pubsubprovider.xyz/api/v0", "https://plebpubsub.xyz/api/v0"];
         expect(Object.keys(plebbit.clients.pubsubKuboRpcClients).sort()).to.deep.equal(defaultPubsubKuboRpcClientsOptions.sort());
         JSON.stringify(plebbit); // Will throw an error if circular json
         await plebbit.destroy();
     });
 
-    it(`Plebbit({kuboRpcClientsOptions: []}) sets plebbit instance to not use kubo providers`, async () => {
-        const plebbit = await Plebbit({ kuboRpcClientsOptions: [], httpRoutersOptions: [] });
+    it(`PKC({kuboRpcClientsOptions: []}) sets plebbit instance to not use kubo providers`, async () => {
+        const plebbit = await PKC({ kuboRpcClientsOptions: [], httpRoutersOptions: [] });
         expect(plebbit.clients.kuboRpcClients).to.deep.equal({});
         expect(plebbit.kuboRpcClientsOptions).to.deep.equal([]);
         JSON.stringify(plebbit); // Will throw an error if circular json
         await plebbit.destroy();
     });
 
-    it(`Plebbit({libp2pJsClientsOptions: [{key}], pubsubKuboRpcClientsOptions: []}) sets plebbit instance to use default libp2pjs options`, async () => {
-        const plebbit = await Plebbit({
+    it(`PKC({libp2pJsClientsOptions: [{key}], pubsubKuboRpcClientsOptions: []}) sets plebbit instance to use default libp2pjs options`, async () => {
+        const plebbit = await PKC({
             libp2pJsClientsOptions: [{ key: "random" }],
             httpRoutersOptions: ["https://notexist.com"],
             dataPath: undefined,
@@ -161,8 +161,8 @@ describe("Plebbit options", async () => {
         await plebbit.destroy();
     });
 
-    it(`Plebbit({libp2pJsClientsOptions: [{key}]}) sets plebbit instance to use default libp2pjs options`, async () => {
-        const plebbit = await Plebbit({
+    it(`PKC({libp2pJsClientsOptions: [{key}]}) sets plebbit instance to use default libp2pjs options`, async () => {
+        const plebbit = await PKC({
             libp2pJsClientsOptions: [{ key: "random" }],
             httpRoutersOptions: ["https://notexist.com"],
             dataPath: undefined
@@ -175,14 +175,14 @@ describe("Plebbit options", async () => {
         await plebbit.destroy();
     });
 
-    it(`Plebbit({nameResolvers: [...]}) sets plebbit.nameResolvers correctly`, async () => {
+    it(`PKC({nameResolvers: [...]}) sets plebbit.nameResolvers correctly`, async () => {
         const mockResolver = {
             key: "test-resolver",
             resolve: async (): Promise<{ publicKey: string; [key: string]: string } | undefined> => undefined,
             canResolve: (): boolean => true,
             provider: "test-provider"
         };
-        const plebbit = await Plebbit({
+        const plebbit = await PKC({
             nameResolvers: [mockResolver],
             httpRoutersOptions: []
         });
@@ -193,11 +193,11 @@ describe("Plebbit options", async () => {
 });
 
 describe("plebbit.createSigner", async () => {
-    let plebbit: PlebbitType;
+    let plebbit: PKCType;
     let signer: SignerType;
     const isBase64 = (testString: string): boolean => /^([0-9a-zA-Z+/]{4})*(([0-9a-zA-Z+/]{2}==)|([0-9a-zA-Z+/]{3}))?$/gm.test(testString);
     beforeAll(async () => {
-        plebbit = await mockRemotePlebbit();
+        plebbit = await mockRemotePKC();
         signer = await plebbit.createSigner();
     });
 
@@ -233,8 +233,8 @@ describe("plebbit.createSigner", async () => {
 
 describe(`plebbit.destroy`, async () => {
     it("Should succeed if we have a comment and a subplebbit already updating", async () => {
-        const plebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
-        const subplebbit = await plebbit.getSubplebbit({ address: fixtureSigner.address });
+        const plebbit = await mockPKCNoDataPathWithOnlyKuboClient();
+        const subplebbit = await plebbit.getCommunity({ address: fixtureSigner.address });
         const commentCid = subplebbit.posts.pages.hot.comments[0].cid;
 
         const comment = await plebbit.createComment({ cid: commentCid });
@@ -244,13 +244,13 @@ describe(`plebbit.destroy`, async () => {
 
         await plebbit.destroy(); // should not fail
         expect(plebbit._updatingComments[commentCid]).to.not.exist;
-        expect(plebbit._updatingSubplebbits[comment.communityAddress]).to.not.exist;
+        expect(plebbit._updatingCommunitys[comment.communityAddress]).to.not.exist;
         expect(comment.state).to.equal("stopped");
     });
 
     it(`plebbit.destroy() should not fail if you stop reply and immedietly destroy plebbit after`, async () => {
-        const plebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
-        const subplebbit = await plebbit.getSubplebbit({ address: fixtureSigner.address });
+        const plebbit = await mockPKCNoDataPathWithOnlyKuboClient();
+        const subplebbit = await plebbit.getCommunity({ address: fixtureSigner.address });
         const replyCid = subplebbit.posts.pages.hot.comments.find((post) => post.replies?.pages?.best?.comments?.length > 0).replies.pages
             .best.comments[0].cid;
 
@@ -265,24 +265,24 @@ describe(`plebbit.destroy`, async () => {
     });
 
     it(`after destroying plebbit, nobody can use any function of plebbit`, async () => {
-        const plebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
+        const plebbit = await mockPKCNoDataPathWithOnlyKuboClient();
         await plebbit.destroy();
         try {
             await plebbit.fetchCid({ cid: "QmYHzA8euDgUpNy3fh7JRwpPwt6jCgF35YTutYkyGGyr8f" });
             expect.fail("Should have thrown");
         } catch (e) {
-            expect((e as PlebbitError).code).to.equal("ERR_PKC_IS_DESTROYED");
+            expect((e as PKCError).code).to.equal("ERR_PKC_IS_DESTROYED");
         }
     });
 
-    it(`plebbit.destroy() should not throw if _updatingSubplebbits contains a subplebbit with state "stopped"`, async () => {
-        // Reproduces a race condition where a subplebbit is stored in _updatingSubplebbits
+    it(`plebbit.destroy() should not throw if _updatingCommunitys contains a subplebbit with state "stopped"`, async () => {
+        // Reproduces a race condition where a subplebbit is stored in _updatingCommunitys
         // but hasn't transitioned to "updating" state yet (e.g. during fetchLatestSubOrSubscribeToEvent)
-        const plebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
-        const sub = await plebbit.createSubplebbit({ address: fixtureSigner.address });
+        const plebbit = await mockPKCNoDataPathWithOnlyKuboClient();
+        const sub = await plebbit.createCommunity({ address: fixtureSigner.address });
         expect(sub.state).to.equal("stopped");
         // Simulate the race: sub is in the map but still in "stopped" state
-        plebbit._updatingSubplebbits[sub.address] = sub;
+        plebbit._updatingCommunitys[sub.address] = sub;
         await plebbit.destroy(); // should not throw
         expect(sub.state).to.equal("stopped");
     });
@@ -290,7 +290,7 @@ describe(`plebbit.destroy`, async () => {
 
 describeIfRpc(`plebbit.clients.plebbitRpcClients`, async () => {
     it(`plebbit.clients.plebbitRpcClients.state`, async () => {
-        const plebbit = await mockRpcRemotePlebbit();
+        const plebbit = await mockRpcRemotePKC();
         const rpcClient = plebbit.clients.plebbitRpcClients[Object.keys(plebbit.clients.plebbitRpcClients)[0]];
 
         const rpcStates: string[] = [];
@@ -306,7 +306,7 @@ describeIfRpc(`plebbit.clients.plebbitRpcClients`, async () => {
     });
     it(`plebbit.clients.plebbitRpcClients.rpcCall`);
     it(`plebbit.clients.plebbitRpcClients.setSettings`, async () => {
-        const plebbit = await mockRpcRemotePlebbit();
+        const plebbit = await mockRpcRemotePKC();
         const rpcClient = plebbit.clients.plebbitRpcClients[Object.keys(plebbit.clients.plebbitRpcClients)[0]];
         const settingsPromise = new Promise((resolve) => rpcClient.once("settingschange", resolve));
         const allSettings: unknown[] = [];
@@ -327,7 +327,7 @@ describeIfRpc(`plebbit.clients.plebbitRpcClients`, async () => {
         await plebbit.destroy();
     });
     it(`plebbit.clients.plebbitRpcClients.settings is defined after awaiting settingschange`, async () => {
-        const plebbit = await mockRpcRemotePlebbit();
+        const plebbit = await mockRpcRemotePKC();
         const rpcClient = plebbit.clients.plebbitRpcClients[Object.keys(plebbit.clients.plebbitRpcClients)[0]];
         if (!rpcClient.settings) await new Promise((resolve) => rpcClient.once("settingschange", resolve));
         expect(rpcClient.settings.plebbitOptions).to.be.a("object");
@@ -341,7 +341,7 @@ if (!globalThis["navigator"]?.userAgent?.includes("Firefox"))
     describe("Authentication in kuboRpcClientsOptions and pubsubKuboRpcClientsOptions", async () => {
         it(`Authorization credentials are generated correctly`, async () => {
             // RPC exception
-            const plebbit = await Plebbit({
+            const plebbit = await PKC({
                 kuboRpcClientsOptions: ["http://user:password@localhost:15001/api/v0"],
                 pubsubKuboRpcClientsOptions: ["http://user:password@localhost:15002/api/v0"],
                 httpRoutersOptions: [],

@@ -3,14 +3,14 @@ import {
     resolveWhenConditionIsTrue,
     publishRandomReply,
     describeSkipIfRpc,
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     publishRandomPost,
-    createStaticSubplebbitRecordForComment
+    createStaticCommunityRecordForComment
 } from "../../../../../dist/node/test/test-util.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { PlebbitError } from "../../../../../dist/node/pkc-error.js";
+import type { PKCError } from "../../../../../dist/node/pkc-error.js";
 import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
-import type { Plebbit } from "../../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
 // Helper type to access private properties for testing
 type CommentClientsManagerWithInternals = {
     _parentFirstPageCidsAlreadyLoaded: Set<string>;
@@ -93,22 +93,22 @@ const cleanupStateArray = (states: string[]): string[] => {
     return filteredStates;
 };
 
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
     describeSkipIfRpc.concurrent(`reply.updatingState - ${config.name}`, async () => {
         let replyCid: string;
         beforeAll(async () => {
-            const tempPlebbit = await config.plebbitInstancePromise();
-            const sub = await tempPlebbit.getSubplebbit({ address: subplebbitAddress });
-            const post = await publishRandomPost({ communityAddress: sub.address, plebbit: tempPlebbit });
-            const reply = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: tempPlebbit });
+            const tempPKC = await config.plebbitInstancePromise();
+            const sub = await tempPKC.getCommunity({ address: subplebbitAddress });
+            const post = await publishRandomPost({ communityAddress: sub.address, plebbit: tempPKC });
+            const reply = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: tempPKC });
             replyCid = reply.cid;
-            await tempPlebbit.destroy();
+            await tempPKC.destroy();
         });
 
         it.sequential(`Updating states is in correct upon updating a reply that's included in preloaded pages of its parent`, async () => {
             const plebbit = await config.plebbitInstancePromise();
             try {
-                const sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
+                const sub = await plebbit.getCommunity({ address: subplebbitAddress });
                 // we don't want domain name in author addrses so its resolving doesn't get included in expected states
                 const postWithMostReplies = sub.posts.pages.hot.comments.reduce((current, post) => {
                     if (!post.replies) {
@@ -154,11 +154,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                 await plebbit.destroy();
             }
         });
-        it(`updating state of reply is set to failed if sub has an invalid Subplebbit record`, async () => {
+        it(`updating state of reply is set to failed if sub has an invalid Community record`, async () => {
             const plebbit = await config.plebbitInstancePromise();
             try {
-                const { commentCid: mockedReplyCid, communityAddress: subAddress } = await createStaticSubplebbitRecordForComment({
-                    invalidateSubplebbitSignature: true
+                const { commentCid: mockedReplyCid, communityAddress: subAddress } = await createStaticCommunityRecordForComment({
+                    invalidateCommunitySignature: true
                 });
 
                 const mockReply = await plebbit.createComment({ cid: mockedReplyCid, communityAddress: subAddress });
@@ -169,7 +169,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                 const createErrorPromise = () =>
                     new Promise<void>((resolve) =>
                         mockReply.once("error", (err) => {
-                            if ((err as PlebbitError).code === "ERR_COMMUNITY_SIGNATURE_IS_INVALID") resolve();
+                            if ((err as PKCError).code === "ERR_COMMUNITY_SIGNATURE_IS_INVALID") resolve();
                         })
                     );
                 await mockReply.update();
@@ -196,12 +196,12 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
     });
 });
 
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
     describe.concurrent(`reply.updatingState - ${config.name}`, async () => {
         it(`updating state of reply is in correct order upon updating a reply that's included in preloaded pages of its parent`, async () => {
             const plebbit = await config.plebbitInstancePromise();
             try {
-                const sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
+                const sub = await plebbit.getCommunity({ address: subplebbitAddress });
                 // we don't want domain name in author addrses so its resolving doesn't get included in expected states
                 const replyCid = sub.posts.pages.hot.comments.find((post) => post.replies && !post.author.address.includes(".")).replies
                     .pages.best.comments[0].cid;
@@ -230,12 +230,12 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
             }
         });
 
-        it(`updating state of reply is set to failed if sub has an invalid Subplebbit record`, async () => {
+        it(`updating state of reply is set to failed if sub has an invalid Community record`, async () => {
             const plebbit = await config.plebbitInstancePromise();
             try {
-                const { commentCid: mockedReplyCid, communityAddress: subAddress } = await createStaticSubplebbitRecordForComment({
+                const { commentCid: mockedReplyCid, communityAddress: subAddress } = await createStaticCommunityRecordForComment({
                     plebbit,
-                    invalidateSubplebbitSignature: true,
+                    invalidateCommunitySignature: true,
                     commentOptions: {
                         content: `Mock reply content - ${Date.now()}`
                     }
@@ -249,7 +249,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
                     new Promise<void>((resolve) =>
                         mockReply.once("error", (err) => {
                             if (
-                                (err as PlebbitError).details.gatewayToError["http://localhost:18080"].code ===
+                                (err as PKCError).details.gatewayToError["http://localhost:18080"].code ===
                                 "ERR_COMMUNITY_SIGNATURE_IS_INVALID"
                             )
                                 resolve();
@@ -279,9 +279,9 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
     });
 });
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describeSkipIfRpc.concurrent(`reply.updatingState - ${config.name}`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
         });
@@ -291,7 +291,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`the order of state-event-statechange is correct when we get a new update from reply`, async () => {
-            const sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.getCommunity({ address: subplebbitAddress });
             const replyCid = sub.posts.pages.hot.comments.find((post: { replies?: unknown }) => post.replies).replies.pages.best.comments[0]
                 .cid;
             const mockReply = await plebbit.createComment({ cid: replyCid });

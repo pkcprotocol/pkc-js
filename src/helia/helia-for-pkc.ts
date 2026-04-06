@@ -9,15 +9,15 @@ import { MemoryBlockstore } from "blockstore-core";
 import { delegatedRoutingV1HttpApiClient } from "@helia/delegated-routing-v1-http-api-client";
 import { unixfs } from "@helia/unixfs";
 import { fetch as libp2pFetch } from "@libp2p/fetch";
-import { createIpnsFetchRouter, PlebbitIpnsGetOptions } from "./ipns-over-pubsub-with-fetch.js";
+import { createIpnsFetchRouter, PKCIpnsGetOptions } from "./ipns-over-pubsub-with-fetch.js";
 import { pubsub as createIpnsPubusubRouter } from "@helia/ipns/routing";
 import Logger from "../logger.js";
 import type { AddResult, NameResolveOptions as KuboNameResolveOptions } from "kubo-rpc-client";
-import type { IpfsHttpClientPubsubMessage, ParsedPlebbitOptions } from "../types.js";
+import type { IpfsHttpClientPubsubMessage, ParsedPKCOptions } from "../types.js";
 
 import { EventEmitter } from "events";
 import type { HeliaWithLibp2pPubsub } from "./types.js";
-import { PlebbitError } from "../pkc-error.js";
+import { PKCError } from "../pkc-error.js";
 import { Libp2pJsClient } from "./libp2pjsClient.js";
 import { connectToPubsubPeers } from "./util.js";
 
@@ -45,8 +45,7 @@ function getDelegatedRoutingFields(routers: string[]) {
 }
 
 export async function createLibp2pJsClientOrUseExistingOne(
-    plebbitOptions: Required<Pick<ParsedPlebbitOptions, "httpRoutersOptions">> &
-        NonNullable<ParsedPlebbitOptions["libp2pJsClientsOptions"]>[number]
+    plebbitOptions: Required<Pick<ParsedPKCOptions, "httpRoutersOptions">> & NonNullable<ParsedPKCOptions["libp2pJsClientsOptions"]>[number]
 ): Promise<Libp2pJsClient> {
     if (!plebbitOptions.httpRoutersOptions?.length) throw Error("You need to have plebbit.httpRouterOptions to set up helia");
     const existingClient = libp2pJsClients[plebbitOptions.key];
@@ -112,7 +111,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
 
         const throwIfHeliaIsStoppingOrStopped = () => {
             if (helia.libp2p.status === "stopped" || helia.libp2p.status === "stopping")
-                throw new PlebbitError("ERR_HELIAS_STOPPING_OR_STOPPED", {
+                throw new PKCError("ERR_HELIAS_STOPPING_OR_STOPPED", {
                     heliaStatus: helia.libp2p.status,
                     heliaKey: plebbitOptions.key,
                     heliaPeerId: helia.libp2p.peerId.toString(),
@@ -132,13 +131,13 @@ export async function createLibp2pJsClientOrUseExistingOne(
                             const result = await ipnsNameResolver.resolve(ipnsNameAsPeerId.toMultihash(), {
                                 ...options,
                                 ipnsName
-                            } as PlebbitIpnsGetOptions);
+                            } as PKCIpnsGetOptions);
                             yield result.record.value;
                             return;
                         } catch (err) {
                             const error = <Error>err;
                             if (error.name === "NotFoundError" || error.name === "RecordNotFoundError")
-                                throw new PlebbitError("ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED", {
+                                throw new PKCError("ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED", {
                                     heliaError: err,
                                     ipnsName,
                                     ipnsResolveOptions: options

@@ -1,12 +1,12 @@
 import signers from "../../fixtures/signers.js";
 import {
     createMockNameResolver,
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     publishWithExpectedResult
 } from "../../../dist/node/test/test-util.js";
 import { afterAll, beforeAll, it, vi } from "vitest";
 
-import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type Publication from "../../../dist/node/publications/publication.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { SignerType } from "../../../dist/node/signer/types.js";
@@ -26,7 +26,7 @@ type WirePublication = Record<string, unknown> & {
     subplebbitAddress?: string;
 };
 
-function expectCreateSubplebbitFallbackArgs(plebbitSpy: SpyWithCalls) {
+function expectCreateCommunityFallbackArgs(plebbitSpy: SpyWithCalls) {
     expect(plebbitSpy.mock.calls.length).to.be.greaterThan(0);
 
     for (const call of plebbitSpy.mock.calls) {
@@ -49,16 +49,16 @@ function expectWireCommunityFields(publication: Publication) {
     expect(wirePublication).to.not.have.property("subplebbitAddress");
 }
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.sequential(`Publication publish community publicKey fallback - ${config.name}`, async () => {
-        let fixturePlebbit: Plebbit;
+        let fixturePKC: PKC;
         let fixturePost: Comment;
         let fixturePostSigner: SignerType;
 
         beforeAll(async () => {
-            fixturePlebbit = await config.plebbitInstancePromise();
-            fixturePostSigner = await fixturePlebbit.createSigner();
-            fixturePost = await fixturePlebbit.createComment({
+            fixturePKC = await config.plebbitInstancePromise();
+            fixturePostSigner = await fixturePKC.createSigner();
+            fixturePost = await fixturePKC.createComment({
                 communityAddress: communityName,
                 communityPublicKey,
                 signer: fixturePostSigner,
@@ -73,7 +73,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         afterAll(async () => {
             await fixturePost.stop();
-            await fixturePlebbit.destroy();
+            await fixturePKC.destroy();
         });
 
         it("Comment publish succeeds with community publicKey fallback", async () => {
@@ -97,18 +97,18 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 title: `Comment fallback publish ${Date.now()}`,
                 content: `Comment fallback content ${Date.now()}`
             });
-            const createSubplebbitSpy = vi.spyOn(plebbit, "createSubplebbit");
+            const createCommunitySpy = vi.spyOn(plebbit, "createCommunity");
 
             try {
                 await publishWithExpectedResult({ publication, expectedChallengeSuccess: true });
                 // Spy and wire format assertions only work for non-RPC
-                // (RPC delegates createSubplebbit to server, and raw.pubsubMessageToPublish may not be populated)
+                // (RPC delegates createCommunity to server, and raw.pubsubMessageToPublish may not be populated)
                 if (config.testConfigCode !== "remote-plebbit-rpc") {
-                    expectCreateSubplebbitFallbackArgs(createSubplebbitSpy);
+                    expectCreateCommunityFallbackArgs(createCommunitySpy);
                     expectWireCommunityFields(publication);
                 }
             } finally {
-                createSubplebbitSpy.mockRestore();
+                createCommunitySpy.mockRestore();
                 await publication.stop();
                 await plebbit.destroy();
             }
@@ -133,16 +133,16 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 vote: 1,
                 signer: await plebbit.createSigner()
             });
-            const createSubplebbitSpy = vi.spyOn(plebbit, "createSubplebbit");
+            const createCommunitySpy = vi.spyOn(plebbit, "createCommunity");
 
             try {
                 await publishWithExpectedResult({ publication, expectedChallengeSuccess: true });
                 if (config.testConfigCode !== "remote-plebbit-rpc") {
-                    expectCreateSubplebbitFallbackArgs(createSubplebbitSpy);
+                    expectCreateCommunityFallbackArgs(createCommunitySpy);
                     expectWireCommunityFields(publication);
                 }
             } finally {
-                createSubplebbitSpy.mockRestore();
+                createCommunitySpy.mockRestore();
                 await publication.stop();
                 await plebbit.destroy();
             }
@@ -167,16 +167,16 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 content: `Comment edit fallback ${Date.now()}`,
                 signer: fixturePost.signer!
             });
-            const createSubplebbitSpy = vi.spyOn(plebbit, "createSubplebbit");
+            const createCommunitySpy = vi.spyOn(plebbit, "createCommunity");
 
             try {
                 await publishWithExpectedResult({ publication, expectedChallengeSuccess: true });
                 if (config.testConfigCode !== "remote-plebbit-rpc") {
-                    expectCreateSubplebbitFallbackArgs(createSubplebbitSpy);
+                    expectCreateCommunityFallbackArgs(createCommunitySpy);
                     expectWireCommunityFields(publication);
                 }
             } finally {
-                createSubplebbitSpy.mockRestore();
+                createCommunitySpy.mockRestore();
                 await publication.stop();
                 await plebbit.destroy();
             }
@@ -204,22 +204,22 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 },
                 signer: await plebbit.createSigner(signers[3])
             });
-            const createSubplebbitSpy = vi.spyOn(plebbit, "createSubplebbit");
+            const createCommunitySpy = vi.spyOn(plebbit, "createCommunity");
 
             try {
                 await publishWithExpectedResult({ publication, expectedChallengeSuccess: true });
                 if (config.testConfigCode !== "remote-plebbit-rpc") {
-                    expectCreateSubplebbitFallbackArgs(createSubplebbitSpy);
+                    expectCreateCommunityFallbackArgs(createCommunitySpy);
                     expectWireCommunityFields(publication);
                 }
             } finally {
-                createSubplebbitSpy.mockRestore();
+                createCommunitySpy.mockRestore();
                 await publication.stop();
                 await plebbit.destroy();
             }
         });
 
-        it("SubplebbitEdit publish succeeds with community publicKey fallback", async () => {
+        it("CommunityEdit publish succeeds with community publicKey fallback", async () => {
             const plebbit = await config.plebbitInstancePromise({
                 mockResolve: false,
                 plebbitOptions: {
@@ -231,24 +231,24 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     ]
                 }
             });
-            const publication = await plebbit.createSubplebbitEdit({
+            const publication = await plebbit.createCommunityEdit({
                 communityAddress: communityName,
                 communityPublicKey,
                 subplebbitEdit: {
-                    description: `Subplebbit edit fallback ${Date.now()}`
+                    description: `Community edit fallback ${Date.now()}`
                 },
                 signer: await plebbit.createSigner(signers[1])
             });
-            const createSubplebbitSpy = vi.spyOn(plebbit, "createSubplebbit");
+            const createCommunitySpy = vi.spyOn(plebbit, "createCommunity");
 
             try {
                 await publishWithExpectedResult({ publication, expectedChallengeSuccess: true });
                 if (config.testConfigCode !== "remote-plebbit-rpc") {
-                    expectCreateSubplebbitFallbackArgs(createSubplebbitSpy);
+                    expectCreateCommunityFallbackArgs(createCommunitySpy);
                     expectWireCommunityFields(publication);
                 }
             } finally {
-                createSubplebbitSpy.mockRestore();
+                createCommunitySpy.mockRestore();
                 await publication.stop();
                 await plebbit.destroy();
             }

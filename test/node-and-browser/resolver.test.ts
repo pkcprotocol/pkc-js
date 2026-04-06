@@ -3,23 +3,23 @@ import signers from "../fixtures/signers.js";
 import { messages } from "../../dist/node/errors.js";
 import {
     createMockNameResolver,
-    mockRemotePlebbit,
+    mockRemotePKC,
     publishWithExpectedResult,
     publishRandomPost,
     itSkipIfRpc,
     describeSkipIfRpc,
     mockNameResolvers,
-    mockPlebbitV2
+    mockPKCV2
 } from "../../dist/node/test/test-util.js";
-import type { Plebbit } from "../../dist/node/pkc/pkc.js";
-import type { RemoteSubplebbit } from "../../dist/node/community/remote-community.js";
+import type { PKC } from "../../dist/node/pkc/pkc.js";
+import type { RemoteCommunity } from "../../dist/node/community/remote-community.js";
 import type { Comment } from "../../dist/node/publications/comment/comment.js";
 import { NameResolverSchema } from "../../dist/node/schema.js";
 
 describe("Comments with Authors as domains", async () => {
-    let plebbit: Plebbit;
+    let plebbit: PKC;
     beforeAll(async () => {
-        plebbit = await mockRemotePlebbit();
+        plebbit = await mockRemotePKC();
     });
 
     afterAll(async () => {
@@ -27,7 +27,7 @@ describe("Comments with Authors as domains", async () => {
     });
 
     it(`Sub accepts posts with author.name as a domain that resolves to comment signer `, async () => {
-        // mockRemotePlebbit resolves plebbit.bso to signers[3]
+        // mockRemotePKC resolves plebbit.bso to signers[3]
         const mockPost = await plebbit.createComment({
             author: { displayName: `Mock Author - ${Date.now()}`, name: "plebbit.bso" },
             signer: signers[3],
@@ -47,21 +47,21 @@ describe("Comments with Authors as domains", async () => {
         expect((mockPost as Comment & { ipnsKeyName?: string }).ipnsKeyName).to.be.undefined;
     });
 
-    itSkipIfRpc(`Subplebbit rejects a comment if author.name resolves to a different address than signer`, async () => {
+    itSkipIfRpc(`Community rejects a comment if author.name resolves to a different address than signer`, async () => {
         // There are two mocks of resolveAuthorNameIfNeeded, one returns null on testgibbreish.bso (server side) and this one returns signers[6]
         // The purpose is to test whether server rejects publications whose claimed author.name resolves to another signer
 
         const authorAddress = "testgibbreish.bso";
-        const tempPlebbit = await mockPlebbitV2({
+        const tempPKC = await mockPKCV2({
             stubStorage: false,
-            remotePlebbit: true,
+            remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [createMockNameResolver({ records: { [authorAddress]: signers[6].address } })]
             }
         });
 
-        const mockPost = await tempPlebbit.createComment({
+        const mockPost = await tempPKC.createComment({
             author: { displayName: `Mock Author - ${Date.now()}`, name: authorAddress },
             signer: signers[6],
             content: `Mock comment - ${Date.now()}`,
@@ -77,17 +77,17 @@ describe("Comments with Authors as domains", async () => {
             expectedReason: messages.ERR_AUTHOR_DOMAIN_RESOLVES_TO_DIFFERENT_SIGNER
         });
         expect(mockPost.author.address).to.equal("testgibbreish.bso");
-        await tempPlebbit.destroy();
+        await tempPKC.destroy();
     });
 });
 
 describe(`Vote with authors as domains`, async () => {
-    let plebbit: Plebbit;
-    let subplebbit: RemoteSubplebbit;
+    let plebbit: PKC;
+    let subplebbit: RemoteCommunity;
     let comment: Comment;
     beforeAll(async () => {
-        plebbit = await mockRemotePlebbit();
-        subplebbit = await plebbit.getSubplebbit({ address: signers[0].address });
+        plebbit = await mockRemotePKC();
+        subplebbit = await plebbit.getCommunity({ address: signers[0].address });
         comment = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
     });
 
@@ -95,18 +95,18 @@ describe(`Vote with authors as domains`, async () => {
         await plebbit.destroy();
     });
 
-    itSkipIfRpc(`Subplebbit rejects a Vote with author.name (domain) that resolves to a different signer`, async () => {
+    itSkipIfRpc(`Community rejects a Vote with author.name (domain) that resolves to a different signer`, async () => {
         const authorAddress = "testgibbreish.bso";
-        const tempPlebbit = await mockPlebbitV2({
+        const tempPKC = await mockPKCV2({
             stubStorage: false,
-            remotePlebbit: true,
+            remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [createMockNameResolver({ records: { [authorAddress]: signers[6].address } })]
             }
         });
 
-        const vote = await tempPlebbit.createVote({
+        const vote = await tempPKC.createVote({
             author: { name: authorAddress },
             signer: signers[6],
             commentCid: comment.cid!,
@@ -121,14 +121,14 @@ describe(`Vote with authors as domains`, async () => {
             expectedReason: messages.ERR_AUTHOR_DOMAIN_RESOLVES_TO_DIFFERENT_SIGNER
         });
         expect(vote.author.address).to.equal("testgibbreish.bso");
-        await tempPlebbit.destroy();
+        await tempPKC.destroy();
     });
 });
 
 describeSkipIfRpc(`nameResolver resolution`, async () => {
     it(`nameResolver receives the original address (no normalization)`, async () => {
-        const plebbit = await mockPlebbitV2({
-            remotePlebbit: true,
+        const plebbit = await mockPKCV2({
+            remotePKC: true,
             mockResolve: false
         });
 
@@ -151,8 +151,8 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
     });
 
     it(`nameResolver resolves plebbit-author-address correctly`, async () => {
-        const plebbit = await mockPlebbitV2({
-            remotePlebbit: true,
+        const plebbit = await mockPKCV2({
+            remotePKC: true,
             mockResolve: false
         });
 
@@ -172,8 +172,8 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
     });
 
     it(`Serial resolution: first resolver that returns a value wins`, async () => {
-        const plebbit = await mockPlebbitV2({
-            remotePlebbit: true,
+        const plebbit = await mockPKCV2({
+            remotePKC: true,
             mockResolve: false
         });
 
@@ -208,8 +208,8 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
     });
 
     it(`Failing resolver is skipped, next resolver is tried`, async () => {
-        const plebbit = await mockPlebbitV2({
-            remotePlebbit: true,
+        const plebbit = await mockPKCV2({
+            remotePKC: true,
             mockResolve: false
         });
 
@@ -239,11 +239,11 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
 });
 
 describe("Comments with Authors as .bso domains", async () => {
-    let plebbit: Plebbit;
+    let plebbit: PKC;
     beforeAll(async () => {
-        plebbit = await mockPlebbitV2({
+        plebbit = await mockPKCV2({
             stubStorage: false,
-            remotePlebbit: true,
+            remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [createMockNameResolver({ includeDefaultRecords: true })]
@@ -275,8 +275,8 @@ describeSkipIfRpc(`nameResolver canResolve filtering`, async () => {
         const expectedIpns = "12D3KooWJJcSwxH2F3sFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
         const resolverCalls: string[] = [];
 
-        const plebbit = await mockPlebbitV2({
-            remotePlebbit: true,
+        const plebbit = await mockPKCV2({
+            remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [
@@ -313,8 +313,8 @@ describeSkipIfRpc(`nameResolver canResolve filtering`, async () => {
         const tonIpns = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
         const resolverCalls: string[] = [];
 
-        const plebbit = await mockPlebbitV2({
-            remotePlebbit: true,
+        const plebbit = await mockPKCV2({
+            remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [
@@ -352,8 +352,8 @@ describeSkipIfRpc(`nameResolver canResolve filtering`, async () => {
     });
 
     it(`Throws ERR_NO_RESOLVER_FOR_NAME when all canResolve return false`, async () => {
-        const plebbit = await mockPlebbitV2({
-            remotePlebbit: true,
+        const plebbit = await mockPKCV2({
+            remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [
@@ -379,8 +379,8 @@ describeSkipIfRpc(`nameResolver canResolve filtering`, async () => {
 
 describeSkipIfRpc(`nameResolver error edge cases`, async () => {
     it(`Throws ERR_NO_RESOLVER_FOR_NAME when nameResolvers is an empty array`, async () => {
-        const plebbit = await mockPlebbitV2({
-            remotePlebbit: true,
+        const plebbit = await mockPKCV2({
+            remotePKC: true,
             mockResolve: false,
             plebbitOptions: { nameResolvers: [] }
         });
@@ -395,7 +395,7 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
     });
 
     it(`Throws ERR_NO_RESOLVER_FOR_NAME when nameResolvers is undefined`, async () => {
-        const plebbit = await mockPlebbitV2({ remotePlebbit: true, mockResolve: false });
+        const plebbit = await mockPKCV2({ remotePKC: true, mockResolve: false });
 
         try {
             await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
@@ -407,8 +407,8 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
     });
 
     it(`Throws ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS when resolve returns a non-IPNS publicKey`, async () => {
-        const plebbit = await mockPlebbitV2({
-            remotePlebbit: true,
+        const plebbit = await mockPKCV2({
+            remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [
@@ -432,8 +432,8 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
     });
 
     it(`Returns null when all resolvers throw errors`, async () => {
-        const plebbit = await mockPlebbitV2({
-            remotePlebbit: true,
+        const plebbit = await mockPKCV2({
+            remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [
@@ -463,8 +463,8 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
     });
 
     it(`Returns null when all resolvers return undefined`, async () => {
-        const plebbit = await mockPlebbitV2({
-            remotePlebbit: true,
+        const plebbit = await mockPKCV2({
+            remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [
@@ -495,8 +495,8 @@ describeSkipIfRpc(`nameResolver provider argument passthrough`, async () => {
         const expectedIpns = "12D3KooWJJcSwxH2F3sFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
         let receivedProvider: string | undefined;
 
-        const plebbit = await mockPlebbitV2({
-            remotePlebbit: true,
+        const plebbit = await mockPKCV2({
+            remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [
@@ -523,8 +523,8 @@ describeSkipIfRpc(`nameResolver abortSignal support`, async () => {
     it(`Resolver can use abortSignal to cancel resolution`, async () => {
         let receivedSignal: AbortSignal | undefined;
 
-        const plebbit = await mockPlebbitV2({
-            remotePlebbit: true,
+        const plebbit = await mockPKCV2({
+            remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [
@@ -553,8 +553,8 @@ describeSkipIfRpc(`nameResolver resolution behavior`, async () => {
     it(`resolveCommunityNameIfNeeded returns IPNS address as-is without calling resolvers`, async () => {
         let resolverCalled = false;
 
-        const plebbit = await mockPlebbitV2({
-            remotePlebbit: true,
+        const plebbit = await mockPKCV2({
+            remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [
@@ -579,8 +579,8 @@ describeSkipIfRpc(`nameResolver resolution behavior`, async () => {
     });
 
     it(`resolveAuthorNameIfNeeded throws ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58 for non-domain address`, async () => {
-        const plebbit = await mockPlebbitV2({
-            remotePlebbit: true,
+        const plebbit = await mockPKCV2({
+            remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [
@@ -611,8 +611,8 @@ describeSkipIfRpc(`nameResolver resolution behavior`, async () => {
         const secondIpns = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
         let callCount = 0;
 
-        const plebbit = await mockPlebbitV2({
-            remotePlebbit: true,
+        const plebbit = await mockPKCV2({
+            remotePKC: true,
             mockResolve: false,
             stubStorage: false,
             plebbitOptions: {
@@ -704,7 +704,7 @@ describeSkipIfRpc(`nameResolver schema validation`, async () => {
 
 describeSkipIfRpc(`plebbit._clientsManager.clients.nameResolvers initialization`, async () => {
     it(`Creates NameResolverClient instances for each resolver key`, async () => {
-        const plebbit = await mockPlebbitV2({ remotePlebbit: true, mockResolve: true });
+        const plebbit = await mockPKCV2({ remotePKC: true, mockResolve: true });
         const keys = Object.keys(plebbit._clientsManager.clients.nameResolvers);
         expect(keys.length).to.be.greaterThanOrEqual(1);
         expect(keys).to.include("mock-resolver");
@@ -713,7 +713,7 @@ describeSkipIfRpc(`plebbit._clientsManager.clients.nameResolvers initialization`
     });
 
     it(`No NameResolverClient instances when nameResolvers is undefined`, async () => {
-        const plebbit = await mockPlebbitV2({ remotePlebbit: true, mockResolve: false });
+        const plebbit = await mockPKCV2({ remotePKC: true, mockResolve: false });
         const keys = Object.keys(plebbit._clientsManager.clients.nameResolvers);
         expect(keys.length).to.equal(0);
         await plebbit.destroy();
@@ -724,8 +724,8 @@ describeSkipIfRpc(`nameResolver returning extra properties`, async () => {
     it(`Extra properties in resolve return value do not cause errors`, async () => {
         const expectedIpns = "12D3KooWJJcSwxH2F3sFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
 
-        const plebbit = await mockPlebbitV2({
-            remotePlebbit: true,
+        const plebbit = await mockPKCV2({
+            remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [
@@ -755,8 +755,8 @@ describeSkipIfRpc(`nameResolver runtime modification`, async () => {
         const firstIpns = "12D3KooWJJcSwxH2F3sFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
         const secondIpns = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
 
-        const plebbit = await mockPlebbitV2({
-            remotePlebbit: true,
+        const plebbit = await mockPKCV2({
+            remotePKC: true,
             mockResolve: false,
             stubStorage: false,
             plebbitOptions: {
@@ -793,8 +793,8 @@ describeSkipIfRpc(`nameResolver runtime modification`, async () => {
         const ethIpns = "12D3KooWJJcSwxH2F3sFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
         const tonIpns = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
 
-        const plebbit = await mockPlebbitV2({
-            remotePlebbit: true,
+        const plebbit = await mockPKCV2({
+            remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [
@@ -834,11 +834,11 @@ describeSkipIfRpc(`nameResolver runtime modification`, async () => {
 });
 
 describeSkipIfRpc(`CommentEdit with author as domain`, async () => {
-    let plebbit: Plebbit;
+    let plebbit: PKC;
     let postToEdit: Comment;
 
     beforeAll(async () => {
-        plebbit = await mockRemotePlebbit();
+        plebbit = await mockRemotePKC();
         // Publish a post with author.name as domain
         postToEdit = await publishRandomPost({
             communityAddress: signers[0].address,

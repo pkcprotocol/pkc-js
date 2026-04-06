@@ -1,12 +1,12 @@
 const getPendingChallengesOrChallengeVerification = {};
 const getChallengeVerificationFromChallengeAnswers = {};
 const getChallengeVerification = {};
-const getSubplebbitChallengeFromSubplebbitChallengeSettings = {};
+const getCommunityChallengeFromCommunityChallengeSettings = {};
 const plebbitJsChallenges = {};
 export {
     plebbitJsChallenges,
     getPendingChallengesOrChallengeVerification,
     getChallengeVerificationFromChallengeAnswers,
     getChallengeVerification,
-    getSubplebbitChallengeFromSubplebbitChallengeSettings
+    getCommunityChallengeFromCommunityChallengeSettings
 };

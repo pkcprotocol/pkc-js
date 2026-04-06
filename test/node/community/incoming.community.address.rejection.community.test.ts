@@ -5,30 +5,30 @@ import {
     describeSkipIfRpc,
     disableValidationOfSignatureBeforePublishing,
     ensurePublicationIsSigned,
-    mockPlebbit,
+    mockPKC,
     publishRandomPost,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
 import { messages } from "../../../dist/node/errors.js";
 import { _signJson, cleanUpBeforePublishing } from "../../../dist/node/signer/signatures.js";
-import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type Publication from "../../../dist/node/publications/publication.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../dist/node/community/rpc-local-community.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 import type { SignerType } from "../../../dist/node/signer/types.js";
 
 type PublicationWithSigner = Publication & { signer?: SignerType };
 
-describeSkipIfRpc.sequential("LocalSubplebbit rejects publications with wrong community address", async () => {
-    let plebbit: Plebbit;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong community address", async () => {
+    let plebbit: PKC;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
     let targetPost: Comment;
     let moderatorSigner: SignerType;
 
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
+        plebbit = await mockPKC();
         subplebbit = await createSubWithNoChallenge({}, plebbit);
 
         await subplebbit.start();
@@ -66,7 +66,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects publications with wrong co
 
     // --- helpers ---
 
-    async function injectWrongSubplebbitAddress(publication: PublicationWithSigner) {
+    async function injectWrongCommunityAddress(publication: PublicationWithSigner) {
         const log = Logger("pkc-js:test:injectWrongCommunityAddress");
         if (!publication.signer) throw Error("Expected publication to have a signer");
         await ensurePublicationIsSigned(publication, subplebbit);
@@ -75,7 +75,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects publications with wrong co
         const modified = { ...orig } as Record<string, unknown>;
         delete modified.communityPublicKey;
         delete modified.communityName;
-        modified.subplebbitAddress = "QmSomeWrongSubplebbitAddress";
+        modified.subplebbitAddress = "QmSomeWrongCommunityAddress";
 
         const newSignedProps = [
             ...orig.signature.signedPropertyNames.filter((k) => k !== "communityPublicKey" && k !== "communityName"),
@@ -110,7 +110,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects publications with wrong co
             content: `Content ${Date.now()}`,
             signer: await plebbit.createSigner()
         });
-        await injectWrongSubplebbitAddress(comment);
+        await injectWrongCommunityAddress(comment);
         await publishWithExpectedResult({
             publication: comment,
             expectedChallengeSuccess: false,
@@ -158,7 +158,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects publications with wrong co
             communityAddress: subplebbit.address,
             signer: await plebbit.createSigner()
         });
-        await injectWrongSubplebbitAddress(vote);
+        await injectWrongCommunityAddress(vote);
         await publishWithExpectedResult({
             publication: vote,
             expectedChallengeSuccess: false,
@@ -209,7 +209,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects publications with wrong co
             communityAddress: subplebbit.address,
             signer: targetPost.signer
         });
-        await injectWrongSubplebbitAddress(commentEdit);
+        await injectWrongCommunityAddress(commentEdit);
         await publishWithExpectedResult({
             publication: commentEdit,
             expectedChallengeSuccess: false,
@@ -261,7 +261,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects publications with wrong co
             commentModeration: { reason: `Deprecated subplebbitAddress mod ${Date.now()}`, spoiler: true },
             signer: moderatorSigner
         });
-        await injectWrongSubplebbitAddress(commentModeration);
+        await injectWrongCommunityAddress(commentModeration);
         await publishWithExpectedResult({
             publication: commentModeration,
             expectedChallengeSuccess: false,
@@ -306,12 +306,12 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects publications with wrong co
     it("rejects a subplebbitEdit with deprecated subplebbitAddress field", async () => {
         if (!subplebbit.signer || !("privateKey" in subplebbit.signer) || typeof subplebbit.signer.privateKey !== "string")
             throw Error("Expected local subplebbit to expose its owner signer with a private key");
-        const subplebbitEdit = await plebbit.createSubplebbitEdit({
+        const subplebbitEdit = await plebbit.createCommunityEdit({
             communityAddress: subplebbit.address,
             subplebbitEdit: { description: `Deprecated subplebbitAddress sub edit ${Date.now()}` },
             signer: subplebbit.signer as SignerType
         });
-        await injectWrongSubplebbitAddress(subplebbitEdit);
+        await injectWrongCommunityAddress(subplebbitEdit);
         await publishWithExpectedResult({
             publication: subplebbitEdit,
             expectedChallengeSuccess: false,
@@ -322,7 +322,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects publications with wrong co
     it("rejects a subplebbitEdit with wrong communityPublicKey", async () => {
         if (!subplebbit.signer || !("privateKey" in subplebbit.signer) || typeof subplebbit.signer.privateKey !== "string")
             throw Error("Expected local subplebbit to expose its owner signer with a private key");
-        const subplebbitEdit = await plebbit.createSubplebbitEdit({
+        const subplebbitEdit = await plebbit.createCommunityEdit({
             communityAddress: subplebbit.address,
             subplebbitEdit: { description: `Wrong communityPublicKey sub edit ${Date.now()}` },
             signer: subplebbit.signer as SignerType
@@ -338,7 +338,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects publications with wrong co
     it("rejects a subplebbitEdit with wrong communityName", async () => {
         if (!subplebbit.signer || !("privateKey" in subplebbit.signer) || typeof subplebbit.signer.privateKey !== "string")
             throw Error("Expected local subplebbit to expose its owner signer with a private key");
-        const subplebbitEdit = await plebbit.createSubplebbitEdit({
+        const subplebbitEdit = await plebbit.createCommunityEdit({
             communityAddress: "wrong-community.eth",
             communityPublicKey: subplebbit.address,
             subplebbitEdit: { description: `Wrong communityName sub edit ${Date.now()}` },

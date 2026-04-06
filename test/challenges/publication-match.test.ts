@@ -1,10 +1,10 @@
 import {
     plebbitJsChallenges,
-    getSubplebbitChallengeFromSubplebbitChallengeSettings,
+    getCommunityChallengeFromCommunityChallengeSettings,
     getPendingChallengesOrChallengeVerification
 } from "../../dist/node/runtime/node/community/challenges/index.js";
-import type { DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor } from "../../dist/node/pubsub-messages/types.js";
-import type { LocalSubplebbit } from "../../dist/node/runtime/node/community/local-community.js";
+import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../../dist/node/pubsub-messages/types.js";
+import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
 import * as remeda from "remeda";
 
 import type { ChallengeVerificationMessageType } from "../../dist/node/pubsub-messages/types.js";
@@ -26,8 +26,8 @@ const testGetPendingChallengesOrChallengeVerification = async (
     subplebbit: unknown
 ): Promise<ChallengeVerificationResult> => {
     return getPendingChallengesOrChallengeVerification(
-        challengeRequestMessage as DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor,
-        subplebbit as LocalSubplebbit
+        challengeRequestMessage as DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
+        subplebbit as LocalCommunity
     ) as Promise<ChallengeVerificationResult>;
 };
 
@@ -36,7 +36,7 @@ interface ChallengeRequestOverrides {
     [key: string]: unknown;
 }
 
-interface SubplebbitChallengeOptions {
+interface CommunityChallengeOptions {
     matches?: string;
     error?: string;
     matchAll?: string;
@@ -68,10 +68,10 @@ describe("publication-match challenge", () => {
     };
 
     // Create a standard subplebbit fixture with publication-match challenge
-    const createSubplebbit = (
-        options: SubplebbitChallengeOptions = {}
-    ): { _plebbit: { getComment: () => void }; settings: { challenges: Array<{ name: string; options: SubplebbitChallengeOptions }> } } => {
-        const defaultOptions: SubplebbitChallengeOptions = {
+    const createCommunity = (
+        options: CommunityChallengeOptions = {}
+    ): { _plebbit: { getComment: () => void }; settings: { challenges: Array<{ name: string; options: CommunityChallengeOptions }> } } => {
+        const defaultOptions: CommunityChallengeOptions = {
             matches: JSON.stringify([{ propertyName: "author.address", regexp: "\\.bso$" }]),
             error: "Publication author.address must end with .bso",
             matchAll: "true"
@@ -99,7 +99,7 @@ describe("publication-match challenge", () => {
     });
 
     // Test the challenge settings conversion
-    it("getSubplebbitChallengeFromSubplebbitChallengeSettings with publication-match", async () => {
+    it("getCommunityChallengeFromCommunityChallengeSettings with publication-match", async () => {
         const subplebbitChallengeSettings = {
             name: "publication-match",
             options: {
@@ -111,13 +111,13 @@ describe("publication-match challenge", () => {
                 matchAll: "true"
             }
         };
-        const subplebbitChallenge = await getSubplebbitChallengeFromSubplebbitChallengeSettings(subplebbitChallengeSettings);
+        const subplebbitChallenge = await getCommunityChallengeFromCommunityChallengeSettings(subplebbitChallengeSettings);
         expect(subplebbitChallenge.type).to.equal("text/plain");
         expect(subplebbitChallenge.description).to.equal("Match publication properties against regex patterns.");
     });
 
     // Test custom description option
-    it("getSubplebbitChallengeFromSubplebbitChallengeSettings with custom description", async () => {
+    it("getCommunityChallengeFromCommunityChallengeSettings with custom description", async () => {
         const subplebbitChallengeSettings = {
             name: "publication-match",
             options: {
@@ -125,27 +125,27 @@ describe("publication-match challenge", () => {
                 description: "Authors must have .bso addresses"
             }
         };
-        const subplebbitChallenge = await getSubplebbitChallengeFromSubplebbitChallengeSettings(subplebbitChallengeSettings);
+        const subplebbitChallenge = await getCommunityChallengeFromCommunityChallengeSettings(subplebbitChallengeSettings);
         expect(subplebbitChallenge.type).to.equal("text/plain");
         expect(subplebbitChallenge.description).to.equal("Authors must have .bso addresses");
     });
 
     // Test default description when no custom description provided
-    it("getSubplebbitChallengeFromSubplebbitChallengeSettings uses default description when none provided", async () => {
+    it("getCommunityChallengeFromCommunityChallengeSettings uses default description when none provided", async () => {
         const subplebbitChallengeSettings = {
             name: "publication-match",
             options: {
                 matches: JSON.stringify([{ propertyName: "author.address", regexp: "\\.bso$" }])
             }
         };
-        const subplebbitChallenge = await getSubplebbitChallengeFromSubplebbitChallengeSettings(subplebbitChallengeSettings);
+        const subplebbitChallenge = await getCommunityChallengeFromCommunityChallengeSettings(subplebbitChallengeSettings);
         expect(subplebbitChallenge.type).to.equal("text/plain");
         expect(subplebbitChallenge.description).to.equal("Match publication properties against regex patterns.");
     });
 
     // Test with matching author address (.eth)
     it("publication-match challenge with matching author address .bso", async () => {
-        const subplebbit = createSubplebbit();
+        const subplebbit = createCommunity();
         const challengeRequestMessage = createChallengeRequestMessage();
 
         const result = await testGetPendingChallengesOrChallengeVerification(challengeRequestMessage, subplebbit);
@@ -153,7 +153,7 @@ describe("publication-match challenge", () => {
     });
 
     it("publication-match challenge can match runtime author.publicKey", async () => {
-        const subplebbit = createSubplebbit({
+        const subplebbit = createCommunity({
             matches: JSON.stringify([{ propertyName: "author.publicKey", regexp: "^12D3KooW" }]),
             error: "Author public key must start with 12D3KooW"
         });
@@ -166,7 +166,7 @@ describe("publication-match challenge", () => {
 
     // Test with non-matching author address
     it("publication-match challenge with non-matching author address", async () => {
-        const subplebbit = createSubplebbit({
+        const subplebbit = createCommunity({
             matches: JSON.stringify([{ propertyName: "author.address", regexp: "\\.sol$" }]),
             error: "Author address must end with .sol"
         });
@@ -180,7 +180,7 @@ describe("publication-match challenge", () => {
 
     // Test with content containing a specific word
     it("publication-match challenge with content containing specific word", async () => {
-        const subplebbit = createSubplebbit({
+        const subplebbit = createCommunity({
             matches: JSON.stringify([{ propertyName: "content", regexp: "content" }]),
             error: "Content must contain 'content'"
         });
@@ -193,7 +193,7 @@ describe("publication-match challenge", () => {
 
     // Test with multiple conditions (matchAll = true)
     it("publication-match challenge with multiple conditions (matchAll = true)", async () => {
-        const subplebbit = createSubplebbit({
+        const subplebbit = createCommunity({
             matches: JSON.stringify([
                 { propertyName: "author.address", regexp: "\\.bso$" },
                 { propertyName: "content", regexp: "content" }
@@ -209,7 +209,7 @@ describe("publication-match challenge", () => {
 
     // Test with multiple conditions (matchAll = false, at least one matches)
     it("publication-match challenge with multiple conditions (matchAll = false, at least one matches)", async () => {
-        const subplebbit = createSubplebbit({
+        const subplebbit = createCommunity({
             matches: JSON.stringify([
                 { propertyName: "author.address", regexp: "\\.sol$" }, // This won't match
                 { propertyName: "content", regexp: "content" } // This will match
@@ -226,7 +226,7 @@ describe("publication-match challenge", () => {
 
     // Test with multiple conditions (matchAll = false, none match)
     it("publication-match challenge with multiple conditions (matchAll = false, none match)", async () => {
-        const subplebbit = createSubplebbit({
+        const subplebbit = createCommunity({
             matches: JSON.stringify([
                 { propertyName: "author.address", regexp: "\\.sol$" }, // This won't match
                 { propertyName: "content", regexp: "badword" } // This won't match
@@ -244,7 +244,7 @@ describe("publication-match challenge", () => {
 
     // Test with invalid JSON in matches option
     it("publication-match challenge with invalid JSON in matches option", async () => {
-        const subplebbit = createSubplebbit({
+        const subplebbit = createCommunity({
             matches: "invalid json"
         });
 
@@ -257,7 +257,7 @@ describe("publication-match challenge", () => {
 
     // Test with invalid regex pattern
     it("publication-match challenge with invalid regex pattern", async () => {
-        const subplebbit = createSubplebbit({
+        const subplebbit = createCommunity({
             matches: JSON.stringify([
                 { propertyName: "author.address", regexp: "[" } // Invalid regex
             ])
@@ -272,7 +272,7 @@ describe("publication-match challenge", () => {
 
     // Test with non-existent property
     it("publication-match challenge with non-existent property", async () => {
-        const subplebbit = createSubplebbit({
+        const subplebbit = createCommunity({
             matches: JSON.stringify([{ propertyName: "nonexistent.property", regexp: ".*" }]),
             error: "Publication does not match required patterns"
         });
@@ -286,7 +286,7 @@ describe("publication-match challenge", () => {
 
     // Test with empty matches array (should pass)
     it("publication-match challenge with empty matches array", async () => {
-        const subplebbit = createSubplebbit({
+        const subplebbit = createCommunity({
             matches: "[]"
         });
 
@@ -298,7 +298,7 @@ describe("publication-match challenge", () => {
 
     // Test with custom publication data
     it("publication-match challenge with custom publication data", async () => {
-        const subplebbit = createSubplebbit({
+        const subplebbit = createCommunity({
             matches: JSON.stringify([{ propertyName: "author.address", regexp: "custom" }])
         });
 

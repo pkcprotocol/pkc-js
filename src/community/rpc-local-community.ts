@@ -1,21 +1,21 @@
 import Logger from "../logger.js";
 import type {
-    RpcInternalSubplebbitRecordAfterFirstUpdateType,
-    RpcInternalSubplebbitRecordBeforeFirstUpdateType,
-    RpcLocalSubplebbitLocalProps,
-    RpcLocalSubplebbitUpdateResultType,
-    SubplebbitEditOptions,
-    SubplebbitIpfsType,
-    SubplebbitStartedState
+    RpcInternalCommunityRecordAfterFirstUpdateType,
+    RpcInternalCommunityRecordBeforeFirstUpdateType,
+    RpcLocalCommunityLocalProps,
+    RpcLocalCommunityUpdateResultType,
+    CommunityEditOptions,
+    CommunityIpfsType,
+    CommunityStartedState
 } from "./types.js";
-import { RpcRemoteSubplebbit } from "./rpc-remote-community.js";
+import { RpcRemoteCommunity } from "./rpc-remote-community.js";
 import { z } from "zod";
 import { messages } from "../errors.js";
 import * as remeda from "remeda";
-import { Plebbit } from "../pkc/pkc.js";
-import { PlebbitError } from "../pkc-error.js";
+import { PKC } from "../pkc/pkc.js";
+import { PKCError } from "../pkc-error.js";
 
-import { SubplebbitEditOptionsSchema } from "./schema.js";
+import { CommunityEditOptionsSchema } from "./schema.js";
 import {
     decodeRpcChallengeAnswerPubsubMsg,
     decodeRpcChallengePubsubMsg,
@@ -26,37 +26,37 @@ import { SubscriptionIdSchema } from "../clients/rpc-client/schema.js";
 import type {
     EncodedDecryptedChallengeAnswerMessageType,
     EncodedDecryptedChallengeMessageType,
-    EncodedDecryptedChallengeRequestMessageTypeWithSubplebbitAuthor,
+    EncodedDecryptedChallengeRequestMessageTypeWithCommunityAuthor,
     EncodedDecryptedChallengeVerificationMessageType
 } from "../pubsub-messages/types.js";
 import { deepMergeRuntimeFields, hideClassPrivateProps } from "../util.js";
-import { findStartedSubplebbit, trackStartedSubplebbit, untrackStartedSubplebbit } from "../pkc/tracked-instance-registry-util.js";
+import { findStartedCommunity, trackStartedCommunity, untrackStartedCommunity } from "../pkc/tracked-instance-registry-util.js";
 
 // This class is for subs that are running and publishing, over RPC. Can be used for both browser and node
-export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
+export class RpcLocalCommunity extends RpcRemoteCommunity {
     override started: boolean; // Is the sub started and running? This is not specific to this instance, and applies to all instances of sub with this address
-    override startedState!: SubplebbitStartedState;
-    override signer!: RpcLocalSubplebbitLocalProps["signer"];
-    override settings!: RpcLocalSubplebbitLocalProps["settings"];
-    override editable!: Pick<RpcLocalSubplebbit, keyof SubplebbitEditOptions>;
+    override startedState!: CommunityStartedState;
+    override signer!: RpcLocalCommunityLocalProps["signer"];
+    override settings!: RpcLocalCommunityLocalProps["settings"];
+    override editable!: Pick<RpcLocalCommunity, keyof CommunityEditOptions>;
 
     // mandating props
-    override challenges!: SubplebbitIpfsType["challenges"];
-    override encryption!: SubplebbitIpfsType["encryption"];
-    override createdAt!: SubplebbitIpfsType["createdAt"];
-    override protocolVersion!: SubplebbitIpfsType["protocolVersion"];
+    override challenges!: CommunityIpfsType["challenges"];
+    override encryption!: CommunityIpfsType["encryption"];
+    override createdAt!: CommunityIpfsType["createdAt"];
+    override protocolVersion!: CommunityIpfsType["protocolVersion"];
 
     override raw: {
-        subplebbitIpfs?: SubplebbitIpfsType;
+        subplebbitIpfs?: CommunityIpfsType;
         runtimeFieldsFromRpc?: Record<string, any>;
-        localSubplebbit?: RpcLocalSubplebbitUpdateResultType;
+        localCommunity?: RpcLocalCommunityUpdateResultType;
     } = {};
 
     // Private stuff
     private _startRpcSubscriptionId?: z.infer<typeof SubscriptionIdSchema> = undefined;
-    _usingDefaultChallenge!: RpcLocalSubplebbitLocalProps["_usingDefaultChallenge"];
+    _usingDefaultChallenge!: RpcLocalCommunityLocalProps["_usingDefaultChallenge"];
 
-    constructor(plebbit: Plebbit) {
+    constructor(plebbit: PKC) {
         super(plebbit);
         this.started = false;
         //@ts-expect-error
@@ -65,16 +65,16 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
         this.edit = this.edit.bind(this);
         this._setStartedStateWithEmission("stopped");
         this.on("update", () => {
-            this.editable = remeda.pick(this, remeda.keys.strict(SubplebbitEditOptionsSchema.shape));
+            this.editable = remeda.pick(this, remeda.keys.strict(CommunityEditOptionsSchema.shape));
         });
         hideClassPrivateProps(this);
     }
 
-    toJSONInternalRpcAfterFirstUpdate(): RpcInternalSubplebbitRecordAfterFirstUpdateType {
-        if (!this.updateCid) throw Error("rpcLocalSubplebbit.cid should be defined before calling toJSONInternalRpcAfterFirstUpdate");
+    toJSONInternalRpcAfterFirstUpdate(): RpcInternalCommunityRecordAfterFirstUpdateType {
+        if (!this.updateCid) throw Error("rpcLocalCommunity.cid should be defined before calling toJSONInternalRpcAfterFirstUpdate");
         return {
             subplebbit: this.raw.subplebbitIpfs!,
-            localSubplebbit: {
+            localCommunity: {
                 signer: this.signer,
                 settings: this.settings,
                 _usingDefaultChallenge: this._usingDefaultChallenge,
@@ -90,10 +90,10 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
         };
     }
 
-    toJSONInternalRpcBeforeFirstUpdate(): RpcInternalSubplebbitRecordBeforeFirstUpdateType {
+    toJSONInternalRpcBeforeFirstUpdate(): RpcInternalCommunityRecordBeforeFirstUpdateType {
         if (!this.settings) throw Error("Attempting to transmit InternalRpc record without defining settings");
         return {
-            localSubplebbit: {
+            localCommunity: {
                 ...this._toJSONIpfsBaseNoPosts(),
                 address: this.address,
                 signer: this.signer,
@@ -105,33 +105,33 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
         };
     }
 
-    initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(newProps: RpcInternalSubplebbitRecordBeforeFirstUpdateType) {
-        this.initRemoteSubplebbitPropsNoMerge(newProps.localSubplebbit);
-        // Apply address from localSubplebbit — may differ after edit (same as afterFirstUpdate variant)
-        if (newProps.localSubplebbit.address) this.setAddress(newProps.localSubplebbit.address);
-        this.signer = newProps.localSubplebbit.signer;
-        this.settings = newProps.localSubplebbit.settings;
-        this._usingDefaultChallenge = newProps.localSubplebbit._usingDefaultChallenge;
-        this.started = newProps.localSubplebbit.started;
-        this.raw.localSubplebbit = newProps;
+    initRpcInternalCommunityBeforeFirstUpdateNoMerge(newProps: RpcInternalCommunityRecordBeforeFirstUpdateType) {
+        this.initRemoteCommunityPropsNoMerge(newProps.localCommunity);
+        // Apply address from localCommunity — may differ after edit (same as afterFirstUpdate variant)
+        if (newProps.localCommunity.address) this.setAddress(newProps.localCommunity.address);
+        this.signer = newProps.localCommunity.signer;
+        this.settings = newProps.localCommunity.settings;
+        this._usingDefaultChallenge = newProps.localCommunity._usingDefaultChallenge;
+        this.started = newProps.localCommunity.started;
+        this.raw.localCommunity = newProps;
     }
 
-    initRpcInternalSubplebbitAfterFirstUpdateNoMerge(newProps: RpcInternalSubplebbitRecordAfterFirstUpdateType) {
-        super.initSubplebbitIpfsPropsNoMerge(newProps.subplebbit);
-        // Apply address from localSubplebbit — may differ from subplebbit record's name (e.g. .bso/.eth before ENS propagation)
-        if (newProps.localSubplebbit.address) this.setAddress(newProps.localSubplebbit.address);
+    initRpcInternalCommunityAfterFirstUpdateNoMerge(newProps: RpcInternalCommunityRecordAfterFirstUpdateType) {
+        super.initCommunityIpfsPropsNoMerge(newProps.subplebbit);
+        // Apply address from localCommunity — may differ from subplebbit record's name (e.g. .bso/.eth before ENS propagation)
+        if (newProps.localCommunity.address) this.setAddress(newProps.localCommunity.address);
 
-        this.signer = newProps.localSubplebbit.signer;
-        this.settings = newProps.localSubplebbit.settings;
-        this._usingDefaultChallenge = newProps.localSubplebbit._usingDefaultChallenge;
-        this.started = newProps.localSubplebbit.started;
+        this.signer = newProps.localCommunity.signer;
+        this.settings = newProps.localCommunity.settings;
+        this._usingDefaultChallenge = newProps.localCommunity._usingDefaultChallenge;
+        this.started = newProps.localCommunity.started;
         this.updateCid = newProps.runtimeFields.updateCid;
-        this.raw.localSubplebbit = newProps;
-        this.editable = remeda.pick(this, remeda.keys.strict(SubplebbitEditOptionsSchema.shape));
+        this.raw.localCommunity = newProps;
+        this.editable = remeda.pick(this, remeda.keys.strict(CommunityEditOptionsSchema.shape));
     }
 
-    protected _updateRpcClientStateFromStartedState(startedState: RpcLocalSubplebbit["startedState"]) {
-        const mapper: Record<RpcLocalSubplebbit["startedState"], RpcLocalSubplebbit["clients"]["plebbitRpcClients"][0]["state"][]> = {
+    protected _updateRpcClientStateFromStartedState(startedState: RpcLocalCommunity["startedState"]) {
+        const mapper: Record<RpcLocalCommunity["startedState"], RpcLocalCommunity["clients"]["plebbitRpcClients"][0]["state"][]> = {
             failed: ["stopped"],
             "publishing-ipns": ["publishing-ipns"],
             stopped: ["stopped"],
@@ -144,13 +144,13 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
     }
 
     protected override _processUpdateEventFromRpcUpdate(args: any) {
-        // This function is gonna be called with every update event from rpcLocalSubplebbit.update()
+        // This function is gonna be called with every update event from rpcLocalCommunity.update()
         const log = Logger("pkc-js:rpc-local-community:_processUpdateEventFromRpcUpdate");
-        log("Received an update event from rpc within rpcLocalSubplebbit.update for sub " + this.address);
+        log("Received an update event from rpc within rpcLocalCommunity.update for sub " + this.address);
 
-        const updateRecord: RpcLocalSubplebbitUpdateResultType = args.params.result; // we're being optimistic here and hoping the rpc server sent the correct update
-        if ("subplebbit" in updateRecord) this.initRpcInternalSubplebbitAfterFirstUpdateNoMerge(updateRecord);
-        else this.initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(updateRecord);
+        const updateRecord: RpcLocalCommunityUpdateResultType = args.params.result; // we're being optimistic here and hoping the rpc server sent the correct update
+        if ("subplebbit" in updateRecord) this.initRpcInternalCommunityAfterFirstUpdateNoMerge(updateRecord);
+        else this.initRpcInternalCommunityBeforeFirstUpdateNoMerge(updateRecord);
 
         const runtimeFields = "runtimeFields" in updateRecord ? updateRecord.runtimeFields : undefined;
         if (runtimeFields) {
@@ -158,20 +158,20 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
             deepMergeRuntimeFields(this, runtimeFields);
         }
 
-        if (updateRecord.localSubplebbit.startedState) this._setStartedStateNoEmission(updateRecord.localSubplebbit.startedState);
+        if (updateRecord.localCommunity.startedState) this._setStartedStateNoEmission(updateRecord.localCommunity.startedState);
         this.emit("update", this);
     }
 
     private _handleRpcUpdateEventFromStart(args: any) {
-        // This function is gonna be called with every update event from rpcLocalSubplebbit.start()
+        // This function is gonna be called with every update event from rpcLocalCommunity.start()
 
         const log = Logger("pkc-js:rpc-local-community:_handleRpcUpdateEventFromStart");
-        const updateRecord: RpcLocalSubplebbitUpdateResultType = args.params.result;
-        log("Received an update event from rpc within rpcLocalSubplebbit.start for sub " + this.address);
+        const updateRecord: RpcLocalCommunityUpdateResultType = args.params.result;
+        log("Received an update event from rpc within rpcLocalCommunity.start for sub " + this.address);
 
         if ("subplebbit" in updateRecord) {
-            this.initRpcInternalSubplebbitAfterFirstUpdateNoMerge(updateRecord);
-        } else this.initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(updateRecord);
+            this.initRpcInternalCommunityAfterFirstUpdateNoMerge(updateRecord);
+        } else this.initRpcInternalCommunityBeforeFirstUpdateNoMerge(updateRecord);
 
         const runtimeFields = "runtimeFields" in updateRecord ? updateRecord.runtimeFields : undefined;
         if (runtimeFields) {
@@ -179,8 +179,8 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
             deepMergeRuntimeFields(this, runtimeFields);
         }
 
-        if (updateRecord.localSubplebbit.startedState) {
-            this._setStartedStateNoEmission(updateRecord.localSubplebbit.startedState);
+        if (updateRecord.localCommunity.startedState) {
+            this._setStartedStateNoEmission(updateRecord.localCommunity.startedState);
         }
         this.emit("update", this);
     }
@@ -188,7 +188,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
     private _handleRpcStartedStateChangeEvent(args: any) {
         const log = Logger("pkc-js:rpc-local-community:_handleRpcStartedStateChangeEvent");
 
-        const newStartedState: RpcLocalSubplebbit["startedState"] = args.params.result.state; // we're being optimistic that the rpc server transmitted a valid string here
+        const newStartedState: RpcLocalCommunity["startedState"] = args.params.result.state; // we're being optimistic that the rpc server transmitted a valid string here
         log("Received a startedstatechange for sub " + this.address, "new started state is", newStartedState);
 
         if (newStartedState !== this.startedState) this._setStartedStateWithEmission(newStartedState);
@@ -198,7 +198,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
     }
 
     private _handleRpcChallengeRequestEvent(args: any) {
-        const encodedRequest: EncodedDecryptedChallengeRequestMessageTypeWithSubplebbitAuthor = args.params.result;
+        const encodedRequest: EncodedDecryptedChallengeRequestMessageTypeWithCommunityAuthor = args.params.result;
         const request = decodeRpcChallengeRequestPubsubMsg(encodedRequest);
         this._setRpcClientStateWithEmission("waiting-challenge-requests");
         this.emit("challengerequest", request);
@@ -231,16 +231,15 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
 
     override async start() {
         const log = Logger("pkc-js:rpc-local-community:start");
-        if (this.state === "updating")
-            throw new PlebbitError("ERR_NEED_TO_STOP_UPDATING_COMMUNITY_BEFORE_STARTING", { address: this.address });
+        if (this.state === "updating") throw new PKCError("ERR_NEED_TO_STOP_UPDATING_COMMUNITY_BEFORE_STARTING", { address: this.address });
         // we can't start the same instance multiple times
         if (typeof this._startRpcSubscriptionId === "number")
-            throw new PlebbitError("ERR_COMMUNITY_ALREADY_STARTED", { subplebbitAddress: this.address });
+            throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { subplebbitAddress: this.address });
 
-        if (findStartedSubplebbit(this._plebbit, { address: this.address }))
-            throw new PlebbitError("ERR_COMMUNITY_ALREADY_STARTED_IN_SAME_PKC_INSTANCE", { subplebbitAddress: this.address });
+        if (findStartedCommunity(this._plebbit, { address: this.address }))
+            throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED_IN_SAME_PKC_INSTANCE", { subplebbitAddress: this.address });
         try {
-            this._startRpcSubscriptionId = await this._plebbit._plebbitRpcClient!.startSubplebbit({ address: this.address });
+            this._startRpcSubscriptionId = await this._plebbit._plebbitRpcClient!.startCommunity({ address: this.address });
             this._setState("started");
         } catch (e) {
             log.error(`Failed to start subplebbit (${this.address}) from RPC due to error`, e);
@@ -248,7 +247,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
             this._setStartedStateWithEmission("failed");
             throw e;
         }
-        trackStartedSubplebbit(this._plebbit, this);
+        trackStartedCommunity(this._plebbit, this);
         this.started = true;
         this._plebbit
             ._plebbitRpcClient!.getSubscription(this._startRpcSubscriptionId)
@@ -287,7 +286,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
         this._setStartedStateWithEmission("stopped");
         this._setRpcClientStateWithEmission("stopped");
         this.started = false;
-        untrackStartedSubplebbit(this._plebbit, this);
+        untrackStartedCommunity(this._plebbit, this);
     }
 
     override async stop() {
@@ -298,22 +297,22 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
             // Need to be careful not to stop an already running sub
             const log = Logger("pkc-js:rpc-local-community:stop");
             try {
-                await this._plebbit._plebbitRpcClient!.stopSubplebbit({ address: this.address });
+                await this._plebbit._plebbitRpcClient!.stopCommunity({ address: this.address });
             } catch (e) {
                 log.error("RPC client received an error when asking rpc server to stop subplebbit", e);
             }
             await this._cleanUpRpcConnection(log);
-            untrackStartedSubplebbit(this._plebbit, this);
+            untrackStartedCommunity(this._plebbit, this);
         }
     }
 
-    override async edit(newSubplebbitOptions: SubplebbitEditOptions): Promise<typeof this> {
-        if (newSubplebbitOptions.settings?.challenges) {
+    override async edit(newCommunityOptions: CommunityEditOptions): Promise<typeof this> {
+        if (newCommunityOptions.settings?.challenges) {
             const serverChallenges = this._plebbit._plebbitRpcClient!.settings?.challenges;
             if (serverChallenges) {
-                for (const challengeSetting of newSubplebbitOptions.settings.challenges) {
+                for (const challengeSetting of newCommunityOptions.settings.challenges) {
                     if (challengeSetting.name && !challengeSetting.path && !(challengeSetting.name in serverChallenges)) {
-                        throw new PlebbitError("ERR_RPC_CLIENT_CHALLENGE_NAME_NOT_AVAILABLE_ON_SERVER", {
+                        throw new PKCError("ERR_RPC_CLIENT_CHALLENGE_NAME_NOT_AVAILABLE_ON_SERVER", {
                             challengeName: challengeSetting.name,
                             availableChallenges: Object.keys(serverChallenges)
                         });
@@ -321,28 +320,28 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
                 }
             }
         }
-        const subPropsAfterEdit = await this._plebbit._plebbitRpcClient!.editSubplebbit(this.address, newSubplebbitOptions);
-        if ("subplebbit" in subPropsAfterEdit) this.initRpcInternalSubplebbitAfterFirstUpdateNoMerge(subPropsAfterEdit);
-        else this.initRpcInternalSubplebbitBeforeFirstUpdateNoMerge(subPropsAfterEdit);
+        const subPropsAfterEdit = await this._plebbit._plebbitRpcClient!.editCommunity(this.address, newCommunityOptions);
+        if ("subplebbit" in subPropsAfterEdit) this.initRpcInternalCommunityAfterFirstUpdateNoMerge(subPropsAfterEdit);
+        else this.initRpcInternalCommunityBeforeFirstUpdateNoMerge(subPropsAfterEdit);
         this.emit("update", this);
         return this;
     }
 
     override async update() {
-        if (this.state === "started") throw new PlebbitError("ERR_COMMUNITY_ALREADY_STARTED", { address: this.address });
+        if (this.state === "started") throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: this.address });
 
         return super.update();
     }
 
     override async delete() {
         // Make sure to stop updating or starting first
-        const startedSubplebbit = findStartedSubplebbit(this._plebbit, { address: this.address });
-        if (startedSubplebbit && startedSubplebbit !== this) {
-            await startedSubplebbit.delete();
+        const startedCommunity = findStartedCommunity(this._plebbit, { address: this.address });
+        if (startedCommunity && startedCommunity !== this) {
+            await startedCommunity.delete();
         } else {
             if (this.state === "started" || this.state === "updating") await this.stop();
 
-            await this._plebbit._plebbitRpcClient!.deleteSubplebbit({ address: this.address });
+            await this._plebbit._plebbitRpcClient!.deleteCommunity({ address: this.address });
         }
 
         this.started = false;

@@ -1,20 +1,20 @@
 import { describe, it, beforeAll, afterAll, vi } from "vitest";
 import {
-    mockPlebbit,
+    mockPKC,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
     getCommentWithCommentUpdateProps,
     publishToModQueueWithDepth,
     itSkipIfRpc,
-    mockPlebbitNoDataPathWithOnlyKuboClient,
+    mockPKCNoDataPathWithOnlyKuboClient,
     createPendingApprovalChallenge,
     describeSkipIfRpc
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
-import type { Plebbit as PlebbitType } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
-import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../../dist/node/community/rpc-local-community.js";
+import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
 import type { SignerType } from "../../../../dist/node/signer/types.js";
 import type { CommentWithinRepliesPostsPageJson } from "../../../../dist/node/publications/comment/types.js";
 import type { PageIpfs } from "../../../../dist/node/pages/types.js";
@@ -35,16 +35,16 @@ for (const batch of depthBatches) {
     describe(`Approved modqueue batch [${batch.join(",")}]`, () => {
         for (const pendingCommentDepth of batch) {
             describeSkipIfRpc.concurrent(`Approved comments after pending approval, with depth ` + pendingCommentDepth, async () => {
-                let plebbit: PlebbitType;
-                let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+                let plebbit: PKCType;
+                let subplebbit: LocalCommunity | RpcLocalCommunity;
                 let approvedComment: Comment;
                 let modSigner: SignerType;
-                let remotePlebbit: PlebbitType;
+                let remotePKC: PKCType;
 
                 beforeAll(async () => {
-                    plebbit = await mockPlebbit();
-                    remotePlebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
-                    subplebbit = (await plebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
+                    plebbit = await mockPKC();
+                    remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
+                    subplebbit = (await plebbit.createCommunity()) as LocalCommunity | RpcLocalCommunity;
                     subplebbit.setMaxListeners(200);
                     modSigner = await plebbit.createSigner();
 
@@ -62,7 +62,7 @@ for (const batch of depthBatches) {
 
                     const pending = await publishToModQueueWithDepth({
                         subplebbit,
-                        plebbit: remotePlebbit,
+                        plebbit: remotePKC,
                         depth: pendingCommentDepth,
                         modCommentProps: { signer: modSigner },
                         commentProps: pendingApprovalCommentProps
@@ -79,7 +79,7 @@ for (const batch of depthBatches) {
                 afterAll(async () => {
                     await subplebbit.delete();
                     await plebbit.destroy();
-                    await remotePlebbit.destroy();
+                    await remotePKC.destroy();
                 });
 
                 it.sequential("Should approve comment using createCommentModeration with approved: true", async () => {
@@ -160,7 +160,7 @@ for (const batch of depthBatches) {
                 it(`Approved comment now appears in subplebbit.posts`, async () => {
                     const preloadedSortName = "hot";
                     const { generated, capturedChunks } = await capturePostsGeneration(
-                        subplebbit as LocalSubplebbit,
+                        subplebbit as LocalCommunity,
                         preloadedSortName,
                         1024 * 1024
                     );
@@ -173,11 +173,11 @@ for (const batch of depthBatches) {
                 if (pendingCommentDepth > 0) {
                     itSkipIfRpc(`Approved reply now shows up in parentComment.replies`, async () => {
                         // @ts-expect-error - accessing private _dbHandler
-                        const parentRow = (subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(approvedComment.parentCid!);
+                        const parentRow = (subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(approvedComment.parentCid!);
                         expect(parentRow).to.exist;
 
                         const { generated, capturedChunks } = await captureRepliesGeneration({
-                            subplebbit: subplebbit as LocalSubplebbit,
+                            subplebbit: subplebbit as LocalCommunity,
                             parentCid: parentRow!.cid,
                             parentDepth: parentRow!.depth,
                             preloadedSortName: "best",
@@ -190,12 +190,12 @@ for (const batch of depthBatches) {
                     });
                     itSkipIfRpc(`Approved reply now shows up in its post's flat pages`, async () => {
                         // @ts-expect-error - accessing private _dbHandler
-                        const postRow = (subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(approvedComment.postCid!);
+                        const postRow = (subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(approvedComment.postCid!);
                         expect(postRow).to.exist;
 
                         for (const sortName of ["newFlat", "oldFlat"]) {
                             const { generated, capturedChunks } = await captureRepliesGeneration({
-                                subplebbit: subplebbit as LocalSubplebbit,
+                                subplebbit: subplebbit as LocalCommunity,
                                 parentCid: postRow!.cid,
                                 parentDepth: postRow!.depth,
                                 preloadedSortName: sortName,
@@ -271,7 +271,7 @@ for (const batch of depthBatches) {
 }
 
 async function capturePostsGeneration(
-    subplebbit: LocalSubplebbit,
+    subplebbit: LocalCommunity,
     preloadedSortName: string,
     preloadedPageSizeBytes: number
 ): Promise<{ generated: CommentWithinRepliesPostsPageJson | undefined; capturedChunks: ChunkItem[][] }> {
@@ -280,7 +280,7 @@ async function capturePostsGeneration(
         matchParentCid: null,
         matchSortName: preloadedSortName,
         // @ts-expect-error - accessing private _pageGenerator
-        generate: () => subplebbit._pageGenerator.generateSubplebbitPosts(preloadedSortName, preloadedPageSizeBytes)
+        generate: () => subplebbit._pageGenerator.generateCommunityPosts(preloadedSortName, preloadedPageSizeBytes)
     });
 }
 
@@ -291,7 +291,7 @@ async function captureRepliesGeneration({
     preloadedSortName,
     preloadedPageSizeBytes
 }: {
-    subplebbit: LocalSubplebbit;
+    subplebbit: LocalCommunity;
     parentCid: string;
     parentDepth: number;
     preloadedSortName: string;
@@ -323,7 +323,7 @@ async function captureSortChunks<T>({
     matchSortName,
     generate
 }: {
-    subplebbit: LocalSubplebbit;
+    subplebbit: LocalCommunity;
     matchParentCid: string | null;
     matchSortName: string;
     generate: () => Promise<T>;

@@ -6,32 +6,32 @@ import {
     CreateSignerSchema,
     FlairSchema,
     JsonSignatureSchema,
-    PlebbitTimestampSchema,
+    PKCTimestampSchema,
     ProtocolVersionSchema,
     SignerWithAddressPublicKeySchema,
-    SubplebbitAddressSchema
+    CommunityAddressSchema
 } from "../schema/schema.js";
 import { ModQueuePagesIpfsSchema, PostsPagesIpfsSchema } from "../pages/schema.js";
-import { LocalSubplebbit } from "../runtime/node/community/local-community.js";
+import { LocalCommunity } from "../runtime/node/community/local-community.js";
 import * as remeda from "remeda";
-import type { DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor } from "../pubsub-messages/types.js";
+import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../pubsub-messages/types.js";
 import { messages } from "../errors.js";
 import { nonNegativeIntStringSchema } from "../schema.js";
 
-// Other props of Subplebbit Ipfs here
-export const SubplebbitEncryptionSchema = z.looseObject({
+// Other props of Community Ipfs here
+export const CommunityEncryptionSchema = z.looseObject({
     type: z.string().min(1), // https://github.com/plebbit/plebbit-js/blob/master/docs/encryption.md
     publicKey: SignerWithAddressPublicKeySchema.shape.publicKey // 32 bytes base64 string (same as subplebbit.signer.publicKey)
 });
 
-export const SubplebbitRoleNames = z.enum(["owner", "admin", "moderator"]);
-export const SubplebbitRoleSchema = z.looseObject({
-    role: SubplebbitRoleNames.or(z.string().min(1))
+export const CommunityRoleNames = z.enum(["owner", "admin", "moderator"]);
+export const CommunityRoleSchema = z.looseObject({
+    role: CommunityRoleNames.or(z.string().min(1))
 });
 
 export const PubsubTopicSchema = z.string().min(1);
 
-export const SubplebbitSuggestedSchema = z.looseObject({
+export const CommunitySuggestedSchema = z.looseObject({
     // values suggested by the sub owner, the client/user can ignore them without breaking interoperability
     primaryColor: z.string().optional(),
     secondaryColor: z.string().optional(),
@@ -42,7 +42,7 @@ export const SubplebbitSuggestedSchema = z.looseObject({
     // TODO: menu links, wiki pages, sidebar widgets
 });
 
-export const SubplebbitFeaturesSchema = z.looseObject({
+export const CommunityFeaturesSchema = z.looseObject({
     // any boolean that changes the functionality of the sub, add "no" in front if doesn't default to false
     noVideos: z.boolean().optional(), // Block all comments with video links
     noSpoilers: z.boolean().optional(), // Author can't set spoiler = true on any comment
@@ -102,13 +102,13 @@ export const ChallengeFromGetChallengeSchema = z
 
 export const ResultOfGetChallengeSchema = ChallengeFromGetChallengeSchema.or(ChallengeResultSchema);
 
-export const ChallengeExcludeSubplebbitSchema = z
+export const ChallengeExcludeCommunitySchema = z
     .object({
-        addresses: SubplebbitAddressSchema.array().nonempty(), // list of subplebbit addresses that can be used to exclude, plural because not a condition field like 'role'
+        addresses: CommunityAddressSchema.array().nonempty(), // list of subplebbit addresses that can be used to exclude, plural because not a condition field like 'role'
         maxCommentCids: z.number().nonnegative().int(), // maximum amount of comment cids that will be fetched to check
         postScore: z.number().int().optional(),
         replyScore: z.number().int().optional(),
-        firstCommentTimestamp: PlebbitTimestampSchema.optional() // exclude if author account age is greater or equal than now - firstCommentTimestamp
+        firstCommentTimestamp: PKCTimestampSchema.optional() // exclude if author account age is greater or equal than now - firstCommentTimestamp
     })
     .strict();
 
@@ -121,7 +121,7 @@ export const ChallengeExcludePublicationTypeSchema = z
         vote: excludePublicationFieldSchema,
         commentEdit: excludePublicationFieldSchema,
         commentModeration: excludePublicationFieldSchema,
-        subplebbitEdit: excludePublicationFieldSchema
+        communityEdit: excludePublicationFieldSchema
     })
     .refine(
         (args) => !remeda.isEmpty(JSON.parse(JSON.stringify(args))), // is it empty object {} or {field: undefined}? throw if so
@@ -129,25 +129,25 @@ export const ChallengeExcludePublicationTypeSchema = z
     );
 
 export const ChallengeExcludeSchema = z.looseObject({
-    subplebbit: ChallengeExcludeSubplebbitSchema.optional(),
+    community: ChallengeExcludeCommunitySchema.optional(),
     postScore: z.number().int().optional(),
     replyScore: z.number().int().optional(),
     postCount: z.number().nonnegative().int().optional(),
     replyCount: z.number().nonnegative().int().optional(),
-    firstCommentTimestamp: PlebbitTimestampSchema.optional(),
+    firstCommentTimestamp: PKCTimestampSchema.optional(),
     challenges: z.number().nonnegative().int().array().optional(),
-    role: SubplebbitRoleSchema.shape.role.array().optional(),
+    role: CommunityRoleSchema.shape.role.array().optional(),
     address: AuthorAddressSchema.array().optional(),
     rateLimit: z.number().nonnegative().int().optional(),
     rateLimitChallengeSuccess: z.boolean().optional(),
     publicationType: ChallengeExcludePublicationTypeSchema.optional()
 });
 
-export const SubplebbitChallengeSettingSchema = z
+export const CommunityChallengeSettingSchema = z
     .object({
         // the private settings of the challenge (subplebbit.settings.challenges)
         path: z.string().optional(), // (only if name is undefined) the path to the challenge js file, used to get the props ChallengeFile {optionInputs, type, getChallenge}
-        name: z.string().optional(), // (only if path is undefined) the challengeName from Plebbit.challenges to identify it
+        name: z.string().optional(), // (only if path is undefined) the challengeName from PKC.challenges to identify it
         options: z.record(z.string(), z.string()).optional(), //{ [optionPropertyName: string]: string } the options to be used to the getChallenge function, all values must be strings for UI ease of use
         exclude: ChallengeExcludeSchema.array().nonempty().optional(), // singular because it only has to match 1 exclude, the client must know the exclude setting to configure what challengeCommentCids to send
         description: z.string().optional(), // describe in the frontend what kind of challenge the user will receive when publishing
@@ -157,10 +157,10 @@ export const SubplebbitChallengeSettingSchema = z
     .refine((challengeData) => challengeData.path || challengeData.name, "Path or name of challenge has to be defined");
 
 export const GetChallengeArgsSchema = z.object({
-    challengeSettings: SubplebbitChallengeSettingSchema,
-    challengeRequestMessage: z.custom<DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor>(), // no need to validate because extra props may be there
+    challengeSettings: CommunityChallengeSettingSchema,
+    challengeRequestMessage: z.custom<DecryptedChallengeRequestMessageTypeWithCommunityAuthor>(), // no need to validate because extra props may be there
     challengeIndex: z.number().int().nonnegative(),
-    subplebbit: z.custom<LocalSubplebbit>()
+    subplebbit: z.custom<LocalCommunity>()
 });
 
 export const ChallengeFileSchema = z
@@ -178,7 +178,7 @@ export const ChallengeFileSchema = z
     })
     .strict();
 
-export const SubplebbitChallengeSchema = z.looseObject({
+export const CommunityChallengeSchema = z.looseObject({
     exclude: ChallengeExcludeSchema.array().nonempty().optional(),
     description: ChallengeFileSchema.shape.description,
     challenge: ChallengeFileSchema.shape.challenge,
@@ -187,50 +187,50 @@ export const SubplebbitChallengeSchema = z.looseObject({
     pendingApproval: z.boolean().optional()
 });
 export const ChallengeFileFactoryArgsSchema = z.object({
-    challengeSettings: SubplebbitChallengeSettingSchema
+    challengeSettings: CommunityChallengeSettingSchema
 });
 
 export const ChallengeFileFactorySchema = z.function({ input: [ChallengeFileFactoryArgsSchema], output: ChallengeFileSchema });
 
-// Subplebbit actual schemas here
+// Community actual schemas here
 
-export const SubplebbitIpfsSchema = z
+export const CommunityIpfsSchema = z
     .object({
         posts: PostsPagesIpfsSchema.optional(),
         modQueue: ModQueuePagesIpfsSchema.optional(),
-        challenges: SubplebbitChallengeSchema.array(),
+        challenges: CommunityChallengeSchema.array(),
         signature: JsonSignatureSchema,
-        encryption: SubplebbitEncryptionSchema,
+        encryption: CommunityEncryptionSchema,
         name: z.string().min(1).optional(), // domain name of the subplebbit (e.g. "memes.eth"); address is now instance-only
-        createdAt: PlebbitTimestampSchema,
-        updatedAt: PlebbitTimestampSchema,
+        createdAt: PKCTimestampSchema,
+        updatedAt: PKCTimestampSchema,
         pubsubTopic: PubsubTopicSchema.optional(),
         statsCid: CidStringSchema,
         protocolVersion: ProtocolVersionSchema,
         postUpdates: z.record(nonNegativeIntStringSchema, CidStringSchema).optional(),
         title: z.string().optional(),
         description: z.string().optional(),
-        roles: z.record(AuthorAddressSchema, SubplebbitRoleSchema).optional(),
+        roles: z.record(AuthorAddressSchema, CommunityRoleSchema).optional(),
         rules: z.string().array().optional(),
         lastPostCid: CidStringSchema.optional(),
         lastCommentCid: CidStringSchema.optional(),
-        features: SubplebbitFeaturesSchema.optional(),
-        suggested: SubplebbitSuggestedSchema.optional(),
+        features: CommunityFeaturesSchema.optional(),
+        suggested: CommunitySuggestedSchema.optional(),
         flairs: z.record(z.string(), FlairSchema.array()).optional()
     })
     .strict();
 
-export const SubplebbitSignedPropertyNames = remeda.keys.strict(remeda.omit(SubplebbitIpfsSchema.shape, ["signature"]));
+export const CommunitySignedPropertyNames = remeda.keys.strict(remeda.omit(CommunityIpfsSchema.shape, ["signature"]));
 
 // This is object transmitted by RPC server to RPC client when it's fetching a remote subplebbit
 // When resetInstance is true, subplebbit/updateCid are absent — the client should clear its state
-export const RpcRemoteSubplebbitUpdateEventResultSchema = z.object({
-    subplebbit: SubplebbitIpfsSchema.loose().optional(),
+export const RpcRemoteCommunityUpdateEventResultSchema = z.object({
+    subplebbit: CommunityIpfsSchema.loose().optional(),
     resetInstance: z.boolean().optional(),
     runtimeFields: z
         .object({
             updateCid: CidStringSchema.optional(),
-            updatingState: z.custom<LocalSubplebbit["updatingState"]>().optional(),
+            updatingState: z.custom<LocalCommunity["updatingState"]>().optional(),
             newPublicKey: z.string().optional(),
             nameResolved: z.boolean().optional()
         })
@@ -238,33 +238,33 @@ export const RpcRemoteSubplebbitUpdateEventResultSchema = z.object({
 });
 // At least one of address, name, or publicKey must be provided to identify the subplebbit
 
-export const CreateRemoteSubplebbitOptionsSchema = SubplebbitIpfsSchema.partial()
+export const CreateRemoteCommunityOptionsSchema = CommunityIpfsSchema.partial()
     .extend({
-        address: SubplebbitAddressSchema.optional(), // instance-only, computed as name || publicKey if not provided
+        address: CommunityAddressSchema.optional(), // instance-only, computed as name || publicKey if not provided
         publicKey: z.string().min(1).optional(), // B58 IPNS name (e.g. 12D3KooW...)
-        posts: SubplebbitIpfsSchema.shape.posts.or(PostsPagesIpfsSchema.pick({ pageCids: true })),
+        posts: CommunityIpfsSchema.shape.posts.or(PostsPagesIpfsSchema.pick({ pageCids: true })),
         updateCid: CidStringSchema.optional()
     })
     .strict()
     .refine((opts) => opts.address || opts.name || opts.publicKey, "At least one of address, name, or publicKey must be provided");
 
-// Local Subplebbit schemas
+// Local Community schemas
 
-export const SubplebbitSettingsSchema = z
+export const CommunitySettingsSchema = z
     .object({
         fetchThumbnailUrls: z.boolean().optional(),
         fetchThumbnailUrlsProxyUrl: z.string().optional(), // TODO should we validate this url?
-        challenges: SubplebbitChallengeSettingSchema.array().optional(), // If empty array it will remove all challenges
+        challenges: CommunityChallengeSettingSchema.array().optional(), // If empty array it will remove all challenges
         maxPendingApprovalCount: z.number().int().nonnegative().optional(),
         purgeDisapprovedCommentsOlderThan: z.number().int().nonnegative().optional()
     })
     .strict();
 
-const SubplebbitRoleToEditSchema = SubplebbitRoleSchema.or(z.undefined()); // when we pass undefined we're removing the role
+const CommunityRoleToEditSchema = CommunityRoleSchema.or(z.undefined()); // when we pass undefined we're removing the role
 
-const SubplebbitRolesToEditSchema = z.record(AuthorAddressSchema, SubplebbitRoleToEditSchema);
+const CommunityRolesToEditSchema = z.record(AuthorAddressSchema, CommunityRoleToEditSchema);
 
-export const SubplebbitEditOptionsSchema = SubplebbitIpfsSchema.pick({
+export const CommunityEditOptionsSchema = CommunityIpfsSchema.pick({
     flairs: true,
     name: true,
     title: true,
@@ -276,56 +276,56 @@ export const SubplebbitEditOptionsSchema = SubplebbitIpfsSchema.pick({
     suggested: true
 })
     .extend({
-        address: SubplebbitAddressSchema.optional(), // backward compat for sub.edit({ address: "domain.eth" })
-        settings: SubplebbitSettingsSchema.optional(),
-        roles: SubplebbitRolesToEditSchema.optional()
+        address: CommunityAddressSchema.optional(), // backward compat for sub.edit({ address: "domain.eth" })
+        settings: CommunitySettingsSchema.optional(),
+        roles: CommunityRolesToEditSchema.optional()
     })
     .partial()
     .strict();
 
 // These are the options to create a new local sub, provided by user
 
-export const CreateNewLocalSubplebbitUserOptionsSchema = SubplebbitEditOptionsSchema.omit({ address: true })
+export const CreateNewLocalCommunityUserOptionsSchema = CommunityEditOptionsSchema.omit({ address: true })
     .extend({
         signer: CreateSignerSchema.optional(),
-        roles: SubplebbitIpfsSchema.shape.roles
+        roles: CommunityIpfsSchema.shape.roles
     })
     .strict();
 
 // These are the options that go straight into _createLocalSub, create a new brand local sub. This is after parsing of plebbit-js
-export const CreateNewLocalSubplebbitParsedOptionsSchema = CreateNewLocalSubplebbitUserOptionsSchema.extend({
+export const CreateNewLocalCommunityParsedOptionsSchema = CreateNewLocalCommunityUserOptionsSchema.extend({
     address: SignerWithAddressPublicKeySchema.shape.address,
     signer: SignerWithAddressPublicKeySchema
 }).strict();
 
-// | CreateNewLocalSubplebbitUserOptions
-// | CreateRemoteSubplebbitOptions
-// | RemoteSubplebbitJsonType
-// | SubplebbitIpfsType
-// | InternalSubplebbitType
-// | RemoteSubplebbit
-// | RpcLocalSubplebbit
-// | RpcRemoteSubplebbit
-// | LocalSubplebbit = {}
+// | CreateNewLocalCommunityUserOptions
+// | CreateRemoteCommunityOptions
+// | RemoteCommunityJsonType
+// | CommunityIpfsType
+// | InternalCommunityType
+// | RemoteCommunity
+// | RpcLocalCommunity
+// | RpcRemoteCommunity
+// | LocalCommunity = {}
 
-export const CreateRemoteSubplebbitFunctionArgumentSchema = CreateRemoteSubplebbitOptionsSchema.or(SubplebbitIpfsSchema.loose());
+export const CreateRemoteCommunityFunctionArgumentSchema = CreateRemoteCommunityOptionsSchema.or(CommunityIpfsSchema.loose());
 
-export const CreateRpcSubplebbitFunctionArgumentSchema = CreateRemoteSubplebbitFunctionArgumentSchema.or(
-    CreateNewLocalSubplebbitUserOptionsSchema
+export const CreateRpcCommunityFunctionArgumentSchema = CreateRemoteCommunityFunctionArgumentSchema.or(
+    CreateNewLocalCommunityUserOptionsSchema
 );
 
-export const CreateSubplebbitFunctionArgumentsSchema = CreateNewLocalSubplebbitUserOptionsSchema.or(
-    CreateRemoteSubplebbitFunctionArgumentSchema
+export const CreateCommunityFunctionArgumentsSchema = CreateNewLocalCommunityUserOptionsSchema.or(
+    CreateRemoteCommunityFunctionArgumentSchema
 );
 
-// plebbit.listSubplebbits()
+// plebbit.listCommunitys()
 
-export const ListOfSubplebbitsSchema = SubplebbitAddressSchema.array();
+export const ListOfCommunitysSchema = CommunityAddressSchema.array();
 
 // Reserved fields
 
 // TODO should make the array of class props typed
-export const SubplebbitIpfsReservedFields = remeda.difference(
+export const CommunityIpfsReservedFields = remeda.difference(
     [
         "cid",
         "shortCid",
@@ -334,7 +334,7 @@ export const SubplebbitIpfsReservedFields = remeda.difference(
         "shortAddress",
         "nameResolved",
         "raw",
-        "shortSubplebbitAddress",
+        "shortCommunityAddress",
         "deleted",
         "signer",
         "state",
@@ -346,5 +346,5 @@ export const SubplebbitIpfsReservedFields = remeda.difference(
         "updatingState",
         "started"
     ],
-    remeda.keys.strict(SubplebbitIpfsSchema.shape)
+    remeda.keys.strict(CommunityIpfsSchema.shape)
 );

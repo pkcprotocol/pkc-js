@@ -1,9 +1,9 @@
 import { beforeAll, afterAll } from "vitest";
-import Plebbit from "../../dist/node/index.js";
+import PKC from "../../dist/node/index.js";
 import { createSubWithNoChallenge, describeSkipIfRpc, resolveWhenConditionIsTrue } from "../../dist/node/test/test-util.js";
 import { MockHttpRouter } from "../../dist/node/runtime/node/test/mock-http-router.js";
-import type { Plebbit as PlebbitType } from "../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../dist/node/runtime/node/community/local-community.js";
+import type { PKC as PKCType } from "../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
 
 import tcpPortUsed from "tcp-port-used";
 
@@ -14,7 +14,7 @@ describeSkipIfRpc(`Testing HTTP router settings and address rewriter`, async () 
 
     const startPort = 19575;
 
-    let plebbit: PlebbitType;
+    let plebbit: PKCType;
 
     beforeAll(async () => {
         mockHttpRouter = new MockHttpRouter();
@@ -35,10 +35,10 @@ describeSkipIfRpc(`Testing HTTP router settings and address rewriter`, async () 
         for (let i = 0; i < httpRouterUrls.length; i++) expect(await tcpPortUsed.check(startPort + i)).to.be.false;
     });
 
-    it(`Plebbit({kuboRpcClientsOptions, httpRoutersOptions}) will change config of ipfs node`, async () => {
-        plebbit = await Plebbit({ kuboRpcClientsOptions: [kuboNodeForHttpRouter], httpRoutersOptions: httpRouterUrls });
+    it(`PKC({kuboRpcClientsOptions, httpRoutersOptions}) will change config of ipfs node`, async () => {
+        plebbit = await PKC({ kuboRpcClientsOptions: [kuboNodeForHttpRouter], httpRoutersOptions: httpRouterUrls });
         plebbit.on("error", (err) => {
-            console.log("Received an error on Plebbit instance", err);
+            console.log("Received an error on PKC instance", err);
         });
         await new Promise((resolve) => setTimeout(resolve, 5000)); // wait unti plebbit is done changing config and restarting
         expect(plebbit.httpRoutersOptions).to.deep.equal(httpRouterUrls);
@@ -72,13 +72,13 @@ describeSkipIfRpc(`Testing HTTP router settings and address rewriter`, async () 
     });
 
     it(`Can create another plebbit instance with same configs with no problem`, async () => {
-        const anotherInstance = await Plebbit({
+        const anotherInstance = await PKC({
             kuboRpcClientsOptions: [kuboNodeForHttpRouter],
             httpRoutersOptions: httpRouterUrls,
             dataPath: plebbit.dataPath
         });
         anotherInstance.on("error", (err) => {
-            console.log("Received an error on Plebbit instance", err);
+            console.log("Received an error on PKC instance", err);
         });
         const kuboRpcClient = anotherInstance.clients.kuboRpcClients[kuboNodeForHttpRouter]._client;
         const configValueRouters = (await kuboRpcClient.config.get("Routing.Routers")) as Record<
@@ -94,7 +94,7 @@ describeSkipIfRpc(`Testing HTTP router settings and address rewriter`, async () 
     });
 
     it(`The proxy proxies requests to http router properly`, async () => {
-        const sub = (await createSubWithNoChallenge({}, plebbit)) as LocalSubplebbit; // an online sub
+        const sub = (await createSubWithNoChallenge({}, plebbit)) as LocalCommunity; // an online sub
 
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
@@ -162,7 +162,7 @@ describeSkipIfRpc(`Testing HTTP router settings and address rewriter`, async () 
     });
 
     it(`Creating a new plebbit instance will start a new proxy server after destroying the previous one`, async () => {
-        const anotherInstance = await Plebbit({
+        const anotherInstance = await PKC({
             kuboRpcClientsOptions: [kuboNodeForHttpRouter],
             httpRoutersOptions: httpRouterUrls,
             dataPath: plebbit.dataPath

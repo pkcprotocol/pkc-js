@@ -3,7 +3,7 @@ import type {
     ChallengeInput,
     ChallengeResultInput,
     GetChallengeArgsInput,
-    SubplebbitChallengeSetting
+    CommunityChallengeSetting
 } from "../../../../../community/types.js";
 import { derivePublicationFromChallengeRequest } from "../../../../../util.js";
 import { getCommunityAddressFromRecord } from "../../../../../publications/publication-community.js";
@@ -100,16 +100,16 @@ class UrlsAddressesSet {
     }
 
     private refetchAndUpdateAllUrlsSets(): void {
-        const urlToSubplebbitAddresses: { [url: string]: string[] } = {};
+        const urlToCommunityAddresses: { [url: string]: string[] } = {};
         for (const [subplebbitAddress, subplebbit] of Object.entries(this.subplebbits)) {
             for (const url of subplebbit.urls) {
-                if (!urlToSubplebbitAddresses[url]) {
-                    urlToSubplebbitAddresses[url] = [];
+                if (!urlToCommunityAddresses[url]) {
+                    urlToCommunityAddresses[url] = [];
                 }
-                urlToSubplebbitAddresses[url].push(subplebbitAddress);
+                urlToCommunityAddresses[url].push(subplebbitAddress);
             }
         }
-        for (const [url, subplebbitAddresses] of Object.entries(urlToSubplebbitAddresses)) {
+        for (const [url, subplebbitAddresses] of Object.entries(urlToCommunityAddresses)) {
             this.fetchAndUpdateUrlSet(url, subplebbitAddresses);
         }
     }
@@ -145,7 +145,7 @@ const getChallenge = async ({ challengeSettings, challengeRequestMessage }: GetC
     };
 };
 
-function ChallengeFileFactory({ challengeSettings }: { challengeSettings: SubplebbitChallengeSetting }): ChallengeFileInput {
+function ChallengeFileFactory({ challengeSettings }: { challengeSettings: CommunityChallengeSetting }): ChallengeFileInput {
     return { getChallenge, optionInputs, type, description };
 }
 

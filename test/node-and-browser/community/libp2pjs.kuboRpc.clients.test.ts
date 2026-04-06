@@ -3,14 +3,14 @@ import signers from "../../fixtures/signers.js";
 
 import {
     publishRandomPost,
-    getAvailablePlebbitConfigsToTestAgainst,
-    mockGatewayPlebbit,
-    createStaticSubplebbitRecordForComment,
-    createMockedSubplebbitIpns
+    getAvailablePKCConfigsToTestAgainst,
+    mockGatewayPKC,
+    createStaticCommunityRecordForComment,
+    createMockedCommunityIpns
 } from "../../../dist/node/test/test-util.js";
 
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
-import type { PlebbitError } from "../../../dist/node/pkc-error.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import type { PKCError } from "../../../dist/node/pkc-error.js";
 const subplebbitAddress = signers[0].address;
 
 const clientsFieldName: Record<string, string> = {
@@ -18,10 +18,10 @@ const clientsFieldName: Record<string, string> = {
     "remote-libp2pjs": "libp2pJsClients"
 };
 
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
     const clientFieldName = clientsFieldName[config.testConfigCode];
     describe(`subplebbit.clients.${clientFieldName} - ${config.name}`, async () => {
-        let plebbit: PlebbitType;
+        let plebbit: PKCType;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -32,14 +32,14 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`subplebbit.clients.${clientFieldName} is undefined for gateway plebbit`, async () => {
-            const gatewayPlebbit = await mockGatewayPlebbit();
-            const mockSub = await gatewayPlebbit.getSubplebbit({ address: subplebbitAddress });
+            const gatewayPKC = await mockGatewayPKC();
+            const mockSub = await gatewayPKC.getCommunity({ address: subplebbitAddress });
             expect((mockSub.clients as unknown as Record<string, Record<string, unknown>>)[clientFieldName]).to.be.undefined;
-            await gatewayPlebbit.destroy();
+            await gatewayPKC.destroy();
         });
 
         it(`subplebbit.clients.${clientFieldName}[url] is stopped by default`, async () => {
-            const mockSub = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const mockSub = await plebbit.getCommunity({ address: subplebbitAddress });
             expect(Object.keys((mockSub.clients as unknown as Record<string, Record<string, unknown>>)[clientFieldName]).length).to.equal(
                 1
             );
@@ -52,8 +52,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
             ).to.equal("stopped");
         });
 
-        it(`Correct order of ${clientFieldName} state when updating a sub that was created with plebbit.createSubplebbit({address})`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: signers[0].address });
+        it(`Correct order of ${clientFieldName} state when updating a sub that was created with plebbit.createCommunity({address})`, async () => {
+            const sub = await plebbit.createCommunity({ address: signers[0].address });
 
             const expectedStates = ["fetching-ipns", "fetching-ipfs", "stopped"];
 
@@ -74,8 +74,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
             expect(actualStates).to.deep.equal(expectedStates);
         });
 
-        it(`Correct order of ${clientFieldName} state when updating a subplebbit that was created with plebbit.getSubplebbit({address: address})`, async () => {
-            const sub = await plebbit.getSubplebbit({ address: signers[0].address });
+        it(`Correct order of ${clientFieldName} state when updating a subplebbit that was created with plebbit.getCommunity({address: address})`, async () => {
+            const sub = await plebbit.getCommunity({ address: signers[0].address });
             delete sub.raw.subplebbitIpfs;
             delete sub.updateCid;
             const expectedStates = ["fetching-ipns", "fetching-ipfs", "stopped"];
@@ -99,9 +99,9 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`Correct order of ${clientFieldName} state when we update a subplebbit and it's not publishing new subplebbit records`, async () => {
-            const subRecord = await createMockedSubplebbitIpns({}); // only published once, a static record
+            const subRecord = await createMockedCommunityIpns({}); // only published once, a static record
 
-            const sub = await plebbit.createSubplebbit({ address: subRecord.communityAddress });
+            const sub = await plebbit.createCommunity({ address: subRecord.communityAddress });
 
             const recordedStates: string[] = [];
             const clientUrl = Object.keys((sub.clients as unknown as Record<string, Record<string, { on: Function }>>)[clientFieldName])[0];
@@ -110,7 +110,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                 (newState: string) => recordedStates.push(newState)
             );
 
-            // now plebbit._updatingSubplebbits will be defined
+            // now plebbit._updatingCommunitys will be defined
 
             const updatePromise = new Promise((resolve) => sub.once("update", resolve));
             await sub.update();
@@ -134,12 +134,12 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`Correct order of ${clientFieldName} client states when we attempt to update a subplebbit with invalid record`, async () => {
-            const { commentCid, communityAddress: subplebbitAddress } = await createStaticSubplebbitRecordForComment({
-                invalidateSubplebbitSignature: true
+            const { commentCid, communityAddress: subplebbitAddress } = await createStaticCommunityRecordForComment({
+                invalidateCommunitySignature: true
             });
 
             // Create a static subplebbit record with invalid signature
-            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.createCommunity({ address: subplebbitAddress });
 
             const recordedStates: string[] = [];
             const clientUrl = Object.keys((sub.clients as unknown as Record<string, Record<string, { on: Function }>>)[clientFieldName])[0];
@@ -148,7 +148,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                 (newState: string) => recordedStates.push(newState)
             );
 
-            const errorPromise = new Promise<PlebbitError>((resolve) => sub.once("error", resolve as (err: Error) => void));
+            const errorPromise = new Promise<PKCError>((resolve) => sub.once("error", resolve as (err: Error) => void));
 
             await sub.update();
             const err = await errorPromise;

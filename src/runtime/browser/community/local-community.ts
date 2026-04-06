@@ -1,5 +1,5 @@
-export class LocalSubplebbit {
+export class LocalCommunity {
     constructor() {
-        throw Error("Local Subplebbit should not be instantiated in browser");
+        throw Error("Local Community should not be instantiated in browser");
     }
 }

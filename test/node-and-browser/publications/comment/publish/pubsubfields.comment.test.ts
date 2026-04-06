@@ -1,12 +1,12 @@
 import {
     generateMockPost,
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     publishWithExpectedResult,
     ensurePublicationIsSigned
 } from "../../../../../dist/node/test/test-util.js";
 import signers from "../../../../fixtures/signers.js";
 import { describe, beforeAll, afterAll, it } from "vitest";
-import type { Plebbit } from "../../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
 
 // Type matching ensurePublicationIsSigned's community parameter
 type CommunityForSigning = {
@@ -22,14 +22,14 @@ type ChallengeRequestEvent = {
     challengeAnswers?: string[];
     challengeCommentCids?: string[];
 };
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Pubsub request fields in plebbit.createComment - ${config.name}`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         let community: CommunityForSigning;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            const sub = await plebbit.getSubplebbit({ address: signers[0].address });
+            const sub = await plebbit.getCommunity({ address: signers[0].address });
             community = sub as CommunityForSigning;
         });
 

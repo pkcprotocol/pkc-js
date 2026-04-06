@@ -1,34 +1,34 @@
 import { OptionsToLoadFromGateway, PreResolveNameResolverOptions } from "../../clients/base-client-manager.js";
 import type { PageIpfs, PageTypeJson } from "../../pages/types.js";
-import type { SubplebbitIpfsType } from "../../community/types.js";
+import type { CommunityIpfsType } from "../../community/types.js";
 import { NameResolverClient } from "../../clients/name-resolver-client.js";
 import { Comment } from "./comment.js";
 import * as remeda from "remeda";
 import type { CommentIpfsType, CommentUpdateType } from "./types.js";
 import {
-    parseCommentIpfsSchemaWithPlebbitErrorIfItFails,
-    parseCommentUpdateSchemaWithPlebbitErrorIfItFails,
-    parseJsonWithPlebbitErrorIfFails
+    parseCommentIpfsSchemaWithPKCErrorIfItFails,
+    parseCommentUpdateSchemaWithPKCErrorIfItFails,
+    parseJsonWithPKCErrorIfFails
 } from "../../schema/schema-util.js";
-import { FailedToFetchCommentUpdateFromGatewaysError, PlebbitError } from "../../pkc-error.js";
+import { FailedToFetchCommentUpdateFromGatewaysError, PKCError } from "../../pkc-error.js";
 import { verifyCommentIpfs, verifyCommentUpdate } from "../../signer/signatures.js";
 import Logger from "../../logger.js";
 import { getPostUpdateTimestampRange, hideClassPrivateProps, isAbortError, resolveWhenPredicateIsTrue } from "../../util.js";
 import { PublicationClientsManager } from "../publication-client-manager.js";
-import { RemoteSubplebbit } from "../../community/remote-community.js";
+import { RemoteCommunity } from "../../community/remote-community.js";
 import { findCommentInPageInstance, findCommentInPageInstanceRecursively, findCommentInParsedPages } from "../../pages/util.js";
 import {
     CommentIpfsGatewayClient,
     CommentKuboPubsubClient,
     CommentKuboRpcClient,
     CommentLibp2pJsClient,
-    CommentPlebbitRpcStateClient
+    CommentPKCRpcStateClient
 } from "./comment-clients.js";
-import { Plebbit } from "../../pkc/pkc.js";
+import { PKC } from "../../pkc/pkc.js";
 import type { PublicationEvents } from "../types.js";
 import { InflightResourceTypes } from "../../util/inflight-fetch-manager.js";
-import { loadAllPagesUnderSubplebbitToFindComment } from "./comment-util.js";
-import { findStartedSubplebbit, findUpdatingComment, findUpdatingSubplebbit } from "../../pkc/tracked-instance-registry-util.js";
+import { loadAllPagesUnderCommunityToFindComment } from "./comment-util.js";
+import { findStartedCommunity, findUpdatingComment, findUpdatingCommunity } from "../../pkc/tracked-instance-registry-util.js";
 
 const fetchCommentLogger = Logger("pkc-js:comment:client-manager:fetchAndVerifyCommentCid");
 
@@ -42,7 +42,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         ipfsGateways: { [ipfsGatewayUrl: string]: CommentIpfsGatewayClient };
         kuboRpcClients: { [ipfsClientUrl: string]: CommentKuboRpcClient };
         pubsubKuboRpcClients: { [pubsubClientUrl: string]: CommentKuboPubsubClient };
-        plebbitRpcClients: Record<string, CommentPlebbitRpcStateClient>;
+        plebbitRpcClients: Record<string, CommentPKCRpcStateClient>;
         libp2pJsClients: { [libp2pJsClientKey: string]: CommentLibp2pJsClient };
         nameResolvers: { [resolverKey: string]: NameResolverClient };
     };
@@ -78,9 +78,9 @@ export class CommentClientsManager extends PublicationClientsManager {
             this.clients.libp2pJsClients = { ...this.clients.libp2pJsClients, [libp2pJsClientKey]: new CommentLibp2pJsClient("stopped") };
     }
 
-    protected override _initPlebbitRpcClients() {
+    protected override _initPKCRpcClients() {
         for (const rpcUrl of remeda.keys.strict(this._plebbit.clients.plebbitRpcClients))
-            this.clients.plebbitRpcClients = { ...this.clients.plebbitRpcClients, [rpcUrl]: new CommentPlebbitRpcStateClient("stopped") };
+            this.clients.plebbitRpcClients = { ...this.clients.plebbitRpcClients, [rpcUrl]: new CommentPKCRpcStateClient("stopped") };
     }
 
     override updateLibp2pJsClientState(newState: CommentLibp2pJsClient["state"], libp2pJsClientKey: string) {
@@ -111,13 +111,13 @@ export class CommentClientsManager extends PublicationClientsManager {
 
     _updateKuboRpcClientOrHeliaState(
         newState: CommentKuboRpcClient["state"] | CommentLibp2pJsClient["state"],
-        kuboRpcOrHelia: Plebbit["clients"]["kuboRpcClients"][string] | Plebbit["clients"]["libp2pJsClients"][string]
+        kuboRpcOrHelia: PKC["clients"]["kuboRpcClients"][string] | PKC["clients"]["libp2pJsClients"][string]
     ) {
         if ("_helia" in kuboRpcOrHelia) this.updateLibp2pJsClientState(newState, kuboRpcOrHelia._libp2pJsClientsOptions.key);
         else this.updateKuboRpcState(newState as CommentKuboRpcClient["state"], kuboRpcOrHelia.url);
     }
 
-    async _fetchPostCommentUpdateIpfsP2P(subIpns: SubplebbitIpfsType, timestampRanges: string[], log: Logger): Promise<NewCommentUpdate> {
+    async _fetchPostCommentUpdateIpfsP2P(subIpns: CommunityIpfsType, timestampRanges: string[], log: Logger): Promise<NewCommentUpdate> {
         // only get new CommentUpdates
         // not interested in CommentUpdate we already fetched before
         const attemptedPathsToLoadErrors: Record<string, Error> = {};
@@ -161,7 +161,7 @@ export class CommentClientsManager extends PublicationClientsManager {
                 this._updateKuboRpcClientOrHeliaState("stopped", kuboRpcOrHelia);
             }
             try {
-                const commentUpdate = parseCommentUpdateSchemaWithPlebbitErrorIfItFails(parseJsonWithPlebbitErrorIfFails(res));
+                const commentUpdate = parseCommentUpdateSchemaWithPKCErrorIfItFails(parseJsonWithPKCErrorIfFails(res));
                 await this._throwIfCommentUpdateHasInvalidSignature(commentUpdate, subIpns);
                 if (commentUpdate.updatedAt > (this._comment.raw?.commentUpdate?.updatedAt || 0))
                     return { commentUpdate, commentUpdateIpfsPath: path };
@@ -169,11 +169,11 @@ export class CommentClientsManager extends PublicationClientsManager {
             } catch (e) {
                 // there's a problem with the record itself, could be signature or schema or bad json
                 this._comment._invalidCommentUpdateMfsPaths.add(path);
-                if (e instanceof PlebbitError) e.details = { ...e.details, commentUpdatePath: path, postCid: this._comment.cid };
+                if (e instanceof PKCError) e.details = { ...e.details, commentUpdatePath: path, postCid: this._comment.cid };
                 throw e;
             }
         }
-        throw new PlebbitError("ERR_FAILED_TO_FETCH_COMMENT_UPDATE_FROM_ALL_POST_UPDATES_RANGES", {
+        throw new PKCError("ERR_FAILED_TO_FETCH_COMMENT_UPDATE_FROM_ALL_POST_UPDATES_RANGES", {
             timestampRanges,
             attemptedPathsToLoadErrors,
             postCid: this._comment.cid,
@@ -181,9 +181,9 @@ export class CommentClientsManager extends PublicationClientsManager {
         });
     }
 
-    _shouldWeFetchCommentUpdateFromNextTimestamp(err: PlebbitError | Error): boolean {
+    _shouldWeFetchCommentUpdateFromNextTimestamp(err: PKCError | Error): boolean {
         // Is there a problem with the record itself, or is this an issue with fetching?
-        if (!(err instanceof PlebbitError)) return false; // If it's not a recognizable error, then we throw to notify the user
+        if (!(err instanceof PKCError)) return false; // If it's not a recognizable error, then we throw to notify the user
         if (
             err.code === "ERR_COMMENT_UPDATE_SIGNATURE_IS_INVALID" ||
             err.code === "ERR_INVALID_COMMENT_UPDATE_SCHEMA" ||
@@ -202,7 +202,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         return true;
     }
 
-    private async _throwIfCommentUpdateHasInvalidSignature(commentUpdate: CommentUpdateType, subplebbitIpfs: SubplebbitIpfsType) {
+    private async _throwIfCommentUpdateHasInvalidSignature(commentUpdate: CommentUpdateType, subplebbitIpfs: CommunityIpfsType) {
         if (!this._comment.raw.comment) throw Error("Can't validate comment update when CommentIpfs hasn't been loaded");
         if (!this._comment.cid) throw Error("can't validate comment update when cid is not defined");
         if (!this._comment.postCid) throw Error("can't validate comment update when postCid is not defined");
@@ -218,14 +218,14 @@ export class CommentClientsManager extends PublicationClientsManager {
         };
         const signatureValidity = await verifyCommentUpdate(verifyOptions);
         if (!signatureValidity.valid)
-            throw new PlebbitError("ERR_COMMENT_UPDATE_SIGNATURE_IS_INVALID", {
+            throw new PKCError("ERR_COMMENT_UPDATE_SIGNATURE_IS_INVALID", {
                 signatureValidity,
                 verifyOptions
             });
     }
 
     async _fetchPostCommentUpdateFromGateways(
-        subIpns: SubplebbitIpfsType,
+        subIpns: CommunityIpfsType,
         timestampRanges: string[],
         log: Logger
     ): Promise<NewCommentUpdate> {
@@ -251,9 +251,7 @@ export class CommentClientsManager extends PublicationClientsManager {
 
         const validateCommentFromGateway: OptionsToLoadFromGateway["validateGatewayResponseFunc"] = async (res) => {
             if (typeof res.resText !== "string") throw Error("Gateway response has no body");
-            const commentUpdateBeforeSignature = parseCommentUpdateSchemaWithPlebbitErrorIfItFails(
-                parseJsonWithPlebbitErrorIfFails(res.resText)
-            );
+            const commentUpdateBeforeSignature = parseCommentUpdateSchemaWithPKCErrorIfItFails(parseJsonWithPKCErrorIfFails(res.resText));
             await this._throwIfCommentUpdateHasInvalidSignature(commentUpdateBeforeSignature, subIpns);
             commentUpdate = commentUpdateBeforeSignature; // at this point, we know the gateway has provided a valid comment update and we can use it
         };
@@ -273,7 +271,7 @@ export class CommentClientsManager extends PublicationClientsManager {
                     recordIpfsType: "ipfs",
                     root: folderCid,
                     path: path.replace(`${folderCid}/`, ""),
-                    recordPlebbitType: "comment-update",
+                    recordPKCType: "comment-update",
                     validateGatewayResponseFunc: validateCommentFromGateway,
                     log,
                     maxFileSizeBytes: MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE,
@@ -287,7 +285,7 @@ export class CommentClientsManager extends PublicationClientsManager {
             } catch (e) {
                 // We need to find out if it's loading error, and if it is we just move on to the next timestamp range
                 // If it's a schema or signature error we should stop and throw
-                if (this._shouldWeFetchCommentUpdateFromNextTimestamp(<PlebbitError>e)) {
+                if (this._shouldWeFetchCommentUpdateFromNextTimestamp(<PKCError>e)) {
                     attemptedPathsToLoadErrors[path] = <Error>e;
                     log.trace(`Failed to fetch CommentUpdate from path (${path}) from gateways. Trying the next timestamp range`);
                     continue;
@@ -299,7 +297,7 @@ export class CommentClientsManager extends PublicationClientsManager {
                 }
             }
         }
-        throw new PlebbitError("ERR_FAILED_TO_FETCH_COMMENT_UPDATE_FROM_ALL_POST_UPDATES_RANGES", {
+        throw new PKCError("ERR_FAILED_TO_FETCH_COMMENT_UPDATE_FROM_ALL_POST_UPDATES_RANGES", {
             timestampRanges,
             attemptedPathsToLoadErrors,
             commentCid: this._comment.cid,
@@ -309,7 +307,7 @@ export class CommentClientsManager extends PublicationClientsManager {
 
     _useLoadedCommentUpdateIfNewInfo(
         loadedCommentUpdate: NonNullable<NewCommentUpdate> | Pick<NonNullable<NewCommentUpdate>, "commentUpdate">,
-        subplebbit: Pick<SubplebbitIpfsType, "signature">,
+        subplebbit: Pick<CommunityIpfsType, "signature">,
         log: Logger
     ) {
         if ((this._comment.raw.commentUpdate?.updatedAt || 0) < loadedCommentUpdate.commentUpdate.updatedAt) {
@@ -325,10 +323,10 @@ export class CommentClientsManager extends PublicationClientsManager {
         } else return false;
     }
 
-    async useSubplebbitPostUpdatesToFetchCommentUpdateForPost(subIpfs: SubplebbitIpfsType) {
-        const log = Logger("pkc-js:comment:useSubplebbitPostUpdatesToFetchCommentUpdate");
+    async useCommunityPostUpdatesToFetchCommentUpdateForPost(subIpfs: CommunityIpfsType) {
+        const log = Logger("pkc-js:comment:useCommunityPostUpdatesToFetchCommentUpdate");
         if (!subIpfs.postUpdates) {
-            throw new PlebbitError("ERR_COMMUNITY_HAS_NO_POST_UPDATES", { subIpfs, postCid: this._comment.cid });
+            throw new PKCError("ERR_COMMUNITY_HAS_NO_POST_UPDATES", { subIpfs, postCid: this._comment.cid });
         }
 
         const postCid = this._comment.postCid;
@@ -351,7 +349,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         } catch (e) {
             if (e instanceof Error) {
                 if (isAbortError(e)) return;
-                if (this._shouldWeFetchCommentUpdateFromNextTimestamp(<PlebbitError>e)) {
+                if (this._shouldWeFetchCommentUpdateFromNextTimestamp(<PKCError>e)) {
                     // this is a retriable error
                     // could be problems loading from the network or gateways
                     log.trace(`Post`, this._comment.cid, "Failed to load CommentUpdate. Will retry later", e);
@@ -410,7 +408,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         const log = Logger("pkc-js:comment:client-manager:_fetchCommentIpfsFromGateways");
         const res = await this.fetchFromMultipleGateways({
             recordIpfsType: "ipfs",
-            recordPlebbitType: "comment",
+            recordPKCType: "comment",
             root: parentCid,
             validateGatewayResponseFunc: async () => {},
             log,
@@ -433,7 +431,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         };
         const commentIpfsValidation = await verifyCommentIpfs(verificationOpts);
         if (!commentIpfsValidation.valid)
-            throw new PlebbitError("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID", { commentIpfsValidation, verificationOpts });
+            throw new PKCError("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID", { commentIpfsValidation, verificationOpts });
     }
 
     async _fetchCommentIpfsFromPages() {
@@ -443,7 +441,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         // - download all comments under a sub and look for our specific comment
         if (!this._comment.communityAddress) throw Error("Comment communityAddress should be defined");
         if (!this._comment.cid) throw Error("Comment cid should be defined");
-        const sub = await this._plebbit.createSubplebbit({
+        const sub = await this._plebbit.createCommunity({
             name: this._comment.communityName,
             publicKey: this._comment.communityPublicKey,
             address: this._comment.communityAddress
@@ -504,7 +502,7 @@ export class CommentClientsManager extends PublicationClientsManager {
 
             await sub.stop();
 
-            const commentAfterSearchingAllPages = await loadAllPagesUnderSubplebbitToFindComment({
+            const commentAfterSearchingAllPages = await loadAllPagesUnderCommunityToFindComment({
                 subplebbit: sub,
                 commentCidToFind: this._comment.cid,
                 postCid: this._comment.postCid,
@@ -548,7 +546,7 @@ export class CommentClientsManager extends PublicationClientsManager {
                     commentRawString = await this._fetchRawCommentCidIpfsP2P(cid);
                 } else commentRawString = await this._fetchCommentIpfsFromGateways(cid);
 
-                const commentIpfs = parseCommentIpfsSchemaWithPlebbitErrorIfItFails(parseJsonWithPlebbitErrorIfFails(commentRawString)); // could throw if schema is invalid
+                const commentIpfs = parseCommentIpfsSchemaWithPKCErrorIfItFails(parseJsonWithPKCErrorIfFails(commentRawString)); // could throw if schema is invalid
                 await this._throwIfCommentIpfsIsInvalid(commentIpfs, cid);
                 return commentIpfs;
             }
@@ -562,16 +560,16 @@ export class CommentClientsManager extends PublicationClientsManager {
         return this._comment.state === "publishing";
     }
 
-    _findCommentInPagesOfUpdatingCommentsOrSubplebbit(opts?: {
-        sub?: RemoteSubplebbit;
+    _findCommentInPagesOfUpdatingCommentsOrCommunity(opts?: {
+        sub?: RemoteCommunity;
         post?: Comment;
         parent?: Comment;
     }): PageIpfs["comments"][0] | undefined {
         // TODO rewrite this to use updating comments and subplebbit
         if (typeof this._comment.cid !== "string") throw Error("Need to have defined cid");
-        const sub: RemoteSubplebbit | undefined =
-            findStartedSubplebbit(this._plebbit, { address: this._comment.communityAddress }) ||
-            findUpdatingSubplebbit(this._plebbit, { address: this._comment.communityAddress }) ||
+        const sub: RemoteCommunity | undefined =
+            findStartedCommunity(this._plebbit, { address: this._comment.communityAddress }) ||
+            findUpdatingCommunity(this._plebbit, { address: this._comment.communityAddress }) ||
             opts?.sub;
         let updateFromSub: PageIpfs["comments"][0] | undefined;
         if (sub) updateFromSub = findCommentInPageInstanceRecursively(sub.posts, this._comment.cid);
@@ -597,7 +595,7 @@ export class CommentClientsManager extends PublicationClientsManager {
 
     // will handling sub states down here
     // this is for posts with depth === 0
-    override async handleUpdateEventFromSub(sub: RemoteSubplebbit) {
+    override async handleUpdateEventFromSub(sub: RemoteCommunity) {
         const log = Logger("pkc-js:comment:update");
         if (!this._comment.cid) {
             log("comment.cid is not defined because comment is publishing, waiting until cid is defined");
@@ -605,33 +603,33 @@ export class CommentClientsManager extends PublicationClientsManager {
         }
         // a new update has been emitted by sub
         if (this._comment.state === "stopped") {
-            // there are async cases where we fetch a SubplebbitUpdate in the background and stop() is called midway
+            // there are async cases where we fetch a CommunityUpdate in the background and stop() is called midway
             await this._comment.stop();
             return;
         }
 
-        if (!sub.raw.subplebbitIpfs) throw Error("Subplebbit IPFS should be defined when an update is emitted");
+        if (!sub.raw.subplebbitIpfs) throw Error("Community IPFS should be defined when an update is emitted");
         // let's try to find a CommentUpdate in subplebbit pages, or _updatingComments
         // this._communityForUpdating!.subplebbit.raw.subplebbitIpfs?.posts.
 
-        const postInUpdatingSubplebbit = this._findCommentInPagesOfUpdatingCommentsOrSubplebbit({ sub });
+        const postInUpdatingCommunity = this._findCommentInPagesOfUpdatingCommentsOrCommunity({ sub });
 
         if (
-            postInUpdatingSubplebbit &&
-            postInUpdatingSubplebbit.commentUpdate.updatedAt > (this._comment.raw?.commentUpdate?.updatedAt || 0)
+            postInUpdatingCommunity &&
+            postInUpdatingCommunity.commentUpdate.updatedAt > (this._comment.raw?.commentUpdate?.updatedAt || 0)
         ) {
             const log = Logger("pkc-js:comment:update:handleUpdateEventFromSub:find-comment-update-in-updating-sub-or-comments-pages");
-            this._useLoadedCommentUpdateIfNewInfo({ commentUpdate: postInUpdatingSubplebbit.commentUpdate }, sub.raw.subplebbitIpfs, log);
+            this._useLoadedCommentUpdateIfNewInfo({ commentUpdate: postInUpdatingCommunity.commentUpdate }, sub.raw.subplebbitIpfs, log);
         } else
             try {
                 // this is only for posts with depth === 0
-                await this.useSubplebbitPostUpdatesToFetchCommentUpdateForPost(sub.raw.subplebbitIpfs);
+                await this.useCommunityPostUpdatesToFetchCommentUpdateForPost(sub.raw.subplebbitIpfs);
             } catch (e) {
                 if (isAbortError(e)) return;
                 log.error("Failed to use subplebbit update to fetch new CommentUpdate", e);
                 this._comment._changeCommentStateEmitEventEmitStateChangeEvent({
                     newUpdatingState: "failed",
-                    event: { name: "error", args: [e as PlebbitError] }
+                    event: { name: "error", args: [e as PKCError] }
                 });
             }
     }
@@ -662,7 +660,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         const log = Logger("pkc-js:comment:update:usePageCidsOfParentToFetchCommentUpdateForReply");
         if (!this._comment.cid) throw Error("comment.cid needs to be defined to fetch comment update of reply");
         if (!this._comment.parentCid) throw Error("comment.parentCid needs to be defined to fetch comment update of reply");
-        const subplebbitWithSignature = <Required<Pick<RemoteSubplebbit, "signature">>>postCommentInstance.replies._subplebbit;
+        const subplebbitWithSignature = <Required<Pick<RemoteCommunity, "signature">>>postCommentInstance.replies._subplebbit;
         if (!subplebbitWithSignature.signature)
             throw Error("comment.replies._subplebbit.signature needs to be defined to fetch comment update of reply");
         const parentCommentInstance =
@@ -757,7 +755,7 @@ export class CommentClientsManager extends PublicationClientsManager {
                 this._parentFirstPageCidsAlreadyLoaded.add(curPageCid);
             }
             const replyWithinParentPage = findCommentInParsedPages(pageLoaded, this._comment.cid)?.raw;
-            const replyWithinUpdatingPages = this._findCommentInPagesOfUpdatingCommentsOrSubplebbit({ parent: parentCommentInstance });
+            const replyWithinUpdatingPages = this._findCommentInPagesOfUpdatingCommentsOrCommunity({ parent: parentCommentInstance });
 
             pageCidsSearchedForNewUpdate.push({
                 pageCid: curPageCid,
@@ -810,7 +808,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         if (newCommentUpdate)
             this._useLoadedCommentUpdateIfNewInfo({ commentUpdate: newCommentUpdate.commentUpdate }, subplebbitWithSignature, log);
         else if (!replyFoundWithoutNewerUpdate)
-            throw new PlebbitError("ERR_FAILED_TO_FIND_REPLY_COMMENT_UPDATE_WITHIN_PARENT_COMMENT_PAGE_CIDS", {
+            throw new PKCError("ERR_FAILED_TO_FIND_REPLY_COMMENT_UPDATE_WITHIN_PARENT_COMMENT_PAGE_CIDS", {
                 replyCid: this._comment.cid,
                 parentCommentCid: parentCommentInstance.cid,
                 pageSortName,
@@ -818,7 +816,7 @@ export class CommentClientsManager extends PublicationClientsManager {
             });
     }
 
-    override async handleErrorEventFromSub(error: PlebbitError | Error) {
+    override async handleErrorEventFromSub(error: PKCError | Error) {
         // we received a non retriable error from sub instance
         if (this._comment.state === "publishing") return super.handleErrorEventFromSub(error);
         else if (this._communityForUpdating?.subplebbit?.updatingState === "failed") {
@@ -839,16 +837,16 @@ export class CommentClientsManager extends PublicationClientsManager {
         }
     }
 
-    override handleIpfsGatewaySubplebbitState(
-        subplebbitNewGatewayState: RemoteSubplebbit["clients"]["ipfsGateways"][string]["state"],
+    override handleIpfsGatewayCommunityState(
+        subplebbitNewGatewayState: RemoteCommunity["clients"]["ipfsGateways"][string]["state"],
         gatewayUrl: string
     ) {
-        if (this._comment.state === "publishing") return super.handleIpfsGatewaySubplebbitState(subplebbitNewGatewayState, gatewayUrl);
+        if (this._comment.state === "publishing") return super.handleIpfsGatewayCommunityState(subplebbitNewGatewayState, gatewayUrl);
         // we're updating
         else if (subplebbitNewGatewayState === "fetching-ipns") this.updateGatewayState("fetching-subplebbit-ipns", gatewayUrl);
     }
 
-    _translateSubUpdatingStateToCommentUpdatingState(newSubUpdatingState: RemoteSubplebbit["updatingState"]) {
+    _translateSubUpdatingStateToCommentUpdatingState(newSubUpdatingState: RemoteCommunity["updatingState"]) {
         const subUpdatingStateToCommentUpdatingState: Record<typeof newSubUpdatingState, Comment["updatingState"] | undefined> = {
             failed: "failed",
             "fetching-ipfs": "fetching-subplebbit-ipfs",
@@ -863,14 +861,14 @@ export class CommentClientsManager extends PublicationClientsManager {
         if (translatedCommentUpdatingState) this._comment._setUpdatingStateWithEmissionIfNewState(translatedCommentUpdatingState);
     }
 
-    override handleUpdatingStateChangeEventFromSub(newSubUpdatingState: RemoteSubplebbit["updatingState"]) {
+    override handleUpdatingStateChangeEventFromSub(newSubUpdatingState: RemoteCommunity["updatingState"]) {
         if (this._comment.state === "publishing") return super.handleUpdatingStateChangeEventFromSub(newSubUpdatingState);
         if (this._comment.updatingState === "fetching-update-ipfs") return;
 
         this._translateSubUpdatingStateToCommentUpdatingState(newSubUpdatingState);
     }
 
-    handleErrorEventFromPost(error: PlebbitError | Error) {
+    handleErrorEventFromPost(error: PKCError | Error) {
         this._comment.emit("error", error);
     }
 
@@ -930,14 +928,14 @@ export class CommentClientsManager extends PublicationClientsManager {
             this._comment._setUpdatingStateWithEmissionIfNewState("waiting-retry");
             return;
         }
-        const replyInPage = this._findCommentInPagesOfUpdatingCommentsOrSubplebbit({ post: postInstance });
+        const replyInPage = this._findCommentInPagesOfUpdatingCommentsOrCommunity({ post: postInstance });
 
-        const updatingSubplebbit = findUpdatingSubplebbit(this._plebbit, { address: postInstance.communityAddress });
-        const startedSubplebbit = findStartedSubplebbit(this._plebbit, { address: postInstance.communityAddress });
-        const repliesSubplebbit = <Pick<SubplebbitIpfsType, "signature">>(
-            (updatingSubplebbit?.raw?.subplebbitIpfs || startedSubplebbit?.raw?.subplebbitIpfs || postInstance.replies._subplebbit)
+        const updatingCommunity = findUpdatingCommunity(this._plebbit, { address: postInstance.communityAddress });
+        const startedCommunity = findStartedCommunity(this._plebbit, { address: postInstance.communityAddress });
+        const repliesCommunity = <Pick<CommunityIpfsType, "signature">>(
+            (updatingCommunity?.raw?.subplebbitIpfs || startedCommunity?.raw?.subplebbitIpfs || postInstance.replies._subplebbit)
         );
-        if (!repliesSubplebbit.signature) throw Error("repliesSubplebbit.signature needs to be defined to fetch comment update of reply");
+        if (!repliesCommunity.signature) throw Error("repliesCommunity.signature needs to be defined to fetch comment update of reply");
         if (replyInPage && !this._comment.raw.comment) {
             this._comment._initIpfsProps(replyInPage.comment);
             this._comment.emit("update", this._comment);
@@ -946,7 +944,7 @@ export class CommentClientsManager extends PublicationClientsManager {
             const log = Logger(
                 "plebbit-js:comment:update:handleUpdateEventFromPostToFetchReplyCommentUpdate:find-comment-update-in-updating-sub-or-comments-pages"
             );
-            this._useLoadedCommentUpdateIfNewInfo({ commentUpdate: replyInPage.commentUpdate }, repliesSubplebbit, log);
+            this._useLoadedCommentUpdateIfNewInfo({ commentUpdate: replyInPage.commentUpdate }, repliesCommunity, log);
             return; // we found an update from pages, no need to do anything else
         }
 
@@ -958,7 +956,7 @@ export class CommentClientsManager extends PublicationClientsManager {
                 log.error("Failed to fetch reply commentUpdate update from parent pages", error);
                 this._comment._changeCommentStateEmitEventEmitStateChangeEvent({
                     newUpdatingState: "failed",
-                    event: { name: "error", args: [error as PlebbitError | Error] }
+                    event: { name: "error", args: [error as PKCError | Error] }
                 });
             })
             .finally(() => {

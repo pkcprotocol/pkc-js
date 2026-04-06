@@ -2,16 +2,16 @@ import signers from "../../../fixtures/signers.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
 import {
     describeSkipIfRpc,
-    mockRemotePlebbit,
-    mockGatewayPlebbit,
-    mockPlebbitNoDataPathWithOnlyKuboClient,
+    mockRemotePKC,
+    mockGatewayPKC,
+    mockPKCNoDataPathWithOnlyKuboClient,
     publishRandomPost,
     resolveWhenConditionIsTrue,
-    getAvailablePlebbitConfigsToTestAgainst
+    getAvailablePKCConfigsToTestAgainst
 } from "../../../../dist/node/test/test-util.js";
 import { sha256 } from "js-sha256";
 
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 
 const subplebbitAddress = signers[0].address;
 
@@ -69,9 +69,9 @@ function createBlockedNameResolver(key: string, onlyForName?: string) {
     };
 }
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) =>
+getAvailablePKCConfigsToTestAgainst().map((config) =>
     describe(`comment.stop() timing - ${config.name}`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -99,7 +99,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) =>
 );
 
 // RPC excluded: tests access internal APIs (_memCaches, _updatingComments, _getStopAbortSignal)
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-ipfs-gateway", "remote-libp2pjs"] }).map(
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-ipfs-gateway", "remote-libp2pjs"] }).map(
     (config) =>
         describe(`comment.stop() aborts verification - ${config.name}`, async () => {
             it(`comment.stop() aborts background author resolution and clears cache`, async () => {
@@ -254,19 +254,19 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         })
 );
 
-// RPC excluded: tests use transport-specific mock instances (mockGatewayPlebbit, mockPlebbitNoDataPathWithOnlyKuboClient)
+// RPC excluded: tests use transport-specific mock instances (mockGatewayPKC, mockPKCNoDataPathWithOnlyKuboClient)
 // Not parametrizable: each test targets a specific transport mechanism
 describeSkipIfRpc(`comment.stop() aborts in-flight gateway fetches`, async () => {
     it(`comment.stop() aborts gateway fetch of commentIpfs`, async () => {
         // Use a non-routable IP that will hang forever
-        const plebbit = await mockGatewayPlebbit({
+        const plebbit = await mockGatewayPKC({
             plebbitOptions: {
                 ipfsGatewayUrls: ["http://192.0.2.1:1"]
             }
         });
 
         try {
-            const publisher = await mockRemotePlebbit();
+            const publisher = await mockRemotePKC();
             const post = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: publisher });
             await publisher.destroy();
 
@@ -294,7 +294,7 @@ describeSkipIfRpc(`comment.stop() aborts in-flight gateway fetches`, async () =>
 
     it(`comment.stop() aborts P2P fetch of commentIpfs via kubo`, async () => {
         // Use kubo with a CID that doesn't exist in the network (will hang during fetch)
-        const plebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
+        const plebbit = await mockPKCNoDataPathWithOnlyKuboClient();
 
         try {
             // Use a valid but non-existent CID that kubo will try to find in the network

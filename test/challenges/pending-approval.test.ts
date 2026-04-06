@@ -1,18 +1,18 @@
 import { beforeAll } from "vitest";
 import {
     getChallengeVerification,
-    getSubplebbitChallengeFromSubplebbitChallengeSettings
+    getCommunityChallengeFromCommunityChallengeSettings
 } from "../../dist/node/runtime/node/community/challenges/index.js";
 import type { GetChallengeAnswers } from "../../dist/node/runtime/node/community/challenges/index.js";
-import type { DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor } from "../../dist/node/pubsub-messages/types.js";
-import type { LocalSubplebbit } from "../../dist/node/runtime/node/community/local-community.js";
-import { Plebbit } from "./fixtures/fixtures.ts";
+import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../../dist/node/pubsub-messages/types.js";
+import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
+import { PKC } from "./fixtures/fixtures.ts";
 
 // Wrapper function for type assertion boilerplate
 const testGetChallengeVerification = (challengeRequestMessage: unknown, subplebbit: unknown, getChallengeAnswers: GetChallengeAnswers) => {
     return getChallengeVerification(
-        challengeRequestMessage as DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor,
-        subplebbit as LocalSubplebbit,
+        challengeRequestMessage as DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
+        subplebbit as LocalCommunity,
         getChallengeAnswers
     );
 };
@@ -24,31 +24,31 @@ interface MockChallengeSettings {
     exclude?: Array<{ challenges?: number[]; address?: string[]; rateLimit?: number; rateLimitChallengeSuccess?: boolean }>;
 }
 
-interface MockSubplebbitWithChallenges {
+interface MockCommunityWithChallenges {
     settings: { challenges: MockChallengeSettings[] };
-    _plebbit: ReturnType<typeof Plebbit>;
+    _plebbit: ReturnType<typeof PKC>;
     challenges?: unknown[];
 }
 
-const createSubplebbitWithChallenges = async (
-    plebbitInstance: ReturnType<typeof Plebbit>,
+const createCommunityWithChallenges = async (
+    plebbitInstance: ReturnType<typeof PKC>,
     challengeSettings: MockChallengeSettings[]
-): Promise<MockSubplebbitWithChallenges> => {
-    const subplebbit: MockSubplebbitWithChallenges = {
+): Promise<MockCommunityWithChallenges> => {
+    const subplebbit: MockCommunityWithChallenges = {
         settings: { challenges: challengeSettings },
         _plebbit: plebbitInstance
     };
     subplebbit.challenges = await Promise.all(
-        challengeSettings.map((challenge) => getSubplebbitChallengeFromSubplebbitChallengeSettings(challenge))
+        challengeSettings.map((challenge) => getCommunityChallengeFromCommunityChallengeSettings(challenge))
     );
     return subplebbit;
 };
 
 describe("pending approval", () => {
-    let plebbit: ReturnType<typeof Plebbit>;
+    let plebbit: ReturnType<typeof PKC>;
 
     beforeAll(async () => {
-        plebbit = await Plebbit();
+        plebbit = await PKC();
     });
 
     const wrongAnswers = async (challenges: unknown[]): Promise<string[]> => challenges.map(() => "wrong");
@@ -66,7 +66,7 @@ describe("pending approval", () => {
                 pendingApproval: true
             }
         ];
-        const subplebbit = await createSubplebbitWithChallenges(plebbit, challengeSettings);
+        const subplebbit = await createCommunityWithChallenges(plebbit, challengeSettings);
         const challengeRequestMessage = { comment: { author: { address: "author-comment" } } };
 
         const verification = await testGetChallengeVerification(challengeRequestMessage, subplebbit, wrongAnswers);
@@ -90,7 +90,7 @@ describe("pending approval", () => {
                 pendingApproval: true
             }
         ];
-        const subplebbit = await createSubplebbitWithChallenges(plebbit, challengeSettings);
+        const subplebbit = await createCommunityWithChallenges(plebbit, challengeSettings);
         const challengeRequestMessage = { comment: { author: { address: "author-comment" } } };
 
         const answers = async () => ["password-1", "password-2"];
@@ -109,7 +109,7 @@ describe("pending approval", () => {
                 pendingApproval: true
             }
         ];
-        const subplebbit = await createSubplebbitWithChallenges(plebbit, challengeSettings);
+        const subplebbit = await createCommunityWithChallenges(plebbit, challengeSettings);
         const challengeRequestMessage = { vote: { author: { address: "author-vote" } } };
 
         const correctAnswers = async () => ["password"];
@@ -132,7 +132,7 @@ describe("pending approval", () => {
                 options: { question: "Second password?", answer: "password-2" }
             }
         ];
-        const subplebbit = await createSubplebbitWithChallenges(plebbit, challengeSettings);
+        const subplebbit = await createCommunityWithChallenges(plebbit, challengeSettings);
         const challengeRequestMessage = { comment: { author: { address: "author-comment" } } };
 
         const verification = await testGetChallengeVerification(challengeRequestMessage, subplebbit, wrongAnswers);
@@ -161,7 +161,7 @@ describe("pending approval", () => {
                 pendingApproval: true
             }
         ];
-        const subplebbit = await createSubplebbitWithChallenges(plebbit, challengeSettings);
+        const subplebbit = await createCommunityWithChallenges(plebbit, challengeSettings);
         const challengeRequestMessage = { comment: { author: { address: "author-comment" } } };
 
         const answers = async () => ["first", "wrong", "wrong"];
@@ -186,7 +186,7 @@ describe("pending approval", () => {
                 exclude: [{ challenges: [0] }]
             }
         ];
-        const subplebbit = await createSubplebbitWithChallenges(plebbit, challengeSettings);
+        const subplebbit = await createCommunityWithChallenges(plebbit, challengeSettings);
         const challengeRequestMessage = { comment: { author: { address: "author-comment" } } };
 
         const answers = async () => ["first", "wrong"];
@@ -206,7 +206,7 @@ describe("pending approval", () => {
                 exclude: [{ address: ["author-comment"] }]
             }
         ];
-        const subplebbit = await createSubplebbitWithChallenges(plebbit, challengeSettings);
+        const subplebbit = await createCommunityWithChallenges(plebbit, challengeSettings);
         const challengeRequestMessage = { comment: { author: { address: "author-comment" } } };
 
         const verification = await testGetChallengeVerification(challengeRequestMessage, subplebbit, wrongAnswers);
@@ -225,7 +225,7 @@ describe("pending approval", () => {
                 exclude: [{ rateLimit: 0, rateLimitChallengeSuccess: false }]
             }
         ];
-        const subplebbit = await createSubplebbitWithChallenges(plebbit, challengeSettings);
+        const subplebbit = await createCommunityWithChallenges(plebbit, challengeSettings);
         const challengeRequestMessage = { comment: { author: { address: "rate-limited-author" } } };
 
         const wrongAnswer = async () => ["wrong"];
@@ -247,7 +247,7 @@ describe("pending approval", () => {
                 pendingApproval: true
             }
         ];
-        const subplebbit = await createSubplebbitWithChallenges(plebbit, challengeSettings);
+        const subplebbit = await createCommunityWithChallenges(plebbit, challengeSettings);
 
         const wrongRequest = {
             comment: { author: { address: "author-comment" } },

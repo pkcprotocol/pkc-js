@@ -1,6 +1,6 @@
 import {
     generateMockVote,
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     publishRandomPost,
     publishWithExpectedResult,
     setExtraPropOnVoteAndSign
@@ -9,7 +9,7 @@ import {
 import { messages } from "../../../../dist/node/errors.js";
 import signers from "../../../fixtures/signers.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 import type { DecryptedChallengeRequestMessageType } from "../../../../dist/node/pubsub-messages/types.js";
@@ -17,12 +17,12 @@ import type { DecryptedChallengeRequestMessageType } from "../../../../dist/node
 // Type for challenge request event with vote
 type ChallengeRequestWithVote = DecryptedChallengeRequestMessageType & NonNullable<Pick<DecryptedChallengeRequestMessageType, "vote">>;
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Backward compatibility for Vote - ${config.name}`, async () => {
         // A subplebbit should accept a vote with unknown props
         // However, it should not process the unknown props, it should strip them out after validation
 
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         let commentToVoteOn: Comment;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();

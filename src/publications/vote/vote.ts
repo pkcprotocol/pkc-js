@@ -1,9 +1,9 @@
 import Publication from "../publication.js";
 import type { PublicationTypeName } from "../../types.js";
-import { Plebbit } from "../../pkc/pkc.js";
+import { PKC } from "../../pkc/pkc.js";
 import { signVote, verifyVote } from "../../signer/signatures.js";
 import { hideClassPrivateProps } from "../../util.js";
-import { PlebbitError } from "../../pkc-error.js";
+import { PKCError } from "../../pkc-error.js";
 import type { CreateVoteOptions, VoteOptionsToSign, VotePubsubMessagePublication } from "./types.js";
 import * as remeda from "remeda";
 import type { SignerType } from "../../signer/types.js";
@@ -18,7 +18,7 @@ class Vote extends Publication implements VotePubsubMessagePublication {
     override raw: { pubsubMessageToPublish?: VotePubsubMessagePublication } = {};
     override challengeRequest?: CreateVoteOptions["challengeRequest"];
 
-    constructor(plebbit: Plebbit) {
+    constructor(plebbit: PKC) {
         super(plebbit);
 
         // public method should be bound
@@ -76,7 +76,7 @@ class Vote extends Publication implements VotePubsubMessagePublication {
             resolveAuthorNames: this._plebbit.resolveAuthorNames,
             clientsManager: this._clientsManager
         });
-        if (!signatureValidity.valid) throw new PlebbitError("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
+        if (!signatureValidity.valid) throw new PKCError("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
     }
 }
 

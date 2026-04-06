@@ -35,7 +35,7 @@ export interface CommentEditSignature extends JsonSignature {
 
 export type CommentEditPubsubMessagePublication = z.infer<typeof CommentEditPubsubMessagePublicationSchema>;
 
-export interface CommentEditPubsubMessagePublicationWithSubplebbitAuthor extends CommentEditPubsubMessagePublication {
+export interface CommentEditPubsubMessagePublicationWithCommunityAuthor extends CommentEditPubsubMessagePublication {
     author: RuntimeAuthorWithCommentUpdateType;
 }
 

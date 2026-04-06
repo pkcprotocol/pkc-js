@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import signers from "../../fixtures/signers.js";
-import { getAvailablePlebbitConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
-import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
+import { getAvailablePKCConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type Publication from "../../../dist/node/publications/publication.js";
 
 function getWireAuthor(pub: { raw: object }): Record<string, unknown> | undefined {
@@ -14,9 +14,9 @@ const domainAddress = "plebbit.bso";
 // Use a fake CID for publications that require commentCid (not publishing, just creating locally)
 const fakeCid = "QmYHzA8euDgUpNy3fh7JGFnCEKVjjHGPMNUCbgnmc3cGRv";
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe(`author.address domain normalization - ${config.name}`, () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -90,8 +90,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(wireAuthor!.name).to.equal(domainAddress);
         });
 
-        it("createSubplebbitEdit copies author.address domain to author.name and excludes address from wire", async () => {
-            const subEdit = await plebbit.createSubplebbitEdit({
+        it("createCommunityEdit copies author.address domain to author.name and excludes address from wire", async () => {
+            const subEdit = await plebbit.createCommunityEdit({
                 communityAddress: subplebbitAddress,
                 subplebbitEdit: { title: "new title" },
                 author: { address: domainAddress },
@@ -169,8 +169,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(wireAuthor === undefined || !("name" in wireAuthor)).to.be.true;
         });
 
-        it("createSubplebbitEdit ignores non-domain author.address and derives address from signer", async () => {
-            const subEdit = await plebbit.createSubplebbitEdit({
+        it("createCommunityEdit ignores non-domain author.address and derives address from signer", async () => {
+            const subEdit = await plebbit.createCommunityEdit({
                 communityAddress: subplebbitAddress,
                 subplebbitEdit: { title: "new title" },
                 author: { address: "bogusAddress123" },

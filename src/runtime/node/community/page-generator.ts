@@ -1,5 +1,5 @@
 import { calculateStringSizeSameAsIpfsAddCidV0, hideClassPrivateProps, retryKuboIpfsAddAndProvide, timestamp } from "../../../util.js";
-import { LocalSubplebbit } from "./local-community.js";
+import { LocalCommunity } from "./local-community.js";
 import assert from "assert";
 import type {
     ModQueueCommentInPage,
@@ -17,9 +17,9 @@ import type { CommentsTableRow, CommentUpdateType } from "../../../publications/
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import env from "../../../version.js";
 import { POSTS_SORT_TYPES, POST_REPLIES_SORT_TYPES, TIMEFRAMES_TO_SECONDS, REPLY_REPLIES_SORT_TYPES } from "../../../pages/util.js";
-import { PlebbitError } from "../../../pkc-error.js";
+import { PKCError } from "../../../pkc-error.js";
 import Logger from "../../../logger.js";
-import type { SubplebbitIpfsType } from "../../../community/types.js";
+import type { CommunityIpfsType } from "../../../community/types.js";
 import { cleanUpBeforePublishing, signCommentUpdateForChallengeVerification } from "../../../signer/signatures.js";
 import { deriveCommentIpfsFromCommentTableRow } from "../util.js";
 import { sha256 } from "js-sha256";
@@ -57,7 +57,7 @@ async function getSerializedCommentsSize(comments: PageIpfs["comments"], hasNext
 }
 
 export class PageGenerator {
-    private _subplebbit: LocalSubplebbit;
+    private _subplebbit: LocalCommunity;
 
     constructor(subplebbit: PageGenerator["_subplebbit"]) {
         this._subplebbit = subplebbit;
@@ -84,7 +84,7 @@ export class PageGenerator {
                 provideInBackground: true
             });
             if (addRes.size > expectedSize)
-                throw new PlebbitError("ERR_PAGE_GENERATED_IS_OVER_EXPECTED_SIZE", {
+                throw new PKCError("ERR_PAGE_GENERATED_IS_OVER_EXPECTED_SIZE", {
                     addRes,
                     pageIpfs: modQueuePageIpfs,
                     expectedSize,
@@ -116,7 +116,7 @@ export class PageGenerator {
 
             const calculatedSizeOfStringifedPageIpfs = await calculateStringSizeSameAsIpfsAddCidV0(stringifiedPageIpfs);
             if (calculatedSizeOfStringifedPageIpfs > curMaxPageSize)
-                throw new PlebbitError("ERR_PAGE_GENERATED_IS_OVER_EXPECTED_SIZE", {
+                throw new PKCError("ERR_PAGE_GENERATED_IS_OVER_EXPECTED_SIZE", {
                     calculatedSizeOfStringifedPageIpfs,
                     pageIpfs,
                     expectedSize: curMaxPageSize,
@@ -133,7 +133,7 @@ export class PageGenerator {
                 provideInBackground: true
             });
             if (addRes.size > curMaxPageSize)
-                throw new PlebbitError("ERR_PAGE_GENERATED_IS_OVER_EXPECTED_SIZE", {
+                throw new PKCError("ERR_PAGE_GENERATED_IS_OVER_EXPECTED_SIZE", {
                     addRes,
                     pageIpfs,
                     expectedSize: curMaxPageSize,
@@ -163,7 +163,7 @@ export class PageGenerator {
 
             const calculatedSizeOfStringifedPageIpfs = await calculateStringSizeSameAsIpfsAddCidV0(stringifiedPageIpfs);
             if (calculatedSizeOfStringifedPageIpfs > maximumPageSize)
-                throw new PlebbitError("ERR_PAGE_GENERATED_IS_OVER_EXPECTED_SIZE", {
+                throw new PKCError("ERR_PAGE_GENERATED_IS_OVER_EXPECTED_SIZE", {
                     calculatedSizeOfStringifedPageIpfs,
                     pageIpfs,
                     maximumPageSize,
@@ -180,7 +180,7 @@ export class PageGenerator {
                 provideInBackground: true
             });
             if (addRes.size > maximumPageSize)
-                throw new PlebbitError("ERR_PAGE_GENERATED_IS_OVER_EXPECTED_SIZE", {
+                throw new PKCError("ERR_PAGE_GENERATED_IS_OVER_EXPECTED_SIZE", {
                     addRes,
                     pageIpfs,
                     maximumPageSize,
@@ -368,7 +368,7 @@ export class PageGenerator {
         };
     }
 
-    async generateSubplebbitPosts(
+    async generateCommunityPosts(
         preloadedPageSortName: PostSortName,
         preloadedPageSizeBytes: number
     ): Promise<PostsPagesTypeIpfs | { singlePreloadedPage: SinglePreloadedPageRes } | undefined> {
@@ -390,7 +390,7 @@ export class PageGenerator {
         const preloadedChunk = await this.sortAndChunkComments(rawPosts, preloadedPageSortName, pageOptions);
         const firstChunkSize = await getSerializedCommentsSize(preloadedChunk[0], preloadedChunk.length > 1);
         if (firstChunkSize > preloadedPageSizeBytes)
-            throw new PlebbitError("ERR_PAGE_GENERATED_IS_OVER_EXPECTED_SIZE", {
+            throw new PKCError("ERR_PAGE_GENERATED_IS_OVER_EXPECTED_SIZE", {
                 firstChunkSize,
                 preloadedPageSizeBytes,
                 sortName: preloadedPageSortName
@@ -421,7 +421,7 @@ export class PageGenerator {
     }
 
     async _bundleLatestCommentUpdateWithQueuedComments(queuedComment: CommentsTableRow): Promise<ModQueueCommentInPage> {
-        const subplebbitAuthor = this._subplebbit._dbHandler.querySubplebbitAuthor(queuedComment.authorSignerAddress);
+        const subplebbitAuthor = this._subplebbit._dbHandler.queryCommunityAuthor(queuedComment.authorSignerAddress);
         const commentUpdateOfVerificationNoSignature = <Omit<ModQueueCommentInPage["commentUpdate"], "signature">>cleanUpBeforePublishing({
             author: { subplebbit: subplebbitAuthor },
             cid: queuedComment.cid,
@@ -439,7 +439,7 @@ export class PageGenerator {
         return { comment: commentIpfs, commentUpdate };
     }
 
-    async generateModQueuePages(): Promise<(SubplebbitIpfsType["modQueue"] & { combinedHashOfCids: string }) | undefined> {
+    async generateModQueuePages(): Promise<(CommunityIpfsType["modQueue"] & { combinedHashOfCids: string }) | undefined> {
         const firstPageSizeBytes = 1024 * 1024;
         const commentsPendingApproval = this._subplebbit._dbHandler.queryCommentsPendingApproval();
         if (commentsPendingApproval.length === 0) return undefined;

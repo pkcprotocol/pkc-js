@@ -1,13 +1,13 @@
 import signers from "../../../fixtures/signers.js";
 import {
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     publishRandomPost,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue
 } from "../../../../dist/node/test/test-util.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 
 // Type for challenge request event with comment moderation
@@ -23,9 +23,9 @@ const roles = [
     { role: "mod", signer: signers[3] }
 ];
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.sequential("plebbit.createCommentModeration misc - " + config.name, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         let commentToMod: Comment;
 
         beforeAll(async () => {
@@ -118,7 +118,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     });
 
     describe.concurrent(`Changing multiple fields simultaneously in one CommentModeration - ${config.name}`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -175,7 +175,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     });
 
     describe.concurrent(`Changing multiple fields in separate comment moderations`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();

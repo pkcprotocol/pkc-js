@@ -1,22 +1,22 @@
-import type { Plebbit } from "../../../../pkc/pkc.js";
-import { getAvailablePlebbitConfigsToTestAgainst } from "../../../test-util.js";
+import type { PKC } from "../../../../pkc/pkc.js";
+import { getAvailablePKCConfigsToTestAgainst } from "../../../test-util.js";
 
 /**
  * Arguments supplied to each hanging-test scenario from the test harness.
  * `configCode` maps to one of the entries returned by
- * `getAvailablePlebbitConfigsToTestAgainst`.
+ * `getAvailablePKCConfigsToTestAgainst`.
  */
 export interface HangingScenarioArgs {
     configCode: string;
 }
 
 /**
- * Resolved context after looking up the config and instantiating a Plebbit
+ * Resolved context after looking up the config and instantiating a PKC
  * instance. Scenarios should call `createScenarioContext` and make sure to
  * `await plebbit.destroy()` in a finally block once their work is done.
  */
 export interface HangingScenarioContext {
-    plebbit: Plebbit;
+    plebbit: PKC;
     config: {
         name: string;
         testConfigCode: string;
@@ -68,11 +68,11 @@ export function resolveHangingScenarioModule(moduleNamespace: unknown, moduleId:
 }
 
 export async function createScenarioContext(configCode: string): Promise<HangingScenarioContext> {
-    const configs = getAvailablePlebbitConfigsToTestAgainst();
+    const configs = getAvailablePKCConfigsToTestAgainst();
     const config = configs.find((candidate) => candidate.testConfigCode === configCode);
     if (!config) {
         const available = configs.map((candidate) => candidate.testConfigCode).join(", ");
-        throw new Error(`Unknown Plebbit config code "${configCode}". Available configs: ${available}`);
+        throw new Error(`Unknown PKC config code "${configCode}". Available configs: ${available}`);
     }
 
     const plebbit = await config.plebbitInstancePromise({ forceMockPubsub: true });

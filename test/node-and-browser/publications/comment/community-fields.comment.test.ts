@@ -8,15 +8,15 @@ import {
     expectDeferredUnsignedLocalPublication,
     expectEagerSignedLocalPublication
 } from "../community-fields-test-util.js";
-import { mockRemotePlebbit } from "../../../../dist/node/test/test-util.js";
+import { mockRemotePKC } from "../../../../dist/node/test/test-util.js";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 
 describe("Comment - community fields", () => {
-    let plebbit: Plebbit;
+    let plebbit: PKC;
 
     beforeAll(async () => {
-        plebbit = await mockRemotePlebbit();
+        plebbit = await mockRemotePKC();
     });
 
     afterAll(async () => {

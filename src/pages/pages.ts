@@ -3,34 +3,34 @@ import type { GetPageParam, ModQueuePageIpfs, ModQueuePageTypeJson, PageIpfs, Pa
 import { verifyModQueuePage, verifyPage } from "../signer/signatures.js";
 import {
     BasePagesClientsManager,
-    SubplebbitPostsPagesClientsManager,
+    CommunityPostsPagesClientsManager,
     RepliesPagesClientsManager,
-    SubplebbitModQueueClientsManager
+    CommunityModQueueClientsManager
 } from "./pages-client-manager.js";
-import { PlebbitError } from "../pkc-error.js";
+import { PKCError } from "../pkc-error.js";
 import { deepMergeRuntimeFields, hideClassPrivateProps } from "../util.js";
 import { Comment } from "../publications/comment/comment.js";
-import { RemoteSubplebbit } from "../community/remote-community.js";
-import { Plebbit } from "../pkc/pkc.js";
+import { RemoteCommunity } from "../community/remote-community.js";
+import { PKC } from "../pkc/pkc.js";
 import { parsePageCidParams } from "./schema-util.js";
 import { getAuthorDomainFromRuntime } from "../publications/publication-author.js";
 import { sha256 } from "js-sha256";
 import type { PageRuntimeFields } from "./util.js";
 
 type BaseProps = {
-    subplebbit: Pick<RemoteSubplebbit, "address" | "signature"> & {
+    subplebbit: Pick<RemoteCommunity, "address" | "signature"> & {
         _getStopAbortSignal?: () => AbortSignal | undefined;
     };
-    plebbit: Plebbit;
+    plebbit: PKC;
 };
 
-type PostsProps = Pick<PostsPages, "pages" | "pageCids"> & BaseProps & { subplebbit: RemoteSubplebbit };
+type PostsProps = Pick<PostsPages, "pages" | "pageCids"> & BaseProps & { subplebbit: RemoteCommunity };
 type RepliesProps = Pick<RepliesPages, "pages" | "pageCids"> &
     BaseProps & {
         parentComment: Comment;
     };
 
-type ModQueueProps = Pick<ModQueuePages, "pageCids" | "pages"> & BaseProps & { subplebbit: RemoteSubplebbit };
+type ModQueueProps = Pick<ModQueuePages, "pageCids" | "pages"> & BaseProps & { subplebbit: RemoteCommunity };
 
 export class BasePages {
     pages!: PostsPages["pages"] | RepliesPages["pages"] | ModQueuePages["pages"];
@@ -73,7 +73,7 @@ export class BasePages {
         }
     }
 
-    protected _initClientsManager(plebbit: Plebbit) {
+    protected _initClientsManager(plebbit: PKC) {
         throw Error(`This function should be overridden`);
     }
 
@@ -103,7 +103,7 @@ export class BasePages {
     }
 
     async getPage(pageCid: GetPageParam): Promise<PageTypeJson | ModQueuePageTypeJson> {
-        if (!this._subplebbit?.address) throw Error("Subplebbit address needs to be defined under page");
+        if (!this._subplebbit?.address) throw Error("Community address needs to be defined under page");
         const parsedArgs = parsePageCidParams(pageCid);
 
         const { page: pageIpfs, runtimeFields } = await this._fetchAndVerifyPage({ pageCid: parsedArgs.cid });
@@ -145,7 +145,7 @@ export class RepliesPages extends BasePages {
         super.updateProps(props);
     }
 
-    protected override _initClientsManager(plebbit: Plebbit): void {
+    protected override _initClientsManager(plebbit: PKC): void {
         this._clientsManager = new RepliesPagesClientsManager({ plebbit, pages: this });
         this.clients = this._clientsManager.clients;
     }
@@ -164,19 +164,19 @@ export class RepliesPages extends BasePages {
 
     override async getPage(args: GetPageParam): Promise<PageTypeJson> {
         if (!this._parentComment?.cid)
-            throw new PlebbitError("ERR_USER_ATTEMPTS_TO_GET_REPLIES_PAGE_WITHOUT_PARENT_COMMENT_CID", {
+            throw new PKCError("ERR_USER_ATTEMPTS_TO_GET_REPLIES_PAGE_WITHOUT_PARENT_COMMENT_CID", {
                 getPageArgs: args,
                 parentComment: this._parentComment
             });
 
         if (typeof this._parentComment?.depth !== "number")
-            throw new PlebbitError("ERR_USER_ATTEMPTS_TO_GET_REPLIES_PAGE_WITHOUT_PARENT_COMMENT_DEPTH", {
+            throw new PKCError("ERR_USER_ATTEMPTS_TO_GET_REPLIES_PAGE_WITHOUT_PARENT_COMMENT_DEPTH", {
                 parentComment: this._parentComment,
                 getPageArgs: args
             });
 
         if (!this._parentComment?.postCid)
-            throw new PlebbitError("ERR_USER_ATTEMPTS_TO_GET_REPLIES_PAGE_WITHOUT_PARENT_COMMENT_POST_CID", {
+            throw new PKCError("ERR_USER_ATTEMPTS_TO_GET_REPLIES_PAGE_WITHOUT_PARENT_COMMENT_POST_CID", {
                 getPageArgs: args,
                 parentComment: this._parentComment
             });
@@ -188,21 +188,21 @@ export class RepliesPages extends BasePages {
 
     override async _validatePage(pageIpfs: PageIpfs, pageCid?: string) {
         if (!this._parentComment?.cid)
-            throw new PlebbitError("ERR_USER_ATTEMPTS_TO_VALIDATE_REPLIES_PAGE_WITHOUT_PARENT_COMMENT_CID", {
+            throw new PKCError("ERR_USER_ATTEMPTS_TO_VALIDATE_REPLIES_PAGE_WITHOUT_PARENT_COMMENT_CID", {
                 pageIpfs,
                 pageCid,
                 parentComment: this._parentComment
             });
 
         if (typeof this._parentComment?.depth !== "number")
-            throw new PlebbitError("ERR_USER_ATTEMPTS_TO_VALIDATE_REPLIES_PAGE_WITHOUT_PARENT_COMMENT_DEPTH", {
+            throw new PKCError("ERR_USER_ATTEMPTS_TO_VALIDATE_REPLIES_PAGE_WITHOUT_PARENT_COMMENT_DEPTH", {
                 pageIpfs,
                 parentComment: this._parentComment,
                 pageCid
             });
 
         if (!this._parentComment?.postCid)
-            throw new PlebbitError("ERR_USER_ATTEMPTS_TO_VALIDATE_REPLIES_PAGE_WITHOUT_PARENT_COMMENT_POST_CID", {
+            throw new PKCError("ERR_USER_ATTEMPTS_TO_VALIDATE_REPLIES_PAGE_WITHOUT_PARENT_COMMENT_POST_CID", {
                 pageIpfs,
                 pageCid,
                 parentComment: this._parentComment
@@ -227,7 +227,7 @@ export class RepliesPages extends BasePages {
         };
         const signatureValidity = await verifyPage(verificationOpts);
         if (!signatureValidity.valid)
-            throw new PlebbitError("ERR_REPLIES_PAGE_IS_INVALID", {
+            throw new PKCError("ERR_REPLIES_PAGE_IS_INVALID", {
                 signatureValidity,
                 verificationOpts
             });
@@ -239,11 +239,11 @@ export class PostsPages extends BasePages {
 
     override pageCids!: Record<PostSortName, string>;
 
-    override clients!: SubplebbitPostsPagesClientsManager["clients"];
+    override clients!: CommunityPostsPagesClientsManager["clients"];
 
-    override _clientsManager!: SubplebbitPostsPagesClientsManager;
+    override _clientsManager!: CommunityPostsPagesClientsManager;
     override _parentComment: undefined = undefined; // would be undefined because we don't have a parent comment for posts
-    override _subplebbit!: RemoteSubplebbit;
+    override _subplebbit!: RemoteCommunity;
 
     constructor(props: PostsProps) {
         super(props);
@@ -253,8 +253,8 @@ export class PostsPages extends BasePages {
         super.updateProps(props);
     }
 
-    protected override _initClientsManager(plebbit: Plebbit): void {
-        this._clientsManager = new SubplebbitPostsPagesClientsManager({ plebbit, pages: this });
+    protected override _initClientsManager(plebbit: PKC): void {
+        this._clientsManager = new CommunityPostsPagesClientsManager({ plebbit, pages: this });
         this.clients = this._clientsManager.clients;
     }
 
@@ -294,7 +294,7 @@ export class PostsPages extends BasePages {
         };
         const signatureValidity = await verifyPage(verificationOpts);
         if (!signatureValidity.valid)
-            throw new PlebbitError("ERR_POSTS_PAGE_IS_INVALID", {
+            throw new PKCError("ERR_POSTS_PAGE_IS_INVALID", {
                 signatureValidity,
                 verificationOpts
             });
@@ -317,8 +317,8 @@ export class ModQueuePages extends BasePages {
         this.pages = {};
     }
 
-    protected override _initClientsManager(plebbit: Plebbit): void {
-        this._clientsManager = new SubplebbitModQueueClientsManager({ plebbit, pages: this });
+    protected override _initClientsManager(plebbit: PKC): void {
+        this._clientsManager = new CommunityModQueueClientsManager({ plebbit, pages: this });
         this.clients = this._clientsManager.clients;
     }
 
@@ -356,7 +356,7 @@ export class ModQueuePages extends BasePages {
         };
         const signatureValidity = await verifyModQueuePage(verificationOpts);
         if (!signatureValidity.valid)
-            throw new PlebbitError("ERR_MOD_QUEUE_PAGE_IS_INVALID", {
+            throw new PKCError("ERR_MOD_QUEUE_PAGE_IS_INVALID", {
                 signatureValidity,
                 verificationOpts
             });

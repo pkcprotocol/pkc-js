@@ -1,6 +1,6 @@
 import signers from "../../../fixtures/signers.js";
 import {
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     iterateThroughPagesToFindCommentInParentPagesInstance,
     publishRandomPost,
     publishWithExpectedResult,
@@ -8,14 +8,14 @@ import {
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 
 const subplebbitAddress = signers[0].address;
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.sequential(`Authors can set flairs on their own comment - ${config.name}`, async () => {
-        let plebbit: Plebbit, authorPost: Comment;
+        let plebbit: PKC, authorPost: Comment;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             authorPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
@@ -84,7 +84,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`flairs appear in pages of subplebbit`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: authorPost.communityAddress });
+            const sub = await plebbit.createCommunity({ address: authorPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,

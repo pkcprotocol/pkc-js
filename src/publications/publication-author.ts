@@ -1,6 +1,6 @@
 import * as remeda from "remeda";
 import type { AuthorPubsubType, RuntimeAuthorType, RuntimeAuthorWithCommentUpdateType } from "../types.js";
-import { getPlebbitAddressFromPublicKeySync } from "../signer/util.js";
+import { getPKCAddressFromPublicKeySync } from "../signer/util.js";
 import { isStringDomain } from "../util.js";
 
 const runtimeOnlyAuthorFields = ["address", "publicKey", "shortAddress", "subplebbit", "nameResolved"] as const;
@@ -58,7 +58,7 @@ export function buildRuntimeAuthor({
     signaturePublicKey: string;
     subplebbit?: RuntimeAuthorWithCommentUpdateType["subplebbit"];
 }): RuntimeAuthorWithCommentUpdateType {
-    const publicKey = getPlebbitAddressFromPublicKeySync(signaturePublicKey);
+    const publicKey = getPKCAddressFromPublicKeySync(signaturePublicKey);
     const name = getAuthorNameFromWire(author);
     const wireAuthor = cleanWireAuthor(author) || {};
     const runtimeAuthor: RuntimeAuthorWithCommentUpdateType = {

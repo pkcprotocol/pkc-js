@@ -4,29 +4,29 @@ import {
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
     createSubWithNoChallenge,
-    mockPlebbit,
+    mockPKC,
     describeSkipIfRpc
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { timestamp } from "../../../../dist/node/util.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
-import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/community/local-community.js";
+import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 import type { SignerWithPublicKeyAddress } from "../../../../dist/node/signer/index.js";
-import { RpcLocalSubplebbit } from "../../../../dist/node/community/rpc-local-community.js";
+import { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
 
 describe("Ban then purge", () => {
-    let plebbit: Plebbit;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    let plebbit: PKC;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
     let authorSigner: SignerWithPublicKeyAddress;
     let moderatorSigner: SignerWithPublicKeyAddress;
     let commentToBeBanned: Comment;
     let authorBanExpiresAt: number;
 
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
-        subplebbit = (await createSubWithNoChallenge({}, plebbit)) as LocalSubplebbit | RpcLocalSubplebbit;
+        plebbit = await mockPKC();
+        subplebbit = (await createSubWithNoChallenge({}, plebbit)) as LocalCommunity | RpcLocalCommunity;
         await subplebbit.start();
         await resolveWhenConditionIsTrue({
             toUpdate: subplebbit,
@@ -118,16 +118,16 @@ describe("Ban then purge", () => {
 });
 
 describeSkipIfRpc("Ban then purge with per-post pseudonymity mode", () => {
-    let plebbit: Plebbit;
-    let subplebbit: LocalSubplebbit;
+    let plebbit: PKC;
+    let subplebbit: LocalCommunity;
     let authorSigner: SignerWithPublicKeyAddress;
     let moderatorSigner: SignerWithPublicKeyAddress;
     let commentToBeBanned: Comment;
     let authorBanExpiresAt: number;
 
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
-        subplebbit = (await createSubWithNoChallenge({}, plebbit)) as LocalSubplebbit;
+        plebbit = await mockPKC();
+        subplebbit = (await createSubWithNoChallenge({}, plebbit)) as LocalCommunity;
         await subplebbit.edit({ features: { pseudonymityMode: "per-post" } });
         await subplebbit.start();
         await resolveWhenConditionIsTrue({
@@ -224,16 +224,16 @@ describeSkipIfRpc("Ban then purge with per-post pseudonymity mode", () => {
 });
 
 describeSkipIfRpc("Ban then purge with per-author pseudonymity mode", () => {
-    let plebbit: Plebbit;
-    let subplebbit: LocalSubplebbit;
+    let plebbit: PKC;
+    let subplebbit: LocalCommunity;
     let authorSigner: SignerWithPublicKeyAddress;
     let moderatorSigner: SignerWithPublicKeyAddress;
     let commentToBeBanned: Comment;
     let authorBanExpiresAt: number;
 
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
-        subplebbit = (await createSubWithNoChallenge({}, plebbit)) as LocalSubplebbit;
+        plebbit = await mockPKC();
+        subplebbit = (await createSubWithNoChallenge({}, plebbit)) as LocalCommunity;
         await subplebbit.edit({ features: { pseudonymityMode: "per-author" } });
         await subplebbit.start();
         await resolveWhenConditionIsTrue({

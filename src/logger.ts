@@ -7,11 +7,11 @@ interface Logger {
 }
 
 const orderedNamespaceReplacements = [
-    ["Subplebbits", "Communities"],
+    ["Communitys", "Communities"],
     ["subplebbits", "communities"],
-    ["Subplebbit", "Community"],
+    ["Community", "Community"],
     ["subplebbit", "community"],
-    ["Plebbit", "PKC"],
+    ["PKC", "PKC"],
     ["plebbit", "pkc"]
 ] as const;
 

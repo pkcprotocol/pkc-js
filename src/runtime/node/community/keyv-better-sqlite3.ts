@@ -1,6 +1,6 @@
 import { EventEmitter } from "events";
 import { Database as BetterSqlite3Database } from "better-sqlite3";
-import { PlebbitError } from "../../../pkc-error.js";
+import { PKCError } from "../../../pkc-error.js";
 
 export interface KeyvBetterSqlite3Options {
     /**
@@ -88,7 +88,7 @@ export class KeyvBetterSqlite3 extends EventEmitter {
                 try {
                     this.delete(key);
                 } catch (e) {
-                    (e as PlebbitError).details = { ...(e as PlebbitError).details, row, parsed, key };
+                    (e as PKCError).details = { ...(e as PKCError).details, row, parsed, key };
                     this.emit("error", e);
                 }
 

@@ -1,12 +1,12 @@
 import signers from "../../fixtures/signers.js";
 
 import {
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     isRpcFlagOn,
-    jsonifySubplebbitAndRemoveInternalProps,
+    jsonifyCommunityAndRemoveInternalProps,
     isRunningInBrowser,
     addStringToIpfs,
-    mockPlebbitV2,
+    mockPKCV2,
     describeIfRpc,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
@@ -14,18 +14,18 @@ import {
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 
 import * as remeda from "remeda";
-import validSubplebbitJsonfiedFixture from "../../fixtures/signatures/community/valid_subplebbit_jsonfied.json" with { type: "json" };
-import validSubplebbitJsonfiedOldWireFormatFixture from "../../fixtures/signatures/community/valid_subplebbit_jsonfied_old_wire_format.json" with { type: "json" };
+import validCommunityJsonfiedFixture from "../../fixtures/signatures/community/valid_subplebbit_jsonfied.json" with { type: "json" };
+import validCommunityJsonfiedOldWireFormatFixture from "../../fixtures/signatures/community/valid_subplebbit_jsonfied_old_wire_format.json" with { type: "json" };
 import { describe, it, beforeAll, afterAll } from "vitest";
 
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
-import type { RemoteSubplebbit } from "../../../dist/node/community/remote-community.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 const subplebbitAddress = signers[0].address;
-const namedSubplebbitAddress = "plebbit.bso";
+const namedCommunityAddress = "plebbit.bso";
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) =>
-    describe.concurrent(`plebbit.createSubplebbit - Remote (${config.name})`, async () => {
-        let plebbit: PlebbitType;
+getAvailablePKCConfigsToTestAgainst().map((config) =>
+    describe.concurrent(`plebbit.createCommunity - Remote (${config.name})`, async () => {
+        let plebbit: PKCType;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -35,120 +35,120 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) =>
             await plebbit.destroy();
         });
 
-        it(`subplebbit = await createSubplebbit(await getSubplebbit(address))`, async () => {
-            const loadedSubplebbit = await plebbit.createSubplebbit({ address: subplebbitAddress });
-            await loadedSubplebbit.update();
+        it(`subplebbit = await createCommunity(await getCommunity(address))`, async () => {
+            const loadedCommunity = await plebbit.createCommunity({ address: subplebbitAddress });
+            await loadedCommunity.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: loadedSubplebbit,
-                predicate: async () => typeof loadedSubplebbit.updatedAt === "number"
+                toUpdate: loadedCommunity,
+                predicate: async () => typeof loadedCommunity.updatedAt === "number"
             });
-            await loadedSubplebbit.stop();
+            await loadedCommunity.stop();
 
-            const createdSubplebbit = await plebbit.createSubplebbit(loadedSubplebbit);
-            const createdSubplebbitJson = jsonifySubplebbitAndRemoveInternalProps(createdSubplebbit);
-            const loadedSubplebbitJson = jsonifySubplebbitAndRemoveInternalProps(loadedSubplebbit);
+            const createdCommunity = await plebbit.createCommunity(loadedCommunity);
+            const createdCommunityJson = jsonifyCommunityAndRemoveInternalProps(createdCommunity);
+            const loadedCommunityJson = jsonifyCommunityAndRemoveInternalProps(loadedCommunity);
 
-            expect(loadedSubplebbitJson).to.deep.equal(createdSubplebbitJson);
+            expect(loadedCommunityJson).to.deep.equal(createdCommunityJson);
         });
 
-        it(`subplebbit = await createSubplebbit({...await getSubplebbit()})`, async () => {
-            const loadedSubplebbit = await plebbit.createSubplebbit({ address: subplebbitAddress });
-            await loadedSubplebbit.update();
+        it(`subplebbit = await createCommunity({...await getCommunity()})`, async () => {
+            const loadedCommunity = await plebbit.createCommunity({ address: subplebbitAddress });
+            await loadedCommunity.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: loadedSubplebbit,
-                predicate: async () => typeof loadedSubplebbit.updatedAt === "number"
+                toUpdate: loadedCommunity,
+                predicate: async () => typeof loadedCommunity.updatedAt === "number"
             });
-            await loadedSubplebbit.stop();
+            await loadedCommunity.stop();
 
-            const spread = { ...loadedSubplebbit };
-            const createdFromSpreadSubplebbit = await plebbit.createSubplebbit(spread);
-            for (const key of Object.keys(loadedSubplebbit)) {
-                expect(deterministicStringify((loadedSubplebbit as unknown as Record<string, unknown>)[key])).to.equal(
-                    deterministicStringify((createdFromSpreadSubplebbit as unknown as Record<string, unknown>)[key]),
+            const spread = { ...loadedCommunity };
+            const createdFromSpreadCommunity = await plebbit.createCommunity(spread);
+            for (const key of Object.keys(loadedCommunity)) {
+                expect(deterministicStringify((loadedCommunity as unknown as Record<string, unknown>)[key])).to.equal(
+                    deterministicStringify((createdFromSpreadCommunity as unknown as Record<string, unknown>)[key]),
                     `Mismatch for key: ${key}`
                 );
             }
 
-            for (const key of Object.keys(createdFromSpreadSubplebbit)) {
-                expect(deterministicStringify((loadedSubplebbit as unknown as Record<string, unknown>)[key])).to.equal(
-                    deterministicStringify((createdFromSpreadSubplebbit as unknown as Record<string, unknown>)[key]),
+            for (const key of Object.keys(createdFromSpreadCommunity)) {
+                expect(deterministicStringify((loadedCommunity as unknown as Record<string, unknown>)[key])).to.equal(
+                    deterministicStringify((createdFromSpreadCommunity as unknown as Record<string, unknown>)[key]),
                     `Mismatch for key: ${key}`
                 );
             }
         });
 
-        it(`subplebbit = await createSubplebbit(JSON.parse(JSON.stringify(await getSubplebbit())))`, async () => {
-            const loadedSubplebbit = await plebbit.createSubplebbit({ address: subplebbitAddress });
-            await loadedSubplebbit.update();
+        it(`subplebbit = await createCommunity(JSON.parse(JSON.stringify(await getCommunity())))`, async () => {
+            const loadedCommunity = await plebbit.createCommunity({ address: subplebbitAddress });
+            await loadedCommunity.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: loadedSubplebbit,
-                predicate: async () => typeof loadedSubplebbit.updatedAt === "number"
+                toUpdate: loadedCommunity,
+                predicate: async () => typeof loadedCommunity.updatedAt === "number"
             });
-            await loadedSubplebbit.stop();
+            await loadedCommunity.stop();
 
-            const createdSubplebbit = await plebbit.createSubplebbit(JSON.parse(JSON.stringify(loadedSubplebbit)));
-            const loadedSubJson = JSON.parse(JSON.stringify(loadedSubplebbit));
-            const createdSubJson = JSON.parse(JSON.stringify(createdSubplebbit));
+            const createdCommunity = await plebbit.createCommunity(JSON.parse(JSON.stringify(loadedCommunity)));
+            const loadedSubJson = JSON.parse(JSON.stringify(loadedCommunity));
+            const createdSubJson = JSON.parse(JSON.stringify(createdCommunity));
             expect(deterministicStringify(loadedSubJson)).to.equal(deterministicStringify(createdSubJson));
         });
 
-        const loadSubplebbitWithResolvedName = async (testPlebbit: PlebbitType) => {
-            const loadedSubplebbit = await testPlebbit.createSubplebbit({ address: namedSubplebbitAddress });
-            await loadedSubplebbit.update();
+        const loadCommunityWithResolvedName = async (testPKC: PKCType) => {
+            const loadedCommunity = await testPKC.createCommunity({ address: namedCommunityAddress });
+            await loadedCommunity.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: loadedSubplebbit,
-                predicate: async () => typeof loadedSubplebbit.updatedAt === "number"
+                toUpdate: loadedCommunity,
+                predicate: async () => typeof loadedCommunity.updatedAt === "number"
             });
-            loadedSubplebbit.nameResolved = true;
-            expect(loadedSubplebbit.nameResolved).to.equal(true);
-            await loadedSubplebbit.stop();
+            loadedCommunity.nameResolved = true;
+            expect(loadedCommunity.nameResolved).to.equal(true);
+            await loadedCommunity.stop();
 
-            return loadedSubplebbit;
+            return loadedCommunity;
         };
 
-        it.sequential("createSubplebbit from a spread subplebbit does not restore top-level runtime-only nameResolved", async () => {
-            const testPlebbit = await config.plebbitInstancePromise();
+        it.sequential("createCommunity from a spread subplebbit does not restore top-level runtime-only nameResolved", async () => {
+            const testPKC = await config.plebbitInstancePromise();
             try {
-                const loadedSubplebbit = await loadSubplebbitWithResolvedName(testPlebbit);
-                const spread = { ...loadedSubplebbit };
+                const loadedCommunity = await loadCommunityWithResolvedName(testPKC);
+                const spread = { ...loadedCommunity };
                 expect(spread.nameResolved).to.equal(true);
 
-                const recreatedSubplebbit = await testPlebbit.createSubplebbit(spread);
+                const recreatedCommunity = await testPKC.createCommunity(spread);
 
-                expect(recreatedSubplebbit.nameResolved).to.be.undefined;
-                expect(recreatedSubplebbit.address).to.equal(loadedSubplebbit.address);
-                expect(recreatedSubplebbit.name).to.equal(loadedSubplebbit.name);
-                expect(recreatedSubplebbit.publicKey).to.equal(loadedSubplebbit.publicKey);
-                expect(recreatedSubplebbit.raw.subplebbitIpfs).to.deep.equal(loadedSubplebbit.raw.subplebbitIpfs);
+                expect(recreatedCommunity.nameResolved).to.be.undefined;
+                expect(recreatedCommunity.address).to.equal(loadedCommunity.address);
+                expect(recreatedCommunity.name).to.equal(loadedCommunity.name);
+                expect(recreatedCommunity.publicKey).to.equal(loadedCommunity.publicKey);
+                expect(recreatedCommunity.raw.subplebbitIpfs).to.deep.equal(loadedCommunity.raw.subplebbitIpfs);
             } finally {
-                await testPlebbit.destroy();
+                await testPKC.destroy();
             }
         });
 
         it.sequential(
-            "createSubplebbit from a JSON-stringified subplebbit does not restore top-level runtime-only nameResolved",
+            "createCommunity from a JSON-stringified subplebbit does not restore top-level runtime-only nameResolved",
             async () => {
-                const testPlebbit = await config.plebbitInstancePromise();
+                const testPKC = await config.plebbitInstancePromise();
                 try {
-                    const loadedSubplebbit = await loadSubplebbitWithResolvedName(testPlebbit);
-                    const json = JSON.parse(JSON.stringify(loadedSubplebbit));
+                    const loadedCommunity = await loadCommunityWithResolvedName(testPKC);
+                    const json = JSON.parse(JSON.stringify(loadedCommunity));
                     expect(json.nameResolved).to.equal(true);
 
-                    const recreatedSubplebbit = await testPlebbit.createSubplebbit(json);
+                    const recreatedCommunity = await testPKC.createCommunity(json);
 
-                    expect(recreatedSubplebbit.nameResolved).to.be.undefined;
-                    expect(recreatedSubplebbit.address).to.equal(loadedSubplebbit.address);
-                    expect(recreatedSubplebbit.name).to.equal(loadedSubplebbit.name);
-                    expect(recreatedSubplebbit.publicKey).to.equal(loadedSubplebbit.publicKey);
-                    expect(recreatedSubplebbit.raw.subplebbitIpfs).to.deep.equal(loadedSubplebbit.raw.subplebbitIpfs);
+                    expect(recreatedCommunity.nameResolved).to.be.undefined;
+                    expect(recreatedCommunity.address).to.equal(loadedCommunity.address);
+                    expect(recreatedCommunity.name).to.equal(loadedCommunity.name);
+                    expect(recreatedCommunity.publicKey).to.equal(loadedCommunity.publicKey);
+                    expect(recreatedCommunity.raw.subplebbitIpfs).to.deep.equal(loadedCommunity.raw.subplebbitIpfs);
                 } finally {
-                    await testPlebbit.destroy();
+                    await testPKC.destroy();
                 }
             }
         );
 
-        it("createSubplebbit preserves runtime-only author.nameResolved in preloaded fixture pages", async () => {
-            const subJson = remeda.clone(validSubplebbitJsonfiedFixture);
+        it("createCommunity preserves runtime-only author.nameResolved in preloaded fixture pages", async () => {
+            const subJson = remeda.clone(validCommunityJsonfiedFixture);
             const sourceComment = subJson.posts.pages.hot.comments[0];
             const sourceRawComment = subJson.raw.subplebbitIpfs.posts.pages.hot.comments[0];
             Object.assign(sourceComment.author, { nameResolved: true });
@@ -156,19 +156,19 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) =>
             expect(sourceComment.author).to.have.property("nameResolved", true);
             expect(sourceRawComment.comment.author).to.not.have.property("nameResolved");
 
-            const recreatedSub = await plebbit.createSubplebbit(subJson);
+            const recreatedSub = await plebbit.createCommunity(subJson);
             const recreatedComment = recreatedSub.posts.pages.hot.comments.find((comment) => comment.cid === sourceComment.cid);
 
-            expect(recreatedComment, `Fixture comment ${sourceComment.cid} should exist after createSubplebbit rehydration`).to.exist;
+            expect(recreatedComment, `Fixture comment ${sourceComment.cid} should exist after createCommunity rehydration`).to.exist;
             expect(recreatedComment!.author).to.have.property(
                 "nameResolved",
                 true,
-                "createSubplebbit should preserve runtime-only author.nameResolved from parsed preloaded pages"
+                "createCommunity should preserve runtime-only author.nameResolved from parsed preloaded pages"
             );
         });
 
-        it("createSubplebbit preserves runtime-only author.nameResolved in preloaded OLD-wire-format fixture pages", async () => {
-            const subJson = remeda.clone(validSubplebbitJsonfiedOldWireFormatFixture);
+        it("createCommunity preserves runtime-only author.nameResolved in preloaded OLD-wire-format fixture pages", async () => {
+            const subJson = remeda.clone(validCommunityJsonfiedOldWireFormatFixture);
             const sourceComment = subJson.posts.pages.hot.comments[0];
             const sourceRawComment = subJson.raw.subplebbitIpfs.posts.pages.hot.comments[0];
             Object.assign(sourceComment.author, { nameResolved: true });
@@ -176,20 +176,20 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) =>
             expect(sourceComment.author).to.have.property("nameResolved", true);
             expect(sourceRawComment.comment.author).to.not.have.property("nameResolved");
 
-            const recreatedSub = await plebbit.createSubplebbit(subJson);
+            const recreatedSub = await plebbit.createCommunity(subJson);
             const recreatedComment = recreatedSub.posts.pages.hot.comments.find((c) => c.cid === sourceComment.cid);
 
-            expect(recreatedComment, `Fixture comment ${sourceComment.cid} should exist after createSubplebbit rehydration`).to.exist;
+            expect(recreatedComment, `Fixture comment ${sourceComment.cid} should exist after createCommunity rehydration`).to.exist;
             expect(recreatedComment!.author).to.have.property(
                 "nameResolved",
                 true,
-                "createSubplebbit should preserve runtime-only author.nameResolved from old-wire-format preloaded pages"
+                "createCommunity should preserve runtime-only author.nameResolved from old-wire-format preloaded pages"
             );
         });
 
-        it(`Sub JSON props does not change by creating a Subplebbit object via plebbit.createSubplebbit`, async () => {
-            const subJson = remeda.clone(validSubplebbitJsonfiedFixture);
-            const subObj = await plebbit.createSubplebbit(remeda.clone(validSubplebbitJsonfiedFixture));
+        it(`Sub JSON props does not change by creating a Community object via plebbit.createCommunity`, async () => {
+            const subJson = remeda.clone(validCommunityJsonfiedFixture);
+            const subObj = await plebbit.createCommunity(remeda.clone(validCommunityJsonfiedFixture));
             expect(subJson.lastPostCid).to.equal(subObj.lastPostCid).and.to.be.a("string");
             expect(subJson.pubsubTopic).to.equal(subObj.pubsubTopic).and.to.be.a("string");
             expect(subJson.address).to.equal(subObj.address).and.to.be.a("string");
@@ -203,8 +203,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) =>
 
             expect(subJson.posts.pageCids).to.deep.equal(subObj.posts.pageCids).and.to.be.a("object");
 
-            const noInternalPropsSubObj = jsonifySubplebbitAndRemoveInternalProps(subObj);
-            const noInternalPropsSubJson = jsonifySubplebbitAndRemoveInternalProps(subJson as unknown as RemoteSubplebbit);
+            const noInternalPropsSubObj = jsonifyCommunityAndRemoveInternalProps(subObj);
+            const noInternalPropsSubJson = jsonifyCommunityAndRemoveInternalProps(subJson as unknown as RemoteCommunity);
             for (const key of Object.keys(noInternalPropsSubJson)) {
                 expect(noInternalPropsSubJson[key]).to.deep.equal(noInternalPropsSubObj[key], `Mismatch for key: ${key}`);
             }
@@ -214,9 +214,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) =>
             }
         });
 
-        it("createSubplebbit with old-wire-format fixture correctly derives communityAddress in pages", async () => {
-            const subJson = remeda.clone(validSubplebbitJsonfiedOldWireFormatFixture);
-            const subObj = await plebbit.createSubplebbit(remeda.clone(validSubplebbitJsonfiedOldWireFormatFixture));
+        it("createCommunity with old-wire-format fixture correctly derives communityAddress in pages", async () => {
+            const subJson = remeda.clone(validCommunityJsonfiedOldWireFormatFixture);
+            const subObj = await plebbit.createCommunity(remeda.clone(validCommunityJsonfiedOldWireFormatFixture));
 
             // Top-level fields unaffected by wire format change
             expect(subJson.lastPostCid).to.equal(subObj.lastPostCid).and.to.be.a("string");
@@ -230,15 +230,15 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) =>
             expect(comment.communityAddress).to.equal(subJson.address);
         });
 
-        it("createSubplebbit does not throw when posts has empty pages/pageCids and no updatedAt", async () => {
-            const sub = await plebbit.createSubplebbit({
+        it("createCommunity does not throw when posts has empty pages/pageCids and no updatedAt", async () => {
+            const sub = await plebbit.createCommunity({
                 address: subplebbitAddress,
                 posts: { pages: {}, pageCids: {} }
             });
             expect(sub.address).to.equal(subplebbitAddress);
         });
 
-        it("createSubplebbit does not throw when JSON.stringify'd sub has empty posts and no updatedAt", async () => {
+        it("createCommunity does not throw when JSON.stringify'd sub has empty posts and no updatedAt", async () => {
             // This is the actual plebones scenario: cached sub with clients key, empty posts, no updatedAt
             const cachedSub = {
                 address: subplebbitAddress,
@@ -249,12 +249,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) =>
                 state: "stopped",
                 updatingState: "stopped"
             };
-            const sub = await plebbit.createSubplebbit(cachedSub as any);
+            const sub = await plebbit.createCommunity(cachedSub as any);
             expect(sub.address).to.equal(subplebbitAddress);
         });
 
-        it("createSubplebbit does not throw when modQueue has empty pageCids and no updatedAt", async () => {
-            const sub = await plebbit.createSubplebbit({
+        it("createCommunity does not throw when modQueue has empty pageCids and no updatedAt", async () => {
+            const sub = await plebbit.createCommunity({
                 address: subplebbitAddress,
                 modQueue: { pageCids: {} }
             });
@@ -262,7 +262,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) =>
         });
 
         it("comment._updateRepliesPostsInstance with empty replies pages/pageCids does not throw", async () => {
-            const loadedSub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            const loadedSub = await plebbit.createCommunity({ address: subplebbitAddress });
             await loadedSub.update();
             await resolveWhenConditionIsTrue({ toUpdate: loadedSub, predicate: async () => typeof loadedSub.updatedAt === "number" });
             await loadedSub.stop();
@@ -276,7 +276,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) =>
         });
 
         it("Remote subplebbit instance created with only address prop can call getPage", async () => {
-            const actualSub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            const actualSub = await plebbit.createCommunity({ address: subplebbitAddress });
             await actualSub.update();
             await resolveWhenConditionIsTrue({ toUpdate: actualSub, predicate: async () => typeof actualSub.updatedAt === "number" });
             await actualSub.stop();
@@ -286,48 +286,48 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) =>
             expect(actualSub.posts.pages.hot).to.be.a("object");
             const pageCid = await addStringToIpfs(JSON.stringify({ comments: [actualSub.posts.pages.hot.comments[0].raw] })); // get it somehow
             expect(pageCid).to.be.a("string");
-            const newSubplebbit = await plebbit.createSubplebbit({ address: actualSub.address });
-            expect(newSubplebbit.createdAt).to.be.undefined;
+            const newCommunity = await plebbit.createCommunity({ address: actualSub.address });
+            expect(newCommunity.createdAt).to.be.undefined;
 
-            const page = await newSubplebbit.posts.getPage({ cid: pageCid });
+            const page = await newCommunity.posts.getPage({ cid: pageCid });
             expect(page.comments.length).to.be.greaterThan(0);
         });
     })
 );
 
-describe.concurrent(`plebbit.createSubplebbit - (remote) - errors`, async () => {
-    let plebbit: PlebbitType;
+describe.concurrent(`plebbit.createCommunity - (remote) - errors`, async () => {
+    let plebbit: PKCType;
 
     beforeAll(async () => {
-        plebbit = await mockPlebbitV2({ remotePlebbit: true });
+        plebbit = await mockPKCV2({ remotePKC: true });
     });
 
     afterAll(async () => {
         await plebbit.destroy();
     });
 
-    it(`plebbit.createSubplebbit({address}) throws if address if ENS and has a capital letter`, async () => {
+    it(`plebbit.createCommunity({address}) throws if address if ENS and has a capital letter`, async () => {
         try {
-            await plebbit.createSubplebbit({ address: "testSub.bso" });
+            await plebbit.createCommunity({ address: "testSub.bso" });
             expect.fail("Should have thrown");
         } catch (e) {
             expect((e as { code: string }).code).to.equal("ERR_COMMUNITY_NAME_HAS_CAPITAL_LETTER");
         }
     });
 
-    it("plebbit.createSubplebbit({address}) throws if subplebbit address isn't an ipns or domain", async () => {
+    it("plebbit.createCommunity({address}) throws if subplebbit address isn't an ipns or domain", async () => {
         const invalidAddress = "0xdeadbeef";
         try {
-            await plebbit.createSubplebbit({ address: invalidAddress });
+            await plebbit.createCommunity({ address: invalidAddress });
             expect.fail("Should have thrown");
         } catch (e) {
             expect((e as { code: string }).code).to.equal("ERR_INVALID_COMMUNITY_ADDRESS_SCHEMA");
         }
     });
     if (!isRpcFlagOn() && isRunningInBrowser())
-        it(`plebbit.createSubplebbit({}) should throw if no rpc and on browser`, async () => {
+        it(`plebbit.createCommunity({}) should throw if no rpc and on browser`, async () => {
             try {
-                await plebbit.createSubplebbit({});
+                await plebbit.createCommunity({});
                 expect.fail("should fail");
             } catch (e) {
                 expect((e as { code: string }).code).to.equal("ERR_INVALID_CREATE_REMOTE_COMMUNITY_ARGS_SCHEMA");

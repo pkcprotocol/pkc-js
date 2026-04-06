@@ -7,36 +7,36 @@ import {
     ChallengeFileSchema,
     ChallengeFromGetChallengeSchema,
     ChallengeResultSchema,
-    CreateNewLocalSubplebbitParsedOptionsSchema,
-    CreateNewLocalSubplebbitUserOptionsSchema,
-    CreateRemoteSubplebbitOptionsSchema,
+    CreateNewLocalCommunityParsedOptionsSchema,
+    CreateNewLocalCommunityUserOptionsSchema,
+    CreateRemoteCommunityOptionsSchema,
     GetChallengeArgsSchema,
-    SubplebbitChallengeSchema,
-    SubplebbitChallengeSettingSchema,
-    SubplebbitEditOptionsSchema,
-    SubplebbitEncryptionSchema,
-    SubplebbitFeaturesSchema,
-    SubplebbitIpfsSchema,
-    SubplebbitRoleSchema,
-    SubplebbitSettingsSchema,
-    SubplebbitSuggestedSchema,
-    RpcRemoteSubplebbitUpdateEventResultSchema,
-    SubplebbitSignedPropertyNames,
-    SubplebbitRoleNames
+    CommunityChallengeSchema,
+    CommunityChallengeSettingSchema,
+    CommunityEditOptionsSchema,
+    CommunityEncryptionSchema,
+    CommunityFeaturesSchema,
+    CommunityIpfsSchema,
+    CommunityRoleSchema,
+    CommunitySettingsSchema,
+    CommunitySuggestedSchema,
+    RpcRemoteCommunityUpdateEventResultSchema,
+    CommunitySignedPropertyNames,
+    CommunityRoleNames
 } from "./schema.js";
-import { RpcLocalSubplebbit } from "./rpc-local-community.js";
-import { LocalSubplebbit } from "../runtime/node/community/local-community.js";
-import { RemoteSubplebbit } from "./remote-community.js";
-import { RpcRemoteSubplebbit } from "./rpc-remote-community.js";
+import { RpcLocalCommunity } from "./rpc-local-community.js";
+import { LocalCommunity } from "../runtime/node/community/local-community.js";
+import { RemoteCommunity } from "./remote-community.js";
+import { RpcRemoteCommunity } from "./rpc-remote-community.js";
 import type { JsonOfClass } from "../types.js";
 import type { JsonSignature } from "../signer/types.js";
 import type {
     DecryptedChallengeAnswerMessageType,
     DecryptedChallengeMessageType,
-    DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor,
+    DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
     DecryptedChallengeVerificationMessageType
 } from "../pubsub-messages/types.js";
-import { PlebbitError } from "../pkc-error.js";
+import { PKCError } from "../pkc-error.js";
 
 export type ReplyStats = {
     hourReplyCount: number;
@@ -47,7 +47,7 @@ export type ReplyStats = {
     allReplyCount: number;
 };
 
-export type SubplebbitStats = {
+export type CommunityStats = {
     hourActiveUserCount: number;
     dayActiveUserCount: number;
     weekActiveUserCount: number;
@@ -62,45 +62,45 @@ export type SubplebbitStats = {
     allPostCount: number;
 } & ReplyStats;
 
-export type SubplebbitFeatures = z.infer<typeof SubplebbitFeaturesSchema>;
+export type CommunityFeatures = z.infer<typeof CommunityFeaturesSchema>;
 
-export type SubplebbitSuggested = z.infer<typeof SubplebbitSuggestedSchema>;
+export type CommunitySuggested = z.infer<typeof CommunitySuggestedSchema>;
 
 export type Flair = z.infer<typeof FlairSchema>;
 
-export type SubplebbitEncryption = z.infer<typeof SubplebbitEncryptionSchema>;
+export type CommunityEncryption = z.infer<typeof CommunityEncryptionSchema>;
 
-export type SubplebbitRole = z.infer<typeof SubplebbitRoleSchema>;
+export type CommunityRole = z.infer<typeof CommunityRoleSchema>;
 
-export type SubplebbitRoleNameUnion = z.infer<typeof SubplebbitRoleNames>;
+export type CommunityRoleNameUnion = z.infer<typeof CommunityRoleNames>;
 
-export type RpcRemoteSubplebbitType = z.infer<typeof RpcRemoteSubplebbitUpdateEventResultSchema>;
+export type RpcRemoteCommunityType = z.infer<typeof RpcRemoteCommunityUpdateEventResultSchema>;
 
-export type SubplebbitIpfsType = z.infer<typeof SubplebbitIpfsSchema>;
+export type CommunityIpfsType = z.infer<typeof CommunityIpfsSchema>;
 
-export interface SubplebbitSignature extends JsonSignature {
-    signedPropertyNames: typeof SubplebbitSignedPropertyNames;
+export interface CommunitySignature extends JsonSignature {
+    signedPropertyNames: typeof CommunitySignedPropertyNames;
 }
 
-export type CreateRemoteSubplebbitOptions = z.infer<typeof CreateRemoteSubplebbitOptionsSchema>;
+export type CreateRemoteCommunityOptions = z.infer<typeof CreateRemoteCommunityOptionsSchema>;
 
-export type CreateNewLocalSubplebbitUserOptions = z.infer<typeof CreateNewLocalSubplebbitUserOptionsSchema>;
+export type CreateNewLocalCommunityUserOptions = z.infer<typeof CreateNewLocalCommunityUserOptionsSchema>;
 
 // These are the options that go straight into _createLocalSub, create a new brand local sub. This is after parsing of plebbit-js
 
-export type CreateNewLocalSubplebbitParsedOptions = z.infer<typeof CreateNewLocalSubplebbitParsedOptionsSchema>;
+export type CreateNewLocalCommunityParsedOptions = z.infer<typeof CreateNewLocalCommunityParsedOptionsSchema>;
 
-// or load an already existing sub through plebbit.createSubplebbit
+// or load an already existing sub through plebbit.createCommunity
 
-export type CreateInstanceOfLocalOrRemoteSubplebbitOptions = { address: string };
+export type CreateInstanceOfLocalOrRemoteCommunityOptions = { address: string };
 
-export type SubplebbitEditOptions = z.infer<typeof SubplebbitEditOptionsSchema>;
+export type CommunityEditOptions = z.infer<typeof CommunityEditOptionsSchema>;
 
 export type Exclude = z.infer<typeof ChallengeExcludeSchema>;
 
-export type SubplebbitChallenge = z.infer<typeof SubplebbitChallengeSchema>;
+export type CommunityChallenge = z.infer<typeof CommunityChallengeSchema>;
 
-export type SubplebbitChallengeSetting = z.infer<typeof SubplebbitChallengeSettingSchema>;
+export type CommunityChallengeSetting = z.infer<typeof CommunityChallengeSettingSchema>;
 
 export type Challenge = z.infer<typeof ChallengeFromGetChallengeSchema>;
 
@@ -126,32 +126,32 @@ export type GetChallengeArgs = z.infer<typeof GetChallengeArgsSchema>;
 
 export type GetChallengeArgsInput = z.input<typeof GetChallengeArgsSchema>;
 
-export type SubplebbitSettings = z.infer<typeof SubplebbitSettingsSchema>;
+export type CommunitySettings = z.infer<typeof CommunitySettingsSchema>;
 
 // RPC update events
 
-export type RpcRemoteSubplebbitUpdateEventResultType = z.infer<typeof RpcRemoteSubplebbitUpdateEventResultSchema>;
+export type RpcRemoteCommunityUpdateEventResultType = z.infer<typeof RpcRemoteCommunityUpdateEventResultSchema>;
 
-// Subplebbit json here
+// Community json here
 
-export type RemoteSubplebbitJson = JsonOfClass<RemoteSubplebbit>;
+export type RemoteCommunityJson = JsonOfClass<RemoteCommunity>;
 
-export type RpcRemoteSubplebbitJson = JsonOfClass<RpcRemoteSubplebbit>;
+export type RpcRemoteCommunityJson = JsonOfClass<RpcRemoteCommunity>;
 
-export type RpcLocalSubplebbitJson = JsonOfClass<RpcLocalSubplebbit>;
+export type RpcLocalCommunityJson = JsonOfClass<RpcLocalCommunity>;
 
-export type LocalSubplebbitJson = JsonOfClass<LocalSubplebbit>;
+export type LocalCommunityJson = JsonOfClass<LocalCommunity>;
 
-export type SubplebbitJson = RemoteSubplebbitJson | RpcRemoteSubplebbitJson | RpcLocalSubplebbitJson | LocalSubplebbitJson; // after calling JSON.parse(JSON.stringify(subplebbitInstance)), this should be the output
+export type CommunityJson = RemoteCommunityJson | RpcRemoteCommunityJson | RpcLocalCommunityJson | LocalCommunityJson; // after calling JSON.parse(JSON.stringify(subplebbitInstance)), this should be the output
 
 // States here
 
-export type SubplebbitState = "stopped" | "updating" | "started";
+export type CommunityState = "stopped" | "updating" | "started";
 
-export type SubplebbitStartedState = "stopped" | "publishing-ipns" | "failed" | "succeeded";
+export type CommunityStartedState = "stopped" | "publishing-ipns" | "failed" | "succeeded";
 
-export type SubplebbitUpdatingState =
-    | SubplebbitStartedState
+export type CommunityUpdatingState =
+    | CommunityStartedState
     | "stopped"
     | "resolving-name"
     | "fetching-ipns"
@@ -162,81 +162,81 @@ export type SubplebbitUpdatingState =
 
 // Internal subplebbit state (in DB)
 
-export interface InternalSubplebbitRecordBeforeFirstUpdateType extends CreateNewLocalSubplebbitParsedOptions {
-    settings: SubplebbitSettings;
-    challenges: SubplebbitIpfsType["challenges"];
-    createdAt: SubplebbitIpfsType["createdAt"];
-    protocolVersion: SubplebbitIpfsType["protocolVersion"];
-    encryption: SubplebbitIpfsType["encryption"];
+export interface InternalCommunityRecordBeforeFirstUpdateType extends CreateNewLocalCommunityParsedOptions {
+    settings: CommunitySettings;
+    challenges: CommunityIpfsType["challenges"];
+    createdAt: CommunityIpfsType["createdAt"];
+    protocolVersion: CommunityIpfsType["protocolVersion"];
+    encryption: CommunityIpfsType["encryption"];
     _usingDefaultChallenge: boolean;
     _internalStateUpdateId: string; // uuid v4, everytime we update the internal state of db we will change this id
-    _pendingEditProps: Partial<ParsedSubplebbitEditOptions & { editId: string }>[];
+    _pendingEditProps: Partial<ParsedCommunityEditOptions & { editId: string }>[];
 }
 
-export interface InternalSubplebbitRecordAfterFirstUpdateType extends InternalSubplebbitRecordBeforeFirstUpdateType, SubplebbitIpfsType {
+export interface InternalCommunityRecordAfterFirstUpdateType extends InternalCommunityRecordBeforeFirstUpdateType, CommunityIpfsType {
     updateCid: string;
     _cidsToUnPin: string[]; // cids that we need to unpin from kubo node
     _mfsPathsToRemove: string[]; // mfs paths that we need to rm from kubo node
 }
 
-// RPC server transmitting Internal Subplebbit records to clients
+// RPC server transmitting Internal Community records to clients
 
-// Extra local-sub properties not present in SubplebbitIpfsType
-export interface RpcLocalSubplebbitLocalProps {
-    signer: Omit<InternalSubplebbitRecordBeforeFirstUpdateType["signer"], "privateKey">;
-    settings: SubplebbitSettings;
+// Extra local-sub properties not present in CommunityIpfsType
+export interface RpcLocalCommunityLocalProps {
+    signer: Omit<InternalCommunityRecordBeforeFirstUpdateType["signer"], "privateKey">;
+    settings: CommunitySettings;
     _usingDefaultChallenge: boolean;
     address: string;
     started: boolean;
-    startedState: RpcLocalSubplebbit["startedState"];
+    startedState: RpcLocalCommunity["startedState"];
 }
 
-// Before first IPNS update: all sub data is in localSubplebbit (no SubplebbitIpfs record yet)
-export interface RpcInternalSubplebbitRecordBeforeFirstUpdateType {
-    localSubplebbit: Omit<InternalSubplebbitRecordBeforeFirstUpdateType, "signer" | "_internalStateUpdateId" | "_pendingEditProps"> &
-        RpcLocalSubplebbitLocalProps;
+// Before first IPNS update: all sub data is in localCommunity (no CommunityIpfs record yet)
+export interface RpcInternalCommunityRecordBeforeFirstUpdateType {
+    localCommunity: Omit<InternalCommunityRecordBeforeFirstUpdateType, "signer" | "_internalStateUpdateId" | "_pendingEditProps"> &
+        RpcLocalCommunityLocalProps;
 }
 
-// After first IPNS update: subplebbit is the signed record, localSubplebbit has only extras
-export interface RpcInternalSubplebbitRecordAfterFirstUpdateType {
-    subplebbit: SubplebbitIpfsType;
-    localSubplebbit: RpcLocalSubplebbitLocalProps;
-    runtimeFields: { updateCid: string; updatingState?: RpcLocalSubplebbit["updatingState"]; nameResolved?: boolean };
+// After first IPNS update: subplebbit is the signed record, localCommunity has only extras
+export interface RpcInternalCommunityRecordAfterFirstUpdateType {
+    subplebbit: CommunityIpfsType;
+    localCommunity: RpcLocalCommunityLocalProps;
+    runtimeFields: { updateCid: string; updatingState?: RpcLocalCommunity["updatingState"]; nameResolved?: boolean };
 }
 
-export type RpcLocalSubplebbitUpdateResultType =
-    | RpcInternalSubplebbitRecordBeforeFirstUpdateType
-    | RpcInternalSubplebbitRecordAfterFirstUpdateType;
+export type RpcLocalCommunityUpdateResultType =
+    | RpcInternalCommunityRecordBeforeFirstUpdateType
+    | RpcInternalCommunityRecordAfterFirstUpdateType;
 
 // This is the object that gets passed to _updateDbInternalState after calling .edit()
-export interface ParsedSubplebbitEditOptions
-    extends Omit<SubplebbitEditOptions, "roles">,
-        Pick<InternalSubplebbitRecordBeforeFirstUpdateType, "_usingDefaultChallenge" | "challenges" | "roles"> {}
+export interface ParsedCommunityEditOptions
+    extends Omit<CommunityEditOptions, "roles">,
+        Pick<InternalCommunityRecordBeforeFirstUpdateType, "_usingDefaultChallenge" | "challenges" | "roles"> {}
 
-export interface SubplebbitEvents {
-    challengerequest: (request: DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor) => void;
+export interface CommunityEvents {
+    challengerequest: (request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor) => void;
     challenge: (challenge: DecryptedChallengeMessageType) => void;
     challengeanswer: (answer: DecryptedChallengeAnswerMessageType) => void;
     challengeverification: (verification: DecryptedChallengeVerificationMessageType) => void;
 
-    error: (error: PlebbitError | Error) => void;
+    error: (error: PKCError | Error) => void;
 
     // State changes
-    statechange: (newState: RemoteSubplebbit["state"]) => void;
-    updatingstatechange: (newState: RemoteSubplebbit["updatingState"]) => void;
-    startedstatechange: (newState: RpcLocalSubplebbit["startedState"]) => void;
+    statechange: (newState: RemoteCommunity["state"]) => void;
+    updatingstatechange: (newState: RemoteCommunity["updatingState"]) => void;
+    startedstatechange: (newState: RpcLocalCommunity["startedState"]) => void;
 
-    update: (updatedSubplebbit: RemoteSubplebbit) => void;
+    update: (updatedCommunity: RemoteCommunity) => void;
 
     removeListener: (eventName: string, listener: Function) => void;
 }
 
 // Create a helper type to extract the parameters of each event
-export type SubplebbitEventArgs<T extends keyof SubplebbitEvents> = Parameters<SubplebbitEvents[T]>;
+export type CommunityEventArgs<T extends keyof CommunityEvents> = Parameters<CommunityEvents[T]>;
 
-export type SubplebbitRpcErrorToTransmit = SubplebbitEventArgs<"error">[0] & {
-    details?: PlebbitError["details"] & {
-        newUpdatingState?: RemoteSubplebbit["updatingState"];
-        newStartedState?: RpcLocalSubplebbit["startedState"];
+export type CommunityRpcErrorToTransmit = CommunityEventArgs<"error">[0] & {
+    details?: PKCError["details"] & {
+        newUpdatingState?: RemoteCommunity["updatingState"];
+        newStartedState?: RpcLocalCommunity["startedState"];
     };
 };

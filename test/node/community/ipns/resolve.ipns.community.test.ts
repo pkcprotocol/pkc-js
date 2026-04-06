@@ -1,26 +1,21 @@
 import { beforeAll, afterAll, it } from "vitest";
-import {
-    createSubWithNoChallenge,
-    describeSkipIfRpc,
-    mockPlebbit,
-    resolveWhenConditionIsTrue
-} from "../../../../dist/node/test/test-util.js";
+import { createSubWithNoChallenge, describeSkipIfRpc, mockPKC, resolveWhenConditionIsTrue } from "../../../../dist/node/test/test-util.js";
 import { getIpnsRecordInLocalKuboNode } from "../../../../dist/node/util.js";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../../dist/node/community/rpc-local-community.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
 import type { KuboRpcClient } from "../../../../dist/node/types.js";
 
 describeSkipIfRpc(`Generation of new IPNS records`, async () => {
-    let plebbit: Plebbit;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
-    let kuboRpcClientOfSubplebbit: KuboRpcClient;
+    let plebbit: PKC;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
+    let kuboRpcClientOfCommunity: KuboRpcClient;
     let numberOfEmittedUpdates = 0;
     let numberOfEmittedUpdatesWithUpdatedAt = 0;
 
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
-        kuboRpcClientOfSubplebbit = Object.values(plebbit.clients.kuboRpcClients)[0];
+        plebbit = await mockPKC();
+        kuboRpcClientOfCommunity = Object.values(plebbit.clients.kuboRpcClients)[0];
 
         subplebbit = await createSubWithNoChallenge({}, plebbit);
 
@@ -48,7 +43,7 @@ describeSkipIfRpc(`Generation of new IPNS records`, async () => {
             // @ts-expect-error Accessing private property _subplebbitUpdateTrigger for testing
             subplebbit._subplebbitUpdateTrigger = true;
             await new Promise((resolve) => subplebbit.once("update", resolve));
-            const latestIpnsRecord = await getIpnsRecordInLocalKuboNode(kuboRpcClientOfSubplebbit, subplebbit.address);
+            const latestIpnsRecord = await getIpnsRecordInLocalKuboNode(kuboRpcClientOfCommunity, subplebbit.address);
             expect(latestIpnsRecord.sequence).to.equal(BigInt(numberOfEmittedUpdatesWithUpdatedAt - 1));
 
             expect(latestIpnsRecord.value).to.equal("/ipfs/" + subplebbit.updateCid);
@@ -58,5 +53,5 @@ describeSkipIfRpc(`Generation of new IPNS records`, async () => {
     // we need to test that IPNS' sequence keeps incrementing
     // we need to test updateCid is also changing on the subplebbit instace
     // need to test that updatedAt keeps increasing
-    // they should all match on subplebbit, and on subplebbit from remotePlebbit
+    // they should all match on subplebbit, and on subplebbit from remotePKC
 });

@@ -1,8 +1,8 @@
 import {
     createSubWithNoChallenge,
     describeSkipIfRpc,
-    getAvailablePlebbitConfigsToTestAgainst,
-    mockPlebbit,
+    getAvailablePKCConfigsToTestAgainst,
+    mockPKC,
     publishCommentWithDepth,
     disablePreloadPagesOnSub,
     publishRandomReply,
@@ -10,19 +10,19 @@ import {
 } from "../../../../../dist/node/test/test-util.js";
 
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit as PlebbitType } from "../../../../../dist/node/pkc/pkc.js";
+import type { PKC as PKCType } from "../../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
-import type { LocalSubplebbit } from "../../../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../../../dist/node/community/rpc-local-community.js";
+import type { LocalCommunity } from "../../../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../../../dist/node/community/rpc-local-community.js";
 import type { CommentUpdatingState, CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
 
 interface ReplyParentPagesTestContext {
-    publisherPlebbit: PlebbitType;
+    publisherPKC: PKCType;
     replyCid: string;
     cleanup: () => Promise<void>;
 }
 
-const plebbitConfigs = getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true });
+const plebbitConfigs = getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true });
 const replyDepthsToTest = [1, 2, 3, 5, 15, 30];
 
 describeSkipIfRpc("reply.updatingState via parent pageCIDs (node)", () => {
@@ -133,15 +133,15 @@ async function createReplyParentPagesTestEnvironment({ replyDepth }: { replyDept
     if (replyDepth === undefined || replyDepth === null) throw new Error("replyDepth is required");
     if (replyDepth < 1) throw new Error("replyDepth must be at least 1");
 
-    const publisherPlebbit = await mockPlebbit();
-    const subplebbit = (await createSubWithNoChallenge({}, publisherPlebbit)) as LocalSubplebbit | RpcLocalSubplebbit;
+    const publisherPKC = await mockPKC();
+    const subplebbit = (await createSubWithNoChallenge({}, publisherPKC)) as LocalCommunity | RpcLocalCommunity;
 
     try {
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
         const reply = await publishCommentWithDepth({ depth: replyDepth, subplebbit });
-        const parentComment = await publisherPlebbit.getComment({ cid: reply.parentCid! });
+        const parentComment = await publisherPKC.getComment({ cid: reply.parentCid! });
 
         await parentComment.update();
         await resolveWhenConditionIsTrue({
@@ -149,9 +149,9 @@ async function createReplyParentPagesTestEnvironment({ replyDepth }: { replyDept
             predicate: async () => typeof parentComment.updatedAt === "number"
         });
 
-        const { cleanup: preloadCleanup } = disablePreloadPagesOnSub({ subplebbit: subplebbit as LocalSubplebbit });
+        const { cleanup: preloadCleanup } = disablePreloadPagesOnSub({ subplebbit: subplebbit as LocalCommunity });
 
-        await publishRandomReply({ parentComment: parentComment as CommentIpfsWithCidDefined, plebbit: publisherPlebbit }); // to force an update
+        await publishRandomReply({ parentComment: parentComment as CommentIpfsWithCidDefined, plebbit: publisherPKC }); // to force an update
         // below could timeout
         await resolveWhenConditionIsTrue({
             toUpdate: parentComment,
@@ -162,17 +162,17 @@ async function createReplyParentPagesTestEnvironment({ replyDepth }: { replyDept
         const cleanup = async () => {
             preloadCleanup();
             await subplebbit.delete();
-            await publisherPlebbit.destroy();
+            await publisherPKC.destroy();
         };
 
         return {
-            publisherPlebbit,
+            publisherPKC,
             replyCid: reply.cid!,
             cleanup
         };
     } catch (error) {
         await subplebbit.delete();
-        await publisherPlebbit.destroy();
+        await publisherPKC.destroy();
         throw error;
     }
 }

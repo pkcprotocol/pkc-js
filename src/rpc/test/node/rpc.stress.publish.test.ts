@@ -2,27 +2,27 @@ import { beforeAll, afterAll, afterEach } from "vitest";
 import tempy from "tempy";
 import net from "node:net";
 
-import PlebbitWsServerModule from "../../../../dist/node/rpc/src/index.js";
-import { restorePlebbitJs } from "../../../../dist/node/rpc/src/lib/pkc-js/index.js";
+import PKCWsServerModule from "../../../../dist/node/rpc/src/index.js";
+import { restorePKCJs } from "../../../../dist/node/rpc/src/lib/pkc-js/index.js";
 import {
     describeSkipIfRpc,
     mockRpcServerForTests,
-    mockRpcServerPlebbit,
+    mockRpcServerPKC,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
     createPendingApprovalChallenge,
     publishCommentToModQueue
 } from "../../../../dist/node/test/test-util.js";
-import Plebbit from "../../../../dist/node/index.js";
+import PKC from "../../../../dist/node/index.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { createMockPubsubClient } from "../../../../dist/node/test/mock-ipfs-client.js";
-import type { Plebbit as PlebbitType } from "../../../../dist/node/pkc/pkc.js";
-import type { RpcLocalSubplebbit } from "../../../../dist/node/community/rpc-local-community.js";
+import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
+import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
 import type { SignerType } from "../../../../dist/node/signer/types.js";
 
-const { PlebbitWsServer: createPlebbitWsServer, setPlebbitJs } = PlebbitWsServerModule;
+const { PKCWsServer: createPKCWsServer, setPKCJs } = PKCWsServerModule;
 
-type PlebbitWsServerType = Awaited<ReturnType<typeof createPlebbitWsServer>>;
+type PKCWsServerType = Awaited<ReturnType<typeof createPKCWsServer>>;
 
 type MockPubsubClientType = ReturnType<typeof createMockPubsubClient>;
 
@@ -40,13 +40,13 @@ const getAvailablePort = async (): Promise<number> =>
         });
     });
 
-describeSkipIfRpc("Plebbit RPC server stress publish", function () {
-    let rpcServer: PlebbitWsServerType | undefined;
-    let plebbit: PlebbitType;
-    let subplebbit: RpcLocalSubplebbit;
+describeSkipIfRpc("PKC RPC server stress publish", function () {
+    let rpcServer: PKCWsServerType | undefined;
+    let plebbit: PKCType;
+    let subplebbit: RpcLocalCommunity;
     let moderatorSigner: SignerType;
     let rpcPort: number;
-    const stressClients: PlebbitType[] = [];
+    const stressClients: PKCType[] = [];
     let pubsubModified = false;
 
     function configureServerPubsubClients(options: { dropRate?: number; throwOnPublish?: boolean } = {}) {
@@ -77,18 +77,18 @@ describeSkipIfRpc("Plebbit RPC server stress publish", function () {
     }
 
     beforeAll(async () => {
-        setPlebbitJs(async (options: Record<string, unknown>) => mockRpcServerPlebbit({ dataPath: tempy.directory(), ...(options || {}) }));
+        setPKCJs(async (options: Record<string, unknown>) => mockRpcServerPKC({ dataPath: tempy.directory(), ...(options || {}) }));
 
         const port = await getAvailablePort();
         rpcPort = port;
         const dataPath = tempy.directory();
-        rpcServer = await createPlebbitWsServer({ port, plebbitOptions: { dataPath } });
+        rpcServer = await createPKCWsServer({ port, plebbitOptions: { dataPath } });
         mockRpcServerForTests(rpcServer);
         rpcServer?.plebbit?.setMaxListeners?.(1000);
         configureServerPubsubClients();
 
-        plebbit = await Plebbit({ plebbitRpcClientsOptions: [`ws://127.0.0.1:${port}`], dataPath: undefined, httpRoutersOptions: [] });
-        subplebbit = (await plebbit.createSubplebbit({})) as RpcLocalSubplebbit;
+        plebbit = await PKC({ pkcRpcClientsOptions: [`ws://127.0.0.1:${port}`], dataPath: undefined, httpRoutersOptions: [] });
+        subplebbit = (await plebbit.createCommunity({})) as RpcLocalCommunity;
         subplebbit.setMaxListeners(100);
         moderatorSigner = await plebbit.createSigner();
         await subplebbit.edit({
@@ -111,7 +111,7 @@ describeSkipIfRpc("Plebbit RPC server stress publish", function () {
         }
         if (plebbit) await plebbit.destroy();
         if (rpcServer) await rpcServer.destroy();
-        restorePlebbitJs();
+        restorePKCJs();
     });
 
     afterEach(async () => {
@@ -123,9 +123,9 @@ describeSkipIfRpc("Plebbit RPC server stress publish", function () {
         await Promise.allSettled(stressClients.splice(0).map((client) => client.destroy().catch(() => {})));
     });
 
-    const createPlebbitRpcClient = async (): Promise<PlebbitType> => {
-        const client = await Plebbit({
-            plebbitRpcClientsOptions: [`ws://127.0.0.1:${rpcPort}`],
+    const createPKCRpcClient = async (): Promise<PKCType> => {
+        const client = await PKC({
+            pkcRpcClientsOptions: [`ws://127.0.0.1:${rpcPort}`],
             dataPath: undefined,
             httpRoutersOptions: []
         });
@@ -139,7 +139,7 @@ describeSkipIfRpc("Plebbit RPC server stress publish", function () {
 
         const parallelFlows = Array.from({ length: PARALLEL_EDITS }).map((_, i) => {
             return (async () => {
-                const client = await createPlebbitRpcClient();
+                const client = await createPKCRpcClient();
                 const authorSigner = await client.createSigner();
                 const pendingComment = await client.createComment({
                     communityAddress: subplebbit.address,
@@ -187,7 +187,7 @@ describeSkipIfRpc("Plebbit RPC server stress publish", function () {
         const ATTEMPTS = 10;
         const flows = Array.from({ length: ATTEMPTS }).map((_, i) => {
             return (async () => {
-                const client = await createPlebbitRpcClient();
+                const client = await createPKCRpcClient();
                 const authorSigner = await client.createSigner();
                 const pendingComment = await client.createComment({
                     communityAddress: subplebbit.address,
@@ -232,7 +232,7 @@ describeSkipIfRpc("Plebbit RPC server stress publish", function () {
         const publishAttempts = 40;
 
         const runPublishFlow = async (index: number) => {
-            const client = await createPlebbitRpcClient();
+            const client = await createPKCRpcClient();
             const authorSigner = await client.createSigner();
 
             const { comment: pendingComment, challengeVerification } = await publishCommentToModQueue({

@@ -1,21 +1,21 @@
 import type { Comment } from "../publications/comment/comment.js";
-import type { LocalSubplebbit } from "../runtime/node/community/local-community.js";
-import type { RemoteSubplebbit } from "../community/remote-community.js";
-import type { RpcLocalSubplebbit } from "../community/rpc-local-community.js";
-import type { RpcRemoteSubplebbit } from "../community/rpc-remote-community.js";
-import type { Plebbit } from "./pkc.js";
+import type { LocalCommunity } from "../runtime/node/community/local-community.js";
+import type { RemoteCommunity } from "../community/remote-community.js";
+import type { RpcLocalCommunity } from "../community/rpc-local-community.js";
+import type { RpcRemoteCommunity } from "../community/rpc-remote-community.js";
+import type { PKC } from "./pkc.js";
 import type { TrackedInstanceRegistry } from "./tracked-instance-registry.js";
 
-type TrackedSubplebbit = RemoteSubplebbit | RpcRemoteSubplebbit | RpcLocalSubplebbit | LocalSubplebbit;
-type StartedSubplebbit = LocalSubplebbit | RpcLocalSubplebbit;
+type TrackedCommunity = RemoteCommunity | RpcRemoteCommunity | RpcLocalCommunity | LocalCommunity;
+type StartedCommunity = LocalCommunity | RpcLocalCommunity;
 
-type SubplebbitLookup = {
+type CommunityLookup = {
     address?: string;
     name?: string;
     publicKey?: string;
 };
 
-type SubplebbitWithAliases = SubplebbitLookup & {
+type CommunityWithAliases = CommunityLookup & {
     signer?: { address?: string } | undefined;
 };
 
@@ -34,7 +34,7 @@ function isEthAliasDomain(address: string): boolean {
     return lower.endsWith(".eth") || lower.endsWith(".bso");
 }
 
-function getEquivalentSubplebbitAliases(address: string): string[] {
+function getEquivalentCommunityAliases(address: string): string[] {
     const lower = address.toLowerCase();
     if (lower.endsWith(".bso")) return [address, `${address.slice(0, -4)}.eth`];
     if (lower.endsWith(".eth")) return [address, `${address.slice(0, -4)}.bso`];
@@ -64,12 +64,12 @@ function persistAliases<T extends object>(target: T, aliases: string[]): string[
     return [...aliasHistory];
 }
 
-export function getSubplebbitRegistryAliases(subplebbit: SubplebbitWithAliases): string[] {
+export function getCommunityRegistryAliases(subplebbit: CommunityWithAliases): string[] {
     const aliases = dedupeAliases([subplebbit.address, subplebbit.name, subplebbit.publicKey, subplebbit.signer?.address]);
 
     return dedupeAliases(
         aliases.flatMap((alias) => {
-            if (isEthAliasDomain(alias)) return getEquivalentSubplebbitAliases(alias);
+            if (isEthAliasDomain(alias)) return getEquivalentCommunityAliases(alias);
             return [alias];
         })
     );
@@ -79,19 +79,19 @@ export function getCommentRegistryAliases(comment: CommentLookup): string[] {
     return dedupeAliases([comment.cid]);
 }
 
-export function syncSubplebbitRegistryEntry<T extends SubplebbitWithAliases>(registry: TrackedInstanceRegistry<T>, subplebbit: T): T {
-    return registry.track({ value: subplebbit, aliases: persistAliases(subplebbit, getSubplebbitRegistryAliases(subplebbit)) });
+export function syncCommunityRegistryEntry<T extends CommunityWithAliases>(registry: TrackedInstanceRegistry<T>, subplebbit: T): T {
+    return registry.track({ value: subplebbit, aliases: persistAliases(subplebbit, getCommunityRegistryAliases(subplebbit)) });
 }
 
 export function syncCommentRegistryEntry<T extends CommentLookup>(registry: TrackedInstanceRegistry<T>, comment: T): T {
     return registry.track({ value: comment, aliases: persistAliases(comment, getCommentRegistryAliases(comment)) });
 }
 
-export function findSubplebbitInRegistry<T extends SubplebbitWithAliases>(
+export function findCommunityInRegistry<T extends CommunityWithAliases>(
     registry: TrackedInstanceRegistry<T>,
-    lookup: SubplebbitLookup
+    lookup: CommunityLookup
 ): T | undefined {
-    return registry.findByAliases(getSubplebbitRegistryAliases(lookup));
+    return registry.findByAliases(getCommunityRegistryAliases(lookup));
 }
 
 export function findCommentInRegistry<T extends CommentLookup>(registry: TrackedInstanceRegistry<T>, lookup: CommentLookup): T | undefined {
@@ -102,60 +102,60 @@ export function listRegistryValues<T extends object>(registry: TrackedInstanceRe
     return registry.values();
 }
 
-export function trackUpdatingSubplebbit(plebbit: Plebbit, subplebbit: TrackedSubplebbit): TrackedSubplebbit {
-    return syncSubplebbitRegistryEntry(plebbit._updatingSubplebbits, subplebbit);
+export function trackUpdatingCommunity(plebbit: PKC, subplebbit: TrackedCommunity): TrackedCommunity {
+    return syncCommunityRegistryEntry(plebbit._updatingCommunitys, subplebbit);
 }
 
-export function trackStartedSubplebbit(plebbit: Plebbit, subplebbit: StartedSubplebbit): StartedSubplebbit {
-    return syncSubplebbitRegistryEntry(plebbit._startedSubplebbits, subplebbit);
+export function trackStartedCommunity(plebbit: PKC, subplebbit: StartedCommunity): StartedCommunity {
+    return syncCommunityRegistryEntry(plebbit._startedCommunitys, subplebbit);
 }
 
-export function trackUpdatingComment(plebbit: Plebbit, comment: Comment): Comment {
+export function trackUpdatingComment(plebbit: PKC, comment: Comment): Comment {
     return syncCommentRegistryEntry(plebbit._updatingComments, comment);
 }
 
-export function untrackUpdatingSubplebbit(plebbit: Plebbit, subplebbit: TrackedSubplebbit): void {
-    plebbit._updatingSubplebbits.untrack(subplebbit);
+export function untrackUpdatingCommunity(plebbit: PKC, subplebbit: TrackedCommunity): void {
+    plebbit._updatingCommunitys.untrack(subplebbit);
 }
 
-export function untrackStartedSubplebbit(plebbit: Plebbit, subplebbit: StartedSubplebbit): void {
-    plebbit._startedSubplebbits.untrack(subplebbit);
+export function untrackStartedCommunity(plebbit: PKC, subplebbit: StartedCommunity): void {
+    plebbit._startedCommunitys.untrack(subplebbit);
 }
 
-export function untrackUpdatingComment(plebbit: Plebbit, comment: Comment): void {
+export function untrackUpdatingComment(plebbit: PKC, comment: Comment): void {
     plebbit._updatingComments.untrack(comment);
 }
 
-export function refreshTrackedSubplebbitAliases(plebbit: Plebbit, subplebbit: TrackedSubplebbit): void {
-    if (plebbit._updatingSubplebbits.has(subplebbit)) syncSubplebbitRegistryEntry(plebbit._updatingSubplebbits, subplebbit);
-    if (plebbit._startedSubplebbits.has(subplebbit as StartedSubplebbit))
-        syncSubplebbitRegistryEntry(plebbit._startedSubplebbits, subplebbit as StartedSubplebbit);
+export function refreshTrackedCommunityAliases(plebbit: PKC, subplebbit: TrackedCommunity): void {
+    if (plebbit._updatingCommunitys.has(subplebbit)) syncCommunityRegistryEntry(plebbit._updatingCommunitys, subplebbit);
+    if (plebbit._startedCommunitys.has(subplebbit as StartedCommunity))
+        syncCommunityRegistryEntry(plebbit._startedCommunitys, subplebbit as StartedCommunity);
 }
 
-export function refreshTrackedCommentAliases(plebbit: Plebbit, comment: Comment): void {
+export function refreshTrackedCommentAliases(plebbit: PKC, comment: Comment): void {
     if (plebbit._updatingComments.has(comment)) syncCommentRegistryEntry(plebbit._updatingComments, comment);
 }
 
-export function findUpdatingSubplebbit(plebbit: Plebbit, lookup: SubplebbitLookup): TrackedSubplebbit | undefined {
-    return findSubplebbitInRegistry(plebbit._updatingSubplebbits, lookup);
+export function findUpdatingCommunity(plebbit: PKC, lookup: CommunityLookup): TrackedCommunity | undefined {
+    return findCommunityInRegistry(plebbit._updatingCommunitys, lookup);
 }
 
-export function findStartedSubplebbit(plebbit: Plebbit, lookup: SubplebbitLookup): StartedSubplebbit | undefined {
-    return findSubplebbitInRegistry(plebbit._startedSubplebbits, lookup);
+export function findStartedCommunity(plebbit: PKC, lookup: CommunityLookup): StartedCommunity | undefined {
+    return findCommunityInRegistry(plebbit._startedCommunitys, lookup);
 }
 
-export function findUpdatingComment(plebbit: Plebbit, lookup: CommentLookup): Comment | undefined {
+export function findUpdatingComment(plebbit: PKC, lookup: CommentLookup): Comment | undefined {
     return findCommentInRegistry(plebbit._updatingComments, lookup);
 }
 
-export function listUpdatingSubplebbits(plebbit: Plebbit): TrackedSubplebbit[] {
-    return listRegistryValues(plebbit._updatingSubplebbits);
+export function listUpdatingCommunitys(plebbit: PKC): TrackedCommunity[] {
+    return listRegistryValues(plebbit._updatingCommunitys);
 }
 
-export function listStartedSubplebbits(plebbit: Plebbit): StartedSubplebbit[] {
-    return listRegistryValues(plebbit._startedSubplebbits);
+export function listStartedCommunitys(plebbit: PKC): StartedCommunity[] {
+    return listRegistryValues(plebbit._startedCommunitys);
 }
 
-export function listUpdatingComments(plebbit: Plebbit): Comment[] {
+export function listUpdatingComments(plebbit: PKC): Comment[] {
     return listRegistryValues(plebbit._updatingComments);
 }

@@ -1,7 +1,7 @@
 import signers from "../../fixtures/signers.js";
-import { getAvailablePlebbitConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
+import { getAvailablePKCConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
-import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { SignerWithPublicKeyAddress } from "../../../dist/node/signer/index.js";
 import type { PageTypeJson } from "../../../dist/node/pages/types.js";
 
@@ -30,9 +30,9 @@ function assertRuntimeAuthorFieldsSurviveStringify(instance: { author: Record<st
     expect(parsed.author.shortAddress, `${label} JSON.stringify: author.shortAddress matches`).to.equal(instance.author.shortAddress);
 }
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Runtime author fields in spread and JSON.stringify - ${config.name}`, () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         let signer: SignerWithPublicKeyAddress;
 
         beforeAll(async () => {
@@ -172,38 +172,38 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             });
         });
 
-        describe("SubplebbitEdit", () => {
+        describe("CommunityEdit", () => {
             it("has runtime author fields", async () => {
-                const subEdit = await plebbit.createSubplebbitEdit({
+                const subEdit = await plebbit.createCommunityEdit({
                     communityAddress: subplebbitAddress,
                     signer,
                     subplebbitEdit: { description: "new description" }
                 });
-                assertRuntimeAuthorFields(subEdit.author, "SubplebbitEdit");
+                assertRuntimeAuthorFields(subEdit.author, "CommunityEdit");
             });
 
             it("runtime author fields survive spread", async () => {
-                const subEdit = await plebbit.createSubplebbitEdit({
+                const subEdit = await plebbit.createCommunityEdit({
                     communityAddress: subplebbitAddress,
                     signer,
                     subplebbitEdit: { description: "new description" }
                 });
-                assertRuntimeAuthorFieldsSurviveSpread(subEdit, "SubplebbitEdit");
+                assertRuntimeAuthorFieldsSurviveSpread(subEdit, "CommunityEdit");
             });
 
             it("runtime author fields survive JSON.stringify", async () => {
-                const subEdit = await plebbit.createSubplebbitEdit({
+                const subEdit = await plebbit.createCommunityEdit({
                     communityAddress: subplebbitAddress,
                     signer,
                     subplebbitEdit: { description: "new description" }
                 });
-                assertRuntimeAuthorFieldsSurviveStringify(subEdit, "SubplebbitEdit");
+                assertRuntimeAuthorFieldsSurviveStringify(subEdit, "CommunityEdit");
             });
         });
 
         describe("subplebbit.posts page comments", () => {
             it("page comments have runtime author fields that survive spread and JSON.stringify", async () => {
-                const sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
+                const sub = await plebbit.getCommunity({ address: subplebbitAddress });
                 const pages = sub.posts.pages || {};
                 expect(Object.keys(pages).length, "subplebbit.posts.pages should not be empty").to.be.greaterThan(0);
 

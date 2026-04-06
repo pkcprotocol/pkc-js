@@ -1,4 +1,4 @@
-import { Plebbit } from "../../pkc/pkc.js";
+import { PKC } from "../../pkc/pkc.js";
 import type { StorageInterface } from "../../types.js";
 import path from "path";
 import fs from "fs";
@@ -8,7 +8,7 @@ import Database from "better-sqlite3";
 
 // Storage is for long term items, no eviction based on ttl or anything like that
 export default class Storage implements StorageInterface {
-    private _plebbit: Plebbit;
+    private _plebbit: PKC;
     private _keyv: KeyvBetterSqlite3;
     private _db: Database.Database;
 

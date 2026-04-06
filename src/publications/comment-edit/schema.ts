@@ -7,7 +7,7 @@ import {
     CreatePublicationUserOptionsSchema,
     JsonSignatureSchema,
     PublicationBaseBeforeSigning,
-    PlebbitTimestampSchema,
+    PKCTimestampSchema,
     SignerWithAddressPublicKeySchema
 } from "../../schema/schema.js";
 import * as remeda from "remeda";
@@ -48,7 +48,7 @@ export const CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema = Comme
 }).loose();
 
 export const CommentEditsTableRowSchema = CommentEditPubsubMessagePublicationSchema.extend({
-    insertedAt: PlebbitTimestampSchema,
+    insertedAt: PKCTimestampSchema,
     authorSignerAddress: SignerWithAddressPublicKeySchema.shape.address,
     isAuthorEdit: z.boolean(), // if true, then it was an author at the time of editing
     extraProps: z.looseObject({}).optional() // will hold unknown props,
@@ -63,7 +63,7 @@ export const CommentEditReservedFields = remeda.difference(
         ...remeda.keys.strict(CommentEditsTableRowSchema.shape),
         ...remeda.keys.strict(CommentEditChallengeRequestToEncryptSchema.shape),
         "shortCommentCid",
-        "shortSubplebbitAddress",
+        "shortCommunityAddress",
         "shortCommunityAddress",
         "communityAddress",
         "communityPublicKey",

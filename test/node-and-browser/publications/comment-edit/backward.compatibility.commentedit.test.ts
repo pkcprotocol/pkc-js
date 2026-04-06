@@ -1,5 +1,5 @@
 import {
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     publishRandomPost,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
@@ -8,7 +8,7 @@ import {
 import { messages } from "../../../../dist/node/errors.js";
 import signers from "../../../fixtures/signers.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 
 // Type for challenge request event
@@ -29,12 +29,12 @@ const roles = [
     { role: "mod", signer: signers[3] }
 ];
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Backward compatibility for CommentEdit - ${config.name}`, async () => {
         // A subplebbit should accept a CommentEdit with unknown props
         // However, it should not process the unknown props, it should strip them out after validation
 
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         let commentToEdit: Comment;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();

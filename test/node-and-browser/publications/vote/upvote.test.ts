@@ -5,12 +5,12 @@ import {
     publishRandomReply,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
-    getAvailablePlebbitConfigsToTestAgainst
+    getAvailablePKCConfigsToTestAgainst
 } from "../../../../dist/node/test/test-util.js";
 import * as remeda from "remeda";
 import { messages } from "../../../../dist/node/errors.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 import type { SignerWithPublicKeyAddress } from "../../../../dist/node/signer/index.js";
@@ -22,11 +22,11 @@ type ChallengeRequestWithVote = DecryptedChallengeRequestMessageType & NonNullab
 
 const subplebbitAddress = signers[0].address;
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     const previousVotes: Vote[] = [];
 
     describe.concurrent(`Test upvote - ${config.name}`, async () => {
-        let plebbit: Plebbit, postToVote: Comment, replyToVote: Comment, signer: SignerWithPublicKeyAddress;
+        let plebbit: PKC, postToVote: Comment, replyToVote: Comment, signer: SignerWithPublicKeyAddress;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: false } });

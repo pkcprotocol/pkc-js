@@ -1,20 +1,20 @@
 import { beforeAll, afterAll, describe, it } from "vitest";
 import {
-    mockPlebbit,
+    mockPKC,
     publishRandomPost,
     createSubWithNoChallenge,
     itSkipIfRpc,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
-import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../dist/node/community/rpc-local-community.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 
 describe(`subplebbit.startedState`, async () => {
-    let plebbit: Plebbit;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    let plebbit: PKC;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
+        plebbit = await mockPKC();
         subplebbit = await createSubWithNoChallenge({}, plebbit);
     });
 
@@ -44,7 +44,7 @@ describe(`subplebbit.startedState`, async () => {
     });
 
     itSkipIfRpc(`subplebbit.startedState = failed if a failure occurs`, async () => {
-        const localSub = subplebbit as LocalSubplebbit;
+        const localSub = subplebbit as LocalCommunity;
         // @ts-expect-error _getDbInternalState is private but we need to mock it for testing
         const originalFunction = localSub._getDbInternalState.bind(localSub);
         // @ts-expect-error _getDbInternalState is private but we need to mock it for testing

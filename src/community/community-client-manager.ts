@@ -4,19 +4,19 @@ import {
     PreResolveNameResolverOptions,
     PostResolveNameResolverSuccessOptions
 } from "../clients/base-client-manager.js";
-import { PlebbitClientsManager } from "../pkc/pkc-client-manager.js";
-import { FailedToFetchSubplebbitFromGatewaysError, PlebbitError } from "../pkc-error.js";
-import { ResultOfFetchingSubplebbit } from "../types.js";
+import { PKCClientsManager } from "../pkc/pkc-client-manager.js";
+import { FailedToFetchCommunityFromGatewaysError, PKCError } from "../pkc-error.js";
+import { ResultOfFetchingCommunity } from "../types.js";
 import { NameResolverClient } from "../clients/name-resolver-client.js";
-import { RemoteSubplebbit } from "./remote-community.js";
+import { RemoteCommunity } from "./remote-community.js";
 import * as remeda from "remeda";
-import type { SubplebbitIpfsType, SubplebbitJson } from "./types.js";
-import { getSubplebbitNameFromWire } from "./community-wire.js";
-import { getPlebbitAddressFromPublicKeySync } from "../signer/util.js";
+import type { CommunityIpfsType, CommunityJson } from "./types.js";
+import { getCommunityNameFromWire } from "./community-wire.js";
+import { getPKCAddressFromPublicKeySync } from "../signer/util.js";
 import Logger from "../logger.js";
 
 import {
-    areEquivalentSubplebbitAddresses,
+    areEquivalentCommunityAddresses,
     hideClassPrivateProps,
     ipnsNameToIpnsOverPubsubTopic,
     isAbortError,
@@ -26,26 +26,26 @@ import {
     timestamp
 } from "../util.js";
 import pLimit from "p-limit";
-import { parseSubplebbitIpfsSchemaPassthroughWithPlebbitErrorIfItFails, parseJsonWithPlebbitErrorIfFails } from "../schema/schema-util.js";
+import { parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails, parseJsonWithPKCErrorIfFails } from "../schema/schema-util.js";
 import { verifyCommunity } from "../signer/index.js";
 import { LimitedSet } from "../general-util/limited-set.js";
 import {
-    SubplebbitIpfsGatewayClient,
-    SubplebbitKuboPubsubClient,
-    SubplebbitKuboRpcClient,
-    SubplebbitLibp2pJsClient,
-    SubplebbitPlebbitRpcStateClient
+    CommunityIpfsGatewayClient,
+    CommunityKuboPubsubClient,
+    CommunityKuboRpcClient,
+    CommunityLibp2pJsClient,
+    CommunityPKCRpcStateClient
 } from "./community-clients.js";
 import { CID } from "kubo-rpc-client";
 import { getAuthorDomainFromRuntime } from "../publications/publication-author.js";
 
-type SubplebbitGatewayFetch = {
+type CommunityGatewayFetch = {
     [gatewayUrl: string]: {
         abortController: AbortController;
         promise: Promise<any>;
-        cid?: SubplebbitJson["updateCid"];
-        subplebbitRecord?: SubplebbitIpfsType;
-        error?: PlebbitError;
+        cid?: CommunityJson["updateCid"];
+        subplebbitRecord?: CommunityIpfsType;
+        error?: PKCError;
         timeoutId: any;
         ttl?: number; // ttl in seconds of IPNS record
     };
@@ -53,38 +53,38 @@ type SubplebbitGatewayFetch = {
 
 export const MAX_FILE_SIZE_BYTES_FOR_SUBPLEBBIT_IPFS = 1024 * 1024; // 1mb
 
-export class SubplebbitClientsManager extends PlebbitClientsManager {
+export class CommunityClientsManager extends PKCClientsManager {
     override clients!: {
-        ipfsGateways: { [ipfsGatewayUrl: string]: SubplebbitIpfsGatewayClient };
-        kuboRpcClients: { [kuboRpcClientUrl: string]: SubplebbitKuboRpcClient };
-        pubsubKuboRpcClients: { [pubsubClientUrl: string]: SubplebbitKuboPubsubClient };
-        plebbitRpcClients: Record<string, SubplebbitPlebbitRpcStateClient>;
-        libp2pJsClients: { [libp2pJsClientUrl: string]: SubplebbitLibp2pJsClient };
+        ipfsGateways: { [ipfsGatewayUrl: string]: CommunityIpfsGatewayClient };
+        kuboRpcClients: { [kuboRpcClientUrl: string]: CommunityKuboRpcClient };
+        pubsubKuboRpcClients: { [pubsubClientUrl: string]: CommunityKuboPubsubClient };
+        plebbitRpcClients: Record<string, CommunityPKCRpcStateClient>;
+        libp2pJsClients: { [libp2pJsClientUrl: string]: CommunityLibp2pJsClient };
         nameResolvers: { [resolverKey: string]: NameResolverClient };
     };
-    private _subplebbit: RemoteSubplebbit;
+    private _subplebbit: RemoteCommunity;
     private _suppressUpdatingStateForNameResolution = 0;
     _ipnsLoadingOperation?: RetryOperation = undefined;
     _updateCidsAlreadyLoaded: LimitedSet<string> = new LimitedSet<string>(30); // we will keep track of the last 50 subplebbit update cids that we loaded
 
-    constructor(subplebbit: SubplebbitClientsManager["_subplebbit"]) {
+    constructor(subplebbit: CommunityClientsManager["_subplebbit"]) {
         super(subplebbit._plebbit);
         this._subplebbit = subplebbit;
-        this._initPlebbitRpcClients();
+        this._initPKCRpcClients();
         hideClassPrivateProps(this);
     }
 
     protected override _initKuboRpcClients(): void {
         if (this._plebbit.clients.kuboRpcClients)
             for (const ipfsUrl of remeda.keys.strict(this._plebbit.clients.kuboRpcClients))
-                this.clients.kuboRpcClients = { ...this.clients.kuboRpcClients, [ipfsUrl]: new SubplebbitKuboRpcClient("stopped") };
+                this.clients.kuboRpcClients = { ...this.clients.kuboRpcClients, [ipfsUrl]: new CommunityKuboRpcClient("stopped") };
     }
 
     protected override _initPubsubKuboRpcClients(): void {
         for (const pubsubUrl of remeda.keys.strict(this._plebbit.clients.pubsubKuboRpcClients))
             this.clients.pubsubKuboRpcClients = {
                 ...this.clients.pubsubKuboRpcClients,
-                [pubsubUrl]: new SubplebbitKuboPubsubClient("stopped")
+                [pubsubUrl]: new CommunityKuboPubsubClient("stopped")
             };
     }
 
@@ -93,39 +93,39 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
             for (const libp2pJsClientUrl of remeda.keys.strict(this._plebbit.clients.libp2pJsClients))
                 this.clients.libp2pJsClients = {
                     ...this.clients.libp2pJsClients,
-                    [libp2pJsClientUrl]: new SubplebbitLibp2pJsClient("stopped")
+                    [libp2pJsClientUrl]: new CommunityLibp2pJsClient("stopped")
                 };
     }
 
-    protected _initPlebbitRpcClients() {
+    protected _initPKCRpcClients() {
         for (const rpcUrl of remeda.keys.strict(this._plebbit.clients.plebbitRpcClients))
             this.clients.plebbitRpcClients = {
                 ...this.clients.plebbitRpcClients,
-                [rpcUrl]: new SubplebbitPlebbitRpcStateClient("stopped")
+                [rpcUrl]: new CommunityPKCRpcStateClient("stopped")
             };
     }
 
-    override updateKuboRpcState(newState: SubplebbitKuboRpcClient["state"], kuboRpcClientUrl: string) {
+    override updateKuboRpcState(newState: CommunityKuboRpcClient["state"], kuboRpcClientUrl: string) {
         super.updateKuboRpcState(newState, kuboRpcClientUrl);
     }
 
-    override updateKuboRpcPubsubState(newState: SubplebbitKuboPubsubClient["state"], pubsubProvider: string) {
+    override updateKuboRpcPubsubState(newState: CommunityKuboPubsubClient["state"], pubsubProvider: string) {
         super.updateKuboRpcPubsubState(newState, pubsubProvider);
     }
 
-    override updateGatewayState(newState: SubplebbitIpfsGatewayClient["state"], gateway: string): void {
+    override updateGatewayState(newState: CommunityIpfsGatewayClient["state"], gateway: string): void {
         super.updateGatewayState(newState, gateway);
     }
 
-    override updateLibp2pJsClientState(newState: SubplebbitLibp2pJsClient["state"], libp2pJsClientUrl: string) {
+    override updateLibp2pJsClientState(newState: CommunityLibp2pJsClient["state"], libp2pJsClientUrl: string) {
         super.updateLibp2pJsClientState(newState, libp2pJsClientUrl);
     }
 
-    override emitError(e: PlebbitError): void {
+    override emitError(e: PKCError): void {
         this._subplebbit.emit("error", e);
     }
 
-    protected override _getStatePriorToResolvingSubplebbitIpns(): "fetching-subplebbit-ipns" | "fetching-ipns" {
+    protected override _getStatePriorToResolvingCommunityIpns(): "fetching-subplebbit-ipns" | "fetching-ipns" {
         return "fetching-ipns";
     }
 
@@ -138,44 +138,42 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
     override postResolveNameResolverSuccess(opts: PostResolveNameResolverSuccessOptions): void {
         super.postResolveNameResolverSuccess(opts);
         if (!opts.resolvedValue && this._subplebbit.state === "updating") {
-            throw new PlebbitError("ERR_DOMAIN_TXT_RECORD_NOT_FOUND", {
+            throw new PKCError("ERR_DOMAIN_TXT_RECORD_NOT_FOUND", {
                 subplebbitAddress: opts.address,
                 textRecord: "bitsocial"
             });
         }
     }
 
-    protected _getSubplebbitAddressFromInstance(): string {
+    protected _getCommunityAddressFromInstance(): string {
         return this._subplebbit.address;
     }
 
-    private _areEquivalentSubplebbitAddresses(addressA: string, addressB: string): boolean {
-        return areEquivalentSubplebbitAddresses(addressA, addressB);
+    private _areEquivalentCommunityAddresses(addressA: string, addressB: string): boolean {
+        return areEquivalentCommunityAddresses(addressA, addressB);
     }
 
-    private _deriveAddressFromWireRecord(subJson: SubplebbitIpfsType): string {
+    private _deriveAddressFromWireRecord(subJson: CommunityIpfsType): string {
         // Old records have address in the wire format, new records use name || publicKey
-        return (
-            getSubplebbitNameFromWire(subJson as Record<string, unknown>) || getPlebbitAddressFromPublicKeySync(subJson.signature.publicKey)
-        );
+        return getCommunityNameFromWire(subJson as Record<string, unknown>) || getPKCAddressFromPublicKeySync(subJson.signature.publicKey);
     }
 
     // functions for updatingSubInstance
 
-    private async _retryLoadingSubplebbitAddress(
+    private async _retryLoadingCommunityAddress(
         subplebbitAddress: string
-    ): Promise<ResultOfFetchingSubplebbit | { criticalError: Error | PlebbitError } | { aborted: true }> {
-        const log = Logger("pkc-js:remote-community:update:_retryLoadingSubplebbitIpns");
+    ): Promise<ResultOfFetchingCommunity | { criticalError: Error | PKCError } | { aborted: true }> {
+        const log = Logger("pkc-js:remote-community:update:_retryLoadingCommunityIpns");
 
         return new Promise((resolve) => {
             this._ipnsLoadingOperation!.attempt(async (curAttempt) => {
                 log.trace(`Retrying to load subplebbit ${subplebbitAddress} for the ${curAttempt}th time`);
                 try {
-                    const update = await this.fetchNewUpdateForSubplebbit(subplebbitAddress);
+                    const update = await this.fetchNewUpdateForCommunity(subplebbitAddress);
 
                     resolve(update);
                 } catch (e) {
-                    const error = <Error | PlebbitError>e;
+                    const error = <Error | PKCError>e;
                     if (error.name === "AbortError") return resolve({ aborted: true });
                     //@ts-expect-error
                     error.details = {
@@ -186,16 +184,16 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                     };
                     if (!this._subplebbit._isRetriableErrorWhenLoading(error)) {
                         // critical error that can't be retried
-                        if (error instanceof PlebbitError)
+                        if (error instanceof PKCError)
                             error.details = { ...error.details, countOfLoadAttempts: curAttempt, retriableError: false };
                         resolve({ criticalError: error });
                     } else {
                         // we encountered a retriable error, could be gateways failing to load
                         // does not include gateways returning an old record
-                        if (error instanceof PlebbitError)
+                        if (error instanceof PKCError)
                             error.details = { ...error.details, countOfLoadAttempts: curAttempt, retriableError: true };
                         log.trace(
-                            `Failed to load Subplebbit ${this._subplebbit.address} record for the ${curAttempt}th attempt. We will retry`,
+                            `Failed to load Community ${this._subplebbit.address} record for the ${curAttempt}th attempt. We will retry`,
                             error
                         );
 
@@ -215,20 +213,20 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
         const log = Logger("pkc-js:remote-community:update");
 
         this._ipnsLoadingOperation = retry.operation({ forever: true, factor: 2, maxTimeout: 30000 });
-        const subLoadingRes = await this._retryLoadingSubplebbitAddress(this._subplebbit.address); // will return undefined if no new sub CID is found
+        const subLoadingRes = await this._retryLoadingCommunityAddress(this._subplebbit.address); // will return undefined if no new sub CID is found
         this._ipnsLoadingOperation.stop();
 
         if (subLoadingRes && "aborted" in subLoadingRes) {
             return;
         } else if (subLoadingRes && "criticalError" in subLoadingRes) {
             // Log individual gateway errors separately to avoid Node.js [Object] truncation
-            if (subLoadingRes.criticalError instanceof FailedToFetchSubplebbitFromGatewaysError) {
+            if (subLoadingRes.criticalError instanceof FailedToFetchCommunityFromGatewaysError) {
                 for (const [gatewayUrl, gatewayError] of Object.entries(subLoadingRes.criticalError.details.gatewayToError)) {
-                    log.error(`Subplebbit ${this._subplebbit.address} gateway ${gatewayUrl} non-retriable error:`, gatewayError);
+                    log.error(`Community ${this._subplebbit.address} gateway ${gatewayUrl} non-retriable error:`, gatewayError);
                 }
             }
             log.error(
-                `Subplebbit ${this._subplebbit.address} encountered a non retriable error while updating, will emit an error event and mark invalid cid to not be loaded again`,
+                `Community ${this._subplebbit.address} encountered a non retriable error while updating, will emit an error event and mark invalid cid to not be loaded again`,
                 subLoadingRes.criticalError
             );
             this._subplebbit._changeStateEmitEventEmitStateChangeEvent({
@@ -239,7 +237,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
             subLoadingRes?.subplebbit &&
             (this._subplebbit.raw.subplebbitIpfs?.updatedAt || 0) < subLoadingRes.subplebbit.updatedAt
         ) {
-            this._subplebbit.initSubplebbitIpfsPropsNoMerge(subLoadingRes.subplebbit);
+            this._subplebbit.initCommunityIpfsPropsNoMerge(subLoadingRes.subplebbit);
             this._subplebbit.updateCid = subLoadingRes.cid;
             // If we just discovered a name, trigger background resolution now (don't wait for next loop)
             if (
@@ -251,7 +249,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                 this._resolveNameInBackground(this._subplebbit.name);
             }
             log(
-                `Remote Subplebbit`,
+                `Remote Community`,
                 this._subplebbit.address,
                 `received a new update. Will emit an update event with updatedAt`,
                 this._subplebbit.updatedAt,
@@ -304,7 +302,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
         }
 
         this._subplebbit._clearStopAbortController();
-        log("Subplebbit", this._subplebbit.address, "is no longer updating");
+        log("Community", this._subplebbit.address, "is no longer updating");
     }
 
     async stopUpdatingLoop() {
@@ -350,7 +348,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                     // Most likely: cached publicKey is stale after community key migration.
                     log("Key migration detected for", name, "old:", this._subplebbit.publicKey, "new:", resolved);
                     const previousPublicKey = this._subplebbit.publicKey;
-                    const error = new PlebbitError("ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY", {
+                    const error = new PKCError("ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY", {
                         communityName: name,
                         previousPublicKey,
                         newPublicKey: resolved
@@ -378,7 +376,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                 }
             })
             .catch((e) => {
-                if (e instanceof PlebbitError && (e.code === "ERR_NO_RESOLVER_FOR_NAME" || e.code === "ERR_DOMAIN_TXT_RECORD_NOT_FOUND")) {
+                if (e instanceof PKCError && (e.code === "ERR_NO_RESOLVER_FOR_NAME" || e.code === "ERR_DOMAIN_TXT_RECORD_NOT_FOUND")) {
                     // Definitive: either no resolver can handle this TLD, or the domain has no community TXT record.
                     setNameResolvedAndEmitUpdate(false);
                 } else {
@@ -419,8 +417,8 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
         });
     }
 
-    async fetchNewUpdateForSubplebbit(subAddress: string): Promise<ResultOfFetchingSubplebbit> {
-        return this._withInflightSubplebbitFetch(subAddress, async () => {
+    async fetchNewUpdateForCommunity(subAddress: string): Promise<ResultOfFetchingCommunity> {
+        return this._withInflightCommunityFetch(subAddress, async () => {
             let ipnsName: string | null;
             const isDomain = isStringDomain(subAddress);
 
@@ -457,13 +455,13 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
 
             if (this._subplebbit.updateCid) this._updateCidsAlreadyLoaded.add(this._subplebbit.updateCid);
 
-            // This function should fetch SubplebbitIpfs, parse it and verify its signature
-            // Then return SubplebbitIpfs
+            // This function should fetch CommunityIpfs, parse it and verify its signature
+            // Then return CommunityIpfs
 
             // only exception is if the ipnsRecord.value (ipfs path) has already been loaded and stored in this._updateCidsAlreadyLoaded
             // in that case no need to fetch the subplebbitIpfs, we will return undefined
             this._subplebbit._setUpdatingStateWithEventEmissionIfNewState("fetching-ipns");
-            let subRes: ResultOfFetchingSubplebbit;
+            let subRes: ResultOfFetchingCommunity;
             const areWeConnectedToKuboOrHelia =
                 Object.keys(this._plebbit.clients.kuboRpcClients).length > 0 ||
                 Object.keys(this._plebbit.clients.libp2pJsClients).length > 0;
@@ -471,7 +469,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                 const kuboRpcOrHelia = this.getDefaultKuboRpcClientOrHelia();
                 // we're connected to kubo or helia
                 try {
-                    subRes = await this._fetchSubplebbitIpnsP2PAndVerify(ipnsName);
+                    subRes = await this._fetchCommunityIpnsP2PAndVerify(ipnsName);
                 } catch (e) {
                     //@ts-expect-error
                     e.details = {
@@ -487,9 +485,9 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                     if ("_helia" in kuboRpcOrHelia) this.updateLibp2pJsClientState("stopped", kuboRpcOrHelia._libp2pJsClientsOptions.key);
                     else this.updateKuboRpcState("stopped", kuboRpcOrHelia.url);
                 }
-            } else subRes = await this._fetchSubplebbitFromGateways(ipnsName); // let's use gateways to fetch because we're not connected to kubo or helia
+            } else subRes = await this._fetchCommunityFromGateways(ipnsName); // let's use gateways to fetch because we're not connected to kubo or helia
             // States of gateways should be updated by fetchFromMultipleGateways
-            // Subplebbit records are verified within _fetchSubplebbitFromGateways
+            // Community records are verified within _fetchCommunityFromGateways
 
             if (subRes?.subplebbit) {
                 // we found a new record that is verified
@@ -499,7 +497,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                     encryption: subRes.subplebbit.encryption,
                     pubsubTopic: subRes.subplebbit.pubsubTopic,
                     address: recordAddress,
-                    publicKey: getPlebbitAddressFromPublicKeySync(subRes.subplebbit.signature.publicKey),
+                    publicKey: getPKCAddressFromPublicKeySync(subRes.subplebbit.signature.publicKey),
                     name: subRes.subplebbit.name
                 });
             }
@@ -507,23 +505,23 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
         });
     }
 
-    private async _fetchSubplebbitIpnsP2PAndVerify(ipnsName: string): Promise<ResultOfFetchingSubplebbit> {
-        const log = Logger("pkc-js:clients-manager:_fetchSubplebbitIpnsP2PAndVerify");
+    private async _fetchCommunityIpnsP2PAndVerify(ipnsName: string): Promise<ResultOfFetchingCommunity> {
+        const log = Logger("pkc-js:clients-manager:_fetchCommunityIpnsP2PAndVerify");
         const kuboRpcOrHelia = this.getDefaultKuboRpcClientOrHelia();
         if ("_helia" in kuboRpcOrHelia) {
             this.updateLibp2pJsClientState("fetching-ipns", kuboRpcOrHelia._libp2pJsClientsOptions.key);
         } else this.updateKuboRpcState("fetching-ipns", kuboRpcOrHelia.url);
-        const latestSubplebbitCid = await this.resolveIpnsToCidP2P(ipnsName, {
+        const latestCommunityCid = await this.resolveIpnsToCidP2P(ipnsName, {
             timeoutMs: this._plebbit._timeouts["subplebbit-ipns"],
             abortSignal: this._subplebbit._getStopAbortSignal()
         });
-        log.trace(`Resolved subplebbit IPNS`, ipnsName, `to CID`, latestSubplebbitCid);
-        if (this._updateCidsAlreadyLoaded.has(latestSubplebbitCid)) {
+        log.trace(`Resolved subplebbit IPNS`, ipnsName, `to CID`, latestCommunityCid);
+        if (this._updateCidsAlreadyLoaded.has(latestCommunityCid)) {
             log.trace(
                 "Resolved subplebbit IPNS",
                 ipnsName,
                 "to a cid that we already loaded before. No need to fetch its ipfs",
-                latestSubplebbitCid
+                latestCommunityCid
             );
             return undefined;
         }
@@ -534,7 +532,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
 
         let rawSubJsonString: Awaited<ReturnType<typeof this._fetchCidP2P>>;
         try {
-            rawSubJsonString = await this._fetchCidP2P(latestSubplebbitCid, {
+            rawSubJsonString = await this._fetchCidP2P(latestCommunityCid, {
                 maxFileSizeBytes: MAX_FILE_SIZE_BYTES_FOR_SUBPLEBBIT_IPFS,
                 timeoutMs: this._plebbit._timeouts["subplebbit-ipfs"],
                 abortSignal: this._subplebbit._getStopAbortSignal()
@@ -547,36 +545,34 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                 subplebbitIpnsName: ipnsName,
                 ipnsPubsubTopic: this._subplebbit.ipnsPubsubTopic,
                 ipnsPubsubTopicRoutingCid: this._subplebbit.ipnsPubsubTopicRoutingCid,
-                subplebbitCid: latestSubplebbitCid
+                subplebbitCid: latestCommunityCid
             };
-            if (e instanceof PlebbitError && e.code === "ERR_OVER_DOWNLOAD_LIMIT") this._updateCidsAlreadyLoaded.add(latestSubplebbitCid);
+            if (e instanceof PKCError && e.code === "ERR_OVER_DOWNLOAD_LIMIT") this._updateCidsAlreadyLoaded.add(latestCommunityCid);
             throw e;
         }
 
-        this._updateCidsAlreadyLoaded.add(latestSubplebbitCid);
+        this._updateCidsAlreadyLoaded.add(latestCommunityCid);
         try {
-            const subIpfs = parseSubplebbitIpfsSchemaPassthroughWithPlebbitErrorIfItFails(
-                parseJsonWithPlebbitErrorIfFails(rawSubJsonString)
-            );
+            const subIpfs = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(parseJsonWithPKCErrorIfFails(rawSubJsonString));
 
-            const errInRecord = await this._findErrorInSubplebbitRecord(subIpfs, ipnsName, latestSubplebbitCid);
+            const errInRecord = await this._findErrorInCommunityRecord(subIpfs, ipnsName, latestCommunityCid);
 
             if (errInRecord) throw errInRecord;
-            return { subplebbit: subIpfs, cid: latestSubplebbitCid };
+            return { subplebbit: subIpfs, cid: latestCommunityCid };
         } catch (e) {
             // invalid subplebbit record
-            (e as PlebbitError).details = {
-                ...(e as PlebbitError).details,
-                cidOfSubIpns: latestSubplebbitCid,
+            (e as PKCError).details = {
+                ...(e as PKCError).details,
+                cidOfSubIpns: latestCommunityCid,
                 ipnsPubsubTopic: this._subplebbit.ipnsPubsubTopic,
                 ipnsPubsubTopicRoutingCid: this._subplebbit.ipnsPubsubTopicRoutingCid
             };
-            throw <PlebbitError>e;
+            throw <PKCError>e;
         }
     }
 
-    private async _fetchSubplebbitFromGateways(ipnsName: string): Promise<ResultOfFetchingSubplebbit> {
-        const log = Logger("pkc-js:community:fetchSubplebbitFromGateways");
+    private async _fetchCommunityFromGateways(ipnsName: string): Promise<ResultOfFetchingCommunity> {
+        const log = Logger("pkc-js:community:fetchCommunityFromGateways");
         const concurrencyLimit = 3;
         const timeoutMs = this._plebbit._timeouts["subplebbit-ipns"];
 
@@ -590,11 +586,11 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
 
         // need to handle
         // if all gateways returned the same subplebbit.updateCid
-        const gatewayFetches: SubplebbitGatewayFetch = {};
+        const gatewayFetches: CommunityGatewayFetch = {};
 
         for (const gatewayUrl of gatewaysSorted) {
             const abortController = new AbortController();
-            const throwIfGatewayRespondsWithInvalidSubplebbit: OptionsToLoadFromGateway["validateGatewayResponseFunc"] = async (
+            const throwIfGatewayRespondsWithInvalidCommunity: OptionsToLoadFromGateway["validateGatewayResponseFunc"] = async (
                 gatewayRes
             ) => {
                 if (typeof gatewayRes.resText !== "string") throw Error("Gateway response has no body");
@@ -602,7 +598,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                 const calculatedSubCidFromBody = await this.calculateIpfsCid(gatewayRes.resText); // cid v0
 
                 if (this._updateCidsAlreadyLoaded.has(calculatedSubCidFromBody))
-                    throw new PlebbitError("ERR_GATEWAY_ABORTING_LOADING_COMMUNITY_BECAUSE_WE_ALREADY_LOADED_THIS_RECORD", {
+                    throw new PKCError("ERR_GATEWAY_ABORTING_LOADING_COMMUNITY_BECAUSE_WE_ALREADY_LOADED_THIS_RECORD", {
                         calculatedSubCidFromBody,
                         ipnsName,
                         ipnsPubsubTopic: this._subplebbit.ipnsPubsubTopic,
@@ -613,25 +609,23 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
 
                 this._updateCidsAlreadyLoaded.add(calculatedSubCidFromBody);
 
-                let subIpfs: SubplebbitIpfsType;
+                let subIpfs: CommunityIpfsType;
                 try {
-                    subIpfs = parseSubplebbitIpfsSchemaPassthroughWithPlebbitErrorIfItFails(
-                        parseJsonWithPlebbitErrorIfFails(gatewayRes.resText)
-                    );
+                    subIpfs = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(parseJsonWithPKCErrorIfFails(gatewayRes.resText));
                 } catch (e) {
-                    (e as PlebbitError).details = {
-                        ...(e as PlebbitError).details,
+                    (e as PKCError).details = {
+                        ...(e as PKCError).details,
                         cidOfSubIpns: calculatedSubCidFromBody,
                         ipnsPubsubTopic: this._subplebbit.ipnsPubsubTopic,
                         ipnsPubsubTopicRoutingCid: this._subplebbit.ipnsPubsubTopicRoutingCid
                     };
                     throw e;
                 }
-                const errorWithinRecord = await this._findErrorInSubplebbitRecord(subIpfs, ipnsName, calculatedSubCidFromBody);
+                const errorWithinRecord = await this._findErrorInCommunityRecord(subIpfs, ipnsName, calculatedSubCidFromBody);
                 if (errorWithinRecord) {
                     delete errorWithinRecord["stack"];
                     if (errorWithinRecord.code === "ERR_COMMUNITY_SIGNATURE_IS_INVALID") {
-                        const log = Logger("pkc-js:community-client-manager:throwIfGatewayRespondsWithInvalidSubplebbit");
+                        const log = Logger("pkc-js:community-client-manager:throwIfGatewayRespondsWithInvalidCommunity");
                         const etag = gatewayRes?.res?.headers?.get("etag");
                         log.error(
                             `Gateway ${gatewayUrl} returned subplebbit record with invalid signature. ` +
@@ -674,7 +668,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                 }
                 if (this._updateCidsAlreadyLoaded.has(parsedCid)) {
                     abortController.abort("Aborting subplebbit IPNS request because we already loaded this record");
-                    return new PlebbitError("ERR_GATEWAY_ABORTING_LOADING_COMMUNITY_BECAUSE_WE_ALREADY_LOADED_THIS_RECORD", {
+                    return new PKCError("ERR_GATEWAY_ABORTING_LOADING_COMMUNITY_BECAUSE_WE_ALREADY_LOADED_THIS_RECORD", {
                         cidOfIpnsFromEtagHeader,
                         ipnsName,
                         gatewayRes,
@@ -693,8 +687,8 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                     this._fetchWithGateway(gatewayUrl, {
                         recordIpfsType: "ipns",
                         root: ipnsName,
-                        recordPlebbitType: "subplebbit",
-                        validateGatewayResponseFunc: throwIfGatewayRespondsWithInvalidSubplebbit,
+                        recordPKCType: "subplebbit",
+                        validateGatewayResponseFunc: throwIfGatewayRespondsWithInvalidCommunity,
                         abortRequestErrorBeforeLoadingBodyFunc: checkResponseHeadersIfOldCid,
                         abortController,
                         maxFileSizeBytes: MAX_FILE_SIZE_BYTES_FOR_SUBPLEBBIT_IPFS,
@@ -727,7 +721,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
             stopSignal.addEventListener("abort", onStopAbort, { once: true });
         }
 
-        const _findRecentSubplebbit = (): { subplebbit: SubplebbitIpfsType; cid: string } | undefined => {
+        const _findRecentCommunity = (): { subplebbit: CommunityIpfsType; cid: string } | undefined => {
             // Try to find a very recent subplebbit
             // If not then go with the most recent subplebbit record after fetching from 3 gateways
             const gatewaysWithSub = remeda.keys.strict(gatewayFetches).filter((gatewayUrl) => gatewayFetches[gatewayUrl].subplebbitRecord);
@@ -756,13 +750,13 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
             if (gatewaysWithError.length + gatewaysWithSub.length === totalGateways) return undefined;
         };
 
-        const promisesToIterate = <Promise<{ resText: string; res: Response } | { error: PlebbitError }>[]>(
+        const promisesToIterate = <Promise<{ resText: string; res: Response } | { error: PKCError }>[]>(
             Object.values(gatewayFetches).map((gatewayFetch) => gatewayFetch.promise)
         );
 
-        let suitableSubplebbit: { subplebbit: SubplebbitIpfsType; cid: string };
+        let suitableCommunity: { subplebbit: CommunityIpfsType; cid: string };
         try {
-            suitableSubplebbit = await new Promise<typeof suitableSubplebbit>((resolve, reject) =>
+            suitableCommunity = await new Promise<typeof suitableCommunity>((resolve, reject) =>
                 promisesToIterate.map((gatewayPromise, i) =>
                     gatewayPromise
                         .then(async (res) => {
@@ -774,10 +768,10 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                                 // All gateways failed
                                 reject("All gateways failed to fetch subplebbit record " + ipnsName);
 
-                            const recentSubplebbit = _findRecentSubplebbit();
-                            if (recentSubplebbit) {
+                            const recentCommunity = _findRecentCommunity();
+                            if (recentCommunity) {
                                 cleanUp();
-                                resolve(recentSubplebbit);
+                                resolve(recentCommunity);
                             }
                         })
                         .catch((err) => reject("One of the gateway promise requests thrown an error, should not happens:" + err))
@@ -796,7 +790,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                 );
             if (hasGatewayConfirmingCurrentRecord) return undefined; // any gateway confirmed we already have the latest consumed record
 
-            const combinedError = new FailedToFetchSubplebbitFromGatewaysError({
+            const combinedError = new FailedToFetchCommunityFromGatewaysError({
                 ipnsName,
                 gatewayToError,
                 subplebbitAddress: this._subplebbit.address,
@@ -809,34 +803,34 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
 
         // TODO add punishment for gateway that returns old ipns record
         // TODO add punishment for gateway that returns invalid subplebbit
-        return suitableSubplebbit;
+        return suitableCommunity;
     }
 
-    private async _findErrorInSubplebbitRecord(
-        subJson: SubplebbitIpfsType,
+    private async _findErrorInCommunityRecord(
+        subJson: CommunityIpfsType,
         ipnsNameOfSub: string,
         cidOfSubIpns: string
-    ): Promise<PlebbitError | undefined> {
-        const subInstanceAddress = this._getSubplebbitAddressFromInstance();
+    ): Promise<PKCError | undefined> {
+        const subInstanceAddress = this._getCommunityAddressFromInstance();
         const recordAddress = this._deriveAddressFromWireRecord(subJson);
-        const addressMatchesInstance = this._areEquivalentSubplebbitAddresses(recordAddress, subInstanceAddress);
+        const addressMatchesInstance = this._areEquivalentCommunityAddresses(recordAddress, subInstanceAddress);
         // When address is a domain but we loaded via publicKey fallback, the record's derived address
         // might be the publicKey (if the record has no name field) — also accept that as a match
         const addressMatchesPublicKey = this._subplebbit.publicKey
-            ? this._areEquivalentSubplebbitAddresses(recordAddress, this._subplebbit.publicKey)
+            ? this._areEquivalentCommunityAddresses(recordAddress, this._subplebbit.publicKey)
             : false;
         // Accept when user loaded by raw IPNS key and the record's signature key matches.
         // Handles: {address: "12D3Koo..."} loads record with name: "plebbit.bso".
         // NOT applied for domain addresses (Scenario C stays rejected).
         const instanceAddressIsDomain = isStringDomain(subInstanceAddress);
         const signatureKeyMatchesIpnsName = !instanceAddressIsDomain
-            ? this._areEquivalentSubplebbitAddresses(getPlebbitAddressFromPublicKeySync(subJson.signature.publicKey), ipnsNameOfSub)
+            ? this._areEquivalentCommunityAddresses(getPKCAddressFromPublicKeySync(subJson.signature.publicKey), ipnsNameOfSub)
             : false;
         if (!addressMatchesInstance && !addressMatchesPublicKey && !signatureKeyMatchesIpnsName) {
             // Did the gateway supply us with a different subplebbit's ipns
 
-            const error = new PlebbitError("ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED", {
-                addressFromSubplebbitInstance: subInstanceAddress,
+            const error = new PKCError("ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED", {
+                addressFromCommunityInstance: subInstanceAddress,
                 ipnsName: ipnsNameOfSub,
                 addressFromGateway: recordAddress,
                 subplebbitIpnsFromGateway: subJson,
@@ -856,7 +850,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
         };
         const updateValidity = await verifyCommunity(verificationOpts);
         if (!updateValidity.valid) {
-            const error = new PlebbitError("ERR_COMMUNITY_SIGNATURE_IS_INVALID", {
+            const error = new PKCError("ERR_COMMUNITY_SIGNATURE_IS_INVALID", {
                 signatureValidity: updateValidity,
                 ipnsPubsubTopic: this._subplebbit.ipnsPubsubTopic,
                 ipnsPubsubTopicRoutingCid: this._subplebbit.ipnsPubsubTopicRoutingCid,

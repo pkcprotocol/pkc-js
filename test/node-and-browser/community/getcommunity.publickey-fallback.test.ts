@@ -1,20 +1,20 @@
 import {
-    createMockedSubplebbitIpns,
+    createMockedCommunityIpns,
     createMockNameResolver,
-    getAvailablePlebbitConfigsToTestAgainst
+    getAvailablePKCConfigsToTestAgainst
 } from "../../../dist/node/test/test-util.js";
 import { describe, expect, it } from "vitest";
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
-    describe(`plebbit.getSubplebbit publicKey fallback - ${config.name}`, () => {
-        it(`getSubplebbit({ publicKey }) populates name from IPNS record`, async () => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
+    describe(`plebbit.getCommunity publicKey fallback - ${config.name}`, () => {
+        it(`getCommunity({ publicKey }) populates name from IPNS record`, async () => {
             // communityAddress is the B58 IPNS key, not the domain
-            const { communityAddress: communityPublicKey } = await createMockedSubplebbitIpns({ name: "myforum.eth" });
+            const { communityAddress: communityPublicKey } = await createMockedCommunityIpns({ name: "myforum.eth" });
 
-            const testPlebbit = await config.plebbitInstancePromise();
+            const testPKC = await config.plebbitInstancePromise();
 
             try {
-                const sub = await testPlebbit.getSubplebbit({ publicKey: communityPublicKey });
+                const sub = await testPKC.getCommunity({ publicKey: communityPublicKey });
 
                 expect(sub.name).to.equal("myforum.eth");
                 expect(sub.address).to.equal(communityPublicKey);
@@ -22,14 +22,14 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 expect(sub.updatedAt).to.be.a("number");
                 expect(sub.state).to.equal("stopped");
             } finally {
-                await testPlebbit.destroy();
+                await testPKC.destroy();
             }
         });
 
         it(`loads via publicKey when no resolver handles .sol`, async () => {
-            const { communityAddress: subplebbitAddress } = await createMockedSubplebbitIpns({});
+            const { communityAddress: subplebbitAddress } = await createMockedCommunityIpns({});
 
-            const testPlebbit = await config.plebbitInstancePromise({
+            const testPKC = await config.plebbitInstancePromise({
                 mockResolve: false,
                 plebbitOptions: {
                     nameResolvers: [
@@ -41,14 +41,14 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             });
 
             try {
-                const sub = await testPlebbit.getSubplebbit({ name: "test.sol", publicKey: subplebbitAddress });
+                const sub = await testPKC.getCommunity({ name: "test.sol", publicKey: subplebbitAddress });
 
                 expect(sub.address).to.equal("test.sol");
                 expect(sub.publicKey).to.equal(subplebbitAddress);
                 expect(sub.updatedAt).to.be.a("number");
                 expect(sub.state).to.equal("stopped");
             } finally {
-                await testPlebbit.destroy();
+                await testPKC.destroy();
             }
         });
     });

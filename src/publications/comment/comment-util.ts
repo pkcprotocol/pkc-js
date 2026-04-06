@@ -1,11 +1,11 @@
-import { RemoteSubplebbit } from "../../community/remote-community.js";
+import { RemoteCommunity } from "../../community/remote-community.js";
 import type { PageIpfs, PageTypeJson } from "../../pages/types.js";
 import type { CommentIpfsWithCidDefined, CommentUpdateType } from "./types.js";
 import Logger from "../../logger.js";
 
-export async function loadAllPagesUnderSubplebbitToFindComment(opts: {
+export async function loadAllPagesUnderCommunityToFindComment(opts: {
     commentCidToFind: CommentIpfsWithCidDefined["cid"];
-    subplebbit: RemoteSubplebbit;
+    subplebbit: RemoteCommunity;
     postCid?: CommentIpfsWithCidDefined["cid"];
     parentCid?: CommentIpfsWithCidDefined["cid"];
     signal?: AbortSignal;
@@ -13,7 +13,7 @@ export async function loadAllPagesUnderSubplebbitToFindComment(opts: {
     const { commentCidToFind, subplebbit, signal, postCid, parentCid } = opts;
     if (!commentCidToFind) throw Error("commentCidToFind should be defined");
 
-    const log = Logger("pkc-js:comment:loadAllPagesUnderSubplebbitToFindComment");
+    const log = Logger("pkc-js:comment:loadAllPagesUnderCommunityToFindComment");
 
     type PendingPageCid = { cid: string; source: "posts" | "replies"; parentCommentCid?: string };
     const queue: PendingPageCid[] = [];
@@ -167,7 +167,7 @@ export async function loadAllPagesUnderSubplebbitToFindComment(opts: {
             return undefined;
         };
 
-    const findPostCommentInSubplebbit = async (targetPostCid: string): Promise<PageIpfs["comments"][number] | undefined> => {
+    const findPostCommentInCommunity = async (targetPostCid: string): Promise<PageIpfs["comments"][number] | undefined> => {
         const processPostPage = processPageForCidOnly(targetPostCid);
         for (const page of Object.values(subplebbit.posts.pages || {})) {
             if (!page) continue;
@@ -199,7 +199,7 @@ export async function loadAllPagesUnderSubplebbitToFindComment(opts: {
 
     const searchUnderPost = async (postCidToSearch: string): Promise<PageIpfs["comments"][number] | undefined> => {
         resetTraversalState();
-        const postComment = await findPostCommentInSubplebbit(postCidToSearch);
+        const postComment = await findPostCommentInCommunity(postCidToSearch);
         if (!postComment) return undefined;
         if (postComment.commentUpdate.cid === commentCidToFind) return postComment;
 

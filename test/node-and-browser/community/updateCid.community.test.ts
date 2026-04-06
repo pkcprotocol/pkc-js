@@ -1,20 +1,20 @@
 import {
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     resolveWhenConditionIsTrue,
-    createMockedSubplebbitIpns
+    createMockedCommunityIpns
 } from "../../../dist/node/test/test-util.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
 
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) =>
+getAvailablePKCConfigsToTestAgainst().map((config) =>
     describe(`subplebbit.updateCid (Remote) - ${config.name}`, async () => {
-        let plebbit: PlebbitType;
+        let plebbit: PKCType;
         let subAddress: string;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            const ipnsObj = await createMockedSubplebbitIpns({});
+            const ipnsObj = await createMockedCommunityIpns({});
             subAddress = ipnsObj.communityAddress;
         });
 
@@ -23,7 +23,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) =>
         });
 
         it(`subplebbit.updateCid is defined after first update event`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: subAddress });
+            const sub = await plebbit.createCommunity({ address: subAddress });
             expect(sub.updateCid).to.be.undefined;
 
             await sub.update();
@@ -33,13 +33,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) =>
             await sub.stop();
         });
 
-        it(`subplebbit.updateCid is defined after plebbit.getSubplebbit`, async () => {
-            const sub = await plebbit.getSubplebbit({ address: subAddress });
+        it(`subplebbit.updateCid is defined after plebbit.getCommunity`, async () => {
+            const sub = await plebbit.getCommunity({ address: subAddress });
             expect(sub.updateCid).to.be.a("string");
         });
 
         it(`subplebbit.updateCid is part of subplebbit.toJSON()`, async () => {
-            const subJson = JSON.parse(JSON.stringify(await plebbit.getSubplebbit({ address: subAddress })));
+            const subJson = JSON.parse(JSON.stringify(await plebbit.getCommunity({ address: subAddress })));
             expect(subJson.updateCid).to.be.a("string");
         });
     })

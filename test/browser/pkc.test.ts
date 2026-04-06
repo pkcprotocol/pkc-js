@@ -1,10 +1,10 @@
-import Plebbit from "../../dist/node/index.js";
+import PKC from "../../dist/node/index.js";
 // example of browser only tests
 
 describe("plebbit", () => {
-    it("Plebbit() has default plebbit options", async () => {
+    it("PKC() has default plebbit options", async () => {
         // RPC exception
-        const plebbit = await Plebbit({ httpRoutersOptions: [] });
+        const plebbit = await PKC({ httpRoutersOptions: [] });
         expect(Object.keys(plebbit.clients.ipfsGateways).sort()).to.deep.equal(
             ["https://ipfsgateway.xyz", "https://gateway.plebpubsub.xyz", "https://gateway.forumindex.com"].sort()
         );
@@ -19,16 +19,16 @@ describe("plebbit", () => {
     });
 });
 
-describe(`Plebbit.subplebbits in browser`, async () => {
+describe(`PKC.subplebbits in browser`, async () => {
     it(`plebbit.subplebbits = [] in browser`, async () => {
-        const plebbit = await Plebbit({ httpRoutersOptions: [] });
+        const plebbit = await PKC({ httpRoutersOptions: [] });
         expect(plebbit.subplebbits).to.deep.equal([]);
         await plebbit.destroy();
     });
 });
 
-describe(`Plebbit.challenges`, async () => {
-    it(`Plebbit.challenges = {} in browser environments`, async () => {
-        expect(Plebbit.challenges).to.deep.equal({});
+describe(`PKC.challenges`, async () => {
+    it(`PKC.challenges = {} in browser environments`, async () => {
+        expect(PKC.challenges).to.deep.equal({});
     });
 });

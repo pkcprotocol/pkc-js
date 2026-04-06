@@ -1,5 +1,5 @@
 import {
-    mockPlebbit,
+    mockPKC,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
     generateMockComment,
@@ -7,20 +7,20 @@ import {
     publishToModQueueWithDepth,
     generateMockVote,
     itSkipIfRpc,
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     createPendingApprovalChallenge
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { describe, it, vi, beforeAll, afterAll } from "vitest";
-import type { Plebbit as PlebbitType } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
-import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../../dist/node/community/rpc-local-community.js";
+import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
 import type { SignerType } from "../../../../dist/node/signer/types.js";
 import type { CommentWithinRepliesPostsPageJson, CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 import type { CreateCommentModerationOptions } from "../../../../dist/node/publications/comment-moderation/types.js";
 
-const remotePlebbitConfigs = getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).filter(
+const remotePKCConfigs = getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).filter(
     (config) => config.testConfigCode !== "remote-plebbit-rpc" // we're filtering RPC out because we can't reduce its timeout so tests take forever
 );
 
@@ -63,14 +63,14 @@ for (const commentMod of commentModProps) {
                 " and commentModeration=" +
                 JSON.stringify(commentMod),
             () => {
-                let plebbit: PlebbitType;
+                let plebbit: PKCType;
                 let commentToBeRejected: Comment;
                 let modSigner: SignerType;
-                let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+                let subplebbit: LocalCommunity | RpcLocalCommunity;
 
                 beforeAll(async () => {
-                    plebbit = await mockPlebbit();
-                    subplebbit = (await plebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
+                    plebbit = await mockPKC();
+                    subplebbit = (await plebbit.createCommunity()) as LocalCommunity | RpcLocalCommunity;
                     subplebbit.setMaxListeners(100);
                     modSigner = await plebbit.createSigner();
                     await subplebbit.edit({
@@ -128,16 +128,14 @@ for (const commentMod of commentModProps) {
                         `Rejecting a pending comment with ${JSON.stringify(commentMod)} will not remove it from database of subplebbit because it has more than {approved: false}`,
                         async () => {
                             // @ts-expect-error - accessing private _dbHandler
-                            const queryRes = (subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(
-                                commentToBeRejected.cid!
-                            );
+                            const queryRes = (subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(commentToBeRejected.cid!);
                             expect(queryRes).to.be.exist;
                         }
                     );
                 if (shouldCommentBePurged) {
                     itSkipIfRpc(`Rejecting a pending comment with only ${JSON.stringify(commentMod)} will purge it out of DB`, async () => {
                         // @ts-expect-error - accessing private _dbHandler
-                        const queryRes = (subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(commentToBeRejected.cid!);
+                        const queryRes = (subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(commentToBeRejected.cid!);
                         expect(queryRes).to.be.not.exist;
                     });
                 }
@@ -180,7 +178,7 @@ for (const commentMod of commentModProps) {
                     async () => {
                         const preloadedSortName = "hot";
                         const { generated, capturedChunks } = await capturePostsGeneration(
-                            subplebbit as LocalSubplebbit,
+                            subplebbit as LocalCommunity,
                             preloadedSortName,
                             1024 * 1024
                         );
@@ -200,11 +198,11 @@ for (const commentMod of commentModProps) {
                         `A rejected reply will ${shouldCommentBePurged ? "not" : ""} show up in parentComment.replies`,
                         async () => {
                             const expectedResult = !shouldCommentBePurged;
-                            const parentRow = (subplebbit as LocalSubplebbit)._dbHandler.queryComment(commentToBeRejected.parentCid!);
+                            const parentRow = (subplebbit as LocalCommunity)._dbHandler.queryComment(commentToBeRejected.parentCid!);
                             expect(parentRow).to.exist;
 
                             const { generated, capturedChunks } = await captureRepliesGeneration({
-                                subplebbit: subplebbit as LocalSubplebbit,
+                                subplebbit: subplebbit as LocalCommunity,
                                 parentCid: parentRow!.cid,
                                 parentDepth: parentRow!.depth,
                                 preloadedSortName: "best",
@@ -220,12 +218,12 @@ for (const commentMod of commentModProps) {
                     itSkipIfRpc(`A rejected reply will ${shouldCommentBePurged ? "not" : ""} show up in flat pages of post`, async () => {
                         const shouldCommentBeInFlatPages = !shouldCommentBePurged;
                         // @ts-expect-error - accessing private _dbHandler
-                        const postRow = (subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(commentToBeRejected.postCid!);
+                        const postRow = (subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(commentToBeRejected.postCid!);
                         expect(postRow).to.exist;
 
                         for (const sortName of ["newFlat", "oldFlat"]) {
                             const { generated, capturedChunks } = await captureRepliesGeneration({
-                                subplebbit: subplebbit as LocalSubplebbit,
+                                subplebbit: subplebbit as LocalCommunity,
                                 parentCid: postRow!.cid,
                                 parentDepth: postRow!.depth,
                                 preloadedSortName: sortName,
@@ -261,22 +259,22 @@ for (const commentMod of commentModProps) {
                         }
                     );
 
-                remotePlebbitConfigs.forEach((remotePlebbitConfig) => {
+                remotePKCConfigs.forEach((remotePKCConfig) => {
                     const itSequentialIfRpc =
-                        remotePlebbitConfig.testConfigCode === "remote-plebbit-rpc" ||
-                        remotePlebbitConfig.testConfigCode === "local-kubo-rpc" ||
-                        remotePlebbitConfig.testConfigCode === "remote-kubo-rpc"
+                        remotePKCConfig.testConfigCode === "remote-plebbit-rpc" ||
+                        remotePKCConfig.testConfigCode === "local-kubo-rpc" ||
+                        remotePKCConfig.testConfigCode === "remote-kubo-rpc"
                             ? it.sequential
                             : it;
 
                     if (shouldCommentBePurged) {
                         itSequentialIfRpc(
-                            `Should not be able to update a rejected comment with ${JSON.stringify(commentMod)} and retrieve its CommentIpfs - Plebbit Config ${remotePlebbitConfig.name}`,
+                            `Should not be able to update a rejected comment with ${JSON.stringify(commentMod)} and retrieve its CommentIpfs - PKC Config ${remotePKCConfig.name}`,
                             async () => {
-                                const remotePlebbit = await remotePlebbitConfig.plebbitInstancePromise();
-                                remotePlebbit._timeouts["comment-ipfs"] = 500; // speed up the test
+                                const remotePKC = await remotePKCConfig.plebbitInstancePromise();
+                                remotePKC._timeouts["comment-ipfs"] = 500; // speed up the test
                                 try {
-                                    const newComment = await remotePlebbit.createComment({
+                                    const newComment = await remotePKC.createComment({
                                         cid: commentToBeRejected.cid,
                                         communityAddress: commentToBeRejected.communityAddress
                                     });
@@ -322,18 +320,18 @@ for (const commentMod of commentModProps) {
                                     );
                                     await newComment.stop();
                                 } finally {
-                                    await remotePlebbit.destroy();
+                                    await remotePKC.destroy();
                                 }
                             }
                         );
 
                         itSequentialIfRpc(
-                            `Should not be able to update a rejected comment with ${JSON.stringify(commentMod)} and retrieve its CommentUpdate - Plebbit Config ${remotePlebbitConfig.name}`,
+                            `Should not be able to update a rejected comment with ${JSON.stringify(commentMod)} and retrieve its CommentUpdate - PKC Config ${remotePKCConfig.name}`,
                             async () => {
-                                const remotePlebbit = await remotePlebbitConfig.plebbitInstancePromise();
-                                remotePlebbit._timeouts["comment-update-ipfs"] = 1000;
+                                const remotePKC = await remotePKCConfig.plebbitInstancePromise();
+                                remotePKC._timeouts["comment-update-ipfs"] = 1000;
                                 try {
-                                    const newComment = await remotePlebbit.createComment(commentToBeRejected);
+                                    const newComment = await remotePKC.createComment(commentToBeRejected);
                                     expect(newComment.raw.comment).to.be.ok;
 
                                     const errors: Error[] = [];
@@ -375,7 +373,7 @@ for (const commentMod of commentModProps) {
                                         ]);
                                     await newComment.stop();
                                 } finally {
-                                    await remotePlebbit.destroy();
+                                    await remotePKC.destroy();
                                 }
                             }
                         );
@@ -387,12 +385,12 @@ for (const commentMod of commentModProps) {
                         // have neither CommentUpdate or CommentIpfs
 
                         itSequentialIfRpc(
-                            `Can update a rejected comment with ${JSON.stringify(commentMod)} and retrieve its update as long as we have its CommentIpfs - Plebbit Config ${remotePlebbitConfig.name}`,
+                            `Can update a rejected comment with ${JSON.stringify(commentMod)} and retrieve its update as long as we have its CommentIpfs - PKC Config ${remotePKCConfig.name}`,
                             async () => {
-                                const remotePlebbit = await remotePlebbitConfig.plebbitInstancePromise();
+                                const remotePKC = await remotePKCConfig.plebbitInstancePromise();
 
                                 try {
-                                    const newComment = await remotePlebbit.createComment(commentToBeRejected);
+                                    const newComment = await remotePKC.createComment(commentToBeRejected);
                                     expect(newComment.raw.comment).to.be.ok;
 
                                     await newComment.update();
@@ -426,20 +424,20 @@ for (const commentMod of commentModProps) {
 
                                     await newComment.stop();
                                 } finally {
-                                    await remotePlebbit.destroy();
+                                    await remotePKC.destroy();
                                 }
                             }
                         );
 
                         if (shouldCommentBeInPostsOrRepliesPages) {
                             itSequentialIfRpc(
-                                `Can update a rejected comment with ${JSON.stringify(commentMod)} and retrieve both CommentIpfs and CommentUpdate - Plebbit Config ${remotePlebbitConfig.name}`,
+                                `Can update a rejected comment with ${JSON.stringify(commentMod)} and retrieve both CommentIpfs and CommentUpdate - PKC Config ${remotePKCConfig.name}`,
                                 async () => {
                                     // times out in RPC
-                                    const remotePlebbit = await remotePlebbitConfig.plebbitInstancePromise();
-                                    remotePlebbit._timeouts["comment-ipfs"] = 500; // speed up the test
+                                    const remotePKC = await remotePKCConfig.plebbitInstancePromise();
+                                    remotePKC._timeouts["comment-ipfs"] = 500; // speed up the test
                                     try {
-                                        const newComment = await remotePlebbit.createComment({
+                                        const newComment = await remotePKC.createComment({
                                             cid: commentToBeRejected.cid,
                                             communityAddress: commentToBeRejected.communityAddress
                                         });
@@ -479,7 +477,7 @@ for (const commentMod of commentModProps) {
 
                                         await newComment.stop();
                                     } finally {
-                                        await remotePlebbit.destroy();
+                                        await remotePKC.destroy();
                                     }
                                 }
                             );
@@ -487,13 +485,13 @@ for (const commentMod of commentModProps) {
 
                         // if only {approved:false} then we're not getting an update
                         itSequentialIfRpc(
-                            `A rejected comment will have pendingApproval=false after receiving an update with ${JSON.stringify(commentMod)} if it already had its CommentIpfs - Plebbit Config ${remotePlebbitConfig.name}`,
+                            `A rejected comment will have pendingApproval=false after receiving an update with ${JSON.stringify(commentMod)} if it already had its CommentIpfs - PKC Config ${remotePKCConfig.name}`,
                             async () => {
-                                const remotePlebbit = await remotePlebbitConfig.plebbitInstancePromise();
-                                remotePlebbit._timeouts["comment-ipfs"] = 500; // it's gonna fail to load CID so this will make test run faster
+                                const remotePKC = await remotePKCConfig.plebbitInstancePromise();
+                                remotePKC._timeouts["comment-ipfs"] = 500; // it's gonna fail to load CID so this will make test run faster
 
                                 try {
-                                    const remoteCommentToBeRejected = await remotePlebbit.createComment({
+                                    const remoteCommentToBeRejected = await remotePKC.createComment({
                                         cid: commentToBeRejected.cid,
                                         raw: { comment: commentToBeRejected.raw.comment }
                                     });
@@ -505,19 +503,19 @@ for (const commentMod of commentModProps) {
                                     });
                                     expect(remoteCommentToBeRejected.pendingApproval).to.be.false;
                                 } finally {
-                                    await remotePlebbit.destroy();
+                                    await remotePKC.destroy();
                                 }
                             }
                         );
 
                         if (shouldCommentBeInPostsOrRepliesPages)
                             itSequentialIfRpc(
-                                `A rejected comment will have pendingApproval=false after receiving an update with ${JSON.stringify(commentMod)} without CommentIpfs - Plebbit Config ${remotePlebbitConfig.name}`,
+                                `A rejected comment will have pendingApproval=false after receiving an update with ${JSON.stringify(commentMod)} without CommentIpfs - PKC Config ${remotePKCConfig.name}`,
                                 async () => {
-                                    const remotePlebbit = await remotePlebbitConfig.plebbitInstancePromise();
+                                    const remotePKC = await remotePKCConfig.plebbitInstancePromise();
                                     try {
-                                        remotePlebbit._timeouts["comment-ipfs"] = 500; // it's gonna fail to load CID so this will make test run faster
-                                        const remoteCommentToBeRejected = await remotePlebbit.createComment({
+                                        remotePKC._timeouts["comment-ipfs"] = 500; // it's gonna fail to load CID so this will make test run faster
+                                        const remoteCommentToBeRejected = await remotePKC.createComment({
                                             cid: commentToBeRejected.cid,
                                             communityAddress: commentToBeRejected.communityAddress
                                         });
@@ -528,7 +526,7 @@ for (const commentMod of commentModProps) {
                                         });
                                         expect(remoteCommentToBeRejected.pendingApproval).to.be.false;
                                     } finally {
-                                        await remotePlebbit.destroy();
+                                        await remotePKC.destroy();
                                     }
                                 }
                             );
@@ -643,7 +641,7 @@ for (const commentMod of commentModProps) {
 }
 
 async function capturePostsGeneration(
-    subplebbit: LocalSubplebbit,
+    subplebbit: LocalCommunity,
     preloadedSortName: string,
     preloadedPageSizeBytes: number
 ): Promise<{ generated: CommentWithinRepliesPostsPageJson | undefined; capturedChunks: CapturedChunkItem[][] }> {
@@ -652,7 +650,7 @@ async function capturePostsGeneration(
         matchParentCid: null,
         matchSortName: preloadedSortName,
         // @ts-expect-error - accessing private _pageGenerator
-        generate: () => subplebbit._pageGenerator.generateSubplebbitPosts(preloadedSortName, preloadedPageSizeBytes)
+        generate: () => subplebbit._pageGenerator.generateCommunityPosts(preloadedSortName, preloadedPageSizeBytes)
     });
 }
 
@@ -663,7 +661,7 @@ async function captureRepliesGeneration({
     preloadedSortName,
     preloadedPageSizeBytes
 }: {
-    subplebbit: LocalSubplebbit;
+    subplebbit: LocalCommunity;
     parentCid: string;
     parentDepth: number;
     preloadedSortName: string;
@@ -695,7 +693,7 @@ async function captureSortChunks<T>({
     matchSortName,
     generate
 }: {
-    subplebbit: LocalSubplebbit;
+    subplebbit: LocalCommunity;
     matchParentCid: string | null;
     matchSortName: string;
     generate: () => Promise<T>;

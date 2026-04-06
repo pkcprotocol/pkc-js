@@ -1,5 +1,5 @@
 import {
-    mockPlebbit,
+    mockPKC,
     generateMockPost,
     generatePostToAnswerMathQuestion,
     resolveWhenConditionIsTrue
@@ -7,24 +7,24 @@ import {
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { omitRuntimeAuthorFields } from "../../../../dist/node/publications/publication-author.js";
 import { describe, beforeAll, afterAll, it } from "vitest";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../../dist/node/community/rpc-local-community.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
 import type { SignerType } from "../../../../dist/node/signer/types.js";
 import type {
-    DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor,
+    DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
     DecryptedChallengeMessageType,
     DecryptedChallengeAnswerMessageType,
     DecryptedChallengeVerificationMessageType
 } from "../../../../dist/node/pubsub-messages/types.js";
 
 describe.sequential("Validate props of subplebbit Pubsub messages", async () => {
-    let plebbit: Plebbit;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    let plebbit: PKC;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
     let commentSigner: SignerType;
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
-        subplebbit = (await plebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
+        plebbit = await mockPKC();
+        subplebbit = (await plebbit.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         const challenges = [{ name: "question", options: { question: "1+1=?", answer: "2" } }];
         await subplebbit.edit({ settings: { challenges } });
 
@@ -44,7 +44,7 @@ describe.sequential("Validate props of subplebbit Pubsub messages", async () => 
             plebbit: plebbit,
             postProps: { signer: commentSigner }
         });
-        const challengeRequestPromise = new Promise<DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor>((resolve) =>
+        const challengeRequestPromise = new Promise<DecryptedChallengeRequestMessageTypeWithCommunityAuthor>((resolve) =>
             subplebbit.once("challengerequest", resolve)
         );
         await comment.publish();

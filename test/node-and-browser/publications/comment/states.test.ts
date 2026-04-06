@@ -1,14 +1,14 @@
 import { beforeAll, afterAll, describe, it } from "vitest";
 import signers from "../../../fixtures/signers.js";
-import { generateMockPost, getAvailablePlebbitConfigsToTestAgainst, publishRandomPost } from "../../../../dist/node/test/test-util.js";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
+import { generateMockPost, getAvailablePKCConfigsToTestAgainst, publishRandomPost } from "../../../../dist/node/test/test-util.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 
 const subplebbitAddress = signers[0].address;
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe(`comment.state - ${config.name}`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         let comment: Comment;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -40,7 +40,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`state changes to updating after calling .update()`, async () => {
             const tempComment = await plebbit.createComment({
-                cid: (await plebbit.getSubplebbit({ address: signers[0].address })).posts.pages.hot.comments[0].cid
+                cid: (await plebbit.getCommunity({ address: signers[0].address })).posts.pages.hot.comments[0].cid
             });
             await tempComment.update();
             expect(tempComment.state).to.equal("updating");

@@ -1,8 +1,8 @@
-import { Plebbit } from "../pkc/pkc.js";
+import { PKC } from "../pkc/pkc.js";
 import assert from "assert";
 import { calculateIpfsCidV0, hideClassPrivateProps, isAbortError, isIpns, isStringDomain, throwIfAbortSignalAborted } from "../util.js";
 import { sha256 } from "js-sha256";
-import { getPlebbitAddressFromPublicKey } from "../signer/util.js";
+import { getPKCAddressFromPublicKey } from "../signer/util.js";
 import { nativeFunctions } from "../runtime/node/util.js";
 import pLimit from "p-limit";
 import {
@@ -10,12 +10,12 @@ import {
     FailedToFetchCommentUpdateFromGatewaysError,
     FailedToFetchGenericIpfsFromGatewaysError,
     FailedToFetchPageIpfsFromGatewaysError,
-    FailedToFetchSubplebbitFromGatewaysError,
-    PlebbitError
+    FailedToFetchCommunityFromGatewaysError,
+    PKCError
 } from "../pkc-error.js";
 import Logger from "../logger.js";
 import type { PubsubMessage } from "../pubsub-messages/types.js";
-import type { PubsubSubscriptionHandler, ResultOfFetchingSubplebbit } from "../types.js";
+import type { PubsubSubscriptionHandler, ResultOfFetchingCommunity } from "../types.js";
 import * as cborg from "cborg";
 import last from "it-last";
 import { concat as uint8ArrayConcat } from "uint8arrays/concat";
@@ -63,10 +63,10 @@ export type OptionsToLoadFromGateway = {
     requestHeaders?: Record<string, string>;
     root: string;
     path?: string;
-    recordPlebbitType: LoadType;
+    recordPKCType: LoadType;
     abortController: AbortController;
     timeoutMs: number;
-    abortRequestErrorBeforeLoadingBodyFunc?: (res: Response) => Promise<PlebbitError | undefined>; // this is called before consuming the body of the gateway response. Can be used to abort and stop the consumption. Should provide an abort error
+    abortRequestErrorBeforeLoadingBodyFunc?: (res: Response) => Promise<PKCError | undefined>; // this is called before consuming the body of the gateway response. Can be used to abort and stop the consumption. Should provide an abort error
     validateGatewayResponseFunc: (resObj: { resText: string | undefined; res: Response }) => Promise<void>; // can throw here to trigger a failure in response
     log: Logger;
 };
@@ -93,10 +93,10 @@ const GATEWAYS_THAT_SUPPORT_SUBDOMAIN_RESOLUTION: Record<string, boolean> = {}; 
 export class BaseClientsManager {
     // Class that has all function but without clients field for maximum interopability
 
-    _plebbit: Plebbit;
+    _plebbit: PKC;
     pubsubProviderSubscriptions: Record<string, string[]> = {}; // To keep track of subscriptions of each kubo pubsub provider/helia
 
-    constructor(plebbit: Plebbit) {
+    constructor(plebbit: PKC) {
         this._plebbit = plebbit;
         for (const provider of remeda.keys.strict(plebbit.clients.pubsubKuboRpcClients)) this.pubsubProviderSubscriptions[provider] = [];
         for (const provider of remeda.keys.strict(plebbit.clients.libp2pJsClients)) this.pubsubProviderSubscriptions[provider] = [];
@@ -113,18 +113,18 @@ export class BaseClientsManager {
         if (defaultPubsubProviderUrl) return this._plebbit.clients.pubsubKuboRpcClients[defaultPubsubProviderUrl];
         const defaultLibp2pJsClient = remeda.keys.strict(this._plebbit.clients.libp2pJsClients)[0];
         if (defaultLibp2pJsClient) return this._plebbit.clients.libp2pJsClients[defaultLibp2pJsClient];
-        throw new PlebbitError("ERR_NO_DEFAULT_PUBSUB_PROVIDER", {
+        throw new PKCError("ERR_NO_DEFAULT_PUBSUB_PROVIDER", {
             pubsubKuboRpcClients: this._plebbit.clients.pubsubKuboRpcClients,
             libp2pJsClients: this._plebbit.clients.libp2pJsClients
         });
     }
 
-    getDefaultKuboRpcClientOrHelia(): Plebbit["clients"]["kuboRpcClients"][string] | Plebbit["clients"]["libp2pJsClients"][string] {
+    getDefaultKuboRpcClientOrHelia(): PKC["clients"]["kuboRpcClients"][string] | PKC["clients"]["libp2pJsClients"][string] {
         const defaultKuboRpcClient = remeda.keys.strict(this._plebbit.clients.kuboRpcClients)[0];
         if (defaultKuboRpcClient) return this._plebbit.clients.kuboRpcClients[defaultKuboRpcClient];
         const defaultLibp2pJsClient = remeda.keys.strict(this._plebbit.clients.libp2pJsClients)[0];
         if (defaultLibp2pJsClient) return this._plebbit.clients.libp2pJsClients[defaultLibp2pJsClient];
-        throw new PlebbitError("ERR_NO_DEFAULT_IPFS_PROVIDER", {
+        throw new PKCError("ERR_NO_DEFAULT_IPFS_PROVIDER", {
             kuboRpcClients: this._plebbit.clients.kuboRpcClients,
             libp2pJsClients: this._plebbit.clients.libp2pJsClients
         });
@@ -133,7 +133,7 @@ export class BaseClientsManager {
     getDefaultKuboRpcClient() {
         const defaultKuboRpcClient = remeda.keys.strict(this._plebbit.clients.kuboRpcClients)[0];
         if (defaultKuboRpcClient) return this._plebbit.clients.kuboRpcClients[defaultKuboRpcClient];
-        throw new PlebbitError("ERR_NO_DEFAULT_KUBO_RPC_IPFS_PROVIDER", {
+        throw new PKCError("ERR_NO_DEFAULT_KUBO_RPC_IPFS_PROVIDER", {
             kuboRpcClients: this._plebbit.clients.kuboRpcClients,
             libp2pJsClients: this._plebbit.clients.libp2pJsClients
         });
@@ -142,7 +142,7 @@ export class BaseClientsManager {
     getDefaultKuboPubsubClient() {
         const defaultKuboPubsubClient = remeda.keys.strict(this._plebbit.clients.pubsubKuboRpcClients)[0];
         if (defaultKuboPubsubClient) return this._plebbit.clients.pubsubKuboRpcClients[defaultKuboPubsubClient];
-        throw new PlebbitError("ERR_NO_DEFAULT_KUBO_RPC_PUBSUB_PROVIDER", {
+        throw new PKCError("ERR_NO_DEFAULT_KUBO_RPC_PUBSUB_PROVIDER", {
             pubsubKuboRpcClients: this._plebbit.clients.pubsubKuboRpcClients
         });
     }
@@ -152,7 +152,7 @@ export class BaseClientsManager {
         if (defaultKuboRpcClient) return this._plebbit.clients.kuboRpcClients[defaultKuboRpcClient]._client;
         const defaultLibp2pJsClient = remeda.keys.strict(this._plebbit.clients.libp2pJsClients)[0];
         if (defaultLibp2pJsClient) return this._plebbit.clients.libp2pJsClients[defaultLibp2pJsClient].heliaWithKuboRpcClientFunctions;
-        throw new PlebbitError("ERR_NO_DEFAULT_IPFS_PROVIDER", {
+        throw new PKCError("ERR_NO_DEFAULT_IPFS_PROVIDER", {
             kuboRpcClients: this._plebbit.clients.kuboRpcClients,
             libp2pJsClients: this._plebbit.clients.libp2pJsClients
         });
@@ -166,7 +166,7 @@ export class BaseClientsManager {
         const pubsubClient =
             this._plebbit.clients.libp2pJsClients[kuboPubsubRpcUrlOrLibp2pJsKey]?.heliaWithKuboRpcClientFunctions ||
             this._plebbit.clients.pubsubKuboRpcClients[kuboPubsubRpcUrlOrLibp2pJsKey]._client;
-        if (!pubsubClient) throw new PlebbitError("ERR_INVALID_PUBSUB_PROVIDER", { pubsubProviderUrl: kuboPubsubRpcUrlOrLibp2pJsKey });
+        if (!pubsubClient) throw new PKCError("ERR_INVALID_PUBSUB_PROVIDER", { pubsubProviderUrl: kuboPubsubRpcUrlOrLibp2pJsKey });
 
         const timeBefore = Date.now();
 
@@ -212,18 +212,18 @@ export class BaseClientsManager {
 
     async pubsubSubscribe(pubsubTopic: string, handler: PubsubSubscriptionHandler) {
         const providersSorted = await this._plebbit._stats.sortGatewaysAccordingToScore("pubsub-subscribe");
-        const providerToError: Record<string, PlebbitError> = {};
+        const providerToError: Record<string, PKCError> = {};
 
         for (let i = 0; i < providersSorted.length; i++) {
             const pubsubProviderUrl = providersSorted[i];
             try {
                 return this.pubsubSubscribeOnProvider(pubsubTopic, handler, pubsubProviderUrl);
             } catch (e: unknown) {
-                providerToError[pubsubProviderUrl] = <PlebbitError>e;
+                providerToError[pubsubProviderUrl] = <PKCError>e;
             }
         }
 
-        const combinedError = new PlebbitError("ERR_PUBSUB_FAILED_TO_SUBSCRIBE", { pubsubTopic, providerToError });
+        const combinedError = new PKCError("ERR_PUBSUB_FAILED_TO_SUBSCRIBE", { pubsubTopic, providerToError });
 
         this.emitError(combinedError);
         throw combinedError;
@@ -233,7 +233,7 @@ export class BaseClientsManager {
         const pubsubClient =
             this._plebbit.clients.libp2pJsClients[kuboPubsubRpcUrlOrLibp2pJsKey]?.heliaWithKuboRpcClientFunctions ||
             this._plebbit.clients.pubsubKuboRpcClients[kuboPubsubRpcUrlOrLibp2pJsKey]._client;
-        if (!pubsubClient) throw new PlebbitError("ERR_INVALID_PUBSUB_PROVIDER", { pubsubProviderUrl: kuboPubsubRpcUrlOrLibp2pJsKey });
+        if (!pubsubClient) throw new PKCError("ERR_INVALID_PUBSUB_PROVIDER", { pubsubProviderUrl: kuboPubsubRpcUrlOrLibp2pJsKey });
 
         try {
             await pubsubClient.pubsub.unsubscribe(pubsubTopic, handler);
@@ -255,7 +255,7 @@ export class BaseClientsManager {
                 await this._plebbit._stats.recordGatewayFailure(pubsubProviderUrl, "pubsub-unsubscribe");
                 //@ts-expect-error
                 e.details = { ...e.details, pubsubProviderUrl, pubsubTopic };
-                this.emitError(<PlebbitError>e);
+                this.emitError(<PKCError>e);
             }
         }
     }
@@ -265,7 +265,7 @@ export class BaseClientsManager {
         const pubsubClient =
             this._plebbit.clients.libp2pJsClients[kuboPubsubRpcUrlOrLibp2pJsKey]?.heliaWithKuboRpcClientFunctions ||
             this._plebbit.clients.pubsubKuboRpcClients[kuboPubsubRpcUrlOrLibp2pJsKey]._client;
-        if (!pubsubClient) throw new PlebbitError("ERR_INVALID_PUBSUB_PROVIDER", { pubsubProviderUrl: kuboPubsubRpcUrlOrLibp2pJsKey });
+        if (!pubsubClient) throw new PKCError("ERR_INVALID_PUBSUB_PROVIDER", { pubsubProviderUrl: kuboPubsubRpcUrlOrLibp2pJsKey });
 
         const dataBinary = cborg.encode(data);
         const timeBefore = Date.now();
@@ -284,8 +284,8 @@ export class BaseClientsManager {
         const log = Logger("pkc-js:pkc:client-manager:pubsubPublish");
         const providersSorted = await this._plebbit._stats.sortGatewaysAccordingToScore("pubsub-publish");
         if (providersSorted.length === 0)
-            throw new PlebbitError("ERR_NO_PUBSUB_PROVIDERS_AVAILABLE_TO_PUBLISH_OVER_PUBSUB", { pubsubTopic, data });
-        const providerToError: Record<string, PlebbitError> = {};
+            throw new PKCError("ERR_NO_PUBSUB_PROVIDERS_AVAILABLE_TO_PUBLISH_OVER_PUBSUB", { pubsubTopic, data });
+        const providerToError: Record<string, PKCError> = {};
 
         for (let i = 0; i < providersSorted.length; i++) {
             const pubsubProviderUrl = providersSorted[i];
@@ -293,11 +293,11 @@ export class BaseClientsManager {
                 return await this.pubsubPublishOnProvider(pubsubTopic, data, pubsubProviderUrl);
             } catch (e) {
                 log.error(`Failed to publish to pubsub topic (${pubsubTopic}) to (${pubsubProviderUrl})`);
-                providerToError[pubsubProviderUrl] = <PlebbitError>e;
+                providerToError[pubsubProviderUrl] = <PKCError>e;
             }
         }
 
-        const combinedError = new PlebbitError("ERR_PUBSUB_FAILED_TO_PUBLISH", { pubsubTopic, data, providerToError });
+        const combinedError = new PKCError("ERR_PUBSUB_FAILED_TO_PUBLISH", { pubsubTopic, data, providerToError });
 
         this.emitError(combinedError);
         throw combinedError;
@@ -311,15 +311,15 @@ export class BaseClientsManager {
             OptionsToLoadFromGateway,
             "abortRequestErrorBeforeLoadingBodyFunc" | "maxFileSizeBytes" | "requestHeaders"
         >
-    ): Promise<{ resText: string | undefined; res: Response; abortError?: PlebbitError }> {
+    ): Promise<{ resText: string | undefined; res: Response; abortError?: PKCError }> {
         // Node-fetch will take care of size limits through options.size, while browsers will process stream manually
 
-        const handleError = (e: Error | PlebbitError) => {
+        const handleError = (e: Error | PKCError) => {
             const nodeError = <NodeJS.ErrnoException & { address?: string; port?: number; cause?: unknown }>(<unknown>e);
-            if (e instanceof PlebbitError) throw e;
+            if (e instanceof PKCError) throw e;
             else if (e instanceof Error && e.message.includes("over limit"))
-                throw new PlebbitError("ERR_OVER_DOWNLOAD_LIMIT", { url, options });
-            else if (options.signal?.aborted) throw new PlebbitError("ERR_GATEWAY_TIMED_OUT_OR_ABORTED", { url, options });
+                throw new PKCError("ERR_OVER_DOWNLOAD_LIMIT", { url, options });
+            else if (options.signal?.aborted) throw new PKCError("ERR_GATEWAY_TIMED_OUT_OR_ABORTED", { url, options });
             else {
                 const errorCode =
                     url.includes("/ipfs/") || url.includes(".ipfs.")
@@ -327,7 +327,7 @@ export class BaseClientsManager {
                         : url.includes("/ipns/") || url.includes(".ipns.")
                           ? "ERR_FAILED_TO_FETCH_IPNS_VIA_GATEWAY"
                           : "ERR_FAILED_TO_FETCH_GENERIC";
-                throw new PlebbitError(errorCode, {
+                throw new PKCError(errorCode, {
                     url,
                     status: res?.status,
                     statusText: res?.statusText,
@@ -366,7 +366,7 @@ export class BaseClientsManager {
             }
             const sizeHeader = <string | null>res.headers.get("Content-Length");
             if (sizeHeader && Number(sizeHeader) > options.maxFileSizeBytes)
-                throw new PlebbitError("ERR_OVER_DOWNLOAD_LIMIT", { url, options, res, sizeHeader });
+                throw new PKCError("ERR_OVER_DOWNLOAD_LIMIT", { url, options, res, sizeHeader });
 
             // If getReader is undefined that means node-fetch is used here. node-fetch processes options.size automatically
             if (res?.body?.getReader === undefined) return { resText: await res.text(), res };
@@ -390,7 +390,7 @@ export class BaseClientsManager {
                     if (value) resText += decoder.decode(value);
                     if (done || !value) break;
                     if (value.length + totalBytesRead > options.maxFileSizeBytes)
-                        throw new PlebbitError("ERR_OVER_DOWNLOAD_LIMIT", { url, options });
+                        throw new PKCError("ERR_OVER_DOWNLOAD_LIMIT", { url, options });
                     totalBytesRead += value.length;
                 }
                 return { resText, res };
@@ -406,7 +406,7 @@ export class BaseClientsManager {
 
     postFetchGatewaySuccess(gatewayUrl: string, loadOpts: OptionsToLoadFromGateway) {}
 
-    postFetchGatewayFailure(gatewayUrl: string, loadOpts: OptionsToLoadFromGateway, error: PlebbitError) {}
+    postFetchGatewayFailure(gatewayUrl: string, loadOpts: OptionsToLoadFromGateway, error: PKCError) {}
 
     postFetchGatewayAborted(gatewayUrl: string, loadOpts: OptionsToLoadFromGateway) {}
 
@@ -446,7 +446,7 @@ export class BaseClientsManager {
     protected async _fetchWithGateway(
         gateway: string,
         loadOpts: OptionsToLoadFromGateway
-    ): Promise<{ res: Response; resText: string | undefined } | { error: PlebbitError }> {
+    ): Promise<{ res: Response; resText: string | undefined } | { error: PKCError }> {
         const log = Logger("pkc-js:pkc:fetchWithGateway");
 
         const url = GATEWAYS_THAT_SUPPORT_SUBDOMAIN_RESOLUTION[gateway]
@@ -475,15 +475,15 @@ export class BaseClientsManager {
             //@ts-expect-error
             e.details = { ...e.details, url, loadOpts, wasRequestAborted: loadOpts.abortController.signal.aborted };
 
-            this.postFetchGatewayFailure(gateway, loadOpts, <PlebbitError>e);
+            this.postFetchGatewayFailure(gateway, loadOpts, <PKCError>e);
             this._plebbit._stats
                 .recordGatewayFailure(gateway, loadOpts.recordIpfsType)
                 .catch((err) => log.error("failed to report gateway error", err));
-            return { error: <PlebbitError>e };
+            return { error: <PKCError>e };
         }
     }
 
-    protected _firstResolve(promises: Promise<{ res: Response; resText: string } | { error: PlebbitError }>[]) {
+    protected _firstResolve(promises: Promise<{ res: Response; resText: string } | { error: PKCError }>[]) {
         if (promises.length === 0) throw Error("No promises to find the first resolve");
         return new Promise<{ res: { res: Response; resText: string }; i: number }>((resolve) =>
             promises.forEach((promise, i) =>
@@ -537,25 +537,25 @@ export class BaseClientsManager {
         const gatewayPromises = Object.values(gatewayFetches).map((fetching) => fetching.promise);
 
         //@ts-expect-error
-        const res: { res: { resText: string; res: Response }; i: number } | { value: { error: PlebbitError } }[] = await Promise.race([
+        const res: { res: { resText: string; res: Response }; i: number } | { value: { error: PKCError } }[] = await Promise.race([
             this._firstResolve(gatewayPromises),
             Promise.allSettled(gatewayPromises)
         ]);
         if (Array.isArray(res)) {
             cleanUp();
             throwIfAbortSignalAborted(loadOpts.abortSignal);
-            const gatewayToError: Record<string, PlebbitError> = {};
+            const gatewayToError: Record<string, PKCError> = {};
             for (let i = 0; i < res.length; i++) if (res[i]["value"]) gatewayToError[gatewaysSorted[i]] = res[i]["value"].error;
 
             const combinedError =
-                loadOpts.recordPlebbitType === "comment"
+                loadOpts.recordPKCType === "comment"
                     ? new FailedToFetchCommentIpfsFromGatewaysError({ commentCid: loadOpts.root, gatewayToError, loadOpts })
-                    : loadOpts.recordPlebbitType === "comment-update"
+                    : loadOpts.recordPKCType === "comment-update"
                       ? new FailedToFetchCommentUpdateFromGatewaysError({ gatewayToError, loadOpts })
-                      : loadOpts.recordPlebbitType === "page-ipfs"
+                      : loadOpts.recordPKCType === "page-ipfs"
                         ? new FailedToFetchPageIpfsFromGatewaysError({ pageCid: loadOpts.root, gatewayToError, loadOpts })
-                        : loadOpts.recordPlebbitType === "subplebbit"
-                          ? new FailedToFetchSubplebbitFromGatewaysError({ ipnsName: loadOpts.root, gatewayToError, loadOpts })
+                        : loadOpts.recordPKCType === "subplebbit"
+                          ? new FailedToFetchCommunityFromGatewaysError({ ipnsName: loadOpts.root, gatewayToError, loadOpts })
                           : new FailedToFetchGenericIpfsFromGatewaysError({ cid: loadOpts.root, gatewayToError, loadOpts });
 
             throw combinedError;
@@ -575,7 +575,7 @@ export class BaseClientsManager {
             const resolvedCidOfIpns: string | undefined = await last(ipfsClient.name.resolve(ipnsName, ipnsResolveOpts));
 
             if (!resolvedCidOfIpns)
-                throw new PlebbitError("ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED", {
+                throw new PKCError("ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED", {
                     resolvedCidOfIpns,
                     ipnsName,
                     ipnsResolveOpts
@@ -587,7 +587,7 @@ export class BaseClientsManager {
             // Wrap the resolution function with pTimeout because kubo-rpc-client doesn't support timeout for IPNS
             const result = await pTimeout(performIpnsResolve(), {
                 milliseconds: loadOpts.timeoutMs,
-                message: new PlebbitError("ERR_IPNS_RESOLUTION_P2P_TIMEOUT", {
+                message: new PKCError("ERR_IPNS_RESOLUTION_P2P_TIMEOUT", {
                     ipnsName,
                     ipnsResolveOpts
                 }),
@@ -599,9 +599,9 @@ export class BaseClientsManager {
             if (isAbortError(error)) throw error;
             //@ts-expect-error
             error.details = { ...error.details, ipnsName, ipnsResolveOpts };
-            // Wrap ETIMEDOUT in PlebbitError so _isRetriableErrorWhenLoading recognizes it as retriable
+            // Wrap ETIMEDOUT in PKCError so _isRetriableErrorWhenLoading recognizes it as retriable
             if (error instanceof Error && "cause" in error && (error.cause as { code?: string })?.code === "ETIMEDOUT") {
-                throw new PlebbitError("ERR_FAILED_TO_RESOLVE_IPNS_VIA_IPFS_P2P", {
+                throw new PKCError("ERR_FAILED_TO_RESOLVE_IPNS_VIA_IPFS_P2P", {
                     ipnsName,
                     ipnsResolveOpts,
                     error,
@@ -631,12 +631,11 @@ export class BaseClientsManager {
             const data = uint8ArrayConcat(rawData);
             const fileContent = uint8ArrayToString(data);
 
-            if (typeof fileContent !== "string")
-                throw new PlebbitError("ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P", { cid: cidV0, loadOpts });
+            if (typeof fileContent !== "string") throw new PKCError("ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P", { cid: cidV0, loadOpts });
             if (data.byteLength === loadOpts.maxFileSizeBytes) {
                 const calculatedCid: string = await calculateIpfsHash(fileContent);
                 if (calculatedCid !== cidV0)
-                    throw new PlebbitError("ERR_OVER_DOWNLOAD_LIMIT", {
+                    throw new PKCError("ERR_OVER_DOWNLOAD_LIMIT", {
                         cid: cidV0,
                         loadOpts,
                         endedDownloadAtFileContentLength: data.byteLength
@@ -649,17 +648,17 @@ export class BaseClientsManager {
             // Wrap the fetch function with pTimeout to ensure it times out properly
             const result = <string>await pTimeout(fetchPromise(), {
                 milliseconds: loadOpts.timeoutMs,
-                message: new PlebbitError("ERR_FETCH_CID_P2P_TIMEOUT", { cid: cidV0, loadOpts }),
+                message: new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { cid: cidV0, loadOpts }),
                 signal: loadOpts.abortSignal
             });
             return result;
         } catch (e) {
             if (isAbortError(e)) throw e;
-            if (e instanceof PlebbitError) throw e;
+            if (e instanceof PKCError) throw e;
             else if (e instanceof Error && e.name === "TimeoutError")
-                throw new PlebbitError("ERR_FETCH_CID_P2P_TIMEOUT", { cid: cidV0, error: e, loadOpts });
+                throw new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { cid: cidV0, error: e, loadOpts });
             else
-                throw new PlebbitError("ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P", {
+                throw new PKCError("ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P", {
                     cid: cidV0,
                     error: e,
                     errorMessage: (e as Error)?.message,
@@ -677,14 +676,14 @@ export class BaseClientsManager {
     ) {
         const calculatedCid: string = await calculateIpfsHash(gatewayResponseBody);
         if (gatewayResponseBody.length === loadOpts.maxFileSizeBytes && calculatedCid !== cid)
-            throw new PlebbitError("ERR_OVER_DOWNLOAD_LIMIT", { cid, loadOpts, gatewayResponseBody });
+            throw new PKCError("ERR_OVER_DOWNLOAD_LIMIT", { cid, loadOpts, gatewayResponseBody });
         if (calculatedCid !== cid)
-            throw new PlebbitError("ERR_CALCULATED_CID_DOES_NOT_MATCH", { calculatedCid, cid, gatewayResponseBody, loadOpts });
+            throw new PKCError("ERR_CALCULATED_CID_DOES_NOT_MATCH", { calculatedCid, cid, gatewayResponseBody, loadOpts });
     }
 
     // Resolver methods here
 
-    // Name resolver hooks — overridden by PlebbitClientsManager and subclass client managers
+    // Name resolver hooks — overridden by PKCClientsManager and subclass client managers
     preResolveNameResolver(opts: PreResolveNameResolverOptions) {}
     postResolveNameResolverSuccess(opts: PostResolveNameResolverSuccessOptions) {}
     postResolveNameResolverFailure(opts: PostResolveNameResolverFailureOptions) {}
@@ -701,7 +700,7 @@ export class BaseClientsManager {
         const log = Logger("pkc-js:client-manager:_resolveViaNameResolvers");
         const nameResolvers = this._plebbit.nameResolvers;
         if (!nameResolvers || nameResolvers.length === 0) {
-            throw new PlebbitError("ERR_NO_RESOLVER_FOR_NAME", { address });
+            throw new PKCError("ERR_NO_RESOLVER_FOR_NAME", { address });
         }
 
         throwIfAbortSignalAborted(abortSignal);
@@ -733,7 +732,7 @@ export class BaseClientsManager {
         }
 
         if (!anyResolverCanHandle) {
-            throw new PlebbitError("ERR_NO_RESOLVER_FOR_NAME", { address });
+            throw new PKCError("ERR_NO_RESOLVER_FOR_NAME", { address });
         }
 
         return value || null;
@@ -750,7 +749,7 @@ export class BaseClientsManager {
         if (!isStringDomain(communityAddress)) return communityAddress;
         const result = await this._resolveViaNameResolvers({ address: communityAddress, resolveType: "community", abortSignal });
         if (typeof result === "string" && !isIpns(result))
-            throw new PlebbitError("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: communityAddress });
+            throw new PKCError("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: communityAddress });
         return result;
     }
 
@@ -761,10 +760,10 @@ export class BaseClientsManager {
         authorAddress: string;
         abortSignal?: AbortSignal;
     }): Promise<string | null> {
-        if (!isStringDomain(authorAddress)) throw new PlebbitError("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58", { authorAddress });
+        if (!isStringDomain(authorAddress)) throw new PKCError("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58", { authorAddress });
         const result = await this._resolveViaNameResolvers({ address: authorAddress, resolveType: "author", abortSignal });
         if (typeof result === "string" && !isIpns(result))
-            throw new PlebbitError("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: authorAddress });
+            throw new PKCError("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: authorAddress });
         return result;
     }
 
@@ -800,14 +799,14 @@ export class BaseClientsManager {
             if (abortSignal?.aborted) return false;
             try {
                 const resolved = await this.resolveAuthorNameIfNeeded({ authorAddress: entry.authorName, abortSignal });
-                const signerAddress = await getPlebbitAddressFromPublicKey(entry.signaturePublicKey);
+                const signerAddress = await getPKCAddressFromPublicKey(entry.signaturePublicKey);
                 const matches = resolved === signerAddress;
                 cache.set(entry.cacheKey, matches);
                 return true; // newly set
             } catch (e) {
                 if (isAbortError(e)) return false;
                 log.error("Failed to resolve author name in background", entry.authorName, e);
-                if (e instanceof PlebbitError && e.code === "ERR_NO_RESOLVER_FOR_NAME") {
+                if (e instanceof PKCError && e.code === "ERR_NO_RESOLVER_FOR_NAME") {
                     cache.set(entry.cacheKey, false);
                     return true; // newly set
                 }
@@ -825,7 +824,7 @@ export class BaseClientsManager {
     }
 
     // Misc functions
-    emitError(e: PlebbitError) {
+    emitError(e: PKCError) {
         this._plebbit.emit("error", e);
     }
 
@@ -833,10 +832,10 @@ export class BaseClientsManager {
         return calculateIpfsCidV0(content);
     }
 
-    protected async _withInflightSubplebbitFetch(
+    protected async _withInflightCommunityFetch(
         subAddress: string,
-        fetcher: () => Promise<ResultOfFetchingSubplebbit>
-    ): Promise<ResultOfFetchingSubplebbit> {
+        fetcher: () => Promise<ResultOfFetchingCommunity>
+    ): Promise<ResultOfFetchingCommunity> {
         return this._plebbit._inflightFetchManager.withResource(InflightResourceTypes.SUBPLEBBIT_IPNS, subAddress, fetcher);
     }
 }

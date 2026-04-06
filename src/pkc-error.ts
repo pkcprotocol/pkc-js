@@ -1,7 +1,7 @@
 import { messages } from "./errors.js";
 import { CustomError } from "ts-custom-error";
 
-export class PlebbitError extends CustomError {
+export class PKCError extends CustomError {
     code: keyof typeof messages;
     override message: messages;
     override stack?: string;
@@ -110,7 +110,7 @@ export class PlebbitError extends CustomError {
             return details;
         }
         try {
-            return JSON.stringify(details, PlebbitError.jsonReplacer, pretty ? 2 : undefined);
+            return JSON.stringify(details, PKCError.jsonReplacer, pretty ? 2 : undefined);
         } catch {
             return String(details);
         }
@@ -121,17 +121,17 @@ export class PlebbitError extends CustomError {
     }
 }
 
-export class FailedToFetchSubplebbitFromGatewaysError extends PlebbitError {
-    override details: { ipnsName: string; gatewayToError: Record<string, PlebbitError> } & { [key: string]: any }; // gatewayToError is a mapping of gateway url to its error
+export class FailedToFetchCommunityFromGatewaysError extends PKCError {
+    override details: { ipnsName: string; gatewayToError: Record<string, PKCError> } & { [key: string]: any }; // gatewayToError is a mapping of gateway url to its error
 
-    constructor(details: FailedToFetchSubplebbitFromGatewaysError["details"]) {
+    constructor(details: FailedToFetchCommunityFromGatewaysError["details"]) {
         super("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS", details);
         this.details = details;
     }
 }
 
-export class FailedToFetchCommentIpfsFromGatewaysError extends PlebbitError {
-    override details: { commentCid: string; gatewayToError: Record<string, PlebbitError> } & { [key: string]: any }; // gatewayToError is a mapping of gateway url to its error
+export class FailedToFetchCommentIpfsFromGatewaysError extends PKCError {
+    override details: { commentCid: string; gatewayToError: Record<string, PKCError> } & { [key: string]: any }; // gatewayToError is a mapping of gateway url to its error
 
     constructor(details: FailedToFetchCommentIpfsFromGatewaysError["details"]) {
         super("ERR_FAILED_TO_FETCH_COMMENT_IPFS_FROM_GATEWAYS", details);
@@ -139,8 +139,8 @@ export class FailedToFetchCommentIpfsFromGatewaysError extends PlebbitError {
     }
 }
 
-export class FailedToFetchCommentUpdateFromGatewaysError extends PlebbitError {
-    override details: { gatewayToError: Record<string, PlebbitError> } & { [key: string]: any }; // gatewayToError is a mapping of gateway url to its error
+export class FailedToFetchCommentUpdateFromGatewaysError extends PKCError {
+    override details: { gatewayToError: Record<string, PKCError> } & { [key: string]: any }; // gatewayToError is a mapping of gateway url to its error
 
     constructor(details: FailedToFetchCommentUpdateFromGatewaysError["details"]) {
         super("ERR_FAILED_TO_FETCH_COMMENT_UPDATE_FROM_GATEWAYS", details);
@@ -148,8 +148,8 @@ export class FailedToFetchCommentUpdateFromGatewaysError extends PlebbitError {
     }
 }
 
-export class FailedToFetchPageIpfsFromGatewaysError extends PlebbitError {
-    override details: { pageCid: string; gatewayToError: Record<string, PlebbitError> } & { [key: string]: any }; // gatewayToError is a mapping of gateway url to its error
+export class FailedToFetchPageIpfsFromGatewaysError extends PKCError {
+    override details: { pageCid: string; gatewayToError: Record<string, PKCError> } & { [key: string]: any }; // gatewayToError is a mapping of gateway url to its error
 
     constructor(details: FailedToFetchPageIpfsFromGatewaysError["details"]) {
         super("ERR_FAILED_TO_FETCH_PAGE_IPFS_FROM_GATEWAYS", details);
@@ -157,8 +157,8 @@ export class FailedToFetchPageIpfsFromGatewaysError extends PlebbitError {
     }
 }
 
-export class FailedToFetchGenericIpfsFromGatewaysError extends PlebbitError {
-    override details: { cid: string; gatewayToError: Record<string, PlebbitError> } & { [key: string]: any }; // gatewayToError is a mapping of gateway url to its error
+export class FailedToFetchGenericIpfsFromGatewaysError extends PKCError {
+    override details: { cid: string; gatewayToError: Record<string, PKCError> } & { [key: string]: any }; // gatewayToError is a mapping of gateway url to its error
 
     constructor(details: FailedToFetchGenericIpfsFromGatewaysError["details"]) {
         super("ERR_FAILED_TO_FETCH_GENERIC_IPFS_FROM_GATEWAYS", details);

@@ -4,20 +4,20 @@ import path from "path";
 import {
     createSubWithNoChallenge,
     itSkipIfRpc,
-    mockPlebbit,
+    mockPKC,
     publishRandomPost,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
 import { describe, beforeAll, afterAll, it } from "vitest";
 
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../dist/node/community/rpc-local-community.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 
 describe.concurrent(`subplebbit.update - Local subs`, async () => {
-    let plebbit: PlebbitType;
+    let plebbit: PKCType;
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
+        plebbit = await mockPKC();
     });
 
     afterAll(async () => {
@@ -28,7 +28,7 @@ describe.concurrent(`subplebbit.update - Local subs`, async () => {
         const sub = await createSubWithNoChallenge({}, plebbit);
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
-        const recreatedSub = await plebbit.createSubplebbit({ address: sub.address });
+        const recreatedSub = await plebbit.createCommunity({ address: sub.address });
         expect(recreatedSub.state).to.equal("stopped");
         expect(recreatedSub.started).to.be.a("boolean"); // make sure it's creating a local sub, not remote
 
@@ -47,7 +47,7 @@ describe.concurrent(`subplebbit.update - Local subs`, async () => {
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
 
-        const recreatedSub = await plebbit.createSubplebbit({ address: sub.address });
+        const recreatedSub = await plebbit.createCommunity({ address: sub.address });
         const oldUpdatedAt = JSON.parse(JSON.stringify(recreatedSub.updatedAt)) as number;
         expect(oldUpdatedAt).to.be.a("number");
         expect(oldUpdatedAt).to.equal(sub.updatedAt);
@@ -104,16 +104,16 @@ describe.concurrent(`subplebbit.update - Local subs`, async () => {
             onCompromised: () => {}
         });
 
-        const secondPlebbit = await mockPlebbit({ dataPath: plebbit.dataPath! });
+        const secondPKC = await mockPKC({ dataPath: plebbit.dataPath! });
 
         try {
-            const recreatedSub = await secondPlebbit.createSubplebbit({ address: sub.address });
+            const recreatedSub = await secondPKC.createCommunity({ address: sub.address });
             expect(recreatedSub.updatedAt).to.be.a("number");
         } catch (e) {
             throw e;
         } finally {
             await releaseLock();
-            await secondPlebbit.destroy();
+            await secondPKC.destroy();
         }
     });
 });

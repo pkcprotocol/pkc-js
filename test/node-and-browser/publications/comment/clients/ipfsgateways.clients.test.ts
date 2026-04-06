@@ -2,22 +2,22 @@ import signers from "../../../../fixtures/signers.js";
 import {
     generateMockPost,
     publishWithExpectedResult,
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     mockCommentToNotUsePagesForUpdates,
     createCommentUpdateWithInvalidSignature,
     resolveWhenConditionIsTrue,
     mockPostToReturnSpecificCommentUpdate,
-    createStaticSubplebbitRecordForComment
+    createStaticCommunityRecordForComment
 } from "../../../../../dist/node/test/test-util.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../../../dist/node/pkc/pkc.js";
-import type { PlebbitError } from "../../../../../dist/node/pkc-error.js";
+import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
+import type { PKCError } from "../../../../../dist/node/pkc-error.js";
 
 const subplebbitAddress = signers[0].address;
 
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
     describe.concurrent(`comment.clients.ipfsGateways - ${config.name}`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
         });
@@ -25,7 +25,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
         afterAll(async () => {
             await plebbit.destroy();
         });
-        // All tests below use Plebbit instance that doesn't have clients.kuboRpcClients
+        // All tests below use PKC instance that doesn't have clients.kuboRpcClients
         it(`comment.clients.ipfsGateways[url] is stopped by default`, async () => {
             const mockPost = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             expect(Object.keys(mockPost.clients.ipfsGateways).length).to.equal(1);
@@ -35,7 +35,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
         it.sequential(
             `Correct order of ipfsGateways state when updating a comment that was created with plebbit.createComment({cid})`,
             async () => {
-                const sub = await plebbit.getSubplebbit({ address: signers[0].address });
+                const sub = await plebbit.getCommunity({ address: signers[0].address });
 
                 const mockPost = await plebbit.createComment({ cid: sub.posts.pages.hot.comments[0].cid });
                 const expectedStates = ["fetching-ipfs", "stopped", "fetching-subplebbit-ipns", "fetching-update-ipfs", "stopped"];
@@ -61,7 +61,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
         );
 
         it(`Correct order of ipfsGateways state when updating a comment that was created with plebbit.getComment({cid: cid})`, async () => {
-            const sub = await plebbit.getSubplebbit({ address: signers[0].address });
+            const sub = await plebbit.getCommunity({ address: signers[0].address });
 
             const mockPost = await plebbit.getComment({ cid: sub.posts.pages.hot.comments[0].cid });
 
@@ -114,14 +114,14 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
         });
 
         it(`Correct order of ipfs gateway clients state when we update a comment but its subplebbit is not publishing new updates`, async () => {
-            const plebbit: Plebbit = await config.plebbitInstancePromise();
+            const plebbit: PKC = await config.plebbitInstancePromise();
             try {
-                const { commentCid } = await createStaticSubplebbitRecordForComment({ plebbit });
+                const { commentCid } = await createStaticCommunityRecordForComment({ plebbit });
 
                 const mockPost = await plebbit.createComment({ cid: commentCid });
 
                 const recordedStates: string[] = [];
-                const errors: (Error | PlebbitError)[] = [];
+                const errors: (Error | PKCError)[] = [];
 
                 const gatewayUrl = Object.keys(mockPost.clients.ipfsGateways)[0];
 
@@ -153,9 +153,9 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
         });
 
         it(`Correct order of ipfs gateway states when we update a comment but its commentupdate is an invalid record (bad signature/schema/etc)`, async () => {
-            const plebbit: Plebbit = await config.plebbitInstancePromise();
+            const plebbit: PKC = await config.plebbitInstancePromise();
 
-            const sub = await plebbit.getSubplebbit({ address: signers[0].address });
+            const sub = await plebbit.getCommunity({ address: signers[0].address });
 
             const commentUpdateWithInvalidSignatureJson = await createCommentUpdateWithInvalidSignature(
                 sub.posts.pages.hot.comments[0].cid

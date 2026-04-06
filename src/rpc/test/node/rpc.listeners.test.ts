@@ -1,23 +1,23 @@
 import { beforeAll, afterAll, afterEach } from "vitest";
 import tempy from "tempy";
 
-import PlebbitWsServerModule from "../../../../dist/node/rpc/src/index.js";
-import { restorePlebbitJs } from "../../../../dist/node/rpc/src/lib/pkc-js/index.js";
-import { findStartedSubplebbit } from "../../../../dist/node/pkc/tracked-instance-registry-util.js";
-import { describeSkipIfRpc, mockRpcServerForTests, mockRpcServerPlebbit } from "../../../../dist/node/test/test-util.js";
-import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/community/local-community.js";
+import PKCWsServerModule from "../../../../dist/node/rpc/src/index.js";
+import { restorePKCJs } from "../../../../dist/node/rpc/src/lib/pkc-js/index.js";
+import { findStartedCommunity } from "../../../../dist/node/pkc/tracked-instance-registry-util.js";
+import { describeSkipIfRpc, mockRpcServerForTests, mockRpcServerPKC } from "../../../../dist/node/test/test-util.js";
+import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 
-const { PlebbitWsServer: createPlebbitWsServer, setPlebbitJs } = PlebbitWsServerModule;
+const { PKCWsServer: createPKCWsServer, setPKCJs } = PKCWsServerModule;
 
-type PlebbitWsServerType = Awaited<ReturnType<typeof createPlebbitWsServer>>;
+type PKCWsServerType = Awaited<ReturnType<typeof createPKCWsServer>>;
 
 // Standalone interface for accessing private members via unknown casting
 // Using a separate interface avoids TypeScript's intersection-with-private-members issue
-interface PlebbitWsServerPrivateAccess {
+interface PKCWsServerPrivateAccess {
     _onSettingsChange: Record<string, Record<string, unknown>>;
-    _trackSubplebbitListener: (subplebbit: LocalSubplebbit, event: string, listener: () => void) => void;
-    _trackedSubplebbitListeners: Map<LocalSubplebbit, Map<string, Set<() => void>>>;
-    _serializeSettingsFromPlebbit: (plebbit: PlebbitWsServerType["plebbit"]) => {
+    _trackCommunityListener: (subplebbit: LocalCommunity, event: string, listener: () => void) => void;
+    _trackedCommunityListeners: Map<LocalCommunity, Map<string, Set<() => void>>>;
+    _serializeSettingsFromPKC: (plebbit: PKCWsServerType["plebbit"]) => {
         challenges: Record<string, { type?: string; challenge?: string; description?: string }>;
     };
 }
@@ -43,21 +43,21 @@ const getTestPort = (() => {
 const cloneTrackedListeners = (trackedMap: Map<string, Set<() => void>>) =>
     new Map([...trackedMap.entries()].map(([event, listeners]) => [event, new Set(listeners)]));
 
-const setupConnectionContext = (rpcServer: PlebbitWsServerType, connectionId: string) => {
+const setupConnectionContext = (rpcServer: PKCWsServerType, connectionId: string) => {
     rpcServer.subscriptionCleanups[connectionId] = {};
-    rpcServer.connections[connectionId] = { send: () => {} } as unknown as PlebbitWsServerType["connections"][string];
-    (rpcServer as unknown as PlebbitWsServerPrivateAccess)._onSettingsChange[connectionId] = {};
+    rpcServer.connections[connectionId] = { send: () => {} } as unknown as PKCWsServerType["connections"][string];
+    (rpcServer as unknown as PKCWsServerPrivateAccess)._onSettingsChange[connectionId] = {};
 };
 
-describeSkipIfRpc("PlebbitWsServer listener lifecycle", function () {
-    let rpcServer: PlebbitWsServerType | undefined;
+describeSkipIfRpc("PKCWsServer listener lifecycle", function () {
+    let rpcServer: PKCWsServerType | undefined;
 
     beforeAll(() => {
-        setPlebbitJs(async (options: Record<string, unknown>) => mockRpcServerPlebbit({ dataPath: tempy.directory(), ...(options || {}) }));
+        setPKCJs(async (options: Record<string, unknown>) => mockRpcServerPKC({ dataPath: tempy.directory(), ...(options || {}) }));
     });
 
     afterAll(() => {
-        restorePlebbitJs();
+        restorePKCJs();
     });
 
     afterEach(async () => {
@@ -72,63 +72,63 @@ describeSkipIfRpc("PlebbitWsServer listener lifecycle", function () {
     });
 
     it("does not track listeners when creating a subplebbit", async function () {
-        rpcServer = await createPlebbitWsServer({ port: getTestPort() });
+        rpcServer = await createPKCWsServer({ port: getTestPort() });
         mockRpcServerForTests(rpcServer);
 
-        const trackedCalls: { subplebbit: LocalSubplebbit; event: string; listener: () => void }[] = [];
-        const rpcServerWithPrivate = rpcServer as unknown as PlebbitWsServerPrivateAccess;
-        const originalTrack = rpcServerWithPrivate._trackSubplebbitListener;
-        rpcServerWithPrivate._trackSubplebbitListener = function (subplebbit: LocalSubplebbit, event: string, listener: () => void) {
+        const trackedCalls: { subplebbit: LocalCommunity; event: string; listener: () => void }[] = [];
+        const rpcServerWithPrivate = rpcServer as unknown as PKCWsServerPrivateAccess;
+        const originalTrack = rpcServerWithPrivate._trackCommunityListener;
+        rpcServerWithPrivate._trackCommunityListener = function (subplebbit: LocalCommunity, event: string, listener: () => void) {
             trackedCalls.push({ subplebbit, event, listener });
             return originalTrack.call(this, subplebbit, event, listener);
         };
 
         try {
-            const created = await rpcServer.createSubplebbit([{}]);
-            expect(created.localSubplebbit.address).to.be.a("string");
-            expect(trackedCalls).to.have.length(0, "createSubplebbit should not track event listeners");
+            const created = await rpcServer.createCommunity([{}]);
+            expect(created.localCommunity.address).to.be.a("string");
+            expect(trackedCalls).to.have.length(0, "createCommunity should not track event listeners");
         } finally {
-            rpcServerWithPrivate._trackSubplebbitListener = originalTrack;
+            rpcServerWithPrivate._trackCommunityListener = originalTrack;
         }
     });
 
-    it("preserves built-in challenge metadata when setPlebbitJs injects a plain function", async function () {
-        rpcServer = await createPlebbitWsServer({ port: getTestPort() });
+    it("preserves built-in challenge metadata when setPKCJs injects a plain function", async function () {
+        rpcServer = await createPKCWsServer({ port: getTestPort() });
         mockRpcServerForTests(rpcServer);
 
-        const rpcServerWithPrivate = rpcServer as unknown as PlebbitWsServerPrivateAccess;
-        const settings = rpcServerWithPrivate._serializeSettingsFromPlebbit(rpcServer.plebbit);
+        const rpcServerWithPrivate = rpcServer as unknown as PKCWsServerPrivateAccess;
+        const settings = rpcServerWithPrivate._serializeSettingsFromPKC(rpcServer.plebbit);
 
         expect(settings.challenges.question).to.be.an("object");
         expect(settings.challenges.question.type).to.be.a("string");
     });
 
-    it("tracks listeners on startSubplebbit and removes them on stopSubplebbit", async function () {
-        rpcServer = await createPlebbitWsServer({ port: getTestPort() });
+    it("tracks listeners on startCommunity and removes them on stopCommunity", async function () {
+        rpcServer = await createPKCWsServer({ port: getTestPort() });
         mockRpcServerForTests(rpcServer);
 
         const connectionId = "start-stop-connection";
         setupConnectionContext(rpcServer, connectionId);
 
-        const createResponse = await rpcServer.createSubplebbit([{}]);
-        const address = createResponse.localSubplebbit.address;
+        const createResponse = await rpcServer.createCommunity([{}]);
+        const address = createResponse.localCommunity.address;
         expect(address).to.be.a("string");
 
-        let capturedSubplebbit: LocalSubplebbit | undefined;
+        let capturedCommunity: LocalCommunity | undefined;
         const originalSetup = rpcServer._setupStartedEvents;
-        rpcServer._setupStartedEvents = function (subplebbit: LocalSubplebbit, connId: string, subscriptionId: number) {
-            capturedSubplebbit = subplebbit;
+        rpcServer._setupStartedEvents = function (subplebbit: LocalCommunity, connId: string, subscriptionId: number) {
+            capturedCommunity = subplebbit;
             return originalSetup.call(this, subplebbit, connId, subscriptionId);
         };
 
         try {
-            const subscriptionId = await rpcServer.startSubplebbit([{ address }], connectionId);
+            const subscriptionId = await rpcServer.startCommunity([{ address }], connectionId);
             expect(subscriptionId).to.be.a("number");
-            expect(capturedSubplebbit).to.exist;
+            expect(capturedCommunity).to.exist;
 
-            const rpcServerWithPrivate = rpcServer as unknown as PlebbitWsServerPrivateAccess;
-            const trackedListenersMap = rpcServerWithPrivate._trackedSubplebbitListeners;
-            const tracked = trackedListenersMap.get(capturedSubplebbit!);
+            const rpcServerWithPrivate = rpcServer as unknown as PKCWsServerPrivateAccess;
+            const trackedListenersMap = rpcServerWithPrivate._trackedCommunityListeners;
+            const tracked = trackedListenersMap.get(capturedCommunity!);
             expect(tracked).to.exist;
 
             STARTED_EVENT_NAMES.forEach((event) => {
@@ -136,19 +136,19 @@ describeSkipIfRpc("PlebbitWsServer listener lifecycle", function () {
                 const listeners = tracked!.get(event);
                 expect(listeners!.size).to.equal(1, `Expected one tracked listener for event ${event}`);
                 listeners!.forEach((listener) => {
-                    const emitterListeners = capturedSubplebbit!.listeners(event as Parameters<typeof capturedSubplebbit.listeners>[0]);
+                    const emitterListeners = capturedCommunity!.listeners(event as Parameters<typeof capturedCommunity.listeners>[0]);
                     expect(emitterListeners).to.include(listener, `Listener for ${event} not attached to subplebbit`);
                 });
             });
 
             const trackedSnapshot = cloneTrackedListeners(tracked!);
 
-            await rpcServer.stopSubplebbit([{ address }]);
+            await rpcServer.stopCommunity([{ address }]);
 
-            expect(trackedListenersMap.get(capturedSubplebbit!)).to.equal(undefined, "Tracked listeners should be removed after stop");
+            expect(trackedListenersMap.get(capturedCommunity!)).to.equal(undefined, "Tracked listeners should be removed after stop");
 
             trackedSnapshot.forEach((listeners, event) => {
-                const emitterListeners = capturedSubplebbit!.listeners(event as Parameters<typeof capturedSubplebbit.listeners>[0]);
+                const emitterListeners = capturedCommunity!.listeners(event as Parameters<typeof capturedCommunity.listeners>[0]);
                 listeners.forEach((listener) => {
                     expect(emitterListeners).to.not.include(listener, `Listener for ${event} should be removed on stop`);
                 });
@@ -159,44 +159,44 @@ describeSkipIfRpc("PlebbitWsServer listener lifecycle", function () {
     });
 
     it("removes tracked listeners when deleting a started subplebbit", async function () {
-        rpcServer = await createPlebbitWsServer({ port: getTestPort() });
+        rpcServer = await createPKCWsServer({ port: getTestPort() });
         mockRpcServerForTests(rpcServer);
 
         const connectionId = "delete-connection";
         setupConnectionContext(rpcServer, connectionId);
 
-        const createResponse = await rpcServer.createSubplebbit([{}]);
-        const address = createResponse.localSubplebbit.address;
+        const createResponse = await rpcServer.createCommunity([{}]);
+        const address = createResponse.localCommunity.address;
         expect(address).to.be.a("string");
 
-        let capturedSubplebbit: LocalSubplebbit | undefined;
+        let capturedCommunity: LocalCommunity | undefined;
         const originalSetup = rpcServer._setupStartedEvents;
-        rpcServer._setupStartedEvents = function (subplebbit: LocalSubplebbit, connId: string, subscriptionId: number) {
-            capturedSubplebbit = subplebbit;
+        rpcServer._setupStartedEvents = function (subplebbit: LocalCommunity, connId: string, subscriptionId: number) {
+            capturedCommunity = subplebbit;
             return originalSetup.call(this, subplebbit, connId, subscriptionId);
         };
 
         try {
-            await rpcServer.startSubplebbit([{ address }], connectionId);
-            expect(capturedSubplebbit).to.exist;
+            await rpcServer.startCommunity([{ address }], connectionId);
+            expect(capturedCommunity).to.exist;
 
-            const rpcServerWithPrivate = rpcServer as unknown as PlebbitWsServerPrivateAccess;
-            const trackedListenersMap = rpcServerWithPrivate._trackedSubplebbitListeners;
-            const tracked = trackedListenersMap.get(capturedSubplebbit!);
+            const rpcServerWithPrivate = rpcServer as unknown as PKCWsServerPrivateAccess;
+            const trackedListenersMap = rpcServerWithPrivate._trackedCommunityListeners;
+            const tracked = trackedListenersMap.get(capturedCommunity!);
             expect(tracked).to.exist;
             const trackedSnapshot = cloneTrackedListeners(tracked!);
 
-            const deleteResult = await rpcServer.deleteSubplebbit([{ address }]);
+            const deleteResult = await rpcServer.deleteCommunity([{ address }]);
             expect(deleteResult).to.equal(true);
 
-            expect(trackedListenersMap.get(capturedSubplebbit!)).to.equal(undefined, "Tracked listeners should be removed after delete");
-            expect(findStartedSubplebbit(rpcServer.plebbit, { address })).to.equal(
+            expect(trackedListenersMap.get(capturedCommunity!)).to.equal(undefined, "Tracked listeners should be removed after delete");
+            expect(findStartedCommunity(rpcServer.plebbit, { address })).to.equal(
                 undefined,
                 "Started sub list should not contain deleted sub"
             );
 
             trackedSnapshot.forEach((listeners, event) => {
-                const emitterListeners = capturedSubplebbit!.listeners(event as Parameters<typeof capturedSubplebbit.listeners>[0]);
+                const emitterListeners = capturedCommunity!.listeners(event as Parameters<typeof capturedCommunity.listeners>[0]);
                 listeners.forEach((listener) => {
                     expect(emitterListeners).to.not.include(listener, `Listener for ${event} should be removed on delete`);
                 });

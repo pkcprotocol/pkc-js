@@ -1,7 +1,7 @@
-import { Plebbit } from "../../pkc/pkc.js";
+import { PKC } from "../../pkc/pkc.js";
 import Publication from "../publication.js";
 import { hideClassPrivateProps, isIpfsCid } from "../../util.js";
-import { PlebbitError } from "../../pkc-error.js";
+import { PKCError } from "../../pkc-error.js";
 import type { CommentModerationOptionsToSign, CommentModerationPubsubMessagePublication, CreateCommentModerationOptions } from "./types.js";
 import type { PublicationTypeName } from "../../types.js";
 import { signCommentModeration, verifyCommentModeration } from "../../signer/signatures.js";
@@ -16,7 +16,7 @@ export class CommentModeration extends Publication implements CommentModerationP
     override raw: { pubsubMessageToPublish?: CommentModerationPubsubMessagePublication } = {};
     override challengeRequest?: CreateCommentModerationOptions["challengeRequest"];
 
-    constructor(plebbit: Plebbit) {
+    constructor(plebbit: PKC) {
         super(plebbit);
 
         // public method should be bound
@@ -74,12 +74,12 @@ export class CommentModeration extends Publication implements CommentModerationP
             resolveAuthorNames: this._plebbit.resolveAuthorNames,
             clientsManager: this._clientsManager
         });
-        if (!signatureValidity.valid) throw new PlebbitError("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
+        if (!signatureValidity.valid) throw new PKCError("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
     }
 
     override async publish(): Promise<void> {
         // TODO if publishing with content,reason, deleted, verify that publisher is original author
-        if (!isIpfsCid(this.commentCid)) throw new PlebbitError("ERR_CID_IS_INVALID", { commentCid: this.commentCid });
+        if (!isIpfsCid(this.commentCid)) throw new PKCError("ERR_CID_IS_INVALID", { commentCid: this.commentCid });
 
         return super.publish();
     }

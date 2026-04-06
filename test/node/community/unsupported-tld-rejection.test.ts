@@ -1,6 +1,6 @@
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import {
-    mockPlebbit,
+    mockPKC,
     createMockNameResolver,
     createSubWithNoChallenge,
     publishWithExpectedResult,
@@ -9,18 +9,18 @@ import {
 } from "../../../dist/node/test/test-util.js";
 import { messages } from "../../../dist/node/errors.js";
 import signers from "../../fixtures/signers.js";
-import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../dist/node/community/rpc-local-community.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 import type { CommentIpfsWithCidDefined } from "../../../dist/node/publications/comment/types.js";
 
-describe("Subplebbit rejects publications with unsupported author TLDs", () => {
-    let plebbit: Plebbit;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+describe("Community rejects publications with unsupported author TLDs", () => {
+    let plebbit: PKC;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
     let validPost: CommentIpfsWithCidDefined;
 
     beforeAll(async () => {
-        plebbit = await mockPlebbit(
+        plebbit = await mockPKC(
             {
                 nameResolvers: [
                     createMockNameResolver({

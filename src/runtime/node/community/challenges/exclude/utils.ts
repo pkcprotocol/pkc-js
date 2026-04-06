@@ -1,5 +1,5 @@
-import type { SubplebbitIpfsType, SubplebbitRole, Exclude } from "../../../../../community/types.js";
-import type { DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor } from "../../../../../pubsub-messages/types.js";
+import type { CommunityIpfsType, CommunityRole, Exclude } from "../../../../../community/types.js";
+import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../../../../../pubsub-messages/types.js";
 import { isRequestPubsubPublicationOfPost, isRequestPubsubPublicationOfReply } from "../../../../../util.js";
 
 // e.g. secondsToGoBack = 60 would return the timestamp 1 minute ago
@@ -12,7 +12,7 @@ const testScore = (excludeScore: number | undefined, authorScore: number | undef
 const testFirstCommentTimestamp = (excludeTime: number | undefined, authorFirstCommentTimestamp: number | undefined) =>
     excludeTime === undefined || getTimestampSecondsAgo(excludeTime) >= (authorFirstCommentTimestamp || Infinity);
 
-const testRole = (excludeRole: SubplebbitRole["role"][], authorAddress: string, subplebbitRoles: SubplebbitIpfsType["roles"]) => {
+const testRole = (excludeRole: CommunityRole["role"][], authorAddress: string, subplebbitRoles: CommunityIpfsType["roles"]) => {
     if (excludeRole === undefined) {
         return true; // No role exclusion rule, so this test passes
     }
@@ -27,16 +27,16 @@ const testRole = (excludeRole: SubplebbitRole["role"][], authorAddress: string, 
     return false;
 };
 
-const isVote = (request: DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor) => Boolean(request.vote);
-const isReply = (request: DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor) => isRequestPubsubPublicationOfReply(request);
-const isPost = (request: DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor) => isRequestPubsubPublicationOfPost(request);
-const isCommentEdit = (request: DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor) => Boolean(request.commentEdit);
-const isCommentModeration = (request: DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor) => Boolean(request.commentModeration);
-const isSubplebbitEdit = (request: DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor) => Boolean(request.subplebbitEdit);
+const isVote = (request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor) => Boolean(request.vote);
+const isReply = (request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor) => isRequestPubsubPublicationOfReply(request);
+const isPost = (request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor) => isRequestPubsubPublicationOfPost(request);
+const isCommentEdit = (request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor) => Boolean(request.commentEdit);
+const isCommentModeration = (request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor) => Boolean(request.commentModeration);
+const isCommunityEdit = (request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor) => Boolean(request.subplebbitEdit);
 
 const testPublicationType = (
     excludePublicationType: Exclude["publicationType"] | undefined,
-    request: DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor
+    request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor
 ) => {
     if (excludePublicationType === undefined) {
         return true;
@@ -56,7 +56,7 @@ const testPublicationType = (
     if (excludePublicationType.commentModeration && isCommentModeration(request)) {
         return true;
     }
-    if (excludePublicationType.subplebbitEdit && isSubplebbitEdit(request)) {
+    if (excludePublicationType.communityEdit && isCommunityEdit(request)) {
         return true;
     }
     return false;
@@ -68,7 +68,7 @@ export {
     isPost,
     isCommentEdit,
     isCommentModeration,
-    isSubplebbitEdit,
+    isCommunityEdit,
     testPublicationType,
     testScore,
     testFirstCommentTimestamp,

@@ -2,7 +2,7 @@ import type { HeliaWithLibp2pPubsub } from "./types.js";
 import type { PeerId, PeerInfo } from "@libp2p/interface";
 import { CID } from "multiformats/cid";
 import Logger from "../logger.js";
-import { PlebbitError } from "../pkc-error.js";
+import { PKCError } from "../pkc-error.js";
 import { pubsubTopicToDhtKeyCid } from "../util.js";
 
 export async function connectToPubsubPeers({
@@ -69,8 +69,8 @@ export async function connectToPubsubPeers({
         }
         console.timeEnd(findProvidersLabel);
     } catch (e) {
-        (e as PlebbitError).details = {
-            ...(e as PlebbitError).details,
+        (e as PKCError).details = {
+            ...(e as PKCError).details,
             contentCid,
             options,
             maxPeersBeforeWeStopLookingForProviders: maxPeers,
@@ -85,7 +85,7 @@ export async function connectToPubsubPeers({
 
     log.trace("Connected to", connectedPeersWithContent.length, "peers", "for content", contentCid);
     if (connectedPeersWithContent.length === 0) {
-        const error = new PlebbitError("ERR_FAILED_TO_DIAL_ANY_PEERS_PROVIDING_CID", {
+        const error = new PKCError("ERR_FAILED_TO_DIAL_ANY_PEERS_PROVIDING_CID", {
             contentCid,
             peerDialToError,
             peersWithContent,
@@ -110,7 +110,7 @@ export async function waitForTopicPeers(helia: HeliaWithLibp2pPubsub, topic: str
         await new Promise((resolve) => setTimeout(resolve, 100));
     }
 
-    throw new PlebbitError("ERR_TIMEOUT_WAITING_FOR_PUBSUB_TOPIC_PEERS", {
+    throw new PKCError("ERR_TIMEOUT_WAITING_FOR_PUBSUB_TOPIC_PEERS", {
         topic,
         minPeers,
         timeoutMs

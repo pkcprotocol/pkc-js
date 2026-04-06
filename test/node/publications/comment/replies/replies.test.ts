@@ -3,8 +3,8 @@ import {
     forceLocalSubPagesToAlwaysGenerateMultipleChunks,
     loadAllPages,
     loadAllPagesBySortName,
-    getAvailablePlebbitConfigsToTestAgainst,
-    mockPlebbit,
+    getAvailablePKCConfigsToTestAgainst,
+    mockPKC,
     publishRandomPost,
     resolveWhenConditionIsTrue,
     describeSkipIfRpc,
@@ -14,26 +14,26 @@ import { POST_REPLIES_SORT_TYPES, REPLY_REPLIES_SORT_TYPES } from "../../../../.
 import { testCommentFieldsInPageJson, testPageCommentsIfSortedCorrectly } from "../../../../node-and-browser/pages/pages-test-util.js";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit as PlebbitType } from "../../../../../dist/node/pkc/pkc.js";
+import type { PKC as PKCType } from "../../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
-import type { LocalSubplebbit } from "../../../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../../../dist/node/community/rpc-local-community.js";
+import type { LocalCommunity } from "../../../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../../../dist/node/community/rpc-local-community.js";
 import type { CommentWithinRepliesPostsPageJson, CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
 import type { ReplySort } from "../../../../../dist/node/pages/types.js";
 
-const remotePlebbitLoadingConfigs = getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true });
+const remotePKCLoadingConfigs = getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true });
 
 interface LocalCommentWithPaginatedRepliesResult {
-    plebbit: PlebbitType;
-    subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    plebbit: PKCType;
+    subplebbit: LocalCommunity | RpcLocalCommunity;
     post: Comment;
     reply: Comment;
     cleanup: () => Promise<void>;
 }
 
 describeSkipIfRpc("comment.replies pagination coverage (node-only)", () => {
-    let plebbit: PlebbitType;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    let plebbit: PKCType;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
     let postWithPageCids: Comment;
     let replyWithPageCids: Comment;
     let cleanup: () => Promise<void>;
@@ -52,9 +52,9 @@ describeSkipIfRpc("comment.replies pagination coverage (node-only)", () => {
         await cleanup?.();
     });
 
-    remotePlebbitLoadingConfigs.map((config) => {
+    remotePKCLoadingConfigs.map((config) => {
         describe(`Loading comment.replies with config ${config.name}`, async () => {
-            let plebbit: PlebbitType;
+            let plebbit: PKCType;
             let post: Comment;
             let reply: Comment;
 
@@ -207,7 +207,7 @@ describeSkipIfRpc("comment.replies pagination coverage (node-only)", () => {
 });
 
 async function createLocalCommentWithPaginatedReplies(): Promise<LocalCommentWithPaginatedRepliesResult> {
-    const plebbit = await mockPlebbit();
+    const plebbit = await mockPKC();
     const subplebbit = await createSubWithNoChallenge({}, plebbit);
     await subplebbit.start();
 

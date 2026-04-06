@@ -4,17 +4,17 @@ import {
     generateMockPost,
     publishRandomPost,
     publishWithExpectedResult,
-    getAvailablePlebbitConfigsToTestAgainst,
-    waitTillPostInSubplebbitPages
+    getAvailablePKCConfigsToTestAgainst,
+    waitTillPostInCommunityPages
 } from "../../../../../dist/node/test/test-util.js";
-import type { Plebbit } from "../../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
 
 const subplebbitAddress = signers[0].address;
 
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbit-rpc"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbit-rpc"] }).map((config) => {
     describe(`comment.clients.plebbitRpcClients`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
         });
@@ -24,12 +24,12 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbi
         });
 
         it(`Correct order of comment.clients.plebbitRpcClients states when publishing to a sub with challenge`, async () => {
-            const mathCliSubplebbitAddress = signers[1].address;
+            const mathCliCommunityAddress = signers[1].address;
 
-            await plebbit.getSubplebbit({ address: mathCliSubplebbitAddress }); // Do this to cache subplebbit so we won't get fetching-subplebbit-ipns
+            await plebbit.getCommunity({ address: mathCliCommunityAddress }); // Do this to cache subplebbit so we won't get fetching-subplebbit-ipns
 
             const rpcUrl = Object.keys(plebbit.clients.plebbitRpcClients)[0];
-            const mockPost = await generateMockPost({ communityAddress: mathCliSubplebbitAddress, plebbit: plebbit });
+            const mockPost = await generateMockPost({ communityAddress: mathCliCommunityAddress, plebbit: plebbit });
             mockPost.removeAllListeners();
 
             const expectedStates = [
@@ -57,7 +57,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbi
 
         it(`Correct order of comment.clients.plebbitRpcClients states when updating a comment`, async () => {
             const mockPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
-            await waitTillPostInSubplebbitPages(mockPost as Comment & { cid: string }, plebbit);
+            await waitTillPostInCommunityPages(mockPost as Comment & { cid: string }, plebbit);
             const postToUpdate = await plebbit.createComment({ cid: mockPost.cid });
 
             const recordedStates: string[] = [];

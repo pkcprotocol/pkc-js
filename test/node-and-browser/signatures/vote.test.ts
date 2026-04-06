@@ -1,24 +1,24 @@
 import { beforeAll, afterAll } from "vitest";
 import signers from "../../fixtures/signers.js";
-import { describeSkipIfRpc, mockPlebbitNoDataPathWithOnlyKuboClient } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc, mockPKCNoDataPathWithOnlyKuboClient } from "../../../dist/node/test/test-util.js";
 import { messages } from "../../../dist/node/errors.js";
 import { verifyVote, signVote } from "../../../dist/node/signer/signatures.js";
 import * as remeda from "remeda";
 import { timestamp } from "../../../dist/node/util.js";
 import validVoteFixture from "../../fixtures/valid_vote.json" with { type: "json" };
 
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
-import type { RemoteSubplebbit } from "../../../dist/node/community/remote-community.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 import type { VoteOptionsToSign, VoteSignature, VotePubsubMessagePublication } from "../../../dist/node/publications/vote/types.js";
 
 describe.concurrent("Sign Vote", async () => {
-    let plebbit: PlebbitType;
-    let subplebbit: RemoteSubplebbit;
+    let plebbit: PKCType;
+    let subplebbit: RemoteCommunity;
     let voteProps: Omit<VoteOptionsToSign, "signer">;
     let voteSignature: VoteSignature;
     beforeAll(async () => {
-        plebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
-        subplebbit = await plebbit.getSubplebbit({ address: signers[0].address });
+        plebbit = await mockPKCNoDataPathWithOnlyKuboClient();
+        subplebbit = await plebbit.getCommunity({ address: signers[0].address });
 
         voteProps = {
             author: { displayName: "Voter" },
@@ -65,9 +65,9 @@ describe.concurrent("Sign Vote", async () => {
 
 // Clients of RPC will trust the response of RPC and won't validate
 describeSkipIfRpc.concurrent("Verify vote", async () => {
-    let plebbit: PlebbitType;
+    let plebbit: PKCType;
     beforeAll(async () => {
-        plebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
+        plebbit = await mockPKCNoDataPathWithOnlyKuboClient();
     });
 
     afterAll(async () => {

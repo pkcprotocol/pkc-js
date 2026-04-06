@@ -1,20 +1,20 @@
 import { beforeAll, afterAll, describe, it } from "vitest";
-import { mockPlebbitNoDataPathWithOnlyKuboClient } from "../../dist/node/test/test-util.js";
+import { mockPKCNoDataPathWithOnlyKuboClient } from "../../dist/node/test/test-util.js";
 import fixtureSigners from "../fixtures/signers.js";
 import { signBufferEd25519, verifyBufferEd25519 } from "../../dist/node/signer/signatures.js";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import { Buffer } from "buffer";
-import type { Plebbit } from "../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../dist/node/pkc/pkc.js";
 import type { SignerType } from "../../dist/node/signer/types.js";
 
 const authorSignerFixture = fixtureSigners[1];
 
 describe("signer (node and browser)", async () => {
-    let plebbit: Plebbit;
+    let plebbit: PKC;
     let authorSigner: SignerType;
     let randomSigner: SignerType;
     beforeAll(async () => {
-        plebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
+        plebbit = await mockPKCNoDataPathWithOnlyKuboClient();
         authorSigner = await plebbit.createSigner({ privateKey: authorSignerFixture.privateKey, type: "ed25519" });
         randomSigner = await plebbit.createSigner();
     });

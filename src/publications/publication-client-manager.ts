@@ -1,6 +1,6 @@
-import { PlebbitClientsManager } from "../pkc/pkc-client-manager.js";
-import { PlebbitError } from "../pkc-error.js";
-import { RemoteSubplebbit } from "../community/remote-community.js";
+import { PKCClientsManager } from "../pkc/pkc-client-manager.js";
+import { PKCError } from "../pkc-error.js";
+import { RemoteCommunity } from "../community/remote-community.js";
 import { NameResolverClient } from "../clients/name-resolver-client.js";
 import Publication from "./publication.js";
 import * as remeda from "remeda";
@@ -9,37 +9,37 @@ import {
     PublicationKuboPubsubClient,
     PublicationKuboRpcClient,
     PublicationLibp2pJsClient,
-    PublicationPlebbitRpcStateClient
+    PublicationPKCRpcStateClient
 } from "./publication-clients.js";
 import { CommentIpfsGatewayClient, CommentKuboRpcClient } from "./comment/comment-clients.js";
-import type { SubplebbitEvents, SubplebbitIpfsType } from "../community/types.js";
+import type { CommunityEvents, CommunityIpfsType } from "../community/types.js";
 import { waitForUpdateInSubInstanceWithErrorAndTimeout } from "../util.js";
-import { findStartedSubplebbit, findUpdatingSubplebbit } from "../pkc/tracked-instance-registry-util.js";
+import { findStartedCommunity, findUpdatingCommunity } from "../pkc/tracked-instance-registry-util.js";
 
-export class PublicationClientsManager extends PlebbitClientsManager {
+export class PublicationClientsManager extends PKCClientsManager {
     override clients!: {
         ipfsGateways: { [ipfsGatewayUrl: string]: PublicationIpfsGatewayClient | CommentIpfsGatewayClient };
         kuboRpcClients: { [kuboRpcUrl: string]: PublicationKuboRpcClient | CommentKuboRpcClient };
         pubsubKuboRpcClients: { [kuboRpcUrl: string]: PublicationKuboPubsubClient };
-        plebbitRpcClients: Record<string, PublicationPlebbitRpcStateClient>;
+        plebbitRpcClients: Record<string, PublicationPKCRpcStateClient>;
         libp2pJsClients: { [libp2pJsUrl: string]: PublicationLibp2pJsClient };
         nameResolvers: { [resolverKey: string]: NameResolverClient };
     };
     _publication: Publication;
     _communityForUpdating?: {
-        subplebbit: RemoteSubplebbit;
-        ipfsGatewayListeners?: Record<string, Parameters<RemoteSubplebbit["clients"]["ipfsGateways"][string]["on"]>[1]>;
-        kuboRpcListeners?: Record<string, Parameters<RemoteSubplebbit["clients"]["kuboRpcClients"][string]["on"]>[1]>;
-        libp2pJsListeners?: Record<string, Parameters<RemoteSubplebbit["clients"]["libp2pJsClients"][string]["on"]>[1]>;
-        nameResolverListeners?: Record<string, Parameters<RemoteSubplebbit["clients"]["nameResolvers"][string]["on"]>[1]>;
-    } & Pick<SubplebbitEvents, "updatingstatechange" | "update" | "error"> = undefined;
+        subplebbit: RemoteCommunity;
+        ipfsGatewayListeners?: Record<string, Parameters<RemoteCommunity["clients"]["ipfsGateways"][string]["on"]>[1]>;
+        kuboRpcListeners?: Record<string, Parameters<RemoteCommunity["clients"]["kuboRpcClients"][string]["on"]>[1]>;
+        libp2pJsListeners?: Record<string, Parameters<RemoteCommunity["clients"]["libp2pJsClients"][string]["on"]>[1]>;
+        nameResolverListeners?: Record<string, Parameters<RemoteCommunity["clients"]["nameResolvers"][string]["on"]>[1]>;
+    } & Pick<CommunityEvents, "updatingstatechange" | "update" | "error"> = undefined;
 
     constructor(publication: Publication) {
         super(publication._plebbit);
         this._publication = publication;
-        this._initPlebbitRpcClients();
+        this._initPKCRpcClients();
         this.handleErrorEventFromSub = this.handleErrorEventFromSub.bind(this);
-        this.handleIpfsGatewaySubplebbitState = this.handleIpfsGatewaySubplebbitState.bind(this);
+        this.handleIpfsGatewayCommunityState = this.handleIpfsGatewayCommunityState.bind(this);
         this.handleUpdateEventFromSub = this.handleUpdateEventFromSub.bind(this);
         this.handleUpdatingStateChangeEventFromSub = this.handleUpdatingStateChangeEventFromSub.bind(this);
     }
@@ -58,15 +58,15 @@ export class PublicationClientsManager extends PlebbitClientsManager {
             };
     }
 
-    protected _initPlebbitRpcClients() {
+    protected _initPKCRpcClients() {
         for (const rpcUrl of remeda.keys.strict(this._plebbit.clients.plebbitRpcClients))
             this.clients.plebbitRpcClients = {
                 ...this.clients.plebbitRpcClients,
-                [rpcUrl]: new PublicationPlebbitRpcStateClient("stopped")
+                [rpcUrl]: new PublicationPKCRpcStateClient("stopped")
             };
     }
 
-    override emitError(e: PlebbitError): void {
+    override emitError(e: PKCError): void {
         this._publication.emit("error", e);
     }
 
@@ -85,7 +85,7 @@ export class PublicationClientsManager extends PlebbitClientsManager {
         super.updateGatewayState(newState, gateway);
     }
 
-    _translateSubUpdatingStateToPublishingState(newUpdatingState: RemoteSubplebbit["updatingState"]) {
+    _translateSubUpdatingStateToPublishingState(newUpdatingState: RemoteCommunity["updatingState"]) {
         const mapper: Partial<Record<typeof newUpdatingState, Publication["publishingState"]>> = {
             failed: "failed",
             "fetching-ipfs": "fetching-subplebbit-ipfs",
@@ -96,20 +96,20 @@ export class PublicationClientsManager extends PlebbitClientsManager {
         if (translatedState) this._publication._updatePublishingStateWithEmission(translatedState);
     }
 
-    handleUpdatingStateChangeEventFromSub(newUpdatingState: RemoteSubplebbit["updatingState"]) {
+    handleUpdatingStateChangeEventFromSub(newUpdatingState: RemoteCommunity["updatingState"]) {
         // will be overridden in comment-client-manager to provide a specific states relevant to post updating
         // below is for handling translation to publishingState
         this._translateSubUpdatingStateToPublishingState(newUpdatingState);
     }
-    handleUpdateEventFromSub(sub: RemoteSubplebbit) {
+    handleUpdateEventFromSub(sub: RemoteCommunity) {
         // a new update has been emitted by sub
         // should be handled in comment-client-manager
     }
 
-    handleErrorEventFromSub(err: PlebbitError | Error) {}
+    handleErrorEventFromSub(err: PKCError | Error) {}
 
-    handleIpfsGatewaySubplebbitState(
-        subplebbitNewGatewayState: RemoteSubplebbit["clients"]["ipfsGateways"][string]["state"],
+    handleIpfsGatewayCommunityState(
+        subplebbitNewGatewayState: RemoteCommunity["clients"]["ipfsGateways"][string]["state"],
         gatewayUrl: string
     ) {
         this.updateGatewayState(
@@ -118,8 +118,8 @@ export class PublicationClientsManager extends PlebbitClientsManager {
         );
     }
 
-    handleNameResolverSubplebbitState(
-        subplebbitNewResolverState: RemoteSubplebbit["clients"]["nameResolvers"][string]["state"],
+    handleNameResolverCommunityState(
+        subplebbitNewResolverState: RemoteCommunity["clients"]["nameResolvers"][string]["state"],
         resolverKey: string
     ) {
         // Don't forward page-author resolution states from the subplebbit — only community-name resolution is relevant
@@ -127,8 +127,8 @@ export class PublicationClientsManager extends PlebbitClientsManager {
         this.updateNameResolverState(subplebbitNewResolverState, resolverKey);
     }
 
-    handleKuboRpcSubplebbitState(
-        subplebbitNewKuboRpcState: RemoteSubplebbit["clients"]["kuboRpcClients"][string]["state"],
+    handleKuboRpcCommunityState(
+        subplebbitNewKuboRpcState: RemoteCommunity["clients"]["kuboRpcClients"][string]["state"],
         kuboRpcUrl: string
     ) {
         const stateMapper: Record<typeof subplebbitNewKuboRpcState, PublicationKuboRpcClient["state"] | undefined> = {
@@ -142,8 +142,8 @@ export class PublicationClientsManager extends PlebbitClientsManager {
         if (translatedState) this.updateKuboRpcState(translatedState, kuboRpcUrl);
     }
 
-    handleLibp2pJsClientSubplebbitState(
-        subplebbitNewLibp2pJsState: RemoteSubplebbit["clients"]["libp2pJsClients"][string]["state"],
+    handleLibp2pJsClientCommunityState(
+        subplebbitNewLibp2pJsState: RemoteCommunity["clients"]["libp2pJsClients"][string]["state"],
         libp2pJsClientKey: string
     ) {
         const stateMapper: Record<typeof subplebbitNewLibp2pJsState, PublicationLibp2pJsClient["state"] | undefined> = {
@@ -165,11 +165,11 @@ export class PublicationClientsManager extends PlebbitClientsManager {
         // basically in Publication or comment we need to be fetching the subplebbit record
         // this function will be for translating between the states of the subplebbit and its clients to publication/comment states
         const directSubInstance =
-            findUpdatingSubplebbit(this._plebbit, { address: this._publication.communityAddress }) ||
-            findStartedSubplebbit(this._plebbit, { address: this._publication.communityAddress });
+            findUpdatingCommunity(this._plebbit, { address: this._publication.communityAddress }) ||
+            findStartedCommunity(this._plebbit, { address: this._publication.communityAddress });
         const sub =
             directSubInstance ||
-            (await this._plebbit.createSubplebbit({
+            (await this._plebbit.createCommunity({
                 name: this._publication.communityName,
                 publicKey: this._publication.communityPublicKey,
                 address: this._publication.communityAddress
@@ -190,8 +190,8 @@ export class PublicationClientsManager extends PlebbitClientsManager {
             const ipfsGatewayListeners: (typeof this._communityForUpdating)["ipfsGatewayListeners"] = {};
 
             for (const gatewayUrl of Object.keys(this._communityForUpdating.subplebbit.clients.ipfsGateways)) {
-                const ipfsStateListener = (subplebbitNewIpfsState: RemoteSubplebbit["clients"]["ipfsGateways"][string]["state"]) =>
-                    this.handleIpfsGatewaySubplebbitState(subplebbitNewIpfsState, gatewayUrl);
+                const ipfsStateListener = (subplebbitNewIpfsState: RemoteCommunity["clients"]["ipfsGateways"][string]["state"]) =>
+                    this.handleIpfsGatewayCommunityState(subplebbitNewIpfsState, gatewayUrl);
 
                 this._communityForUpdating.subplebbit.clients.ipfsGateways[gatewayUrl].on("statechange", ipfsStateListener);
                 ipfsGatewayListeners[gatewayUrl] = ipfsStateListener;
@@ -204,11 +204,11 @@ export class PublicationClientsManager extends PlebbitClientsManager {
             this._communityForUpdating.subplebbit.clients.kuboRpcClients &&
             Object.keys(this._communityForUpdating.subplebbit.clients.kuboRpcClients).length > 0
         ) {
-            const kuboRpcListeners: Record<string, Parameters<RemoteSubplebbit["clients"]["kuboRpcClients"][string]["on"]>[1]> = {};
+            const kuboRpcListeners: Record<string, Parameters<RemoteCommunity["clients"]["kuboRpcClients"][string]["on"]>[1]> = {};
 
             for (const kuboRpcUrl of Object.keys(this._communityForUpdating.subplebbit.clients.kuboRpcClients)) {
-                const kuboRpcStateListener = (subplebbitNewKuboRpcState: RemoteSubplebbit["clients"]["kuboRpcClients"][string]["state"]) =>
-                    this.handleKuboRpcSubplebbitState(subplebbitNewKuboRpcState, kuboRpcUrl);
+                const kuboRpcStateListener = (subplebbitNewKuboRpcState: RemoteCommunity["clients"]["kuboRpcClients"][string]["state"]) =>
+                    this.handleKuboRpcCommunityState(subplebbitNewKuboRpcState, kuboRpcUrl);
 
                 this._communityForUpdating.subplebbit.clients.kuboRpcClients[kuboRpcUrl].on("statechange", kuboRpcStateListener);
                 kuboRpcListeners[kuboRpcUrl] = kuboRpcStateListener;
@@ -221,12 +221,12 @@ export class PublicationClientsManager extends PlebbitClientsManager {
             this._communityForUpdating.subplebbit.clients.libp2pJsClients &&
             Object.keys(this._communityForUpdating.subplebbit.clients.libp2pJsClients).length > 0
         ) {
-            const libp2pJsListeners: Record<string, Parameters<RemoteSubplebbit["clients"]["libp2pJsClients"][string]["on"]>[1]> = {};
+            const libp2pJsListeners: Record<string, Parameters<RemoteCommunity["clients"]["libp2pJsClients"][string]["on"]>[1]> = {};
 
             for (const libp2pJsClientKey of Object.keys(this._communityForUpdating.subplebbit.clients.libp2pJsClients)) {
                 const libp2pJsClientStateListener = (
-                    subplebbitNewLibp2pJsState: RemoteSubplebbit["clients"]["libp2pJsClients"][string]["state"]
-                ) => this.handleLibp2pJsClientSubplebbitState(subplebbitNewLibp2pJsState, libp2pJsClientKey);
+                    subplebbitNewLibp2pJsState: RemoteCommunity["clients"]["libp2pJsClients"][string]["state"]
+                ) => this.handleLibp2pJsClientCommunityState(subplebbitNewLibp2pJsState, libp2pJsClientKey);
 
                 this._communityForUpdating.subplebbit.clients.libp2pJsClients[libp2pJsClientKey].on(
                     "statechange",
@@ -242,11 +242,11 @@ export class PublicationClientsManager extends PlebbitClientsManager {
             this._communityForUpdating.subplebbit.clients.nameResolvers &&
             Object.keys(this._communityForUpdating.subplebbit.clients.nameResolvers).length > 0
         ) {
-            const nameResolverListeners: Record<string, Parameters<RemoteSubplebbit["clients"]["nameResolvers"][string]["on"]>[1]> = {};
+            const nameResolverListeners: Record<string, Parameters<RemoteCommunity["clients"]["nameResolvers"][string]["on"]>[1]> = {};
 
             for (const resolverKey of Object.keys(this._communityForUpdating.subplebbit.clients.nameResolvers)) {
-                const resolverStateListener = (subplebbitNewResolverState: RemoteSubplebbit["clients"]["nameResolvers"][string]["state"]) =>
-                    this.handleNameResolverSubplebbitState(subplebbitNewResolverState, resolverKey);
+                const resolverStateListener = (subplebbitNewResolverState: RemoteCommunity["clients"]["nameResolvers"][string]["state"]) =>
+                    this.handleNameResolverCommunityState(subplebbitNewResolverState, resolverKey);
 
                 this._communityForUpdating.subplebbit.clients.nameResolvers[resolverKey].on("statechange", resolverStateListener);
                 nameResolverListeners[resolverKey] = resolverStateListener;
@@ -319,10 +319,10 @@ export class PublicationClientsManager extends PlebbitClientsManager {
         this._communityForUpdating.subplebbit.removeListener("update", this._communityForUpdating.update);
 
         if (this._communityForUpdating.subplebbit._updatingSubInstanceWithListeners)
-            // should only stop when _communityForUpdating is not plebbit._updatingSubplebbits
+            // should only stop when _communityForUpdating is not plebbit._updatingCommunitys
             await this._communityForUpdating.subplebbit.stop();
         else {
-            // _communityForUpdating is actually plebbit._updatingSubplebbits or plebbit._startedSubplebbits
+            // _communityForUpdating is actually plebbit._updatingCommunitys or plebbit._startedCommunitys
             this._communityForUpdating.subplebbit._numOfListenersForUpdatingInstance--;
             if (
                 this._communityForUpdating.subplebbit._numOfListenersForUpdatingInstance <= 0 &&
@@ -339,7 +339,7 @@ export class PublicationClientsManager extends PlebbitClientsManager {
 
     private async _loadCommunityForPublishingFromNetwork(): Promise<NonNullable<Publication["_community"]>> {
         const updatingSubInstance = await this._createSubInstanceWithStateTranslation();
-        let subIpfs: SubplebbitIpfsType;
+        let subIpfs: CommunityIpfsType;
         if (!updatingSubInstance.subplebbit.raw.subplebbitIpfs) {
             const timeoutMs = this._plebbit._timeouts["subplebbit-ipns"];
             try {
@@ -356,7 +356,7 @@ export class PublicationClientsManager extends PlebbitClientsManager {
         }
 
         if (!subIpfs)
-            throw new PlebbitError("ERR_GET_COMMUNITY_TIMED_OUT", {
+            throw new PKCError("ERR_GET_COMMUNITY_TIMED_OUT", {
                 subplebbitAddress: updatingSubInstance.subplebbit.address,
                 timeoutMs: this._plebbit._timeouts["subplebbit-ipns"]
             });

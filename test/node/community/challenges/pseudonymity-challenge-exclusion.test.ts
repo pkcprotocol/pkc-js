@@ -1,21 +1,16 @@
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
-import {
-    createSubWithNoChallenge,
-    describeSkipIfRpc,
-    mockPlebbit,
-    resolveWhenConditionIsTrue
-} from "../../../../dist/node/test/test-util.js";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../../dist/node/community/rpc-local-community.js";
+import { createSubWithNoChallenge, describeSkipIfRpc, mockPKC, resolveWhenConditionIsTrue } from "../../../../dist/node/test/test-util.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
 import type { SignerWithPublicKeyAddress } from "../../../../dist/node/signer/index.js";
 import type { CommentUpdatesRow, CommentsTableRow } from "../../../../dist/node/publications/comment/types.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
-import type { SubplebbitChallengeSetting, SubplebbitFeatures } from "../../../../dist/node/community/types.js";
+import type { CommunityChallengeSetting, CommunityFeatures } from "../../../../dist/node/community/types.js";
 import type {
     DecryptedChallengeMessageType,
     ChallengeVerificationMessageType,
-    DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor
+    DecryptedChallengeRequestMessageTypeWithCommunityAuthor
 } from "../../../../dist/node/pubsub-messages/types.js";
 
 type StoredCommentUpdate = Pick<
@@ -24,16 +19,16 @@ type StoredCommentUpdate = Pick<
 >;
 
 interface ChallengeExclusionTestContext {
-    plebbit: Plebbit;
-    subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    plebbit: PKC;
+    subplebbit: LocalCommunity | RpcLocalCommunity;
     cleanup: () => Promise<void>;
 }
 
-async function createSubplebbitWithChallengeExclusion(opts: {
-    pseudonymityMode: NonNullable<SubplebbitFeatures["pseudonymityMode"]>;
-    challengeExclude: SubplebbitChallengeSetting["exclude"];
+async function createCommunityWithChallengeExclusion(opts: {
+    pseudonymityMode: NonNullable<CommunityFeatures["pseudonymityMode"]>;
+    challengeExclude: CommunityChallengeSetting["exclude"];
 }): Promise<ChallengeExclusionTestContext> {
-    const plebbit = await mockPlebbit();
+    const plebbit = await mockPKC();
     const subplebbit = await createSubWithNoChallenge({}, plebbit);
 
     await subplebbit.edit({
@@ -65,7 +60,7 @@ async function createSubplebbitWithChallengeExclusion(opts: {
     };
 }
 
-async function waitForStoredCommentUpdate(subplebbit: LocalSubplebbit, cid: string): Promise<StoredCommentUpdate> {
+async function waitForStoredCommentUpdate(subplebbit: LocalCommunity, cid: string): Promise<StoredCommentUpdate> {
     const timeoutMs = 60000;
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
@@ -76,7 +71,7 @@ async function waitForStoredCommentUpdate(subplebbit: LocalSubplebbit, cid: stri
     throw new Error(`Timed out waiting for stored comment update for ${cid}`);
 }
 
-async function waitForStoredCommentUpdateWithAssertions(subplebbit: LocalSubplebbit, comment: Comment): Promise<StoredCommentUpdate> {
+async function waitForStoredCommentUpdateWithAssertions(subplebbit: LocalCommunity, comment: Comment): Promise<StoredCommentUpdate> {
     const storedUpdate = await waitForStoredCommentUpdate(subplebbit, comment.cid);
     expect(storedUpdate.cid).to.equal(comment.cid);
     expect(storedUpdate.updatedAt).to.be.a("number");
@@ -85,7 +80,7 @@ async function waitForStoredCommentUpdateWithAssertions(subplebbit: LocalSubpleb
 
 async function publishPostWithChallengeAnswer(
     communityAddress: string,
-    plebbit: Plebbit,
+    plebbit: PKC,
     signer: SignerWithPublicKeyAddress,
     challengeAnswer: string
 ): Promise<Comment> {
@@ -114,7 +109,7 @@ async function publishPostWithChallengeAnswer(
 
 async function publishPostAndTrackChallenge(
     communityAddress: string,
-    plebbit: Plebbit,
+    plebbit: PKC,
     signer: SignerWithPublicKeyAddress,
     opts?: {
         title?: string;
@@ -149,7 +144,7 @@ async function publishPostAndTrackChallenge(
 
 async function publishReplyWithChallengeAnswer(
     parentComment: Pick<Comment, "cid" | "postCid" | "communityAddress">,
-    plebbit: Plebbit,
+    plebbit: PKC,
     signer: SignerWithPublicKeyAddress,
     challengeAnswer: string
 ): Promise<Comment> {
@@ -183,7 +178,7 @@ async function publishReplyWithChallengeAnswer(
 }
 
 async function publishVoteWithChallengeAnswer(
-    plebbit: Plebbit,
+    plebbit: PKC,
     opts: {
         communityAddress: string;
         commentCid: string;
@@ -216,7 +211,7 @@ async function publishVoteWithChallengeAnswer(
 describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
     describe("per-post pseudonymity mode", () => {
         it("moderators are excluded from role-based challenges in per-post mode", async () => {
-            const context = await createSubplebbitWithChallengeExclusion({
+            const context = await createCommunityWithChallengeExclusion({
                 pseudonymityMode: "per-post",
                 challengeExclude: [{ role: ["moderator"] }]
             });
@@ -235,7 +230,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                     predicate: async () => context.subplebbit.roles?.[moderator.address]?.role === "moderator"
                 });
 
-                const challengeRequestPromise = new Promise<DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor>((resolve) => {
+                const challengeRequestPromise = new Promise<DecryptedChallengeRequestMessageTypeWithCommunityAuthor>((resolve) => {
                     context.subplebbit.once("challengerequest", resolve);
                 });
                 const moderatorPublication = await publishPostAndTrackChallenge(context.subplebbit.address, context.plebbit, moderator, {
@@ -254,7 +249,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
         });
 
         it("new author with no karma must solve challenge (not excluded by postScore)", async () => {
-            const context = await createSubplebbitWithChallengeExclusion({
+            const context = await createCommunityWithChallengeExclusion({
                 pseudonymityMode: "per-post",
                 challengeExclude: [{ postScore: 5 }]
             });
@@ -293,7 +288,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
         });
 
         it("author with enough postScore karma is excluded from challenge in per-post mode", async () => {
-            const context = await createSubplebbitWithChallengeExclusion({
+            const context = await createCommunityWithChallengeExclusion({
                 pseudonymityMode: "per-post",
                 challengeExclude: [{ postScore: 1 }]
             });
@@ -304,7 +299,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 // First, publish a post and answer challenge to build karma baseline
                 const firstPost = await publishPostWithChallengeAnswer(context.subplebbit.address, context.plebbit, author, "2");
-                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, firstPost);
+                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, firstPost);
 
                 // Upvote the post to give author postScore = 1
                 await publishVoteWithChallengeAnswer(
@@ -322,13 +317,13 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 await resolveWhenConditionIsTrue({
                     toUpdate: context.subplebbit,
                     predicate: async () => {
-                        const authorData = (context.subplebbit as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(author.address);
+                        const authorData = (context.subplebbit as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);
                         return authorData?.postScore === 1;
                     }
                 });
 
                 // Verify author has postScore = 1
-                const authorDataBefore = (context.subplebbit as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(author.address);
+                const authorDataBefore = (context.subplebbit as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);
                 expect(authorDataBefore?.postScore).to.equal(1);
 
                 // Now publish a second post - author should be EXCLUDED from challenge (no challenge received)
@@ -365,7 +360,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
         });
 
         it("karma aggregates across anonymized identities for challenge exclusion in per-post mode", async () => {
-            const context = await createSubplebbitWithChallengeExclusion({
+            const context = await createCommunityWithChallengeExclusion({
                 pseudonymityMode: "per-post",
                 challengeExclude: [{ postScore: 3 }]
             });
@@ -376,7 +371,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 // Publish post1 and upvote (postScore = 1)
                 const post1 = await publishPostWithChallengeAnswer(context.subplebbit.address, context.plebbit, author, "2");
-                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, post1);
+                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, post1);
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
@@ -386,7 +381,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 // Publish post2 (new alias) and upvote (total postScore = 2)
                 const post2 = await publishPostWithChallengeAnswer(context.subplebbit.address, context.plebbit, author, "2");
-                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, post2);
+                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, post2);
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
@@ -396,7 +391,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 // Publish post3 (new alias) and upvote (total postScore = 3)
                 const post3 = await publishPostWithChallengeAnswer(context.subplebbit.address, context.plebbit, author, "2");
-                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, post3);
+                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, post3);
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
@@ -408,13 +403,13 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 await resolveWhenConditionIsTrue({
                     toUpdate: context.subplebbit,
                     predicate: async () => {
-                        const authorData = (context.subplebbit as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(author.address);
+                        const authorData = (context.subplebbit as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);
                         return authorData?.postScore === 3;
                     }
                 });
 
                 // Verify karma aggregation works correctly
-                const authorData = (context.subplebbit as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(author.address);
+                const authorData = (context.subplebbit as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);
                 expect(authorData?.postScore).to.equal(3);
 
                 // Now publish post4 - should be EXCLUDED because aggregated karma = 3
@@ -452,7 +447,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
         });
 
         it("replyScore exclusion works with per-post pseudonymity mode", async () => {
-            const context = await createSubplebbitWithChallengeExclusion({
+            const context = await createCommunityWithChallengeExclusion({
                 pseudonymityMode: "per-post",
                 challengeExclude: [{ replyScore: 1 }]
             });
@@ -463,11 +458,11 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 // Create a post first
                 const post = await publishPostWithChallengeAnswer(context.subplebbit.address, context.plebbit, author, "2");
-                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, post);
+                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, post);
 
                 // Publish a reply and upvote it
                 const reply = await publishReplyWithChallengeAnswer(post, context.plebbit, author, "2");
-                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, reply);
+                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, reply);
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
@@ -479,7 +474,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 await resolveWhenConditionIsTrue({
                     toUpdate: context.subplebbit,
                     predicate: async () => {
-                        const authorData = (context.subplebbit as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(author.address);
+                        const authorData = (context.subplebbit as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);
                         return authorData?.replyScore === 1;
                     }
                 });
@@ -518,7 +513,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
         });
 
         it("firstCommentTimestamp exclusion works with per-post pseudonymity mode", async () => {
-            const context = await createSubplebbitWithChallengeExclusion({
+            const context = await createCommunityWithChallengeExclusion({
                 pseudonymityMode: "per-post",
                 // Exclude authors who have been active for at least 1 second
                 challengeExclude: [{ firstCommentTimestamp: 1 }]
@@ -529,13 +524,13 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 // Publish first post to establish firstCommentTimestamp
                 const firstPost = await publishPostWithChallengeAnswer(context.subplebbit.address, context.plebbit, author, "2");
-                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, firstPost);
+                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, firstPost);
 
                 // Wait a bit for timestamp to be old enough
                 await new Promise((resolve) => setTimeout(resolve, 1500));
 
                 // Verify author has a firstCommentTimestamp
-                const authorData = (context.subplebbit as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(author.address);
+                const authorData = (context.subplebbit as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);
                 expect(authorData?.firstCommentTimestamp).to.be.a("number");
 
                 // Now publish second post - should be excluded based on firstCommentTimestamp
@@ -573,7 +568,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
     describe("per-reply pseudonymity mode", () => {
         it("moderators are excluded from role-based challenges in per-reply mode", async () => {
-            const context = await createSubplebbitWithChallengeExclusion({
+            const context = await createCommunityWithChallengeExclusion({
                 pseudonymityMode: "per-reply",
                 challengeExclude: [{ role: ["moderator"] }]
             });
@@ -605,7 +600,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
         });
 
         it("author with enough karma is excluded from challenge in per-reply mode", async () => {
-            const context = await createSubplebbitWithChallengeExclusion({
+            const context = await createCommunityWithChallengeExclusion({
                 pseudonymityMode: "per-reply",
                 challengeExclude: [{ postScore: 1 }]
             });
@@ -616,7 +611,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 // Publish a post and upvote it
                 const post = await publishPostWithChallengeAnswer(context.subplebbit.address, context.plebbit, author, "2");
-                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, post);
+                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, post);
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
@@ -628,7 +623,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 await resolveWhenConditionIsTrue({
                     toUpdate: context.subplebbit,
                     predicate: async () => {
-                        const authorData = (context.subplebbit as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(author.address);
+                        const authorData = (context.subplebbit as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);
                         return authorData?.postScore === 1;
                     }
                 });
@@ -667,7 +662,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
         });
 
         it("karma aggregates across per-reply aliases for challenge exclusion", async () => {
-            const context = await createSubplebbitWithChallengeExclusion({
+            const context = await createCommunityWithChallengeExclusion({
                 pseudonymityMode: "per-reply",
                 challengeExclude: [{ replyScore: 2 }]
             });
@@ -678,11 +673,11 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 // Create a base post
                 const post = await publishPostWithChallengeAnswer(context.subplebbit.address, context.plebbit, author, "2");
-                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, post);
+                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, post);
 
                 // Publish reply1 (gets new alias) and upvote
                 const reply1 = await publishReplyWithChallengeAnswer(post, context.plebbit, author, "2");
-                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, reply1);
+                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, reply1);
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
@@ -692,7 +687,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 // Publish reply2 (gets new alias) and upvote
                 const reply2 = await publishReplyWithChallengeAnswer(post, context.plebbit, author, "2");
-                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, reply2);
+                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, reply2);
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
@@ -704,13 +699,13 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 await resolveWhenConditionIsTrue({
                     toUpdate: context.subplebbit,
                     predicate: async () => {
-                        const authorData = (context.subplebbit as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(author.address);
+                        const authorData = (context.subplebbit as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);
                         return authorData?.replyScore === 2;
                     }
                 });
 
                 // Verify aggregation
-                const authorData = (context.subplebbit as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(author.address);
+                const authorData = (context.subplebbit as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);
                 expect(authorData?.replyScore).to.equal(2);
 
                 // Now publish reply3 - should be excluded
@@ -751,7 +746,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
     describe("per-author pseudonymity mode", () => {
         it("moderators are excluded from role-based challenges in per-author mode", async () => {
-            const context = await createSubplebbitWithChallengeExclusion({
+            const context = await createCommunityWithChallengeExclusion({
                 pseudonymityMode: "per-author",
                 challengeExclude: [{ role: ["moderator"] }]
             });
@@ -783,7 +778,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
         });
 
         it("author with enough karma is excluded from challenge in per-author mode", async () => {
-            const context = await createSubplebbitWithChallengeExclusion({
+            const context = await createCommunityWithChallengeExclusion({
                 pseudonymityMode: "per-author",
                 challengeExclude: [{ postScore: 1 }]
             });
@@ -794,7 +789,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 // Publish a post and upvote it
                 const post = await publishPostWithChallengeAnswer(context.subplebbit.address, context.plebbit, author, "2");
-                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, post);
+                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, post);
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
@@ -806,7 +801,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 await resolveWhenConditionIsTrue({
                     toUpdate: context.subplebbit,
                     predicate: async () => {
-                        const authorData = (context.subplebbit as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(author.address);
+                        const authorData = (context.subplebbit as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);
                         return authorData?.postScore === 1;
                     }
                 });
@@ -844,7 +839,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
         });
 
         it("per-author mode uses same alias but still correctly tracks karma for exclusion", async () => {
-            const context = await createSubplebbitWithChallengeExclusion({
+            const context = await createCommunityWithChallengeExclusion({
                 pseudonymityMode: "per-author",
                 challengeExclude: [{ postScore: 2, replyScore: 1 }]
             });
@@ -855,7 +850,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 // Publish post1 and upvote
                 const post1 = await publishPostWithChallengeAnswer(context.subplebbit.address, context.plebbit, author, "2");
-                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, post1);
+                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, post1);
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
@@ -865,7 +860,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 // Publish reply and upvote
                 const reply = await publishReplyWithChallengeAnswer(post1, context.plebbit, author, "2");
-                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, reply);
+                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, reply);
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
@@ -875,7 +870,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 // Publish post2 and upvote
                 const post2 = await publishPostWithChallengeAnswer(context.subplebbit.address, context.plebbit, author, "2");
-                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, post2);
+                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, post2);
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
@@ -887,13 +882,13 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 await resolveWhenConditionIsTrue({
                     toUpdate: context.subplebbit,
                     predicate: async () => {
-                        const authorData = (context.subplebbit as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(author.address);
+                        const authorData = (context.subplebbit as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);
                         return authorData?.postScore === 2 && authorData?.replyScore === 1;
                     }
                 });
 
                 // Verify
-                const authorData = (context.subplebbit as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(author.address);
+                const authorData = (context.subplebbit as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);
                 expect(authorData?.postScore).to.equal(2);
                 expect(authorData?.replyScore).to.equal(1);
 
@@ -937,7 +932,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
             // This test verifies that the challengerequest event (which is what challenge APIs receive)
             // contains the AGGREGATED author.subplebbit values across all aliases, not isolated per-alias values
 
-            const context = await createSubplebbitWithChallengeExclusion({
+            const context = await createCommunityWithChallengeExclusion({
                 pseudonymityMode: "per-post",
                 challengeExclude: [{ postScore: 10 }] // High threshold so we always get a challenge
             });
@@ -948,7 +943,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 // Publish post1 (gets alias1) and upvote it
                 const post1 = await publishPostWithChallengeAnswer(context.subplebbit.address, context.plebbit, author, "2");
-                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, post1);
+                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, post1);
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
@@ -958,7 +953,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 // Publish post2 (gets alias2) and upvote it
                 const post2 = await publishPostWithChallengeAnswer(context.subplebbit.address, context.plebbit, author, "2");
-                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, post2);
+                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, post2);
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
@@ -970,13 +965,13 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 await resolveWhenConditionIsTrue({
                     toUpdate: context.subplebbit,
                     predicate: async () => {
-                        const authorData = (context.subplebbit as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(author.address);
+                        const authorData = (context.subplebbit as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);
                         return authorData?.postScore === 2;
                     }
                 });
 
                 // Capture the challengerequest event when publishing post3
-                const challengeRequestPromise = new Promise<DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor>((resolve) => {
+                const challengeRequestPromise = new Promise<DecryptedChallengeRequestMessageTypeWithCommunityAuthor>((resolve) => {
                     context.subplebbit.once("challengerequest", resolve);
                 });
 
@@ -1018,7 +1013,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
         });
 
         it("challengerequest contains aggregated karma across all per-reply aliases", async () => {
-            const context = await createSubplebbitWithChallengeExclusion({
+            const context = await createCommunityWithChallengeExclusion({
                 pseudonymityMode: "per-reply",
                 challengeExclude: [{ replyScore: 10 }] // High threshold so we always get a challenge
             });
@@ -1029,11 +1024,11 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 // Create a base post
                 const post = await publishPostWithChallengeAnswer(context.subplebbit.address, context.plebbit, author, "2");
-                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, post);
+                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, post);
 
                 // Publish reply1 (gets alias1) and upvote it
                 const reply1 = await publishReplyWithChallengeAnswer(post, context.plebbit, author, "2");
-                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, reply1);
+                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, reply1);
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
@@ -1043,7 +1038,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 // Publish reply2 (gets alias2) and upvote it
                 const reply2 = await publishReplyWithChallengeAnswer(post, context.plebbit, author, "2");
-                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, reply2);
+                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, reply2);
 
                 await publishVoteWithChallengeAnswer(
                     context.plebbit,
@@ -1055,13 +1050,13 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 await resolveWhenConditionIsTrue({
                     toUpdate: context.subplebbit,
                     predicate: async () => {
-                        const authorData = (context.subplebbit as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(author.address);
+                        const authorData = (context.subplebbit as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);
                         return authorData?.replyScore === 2;
                     }
                 });
 
                 // Capture the challengerequest event when publishing reply3
-                const challengeRequestPromise = new Promise<DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor>((resolve) => {
+                const challengeRequestPromise = new Promise<DecryptedChallengeRequestMessageTypeWithCommunityAuthor>((resolve) => {
                     context.subplebbit.once("challengerequest", resolve);
                 });
 

@@ -1,17 +1,17 @@
 import {
-    getEquivalentSubplebbitAddresses,
+    getEquivalentCommunityAddresses,
     hideClassPrivateProps,
     isStringDomain,
     removeNullUndefinedValues,
     timestamp
 } from "../../../util.js";
-import { PlebbitError } from "../../../pkc-error.js";
+import { PKCError } from "../../../pkc-error.js";
 import path from "path";
 import assert from "assert";
 import fs from "fs";
 import os from "os";
 import Logger from "../../../logger.js";
-import { deleteOldSubplebbitInWindows, getDefaultSubplebbitDbConfig } from "../util.js";
+import { deleteOldCommunityInWindows, getDefaultCommunityDbConfig } from "../util.js";
 import env from "../../../version.js";
 import Database, { type Database as BetterSqlite3Database } from "better-sqlite3";
 import { sha256 } from "js-sha256";
@@ -20,12 +20,12 @@ import { sha256 } from "js-sha256";
 import * as lockfile from "@plebbit/proper-lockfile";
 import type { PageOptions } from "./page-generator.js";
 import type {
-    InternalSubplebbitRecordAfterFirstUpdateType,
-    InternalSubplebbitRecordBeforeFirstUpdateType,
-    SubplebbitStats
+    InternalCommunityRecordAfterFirstUpdateType,
+    InternalCommunityRecordBeforeFirstUpdateType,
+    CommunityStats
 } from "../../../community/types.js";
-import { LocalSubplebbit } from "./local-community.js";
-import { getPlebbitAddressFromPublicKey, getPlebbitAddressFromPublicKeySync } from "../../../signer/util.js";
+import { LocalCommunity } from "./local-community.js";
+import { getPKCAddressFromPublicKey, getPKCAddressFromPublicKeySync } from "../../../signer/util.js";
 import * as remeda from "remeda";
 import type {
     CommentEditPubsubMessagePublication,
@@ -40,13 +40,13 @@ import type {
     CommentUpdatesRow,
     CommentUpdatesTableRowInsert,
     CommentUpdateType,
-    SubplebbitAuthor
+    CommunityAuthor
 } from "../../../publications/comment/types.js";
 import { CommentIpfsSchema, CommentUpdateSchema } from "../../../publications/comment/schema.js";
 import { verifyCommentEdit, verifyCommentIpfs } from "../../../signer/signatures.js";
 import type { PageIpfs, RepliesPagesTypeIpfs } from "../../../pages/types.js";
 import type { CommentModerationsTableRowInsert, CommentModerationTableRow } from "../../../publications/comment-moderation/types.js";
-import { getSubplebbitChallengeFromSubplebbitChallengeSettings, plebbitJsChallenges } from "./challenges/index.js";
+import { getCommunityChallengeFromCommunityChallengeSettings, plebbitJsChallenges } from "./challenges/index.js";
 import KeyvBetterSqlite3 from "./keyv-better-sqlite3.js";
 
 import { STORAGE_KEYS } from "../../../constants.js";
@@ -77,7 +77,7 @@ const TABLES = Object.freeze({
 
 export class DbHandler {
     _db!: BetterSqlite3Database;
-    private _subplebbit!: LocalSubplebbit;
+    private _subplebbit!: LocalCommunity;
     private _transactionDepth!: number;
     private _dbConfig!: { filename: string } & Database.Options;
     private _keyv!: KeyvBetterSqlite3;
@@ -139,7 +139,7 @@ export class DbHandler {
     }
 
     async initDbConfigIfNeeded() {
-        if (!this._dbConfig) this._dbConfig = await getDefaultSubplebbitDbConfig(this._subplebbit.address, this._subplebbit._plebbit);
+        if (!this._dbConfig) this._dbConfig = await getDefaultCommunityDbConfig(this._subplebbit.address, this._subplebbit._plebbit);
     }
 
     toJSON() {
@@ -150,7 +150,7 @@ export class DbHandler {
         const log = Logger("pkc-js:local-community:db-handler:initDbIfNeeded");
         assert(
             typeof this._subplebbit.address === "string" && this._subplebbit.address.length > 0,
-            `DbHandler needs to be an instantiated with a Subplebbit that has a valid address, (${this._subplebbit.address}) was provided`
+            `DbHandler needs to be an instantiated with a Community that has a valid address, (${this._subplebbit.address}) was provided`
         );
         await this.initDbConfigIfNeeded();
         const dbFilePath = this._dbConfig.filename;
@@ -426,7 +426,7 @@ export class DbHandler {
         return Number(result);
     }
 
-    _migrateOldSettings(oldSettings: InternalSubplebbitRecordBeforeFirstUpdateType["settings"]) {
+    _migrateOldSettings(oldSettings: InternalCommunityRecordBeforeFirstUpdateType["settings"]) {
         const fieldsToRemove = ["post", "reply", "vote"] as const;
         const newSettings = remeda.clone(oldSettings);
         if (Array.isArray(newSettings.challenges)) {
@@ -518,8 +518,8 @@ export class DbHandler {
 
             const internalState = this.keyvHas(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_SUBPLEBBIT])
                 ? ((await this.keyvGet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_SUBPLEBBIT])) as
-                      | InternalSubplebbitRecordAfterFirstUpdateType
-                      | InternalSubplebbitRecordBeforeFirstUpdateType)
+                      | InternalCommunityRecordAfterFirstUpdateType
+                      | InternalCommunityRecordBeforeFirstUpdateType)
                 : undefined;
             if (internalState) {
                 const protocolVersion = internalState.protocolVersion || env.PROTOCOL_VERSION;
@@ -527,7 +527,7 @@ export class DbHandler {
                     "_usingDefaultChallenge" in internalState
                         ? internalState._usingDefaultChallenge
                         : //@ts-expect-error
-                          remeda.isDeepEqual(this._subplebbit._defaultSubplebbitChallenges, internalState?.settings?.challenges);
+                          remeda.isDeepEqual(this._subplebbit._defaultCommunityChallenges, internalState?.settings?.challenges);
                 const updateCid: string =
                     "updateCid" in internalState && typeof internalState.updateCid === "string"
                         ? internalState.updateCid
@@ -536,7 +536,7 @@ export class DbHandler {
                 const newChallenges = newSettings.challenges
                     ? await Promise.all(
                           newSettings.challenges?.map((cs) =>
-                              getSubplebbitChallengeFromSubplebbitChallengeSettings(cs, this._subplebbit._plebbit)
+                              getCommunityChallengeFromCommunityChallengeSettings(cs, this._subplebbit._plebbit)
                           )
                       )
                     : newSettings.challenges;
@@ -620,7 +620,7 @@ export class DbHandler {
                 // If the comment was published with pseudonymity, use the original author's address
                 if (mod.originalAuthorSignerPublicKey) {
                     try {
-                        targetAddress = getPlebbitAddressFromPublicKeySync(mod.originalAuthorSignerPublicKey);
+                        targetAddress = getPKCAddressFromPublicKeySync(mod.originalAuthorSignerPublicKey);
                     } catch {
                         // If we can't derive the address from the public key, fall back to authorSignerAddress
                         targetAddress = mod.authorSignerAddress;
@@ -736,7 +736,7 @@ export class DbHandler {
                 }
                 if (currentDbVersion <= 12 && srcRecord["authorAddress"] && srcRecord["signature"]) {
                     const sig = typeof srcRecord.signature === "string" ? JSON.parse(srcRecord.signature) : srcRecord.signature;
-                    srcRecord["authorSignerAddress"] = await getPlebbitAddressFromPublicKey(sig["publicKey"]);
+                    srcRecord["authorSignerAddress"] = await getPKCAddressFromPublicKey(sig["publicKey"]);
                 }
                 if (srcTable === TABLES.COMMENTS) {
                     const commentIpfsFieldsNotIncludedAnymore = ["ipnsName"];
@@ -1163,7 +1163,7 @@ export class DbHandler {
 
     private _communityAddressClause(alias: string): { clause: string; params: string[] } {
         const address = this._subplebbit.address;
-        const addresses = getEquivalentSubplebbitAddresses(address);
+        const addresses = getEquivalentCommunityAddresses(address);
         if (isStringDomain(address)) {
             // Domain-based: match communityName OR communityPublicKey (domain strings and IPNS keys never overlap)
             const domainPlaceholders = addresses.map(() => "?").join(", ");
@@ -1179,7 +1179,7 @@ export class DbHandler {
 
     private _communityAddressClauseNamed(alias: string, paramPrefix: string): { clause: string; params: Record<string, string> } {
         const address = this._subplebbit.address;
-        const addresses = getEquivalentSubplebbitAddresses(address);
+        const addresses = getEquivalentCommunityAddresses(address);
         if (isStringDomain(address)) {
             // Domain-based: match communityName OR communityPublicKey (domain strings and IPNS keys never overlap)
             const params: Record<string, string> = {};
@@ -1557,7 +1557,7 @@ export class DbHandler {
         return results.map((r) => this._parseCommentsTableRow(r));
     }
 
-    querySubplebbitStats(): SubplebbitStats {
+    queryCommunityStats(): CommunityStats {
         // if you change this logic, make sure to run stats.subplebbit.test.js
         const now = timestamp(); // All timestamps are in seconds
         const { clause: commentAddrClause, params: commentAddrParams } = this._communityAddressClauseNamed("comments", "statsComments");
@@ -1568,7 +1568,7 @@ export class DbHandler {
         const deletedVotesClause = this._deletedFromUpdatesClause("cu_votes");
         const pendingCommentsClause = this._pendingApprovalClause("comments");
         type PostAndReplyCounts = Pick<
-            SubplebbitStats,
+            CommunityStats,
             | "hourPostCount"
             | "dayPostCount"
             | "weekPostCount"
@@ -1676,7 +1676,7 @@ export class DbHandler {
             for (const aliasRow of aliasRows) {
                 let originalAuthorAddress: string;
                 try {
-                    originalAuthorAddress = getPlebbitAddressFromPublicKeySync(aliasRow.originalAuthorSignerPublicKey);
+                    originalAuthorAddress = getPKCAddressFromPublicKeySync(aliasRow.originalAuthorSignerPublicKey);
                 } catch {
                     throw new Error(`Failed to resolve original author address for alias signer address ${aliasRow.aliasSignerAddress}`);
                 }
@@ -1711,7 +1711,7 @@ export class DbHandler {
         }
 
         const activeUserCounts: Pick<
-            SubplebbitStats,
+            CommunityStats,
             | "hourActiveUserCount"
             | "dayActiveUserCount"
             | "weekActiveUserCount"
@@ -2239,7 +2239,7 @@ export class DbHandler {
     }): Omit<CommentUpdateType, "signature" | "updatedAt" | "replies" | "protocolVersion"> {
         const { comment, authorDomain } = opts;
 
-        const authorSubplebbit = this.querySubplebbitAuthorForCommentUpdate({
+        const authorCommunity = this.queryCommunityAuthorForCommentUpdate({
             authorSignerAddress: comment.authorSignerAddress,
             commentCid: comment.cid,
             authorDomain
@@ -2255,7 +2255,7 @@ export class DbHandler {
 
         const { number: commentNumber, postNumber } = this._calculateCommentNumbers(comment.cid);
 
-        if (!authorSubplebbit) throw Error("Failed to query author.subplebbit in queryCalculatedCommentUpdate");
+        if (!authorCommunity) throw Error("Failed to query author.subplebbit in queryCalculatedCommentUpdate");
         return {
             ...(removedFromApproved ? removedFromApproved : undefined),
             cid: comment.cid,
@@ -2265,7 +2265,7 @@ export class DbHandler {
             flairs: commentModFlairs?.flairs || authorEdit?.flairs,
             ...commentFlags,
             reason: moderatorReason?.reason,
-            author: { subplebbit: authorSubplebbit },
+            author: { subplebbit: authorCommunity },
             ...lastChildAndLastReplyTimestamp,
             ...(authorEdit ? { edit: authorEdit } : undefined),
             ...(isThisCommentApproved ? { approved: isThisCommentApproved.approved } : undefined)
@@ -2307,7 +2307,7 @@ export class DbHandler {
     queryAuthorModEdits(opts: {
         authorSignerAddresses: string[];
         authorDomain?: string;
-    }): Pick<SubplebbitAuthor, "banExpiresAt" | "flairs"> {
+    }): Pick<CommunityAuthor, "banExpiresAt" | "flairs"> {
         const { authorSignerAddresses, authorDomain } = opts;
         if (authorSignerAddresses.length === 0 && !authorDomain) return {};
 
@@ -2340,7 +2340,7 @@ export class DbHandler {
         );
         const banAuthor = modAuthorEdits.find((modEdit) => typeof modEdit?.banExpiresAt === "number");
         const authorFlairsByMod = modAuthorEdits.find((modEdit) => modEdit?.flairs);
-        const aggregateAuthor: Pick<SubplebbitAuthor, "banExpiresAt" | "flairs"> = {};
+        const aggregateAuthor: Pick<CommunityAuthor, "banExpiresAt" | "flairs"> = {};
         if (banAuthor?.banExpiresAt) aggregateAuthor.banExpiresAt = banAuthor.banExpiresAt;
         if (authorFlairsByMod?.flairs) aggregateAuthor.flairs = authorFlairsByMod.flairs;
         return aggregateAuthor;
@@ -2362,7 +2362,7 @@ export class DbHandler {
         return result;
     }
 
-    querySubplebbitAuthor(authorSignerAddress: string, authorDomain?: string): SubplebbitAuthor | undefined {
+    queryCommunityAuthor(authorSignerAddress: string, authorDomain?: string): CommunityAuthor | undefined {
         const authorSignerAddresses = new Set<string>([authorSignerAddress]);
 
         // If the provided address is the original signer, include all alias signer addresses for that author.
@@ -2376,7 +2376,7 @@ export class DbHandler {
             .all() as Pick<PseudonymityAliasRow, "commentCid" | "originalAuthorSignerPublicKey">[];
         for (const aliasRow of aliasRowsForOriginal) {
             try {
-                const originalAddress = getPlebbitAddressFromPublicKeySync(aliasRow.originalAuthorSignerPublicKey);
+                const originalAddress = getPKCAddressFromPublicKeySync(aliasRow.originalAuthorSignerPublicKey);
                 if (originalAddress === authorSignerAddress) {
                     const commentRow = this._db
                         .prepare(`SELECT authorSignerAddress FROM ${TABLES.COMMENTS} WHERE cid = ?`)
@@ -2401,22 +2401,22 @@ export class DbHandler {
             .all(authorSignerAddress) as Pick<PseudonymityAliasRow, "originalAuthorSignerPublicKey">[];
         for (const aliasRow of aliasRowsForAliasAddress) {
             try {
-                const originalAddress = getPlebbitAddressFromPublicKeySync(aliasRow.originalAuthorSignerPublicKey);
+                const originalAddress = getPKCAddressFromPublicKeySync(aliasRow.originalAuthorSignerPublicKey);
                 authorSignerAddresses.add(originalAddress);
             } catch {
                 // ignore malformed keys
             }
         }
 
-        return this._querySubplebbitAuthorByAddresses([...authorSignerAddresses], undefined, authorDomain);
+        return this._queryCommunityAuthorByAddresses([...authorSignerAddresses], undefined, authorDomain);
     }
 
     /** Shared helper: query karma for a set of addresses, with optional separate addresses for mod edits */
-    private _querySubplebbitAuthorByAddresses(
+    private _queryCommunityAuthorByAddresses(
         karmaAddresses: string[],
         modEditAddresses: string[] = karmaAddresses,
         authorDomain?: string
-    ): SubplebbitAuthor | undefined {
+    ): CommunityAuthor | undefined {
         if (karmaAddresses.length === 0) return undefined;
         const placeholders = karmaAddresses.map(() => "?").join(", ");
 
@@ -2440,7 +2440,7 @@ export class DbHandler {
 
         if (authorCommentsData.length === 0) {
             if (Object.keys(modAuthorEdits).length > 0) {
-                return modAuthorEdits as SubplebbitAuthor;
+                return modAuthorEdits as CommunityAuthor;
             }
             return undefined;
         }
@@ -2464,27 +2464,27 @@ export class DbHandler {
      * - per-post: All comments in a thread share an alias, so querying by alias = thread karma
      * - per-author: One alias for all comments, so querying by alias = total karma
      *
-     * We query karma for ONLY the alias address (no lookup to other aliases like querySubplebbitAuthor does),
+     * We query karma for ONLY the alias address (no lookup to other aliases like queryCommunityAuthor does),
      * but include mod edits from both alias and original author.
      */
-    querySubplebbitAuthorForCommentUpdate(opts: {
+    queryCommunityAuthorForCommentUpdate(opts: {
         authorSignerAddress: string;
         commentCid: string;
         authorDomain?: string;
-    }): SubplebbitAuthor | undefined {
+    }): CommunityAuthor | undefined {
         const { authorSignerAddress, commentCid, authorDomain } = opts;
 
         // Check if this comment has a pseudonymity alias
         const aliasRow = this.queryPseudonymityAliasByCommentCid(commentCid);
         if (!aliasRow) {
             // No pseudonymity mode - use standard aggregated karma
-            return this.querySubplebbitAuthor(authorSignerAddress, authorDomain);
+            return this.queryCommunityAuthor(authorSignerAddress, authorDomain);
         }
 
         // Get original author's address for mod edits (bans/flairs are applied to original author)
         const modEditAddresses = [authorSignerAddress];
         try {
-            const originalAddress = getPlebbitAddressFromPublicKeySync(aliasRow.originalAuthorSignerPublicKey);
+            const originalAddress = getPKCAddressFromPublicKeySync(aliasRow.originalAuthorSignerPublicKey);
             if (originalAddress !== authorSignerAddress) {
                 modEditAddresses.push(originalAddress);
             }
@@ -2496,7 +2496,7 @@ export class DbHandler {
         const modEditDomain = aliasRow.originalAuthorDomain || authorDomain;
 
         // Query karma for just this alias, but mod edits from both alias and original
-        return this._querySubplebbitAuthorByAddresses([authorSignerAddress], modEditAddresses, modEditDomain);
+        return this._queryCommunityAuthorByAddresses([authorSignerAddress], modEditAddresses, modEditDomain);
     }
 
     private _getAllDescendantCids(cid: string): string[] {
@@ -2640,7 +2640,7 @@ export class DbHandler {
                 const sourceDb = new Database(oldPathString, { fileMustExist: true });
                 await sourceDb.backup(newPathString); // backup is synchronous in better-sqlite3 v8+
                 sourceDb.close();
-                if (os.type() === "Windows_NT") await deleteOldSubplebbitInWindows(oldPathString, this._subplebbit._plebbit);
+                if (os.type() === "Windows_NT") await deleteOldCommunityInWindows(oldPathString, this._subplebbit._plebbit);
                 else await fs.promises.rm(oldPathString, { force: true });
             }
         } catch (error) {
@@ -2665,7 +2665,7 @@ export class DbHandler {
             log(`Locked the start of subplebbit (${subAddress}) successfully`);
         } catch (e: unknown) {
             if (e instanceof Error && e.message === "Lock file is already being held")
-                throw new PlebbitError("ERR_COMMUNITY_ALREADY_STARTED", { subplebbitAddress: subAddress, error: e });
+                throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { subplebbitAddress: subAddress, error: e });
             else {
                 log(`Error while trying to lock start of sub (${subAddress}): ${e}`);
                 throw e;
@@ -2697,7 +2697,7 @@ export class DbHandler {
         return isLocked;
     }
 
-    // Subplebbit state lock
+    // Community state lock
 
     async lockSubState() {
         const log = Logger("pkc-js:local-community:db-handler:lock:lockSubState");
@@ -2712,7 +2712,7 @@ export class DbHandler {
         } catch (e: unknown) {
             log.error(`Error when attempting to lock sub state`, this._subplebbit.address, e);
             if (e instanceof Error && e.message === "Lock file is already being held")
-                throw new PlebbitError("ERR_COMMUNITY_STATE_LOCKED", { subplebbitAddress: this._subplebbit.address, error: e });
+                throw new PKCError("ERR_COMMUNITY_STATE_LOCKED", { subplebbitAddress: this._subplebbit.address, error: e });
             // Not sure, do we need to throw error here
         }
     }
@@ -2758,7 +2758,7 @@ export class DbHandler {
     }
 
     queryAllCommentCidsAndTheirReplies(): CommentCidWithReplies[] {
-        const log = Logger("pkc-js:local-community:db-handler:queryAllCidsUnderThisSubplebbit");
+        const log = Logger("pkc-js:local-community:db-handler:queryAllCidsUnderThisCommunity");
 
         const rows = this._db
             .prepare(

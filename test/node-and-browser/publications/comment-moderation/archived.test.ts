@@ -5,18 +5,18 @@ import {
     generateMockVote,
     publishRandomReply,
     publishWithExpectedResult,
-    mockRemotePlebbit,
+    mockRemotePKC,
     resolveWhenConditionIsTrue,
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     iterateThroughPagesToFindCommentInParentPagesInstance,
     iterateThroughPageCidToFindComment
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
-import type { RemoteSubplebbit } from "../../../../dist/node/community/remote-community.js";
+import type { RemoteCommunity } from "../../../../dist/node/community/remote-community.js";
 
 const subplebbitAddress = signers[11].address;
 const roles = [
@@ -25,12 +25,12 @@ const roles = [
     { role: "mod", signer: signers[3] }
 ];
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Archiving posts - ${config.name}`, async () => {
-        let plebbit: Plebbit, postToBeArchived: Comment, replyUnderPostToBeArchived: Comment, sub: RemoteSubplebbit;
+        let plebbit: PKC, postToBeArchived: Comment, replyUnderPostToBeArchived: Comment, sub: RemoteCommunity;
         beforeAll(async () => {
-            plebbit = await mockRemotePlebbit();
-            sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            plebbit = await mockRemotePKC();
+            sub = await plebbit.getCommunity({ address: subplebbitAddress });
             await sub.update();
             postToBeArchived = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
 
@@ -104,7 +104,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`subplebbit.posts includes archived post with archived=true`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: postToBeArchived.communityAddress });
+            const sub = await plebbit.createCommunity({ address: postToBeArchived.communityAddress });
 
             await sub.update();
 

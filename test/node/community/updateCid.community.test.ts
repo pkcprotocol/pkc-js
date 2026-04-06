@@ -1,14 +1,14 @@
-import { mockPlebbit, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
+import { mockPKC, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
 import { describe, beforeAll, afterAll, it } from "vitest";
 
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../dist/node/community/rpc-local-community.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 
-describe.concurrent(`Subplebbit.updateCid`, async () => {
-    let plebbit: PlebbitType;
+describe.concurrent(`Community.updateCid`, async () => {
+    let plebbit: PKCType;
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
+        plebbit = await mockPKC();
     });
 
     afterAll(async () => {
@@ -16,7 +16,7 @@ describe.concurrent(`Subplebbit.updateCid`, async () => {
     });
 
     it(`subplebbit.updateCid gets updated when local-subplebbit publishes a new record`, async () => {
-        const sub = (await plebbit.createSubplebbit({})) as LocalSubplebbit | RpcLocalSubplebbit;
+        const sub = (await plebbit.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
         expect(sub.updateCid).to.be.undefined;
 
         await sub.start();
@@ -26,21 +26,21 @@ describe.concurrent(`Subplebbit.updateCid`, async () => {
         await sub.delete();
     });
     it(`subplebbit.updateCid is defined when creating an instance of an existing local subplebbit`, async () => {
-        const sub = (await plebbit.createSubplebbit({})) as LocalSubplebbit | RpcLocalSubplebbit;
+        const sub = (await plebbit.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
         expect(sub.updateCid).to.be.undefined;
 
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" }); // wait until we publish a new record
         expect(sub.updateCid).to.be.a("string");
 
-        const recreatedSub = (await plebbit.createSubplebbit({ address: sub.address })) as LocalSubplebbit | RpcLocalSubplebbit;
+        const recreatedSub = (await plebbit.createCommunity({ address: sub.address })) as LocalCommunity | RpcLocalCommunity;
         expect(recreatedSub.updateCid).to.equal(sub.updateCid);
 
         await sub.delete();
     });
 
     it(`subplebbit.updateCid is part of subplebbit.toJSON()`, async () => {
-        const sub = (await plebbit.createSubplebbit({})) as LocalSubplebbit | RpcLocalSubplebbit;
+        const sub = (await plebbit.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
         expect(sub.updateCid).to.be.undefined;
 
         await sub.start();

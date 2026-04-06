@@ -2,32 +2,32 @@ import signers from "../../../fixtures/signers.js";
 import {
     generateMockPost,
     setExtraPropOnCommentAndSign,
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
     iterateThroughPagesToFindCommentInParentPagesInstance,
-    waitTillPostInSubplebbitPages,
+    waitTillPostInCommunityPages,
     addStringToIpfs,
-    isPlebbitFetchingUsingGateways
+    isPKCFetchingUsingGateways
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { _signJson } from "../../../../dist/node/signer/signatures.js";
-import { getPlebbitAddressFromPublicKeySync } from "../../../../dist/node/signer/util.js";
+import { getPKCAddressFromPublicKeySync } from "../../../../dist/node/signer/util.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
 import validPageIpfsFixture from "../../../fixtures/valid_page.json" with { type: "json" };
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentWithinRepliesPostsPageJson } from "../../../../dist/node/publications/comment/types.js";
-import type { PlebbitError } from "../../../../dist/node/pkc-error.js";
+import type { PKCError } from "../../../../dist/node/pkc-error.js";
 
 type CommentWithExtraProp = Comment & { extraProp?: string };
 type AuthorWithExtraProp = { extraProp?: string };
 
 const subplebbitAddress = signers[0].address;
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.sequential(`Comments with extra props - ${config.name}`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
         });
@@ -107,7 +107,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 extraProps = { extraProp: "1234" };
                 await setExtraPropOnCommentAndSign(commentWithExtraProps, extraProps, true);
                 await publishWithExpectedResult({ publication: commentWithExtraProps, expectedChallengeSuccess: true });
-                await waitTillPostInSubplebbitPages(commentWithExtraProps as Parameters<typeof waitTillPostInSubplebbitPages>[0], plebbit);
+                await waitTillPostInCommunityPages(commentWithExtraProps as Parameters<typeof waitTillPostInCommunityPages>[0], plebbit);
             });
             it(`Can load CommentIpfs with extra props`, async () => {
                 const loadedCommentWithExtraProps = await plebbit.getComment({ cid: commentWithExtraProps.cid });
@@ -125,7 +125,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             });
 
             it(`Can load pages with comments that has extra props in them`, async () => {
-                const subplebbit = await plebbit.createSubplebbit({ address: commentWithExtraProps.communityAddress });
+                const subplebbit = await plebbit.createCommunity({ address: commentWithExtraProps.communityAddress });
                 await subplebbit.update();
                 await resolveWhenConditionIsTrue({
                     toUpdate: subplebbit,
@@ -156,7 +156,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     });
 
     describe.sequential(`Comments with extra props in author`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
         });
@@ -255,12 +255,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 for (const shape of shapes) expect((shape.author as AuthorWithExtraProp).extraProp).to.equal(extraProps.extraProp);
             });
             it(`Can load a page with comment.author.extraProp`, async () => {
-                await waitTillPostInSubplebbitPages(
-                    postWithExtraAuthorProp as Parameters<typeof waitTillPostInSubplebbitPages>[0],
-                    plebbit
-                );
+                await waitTillPostInCommunityPages(postWithExtraAuthorProp as Parameters<typeof waitTillPostInCommunityPages>[0], plebbit);
 
-                const subplebbit = await plebbit.createSubplebbit({ address: postWithExtraAuthorProp.communityAddress });
+                const subplebbit = await plebbit.createCommunity({ address: postWithExtraAuthorProp.communityAddress });
                 await subplebbit.update();
                 await resolveWhenConditionIsTrue({
                     toUpdate: subplebbit,
@@ -287,7 +284,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     });
 
     describe.sequential(`Loading legacy pages with old author.address wire field - ${config.name}`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -299,7 +296,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it(`loads a page and correctly derives runtime author fields from wire format`, async () => {
             const pageCid = await addStringToIpfs(JSON.stringify(validPageIpfsFixture));
-            const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
             const loadedPage = await subplebbit.posts.getPage({ cid: pageCid });
 
             // Find a domain author comment (author.name on wire)
@@ -315,13 +312,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(base58Comment).to.exist;
 
             // Domain author: runtime address = domain name, publicKey derived from signature
-            const expectedDomainPublicKey = getPlebbitAddressFromPublicKeySync(domainComment!.raw.comment.signature.publicKey);
+            const expectedDomainPublicKey = getPKCAddressFromPublicKeySync(domainComment!.raw.comment.signature.publicKey);
             expect(domainComment!.author.publicKey).to.equal(expectedDomainPublicKey);
             expect(domainComment!.author.name).to.equal("plebbit.bso");
             expect(domainComment!.author.address).to.equal("plebbit.bso");
 
             // Base58 author: runtime address = derived B58 address from signature
-            const expectedBase58PublicKey = getPlebbitAddressFromPublicKeySync(base58Comment!.raw.comment.signature.publicKey);
+            const expectedBase58PublicKey = getPKCAddressFromPublicKeySync(base58Comment!.raw.comment.signature.publicKey);
             expect(base58Comment!.author.publicKey).to.equal(expectedBase58PublicKey);
             expect(base58Comment!.author.name).to.be.undefined;
             expect(base58Comment!.author.address).to.equal(expectedBase58PublicKey);
@@ -329,7 +326,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     });
 
     describe.sequential(`Loading CommentIpfs with reserved fields is rejected - ${config.name}`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         let validCommentIpfsRaw: Record<string, unknown>;
 
         beforeAll(async () => {
@@ -355,7 +352,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await plebbit.getComment({ cid: maliciousCid });
                 expect.fail("Should have thrown");
             } catch (e) {
-                const error = e as PlebbitError;
+                const error = e as PKCError;
                 expect(error.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
                 expect(error.details.commentIpfsValidation.reason).to.equal(messages.ERR_COMMENT_IPFS_RECORD_INCLUDES_RESERVED_FIELD);
             }
@@ -372,7 +369,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await plebbit.getComment({ cid: maliciousCid });
                 expect.fail("Should have thrown");
             } catch (e) {
-                const error = e as PlebbitError;
+                const error = e as PKCError;
                 expect(error.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
                 expect(error.details.commentIpfsValidation.reason).to.equal(messages.ERR_COMMENT_IPFS_AUTHOR_INCLUDES_RESERVED_FIELD);
             }
@@ -383,7 +380,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const maliciousCid = await addStringToIpfs(JSON.stringify(maliciousRecord));
 
             const comment = await plebbit.createComment({ cid: maliciousCid });
-            const errorPromise = new Promise<PlebbitError>((resolve) => comment.once("error", resolve as (err: Error) => void));
+            const errorPromise = new Promise<PKCError>((resolve) => comment.once("error", resolve as (err: Error) => void));
 
             await comment.update();
             const error = await errorPromise;
@@ -403,7 +400,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const maliciousCid = await addStringToIpfs(JSON.stringify(maliciousRecord));
 
             const comment = await plebbit.createComment({ cid: maliciousCid });
-            const errorPromise = new Promise<PlebbitError>((resolve) => comment.once("error", resolve as (err: Error) => void));
+            const errorPromise = new Promise<PKCError>((resolve) => comment.once("error", resolve as (err: Error) => void));
 
             await comment.update();
             const error = await errorPromise;

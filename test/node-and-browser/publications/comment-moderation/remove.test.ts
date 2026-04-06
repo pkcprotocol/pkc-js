@@ -6,14 +6,14 @@ import {
     generateMockVote,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     iterateThroughPagesToFindCommentInParentPagesInstance,
     iterateThroughPageCidToFindComment
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
 import * as remeda from "remeda";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 
@@ -24,9 +24,9 @@ const roles = [
     { role: "mod", signer: signers[3] }
 ];
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Removing post - ${config.name}`, async () => {
-        let plebbit: Plebbit, postToRemove: Comment, postReply: Comment;
+        let plebbit: PKC, postToRemove: Comment, postReply: Comment;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             postToRemove = await publishRandomPost({
@@ -67,7 +67,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(postToRemove.raw.commentUpdate.edit).to.be.undefined;
         });
         it(`Removed post don't show in subplebbit.posts`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.createCommunity({ address: subplebbitAddress });
             await sub.update();
 
             await resolveWhenConditionIsTrue({
@@ -162,7 +162,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`Unremoved post is included in subplebbit.posts with removed=false`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.createCommunity({ address: subplebbitAddress });
             await sub.update();
 
             await resolveWhenConditionIsTrue({
@@ -185,7 +185,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     });
 
     describe.concurrent(`Mods removing their own posts - ${config.name}`, async () => {
-        let plebbit: Plebbit, modPost: Comment;
+        let plebbit: PKC, modPost: Comment;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -225,7 +225,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     });
 
     describe.concurrent(`Removing reply`, async () => {
-        let plebbit: Plebbit, post: Comment, replyToBeRemoved: Comment, replyUnderRemovedReply: Comment;
+        let plebbit: PKC, post: Comment, replyToBeRemoved: Comment, replyUnderRemovedReply: Comment;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             post = await publishRandomPost({

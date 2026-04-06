@@ -1,24 +1,24 @@
 import { beforeAll, afterAll } from "vitest";
 import signers from "../../fixtures/signers.js";
-import { getAvailablePlebbitConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
+import { getAvailablePKCConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
 import * as remeda from "remeda";
-import validSubplebbitFixture from "../../fixtures/signatures/community/valid_subplebbit_ipfs.json" with { type: "json" };
+import validCommunityFixture from "../../fixtures/signatures/community/valid_subplebbit_ipfs.json" with { type: "json" };
 import newFormatFixture from "../../fixtures/signatures/community/valid_subplebbit_ipfs_new_format.json" with { type: "json" };
 import newFormatWithNameFixture from "../../fixtures/signatures/community/valid_subplebbit_ipfs_new_format_with_name.json" with { type: "json" };
-import { parseSubplebbitIpfsSchemaPassthroughWithPlebbitErrorIfItFails } from "../../../dist/node/schema/schema-util.js";
+import { parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails } from "../../../dist/node/schema/schema-util.js";
 import {
-    omitRuntimeSubplebbitFields,
-    cleanWireSubplebbit,
-    getSubplebbitNameFromWire,
-    buildRuntimeSubplebbit
+    omitRuntimeCommunityFields,
+    cleanWireCommunity,
+    getCommunityNameFromWire,
+    buildRuntimeCommunity
 } from "../../../dist/node/community/community-wire.js";
 
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
-import type { SubplebbitIpfsType } from "../../../dist/node/community/types.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import type { CommunityIpfsType } from "../../../dist/node/community/types.js";
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Wire format migration — runtime field computation - ${config.name}`, async () => {
-        let plebbit: PlebbitType;
+        let plebbit: PKCType;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -29,35 +29,35 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`address stays immutable when loading new-format record with name`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: signers[0].address });
-            sub.initSubplebbitIpfsPropsNoMerge(remeda.clone(newFormatWithNameFixture) as SubplebbitIpfsType);
+            const sub = await plebbit.createCommunity({ address: signers[0].address });
+            sub.initCommunityIpfsPropsNoMerge(remeda.clone(newFormatWithNameFixture) as CommunityIpfsType);
             expect(sub.name).to.equal("test-sub.eth");
             expect(sub.address).to.equal(signers[0].address); // address is immutable
         });
 
         it(`address falls back to publicKey when no name is present`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: signers[0].address });
-            sub.initSubplebbitIpfsPropsNoMerge(remeda.clone(newFormatFixture) as SubplebbitIpfsType);
+            const sub = await plebbit.createCommunity({ address: signers[0].address });
+            sub.initCommunityIpfsPropsNoMerge(remeda.clone(newFormatFixture) as CommunityIpfsType);
             // No name, so address should be the IPNS key derived from signature.publicKey
             expect(sub.address).to.equal(signers[0].address);
         });
 
         it(`address is computed correctly when loading old-format record with IPNS address`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: signers[0].address });
+            const sub = await plebbit.createCommunity({ address: signers[0].address });
             // Old fixture has address = signers[0].address (IPNS key)
-            sub.initSubplebbitIpfsPropsNoMerge(remeda.clone(validSubplebbitFixture) as SubplebbitIpfsType);
+            sub.initCommunityIpfsPropsNoMerge(remeda.clone(validCommunityFixture) as CommunityIpfsType);
             expect(sub.address).to.equal(signers[0].address);
         });
 
         it(`publicKey is derived from signature.publicKey`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: signers[0].address });
-            sub.initSubplebbitIpfsPropsNoMerge(remeda.clone(newFormatFixture) as SubplebbitIpfsType);
+            const sub = await plebbit.createCommunity({ address: signers[0].address });
+            sub.initCommunityIpfsPropsNoMerge(remeda.clone(newFormatFixture) as CommunityIpfsType);
             expect(sub.publicKey).to.equal(signers[0].address);
         });
 
         it(`address and publicKey appear in JSON.stringify output`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: signers[0].address });
-            sub.initSubplebbitIpfsPropsNoMerge(remeda.clone(newFormatFixture) as SubplebbitIpfsType);
+            const sub = await plebbit.createCommunity({ address: signers[0].address });
+            sub.initCommunityIpfsPropsNoMerge(remeda.clone(newFormatFixture) as CommunityIpfsType);
             const json = JSON.parse(JSON.stringify(sub));
             expect(json.address).to.be.a("string");
             expect(json.publicKey).to.be.a("string");
@@ -66,8 +66,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 });
 
 describe.concurrent("Wire format migration — helper functions", async () => {
-    it(`buildRuntimeSubplebbit computes address from name`, () => {
-        const result = buildRuntimeSubplebbit({
+    it(`buildRuntimeCommunity computes address from name`, () => {
+        const result = buildRuntimeCommunity({
             subplebbitRecord: { name: "memes.eth" } as Record<string, unknown>,
             signaturePublicKey: signers[0].publicKey
         });
@@ -76,8 +76,8 @@ describe.concurrent("Wire format migration — helper functions", async () => {
         expect(result.publicKey).to.equal(signers[0].address);
     });
 
-    it(`buildRuntimeSubplebbit falls back to publicKey when no name`, () => {
-        const result = buildRuntimeSubplebbit({
+    it(`buildRuntimeCommunity falls back to publicKey when no name`, () => {
+        const result = buildRuntimeCommunity({
             subplebbitRecord: {} as Record<string, unknown>,
             signaturePublicKey: signers[0].publicKey
         });
@@ -86,19 +86,19 @@ describe.concurrent("Wire format migration — helper functions", async () => {
         expect(result.publicKey).to.equal(signers[0].address);
     });
 
-    it(`getSubplebbitNameFromWire returns name from new-format record`, () => {
-        expect(getSubplebbitNameFromWire({ name: "memes.eth" })).to.equal("memes.eth");
+    it(`getCommunityNameFromWire returns name from new-format record`, () => {
+        expect(getCommunityNameFromWire({ name: "memes.eth" })).to.equal("memes.eth");
     });
 
-    it(`getSubplebbitNameFromWire falls back to address if it's a domain (old format)`, () => {
-        expect(getSubplebbitNameFromWire({ address: "memes.eth" })).to.equal("memes.eth");
+    it(`getCommunityNameFromWire falls back to address if it's a domain (old format)`, () => {
+        expect(getCommunityNameFromWire({ address: "memes.eth" })).to.equal("memes.eth");
     });
 
-    it(`getSubplebbitNameFromWire returns undefined for IPNS address (old format)`, () => {
-        expect(getSubplebbitNameFromWire({ address: signers[0].address })).to.be.undefined;
+    it(`getCommunityNameFromWire returns undefined for IPNS address (old format)`, () => {
+        expect(getCommunityNameFromWire({ address: signers[0].address })).to.be.undefined;
     });
 
-    it(`omitRuntimeSubplebbitFields strips address, publicKey, shortAddress, nameResolved`, () => {
+    it(`omitRuntimeCommunityFields strips address, publicKey, shortAddress, nameResolved`, () => {
         const input = {
             name: "test.eth",
             address: "test.eth",
@@ -107,7 +107,7 @@ describe.concurrent("Wire format migration — helper functions", async () => {
             nameResolved: true,
             encryption: { type: "ed25519-aes-gcm", publicKey: "xyz" }
         };
-        const result = omitRuntimeSubplebbitFields(input);
+        const result = omitRuntimeCommunityFields(input);
         expect(result).to.not.have.property("address");
         expect(result).to.not.have.property("publicKey");
         expect(result).to.not.have.property("shortAddress");
@@ -116,14 +116,14 @@ describe.concurrent("Wire format migration — helper functions", async () => {
         expect(result).to.have.property("encryption");
     });
 
-    it(`cleanWireSubplebbit returns undefined for empty input`, () => {
-        expect(cleanWireSubplebbit(undefined)).to.be.undefined;
+    it(`cleanWireCommunity returns undefined for empty input`, () => {
+        expect(cleanWireCommunity(undefined)).to.be.undefined;
     });
 });
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
-    describe.concurrent(`Wire format migration — flexible createSubplebbit input - ${config.name}`, async () => {
-        let plebbit: PlebbitType;
+getAvailablePKCConfigsToTestAgainst().map((config) => {
+    describe.concurrent(`Wire format migration — flexible createCommunity input - ${config.name}`, async () => {
+        let plebbit: PKCType;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -133,42 +133,42 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await plebbit.destroy();
         });
 
-        it(`createSubplebbit({ address }) still works (backward compat)`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: signers[0].address });
+        it(`createCommunity({ address }) still works (backward compat)`, async () => {
+            const sub = await plebbit.createCommunity({ address: signers[0].address });
             expect(sub.address).to.equal(signers[0].address);
             expect(sub.address).to.be.a("string").that.is.not.empty;
         });
 
-        it(`createSubplebbit({ name }) creates instance with address = name`, async () => {
-            const sub = await plebbit.createSubplebbit({ name: "memes.eth" });
+        it(`createCommunity({ name }) creates instance with address = name`, async () => {
+            const sub = await plebbit.createCommunity({ name: "memes.eth" });
             expect(sub.address).to.equal("memes.eth");
             expect(sub.name).to.equal("memes.eth");
             expect(sub.address).to.be.a("string").that.is.not.empty;
         });
 
-        it(`createSubplebbit({ publicKey }) creates instance with address = publicKey`, async () => {
-            const sub = await plebbit.createSubplebbit({ publicKey: signers[0].address });
+        it(`createCommunity({ publicKey }) creates instance with address = publicKey`, async () => {
+            const sub = await plebbit.createCommunity({ publicKey: signers[0].address });
             expect(sub.address).to.equal(signers[0].address);
             expect(sub.address).to.be.a("string").that.is.not.empty;
         });
 
-        it(`createSubplebbit({ name, publicKey }) creates instance with address = name (name takes priority)`, async () => {
-            const sub = await plebbit.createSubplebbit({ name: "memes.eth", publicKey: signers[0].address });
+        it(`createCommunity({ name, publicKey }) creates instance with address = name (name takes priority)`, async () => {
+            const sub = await plebbit.createCommunity({ name: "memes.eth", publicKey: signers[0].address });
             expect(sub.address).to.equal("memes.eth");
             expect(sub.name).to.equal("memes.eth");
             expect(sub.address).to.be.a("string").that.is.not.empty;
         });
 
-        it(`createSubplebbit({ name, publicKey, address }) works with all three`, async () => {
-            const sub = await plebbit.createSubplebbit({ name: "memes.eth", publicKey: signers[0].address, address: "memes.eth" });
+        it(`createCommunity({ name, publicKey, address }) works with all three`, async () => {
+            const sub = await plebbit.createCommunity({ name: "memes.eth", publicKey: signers[0].address, address: "memes.eth" });
             expect(sub.address).to.equal("memes.eth");
             expect(sub.address).to.be.a("string").that.is.not.empty;
         });
 
         it(`instance.address is always defined after creation`, async () => {
-            const sub1 = await plebbit.createSubplebbit({ address: signers[0].address });
-            const sub2 = await plebbit.createSubplebbit({ name: "test.eth" });
-            const sub3 = await plebbit.createSubplebbit({ publicKey: signers[1].address });
+            const sub1 = await plebbit.createCommunity({ address: signers[0].address });
+            const sub2 = await plebbit.createCommunity({ name: "test.eth" });
+            const sub3 = await plebbit.createCommunity({ publicKey: signers[1].address });
 
             expect(sub1.address).to.be.a("string").that.is.not.empty;
             expect(sub2.address).to.be.a("string").that.is.not.empty;
@@ -178,25 +178,23 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 });
 
 describe.concurrent("Wire format migration — backward compat parsing", async () => {
-    it(`parseSubplebbitIpfsSchemaPassthroughWithPlebbitErrorIfItFails accepts old record with address`, () => {
-        const result = parseSubplebbitIpfsSchemaPassthroughWithPlebbitErrorIfItFails(
-            remeda.clone(validSubplebbitFixture) as SubplebbitIpfsType
-        );
+    it(`parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails accepts old record with address`, () => {
+        const result = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(remeda.clone(validCommunityFixture) as CommunityIpfsType);
         // Old record with address should parse successfully
         expect(result).to.have.property("signature");
         // Address is preserved as a passthrough field
         expect((result as Record<string, unknown>).address).to.equal(signers[0].address);
     });
 
-    it(`parseSubplebbitIpfsSchemaPassthroughWithPlebbitErrorIfItFails accepts new record without address`, () => {
-        const result = parseSubplebbitIpfsSchemaPassthroughWithPlebbitErrorIfItFails(remeda.clone(newFormatFixture) as SubplebbitIpfsType);
+    it(`parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails accepts new record without address`, () => {
+        const result = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(remeda.clone(newFormatFixture) as CommunityIpfsType);
         expect(result).to.have.property("signature");
         expect((result as Record<string, unknown>).address).to.be.undefined;
     });
 
-    it(`parseSubplebbitIpfsSchemaPassthroughWithPlebbitErrorIfItFails accepts new record with name`, () => {
-        const result = parseSubplebbitIpfsSchemaPassthroughWithPlebbitErrorIfItFails(
-            remeda.clone(newFormatWithNameFixture) as SubplebbitIpfsType
+    it(`parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails accepts new record with name`, () => {
+        const result = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(
+            remeda.clone(newFormatWithNameFixture) as CommunityIpfsType
         );
         expect(result).to.have.property("signature");
         expect(result.name).to.equal("test-sub.eth");

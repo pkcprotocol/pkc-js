@@ -4,13 +4,13 @@ import {
     publishRandomPost,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     iterateThroughPagesToFindCommentInParentPagesInstance
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { timestamp } from "../../../../dist/node/util.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 
 const subplebbitAddress = signers[0].address;
@@ -20,9 +20,9 @@ const roles = [
     { role: "mod", signer: signers[3] }
 ];
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Banning authors`, async () => {
-        let plebbit: Plebbit, commentToBeBanned: Comment, authorBanExpiresAt: number, reasonOfBan: string;
+        let plebbit: PKC, commentToBeBanned: Comment, authorBanExpiresAt: number, reasonOfBan: string;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -75,14 +75,14 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`author.banExpires is included in pages of subplebbit`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: commentToBeBanned.communityAddress });
+            const sub = await plebbit.createCommunity({ address: commentToBeBanned.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
                 predicate: async () => typeof sub.updatedAt === "number"
             });
-            const postInSubplebbitPage = await iterateThroughPagesToFindCommentInParentPagesInstance(commentToBeBanned.cid, sub.posts);
-            expect(postInSubplebbitPage.author.subplebbit.banExpiresAt).to.be.a("number");
+            const postInCommunityPage = await iterateThroughPagesToFindCommentInParentPagesInstance(commentToBeBanned.cid, sub.posts);
+            expect(postInCommunityPage.author.subplebbit.banExpiresAt).to.be.a("number");
             await sub.stop();
         });
 

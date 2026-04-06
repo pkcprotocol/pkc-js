@@ -1,8 +1,8 @@
-import { Plebbit } from "../../pkc/pkc.js";
+import { PKC } from "../../pkc/pkc.js";
 import Publication from "../publication.js";
 import { signCommentEdit, verifyCommentEdit } from "../../signer/signatures.js";
 import { hideClassPrivateProps, isIpfsCid } from "../../util.js";
-import { PlebbitError } from "../../pkc-error.js";
+import { PKCError } from "../../pkc-error.js";
 import type { CommentEditOptionsToSign, CommentEditPubsubMessagePublication, CreateCommentEditOptions } from "./types.js";
 import type { PublicationTypeName } from "../../types.js";
 import type { SignerType } from "../../signer/types.js";
@@ -22,7 +22,7 @@ export class CommentEdit extends Publication implements CommentEditPubsubMessage
     override raw: { pubsubMessageToPublish?: CommentEditPubsubMessagePublication } = {};
     override challengeRequest?: CreateCommentEditOptions["challengeRequest"];
 
-    constructor(plebbit: Plebbit) {
+    constructor(plebbit: PKC) {
         super(plebbit);
 
         // public method should be bound
@@ -91,12 +91,12 @@ export class CommentEdit extends Publication implements CommentEditPubsubMessage
             clientsManager: this._clientsManager
         });
 
-        if (!signatureValidity.valid) throw new PlebbitError("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
+        if (!signatureValidity.valid) throw new PKCError("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
     }
 
     override async publish(): Promise<void> {
         // TODO if publishing with content,reason, deleted, verify that publisher is original author
-        if (!isIpfsCid(this.commentCid)) throw new PlebbitError("ERR_CID_IS_INVALID", { commentCid: this.commentCid });
+        if (!isIpfsCid(this.commentCid)) throw new PKCError("ERR_CID_IS_INVALID", { commentCid: this.commentCid });
 
         return super.publish();
     }

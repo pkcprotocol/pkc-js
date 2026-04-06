@@ -1,8 +1,8 @@
-import { PlebbitTypedEmitter } from "./clients/pkc-typed-emitter.js";
+import { PKCTypedEmitter } from "./clients/pkc-typed-emitter.js";
 import { GenericClientEvents } from "./types.js";
 import { hideClassPrivateProps } from "./util.js";
 
-export class GenericStateClient<T extends string> extends PlebbitTypedEmitter<GenericClientEvents<T>> {
+export class GenericStateClient<T extends string> extends PKCTypedEmitter<GenericClientEvents<T>> {
     override state: T;
 
     constructor(state: T) {

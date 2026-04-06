@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, it } from "vitest";
 import { randomBytes } from "node:crypto";
-import { describeSkipIfRpc, mockPlebbitNoDataPathWithOnlyKuboClient } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc, mockPKCNoDataPathWithOnlyKuboClient } from "../../../dist/node/test/test-util.js";
 import { calculateStringSizeSameAsIpfsAddCidV0 } from "../../../dist/node/util.js";
-import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { KuboRpcClient } from "../../../dist/node/types.js";
 
 const UTF8_VARIANTS: string[] = [
@@ -49,11 +49,11 @@ function generateRandomUtf8String(): string {
 }
 
 describeSkipIfRpc("calculateStringSize matches kubo add sizes", function () {
-    let plebbit: Plebbit;
+    let plebbit: PKC;
     let kuboClient: KuboRpcClient["_client"];
 
     beforeAll(async () => {
-        plebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
+        plebbit = await mockPKCNoDataPathWithOnlyKuboClient();
         kuboClient = plebbit._clientsManager.getDefaultKuboRpcClient()!._client;
     });
 

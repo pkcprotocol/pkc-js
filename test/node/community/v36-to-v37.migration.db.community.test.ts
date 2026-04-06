@@ -2,7 +2,7 @@ import { it, describe, beforeAll, afterAll, expect } from "vitest";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import { deriveCommentIpfsFromCommentTableRow } from "../../../dist/node/runtime/node/util.js";
 import { describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type Database from "better-sqlite3";
 
 // ──────────────────────────────────────────────────────────────
@@ -145,7 +145,7 @@ const V36_CREATE_PSEUDONYMITY_ALIASES = `
 // ──────────────────────────────────────────────────────────────
 
 // An IPNS-key-style address (NOT a domain)
-const IPNS_ADDRESS = "12D3KooWTestSubplebbitAddress";
+const IPNS_ADDRESS = "12D3KooWTestCommunityAddress";
 // A domain-style address
 const DOMAIN_ADDRESS = "my-community.eth";
 
@@ -178,7 +178,7 @@ function fakeSignatureJson(signatureValue: string): string {
     });
 }
 
-interface FakeSubplebbit {
+interface FakeCommunity {
     address: string;
     _plebbit: { noData: boolean };
     _cidsToUnPin: Set<string>;
@@ -190,7 +190,7 @@ interface FakeSubplebbit {
     _addAllCidsUnderPurgedCommentToBeRemoved: () => void;
 }
 
-function createFakeSubplebbit(address: string): FakeSubplebbit {
+function createFakeCommunity(address: string): FakeCommunity {
     return {
         address,
         _plebbit: { noData: true },
@@ -209,7 +209,7 @@ interface DbHandlerPrivate {
     _purgeCommentsWithInvalidSchemaOrSignature: () => Promise<void>;
     _purgeCommentEditsWithInvalidSchemaOrSignature: () => Promise<void>;
     _purgePublicationTablesWithDuplicateSignatures: () => Promise<void>;
-    _subplebbit: FakeSubplebbit;
+    _subplebbit: FakeCommunity;
     _spreadExtraProps: <T extends Record<string, any>>(record: T) => T;
     _parsePrefixedComment: (row: Record<string, unknown>) => {
         comment: Record<string, unknown>;
@@ -238,8 +238,8 @@ describeSkipIfRpc("v36 → v37 DB migration (subplebbitAddress → communityPubl
 
     describe("Migration of comments table", () => {
         beforeAll(async () => {
-            const fakeSubplebbit = createFakeSubplebbit(IPNS_ADDRESS);
-            dbHandler = new DbHandler(fakeSubplebbit as unknown as LocalSubplebbit);
+            const fakeCommunity = createFakeCommunity(IPNS_ADDRESS);
+            dbHandler = new DbHandler(fakeCommunity as unknown as LocalCommunity);
             await dbHandler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
 
             const priv = getPrivate(dbHandler);
@@ -649,8 +649,8 @@ describeSkipIfRpc("v36 → v37 DB migration (subplebbitAddress → communityPubl
 
         beforeAll(async () => {
             // Create a fresh v37 DB with a new-format comment (no extraProps.subplebbitAddress)
-            const fakeSubplebbit = createFakeSubplebbit(IPNS_ADDRESS);
-            newFormatDbHandler = new DbHandler(fakeSubplebbit as unknown as LocalSubplebbit);
+            const fakeCommunity = createFakeCommunity(IPNS_ADDRESS);
+            newFormatDbHandler = new DbHandler(fakeCommunity as unknown as LocalCommunity);
             await newFormatDbHandler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
             await newFormatDbHandler.createOrMigrateTablesIfNeeded();
 
@@ -781,8 +781,8 @@ describeSkipIfRpc("v36 → v37 DB migration (subplebbitAddress → communityPubl
 
         beforeAll(async () => {
             // Create a fresh v37 DB
-            const fakeSubplebbit = createFakeSubplebbit(IPNS_ADDRESS);
-            constraintDbHandler = new DbHandler(fakeSubplebbit as unknown as LocalSubplebbit);
+            const fakeCommunity = createFakeCommunity(IPNS_ADDRESS);
+            constraintDbHandler = new DbHandler(fakeCommunity as unknown as LocalCommunity);
             await constraintDbHandler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
             await constraintDbHandler.createOrMigrateTablesIfNeeded();
         });

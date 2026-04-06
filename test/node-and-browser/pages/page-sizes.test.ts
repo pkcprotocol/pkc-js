@@ -1,15 +1,11 @@
 import { beforeAll, afterAll, beforeEach } from "vitest";
-import {
-    addStringToIpfs,
-    getAvailablePlebbitConfigsToTestAgainst,
-    isPlebbitFetchingUsingGateways
-} from "../../../dist/node/test/test-util.js";
+import { addStringToIpfs, getAvailablePKCConfigsToTestAgainst, isPKCFetchingUsingGateways } from "../../../dist/node/test/test-util.js";
 import signers from "../../fixtures/signers.js";
 import { sha256 } from "js-sha256";
-import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
-import type { RemoteSubplebbit } from "../../../dist/node/community/remote-community.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
+import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 import type { PageIpfs } from "../../../dist/node/pages/types.js";
-import type { PlebbitError } from "../../../dist/node/pkc-error.js";
+import type { PKCError } from "../../../dist/node/pkc-error.js";
 
 import validPageFixture from "../../fixtures/valid_page.json" with { type: "json" };
 
@@ -71,10 +67,10 @@ async function createMockPageOfSize(baseSize: number, nextCid: string | null = n
     return page;
 }
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Page size loading tests - ${config.name}`, async () => {
-        let plebbit: Plebbit;
-        let mockSubplebbit: RemoteSubplebbit;
+        let plebbit: PKC;
+        let mockCommunity: RemoteCommunity;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -86,7 +82,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         beforeEach(async () => {
             // Create a fresh mock subplebbit for each test
-            mockSubplebbit = await plebbit.createSubplebbit({
+            mockCommunity = await plebbit.createCommunity({
                 address: subplebbitAddress
             });
         });
@@ -108,26 +104,26 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const firstPageCid = await addStringToIpfs(JSON.stringify(firstPage));
 
             // Set up the subplebbit's posts to point to our first page
-            mockSubplebbit.posts.pageCids = { ...mockSubplebbit.posts.pageCids, hot: firstPageCid };
+            mockCommunity.posts.pageCids = { ...mockCommunity.posts.pageCids, hot: firstPageCid };
 
             // Load the first page
-            const loadedFirstPage = await mockSubplebbit.posts.getPage({ cid: firstPageCid }); // just to set the expectation for second page
+            const loadedFirstPage = await mockCommunity.posts.getPage({ cid: firstPageCid }); // just to set the expectation for second page
 
             // Verify the size expectation for the second page is set correctly
-            expect(mockSubplebbit._plebbit._memCaches.pagesMaxSize.get(sha256(mockSubplebbit.address + secondPageCid))).to.equal(
+            expect(mockCommunity._plebbit._memCaches.pagesMaxSize.get(sha256(mockCommunity.address + secondPageCid))).to.equal(
                 secondPageSize
             );
 
             // Load the second page
-            const loadedSecondPage = await mockSubplebbit.posts.getPage({ cid: secondPageCid });
+            const loadedSecondPage = await mockCommunity.posts.getPage({ cid: secondPageCid });
 
             // Verify the size expectation for the third page is set correctly
-            expect(mockSubplebbit._plebbit._memCaches.pagesMaxSize.get(sha256(mockSubplebbit.address + thirdPageCid))).to.equal(
+            expect(mockCommunity._plebbit._memCaches.pagesMaxSize.get(sha256(mockCommunity.address + thirdPageCid))).to.equal(
                 thirdPageSize
             );
 
             // Load the third page
-            const loadedThirdPage = await mockSubplebbit.posts.getPage({ cid: thirdPageCid });
+            const loadedThirdPage = await mockCommunity.posts.getPage({ cid: thirdPageCid });
 
             // Verify the third page has no nextCid
             expect(loadedThirdPage.nextCid).to.be.undefined;
@@ -151,26 +147,26 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const updatedFirstPageCid = await addStringToIpfs(JSON.stringify(firstPage));
 
             // Set up the subplebbit's posts to point to our first page
-            mockSubplebbit.posts.pageCids = { ...mockSubplebbit.posts.pageCids, hot: updatedFirstPageCid };
+            mockCommunity.posts.pageCids = { ...mockCommunity.posts.pageCids, hot: updatedFirstPageCid };
 
             // Load the first page to establish size expectations
-            await mockSubplebbit.posts.getPage({ cid: updatedFirstPageCid });
+            await mockCommunity.posts.getPage({ cid: updatedFirstPageCid });
 
             // Verify the size expectation for the second page is set correctly
 
-            expect(mockSubplebbit._plebbit._memCaches.pagesMaxSize.get(sha256(mockSubplebbit.address + oversizedSecondPageCid))).to.equal(
+            expect(mockCommunity._plebbit._memCaches.pagesMaxSize.get(sha256(mockCommunity.address + oversizedSecondPageCid))).to.equal(
                 secondPageSize
             );
 
             // Attempt to load the oversized second page - should throw an error
             try {
-                await mockSubplebbit.posts.getPage({ cid: oversizedSecondPageCid });
+                await mockCommunity.posts.getPage({ cid: oversizedSecondPageCid });
                 expect.fail("Should have thrown an error for oversized page");
             } catch (e) {
-                const error = e as PlebbitError;
-                if (isPlebbitFetchingUsingGateways(plebbit)) {
+                const error = e as PKCError;
+                if (isPKCFetchingUsingGateways(plebbit)) {
                     expect(error.code).to.equal("ERR_FAILED_TO_FETCH_PAGE_IPFS_FROM_GATEWAYS");
-                    expect((error.details.gatewayToError as Record<string, PlebbitError>)["http://localhost:18080"].code).to.equal(
+                    expect((error.details.gatewayToError as Record<string, PKCError>)["http://localhost:18080"].code).to.equal(
                         "ERR_OVER_DOWNLOAD_LIMIT"
                     );
                 } else {
@@ -186,17 +182,17 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const oversizedFirstPageCid = await addStringToIpfs(JSON.stringify(oversizedFirstPage));
 
             // Set up the subplebbit's posts to point to our oversized first page
-            mockSubplebbit.posts.pageCids = { ...mockSubplebbit.posts.pageCids, hot: oversizedFirstPageCid };
+            mockCommunity.posts.pageCids = { ...mockCommunity.posts.pageCids, hot: oversizedFirstPageCid };
 
             // Attempt to load the oversized first page - should throw an error
             try {
-                await mockSubplebbit.posts.getPage({ cid: oversizedFirstPageCid });
+                await mockCommunity.posts.getPage({ cid: oversizedFirstPageCid });
                 expect.fail("Should have thrown an error for oversized first page");
             } catch (e) {
-                const error = e as PlebbitError;
-                if (isPlebbitFetchingUsingGateways(plebbit)) {
+                const error = e as PKCError;
+                if (isPKCFetchingUsingGateways(plebbit)) {
                     expect(error.code).to.equal("ERR_FAILED_TO_FETCH_PAGE_IPFS_FROM_GATEWAYS");
-                    expect((error.details.gatewayToError as Record<string, PlebbitError>)["http://localhost:18080"].code).to.equal(
+                    expect((error.details.gatewayToError as Record<string, PKCError>)["http://localhost:18080"].code).to.equal(
                         "ERR_OVER_DOWNLOAD_LIMIT"
                     );
                 } else {
@@ -217,10 +213,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const pageCid = await addStringToIpfs(JSON.stringify(page));
 
             // Set pageCids to a dummy value so it's non-empty, but does NOT include our pageCid
-            mockSubplebbit.posts.pageCids = { ...mockSubplebbit.posts.pageCids, hot: "QmDummyFirstPageCidThatIsNotOurTargetPage" };
+            mockCommunity.posts.pageCids = { ...mockCommunity.posts.pageCids, hot: "QmDummyFirstPageCidThatIsNotOurTargetPage" };
 
             try {
-                await mockSubplebbit.posts.getPage({ cid: pageCid });
+                await mockCommunity.posts.getPage({ cid: pageCid });
                 expect.fail("Should have thrown an error for page with unknown max size");
             } catch (e) {
                 expect((e as Error).message).to.equal(

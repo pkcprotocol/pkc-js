@@ -1,59 +1,59 @@
 import { messages } from "../../../dist/node/errors.js";
 
 import {
-    createMockedSubplebbitIpns,
-    getAvailablePlebbitConfigsToTestAgainst,
-    isPlebbitFetchingUsingGateways,
-    publishSubplebbitRecordWithExtraProp,
+    createMockedCommunityIpns,
+    getAvailablePKCConfigsToTestAgainst,
+    isPKCFetchingUsingGateways,
+    publishCommunityRecordWithExtraProp,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
 import { _signJson } from "../../../dist/node/signer/signatures.js";
 import Logger from "@pkc/pkc-logger";
 import { describe, it, afterAll, beforeAll } from "vitest";
 
-import type { PlebbitError } from "../../../dist/node/pkc-error.js";
-import type { SubplebbitIpfsType } from "../../../dist/node/community/types.js";
-import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
+import type { PKCError } from "../../../dist/node/pkc-error.js";
+import type { CommunityIpfsType } from "../../../dist/node/community/types.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
-    describe.concurrent(`plebbit.createSubplebbit - Backward Compatiblity - ${config.name}`, async () => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
+    describe.concurrent(`plebbit.createCommunity - Backward Compatiblity - ${config.name}`, async () => {
         it(`Can create a subplebbit instance with subplebbit record with extra props`, async () => {
             const opts = { includeExtraPropInSignedPropertyNames: true, extraProps: { extraProp: "1234" } };
-            const publishedSub = await publishSubplebbitRecordWithExtraProp(opts);
+            const publishedSub = await publishCommunityRecordWithExtraProp(opts);
 
-            const remotePlebbit = await config.plebbitInstancePromise();
+            const remotePKC = await config.plebbitInstancePromise();
 
-            const sub = await remotePlebbit.createSubplebbit(publishedSub.subplebbitRecord);
+            const sub = await remotePKC.createCommunity(publishedSub.subplebbitRecord);
 
             expect((sub.raw.subplebbitIpfs! as Record<string, unknown>).extraProp).to.equal(publishedSub.subplebbitRecord.extraProp);
             expect(sub.raw.subplebbitIpfs!).to.deep.equal(publishedSub.subplebbitRecord);
             expect((sub as unknown as Record<string, unknown>)["extraProp"]).to.equal(publishedSub.subplebbitRecord.extraProp);
 
-            const recreatedSubFromInstance = await remotePlebbit.createSubplebbit(sub);
+            const recreatedSubFromInstance = await remotePKC.createCommunity(sub);
             expect(recreatedSubFromInstance.raw.subplebbitIpfs!).to.deep.equal(publishedSub.subplebbitRecord);
             expect(JSON.parse(JSON.stringify(recreatedSubFromInstance)).extraProp).to.equal(opts.extraProps.extraProp);
             expect((recreatedSubFromInstance as unknown as Record<string, unknown>)["extraProp"]).to.equal(
                 publishedSub.subplebbitRecord.extraProp
             );
 
-            const recreatedSubFromJson = await remotePlebbit.createSubplebbit(JSON.parse(JSON.stringify(sub)));
+            const recreatedSubFromJson = await remotePKC.createCommunity(JSON.parse(JSON.stringify(sub)));
             expect(JSON.parse(JSON.stringify(recreatedSubFromJson)).extraProp).to.equal(publishedSub.subplebbitRecord.extraProp);
             expect((recreatedSubFromJson as unknown as Record<string, unknown>)["extraProp"]).to.equal(
                 publishedSub.subplebbitRecord.extraProp
             );
 
-            await remotePlebbit.destroy();
+            await remotePKC.destroy();
         });
     });
 
     describe.concurrent(`subplebbit.update() and backward compatibility - ${config.name}`, async () => {
         it(`subplebbit.update() should have no problem with extra props, as long as they're in subplebbit.signature.signedPropertyNames`, async () => {
             const opts = { includeExtraPropInSignedPropertyNames: true, extraProps: { extraProp: "1234" } };
-            const publishedSub = await publishSubplebbitRecordWithExtraProp(opts);
+            const publishedSub = await publishCommunityRecordWithExtraProp(opts);
 
-            const remotePlebbit = await config.plebbitInstancePromise();
+            const remotePKC = await config.plebbitInstancePromise();
 
-            const sub = await remotePlebbit.createSubplebbit({ address: publishedSub.ipnsObj.signer.address });
+            const sub = await remotePKC.createCommunity({ address: publishedSub.ipnsObj.signer.address });
 
             await sub.update();
 
@@ -72,27 +72,27 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect((sub as unknown as Record<string, unknown>)["extraProp"]).to.equal(opts.extraProps.extraProp);
 
             await sub.stop();
-            await remotePlebbit.destroy();
+            await remotePKC.destroy();
         });
 
         it(`subplebbit.update() emit an error if there are unknown props not included in signature.signedPropertyNames`, async () => {
             const opts = { includeExtraPropInSignedPropertyNames: false, extraProps: { extraProp: "1234" } };
 
-            const publishedSub = await publishSubplebbitRecordWithExtraProp(opts);
+            const publishedSub = await publishCommunityRecordWithExtraProp(opts);
 
-            const remotePlebbit = await config.plebbitInstancePromise();
+            const remotePKC = await config.plebbitInstancePromise();
 
-            const sub = await remotePlebbit.createSubplebbit({ address: publishedSub.ipnsObj.signer.address });
+            const sub = await remotePKC.createCommunity({ address: publishedSub.ipnsObj.signer.address });
 
-            const errorPromise = new Promise<PlebbitError>((resolve) => sub.once("error", resolve as (err: Error) => void));
+            const errorPromise = new Promise<PKCError>((resolve) => sub.once("error", resolve as (err: Error) => void));
 
             await sub.update();
 
             const error = await errorPromise;
 
-            if (isPlebbitFetchingUsingGateways(remotePlebbit)) {
+            if (isPKCFetchingUsingGateways(remotePKC)) {
                 expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
-                const gatewayError = error.details.gatewayToError[remotePlebbit.ipfsGatewayUrls[0]] as PlebbitError;
+                const gatewayError = error.details.gatewayToError[remotePKC.ipfsGatewayUrls[0]] as PKCError;
                 expect(gatewayError.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
                 expect(gatewayError.details.signatureValidity.valid).to.be.false;
                 expect(gatewayError.details.signatureValidity.reason).to.equal(
@@ -109,150 +109,150 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(sub.updatedAt).to.be.undefined; // should not accept update
 
             await sub.stop();
-            await remotePlebbit.destroy();
+            await remotePKC.destroy();
         });
     });
 
-    describe.concurrent(`Subplebbit with extra props in nested objects - ${config.name}`, async () => {
+    describe.concurrent(`Community with extra props in nested objects - ${config.name}`, async () => {
         // Type for subplebbit with unknown nested props
-        type SubplebbitWithNestedExtraProps = SubplebbitIpfsType & {
-            features?: SubplebbitIpfsType["features"] & { extraFeature?: boolean };
-            suggested?: SubplebbitIpfsType["suggested"] & { extraSuggested?: string };
-            encryption?: SubplebbitIpfsType["encryption"] & { extraEncryption?: string };
+        type CommunityWithNestedExtraProps = CommunityIpfsType & {
+            features?: CommunityIpfsType["features"] & { extraFeature?: boolean };
+            suggested?: CommunityIpfsType["suggested"] & { extraSuggested?: string };
+            encryption?: CommunityIpfsType["encryption"] & { extraEncryption?: string };
             roles?: Record<string, { role: string; extraRoleProp?: string }>;
         };
 
-        it(`features.extraProp is preserved through createSubplebbit and update()`, async () => {
+        it(`features.extraProp is preserved through createCommunity and update()`, async () => {
             const extraFeatures = { noVideos: true, extraFeature: true };
-            const { subplebbitRecord, communityAddress: subplebbitAddress } = await createMockedSubplebbitIpns({
+            const { subplebbitRecord, communityAddress: subplebbitAddress } = await createMockedCommunityIpns({
                 features: extraFeatures
             });
 
-            const remotePlebbit = await config.plebbitInstancePromise();
+            const remotePKC = await config.plebbitInstancePromise();
 
-            // Test createSubplebbit with record directly
-            const sub = await remotePlebbit.createSubplebbit(subplebbitRecord);
-            const subJson = sub.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
+            // Test createCommunity with record directly
+            const sub = await remotePKC.createCommunity(subplebbitRecord);
+            const subJson = sub.raw.subplebbitIpfs! as CommunityWithNestedExtraProps;
             expect(subJson.features?.extraFeature).to.equal(true);
             expect(subJson.features?.noVideos).to.equal(true);
 
             // Test recreation from instance
-            const recreatedSub = await remotePlebbit.createSubplebbit(sub);
-            const recreatedJson = recreatedSub.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
+            const recreatedSub = await remotePKC.createCommunity(sub);
+            const recreatedJson = recreatedSub.raw.subplebbitIpfs! as CommunityWithNestedExtraProps;
             expect(recreatedJson.features?.extraFeature).to.equal(true);
 
             // Test recreation from JSON
-            const recreatedFromJson = await remotePlebbit.createSubplebbit(JSON.parse(JSON.stringify(sub)));
-            const recreatedFromJsonJson = recreatedFromJson.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
+            const recreatedFromJson = await remotePKC.createCommunity(JSON.parse(JSON.stringify(sub)));
+            const recreatedFromJsonJson = recreatedFromJson.raw.subplebbitIpfs! as CommunityWithNestedExtraProps;
             expect(recreatedFromJsonJson.features?.extraFeature).to.equal(true);
 
             // Test update() flow
-            const subToUpdate = await remotePlebbit.createSubplebbit({ address: subplebbitAddress });
+            const subToUpdate = await remotePKC.createCommunity({ address: subplebbitAddress });
             await subToUpdate.update();
             await resolveWhenConditionIsTrue({ toUpdate: subToUpdate, predicate: async () => typeof subToUpdate.updatedAt === "number" });
 
-            const updatedJson = subToUpdate.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
+            const updatedJson = subToUpdate.raw.subplebbitIpfs! as CommunityWithNestedExtraProps;
             expect(updatedJson.features?.extraFeature).to.equal(true);
             expect(updatedJson.features?.noVideos).to.equal(true);
 
             await subToUpdate.stop();
-            await remotePlebbit.destroy();
+            await remotePKC.destroy();
         });
 
-        it(`suggested.extraProp is preserved through createSubplebbit and update()`, async () => {
+        it(`suggested.extraProp is preserved through createCommunity and update()`, async () => {
             const extraSuggested = { primaryColor: "#ff0000", extraSuggested: "customValue" };
-            const { subplebbitRecord, communityAddress: subplebbitAddress } = await createMockedSubplebbitIpns({
+            const { subplebbitRecord, communityAddress: subplebbitAddress } = await createMockedCommunityIpns({
                 suggested: extraSuggested
             });
 
-            const remotePlebbit = await config.plebbitInstancePromise();
+            const remotePKC = await config.plebbitInstancePromise();
 
-            // Test createSubplebbit with record directly
-            const sub = await remotePlebbit.createSubplebbit(subplebbitRecord);
-            const subJson = sub.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
+            // Test createCommunity with record directly
+            const sub = await remotePKC.createCommunity(subplebbitRecord);
+            const subJson = sub.raw.subplebbitIpfs! as CommunityWithNestedExtraProps;
             expect(subJson.suggested?.extraSuggested).to.equal("customValue");
             expect(subJson.suggested?.primaryColor).to.equal("#ff0000");
 
             // Test update() flow
-            const subToUpdate = await remotePlebbit.createSubplebbit({ address: subplebbitAddress });
+            const subToUpdate = await remotePKC.createCommunity({ address: subplebbitAddress });
             await subToUpdate.update();
             await resolveWhenConditionIsTrue({ toUpdate: subToUpdate, predicate: async () => typeof subToUpdate.updatedAt === "number" });
 
-            const updatedJson = subToUpdate.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
+            const updatedJson = subToUpdate.raw.subplebbitIpfs! as CommunityWithNestedExtraProps;
             expect(updatedJson.suggested?.extraSuggested).to.equal("customValue");
             expect(updatedJson.suggested?.primaryColor).to.equal("#ff0000");
 
             await subToUpdate.stop();
-            await remotePlebbit.destroy();
+            await remotePKC.destroy();
         });
 
-        it(`encryption.extraProp is preserved through createSubplebbit and update()`, async () => {
+        it(`encryption.extraProp is preserved through createCommunity and update()`, async () => {
             // We need to preserve the existing encryption fields (type, publicKey) while adding extra
-            const { subplebbitRecord } = await createMockedSubplebbitIpns({});
+            const { subplebbitRecord } = await createMockedCommunityIpns({});
             // Manually add extra prop to encryption after getting the base record
             const recordWithExtraEncryption = {
                 ...subplebbitRecord,
                 encryption: { ...subplebbitRecord.encryption, extraEncryption: "extraData" }
             };
 
-            const remotePlebbit = await config.plebbitInstancePromise();
+            const remotePKC = await config.plebbitInstancePromise();
 
-            // Test createSubplebbit with modified record
-            const sub = await remotePlebbit.createSubplebbit(recordWithExtraEncryption);
-            const subJson = sub.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
+            // Test createCommunity with modified record
+            const sub = await remotePKC.createCommunity(recordWithExtraEncryption);
+            const subJson = sub.raw.subplebbitIpfs! as CommunityWithNestedExtraProps;
             expect(subJson.encryption?.extraEncryption).to.equal("extraData");
             expect(subJson.encryption?.type).to.equal(subplebbitRecord.encryption.type);
 
             // Test recreation from JSON
-            const recreatedFromJson = await remotePlebbit.createSubplebbit(JSON.parse(JSON.stringify(sub)));
-            const recreatedJson = recreatedFromJson.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
+            const recreatedFromJson = await remotePKC.createCommunity(JSON.parse(JSON.stringify(sub)));
+            const recreatedJson = recreatedFromJson.raw.subplebbitIpfs! as CommunityWithNestedExtraProps;
             expect(recreatedJson.encryption?.extraEncryption).to.equal("extraData");
 
-            await remotePlebbit.destroy();
+            await remotePKC.destroy();
         });
 
-        it(`roles[address].extraProp is preserved through createSubplebbit and update()`, async () => {
+        it(`roles[address].extraProp is preserved through createCommunity and update()`, async () => {
             const testAddress = "12D3KooWTestAddress1234567890abcdefghij";
             const rolesWithExtra = {
                 [testAddress]: { role: "moderator", extraRoleProp: "customRoleData" }
             };
-            const { subplebbitRecord, communityAddress: subplebbitAddress } = await createMockedSubplebbitIpns({
+            const { subplebbitRecord, communityAddress: subplebbitAddress } = await createMockedCommunityIpns({
                 roles: rolesWithExtra
             });
 
-            const remotePlebbit = await config.plebbitInstancePromise();
+            const remotePKC = await config.plebbitInstancePromise();
 
-            // Test createSubplebbit with record directly
-            const sub = await remotePlebbit.createSubplebbit(subplebbitRecord);
-            const subJson = sub.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
+            // Test createCommunity with record directly
+            const sub = await remotePKC.createCommunity(subplebbitRecord);
+            const subJson = sub.raw.subplebbitIpfs! as CommunityWithNestedExtraProps;
             expect(subJson.roles?.[testAddress]?.extraRoleProp).to.equal("customRoleData");
             expect(subJson.roles?.[testAddress]?.role).to.equal("moderator");
 
             // Test update() flow
-            const subToUpdate = await remotePlebbit.createSubplebbit({ address: subplebbitAddress });
+            const subToUpdate = await remotePKC.createCommunity({ address: subplebbitAddress });
             await subToUpdate.update();
             await resolveWhenConditionIsTrue({ toUpdate: subToUpdate, predicate: async () => typeof subToUpdate.updatedAt === "number" });
 
-            const updatedJson = subToUpdate.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
+            const updatedJson = subToUpdate.raw.subplebbitIpfs! as CommunityWithNestedExtraProps;
             expect(updatedJson.roles?.[testAddress]?.extraRoleProp).to.equal("customRoleData");
             expect(updatedJson.roles?.[testAddress]?.role).to.equal("moderator");
 
             await subToUpdate.stop();
-            await remotePlebbit.destroy();
+            await remotePKC.destroy();
         });
 
         it(`Multiple nested objects with extra props are all preserved`, async () => {
             const testAddress = "12D3KooWTestAddress1234567890abcdefghij";
-            const { subplebbitRecord, communityAddress: subplebbitAddress } = await createMockedSubplebbitIpns({
+            const { subplebbitRecord, communityAddress: subplebbitAddress } = await createMockedCommunityIpns({
                 features: { noVideos: true, extraFeature: true },
                 suggested: { primaryColor: "#00ff00", extraSuggested: "suggestedValue" },
                 roles: { [testAddress]: { role: "admin", extraRoleProp: "roleValue" } }
             });
 
-            const remotePlebbit = await config.plebbitInstancePromise();
+            const remotePKC = await config.plebbitInstancePromise();
 
-            const sub = await remotePlebbit.createSubplebbit(subplebbitRecord);
-            const subJson = sub.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
+            const sub = await remotePKC.createCommunity(subplebbitRecord);
+            const subJson = sub.raw.subplebbitIpfs! as CommunityWithNestedExtraProps;
 
             // Verify all nested extra props
             expect(subJson.features?.extraFeature).to.equal(true);
@@ -260,26 +260,26 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(subJson.roles?.[testAddress]?.extraRoleProp).to.equal("roleValue");
 
             // Test update() flow
-            const subToUpdate = await remotePlebbit.createSubplebbit({ address: subplebbitAddress });
+            const subToUpdate = await remotePKC.createCommunity({ address: subplebbitAddress });
             await subToUpdate.update();
             await resolveWhenConditionIsTrue({ toUpdate: subToUpdate, predicate: async () => typeof subToUpdate.updatedAt === "number" });
 
-            const updatedJson = subToUpdate.raw.subplebbitIpfs! as SubplebbitWithNestedExtraProps;
+            const updatedJson = subToUpdate.raw.subplebbitIpfs! as CommunityWithNestedExtraProps;
             expect(updatedJson.features?.extraFeature).to.equal(true);
             expect(updatedJson.suggested?.extraSuggested).to.equal("suggestedValue");
             expect(updatedJson.roles?.[testAddress]?.extraRoleProp).to.equal("roleValue");
 
             await subToUpdate.stop();
-            await remotePlebbit.destroy();
+            await remotePKC.destroy();
         });
     });
 
-    describe.sequential(`SubplebbitIpfs with nameResolved reserved field is rejected - ${config.name}`, async () => {
-        let publishedSub: Awaited<ReturnType<typeof publishSubplebbitRecordWithExtraProp>>;
+    describe.sequential(`CommunityIpfs with nameResolved reserved field is rejected - ${config.name}`, async () => {
+        let publishedSub: Awaited<ReturnType<typeof publishCommunityRecordWithExtraProp>>;
 
         beforeAll(async () => {
             // Create a valid subplebbit record, then re-publish with nameResolved injected
-            publishedSub = await publishSubplebbitRecordWithExtraProp();
+            publishedSub = await publishCommunityRecordWithExtraProp();
             const record = JSON.parse(JSON.stringify(publishedSub.subplebbitRecord));
             record.nameResolved = true;
             const signedPropertyNames = [...record.signature.signedPropertyNames, "nameResolved"];
@@ -296,18 +296,18 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishedSub.ipnsObj.plebbit.destroy();
         });
 
-        it(`subplebbit.update() rejects SubplebbitIpfs with nameResolved reserved field`, async () => {
-            const remotePlebbit = await config.plebbitInstancePromise();
+        it(`subplebbit.update() rejects CommunityIpfs with nameResolved reserved field`, async () => {
+            const remotePKC = await config.plebbitInstancePromise();
 
-            const sub = await remotePlebbit.createSubplebbit({ address: publishedSub.ipnsObj.signer.address });
-            const errorPromise = new Promise<PlebbitError>((resolve) => sub.once("error", resolve as (err: Error) => void));
+            const sub = await remotePKC.createCommunity({ address: publishedSub.ipnsObj.signer.address });
+            const errorPromise = new Promise<PKCError>((resolve) => sub.once("error", resolve as (err: Error) => void));
 
             await sub.update();
             const error = await errorPromise;
 
-            if (isPlebbitFetchingUsingGateways(remotePlebbit)) {
+            if (isPKCFetchingUsingGateways(remotePKC)) {
                 expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
-                const gatewayError = Object.values(error.details.gatewayToError)[0] as PlebbitError;
+                const gatewayError = Object.values(error.details.gatewayToError)[0] as PKCError;
                 expect(gatewayError.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
                 expect(gatewayError.details.signatureValidity.reason).to.equal(messages.ERR_COMMUNITY_RECORD_INCLUDES_RESERVED_FIELD);
             } else {
@@ -317,20 +317,20 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             expect(sub.updatedAt).to.be.undefined;
             await sub.stop();
-            await remotePlebbit.destroy();
+            await remotePKC.destroy();
         });
 
-        it(`getSubplebbit() throws when SubplebbitIpfs has nameResolved reserved field`, async () => {
-            const remotePlebbit = await config.plebbitInstancePromise();
+        it(`getCommunity() throws when CommunityIpfs has nameResolved reserved field`, async () => {
+            const remotePKC = await config.plebbitInstancePromise();
 
             try {
-                await remotePlebbit.getSubplebbit({ address: publishedSub.ipnsObj.signer.address });
+                await remotePKC.getCommunity({ address: publishedSub.ipnsObj.signer.address });
                 expect.fail("Should have thrown");
             } catch (e) {
-                const error = e as PlebbitError;
-                if (isPlebbitFetchingUsingGateways(remotePlebbit)) {
+                const error = e as PKCError;
+                if (isPKCFetchingUsingGateways(remotePKC)) {
                     expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
-                    const gatewayError = Object.values(error.details.gatewayToError)[0] as PlebbitError;
+                    const gatewayError = Object.values(error.details.gatewayToError)[0] as PKCError;
                     expect(gatewayError.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
                     expect(gatewayError.details.signatureValidity.reason).to.equal(messages.ERR_COMMUNITY_RECORD_INCLUDES_RESERVED_FIELD);
                 } else {
@@ -339,7 +339,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 }
             }
 
-            await remotePlebbit.destroy();
+            await remotePKC.destroy();
         });
     });
 });

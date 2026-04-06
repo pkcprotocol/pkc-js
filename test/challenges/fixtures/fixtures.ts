@@ -12,23 +12,23 @@ interface MockAuthor {
     };
 }
 
-interface MockSubplebbitChallengeSettings {
+interface MockCommunityChallengeSettings {
     name: string;
     options?: Record<string, string>;
     description?: string;
     exclude?: Array<Record<string, unknown>>;
 }
 
-interface MockSubplebbit {
+interface MockCommunity {
     title: string;
     roles?: Record<string, { role: string }>;
     settings: {
-        challenges: MockSubplebbitChallengeSettings[];
+        challenges: MockCommunityChallengeSettings[];
     };
-    _plebbit?: MockPlebbit;
+    _plebbit?: MockPKC;
 }
 
-interface MockPlebbit {
+interface MockPKC {
     getComment: (cid: string | { cid: string }) => Comment;
     createComment: (cid: string | { cid: string }) => Comment;
     settings?: { challenges?: Record<string, any> };
@@ -108,7 +108,7 @@ class Comment extends EventEmitter {
 }
 
 // mock plebbit sync
-const createPlebbit = (): MockPlebbit => {
+const createPKC = (): MockPKC => {
     const getCidFromArg = (arg: string | { cid: string }): string => (typeof arg === "string" ? arg : arg?.cid);
     return {
         getComment: (cid) => new Comment(getCidFromArg(cid)),
@@ -117,14 +117,14 @@ const createPlebbit = (): MockPlebbit => {
     };
 };
 
-// mock Plebbit async
-const Plebbit = (): MockPlebbit => createPlebbit();
+// mock PKC async
+const PKC = (): MockPKC => createPKC();
 
 // define mock challenges included with plebbit-js
-(Plebbit as unknown as { challenges: typeof plebbitJsChallenges }).challenges = plebbitJsChallenges;
+(PKC as unknown as { challenges: typeof plebbitJsChallenges }).challenges = plebbitJsChallenges;
 
-// define mock Subplebbit instances
-const textMathChallengeSubplebbit: MockSubplebbit = {
+// define mock Community instances
+const textMathChallengeCommunity: MockCommunity = {
     title: "text-math challenge subplebbit",
     settings: {
         challenges: [
@@ -137,7 +137,7 @@ const textMathChallengeSubplebbit: MockSubplebbit = {
     }
 };
 // comment out because don't know how to make the captcha node code work in the browser
-// const captchaAndMathChallengeSubplebbit = {
+// const captchaAndMathChallengeCommunity = {
 //   title: 'captcha and math challenge subplebbit',
 //   settings: {
 //     challenges: [
@@ -159,7 +159,7 @@ const textMathChallengeSubplebbit: MockSubplebbit = {
 //     ]
 //   }
 // }
-const excludeHighKarmaChallengeSubplebbit: MockSubplebbit = {
+const excludeHighKarmaChallengeCommunity: MockCommunity = {
     title: "exclude high karma challenge subplebbit",
     settings: {
         challenges: [
@@ -176,7 +176,7 @@ const excludeHighKarmaChallengeSubplebbit: MockSubplebbit = {
         ]
     }
 };
-const excludeAccountAgeChallengeSubplebbit: MockSubplebbit = {
+const excludeAccountAgeChallengeCommunity: MockCommunity = {
     title: "exclude account age challenge subplebbit",
     settings: {
         challenges: [
@@ -191,7 +191,7 @@ const excludeAccountAgeChallengeSubplebbit: MockSubplebbit = {
         ]
     }
 };
-const excludeAddressChallengeSubplebbit: MockSubplebbit = {
+const excludeAddressChallengeCommunity: MockCommunity = {
     title: "exclude address challenge subplebbit",
     settings: {
         challenges: [
@@ -207,7 +207,7 @@ const excludeAddressChallengeSubplebbit: MockSubplebbit = {
         ]
     }
 };
-const whitelistChallengeSubplebbit: MockSubplebbit = {
+const whitelistChallengeCommunity: MockCommunity = {
     title: "whitelist challenge subplebbit",
     settings: {
         challenges: [
@@ -220,7 +220,7 @@ const whitelistChallengeSubplebbit: MockSubplebbit = {
         ]
     }
 };
-const blacklistChallengeSubplebbit: MockSubplebbit = {
+const blacklistChallengeCommunity: MockCommunity = {
     title: "blacklist challenge subplebbit",
     settings: {
         challenges: [
@@ -234,7 +234,7 @@ const blacklistChallengeSubplebbit: MockSubplebbit = {
     }
 };
 // comment out because don't know how to require external challenge in the browser tests
-// const erc20PaymentChallengeSubplebbit = {
+// const erc20PaymentChallengeCommunity = {
 //   title: 'erc20 payment challenge subplebbit',
 //   settings: {
 //     challenges: [
@@ -254,7 +254,7 @@ const blacklistChallengeSubplebbit: MockSubplebbit = {
 //     ]
 //   }
 // }
-const passwordChallengeSubplebbit: MockSubplebbit = {
+const passwordChallengeCommunity: MockCommunity = {
     title: "password challenge subplebbit",
     settings: {
         challenges: [
@@ -268,7 +268,7 @@ const passwordChallengeSubplebbit: MockSubplebbit = {
         ]
     }
 };
-const excludeFriendlySubKarmaChallengeSubplebbit: MockSubplebbit = {
+const excludeFriendlySubKarmaChallengeCommunity: MockCommunity = {
     title: "exclude friendly sub karma challenge subplebbit",
     settings: {
         challenges: [
@@ -277,7 +277,7 @@ const excludeFriendlySubKarmaChallengeSubplebbit: MockSubplebbit = {
                 exclude: [
                     // exclude author with karma in those subs using publication.challengeCommentCids
                     {
-                        subplebbit: {
+                        community: {
                             addresses: ["friendly-sub.bso", "friendly-sub2.bso"],
                             postScore: 100,
                             replyScore: 100,
@@ -289,7 +289,7 @@ const excludeFriendlySubKarmaChallengeSubplebbit: MockSubplebbit = {
         ]
     }
 };
-const twoOutOf4SuccessChallengeSubplebbit: MockSubplebbit = {
+const twoOutOf4SuccessChallengeCommunity: MockCommunity = {
     title: "2 out of 4 success challenge subplebbit",
     settings: {
         // challenge 0, 1 fail, but excluded if 2, 3 succeed, which makes challengeVerification.challengeSuccess = true
@@ -313,7 +313,7 @@ const twoOutOf4SuccessChallengeSubplebbit: MockSubplebbit = {
         ]
     }
 };
-const twoOutOf4SuccessInverseChallengeSubplebbit: MockSubplebbit = {
+const twoOutOf4SuccessInverseChallengeCommunity: MockCommunity = {
     title: "2 out of 4 success inverse challenge subplebbit",
     settings: {
         // challenge 0, 1 fail, but excluded if 2, 3 succeed, which makes challengeVerification.challengeSuccess = true
@@ -337,7 +337,7 @@ const twoOutOf4SuccessInverseChallengeSubplebbit: MockSubplebbit = {
         ]
     }
 };
-const rateLimitChallengeSubplebbit: MockSubplebbit = {
+const rateLimitChallengeCommunity: MockCommunity = {
     title: "rate limit challenge subplebbit",
     settings: {
         challenges: [
@@ -356,7 +356,7 @@ const rateLimitChallengeSubplebbit: MockSubplebbit = {
         ]
     }
 };
-const rateLimitChallengeSuccessChallengeSubplebbit: MockSubplebbit = {
+const rateLimitChallengeSuccessChallengeCommunity: MockCommunity = {
     title: "rate limit challenge success challenge subplebbit",
     settings: {
         challenges: [
@@ -375,7 +375,7 @@ const rateLimitChallengeSuccessChallengeSubplebbit: MockSubplebbit = {
         ]
     }
 };
-const excludeModsChallengeSubplebbit: MockSubplebbit = {
+const excludeModsChallengeCommunity: MockCommunity = {
     title: "exclude mods challenge subplebbit",
     roles: {
         "high-karma.bso": {
@@ -395,7 +395,7 @@ const excludeModsChallengeSubplebbit: MockSubplebbit = {
     }
 };
 // test a challenge answer excluding a non challenge answer
-const questionOrWhitelistChallengeSubplebbit: MockSubplebbit = {
+const questionOrWhitelistChallengeCommunity: MockCommunity = {
     title: "question or whitelist challenge subplebbit",
     settings: {
         challenges: [
@@ -423,19 +423,19 @@ const questionOrWhitelistChallengeSubplebbit: MockSubplebbit = {
 // define mock author karma scores and account age
 const subplebbitAuthors: Record<string, Record<string, { postScore?: number; replyScore?: number; firstCommentTimestamp?: number }>> = {};
 subplebbitAuthors[highKarmaAuthor.address] = {};
-subplebbitAuthors[highKarmaAuthor.address][excludeHighKarmaChallengeSubplebbit.title] = {
+subplebbitAuthors[highKarmaAuthor.address][excludeHighKarmaChallengeCommunity.title] = {
     postScore: 1000,
     replyScore: 1000,
     firstCommentTimestamp: 1
 };
-subplebbitAuthors[highKarmaAuthor.address][excludeAccountAgeChallengeSubplebbit.title] = {
+subplebbitAuthors[highKarmaAuthor.address][excludeAccountAgeChallengeCommunity.title] = {
     postScore: 1,
     replyScore: 1,
     firstCommentTimestamp: 1
 };
 subplebbitAuthors[lowKarmaAuthor.address] = {};
-subplebbitAuthors[lowKarmaAuthor.address][excludeHighKarmaChallengeSubplebbit.title] = { postScore: 1, replyScore: 1000 };
-subplebbitAuthors[lowKarmaAuthor.address][excludeAccountAgeChallengeSubplebbit.title] = { postScore: 1000, replyScore: 1000 };
+subplebbitAuthors[lowKarmaAuthor.address][excludeHighKarmaChallengeCommunity.title] = { postScore: 1, replyScore: 1000 };
+subplebbitAuthors[lowKarmaAuthor.address][excludeAccountAgeChallengeCommunity.title] = { postScore: 1000, replyScore: 1000 };
 
 // define mock friendly sub comment cids
 const challengeCommentCids: Record<string, string[]> = {};
@@ -443,32 +443,32 @@ challengeCommentCids[highKarmaAuthor.address] = ["Qm...friendly-sub.bso,high,old
 
 const challengeAnswers: Record<string, Record<string, string[]>> = {};
 challengeAnswers[highKarmaAuthor.address] = {};
-challengeAnswers[highKarmaAuthor.address][passwordChallengeSubplebbit.title] = ["password"];
+challengeAnswers[highKarmaAuthor.address][passwordChallengeCommunity.title] = ["password"];
 challengeAnswers[lowKarmaAuthor.address] = {};
-challengeAnswers[lowKarmaAuthor.address][passwordChallengeSubplebbit.title] = ["wrong"];
+challengeAnswers[lowKarmaAuthor.address][passwordChallengeCommunity.title] = ["wrong"];
 
-const subplebbits: MockSubplebbit[] = [
-    textMathChallengeSubplebbit,
-    // captchaAndMathChallengeSubplebbit,
-    excludeHighKarmaChallengeSubplebbit,
-    excludeAccountAgeChallengeSubplebbit,
-    excludeAddressChallengeSubplebbit,
-    whitelistChallengeSubplebbit,
-    blacklistChallengeSubplebbit,
-    // erc20PaymentChallengeSubplebbit,
-    // evmContractCallChallengeSubplebbit,
-    passwordChallengeSubplebbit,
-    excludeFriendlySubKarmaChallengeSubplebbit,
-    twoOutOf4SuccessChallengeSubplebbit,
-    twoOutOf4SuccessInverseChallengeSubplebbit,
-    rateLimitChallengeSubplebbit,
-    rateLimitChallengeSuccessChallengeSubplebbit,
-    excludeModsChallengeSubplebbit,
-    questionOrWhitelistChallengeSubplebbit
+const subplebbits: MockCommunity[] = [
+    textMathChallengeCommunity,
+    // captchaAndMathChallengeCommunity,
+    excludeHighKarmaChallengeCommunity,
+    excludeAccountAgeChallengeCommunity,
+    excludeAddressChallengeCommunity,
+    whitelistChallengeCommunity,
+    blacklistChallengeCommunity,
+    // erc20PaymentChallengeCommunity,
+    // evmContractCallChallengeCommunity,
+    passwordChallengeCommunity,
+    excludeFriendlySubKarmaChallengeCommunity,
+    twoOutOf4SuccessChallengeCommunity,
+    twoOutOf4SuccessInverseChallengeCommunity,
+    rateLimitChallengeCommunity,
+    rateLimitChallengeSuccessChallengeCommunity,
+    excludeModsChallengeCommunity,
+    questionOrWhitelistChallengeCommunity
 ];
 
 const results: Record<string, Record<string, MockChallengeResult>> = {};
-results[textMathChallengeSubplebbit.title] = {
+results[textMathChallengeCommunity.title] = {
     "high-karma.bso": {
         pendingChallenges: [{ challenge: "660 - 256", type: "text/plain" }]
     },
@@ -477,7 +477,7 @@ results[textMathChallengeSubplebbit.title] = {
     }
 };
 // comment out because don't know how to make the captcha node code work in the browser
-// results[captchaAndMathChallengeSubplebbit.title] = {
+// results[captchaAndMathChallengeCommunity.title] = {
 //   'high-karma.bso': {
 //     pendingChallenges: [
 //       { challenge: '...', type: 'image' },
@@ -491,34 +491,34 @@ results[textMathChallengeSubplebbit.title] = {
 //     ]
 //   }
 // }
-results[excludeHighKarmaChallengeSubplebbit.title] = {
+results[excludeHighKarmaChallengeCommunity.title] = {
     "high-karma.bso": { challengeSuccess: true },
     "low-karma.bso": {
         pendingChallenges: [{ challenge: "82 * 45", type: "text/plain" }]
     }
 };
-results[excludeAccountAgeChallengeSubplebbit.title] = {
+results[excludeAccountAgeChallengeCommunity.title] = {
     "high-karma.bso": { challengeSuccess: true },
     "low-karma.bso": {
         challengeSuccess: false,
         challengeErrors: { 0: "You're not allowed to publish." }
     }
 };
-results[excludeAddressChallengeSubplebbit.title] = {
+results[excludeAddressChallengeCommunity.title] = {
     "high-karma.bso": { challengeSuccess: true },
     "low-karma.bso": {
         challengeSuccess: false,
         challengeErrors: { 0: "You're not whitelisted." }
     }
 };
-results[whitelistChallengeSubplebbit.title] = {
+results[whitelistChallengeCommunity.title] = {
     "high-karma.bso": { challengeSuccess: true },
     "low-karma.bso": {
         challengeSuccess: false,
         challengeErrors: { 0: "You're not whitelisted." }
     }
 };
-results[blacklistChallengeSubplebbit.title] = {
+results[blacklistChallengeCommunity.title] = {
     "high-karma.bso": { challengeSuccess: true },
     "low-karma.bso": {
         challengeSuccess: false,
@@ -526,25 +526,25 @@ results[blacklistChallengeSubplebbit.title] = {
     }
 };
 // comment out because don't know how to require external challenge in the browser tests
-// results[erc20PaymentChallengeSubplebbit.title] = {
+// results[erc20PaymentChallengeCommunity.title] = {
 //   'high-karma.bso': { challengeSuccess: true },
 //   'low-karma.bso': {
 //     challengeSuccess: false,
 //     challengeErrors: {"0": "Author doesn't have wallet (eth) set." }
 //   }
 // }
-results[passwordChallengeSubplebbit.title] = {
+results[passwordChallengeCommunity.title] = {
     "high-karma.bso": { challengeSuccess: true },
     "low-karma.bso": { challengeSuccess: false, challengeErrors: { 0: "Wrong answer." } }
 };
-results[excludeFriendlySubKarmaChallengeSubplebbit.title] = {
+results[excludeFriendlySubKarmaChallengeCommunity.title] = {
     "high-karma.bso": { challengeSuccess: true },
     "low-karma.bso": {
         challengeSuccess: false,
         challengeErrors: { 0: "You're not allowed to publish." }
     }
 };
-results[twoOutOf4SuccessChallengeSubplebbit.title] = {
+results[twoOutOf4SuccessChallengeCommunity.title] = {
     "high-karma.bso": { challengeSuccess: true },
     "low-karma.bso": {
         challengeSuccess: false,
@@ -556,7 +556,7 @@ results[twoOutOf4SuccessChallengeSubplebbit.title] = {
         }
     }
 };
-results[twoOutOf4SuccessInverseChallengeSubplebbit.title] = {
+results[twoOutOf4SuccessInverseChallengeCommunity.title] = {
     "high-karma.bso": { challengeSuccess: true },
     "low-karma.bso": {
         challengeSuccess: false,
@@ -568,7 +568,7 @@ results[twoOutOf4SuccessInverseChallengeSubplebbit.title] = {
         }
     }
 };
-results[rateLimitChallengeSubplebbit.title] = {
+results[rateLimitChallengeCommunity.title] = {
     "high-karma.bso": {
         challengeSuccess: false,
         challengeErrors: { 0: "You're doing this too much, rate limit: 0 post/h, 10 replies/h, 100 votes/h." }
@@ -578,7 +578,7 @@ results[rateLimitChallengeSubplebbit.title] = {
         challengeErrors: { 0: "You're doing this too much, rate limit: 0 post/h, 10 replies/h, 100 votes/h." }
     }
 };
-results[rateLimitChallengeSuccessChallengeSubplebbit.title] = {
+results[rateLimitChallengeSuccessChallengeCommunity.title] = {
     "high-karma.bso": {
         challengeSuccess: true
     },
@@ -586,7 +586,7 @@ results[rateLimitChallengeSuccessChallengeSubplebbit.title] = {
         challengeSuccess: true
     }
 };
-results[excludeModsChallengeSubplebbit.title] = {
+results[excludeModsChallengeCommunity.title] = {
     "high-karma.bso": {
         challengeSuccess: true
     },
@@ -595,7 +595,7 @@ results[excludeModsChallengeSubplebbit.title] = {
         challengeErrors: { 0: "You're not a mod." }
     }
 };
-results[questionOrWhitelistChallengeSubplebbit.title] = {
+results[questionOrWhitelistChallengeCommunity.title] = {
     "high-karma.bso": { challengeSuccess: true },
     "low-karma.bso": {
         pendingChallenges: [{ challenge: "What is the password?", type: "text/plain" }]
@@ -604,7 +604,7 @@ results[questionOrWhitelistChallengeSubplebbit.title] = {
 
 // add mock plebbit to add the mock subplebbit instances
 for (const subplebbit of subplebbits) {
-    subplebbit._plebbit = createPlebbit();
+    subplebbit._plebbit = createPKC();
 }
 
-export { Plebbit, subplebbits, authors, subplebbitAuthors, challengeCommentCids, challengeAnswers, results };
+export { PKC, subplebbits, authors, subplebbitAuthors, challengeCommentCids, challengeAnswers, results };

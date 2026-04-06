@@ -1,12 +1,12 @@
 import { describe, it } from "vitest";
-import { mockPlebbit, createSubWithNoChallenge } from "../../../dist/node/test/test-util.js";
+import { mockPKC, createSubWithNoChallenge } from "../../../dist/node/test/test-util.js";
 
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 
 describe(`subplebbit.stop() timing`, async () => {
-    it(`LocalSubplebbit.stop() after update() should complete within 10s`, async () => {
-        const plebbit: PlebbitType = await mockPlebbit();
+    it(`LocalCommunity.stop() after update() should complete within 10s`, async () => {
+        const plebbit: PKCType = await mockPKC();
         const sub = await createSubWithNoChallenge({}, plebbit);
         await sub.update();
         const startMs = Date.now();

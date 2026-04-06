@@ -1,4 +1,4 @@
-import { PlebbitError } from "../pkc-error.js";
+import { PKCError } from "../pkc-error.js";
 import type {
     DecryptedChallengeAnswerMessageType,
     DecryptedChallengeMessageType,
@@ -29,7 +29,7 @@ export interface PublicationEvents {
     challenge: (challenge: DecryptedChallengeMessageType) => void;
     challengeanswer: (answer: DecryptedChallengeAnswerMessageType) => void;
     challengeverification: (verification: DecryptedChallengeVerificationMessageType, decryptedComment?: Comment) => void; // Should we include the updated publication instance here? not sure
-    error: (error: PlebbitError | Error) => void;
+    error: (error: PKCError | Error) => void;
 
     // State changes
     publishingstatechange: (newState: Publication["publishingState"]) => void;
@@ -45,7 +45,7 @@ export interface PublicationEvents {
 export type PublicationEventArgs<T extends keyof PublicationEvents> = Parameters<PublicationEvents[T]>;
 
 export type PublicationRpcErrorToTransmit = PublicationEventArgs<"error">[0] & {
-    details?: PlebbitError["details"] & {
+    details?: PKCError["details"] & {
         newPublishingState?: Publication["publishingState"];
         publishThrowError?: boolean; // if true, the error was thrown by publish() not emitted by the publication instance
     };

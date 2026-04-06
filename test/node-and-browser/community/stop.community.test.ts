@@ -2,18 +2,18 @@ import signers from "../../fixtures/signers.js";
 
 import {
     describeSkipIfRpc,
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     isRpcFlagOn,
-    mockRemotePlebbit,
-    mockGatewayPlebbit,
-    mockPlebbitNoDataPathWithOnlyKuboClient,
+    mockRemotePKC,
+    mockGatewayPKC,
+    mockPKCNoDataPathWithOnlyKuboClient,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
 
 import { describe, it, afterAll } from "vitest";
 
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
-import type { RemoteSubplebbit } from "../../../dist/node/community/remote-community.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 
 const subplebbitAddress = signers[0].address;
 
@@ -61,11 +61,11 @@ function createBlockedNameResolver(key: string) {
     };
 }
 
-getAvailablePlebbitConfigsToTestAgainst()
+getAvailablePKCConfigsToTestAgainst()
     .filter((config) => isRpcFlagOn() || config.testConfigCode !== "remote-plebbit-rpc")
     .map((config) =>
         describe(`subplebbit.stop() timing - Remote - ${config.name}`, async () => {
-            let plebbit: PlebbitType;
+            let plebbit: PKCType;
 
             afterAll(async () => {
                 await plebbit.destroy();
@@ -73,7 +73,7 @@ getAvailablePlebbitConfigsToTestAgainst()
 
             it(`Remote subplebbit stop() after update() should complete within 10s`, async () => {
                 plebbit = await config.plebbitInstancePromise();
-                const sub = (await plebbit.createSubplebbit({ address: subplebbitAddress })) as RemoteSubplebbit;
+                const sub = (await plebbit.createCommunity({ address: subplebbitAddress })) as RemoteCommunity;
                 await sub.update();
                 await resolveWhenConditionIsTrue({
                     toUpdate: sub,
@@ -89,8 +89,8 @@ getAvailablePlebbitConfigsToTestAgainst()
 
 describe(`subplebbit.stop() idempotency`, async () => {
     it(`subplebbit.stop() should be a no-op when state is already "stopped"`, async () => {
-        const plebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
-        const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+        const plebbit = await mockPKCNoDataPathWithOnlyKuboClient();
+        const sub = await plebbit.createCommunity({ address: subplebbitAddress });
         expect(sub.state).to.equal("stopped");
         await sub.stop(); // should not throw
         expect(sub.state).to.equal("stopped");
@@ -101,13 +101,13 @@ describe(`subplebbit.stop() idempotency`, async () => {
 describeSkipIfRpc(`subplebbit.stop() aborts verification`, async () => {
     it(`subplebbit.stop() aborts community-name resolution without emitting a failure`, async () => {
         const blockedResolver = createBlockedNameResolver("sub-blocked-resolver");
-        const plebbit = await mockRemotePlebbit({
+        const plebbit = await mockRemotePKC({
             mockResolve: false,
             plebbitOptions: { nameResolvers: [blockedResolver.resolver] }
         });
 
         try {
-            const sub = await plebbit.createSubplebbit({ address: "blocked-sub.bso" });
+            const sub = await plebbit.createCommunity({ address: "blocked-sub.bso" });
             const errors: Error[] = [];
             sub.on("error", (error) => errors.push(error as Error));
 
@@ -135,14 +135,14 @@ describeSkipIfRpc(`subplebbit.stop() aborts verification`, async () => {
 describeSkipIfRpc(`subplebbit.stop() aborts in-flight gateway fetches`, async () => {
     it(`subplebbit.stop() aborts gateway fetch of subplebbit IPNS`, async () => {
         // Use a non-routable IP that will hang forever
-        const plebbit = await mockGatewayPlebbit({
+        const plebbit = await mockGatewayPKC({
             plebbitOptions: {
                 ipfsGatewayUrls: ["http://192.0.2.1:1"]
             }
         });
 
         try {
-            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.createCommunity({ address: subplebbitAddress });
             const errors: Error[] = [];
             sub.on("error", (error) => errors.push(error as Error));
 
@@ -169,11 +169,11 @@ describeSkipIfRpc(`subplebbit.stop() aborts in-flight gateway fetches`, async ()
 
     it(`subplebbit.stop() aborts P2P IPNS resolve via kubo`, async () => {
         // Use kubo with a non-existent IPNS name that will hang during resolve
-        const plebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
+        const plebbit = await mockPKCNoDataPathWithOnlyKuboClient();
 
         try {
             // Use a valid but non-existent IPNS name
-            const sub = await plebbit.createSubplebbit({ address: "12D3KooWHFMSoRMak4VCKwTrURP1Rf2JHNGbAGCqU4jJhAPZjR3j" });
+            const sub = await plebbit.createCommunity({ address: "12D3KooWHFMSoRMak4VCKwTrURP1Rf2JHNGbAGCqU4jJhAPZjR3j" });
             const errors: Error[] = [];
             sub.on("error", (error) => errors.push(error as Error));
 
@@ -182,7 +182,7 @@ describeSkipIfRpc(`subplebbit.stop() aborts in-flight gateway fetches`, async ()
             const kuboUrl = Object.keys(plebbit.clients.kuboRpcClients)[0];
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
-                predicate: async () => (sub as RemoteSubplebbit).clients.kuboRpcClients[kuboUrl]?.state === "fetching-ipns"
+                predicate: async () => (sub as RemoteCommunity).clients.kuboRpcClients[kuboUrl]?.state === "fetching-ipns"
             });
 
             const startMs = Date.now();
@@ -198,10 +198,10 @@ describeSkipIfRpc(`subplebbit.stop() aborts in-flight gateway fetches`, async ()
     });
 
     it(`subplebbit.stop() interrupts the inter-update sleep`, async () => {
-        const plebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
+        const plebbit = await mockPKCNoDataPathWithOnlyKuboClient();
 
         try {
-            const sub = (await plebbit.createSubplebbit({ address: subplebbitAddress })) as RemoteSubplebbit;
+            const sub = (await plebbit.createCommunity({ address: subplebbitAddress })) as RemoteCommunity;
             await sub.update();
 
             // Wait for first successful update

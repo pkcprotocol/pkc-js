@@ -1,5 +1,5 @@
 import {
-    mockPlebbit,
+    mockPKC,
     publishRandomPost,
     createSubWithNoChallenge,
     publishRandomReply,
@@ -10,24 +10,24 @@ import {
     resolveWhenConditionIsTrue,
     describeSkipIfRpc,
     describeIfRpc,
-    waitTillPostInSubplebbitPages
+    waitTillPostInCommunityPages
 } from "../../../dist/node/test/test-util.js";
 import { describe, beforeAll, afterAll, it } from "vitest";
 
 import signers from "../../fixtures/signers.js";
 
-import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../dist/node/community/rpc-local-community.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 
-import type { SubplebbitIpfsType } from "../../../dist/node/community/types.js";
+import type { CommunityIpfsType } from "../../../dist/node/community/types.js";
 
 describe(`subplebbit.{lastPostCid, lastCommentCid}`, async () => {
-    let plebbit: Plebbit;
-    let sub: LocalSubplebbit | RpcLocalSubplebbit;
+    let plebbit: PKC;
+    let sub: LocalCommunity | RpcLocalCommunity;
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
+        plebbit = await mockPKC();
         sub = await createSubWithNoChallenge({}, plebbit);
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
@@ -42,7 +42,7 @@ describe(`subplebbit.{lastPostCid, lastCommentCid}`, async () => {
         expect(sub.lastPostCid).to.be.undefined;
         expect(sub.lastCommentCid).to.be.undefined;
         const post = await publishRandomPost({ communityAddress: sub.address, plebbit: plebbit });
-        await waitTillPostInSubplebbitPages(post as Comment & { cid: string }, plebbit);
+        await waitTillPostInCommunityPages(post as Comment & { cid: string }, plebbit);
         expect(sub.lastPostCid).to.equal(post.cid);
         expect(sub.lastCommentCid).to.equal(post.cid);
     });
@@ -84,7 +84,7 @@ describeSkipIfRpc(`Create a sub with basic auth urls`, async () => {
             pubsubKuboRpcClientsOptions
         };
 
-        const plebbit = await mockPlebbit(plebbitOptions);
+        const plebbit = await mockPKC(plebbitOptions);
         const sub = await createSubWithNoChallenge({}, plebbit);
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
@@ -101,7 +101,7 @@ describeSkipIfRpc(`Create a sub with basic auth urls`, async () => {
             pubsubKuboRpcClientsOptions
         };
 
-        const plebbit = await mockPlebbit(plebbitOptions);
+        const plebbit = await mockPKC(plebbitOptions);
         const sub = await createSubWithNoChallenge({}, plebbit);
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
@@ -112,10 +112,10 @@ describeSkipIfRpc(`Create a sub with basic auth urls`, async () => {
 });
 
 describe(`subplebbit.pubsubTopic`, async () => {
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
-    let plebbit: Plebbit;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
+    let plebbit: PKC;
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
+        plebbit = await mockPKC();
         subplebbit = await createSubWithNoChallenge({}, plebbit);
     });
 
@@ -136,16 +136,16 @@ describe(`subplebbit.pubsubTopic`, async () => {
 
         const post = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
         // _subplebbit is private, use type assertion to access it for testing
-        expect((post as Comment & { _subplebbit?: Pick<SubplebbitIpfsType, "pubsubTopic"> })._subplebbit?.pubsubTopic).to.be.undefined;
+        expect((post as Comment & { _subplebbit?: Pick<CommunityIpfsType, "pubsubTopic"> })._subplebbit?.pubsubTopic).to.be.undefined;
     });
 });
 
 describe.skip(`comment.link`, async () => {
-    let plebbit: Plebbit;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    let plebbit: PKC;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
 
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
+        plebbit = await mockPKC();
         subplebbit = await createSubWithNoChallenge({}, plebbit);
         await subplebbit.edit({ settings: { ...subplebbit.settings!, fetchThumbnailUrls: true } });
         expect(subplebbit.settings!.fetchThumbnailUrls).to.be.true;
@@ -231,7 +231,7 @@ describe.skip(`comment.link`, async () => {
         expect(post.linkHeight).to.equal(linkHeight);
         expect(post.linkWidth).to.equal(linkWidth);
 
-        await waitTillPostInSubplebbitPages(post as Comment & { cid: string }, plebbit);
+        await waitTillPostInCommunityPages(post as Comment & { cid: string }, plebbit);
 
         const postInSubPages = subplebbit.posts.pages.hot!.comments.find((comment) => comment.cid === post.cid);
         expect(postInSubPages!.link).to.equal(link);
@@ -241,9 +241,9 @@ describe.skip(`comment.link`, async () => {
 });
 
 describe.concurrent(`subplebbit.clients (Local)`, async () => {
-    let plebbit: Plebbit;
+    let plebbit: PKC;
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
+        plebbit = await mockPKC();
     });
 
     afterAll(async () => {
@@ -314,7 +314,7 @@ describe.concurrent(`subplebbit.clients (Local)`, async () => {
         });
 
         it(`Correct order of pubsubKuboRpcClients when receiving a comment while mandating challenge`, async () => {
-            const mockSub = await plebbit.createSubplebbit({});
+            const mockSub = await plebbit.createCommunity({});
 
             await mockSub.edit({ settings: { challenges: [{ name: "question", options: { question: "1+1=?", answer: "2" } }] } });
 
@@ -351,7 +351,7 @@ describe.concurrent(`subplebbit.clients (Local)`, async () => {
     });
 
     describeSkipIfRpc.concurrent(`subplebbit.clients.nameResolvers`, async () => {
-        let mockSub: LocalSubplebbit | RpcLocalSubplebbit;
+        let mockSub: LocalCommunity | RpcLocalCommunity;
         beforeAll(async () => {
             mockSub = await createSubWithNoChallenge({}, plebbit);
         });
@@ -391,13 +391,13 @@ describe.concurrent(`subplebbit.clients (Local)`, async () => {
 
     describeIfRpc(`subplebbit.clients.plebbitRpcClients (local subplebbit ran over RPC)`, async () => {
         it(`subplebbit.clients.plebbitRpcClients[rpcUrl] is stopped by default`, async () => {
-            const sub = (await plebbit.createSubplebbit({})) as RpcLocalSubplebbit;
+            const sub = (await plebbit.createCommunity({})) as RpcLocalCommunity;
             const rpcUrl = Object.keys(plebbit.clients.plebbitRpcClients)[0];
             expect(sub.clients.plebbitRpcClients[rpcUrl].state).to.equal("stopped");
         });
 
         it(`subplebbit.clients.plebbitRpcClients states are set correctly prior to publishing IPNS`, async () => {
-            const sub = (await plebbit.createSubplebbit({})) as RpcLocalSubplebbit;
+            const sub = (await plebbit.createCommunity({})) as RpcLocalCommunity;
             const rpcUrl = Object.keys(plebbit.clients.plebbitRpcClients)[0];
             const recordedStates: string[] = [];
 
@@ -414,7 +414,7 @@ describe.concurrent(`subplebbit.clients (Local)`, async () => {
         });
 
         it(`subplebbit.clients.plebbitRpcClients states are set correctly if it receives a comment while having no challenges`, async () => {
-            const sub = (await createSubWithNoChallenge({}, plebbit)) as RpcLocalSubplebbit;
+            const sub = (await createSubWithNoChallenge({}, plebbit)) as RpcLocalCommunity;
             const rpcUrl = Object.keys(plebbit.clients.plebbitRpcClients)[0];
             const recordedStates: string[] = [];
 
@@ -433,7 +433,7 @@ describe.concurrent(`subplebbit.clients (Local)`, async () => {
             await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
 
             const post = await publishRandomPost({ communityAddress: sub.address, plebbit: plebbit });
-            await waitTillPostInSubplebbitPages(post as Comment & { cid: string }, plebbit);
+            await waitTillPostInCommunityPages(post as Comment & { cid: string }, plebbit);
             if (recordedStates[recordedStates.length - 1] === "stopped")
                 expect(recordedStates).to.deep.equal([...expectedStates, "stopped"]);
             else expect(recordedStates).to.deep.equal(expectedStates);
@@ -442,7 +442,7 @@ describe.concurrent(`subplebbit.clients (Local)`, async () => {
         });
 
         it(`subplebbit.clients.plebbitRpcClients states are set correctly if it receives a comment while mandating challenge`, async () => {
-            const sub = (await plebbit.createSubplebbit({})) as RpcLocalSubplebbit;
+            const sub = (await plebbit.createCommunity({})) as RpcLocalCommunity;
             await sub.edit({ settings: { challenges: [{ name: "question", options: { question: "1+1=?", answer: "2" } }] } });
 
             const rpcUrl = Object.keys(plebbit.clients.plebbitRpcClients)[0];

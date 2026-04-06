@@ -1,20 +1,20 @@
 import { beforeAll, afterAll, describe, it } from "vitest";
-import { itSkipIfRpc, mockPlebbitV2, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
+import { itSkipIfRpc, mockPKCV2, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
 
 import path from "path";
 import fs from "fs";
 
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../dist/node/community/rpc-local-community.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 
 describe(`subplebbit.delete`, async () => {
-    let plebbit: PlebbitType;
-    let sub: LocalSubplebbit | RpcLocalSubplebbit;
+    let plebbit: PKCType;
+    let sub: LocalCommunity | RpcLocalCommunity;
     beforeAll(async () => {
-        plebbit = await mockPlebbitV2({ forceMockPubsub: true, stubStorage: false });
+        plebbit = await mockPKCV2({ forceMockPubsub: true, stubStorage: false });
 
-        sub = (await plebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
+        sub = (await plebbit.createCommunity()) as LocalCommunity | RpcLocalCommunity;
     });
 
     afterAll(async () => {
@@ -24,7 +24,7 @@ describe(`subplebbit.delete`, async () => {
     it(`Deleted sub is not listed in plebbit.subplebbits`, async () => {
         const subs = plebbit.subplebbits;
         expect(subs).to.include(sub.address);
-        const subRecreated = await plebbit.createSubplebbit({ address: sub.address });
+        const subRecreated = await plebbit.createCommunity({ address: sub.address });
         await subRecreated.delete();
         await resolveWhenConditionIsTrue({
             toUpdate: plebbit,
@@ -37,7 +37,7 @@ describe(`subplebbit.delete`, async () => {
 
     itSkipIfRpc(`Deleted sub ipfs keys are not listed in ipfs node`, async () => {
         const ipfsKeys = await plebbit._clientsManager.getDefaultKuboRpcClient()!._client.key.list();
-        const localSub = sub as LocalSubplebbit;
+        const localSub = sub as LocalCommunity;
         const subKeyExists = ipfsKeys.some((key) => key.name === localSub.signer?.ipnsKeyName);
         expect(subKeyExists).to.be.false;
     });
@@ -56,9 +56,9 @@ describe(`subplebbit.delete`, async () => {
     });
 
     it(`Deleting an updating subplebbit will stop the subplebbit`, async () => {
-        const updatingSubplebbit = await plebbit.createSubplebbit();
-        await updatingSubplebbit.update();
-        await updatingSubplebbit.delete();
-        expect(updatingSubplebbit.state).to.equal("stopped");
+        const updatingCommunity = await plebbit.createCommunity();
+        await updatingCommunity.update();
+        await updatingCommunity.delete();
+        expect(updatingCommunity.state).to.equal("stopped");
     });
 });

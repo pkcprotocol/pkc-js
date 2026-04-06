@@ -1,23 +1,23 @@
 import { beforeAll, afterAll, describe, it } from "vitest";
 import signers from "../../../../fixtures/signers.js";
 import {
-    mockGatewayPlebbit,
+    mockGatewayPKC,
     getRandomPostCidFromSub,
     resolveWhenConditionIsTrue,
     addStringToIpfs,
-    getAvailablePlebbitConfigsToTestAgainst
+    getAvailablePKCConfigsToTestAgainst
 } from "../../../../../dist/node/test/test-util.js";
-import type { Plebbit } from "../../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
 const subplebbitAddress = signers[0].address;
 
 const clientsFieldName: Record<string, string> = {
     "remote-libp2pjs": "libp2pJsClients",
     "remote-kubo-rpc": "kuboRpcClients"
 };
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
     const clientFieldName = clientsFieldName[config.testConfigCode];
     describe(`comment.replies.clients.${clientFieldName} - ${config.name}`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
         });
@@ -27,14 +27,14 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`comment.replies.clients.${clientFieldName} is {} for gateway plebbit`, async () => {
-            const gatewayPlebbit = await mockGatewayPlebbit();
-            const comment = await gatewayPlebbit.getComment({ cid: await getRandomPostCidFromSub(subplebbitAddress, plebbit) });
+            const gatewayPKC = await mockGatewayPKC();
+            const comment = await gatewayPKC.getComment({ cid: await getRandomPostCidFromSub(subplebbitAddress, plebbit) });
             const sortTypes = Object.keys((comment.replies.clients as Record<string, Record<string, unknown>>)[clientFieldName]);
             expect(sortTypes.length).to.be.greaterThan(0);
 
             for (const sortType of sortTypes)
                 expect((comment.replies.clients as Record<string, Record<string, unknown>>)[clientFieldName][sortType]).to.deep.equal({}); // should be empty
-            await gatewayPlebbit.destroy();
+            await gatewayPKC.destroy();
         });
         it(`comment.replies.clients.${clientFieldName}[sortType][url] is stopped by default`, async () => {
             const comment = await plebbit.getComment({ cid: await getRandomPostCidFromSub(subplebbitAddress, plebbit) });
@@ -77,9 +77,9 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
     });
 });
 
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
     describe(`comment.replies.clients.ipfsGateways - ${config.name}`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
         });
@@ -122,7 +122,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
                 "http://localhost:13417", // This gateway will take 10s to respond
                 "http://localhost:18080" // This one is immediate
             ];
-            const multipleGatewayPlebbit = await mockGatewayPlebbit({
+            const multipleGatewayPKC = await mockGatewayPKC({
                 plebbitOptions: {
                     ipfsGatewayUrls: gateways,
                     httpRoutersOptions: [],
@@ -130,7 +130,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
                 }
             });
 
-            const comment = await multipleGatewayPlebbit.getComment({ cid: await getRandomPostCidFromSub(subplebbitAddress, plebbit) });
+            const comment = await multipleGatewayPKC.getComment({ cid: await getRandomPostCidFromSub(subplebbitAddress, plebbit) });
             await comment.update();
             await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });
             const mockedPageIpfs = await addStringToIpfs(JSON.stringify({ comments: [comment.raw] })); // wrong schema, but goal is to test for states
@@ -153,7 +153,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
                     actualStates[gatewayUrl].push(newState);
                 });
 
-            multipleGatewayPlebbit._timeouts["page-ipfs"] = 2 * 1000; // Change timeout to 2s
+            multipleGatewayPKC._timeouts["page-ipfs"] = 2 * 1000; // Change timeout to 2s
             const timeBefore = Date.now();
             try {
                 await comment.replies.getPage({ cid: comment.replies.pageCids.new });
@@ -166,13 +166,13 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
     });
 });
 
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbit-rpc"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbit-rpc"] }).map((config) => {
     describe(`comment.replies.clients.plebbitRpcClients - ${config.name}`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         let commentCid: string;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
             commentCid = subplebbit.posts.pages.hot.comments[0].cid;
             expect(commentCid).to.be.a("string");
         });

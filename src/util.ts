@@ -1,6 +1,6 @@
 import { messages } from "./errors.js";
-import { PlebbitError } from "./pkc-error.js";
-import type { SubplebbitIpfsType } from "./community/types.js";
+import { PKCError } from "./pkc-error.js";
+import type { CommunityIpfsType } from "./community/types.js";
 //@ts-expect-error
 import extName from "ext-name";
 import { CID } from "kubo-rpc-client";
@@ -22,29 +22,29 @@ import type {
 } from "kubo-rpc-client";
 import type {
     DecryptedChallengeRequestMessageType,
-    DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor,
-    DecryptedChallengeRequestMessageWithPostSubplebbitAuthor,
-    DecryptedChallengeRequestMessageWithReplySubplebbitAuthor,
+    DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
+    DecryptedChallengeRequestMessageWithPostCommunityAuthor,
+    DecryptedChallengeRequestMessageWithReplyCommunityAuthor,
     DecryptedChallengeRequestPublication,
     PublicationFromDecryptedChallengeRequest,
-    PublicationWithSubplebbitAuthorFromDecryptedChallengeRequest
+    PublicationWithCommunityAuthorFromDecryptedChallengeRequest
 } from "./pubsub-messages/types.js";
 import { DecryptedChallengeRequestPublicationSchema } from "./pubsub-messages/schema.js";
 import EventEmitter from "events";
-import { RemoteSubplebbit } from "./community/remote-community.js";
+import { RemoteCommunity } from "./community/remote-community.js";
 import pTimeout from "p-timeout";
 import { of as calculateIpfsCidV0Lib } from "typestub-ipfs-only-hash";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import { sha256 } from "js-sha256";
 import { base32 } from "multiformats/bases/base32";
-import { Plebbit } from "./pkc/pkc.js";
+import { PKC } from "./pkc/pkc.js";
 import Logger from "./logger.js";
 import retry from "retry";
 import PeerId from "peer-id";
 import { unmarshalIPNSRecord } from "ipns";
 import { importFile } from "ipfs-unixfs-importer";
 import { MemoryBlockstore } from "blockstore-core";
-import { findUpdatingSubplebbit } from "./pkc/tracked-instance-registry-util.js";
+import { findUpdatingCommunity } from "./pkc/tracked-instance-registry-util.js";
 
 export function timestamp() {
     return Math.round(Date.now() / 1000);
@@ -216,7 +216,7 @@ export function doesDomainAddressHaveCapitalLetter(domainAddress: string) {
     return /[A-Z]/.test(domainAddress); // Regex test for capital letters in English only
 }
 
-export function getPostUpdateTimestampRange(postUpdates: SubplebbitIpfsType["postUpdates"], postTimestamp: number) {
+export function getPostUpdateTimestampRange(postUpdates: CommunityIpfsType["postUpdates"], postTimestamp: number) {
     if (!postUpdates) throw Error("subplebbit has no post updates");
     if (!postTimestamp) throw Error("post has no timestamp");
     return (
@@ -389,7 +389,7 @@ export function normalizeEthAliasDomain(address: string): string {
     return address.endsWith(".bso") ? address.slice(0, -4) + ".eth" : address;
 }
 
-export function areEquivalentSubplebbitAddresses(addressA: string, addressB: string): boolean {
+export function areEquivalentCommunityAddresses(addressA: string, addressB: string): boolean {
     if (addressA === addressB) return true;
     const lowerA = addressA.toLowerCase();
     const lowerB = addressB.toLowerCase();
@@ -397,7 +397,7 @@ export function areEquivalentSubplebbitAddresses(addressA: string, addressB: str
     return normalizeEthAliasDomain(lowerA) === normalizeEthAliasDomain(lowerB);
 }
 
-export function getEquivalentSubplebbitAddresses(address: string): string[] {
+export function getEquivalentCommunityAddresses(address: string): string[] {
     const lower = address.toLowerCase();
     if (lower.endsWith(".bso")) return [address, address.slice(0, -4) + ".eth"];
     if (lower.endsWith(".eth")) return [address, address.slice(0, -4) + ".bso"];
@@ -496,21 +496,21 @@ export function hideClassPrivateProps(_this: any) {
 export function derivePublicationFromChallengeRequest<
     T extends Pick<
         | DecryptedChallengeRequestMessageType
-        | DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor
+        | DecryptedChallengeRequestMessageTypeWithCommunityAuthor
         | DecryptedChallengeRequestMessageType,
         keyof DecryptedChallengeRequestPublication
     >
 >(
     request: T
-): T extends DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor
-    ? PublicationWithSubplebbitAuthorFromDecryptedChallengeRequest
+): T extends DecryptedChallengeRequestMessageTypeWithCommunityAuthor
+    ? PublicationWithCommunityAuthorFromDecryptedChallengeRequest
     : PublicationFromDecryptedChallengeRequest {
     const publicationFieldNames = remeda.keys.strict(DecryptedChallengeRequestPublicationSchema.shape) as (keyof T)[];
     for (const pubName of publicationFieldNames) {
         const publication = request[pubName];
         if (publication)
-            return publication as T extends DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor
-                ? PublicationWithSubplebbitAuthorFromDecryptedChallengeRequest
+            return publication as T extends DecryptedChallengeRequestMessageTypeWithCommunityAuthor
+                ? PublicationWithCommunityAuthorFromDecryptedChallengeRequest
                 : PublicationFromDecryptedChallengeRequest;
     }
 
@@ -518,14 +518,14 @@ export function derivePublicationFromChallengeRequest<
 }
 
 export function isRequestPubsubPublicationOfReply(
-    request: DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor
-): request is DecryptedChallengeRequestMessageWithReplySubplebbitAuthor {
+    request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor
+): request is DecryptedChallengeRequestMessageWithReplyCommunityAuthor {
     return Boolean(request.comment && request.comment.parentCid);
 }
 
 export function isRequestPubsubPublicationOfPost(
-    request: DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor
-): request is DecryptedChallengeRequestMessageWithPostSubplebbitAuthor {
+    request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor
+): request is DecryptedChallengeRequestMessageWithPostCommunityAuthor {
     return Boolean(request.comment && !request.comment.parentCid);
 }
 
@@ -553,10 +553,10 @@ export async function resolveWhenPredicateIsTrue(options: {
     });
 }
 
-export async function waitForUpdateInSubInstanceWithErrorAndTimeout(subplebbit: RemoteSubplebbit, timeoutMs: number) {
+export async function waitForUpdateInSubInstanceWithErrorAndTimeout(subplebbit: RemoteCommunity, timeoutMs: number) {
     const wasUpdating = subplebbit.state === "updating";
-    const updatingStates: RemoteSubplebbit["updatingState"][] = [];
-    const updatingStateChangeListener = (state: RemoteSubplebbit["updatingState"]) => updatingStates.push(state);
+    const updatingStates: RemoteCommunity["updatingState"][] = [];
+    const updatingStateChangeListener = (state: RemoteCommunity["updatingState"]) => updatingStates.push(state);
     subplebbit.on("updatingstatechange", updatingStateChangeListener);
     // Wait specifically for subplebbitIpfs to be defined — intermediate "update" events
     // (e.g. resetInstance, toJSONInternalRpcBeforeFirstUpdate) may fire without it
@@ -570,8 +570,8 @@ export async function waitForUpdateInSubInstanceWithErrorAndTimeout(subplebbit: 
         };
         subplebbit.on("update", updateListener);
     });
-    let updateError: PlebbitError | Error | undefined;
-    const errorListener = (err: PlebbitError | Error) => (updateError = err);
+    let updateError: PKCError | Error | undefined;
+    const errorListener = (err: PKCError | Error) => (updateError = err);
     subplebbit.on("error", errorListener);
     try {
         if (subplebbit.state !== "started") await subplebbit.update();
@@ -579,7 +579,7 @@ export async function waitForUpdateInSubInstanceWithErrorAndTimeout(subplebbit: 
             milliseconds: timeoutMs,
             message:
                 updateError ||
-                new PlebbitError("ERR_GET_COMMUNITY_TIMED_OUT", {
+                new PKCError("ERR_GET_COMMUNITY_TIMED_OUT", {
                     subplebbitAddress: subplebbit.address,
                     timeoutMs,
                     error: updateError,
@@ -590,9 +590,9 @@ export async function waitForUpdateInSubInstanceWithErrorAndTimeout(subplebbit: 
         if (updateError) throw updateError;
     } catch (e) {
         if (updateError) throw updateError;
-        const updatingSubplebbit = findUpdatingSubplebbit(subplebbit._plebbit, { address: subplebbit.address });
-        if (updatingSubplebbit?._clientsManager._ipnsLoadingOperation?.mainError())
-            throw updatingSubplebbit._clientsManager._ipnsLoadingOperation.mainError();
+        const updatingCommunity = findUpdatingCommunity(subplebbit._plebbit, { address: subplebbit.address });
+        if (updatingCommunity?._clientsManager._ipnsLoadingOperation?.mainError())
+            throw updatingCommunity._clientsManager._ipnsLoadingOperation.mainError();
         throw e;
     } finally {
         if (updateListener) subplebbit.removeListener("update", updateListener);
@@ -656,7 +656,7 @@ export async function retryKuboBlockPutPinAndProvidePubsubTopic({
     pinAddOptions,
     provideOptions
 }: {
-    ipfsClient: Pick<Plebbit["clients"]["kuboRpcClients"][string]["_client"], "block" | "pin" | "routing">;
+    ipfsClient: Pick<PKC["clients"]["kuboRpcClients"][string]["_client"], "block" | "pin" | "routing">;
     log: Logger;
     pubsubTopic: string;
     inputNumOfRetries?: number;
@@ -722,7 +722,7 @@ export async function retryKuboIpfsAddAndProvide({
     provideOptions,
     provideInBackground
 }: {
-    ipfsClient: Pick<Plebbit["clients"]["kuboRpcClients"][string]["_client"], "add" | "routing">;
+    ipfsClient: Pick<PKC["clients"]["kuboRpcClients"][string]["_client"], "add" | "routing">;
     log: Logger;
     content: string;
     inputNumOfRetries?: number;
@@ -779,7 +779,7 @@ export async function retryKuboIpfsAdd({
     inputNumOfRetries,
     options
 }: {
-    ipfsClient: Pick<Plebbit["clients"]["kuboRpcClients"][string]["_client"], "add">;
+    ipfsClient: Pick<PKC["clients"]["kuboRpcClients"][string]["_client"], "add">;
     log: Logger;
     content: string;
     inputNumOfRetries?: number;
@@ -809,7 +809,7 @@ export async function retryKuboIpfsAdd({
     });
 }
 
-type KuboFilesWriteParameters = Parameters<Plebbit["clients"]["kuboRpcClients"][string]["_client"]["files"]["write"]>;
+type KuboFilesWriteParameters = Parameters<PKC["clients"]["kuboRpcClients"][string]["_client"]["files"]["write"]>;
 
 export async function writeKuboFilesWithTimeout({
     ipfsClient: kuboRpcClient,
@@ -820,7 +820,7 @@ export async function writeKuboFilesWithTimeout({
     options,
     timeoutMs
 }: {
-    ipfsClient: Pick<Plebbit["clients"]["kuboRpcClients"][string]["_client"], "files">;
+    ipfsClient: Pick<PKC["clients"]["kuboRpcClients"][string]["_client"], "files">;
     log: Logger;
     path: KuboFilesWriteParameters[0];
     content: KuboFilesWriteParameters[1];
@@ -863,7 +863,7 @@ export async function removeBlocksFromKuboNode({
     inputNumOfRetries,
     options
 }: {
-    ipfsClient: Pick<Plebbit["clients"]["kuboRpcClients"][string]["_client"], "block">;
+    ipfsClient: Pick<PKC["clients"]["kuboRpcClients"][string]["_client"], "block">;
     log: Logger;
     cids: string[];
     inputNumOfRetries?: number;
@@ -904,7 +904,7 @@ export async function removeMfsFilesSafely({
     inputNumOfRetries,
     rmOptions
 }: {
-    kuboRpcClient: Plebbit["clients"]["kuboRpcClients"][string];
+    kuboRpcClient: PKC["clients"]["kuboRpcClients"][string];
     paths: string[];
     log?: Logger;
     inputNumOfRetries?: number;
@@ -931,7 +931,7 @@ export async function removeMfsFilesSafely({
                     }),
                     {
                         milliseconds: 120000,
-                        message: new PlebbitError("ERR_TIMED_OUT_RM_MFS_FILE", {
+                        message: new PKCError("ERR_TIMED_OUT_RM_MFS_FILE", {
                             toDeleteMfsPaths: paths,
                             kuboRpcUrl: kuboRpcClient.url
                         })
@@ -957,7 +957,7 @@ export async function getIpnsRecordInLocalKuboNode(kuboRpcClient: KuboRpcClient,
     const ipnsFetchUrl = `${gatewayUrl}/ipns/${ipnsName}?format=ipns-record`;
     const res = await fetch(ipnsFetchUrl);
     if (res.status !== 200)
-        throw new PlebbitError("ERR_FAILED_TO_LOAD_LOCAL_RAW_IPNS_RECORD", {
+        throw new PKCError("ERR_FAILED_TO_LOAD_LOCAL_RAW_IPNS_RECORD", {
             ipnsFetchUrl,
             ipnsName,
             status: res.status,
@@ -967,7 +967,7 @@ export async function getIpnsRecordInLocalKuboNode(kuboRpcClient: KuboRpcClient,
     try {
         return unmarshalIPNSRecord(ipnsRecordRaw);
     } catch (e) {
-        throw new PlebbitError("ERR_FAILED_TO_PARSE_LOCAL_RAW_IPNS_RECORD", { ipnsName, ipnsFetchUrl, parseError: e });
+        throw new PKCError("ERR_FAILED_TO_PARSE_LOCAL_RAW_IPNS_RECORD", { ipnsName, ipnsFetchUrl, parseError: e });
     }
 }
 

@@ -1,15 +1,15 @@
 import { beforeAll, afterAll, describe, it } from "vitest";
-import { mockPlebbit, createSubWithNoChallenge } from "../../../dist/node/test/test-util.js";
-import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../dist/node/community/rpc-local-community.js";
-import type { PlebbitError } from "../../../dist/node/pkc-error.js";
+import { mockPKC, createSubWithNoChallenge } from "../../../dist/node/test/test-util.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
+import type { PKCError } from "../../../dist/node/pkc-error.js";
 
 describe(`subplebbit.state`, async () => {
-    let plebbit: Plebbit;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    let plebbit: PKC;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
+        plebbit = await mockPKC();
         subplebbit = await createSubWithNoChallenge({}, plebbit);
     });
 
@@ -55,14 +55,14 @@ describe(`subplebbit.state`, async () => {
     });
 
     it(`calling update() on a started subplebbit will throw`, async () => {
-        const startedSubplebbit = (await plebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
-        await startedSubplebbit.start();
+        const startedCommunity = (await plebbit.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+        await startedCommunity.start();
         try {
-            await startedSubplebbit.update();
+            await startedCommunity.update();
             expect.fail("Should have thrown");
         } catch (e) {
-            expect((e as PlebbitError).code).to.equal("ERR_COMMUNITY_ALREADY_STARTED");
+            expect((e as PKCError).code).to.equal("ERR_COMMUNITY_ALREADY_STARTED");
         }
-        await startedSubplebbit.delete();
+        await startedCommunity.delete();
     });
 });

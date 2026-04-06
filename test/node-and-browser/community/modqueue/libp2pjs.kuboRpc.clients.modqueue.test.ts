@@ -3,13 +3,13 @@ import signers from "../../../fixtures/signers.js";
 
 import {
     describeSkipIfRpc,
-    mockGatewayPlebbit,
-    getAvailablePlebbitConfigsToTestAgainst,
+    mockGatewayPKC,
+    getAvailablePKCConfigsToTestAgainst,
     addStringToIpfs
 } from "../../../../dist/node/test/test-util.js";
 import validModQueuePage from "../../../fixtures/valid_modqueue_page.json" with { type: "json" };
 
-import type { Plebbit as PlebbitType } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 
 const subplebbitAddress = signers[0].address;
 const cloneModQueuePage = () => JSON.parse(JSON.stringify(validModQueuePage));
@@ -19,10 +19,10 @@ const clientsFieldName: Record<string, string> = {
     "remote-libp2pjs": "libp2pJsClients"
 };
 
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
     const clientFieldName = clientsFieldName[config.testConfigCode];
     describeSkipIfRpc(`subplebbit.modQueue.clients.${clientFieldName} - ${config.name}`, async () => {
-        let plebbit: PlebbitType;
+        let plebbit: PKCType;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -33,8 +33,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`subplebbit.modQueue.clients.${clientFieldName} is undefined for gateway plebbit`, async () => {
-            const gatewayPlebbit = await mockGatewayPlebbit();
-            const sub = await gatewayPlebbit.getSubplebbit({ address: subplebbitAddress });
+            const gatewayPKC = await mockGatewayPKC();
+            const sub = await gatewayPKC.getCommunity({ address: subplebbitAddress });
             const sortTypes = Object.keys(
                 (sub.modQueue.clients as unknown as Record<string, Record<string, Record<string, { on: Function; state: string }>>>)[
                     clientFieldName
@@ -47,11 +47,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                         clientFieldName
                     ][sortType]
                 ).to.deep.equal({});
-            await gatewayPlebbit.destroy();
+            await gatewayPKC.destroy();
         });
 
         it(`subplebbit.modQueue.clients.${clientFieldName}[sortType][url] is stopped by default`, async () => {
-            const sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.getCommunity({ address: subplebbitAddress });
             const key = Object.keys((sub.clients as unknown as Record<string, Record<string, unknown>>)[clientFieldName])[0];
             expect(
                 Object.keys(
@@ -70,7 +70,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`Correct state of 'pendingApproval' sort is updated after fetching from subplebbit.modQueue.pageCids.pendingApproval`, async () => {
-            const sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.getCommunity({ address: subplebbitAddress });
             const firstPage = cloneModQueuePage();
 
             const firstPageCid = await addStringToIpfs(JSON.stringify(firstPage));
@@ -92,7 +92,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it("Correct state of 'pendingApproval' sort is updated after fetching second page of 'pendingApproval' pages", async () => {
-            const sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.getCommunity({ address: subplebbitAddress });
             const clientKey = Object.keys((sub.clients as unknown as Record<string, Record<string, unknown>>)[clientFieldName])[0];
 
             const secondPage = cloneModQueuePage();
@@ -120,15 +120,15 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
             expect(actualStates).to.deep.equal(expectedStates);
         });
 
-        it(`Correct state of 'pendingApproval' sort is updated after fetching with a subplebbit created with plebbit.createSubplebbit({address, modQueue})`, async () => {
-            const remotePlebbit: PlebbitType = await config.plebbitInstancePromise();
-            const sub = await remotePlebbit.getSubplebbit({ address: subplebbitAddress });
+        it(`Correct state of 'pendingApproval' sort is updated after fetching with a subplebbit created with plebbit.createCommunity({address, modQueue})`, async () => {
+            const remotePKC: PKCType = await config.plebbitInstancePromise();
+            const sub = await remotePKC.getCommunity({ address: subplebbitAddress });
 
             const firstPage = cloneModQueuePage();
 
             const firstPageCid = await addStringToIpfs(JSON.stringify(firstPage));
 
-            const fetchSub = await remotePlebbit.createSubplebbit({
+            const fetchSub = await remotePKC.createCommunity({
                 address: subplebbitAddress,
                 modQueue: { pageCids: { ...sub.modQueue.pageCids, pendingApproval: firstPageCid } }
             });
@@ -146,7 +146,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
             await fetchSub.modQueue.getPage({ cid: fetchSub.modQueue.pageCids.pendingApproval });
             expect(actualStates).to.deep.equal(expectedStates);
-            await remotePlebbit.destroy();
+            await remotePKC.destroy();
         });
     });
 });

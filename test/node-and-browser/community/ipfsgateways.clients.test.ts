@@ -2,36 +2,36 @@ import { beforeAll, afterAll } from "vitest";
 import signers from "../../fixtures/signers.js";
 import {
     publishRandomPost,
-    getAvailablePlebbitConfigsToTestAgainst,
-    createStaticSubplebbitRecordForComment,
+    getAvailablePKCConfigsToTestAgainst,
+    createStaticCommunityRecordForComment,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
 
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
-import type { PlebbitError } from "../../../dist/node/pkc-error.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import type { PKCError } from "../../../dist/node/pkc-error.js";
 const subplebbitAddress = signers[0].address;
 
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
     describe(`subplebbit.clients.ipfsGateways - ${config.name}`, async () => {
-        // All tests below use Plebbit instance that doesn't have clients.kuboRpcClients
-        let gatewayPlebbit: PlebbitType;
+        // All tests below use PKC instance that doesn't have clients.kuboRpcClients
+        let gatewayPKC: PKCType;
 
         beforeAll(async () => {
-            gatewayPlebbit = await config.plebbitInstancePromise();
+            gatewayPKC = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await gatewayPlebbit.destroy();
+            await gatewayPKC.destroy();
         });
 
         it(`subplebbit.clients.ipfsGateways[url] is stopped by default`, async () => {
-            const mockSub = await gatewayPlebbit.getSubplebbit({ address: subplebbitAddress });
+            const mockSub = await gatewayPKC.getCommunity({ address: subplebbitAddress });
             expect(Object.keys(mockSub.clients.ipfsGateways).length).to.equal(1);
             expect(Object.values(mockSub.clients.ipfsGateways)[0].state).to.equal("stopped");
         });
 
-        it(`Correct order of ipfsGateways state when updating a subplebbit that was created with plebbit.createSubplebbit({address})`, async () => {
-            const sub = await gatewayPlebbit.createSubplebbit({ address: signers[0].address });
+        it(`Correct order of ipfsGateways state when updating a subplebbit that was created with plebbit.createCommunity({address})`, async () => {
+            const sub = await gatewayPKC.createCommunity({ address: signers[0].address });
 
             const expectedStates = ["fetching-ipns", "stopped"];
 
@@ -48,9 +48,9 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
             expect(actualStates).to.deep.equal(expectedStates);
         });
 
-        it(`Correct order of ipfsGateways state when updating a subplebbit that was created with plebbit.getSubplebbit({address: address})`, async () => {
-            const sub = await gatewayPlebbit.getSubplebbit({ address: signers[0].address });
-            await publishRandomPost({ communityAddress: sub.address, plebbit: gatewayPlebbit });
+        it(`Correct order of ipfsGateways state when updating a subplebbit that was created with plebbit.getCommunity({address: address})`, async () => {
+            const sub = await gatewayPKC.getCommunity({ address: signers[0].address });
+            await publishRandomPost({ communityAddress: sub.address, plebbit: gatewayPKC });
 
             const expectedStates = ["fetching-ipns", "stopped"];
 
@@ -69,10 +69,10 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
         });
 
         it(`Correct order of ipfs gateway state when we update a subplebbit and it's not publishing new subplebbit records`, async () => {
-            const { commentCid, communityAddress: subplebbitAddress } = await createStaticSubplebbitRecordForComment();
+            const { commentCid, communityAddress: subplebbitAddress } = await createStaticCommunityRecordForComment();
             // subAddress is static and won't be publishing new updates
 
-            const sub = await gatewayPlebbit.createSubplebbit({ address: subplebbitAddress });
+            const sub = await gatewayPKC.createCommunity({ address: subplebbitAddress });
             expect(sub.updatedAt).to.be.undefined; // should not get an update yet
 
             let updateCount = 0;
@@ -84,7 +84,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
             const gatewayUrl = Object.keys(sub.clients.ipfsGateways)[0];
             sub.clients.ipfsGateways[gatewayUrl].on("statechange", (newState: string) => recordedStates.push(newState));
 
-            // now gatewayPlebbit._updatingSubplebbits will be defined
+            // now gatewayPKC._updatingCommunitys will be defined
 
             const updatePromise = new Promise((resolve) => sub.once("update", resolve));
             await sub.update();
@@ -110,12 +110,12 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
         });
 
         it(`Correct order of ipfs gateway states when we update a subplebbit with record whose signature is invalid`, async () => {
-            const { commentCid, communityAddress: subplebbitAddress } = await createStaticSubplebbitRecordForComment({
-                invalidateSubplebbitSignature: true
+            const { commentCid, communityAddress: subplebbitAddress } = await createStaticCommunityRecordForComment({
+                invalidateCommunitySignature: true
             });
             // subAddress is static and is already published an invalid record
 
-            const sub = await gatewayPlebbit.createSubplebbit({ address: subplebbitAddress });
+            const sub = await gatewayPKC.createCommunity({ address: subplebbitAddress });
             expect(sub.updatedAt).to.be.undefined;
 
             let updateCount = 0;
@@ -124,9 +124,9 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
             let waitingRetryCount = 0;
             sub.on("updatingstatechange", (newState: string) => newState === "waiting-retry" && waitingRetryCount++);
 
-            const emittedErrors: PlebbitError[] = [];
-            sub.on("error", (error: PlebbitError | Error) => {
-                emittedErrors.push(error as PlebbitError);
+            const emittedErrors: PKCError[] = [];
+            sub.on("error", (error: PKCError | Error) => {
+                emittedErrors.push(error as PKCError);
             });
 
             // Record states for verification
@@ -161,7 +161,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
 
             for (const emittedError of emittedErrors) {
                 expect(emittedError.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
-                expect((emittedError.details.gatewayToError["http://localhost:18080"] as PlebbitError).code).to.equal(
+                expect((emittedError.details.gatewayToError["http://localhost:18080"] as PKCError).code).to.equal(
                     "ERR_COMMUNITY_SIGNATURE_IS_INVALID"
                 );
             }

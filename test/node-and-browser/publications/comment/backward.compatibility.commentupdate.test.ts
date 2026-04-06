@@ -1,6 +1,6 @@
 import signers from "../../../fixtures/signers.js";
 import {
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     addStringToIpfs,
     resolveWhenConditionIsTrue,
     publishRandomPost,
@@ -8,7 +8,7 @@ import {
     publishChallengeVerificationMessageWithEncryption,
     mockPostToReturnSpecificCommentUpdate,
     itSkipIfRpc,
-    isPlebbitFetchingUsingGateways
+    isPKCFetchingUsingGateways
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { _signJson } from "../../../../dist/node/signer/signatures.js";
@@ -17,10 +17,10 @@ import * as remeda from "remeda";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { describe, it, beforeAll, afterAll } from "vitest";
 import Logger from "@pkc/pkc-logger";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
-import type { RemoteSubplebbit } from "../../../../dist/node/community/remote-community.js";
-import type { PlebbitError } from "../../../../dist/node/pkc-error.js";
+import type { RemoteCommunity } from "../../../../dist/node/community/remote-community.js";
+import type { PKCError } from "../../../../dist/node/pkc-error.js";
 
 const log = Logger("pkc-js:test:backward-compatibility-commentupdate");
 
@@ -32,16 +32,16 @@ const subplebbitAddress = signers[0].address;
 
 const subWithNoResponseSigner = signers[4]; // this sub will never respond via pubsub
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe(`Loading CommentUpdate with extra prop - ${config.name}`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         let post: Comment;
-        let subplebbit: RemoteSubplebbit;
+        let subplebbit: RemoteCommunity;
         const extraProps = { extraPropUpdate: "1234" };
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
 
             post = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
             await post.update();
@@ -67,7 +67,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             postToUpdate.once("update", () => (updateEmitted = true));
             mockPostToReturnSpecificCommentUpdate(postToUpdate, JSON.stringify(invalidCommentUpdate));
 
-            const error = (await errorPromise) as PlebbitError;
+            const error = (await errorPromise) as PKCError;
 
             await postToUpdate.stop();
 
@@ -75,7 +75,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             expect(postToUpdate.updatedAt).to.be.undefined; // should not accept the comment update
 
-            if (!isPlebbitFetchingUsingGateways(plebbit)) {
+            if (!isPKCFetchingUsingGateways(plebbit)) {
                 expect(error.code).to.equal("ERR_COMMENT_UPDATE_SIGNATURE_IS_INVALID");
                 expect(error.details.signatureValidity).to.deep.equal({
                     valid: false,
@@ -84,11 +84,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             } else {
                 // gateways
                 expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMENT_UPDATE_FROM_GATEWAYS");
-                expect((error.details.gatewayToError as Record<string, PlebbitError>)["http://localhost:18080"].code).to.equal(
+                expect((error.details.gatewayToError as Record<string, PKCError>)["http://localhost:18080"].code).to.equal(
                     "ERR_COMMENT_UPDATE_SIGNATURE_IS_INVALID"
                 );
                 expect(
-                    (error.details.gatewayToError as Record<string, PlebbitError>)["http://localhost:18080"].details.signatureValidity
+                    (error.details.gatewayToError as Record<string, PKCError>)["http://localhost:18080"].details.signatureValidity
                 ).to.deep.equal({
                     valid: false,
                     reason: messages.ERR_COMMENT_UPDATE_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES
@@ -233,7 +233,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     });
 
     describe.concurrent(`Extra props in decryptedChallengeVerification.commentUpdate - ${config.name}`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
         });
@@ -261,7 +261,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 comment: { ...post.raw.pubsubMessageToPublish, depth: 0 }
             });
 
-            const error = (await errorPromise) as PlebbitError;
+            const error = (await errorPromise) as PKCError;
 
             expect(error.code).to.equal("ERR_COMMUNITY_SENT_CHALLENGE_VERIFICATION_WITH_INVALID_COMMENTUPDATE");
             expect(error.details.reason).to.equal(messages["ERR_COMMENT_UPDATE_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES"]);

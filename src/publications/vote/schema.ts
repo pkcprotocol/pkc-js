@@ -5,7 +5,7 @@ import {
     CidStringSchema,
     CreatePublicationUserOptionsSchema,
     JsonSignatureSchema,
-    PlebbitTimestampSchema,
+    PKCTimestampSchema,
     PublicationBaseBeforeSigning,
     SignerWithAddressPublicKeySchema
 } from "../../schema/schema.js";
@@ -37,7 +37,7 @@ export const VoteTablesRowSchema = VotePubsubMessagePublicationSchema.pick({
     timestamp: true,
     vote: true
 }).extend({
-    insertedAt: PlebbitTimestampSchema,
+    insertedAt: PKCTimestampSchema,
     authorSignerAddress: SignerWithAddressPublicKeySchema.shape.address,
     extraProps: z.looseObject({}).optional()
 });
@@ -50,7 +50,7 @@ export const VotePubsubReservedFields = remeda.difference(
     [
         ...remeda.keys.strict(VoteTablesRowSchema.shape),
         ...remeda.keys.strict(VoteChallengeRequestToEncryptSchema.shape),
-        "shortSubplebbitAddress",
+        "shortCommunityAddress",
         "shortCommunityAddress",
         "communityAddress",
         "communityPublicKey",

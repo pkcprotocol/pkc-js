@@ -3,19 +3,19 @@ import signers from "../../fixtures/signers.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
 import {
     publishRandomPost,
-    publishSubplebbitRecordWithExtraProp,
-    createStaticSubplebbitRecordForComment,
+    publishCommunityRecordWithExtraProp,
+    createStaticCommunityRecordForComment,
     createNewIpns,
     resolveWhenConditionIsTrue,
-    getAvailablePlebbitConfigsToTestAgainst
+    getAvailablePKCConfigsToTestAgainst
 } from "../../../dist/node/test/test-util.js";
 
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
-import type { PlebbitError } from "../../../dist/node/pkc-error.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import type { PKCError } from "../../../dist/node/pkc-error.js";
 
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
     describe.concurrent(`subplebbit.updatingState (node/browser - remote sub) - ${config.name}`, async () => {
-        let plebbit: PlebbitType;
+        let plebbit: PKCType;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
         });
@@ -23,15 +23,15 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
             await plebbit.destroy();
         });
         it(`subplebbit.updatingState is included when spreading or JSON.stringify`, async () => {
-            const subplebbit = await plebbit.createSubplebbit({ address: signers[0].address });
-            const spreadSubplebbit = { ...subplebbit };
-            const jsonSubplebbit = JSON.parse(JSON.stringify(subplebbit));
+            const subplebbit = await plebbit.createCommunity({ address: signers[0].address });
+            const spreadCommunity = { ...subplebbit };
+            const jsonCommunity = JSON.parse(JSON.stringify(subplebbit));
 
-            expect(spreadSubplebbit).to.have.property("updatingState", subplebbit.updatingState);
-            expect(jsonSubplebbit).to.have.property("updatingState", subplebbit.updatingState);
+            expect(spreadCommunity).to.have.property("updatingState", subplebbit.updatingState);
+            expect(jsonCommunity).to.have.property("updatingState", subplebbit.updatingState);
         });
-        it(`subplebbit.updatingState is in correct order upon updating with IPFS client and plebbit.createSubplebbit() `, async () => {
-            const subplebbit = await plebbit.createSubplebbit({ address: signers[0].address });
+        it(`subplebbit.updatingState is in correct order upon updating with IPFS client and plebbit.createCommunity() `, async () => {
+            const subplebbit = await plebbit.createCommunity({ address: signers[0].address });
             const recordedStates: string[] = [];
             const expectedStates = ["fetching-ipns", "fetching-ipfs", "succeeded", "stopped"];
             subplebbit.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
@@ -44,8 +44,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
             expect(recordedStates.slice(recordedStates.length - expectedStates.length)).to.deep.equal(expectedStates);
         });
 
-        it(`subplebbit.updatingState is in correct order upon updating with IPFS client and plebbit.getSubplebbit({address) with subplebbit address not an ENS`, async () => {
-            const subplebbit = await plebbit.getSubplebbit({ address: signers[0].address });
+        it(`subplebbit.updatingState is in correct order upon updating with IPFS client and plebbit.getCommunity({address) with subplebbit address not an ENS`, async () => {
+            const subplebbit = await plebbit.getCommunity({ address: signers[0].address });
             const oldUpdatedAt = Number(subplebbit.updatedAt);
             const recordedStates: string[] = [];
             const expectedStates = ["fetching-ipns", "fetching-ipfs", "succeeded", "stopped"];
@@ -59,7 +59,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`subplebbit.updatingState is in correct order upon updating with IPFS client and subplebbit address is an ENS`, async () => {
-            const subplebbit = await plebbit.createSubplebbit({ address: "plebbit.eth" });
+            const subplebbit = await plebbit.createCommunity({ address: "plebbit.eth" });
             const recordedStates: string[] = [];
             const expectedStates = ["resolving-name", "fetching-ipns", "fetching-ipfs", "succeeded", "stopped"];
             subplebbit.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
@@ -75,9 +75,9 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it("updating states is in correct order upon updating with ipfs p2p, if the sub doesn't publish any updates", async () => {
-            const newSub = await publishSubplebbitRecordWithExtraProp();
+            const newSub = await publishCommunityRecordWithExtraProp();
 
-            const subplebbit = await plebbit.createSubplebbit({ address: newSub.ipnsObj.signer.address });
+            const subplebbit = await plebbit.createCommunity({ address: newSub.ipnsObj.signer.address });
 
             const recordedStates: string[] = [];
             subplebbit.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
@@ -116,18 +116,18 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
         it(`updatingState is correct when we attempt to update a subplebbit with invalid record, if we're updating with an ipfs client`, async () => {
             // Create a subplebbit with a valid address
-            const { commentCid, communityAddress: subplebbitAddress } = await createStaticSubplebbitRecordForComment({
-                invalidateSubplebbitSignature: true
+            const { commentCid, communityAddress: subplebbitAddress } = await createStaticCommunityRecordForComment({
+                invalidateCommunitySignature: true
             });
 
-            const subplebbit = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            const subplebbit = await plebbit.createCommunity({ address: subplebbitAddress });
 
             const recordedUpdatingStates: string[] = [];
-            const errors: PlebbitError[] = [];
+            const errors: PKCError[] = [];
 
             subplebbit.on("updatingstatechange", (newState: string) => recordedUpdatingStates.push(newState));
-            subplebbit.on("error", (err: PlebbitError | Error) => {
-                errors.push(err as PlebbitError);
+            subplebbit.on("error", (err: PKCError | Error) => {
+                errors.push(err as PKCError);
             });
 
             // First update should succeed with the initial valid record
@@ -167,9 +167,9 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
     });
 });
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe(`subplebbit.updatingState (node/browser - remote sub) - ${config.name}`, async () => {
-        let plebbit: PlebbitType;
+        let plebbit: PKCType;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
         });
@@ -177,20 +177,20 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await plebbit.destroy();
         });
 
-        it(`subplebbit.updatingState defaults to stopped after plebbit.createSubplebbit()`, async () => {
-            const subplebbit = await plebbit.createSubplebbit({ address: signers[0].address });
+        it(`subplebbit.updatingState defaults to stopped after plebbit.createCommunity()`, async () => {
+            const subplebbit = await plebbit.createCommunity({ address: signers[0].address });
             expect(subplebbit.updatingState).to.equal("stopped");
         });
 
-        it(`subplebbit.updatingState defaults to stopped after plebbit.getSubplebbit({address})`, async () => {
-            const subplebbit = await plebbit.getSubplebbit({ address: signers[0].address });
+        it(`subplebbit.updatingState defaults to stopped after plebbit.getCommunity({address})`, async () => {
+            const subplebbit = await plebbit.getCommunity({ address: signers[0].address });
             expect(subplebbit.updatingState).to.equal("stopped");
         });
 
         it(`the order of state-event-statechange is correct when we get a new update from the subplebbit`, async () => {
             // this test used to be flaky on rpc I assume because rpc server kept updating the sub with another client, it was tricky to fix
             // easy fix for now is to put an addresso of a less used subplebbit
-            const subplebbit = await plebbit.createSubplebbit({ address: signers[1].address }); // this sub should get less updates
+            const subplebbit = await plebbit.createCommunity({ address: signers[1].address }); // this sub should get less updates
 
             const recordedStates: string[] = [];
             subplebbit.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
@@ -221,22 +221,22 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await ipnsObj.publishToIpns(JSON.stringify(twoMbObject));
 
             const recordedUpdatingStates: string[] = [];
-            const errors: PlebbitError[] = [];
+            const errors: PKCError[] = [];
 
             // when error is emitted, updatingState should be set to failed
             // but it should not emit updatingstatechange event
 
-            const subplebbit = await plebbit.createSubplebbit({ address: ipnsObj.signer.address });
+            const subplebbit = await plebbit.createCommunity({ address: ipnsObj.signer.address });
             subplebbit.on("updatingstatechange", (newState: string) => recordedUpdatingStates.push(newState));
-            subplebbit.on("error", (err: PlebbitError | Error) => {
-                errors.push(err as PlebbitError);
+            subplebbit.on("error", (err: PKCError | Error) => {
+                errors.push(err as PKCError);
             });
 
             // First update should succeed with the initial valid record
             await subplebbit.update();
 
             const errorPromise = new Promise<void>((resolve, reject) =>
-                subplebbit.once("error", (err: PlebbitError | Error) => {
+                subplebbit.once("error", (err: PKCError | Error) => {
                     if (subplebbit.updatingState !== "failed") reject("if it emits error, updatingState should be failed");
                     if (recordedUpdatingStates.length === 0) reject("if it emits error, updatingStatechange should have been emitted");
                     if (recordedUpdatingStates[recordedUpdatingStates.length - 1] === "failed")
@@ -253,9 +253,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     });
 });
 
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
     describe(`subplebbit.updatingState (node/browser - remote sub) - ${config.name}`, async () => {
-        let plebbit: PlebbitType;
+        let plebbit: PKCType;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
         });
@@ -263,7 +263,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
             await plebbit.destroy();
         });
         it(`updating states is in correct order upon updating with gateway`, async () => {
-            const subplebbit = await plebbit.createSubplebbit({ address: signers[0].address });
+            const subplebbit = await plebbit.createCommunity({ address: signers[0].address });
 
             const expectedStates = ["fetching-ipns", "succeeded", "stopped"];
             const recordedStates: string[] = [];
@@ -280,9 +280,9 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
         });
 
         it("updating states is in correct order upon updating with gateway, if the sub doesn't publish any updates", async () => {
-            const newSub = await publishSubplebbitRecordWithExtraProp();
+            const newSub = await publishCommunityRecordWithExtraProp();
 
-            const subplebbit = await plebbit.createSubplebbit({ address: newSub.ipnsObj.signer.address });
+            const subplebbit = await plebbit.createCommunity({ address: newSub.ipnsObj.signer.address });
 
             const recordedStates: string[] = [];
             subplebbit.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
@@ -320,19 +320,19 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
         });
 
         it(`updatingState is correct when we attempt to update a subplebbit with invalid record, if we're updating with an ipfs gateways`, async () => {
-            const { commentCid, communityAddress: subplebbitAddress } = await createStaticSubplebbitRecordForComment({
-                invalidateSubplebbitSignature: true
+            const { commentCid, communityAddress: subplebbitAddress } = await createStaticCommunityRecordForComment({
+                invalidateCommunitySignature: true
             });
 
             // Create a subplebbit with a valid address
-            const subplebbit = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            const subplebbit = await plebbit.createCommunity({ address: subplebbitAddress });
 
             const recordedUpdatingStates: string[] = [];
-            const errors: PlebbitError[] = [];
+            const errors: PKCError[] = [];
 
             subplebbit.on("updatingstatechange", (newState: string) => recordedUpdatingStates.push(newState));
-            subplebbit.on("error", (err: PlebbitError | Error) => {
-                errors.push(err as PlebbitError);
+            subplebbit.on("error", (err: PKCError | Error) => {
+                errors.push(err as PKCError);
             });
 
             // First update should succeed with the initial valid record
@@ -366,7 +366,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
 
             expect(errors.length).to.equal(1);
             expect(errors[0].code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
-            expect((errors[0].details.gatewayToError["http://localhost:18080"] as PlebbitError).code).to.equal(
+            expect((errors[0].details.gatewayToError["http://localhost:18080"] as PKCError).code).to.equal(
                 "ERR_COMMUNITY_SIGNATURE_IS_INVALID"
             );
         });

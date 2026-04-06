@@ -15,7 +15,7 @@ export default defineHangingScenario({
         if (!allowedConfigCodes.includes(configCode)) return;
         const { plebbit, config } = await createScenarioContext(configCode);
 
-        const subplebbit = await plebbit.createSubplebbit();
+        const subplebbit = await plebbit.createCommunity();
 
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });

@@ -1,12 +1,12 @@
 import localForage from "localforage";
 import { StorageInterface } from "../../types.js";
-import { Plebbit } from "../../pkc/pkc.js";
+import { PKC } from "../../pkc/pkc.js";
 import { v4 as uuidV4 } from "uuid";
 import { hideClassPrivateProps } from "../../util.js";
 
 // Storage is for long term items, no eviction based on ttl or anything like that
 export default class Storage implements StorageInterface {
-    private _plebbit: Pick<Plebbit, "dataPath" | "noData">;
+    private _plebbit: Pick<PKC, "dataPath" | "noData">;
     private _store!: LocalForage;
     constructor(plebbit: Storage["_plebbit"]) {
         this._plebbit = plebbit;

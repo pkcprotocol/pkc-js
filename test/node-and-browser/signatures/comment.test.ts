@@ -1,10 +1,5 @@
 import { beforeAll, afterAll } from "vitest";
-import {
-    mockRemotePlebbit,
-    describeSkipIfRpc,
-    resolveWhenConditionIsTrue,
-    createMockNameResolver
-} from "../../../dist/node/test/test-util.js";
+import { mockRemotePKC, describeSkipIfRpc, resolveWhenConditionIsTrue, createMockNameResolver } from "../../../dist/node/test/test-util.js";
 import {
     signComment,
     verifyCommentUpdate,
@@ -24,7 +19,7 @@ import validCommentUpdateFixture from "../../fixtures/signatures/comment/comment
 import validCommentUpdateWithAuthorEditFixture from "../../fixtures/signatures/comment/commentUpdate_authorEdit/valid_comment_update.json" with { type: "json" };
 import validCommentWithAuthorEditFixture from "../../fixtures/signatures/comment/commentUpdate_authorEdit/valid_comment_ipfs.json" with { type: "json" };
 import { comment as fixtureComment } from "../../fixtures/publications.js";
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type {
     CommentOptionsToSign,
     CommentPubsubMessagePublication,
@@ -32,7 +27,7 @@ import type {
     CommentIpfsWithCidPostCidDefined,
     CommentUpdateType
 } from "../../../dist/node/publications/comment/types.js";
-import type { RemoteSubplebbit } from "../../../dist/node/community/remote-community.js";
+import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 
 // Protocol version constant
@@ -72,10 +67,10 @@ function createCommentToSign(opts: {
 }
 
 describe("sign comment", async () => {
-    let plebbit: PlebbitType;
+    let plebbit: PKCType;
     let signedCommentClone: CommentPubsubMessagePublication;
     beforeAll(async () => {
-        plebbit = await mockRemotePlebbit();
+        plebbit = await mockRemotePKC();
     });
 
     afterAll(async () => {
@@ -211,9 +206,9 @@ describe("sign comment", async () => {
 
 // Clients of RPC will trust the response of RPC and won't validate
 describeSkipIfRpc("verify Comment", async () => {
-    let plebbit: PlebbitType;
+    let plebbit: PKCType;
     beforeAll(async () => {
-        plebbit = await mockRemotePlebbit();
+        plebbit = await mockRemotePKC();
     });
 
     afterAll(async () => {
@@ -422,7 +417,7 @@ describeSkipIfRpc("verify Comment", async () => {
 // Clients of RPC will trust the response of RPC and won't validate
 describeSkipIfRpc(`Comment with author.name as domain`, async () => {
     it(`verifyCommentPubsubMessage returns valid when author.name resolves to a different author (domain mismatch is not a signature failure)`, async () => {
-        const tempPlebbit = await mockRemotePlebbit({
+        const tempPKC = await mockRemotePKC({
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [
@@ -440,21 +435,21 @@ describeSkipIfRpc(`Comment with author.name as domain`, async () => {
         });
         const signedPublication = {
             ...remeda.omit(commentToSign, ["signer", "communityAddress"]),
-            signature: await signComment({ comment: commentToSign, plebbit: tempPlebbit })
+            signature: await signComment({ comment: commentToSign, plebbit: tempPKC })
         } satisfies CommentPubsubMessagePublication;
 
         const verification = await verifyCommentPubsubMessage({
             comment: signedPublication,
-            resolveAuthorNames: tempPlebbit.resolveAuthorNames,
-            clientsManager: tempPlebbit._clientsManager
+            resolveAuthorNames: tempPKC.resolveAuthorNames,
+            clientsManager: tempPKC._clientsManager
         });
         expect(verification).to.deep.equal({ valid: true });
         expect(signedPublication.author?.name).to.equal("testDomain.eth");
-        await tempPlebbit.destroy();
+        await tempPKC.destroy();
     });
     it(`verifyCommentIpfs returns valid when author domain resolves to different address (nameResolved handles display)`, async () => {
         const comment = remeda.clone(validCommentAuthorAddressDomainFixture) as CommentIpfsType;
-        const tempPlebbit = await mockRemotePlebbit({
+        const tempPKC = await mockRemotePKC({
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [
@@ -467,25 +462,25 @@ describeSkipIfRpc(`Comment with author.name as domain`, async () => {
 
         const verification = await verifyCommentIpfs({
             comment,
-            resolveAuthorNames: tempPlebbit.resolveAuthorNames,
-            clientsManager: tempPlebbit._clientsManager,
+            resolveAuthorNames: tempPKC.resolveAuthorNames,
+            clientsManager: tempPKC._clientsManager,
             calculatedCommentCid: "QmTest"
         });
 
         expect(verification).to.deep.equal({ valid: true });
 
         expect(comment.author.address).to.equal("plebbit.eth"); // address is immutable
-        await tempPlebbit.destroy();
+        await tempPKC.destroy();
     });
 });
 
 // Clients of RPC will trust the response of RPC and won't validate
 describeSkipIfRpc(`commentupdate`, async () => {
-    let plebbit: PlebbitType;
-    let subplebbit: RemoteSubplebbit;
+    let plebbit: PKCType;
+    let subplebbit: RemoteCommunity;
     beforeAll(async () => {
-        plebbit = await mockRemotePlebbit();
-        subplebbit = await plebbit.getSubplebbit({ address: signers[0].address });
+        plebbit = await mockRemotePKC();
+        subplebbit = await plebbit.getCommunity({ address: signers[0].address });
     });
 
     afterAll(async () => {

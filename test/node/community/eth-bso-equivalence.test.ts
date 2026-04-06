@@ -5,21 +5,21 @@ import {
     createSubWithNoChallenge,
     resolveWhenConditionIsTrue,
     describeSkipIfRpc,
-    mockPlebbitV2
+    mockPKCV2
 } from "../../../dist/node/test/test-util.js";
 import { verifyCommentIpfs } from "../../../dist/node/signer/signatures.js";
 
 import { v4 as uuidV4 } from "uuid";
 
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../dist/node/community/rpc-local-community.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 
 describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
-    let plebbit: PlebbitType;
-    let remotePlebbit: PlebbitType;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    let plebbit: PKCType;
+    let remotePKC: PKCType;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
     let ethNameAddress: string;
     let bsoNameAddress: string;
     let postPublishedOnEth: Comment;
@@ -29,17 +29,17 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
     beforeAll(async () => {
         plebbitResolverRecords = new Map();
         remoteResolverRecords = new Map();
-        plebbit = await mockPlebbitV2({
+        plebbit = await mockPKCV2({
             stubStorage: false,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: plebbitResolverRecords })]
             }
         });
-        remotePlebbit = await mockPlebbitV2({
+        remotePKC = await mockPKCV2({
             stubStorage: false,
             mockResolve: false,
-            remotePlebbit: true,
+            remotePKC: true,
             plebbitOptions: {
                 nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: remoteResolverRecords })]
             }
@@ -87,7 +87,7 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
     afterAll(async () => {
         await subplebbit.stop();
         await plebbit.destroy();
-        await remotePlebbit.destroy();
+        await remotePKC.destroy();
     });
 
     describe(`verifyCommentIpfs with cross-alias subplebbitAddress`, () => {
@@ -125,7 +125,7 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
 
     describe(`createComment with cross-alias subplebbitAddress`, () => {
         it(`createComment({cid, communityAddress: ".bso"}) works when comment was published under .eth`, async () => {
-            const comment = await remotePlebbit.createComment({ cid: postPublishedOnEth.cid!, communityAddress: bsoNameAddress });
+            const comment = await remotePKC.createComment({ cid: postPublishedOnEth.cid!, communityAddress: bsoNameAddress });
             await comment.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: comment,
@@ -145,7 +145,7 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
                 predicate: async () => Boolean(subplebbit?.posts?.pages?.hot?.comments?.some((comment) => comment.cid === postOnBso.cid))
             });
 
-            const comment = await remotePlebbit.createComment({ cid: postOnBso.cid!, communityAddress: ethNameAddress });
+            const comment = await remotePKC.createComment({ cid: postOnBso.cid!, communityAddress: ethNameAddress });
             await comment.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: comment,
@@ -160,7 +160,7 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
 
     describe(`getComment with cross-alias comments`, () => {
         it(`getComment(cid) works for a comment published under .eth (before transition to .bso)`, async () => {
-            const comment = await remotePlebbit.getComment({ cid: postPublishedOnEth.cid! });
+            const comment = await remotePKC.getComment({ cid: postPublishedOnEth.cid! });
             expect(comment.communityAddress).to.equal(ethNameAddress);
             expect(comment.cid).to.equal(postPublishedOnEth.cid);
             expect(comment.content).to.be.a("string");
@@ -171,7 +171,7 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
             const bsoPost = subplebbit.posts!.pages.hot!.comments!.find((c) => c.communityAddress === bsoNameAddress);
             expect(bsoPost).to.not.be.undefined;
 
-            const comment = await remotePlebbit.getComment({ cid: bsoPost!.cid! });
+            const comment = await remotePKC.getComment({ cid: bsoPost!.cid! });
             expect(comment.communityAddress).to.equal(bsoNameAddress);
             expect(comment.cid).to.equal(bsoPost!.cid);
             expect(comment.content).to.be.a("string");

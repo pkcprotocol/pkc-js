@@ -2,34 +2,34 @@ import type {
     DecryptedChallengeAnswerMessageType,
     DecryptedChallengeMessageType,
     DecryptedChallengeRequestMessageType,
-    DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor,
+    DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
     DecryptedChallengeVerificationMessageType,
     EncodedDecryptedChallengeAnswerMessageType,
     EncodedDecryptedChallengeMessageType,
     EncodedDecryptedChallengeRequestMessageType,
-    EncodedDecryptedChallengeRequestMessageTypeWithSubplebbitAuthor,
+    EncodedDecryptedChallengeRequestMessageTypeWithCommunityAuthor,
     EncodedDecryptedChallengeVerificationMessageType
 } from "../../pubsub-messages/types.js";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 
 type EncodedChallengeRequestMessage =
     | EncodedDecryptedChallengeRequestMessageType
-    | EncodedDecryptedChallengeRequestMessageTypeWithSubplebbitAuthor;
+    | EncodedDecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
 type DecodedChallengeRequestMessage<T extends EncodedChallengeRequestMessage> =
-    T extends EncodedDecryptedChallengeRequestMessageTypeWithSubplebbitAuthor
-        ? DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor
+    T extends EncodedDecryptedChallengeRequestMessageTypeWithCommunityAuthor
+        ? DecryptedChallengeRequestMessageTypeWithCommunityAuthor
         : DecryptedChallengeRequestMessageType;
 
 function _decodeChallengeRequestId(
-    requestId: EncodedDecryptedChallengeRequestMessageTypeWithSubplebbitAuthor["challengeRequestId"]
-): DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor["challengeRequestId"] {
+    requestId: EncodedDecryptedChallengeRequestMessageTypeWithCommunityAuthor["challengeRequestId"]
+): DecryptedChallengeRequestMessageTypeWithCommunityAuthor["challengeRequestId"] {
     return uint8ArrayFromString(requestId, "base58btc");
 }
 
 function _decodeEncryption(
-    encrypted: EncodedDecryptedChallengeRequestMessageTypeWithSubplebbitAuthor["encrypted"]
-): DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor["encrypted"] {
+    encrypted: EncodedDecryptedChallengeRequestMessageTypeWithCommunityAuthor["encrypted"]
+): DecryptedChallengeRequestMessageTypeWithCommunityAuthor["encrypted"] {
     return {
         ...encrypted,
         tag: uint8ArrayFromString(encrypted.tag, "base64"),
@@ -39,8 +39,8 @@ function _decodeEncryption(
 }
 
 function _decodeSignature(
-    signature: EncodedDecryptedChallengeRequestMessageTypeWithSubplebbitAuthor["signature"]
-): DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor["signature"] {
+    signature: EncodedDecryptedChallengeRequestMessageTypeWithCommunityAuthor["signature"]
+): DecryptedChallengeRequestMessageTypeWithCommunityAuthor["signature"] {
     return {
         ...signature,
         publicKey: uint8ArrayFromString(signature.publicKey, "base64"),

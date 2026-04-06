@@ -1,8 +1,8 @@
 import { ListenerSignature, TypedEmitter } from "tiny-typed-emitter";
 import { hideClassPrivateProps } from "../util.js";
 
-export class PlebbitTypedEmitter<T extends ListenerSignature<T>> extends TypedEmitter<T> {
-    _mirroredClient?: PlebbitTypedEmitter<T> = undefined;
+export class PKCTypedEmitter<T extends ListenerSignature<T>> extends TypedEmitter<T> {
+    _mirroredClient?: PKCTypedEmitter<T> = undefined;
     state: any;
     private _stateListener?: (newState: string) => void = undefined;
 
@@ -11,7 +11,7 @@ export class PlebbitTypedEmitter<T extends ListenerSignature<T>> extends TypedEm
         hideClassPrivateProps(this);
     }
 
-    mirror(sourceClient: PlebbitTypedEmitter<T>): void {
+    mirror(sourceClient: PKCTypedEmitter<T>): void {
         if (this._mirroredClient) {
             throw new Error("This client is already mirroring another client");
         }

@@ -27,4 +27,4 @@ export class PublicationKuboPubsubClient extends GenericStateClient<PublicationP
 
 export class PublicationIpfsGatewayClient extends GenericStateClient<PublicationGatewayState> {}
 
-export class PublicationPlebbitRpcStateClient extends GenericStateClient<PublicationRpcState> {}
+export class PublicationPKCRpcStateClient extends GenericStateClient<PublicationRpcState> {}

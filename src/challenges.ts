@@ -3,5 +3,5 @@ export type {
     ChallengeInput,
     ChallengeResultInput,
     GetChallengeArgsInput,
-    SubplebbitChallengeSetting
+    CommunityChallengeSetting
 } from "./community/types.js";

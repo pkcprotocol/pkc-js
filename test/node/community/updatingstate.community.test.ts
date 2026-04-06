@@ -1,5 +1,5 @@
 import {
-    mockPlebbit,
+    mockPKC,
     publishRandomPost,
     createSubWithNoChallenge,
     itSkipIfRpc,
@@ -7,15 +7,15 @@ import {
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
 import { describe, beforeAll, afterAll, it } from "vitest";
-import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../dist/node/community/rpc-local-community.js";
-import type { SubplebbitUpdatingState } from "../../../dist/node/community/types.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
+import type { CommunityUpdatingState } from "../../../dist/node/community/types.js";
 
 describe.concurrent(`subplebbit.updatingState from a local subplebbit`, async () => {
-    let plebbit: Plebbit;
+    let plebbit: PKC;
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
+        plebbit = await mockPKC();
     });
 
     afterAll(async () => {
@@ -23,31 +23,31 @@ describe.concurrent(`subplebbit.updatingState from a local subplebbit`, async ()
     });
 
     it(`subplebbit.updatingState defaults to stopped`, async () => {
-        const createdSubplebbit = (await plebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
-        await createdSubplebbit.start();
+        const createdCommunity = (await plebbit.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+        await createdCommunity.start();
         await resolveWhenConditionIsTrue({
-            toUpdate: createdSubplebbit,
-            predicate: async () => typeof createdSubplebbit.updatedAt === "number"
+            toUpdate: createdCommunity,
+            predicate: async () => typeof createdCommunity.updatedAt === "number"
         });
-        const subplebbit = await plebbit.getSubplebbit({ address: createdSubplebbit.address });
+        const subplebbit = await plebbit.getCommunity({ address: createdCommunity.address });
         expect(subplebbit.updatingState).to.equal("stopped");
     });
 
     itSkipIfRpc(`subplebbit.updatingState emits 'succceeded' when a new update from local sub is retrieved`, async () => {
-        const startedSubplebbit = await createSubWithNoChallenge({}, plebbit);
-        await startedSubplebbit.start();
+        const startedCommunity = await createSubWithNoChallenge({}, plebbit);
+        await startedCommunity.start();
         await resolveWhenConditionIsTrue({
-            toUpdate: startedSubplebbit,
-            predicate: async () => typeof startedSubplebbit.updatedAt === "number"
+            toUpdate: startedCommunity,
+            predicate: async () => typeof startedCommunity.updatedAt === "number"
         });
 
-        const localUpdatingSub = (await plebbit.createSubplebbit({ address: startedSubplebbit.address })) as
-            | LocalSubplebbit
-            | RpcLocalSubplebbit;
-        const expectedStates: SubplebbitUpdatingState[] = ["publishing-ipns", "succeeded", "stopped"];
-        const recordedStates: SubplebbitUpdatingState[] = [];
+        const localUpdatingSub = (await plebbit.createCommunity({ address: startedCommunity.address })) as
+            | LocalCommunity
+            | RpcLocalCommunity;
+        const expectedStates: CommunityUpdatingState[] = ["publishing-ipns", "succeeded", "stopped"];
+        const recordedStates: CommunityUpdatingState[] = [];
 
-        localUpdatingSub.on("updatingstatechange", (newState: SubplebbitUpdatingState) => recordedStates.push(newState));
+        localUpdatingSub.on("updatingstatechange", (newState: CommunityUpdatingState) => recordedStates.push(newState));
 
         await localUpdatingSub.update();
         const updatePromise = new Promise((resolve) => localUpdatingSub.once("update", resolve));
@@ -55,19 +55,19 @@ describe.concurrent(`subplebbit.updatingState from a local subplebbit`, async ()
         await publishRandomPost({ communityAddress: localUpdatingSub.address, plebbit: plebbit });
         await updatePromise;
         await localUpdatingSub.stop();
-        await startedSubplebbit.delete();
+        await startedCommunity.delete();
         expect(recordedStates).to.deep.equal(expectedStates);
     });
 
-    itIfRpc(`localSubplebbit.updatingState is copied from startedState if we're updating a local sub via rpc`, async () => {
+    itIfRpc(`localCommunity.updatingState is copied from startedState if we're updating a local sub via rpc`, async () => {
         const startedSub = await createSubWithNoChallenge({}, plebbit);
 
-        const updatingSub = (await plebbit.createSubplebbit({ address: startedSub.address })) as LocalSubplebbit | RpcLocalSubplebbit;
+        const updatingSub = (await plebbit.createCommunity({ address: startedSub.address })) as LocalCommunity | RpcLocalCommunity;
 
         const startedInstanceStartedStates: string[] = [];
         startedSub.on("startedstatechange", () => startedInstanceStartedStates.push(startedSub.startedState));
 
-        const updatingSubUpdatingStates: SubplebbitUpdatingState[] = [];
+        const updatingSubUpdatingStates: CommunityUpdatingState[] = [];
         updatingSub.on("updatingstatechange", () => updatingSubUpdatingStates.push(updatingSub.updatingState));
 
         const updates: number[] = [];

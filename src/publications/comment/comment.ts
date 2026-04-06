@@ -14,10 +14,10 @@ import type { AuthorWithOptionalCommentUpdateJson, PublicationTypeName } from ".
 
 import type { RepliesPagesTypeIpfs } from "../../pages/types.js";
 import Logger from "../../logger.js";
-import { Plebbit } from "../../pkc/pkc.js";
+import { PKC } from "../../pkc/pkc.js";
 import { signComment, verifyCommentIpfs, verifyCommentPubsubMessage, verifyCommentUpdate } from "../../signer/signatures.js";
 import assert from "assert";
-import { FailedToFetchCommentIpfsFromGatewaysError, PlebbitError } from "../../pkc-error.js";
+import { FailedToFetchCommentIpfsFromGatewaysError, PKCError } from "../../pkc-error.js";
 import * as remeda from "remeda";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 
@@ -40,25 +40,22 @@ import type {
 import { RepliesPages } from "../../pages/pages.js";
 import { findCommentInPageInstanceRecursively, parseRawPages } from "../../pages/util.js";
 import { CommentIpfsSchema, CommentUpdateForChallengeVerificationSchema, CommentUpdateSchema } from "./schema.js";
-import {
-    parseRpcCommentEventWithPlebbitErrorIfItFails,
-    parseRpcCommentUpdateEventWithPlebbitErrorIfItFails
-} from "../../schema/schema-util.js";
+import { parseRpcCommentEventWithPKCErrorIfItFails, parseRpcCommentUpdateEventWithPKCErrorIfItFails } from "../../schema/schema-util.js";
 import type { SignerType } from "../../signer/types.js";
 import type { CreatePublicationOptions } from "../../types.js";
 import { CommentClientsManager } from "./comment-client-manager.js";
-import type { SubplebbitIpfsType } from "../../community/types.js";
+import type { CommunityIpfsType } from "../../community/types.js";
 import { CID } from "kubo-rpc-client";
 import type { PublicationEventArgs, PublicationEvents } from "../types.js";
 import { getAuthorDomainFromRuntime } from "../publication-author.js";
 import { sha256 } from "js-sha256";
 import {
-    findStartedSubplebbit,
+    findStartedCommunity,
     findUpdatingComment,
-    findUpdatingSubplebbit,
-    listStartedSubplebbits,
+    findUpdatingCommunity,
+    listStartedCommunitys,
     listUpdatingComments,
-    listUpdatingSubplebbits,
+    listUpdatingCommunitys,
     refreshTrackedCommentAliases,
     trackUpdatingComment,
     untrackUpdatingComment
@@ -143,7 +140,7 @@ export class Comment
 
     _updatingCommentInstance?: { comment: Comment } & Pick<PublicationEvents, "error" | "updatingstatechange" | "update" | "statechange"> =
         undefined; // the comment instance we're mirroing
-    constructor(plebbit: Plebbit) {
+    constructor(plebbit: PKC) {
         super(plebbit);
         this._setUpdatingStateWithEmissionIfNewState("stopped");
         // these functions might get separated from their `this` when used
@@ -338,7 +335,7 @@ export class Comment
         }
     }
 
-    _initCommentUpdate(props: CommentUpdateType | CommentWithinRepliesPostsPageJson, subplebbit?: Pick<SubplebbitIpfsType, "signature">) {
+    _initCommentUpdate(props: CommentUpdateType | CommentWithinRepliesPostsPageJson, subplebbit?: Pick<CommunityIpfsType, "signature">) {
         const log = Logger("pkc-js:comment:_initCommentUpdate");
         if ("depth" in props) {
             // CommentWithinPageJson — no extra setup needed
@@ -398,7 +395,7 @@ export class Comment
 
     _updateRepliesPostsInstance(
         newReplies: CommentUpdateType["replies"] | CommentWithinRepliesPostsPageJson["replies"] | Pick<RepliesPagesTypeIpfs, "pageCids">,
-        subplebbit?: Pick<SubplebbitIpfsType, "signature">
+        subplebbit?: Pick<CommunityIpfsType, "signature">
     ) {
         assert(this.cid, "Can't update comment.replies without comment.cid being defined");
         const log = Logger("pkc-js:comment:_updateRepliesPostsInstanceIfNeeded");
@@ -407,13 +404,13 @@ export class Comment
         if (typeof repliesCreationTimestamp !== "number") throw Error("comment.updatedAt should be defined when updating replies");
 
         this.replies._subplebbit.signature = subplebbitSignature;
-        const repliesSubplebbit = { address: this.communityAddress, signature: subplebbitSignature };
+        const repliesCommunity = { address: this.communityAddress, signature: subplebbitSignature };
         if (!newReplies) {
             this.replies.resetPages();
         } else if (!("pages" in newReplies) && newReplies.pageCids) {
             // only pageCids is provided
             this.replies.updateProps({
-                subplebbit: repliesSubplebbit,
+                subplebbit: repliesCommunity,
                 pageCids: newReplies.pageCids,
                 pages: {}
             });
@@ -435,7 +432,7 @@ export class Comment
                 );
                 this.replies.updateProps({
                     ...parsedPages,
-                    subplebbit: repliesSubplebbit,
+                    subplebbit: repliesCommunity,
                     pageCids: newReplies.pageCids
                 });
             }
@@ -444,7 +441,7 @@ export class Comment
 
     private async _verifyChallengeVerificationCommentProps(
         decryptedVerification: DecryptedChallengeVerification
-    ): Promise<PlebbitError | undefined> {
+    ): Promise<PKCError | undefined> {
         const log = Logger("pkc-js:comment:publish:_verifyChallengeVerificationCommentProps");
 
         if (!this.raw.pubsubMessageToPublish) throw Error("comment._pubsubMsgToPublish should be defined at this point");
@@ -454,7 +451,7 @@ export class Comment
         const pubsubMsgFromPublishedPubsubMsg = remeda.pick(this.raw.pubsubMessageToPublish, keysToCompare);
 
         if (!remeda.isDeepEqual(pubsubMsgFromCommentIpfs, pubsubMsgFromPublishedPubsubMsg)) {
-            const error = new PlebbitError("ERR_COMMUNITY_CHANGED_COMMENT_PUBSUB_PUBLICATION_PROPS", {
+            const error = new PKCError("ERR_COMMUNITY_CHANGED_COMMENT_PUBSUB_PUBLICATION_PROPS", {
                 pubsubMsgFromSub: pubsubMsgFromCommentIpfs,
                 originalPubsubMsg: this.raw.pubsubMessageToPublish
             });
@@ -480,7 +477,7 @@ export class Comment
             calculatedCommentCid: calculatedCid
         });
         if (!commentIpfsValidity.valid) {
-            const error = new PlebbitError("ERR_COMMUNITY_SENT_CHALLENGE_VERIFICATION_WITH_INVALID_COMMENT", {
+            const error = new PKCError("ERR_COMMUNITY_SENT_CHALLENGE_VERIFICATION_WITH_INVALID_COMMENT", {
                 reason: commentIpfsValidity.reason,
                 decryptedChallengeVerification: decryptedVerification
             });
@@ -498,7 +495,7 @@ export class Comment
             validatePages: true
         });
         if (!commentUpdateValidity.valid) {
-            const error = new PlebbitError("ERR_COMMUNITY_SENT_CHALLENGE_VERIFICATION_WITH_INVALID_COMMENTUPDATE", {
+            const error = new PKCError("ERR_COMMUNITY_SENT_CHALLENGE_VERIFICATION_WITH_INVALID_COMMENTUPDATE", {
                 reason: commentUpdateValidity.reason,
                 decryptedChallengeVerification: decryptedVerification
             });
@@ -508,7 +505,7 @@ export class Comment
         }
 
         if (calculatedCid !== decryptedVerification.commentUpdate.cid) {
-            const error = new PlebbitError("ERR_COMMUNITY_SENT_CHALLENGE_VERIFICATION_WITH_INVALID_CID", {
+            const error = new PKCError("ERR_COMMUNITY_SENT_CHALLENGE_VERIFICATION_WITH_INVALID_CID", {
                 cidSentBySub: decryptedVerification.commentUpdate.cid,
                 calculatedCid,
                 decryptedChallengeVerification: decryptedVerification
@@ -549,7 +546,7 @@ export class Comment
         });
 
         if (!addRes.cid.equals(CID.parse(decryptedVerification.commentUpdate.cid)))
-            throw new PlebbitError("ERR_ADDED_COMMENT_IPFS_TO_IPFS_BUT_GOT_DIFFERENT_CID", {
+            throw new PKCError("ERR_ADDED_COMMENT_IPFS_TO_IPFS_BUT_GOT_DIFFERENT_CID", {
                 addedCidToIpfs: addRes.cid,
                 expectedCidString: decryptedVerification.commentUpdate.cid,
                 expectedCid: CID.parse(decryptedVerification.commentUpdate.cid)
@@ -630,8 +627,8 @@ export class Comment
         this.replies._subplebbit.address = newCommunityAddress;
     }
 
-    private _isCommentIpfsErrorRetriable(err: PlebbitError | Error): boolean {
-        if (!(err instanceof PlebbitError)) return false; // If it's not a recognizable error, then we throw to notify the user
+    private _isCommentIpfsErrorRetriable(err: PKCError | Error): boolean {
+        if (!(err instanceof PKCError)) return false; // If it's not a recognizable error, then we throw to notify the user
         if (
             err.code === "ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID" ||
             err.code === "ERR_INVALID_COMMENT_IPFS_SCHEMA" ||
@@ -652,13 +649,13 @@ export class Comment
         return true;
     }
 
-    private async _retryLoadingCommentIpfs(cid: string, log: Logger): Promise<CommentIpfsType | PlebbitError | Error> {
+    private async _retryLoadingCommentIpfs(cid: string, log: Logger): Promise<CommentIpfsType | PKCError | Error> {
         return new Promise((resolve) => {
             this._commentIpfsloadingOperation!.attempt(async (curAttempt) => {
                 if (this.raw.comment) return resolve(this.raw.comment);
                 log.trace(`Retrying to load comment ipfs (${this.cid}) for the ${curAttempt}th time`);
                 try {
-                    const commentInPage = this._clientsManager._findCommentInPagesOfUpdatingCommentsOrSubplebbit();
+                    const commentInPage = this._clientsManager._findCommentInPagesOfUpdatingCommentsOrCommunity();
                     if (commentInPage) {
                         resolve(commentInPage.comment);
                     } else {
@@ -667,11 +664,11 @@ export class Comment
                         resolve(res);
                     }
                 } catch (e) {
-                    const error = <PlebbitError | Error>e;
+                    const error = <PKCError | Error>e;
                     if (error.name === "AbortError") return resolve(error);
-                    if (error instanceof PlebbitError && error.details)
+                    if (error instanceof PKCError && error.details)
                         error.details = { ...error.details, commentCid: this.cid, retryCount: curAttempt };
-                    if (this._isCommentIpfsErrorRetriable(<PlebbitError>error)) {
+                    if (this._isCommentIpfsErrorRetriable(<PKCError>error)) {
                         log.error(`Error on loading comment ipfs (${this.cid}) for the ${curAttempt}th time`, error);
 
                         this._changeCommentStateEmitEventEmitStateChangeEvent({
@@ -688,7 +685,7 @@ export class Comment
                         this._commentIpfsloadingOperation!.retry(<Error>e);
                     } else {
                         // a non retriable error
-                        return resolve(<PlebbitError>e);
+                        return resolve(<PKCError>e);
                     }
                 }
             });
@@ -735,8 +732,8 @@ export class Comment
         await this._commentIpfsloadingOperation.stop();
     }
 
-    async startCommentUpdateSubplebbitSubscription() {
-        const log = Logger("pkc-js:comment:update:startCommentUpdateSubplebbitSubscription");
+    async startCommentUpdateCommunitySubscription() {
+        const log = Logger("pkc-js:comment:update:startCommentUpdateCommunitySubscription");
         if (this.state === "stopped") return; // we may have called stop() before reaching comment update subscription and after loading commentipfs
         if (this.depth === 0) {
             if (!this._communityForUpdating)
@@ -769,7 +766,7 @@ export class Comment
             throw Error("Failed to load comment ipfs, user needs to check error event");
         }
         try {
-            await this.startCommentUpdateSubplebbitSubscription(); // can only proceed if commentIpfs has been loaded successfully
+            await this.startCommentUpdateCommunitySubscription(); // can only proceed if commentIpfs has been loaded successfully
         } catch (e) {
             if (isAbortError(e) && (this.state === "stopped" || this._isStopAbortRequested())) return;
             log.error("Failed to start comment update subscription to subplebbit", e);
@@ -841,7 +838,7 @@ export class Comment
         this._setRpcClientState(rpcState);
     }
 
-    private _isRetriableLoadingError(err: Error | PlebbitError) {
+    private _isRetriableLoadingError(err: Error | PKCError) {
         // Critical Errors for now are:
         // Invalid signature of CommentIpfs
         // CommentUpdate will always be retried when a new sub update is loaded
@@ -854,10 +851,10 @@ export class Comment
         const log = Logger("pkc-js:comment:_handleCommentEventFromRpc");
         let parsed: RpcCommentResultType;
         try {
-            parsed = parseRpcCommentEventWithPlebbitErrorIfItFails(args.params.result);
+            parsed = parseRpcCommentEventWithPKCErrorIfItFails(args.params.result);
         } catch (e) {
             log.error("Failed to parse the rpc comment event of", this.cid, e);
-            this.emit("error", <PlebbitError>e);
+            this.emit("error", <PKCError>e);
             throw e;
         }
         log(`Received new CommentIpfs (${this.cid}) from RPC`);
@@ -871,10 +868,10 @@ export class Comment
         const log = Logger("pkc-js:comment:_handleUpdateEventFromRpc");
         let parsed: RpcCommentUpdateResultType;
         try {
-            parsed = parseRpcCommentUpdateEventWithPlebbitErrorIfItFails(args.params.result) as RpcCommentUpdateResultType;
+            parsed = parseRpcCommentUpdateEventWithPKCErrorIfItFails(args.params.result) as RpcCommentUpdateResultType;
         } catch (e) {
             log.error("Failed to parse the rpc update event of", this.cid, e);
-            this.emit("error", <PlebbitError>e);
+            this.emit("error", <PKCError>e);
             throw e;
         }
         const newUpdate = parsed.commentUpdate;
@@ -933,7 +930,7 @@ export class Comment
     private async _updateViaRpc() {
         const log = Logger("pkc-js:comment:update:_updateViaRpc");
 
-        const rpcUrl = this._plebbit.plebbitRpcClientsOptions![0];
+        const rpcUrl = this._plebbit.pkcRpcClientsOptions![0];
         if (!rpcUrl) throw Error("Failed to get rpc url");
         if (!this.cid) throw Error("Can't start updating comment without defining this.cid");
         try {
@@ -965,35 +962,35 @@ export class Comment
         this._plebbit._plebbitRpcClient!.emitAllPendingMessages(this._updateRpcSubscriptionId);
     }
 
-    _useUpdatePropsFromUpdatingStartedSubplebbitIfPossible() {
+    _useUpdatePropsFromUpdatingStartedCommunityIfPossible() {
         if (!this.cid) throw Error("Need to have comment.cid defined");
         if (!this.communityAddress) {
-            // try to find cid in all _updatingSubplebbits
-            for (const updatingSubplebbit of [...listUpdatingSubplebbits(this._plebbit), ...listStartedSubplebbits(this._plebbit)]) {
-                const commentInSubplebbitPosts = findCommentInPageInstanceRecursively(updatingSubplebbit.posts, this.cid);
-                if (commentInSubplebbitPosts) {
-                    const addr = getCommunityAddressFromRecord(commentInSubplebbitPosts.comment as unknown as Record<string, unknown>);
+            // try to find cid in all _updatingCommunitys
+            for (const updatingCommunity of [...listUpdatingCommunitys(this._plebbit), ...listStartedCommunitys(this._plebbit)]) {
+                const commentInCommunityPosts = findCommentInPageInstanceRecursively(updatingCommunity.posts, this.cid);
+                if (commentInCommunityPosts) {
+                    const addr = getCommunityAddressFromRecord(commentInCommunityPosts.comment as unknown as Record<string, unknown>);
                     if (addr) this.setCommunityAddress(addr);
                     break;
                 }
             }
             if (!this.communityAddress) return;
         }
-        const updatingSubplebbitInstance =
-            findUpdatingSubplebbit(this._plebbit, { address: this.communityAddress }) ||
+        const updatingCommunityInstance =
+            findUpdatingCommunity(this._plebbit, { address: this.communityAddress }) ||
             this._communityForUpdating?.subplebbit ||
-            findStartedSubplebbit(this._plebbit, { address: this.communityAddress });
-        if (updatingSubplebbitInstance?.raw?.subplebbitIpfs && this.cid) {
-            const commentInSubplebbitPosts = findCommentInPageInstanceRecursively(updatingSubplebbitInstance.posts, this.cid);
-            if (commentInSubplebbitPosts) {
+            findStartedCommunity(this._plebbit, { address: this.communityAddress });
+        if (updatingCommunityInstance?.raw?.subplebbitIpfs && this.cid) {
+            const commentInCommunityPosts = findCommentInPageInstanceRecursively(updatingCommunityInstance.posts, this.cid);
+            if (commentInCommunityPosts) {
                 if (!this.raw.comment) {
-                    this._initIpfsProps(commentInSubplebbitPosts.comment);
+                    this._initIpfsProps(commentInCommunityPosts.comment);
                     this.emit("update", this);
                     // Don't call _resolveAuthorNamesInBackground() here — this runs during createComment()
                     // before the stop abort controller exists. Resolution is handled by the update loop.
                 }
-                if ((this.updatedAt || 0) < commentInSubplebbitPosts.commentUpdate.updatedAt) {
-                    this._initCommentUpdate(commentInSubplebbitPosts.commentUpdate, updatingSubplebbitInstance.raw.subplebbitIpfs);
+                if ((this.updatedAt || 0) < commentInCommunityPosts.commentUpdate.updatedAt) {
+                    this._initCommentUpdate(commentInCommunityPosts.commentUpdate, updatingCommunityInstance.raw.subplebbitIpfs);
                     this.emit("update", this);
                 }
             }
@@ -1051,7 +1048,7 @@ export class Comment
                         if ((this.updatedAt || 0) < commentInAncestor.commentUpdate.updatedAt) {
                             this._initCommentUpdate(
                                 commentInAncestor.commentUpdate,
-                                findUpdatingSubplebbit(this._plebbit, { address: this.communityAddress })?.raw?.subplebbitIpfs
+                                findUpdatingCommunity(this._plebbit, { address: this.communityAddress })?.raw?.subplebbitIpfs
                             );
                             this.emit("update", this);
                         }
@@ -1062,7 +1059,7 @@ export class Comment
         }
     }
 
-    _useUpdatingCommentFromPlebbit(updatingCommentInstance: Comment) {
+    _useUpdatingCommentFromPKC(updatingCommentInstance: Comment) {
         if (updatingCommentInstance === this) return; // don't mirror to itself; prevents recursive events
         this._updatingCommentInstance = {
             comment: updatingCommentInstance,
@@ -1107,7 +1104,7 @@ export class Comment
 
         trackUpdatingComment(this._plebbit, updatingCommentInstance);
 
-        this._useUpdatingCommentFromPlebbit(updatingCommentInstance);
+        this._useUpdatingCommentFromPKC(updatingCommentInstance);
         updatingCommentInstance._setStateWithEmission("updating");
 
         if (this._plebbit._plebbitRpcClient) {
@@ -1135,7 +1132,7 @@ export class Comment
                 } else {
                     this.loadCommentIpfsAndStartCommentUpdateSubscription().catch((e) => log.error("Failed to update comment", e));
                 }
-            } else this._useUpdatingCommentFromPlebbit(existingUpdatingComment); // this comment instance will be mirroring this._plebbit._updatingComments[this.cid]
+            } else this._useUpdatingCommentFromPKC(existingUpdatingComment); // this comment instance will be mirroring this._plebbit._updatingComments[this.cid]
         } else await this._setUpNewUpdatingCommentInstance(); // Create a this._plebbit._updatingComments[this.cid], then mirror it
 
         if (this.raw.comment || this.raw.commentUpdate) this.emit("update", this);
@@ -1240,7 +1237,7 @@ export class Comment
                 clientsManager: this._clientsManager,
                 abortSignal: stopAbortController.signal
             });
-            if (!signatureValidity.valid) throw new PlebbitError("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
+            if (!signatureValidity.valid) throw new PKCError("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
         } finally {
             if (this.state !== "updating") this._clearStopAbortController();
         }

@@ -1,26 +1,26 @@
 import {
     generatePostToAnswerMathQuestion,
     publishWithExpectedResult,
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     resolveWhenConditionIsTrue,
-    mockPlebbitV2,
+    mockPKCV2,
     addStringToIpfs
 } from "../../../dist/node/test/test-util.js";
 import signers from "../../fixtures/signers.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { IpfsHttpClientPubsubMessage } from "../../../dist/node/types.js";
 
-const mathCliNoMockedPubsubSubplebbitAddress = signers[5].address; // this sub is connected to a plebbit instance whose pubsub is not mocked
+const mathCliNoMockedPubsubCommunityAddress = signers[5].address; // this sub is connected to a plebbit instance whose pubsub is not mocked
 
 // should connect to a kubo node and exchange pubsub messages with it
 // DO NOT MOCK PUBSUB
 //flaky
 // for(let i =0;i <50; i++)
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"] }).map((config) => {
     describe(`Test publishing pubsub in real environment - ${config.name}`, { retry: 2 }, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         let publishedPost: Comment;
 
         beforeAll(async () => {
@@ -32,13 +32,13 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2p
         });
 
         it(`Can fetch subplebbit`, async () => {
-            const sub = await plebbit.getSubplebbit({ address: mathCliNoMockedPubsubSubplebbitAddress });
+            const sub = await plebbit.getCommunity({ address: mathCliNoMockedPubsubCommunityAddress });
             expect(sub.updatedAt).to.be.a("number");
             expect(sub.settings).to.be.undefined; // make sure it's not loading local subplebbit
         });
 
         it("can post after answering correctly", async function () {
-            publishedPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliNoMockedPubsubSubplebbitAddress }, plebbit);
+            publishedPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliNoMockedPubsubCommunityAddress }, plebbit);
             await publishWithExpectedResult({ publication: publishedPost, expectedChallengeSuccess: true });
         });
 
@@ -62,30 +62,30 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2p
         });
 
         it(`It should connect to peers if we're publishing over pubsub`, async () => {
-            const testPlebbit = await config.plebbitInstancePromise({
+            const testPKC = await config.plebbitInstancePromise({
                 forceMockPubsub: false
             });
 
-            const kuboPlebbit = await mockPlebbitV2({
+            const kuboPKC = await mockPKCV2({
                 plebbitOptions: { pubsubKuboRpcClientsOptions: ["http://localhost:15001/api/v0"] },
                 forceMockPubsub: false,
-                remotePlebbit: true
+                remotePKC: true
             });
 
-            const kuboRpc = Object.values(kuboPlebbit.clients.pubsubKuboRpcClients)[0];
+            const kuboRpc = Object.values(kuboPKC.clients.pubsubKuboRpcClients)[0];
 
             const pubsubMsgs: IpfsHttpClientPubsubMessage[] = [];
 
-            kuboRpc._client.pubsub.subscribe(mathCliNoMockedPubsubSubplebbitAddress, (msg: IpfsHttpClientPubsubMessage) => {
+            kuboRpc._client.pubsub.subscribe(mathCliNoMockedPubsubCommunityAddress, (msg: IpfsHttpClientPubsubMessage) => {
                 pubsubMsgs.push(msg);
             });
 
-            const libp2pJsClient = Object.values(testPlebbit.clients.libp2pJsClients)[0];
+            const libp2pJsClient = Object.values(testPKC.clients.libp2pJsClients)[0];
             const numOfPeersBeforePublishing = libp2pJsClient._helia.libp2p.getConnections().length;
             expect(numOfPeersBeforePublishing).to.equal(0);
             const heliaWithKuboRpcClientFunctions = libp2pJsClient.heliaWithKuboRpcClientFunctions;
 
-            await heliaWithKuboRpcClientFunctions.pubsub.publish(mathCliNoMockedPubsubSubplebbitAddress, new TextEncoder().encode("test"));
+            await heliaWithKuboRpcClientFunctions.pubsub.publish(mathCliNoMockedPubsubCommunityAddress, new TextEncoder().encode("test"));
 
             const numOfPeersAfterPublishing = libp2pJsClient._helia.libp2p.getConnections().length;
             expect(numOfPeersAfterPublishing).to.be.greaterThan(numOfPeersBeforePublishing);
@@ -94,24 +94,24 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2p
             expect(pubsubMsgs.length).to.equal(1);
             expect(pubsubMsgs[0].data.toString()).to.equal("116,101,115,116"); // uint8 array representation of "test"
 
-            await testPlebbit.destroy();
-            await kuboPlebbit.destroy();
+            await testPKC.destroy();
+            await kuboPKC.destroy();
         });
 
         it(`should connect to peers if we're subscribing over pubsub`, async () => {
-            const testPlebbit = await config.plebbitInstancePromise({
+            const testPKC = await config.plebbitInstancePromise({
                 forceMockPubsub: false
             });
 
-            const kuboPlebbit = await mockPlebbitV2({
+            const kuboPKC = await mockPKCV2({
                 plebbitOptions: { pubsubKuboRpcClientsOptions: ["http://localhost:15001/api/v0"] },
                 forceMockPubsub: false,
-                remotePlebbit: true
+                remotePKC: true
             });
 
-            const kuboRpc = Object.values(kuboPlebbit.clients.pubsubKuboRpcClients)[0];
+            const kuboRpc = Object.values(kuboPKC.clients.pubsubKuboRpcClients)[0];
 
-            const libp2pJsClient = Object.values(testPlebbit.clients.libp2pJsClients)[0];
+            const libp2pJsClient = Object.values(testPKC.clients.libp2pJsClients)[0];
             const numOfPeersBeforeSubscribing = libp2pJsClient._helia.libp2p.getConnections().length;
             expect(numOfPeersBeforeSubscribing).to.equal(0);
             const heliaWithKuboRpcClientFunctions = libp2pJsClient.heliaWithKuboRpcClientFunctions;
@@ -119,7 +119,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2p
             const pubsubMsgs: IpfsHttpClientPubsubMessage[] = [];
 
             await heliaWithKuboRpcClientFunctions.pubsub.subscribe(
-                mathCliNoMockedPubsubSubplebbitAddress,
+                mathCliNoMockedPubsubCommunityAddress,
                 (msg: IpfsHttpClientPubsubMessage) => {
                     pubsubMsgs.push(msg);
                 }
@@ -128,33 +128,33 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2p
             const numOfPeersAfterSubscribing = libp2pJsClient._helia.libp2p.getConnections().length;
             expect(numOfPeersAfterSubscribing).to.be.greaterThan(numOfPeersBeforeSubscribing);
 
-            await kuboRpc._client.pubsub.publish(mathCliNoMockedPubsubSubplebbitAddress, new TextEncoder().encode("test"));
+            await kuboRpc._client.pubsub.publish(mathCliNoMockedPubsubCommunityAddress, new TextEncoder().encode("test"));
 
             await new Promise((resolve) => setTimeout(resolve, 2000));
             expect(pubsubMsgs.length).to.equal(1);
             expect(pubsubMsgs[0].data.toString()).to.equal("116,101,115,116"); // uint8 array representation of "test"
 
-            await testPlebbit.destroy();
-            await kuboPlebbit.destroy();
+            await testPKC.destroy();
+            await kuboPKC.destroy();
         });
         it(`it should connect if we're fetching content by CID`, async () => {
-            const testPlebbit = await config.plebbitInstancePromise({
+            const testPKC = await config.plebbitInstancePromise({
                 forceMockPubsub: false
             });
 
-            const libp2pJsClient = Object.values(testPlebbit.clients.libp2pJsClients)[0];
+            const libp2pJsClient = Object.values(testPKC.clients.libp2pJsClients)[0];
             const numOfPeersBeforeFetching = libp2pJsClient._helia.libp2p.getConnections().length;
             expect(numOfPeersBeforeFetching).to.equal(0);
 
             const newContentCid = await addStringToIpfs("test");
 
-            const contentLoadedByHelia = await testPlebbit.fetchCid({ cid: newContentCid });
+            const contentLoadedByHelia = await testPKC.fetchCid({ cid: newContentCid });
             expect(contentLoadedByHelia).to.equal("test");
 
             const numOfPeersAfterFetching = libp2pJsClient._helia.libp2p.getConnections().length;
             expect(numOfPeersAfterFetching).to.be.greaterThan(numOfPeersBeforeFetching);
 
-            await testPlebbit.destroy();
+            await testPKC.destroy();
         });
 
         it(`We can fetch the IPNS using pubsub only`, async () => {
@@ -164,14 +164,14 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2p
 
             // We need to test if we can fetch the IPNS using pubsub only
 
-            const testPlebbit = await config.plebbitInstancePromise({
+            const testPKC = await config.plebbitInstancePromise({
                 forceMockPubsub: false
             });
 
-            const libp2pJsClient = Object.values(testPlebbit.clients.libp2pJsClients)[0];
+            const libp2pJsClient = Object.values(testPKC.clients.libp2pJsClients)[0];
             libp2pJsClient._heliaIpnsRouter.routers = libp2pJsClient._heliaIpnsRouter.routers.slice(1); // remove the fetch router
 
-            const sub = await testPlebbit.createSubplebbit({ address: mathCliNoMockedPubsubSubplebbitAddress });
+            const sub = await testPKC.createCommunity({ address: mathCliNoMockedPubsubCommunityAddress });
             const errors: Error[] = [];
             sub.on("error", (error: Error) => errors.push(error));
 
@@ -181,7 +181,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2p
             expect(sub.updatedAt).to.be.a("number");
             expect(sub.settings).to.be.undefined; // make sure it's not loading local subplebbit
 
-            await testPlebbit.destroy();
+            await testPKC.destroy();
         });
     });
 

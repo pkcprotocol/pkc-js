@@ -3,8 +3,8 @@ import {
     plebbitJsChallenges,
     getPendingChallengesOrChallengeVerification
 } from "../../dist/node/runtime/node/community/challenges/index.js";
-import type { DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor } from "../../dist/node/pubsub-messages/types.js";
-import type { LocalSubplebbit } from "../../dist/node/runtime/node/community/local-community.js";
+import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../../dist/node/pubsub-messages/types.js";
+import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
 import type { ChallengeVerificationMessageType } from "../../dist/node/pubsub-messages/types.js";
 import type { Challenge, ChallengeResult } from "../../dist/node/community/types.js";
 import * as remeda from "remeda";
@@ -27,8 +27,8 @@ const testGetPendingChallengesOrChallengeVerification = async (
     subplebbit: Record<string, unknown>
 ): Promise<ChallengeVerificationResult> => {
     return getPendingChallengesOrChallengeVerification(
-        challengeRequestMessage as unknown as DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor,
-        subplebbit as unknown as LocalSubplebbit
+        challengeRequestMessage as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
+        subplebbit as unknown as LocalCommunity
     ) as Promise<ChallengeVerificationResult>;
 };
 
@@ -79,7 +79,7 @@ describe.skip("voucher challenge", () => {
     };
 
     // Create a standard subplebbit fixture with voucher challenge
-    const createSubplebbit = (options: VoucherOptions = {}): Record<string, unknown> => {
+    const createCommunity = (options: VoucherOptions = {}): Record<string, unknown> => {
         const defaultOptions: VoucherOptions = {
             question: "What is your voucher code?",
             vouchers: "VOUCHER1,VOUCHER2,VOUCHER3"
@@ -132,7 +132,7 @@ describe.skip("voucher challenge", () => {
 
     describe("challenge verification", () => {
         it("accepts valid voucher codes", async () => {
-            const subplebbit = createSubplebbit();
+            const subplebbit = createCommunity();
             const challengeRequestMessage = createChallengeRequestMessage();
 
             const result = await testGetPendingChallengesOrChallengeVerification(challengeRequestMessage, subplebbit);
@@ -145,7 +145,7 @@ describe.skip("voucher challenge", () => {
         });
 
         it("rejects invalid voucher codes", async () => {
-            const subplebbit = createSubplebbit();
+            const subplebbit = createCommunity();
             const challengeRequestMessage = createChallengeRequestMessage();
 
             const result = await testGetPendingChallengesOrChallengeVerification(challengeRequestMessage, subplebbit);
@@ -160,7 +160,7 @@ describe.skip("voucher challenge", () => {
         });
 
         it("allows same author to reuse their voucher", async () => {
-            const subplebbit = createSubplebbit();
+            const subplebbit = createCommunity();
             const challengeRequestMessage = createChallengeRequestMessage();
 
             const result = await testGetPendingChallengesOrChallengeVerification(challengeRequestMessage, subplebbit);
@@ -177,7 +177,7 @@ describe.skip("voucher challenge", () => {
         });
 
         it("rejects voucher already redeemed by different author", async () => {
-            const subplebbit = createSubplebbit();
+            const subplebbit = createCommunity();
 
             // First author redeems voucher
             const challengeRequestMessage1 = createChallengeRequestMessage({
@@ -207,7 +207,7 @@ describe.skip("voucher challenge", () => {
         });
 
         it("handles pre-answered challenges correctly", async () => {
-            const subplebbit = createSubplebbit();
+            const subplebbit = createCommunity();
             const challengeRequestMessage = createChallengeRequestMessage({
                 challengeAnswers: ["VOUCHER1"]
             });
@@ -218,7 +218,7 @@ describe.skip("voucher challenge", () => {
         });
 
         it("rejects pre-answered challenges with invalid voucher", async () => {
-            const subplebbit = createSubplebbit();
+            const subplebbit = createCommunity();
             const challengeRequestMessage = createChallengeRequestMessage({
                 challengeAnswers: ["INVALID_VOUCHER"]
             });
@@ -233,7 +233,7 @@ describe.skip("voucher challenge", () => {
 
     describe("custom error messages", () => {
         it("uses custom invalid voucher error message", async () => {
-            const subplebbit = createSubplebbit({
+            const subplebbit = createCommunity({
                 invalidVoucherError: "Custom invalid code message"
             });
             const challengeRequestMessage = createChallengeRequestMessage();
@@ -250,7 +250,7 @@ describe.skip("voucher challenge", () => {
         });
 
         it("uses custom already redeemed error message", async () => {
-            const subplebbit = createSubplebbit({
+            const subplebbit = createCommunity({
                 alreadyRedeemedError: "Custom already used message"
             });
 
@@ -281,7 +281,7 @@ describe.skip("voucher challenge", () => {
 
     describe("file persistence", () => {
         it("persists voucher redemptions to file", async () => {
-            const subplebbit = createSubplebbit();
+            const subplebbit = createCommunity();
             const challengeRequestMessage = createChallengeRequestMessage();
 
             const result = await testGetPendingChallengesOrChallengeVerification(challengeRequestMessage, subplebbit);
@@ -305,7 +305,7 @@ describe.skip("voucher challenge", () => {
         });
 
         it("loads existing redemption state from file", async () => {
-            const subplebbit = createSubplebbit();
+            const subplebbit = createCommunity();
 
             // Create state file manually
             const stateDir = path.join(tempDir, "subplebbits", `${subplebbit.address}-challenge-data`);
@@ -337,7 +337,7 @@ describe.skip("voucher challenge", () => {
 
     describe("edge cases", () => {
         it("throws error when no vouchers configured", async () => {
-            const subplebbit = createSubplebbit({ vouchers: "" });
+            const subplebbit = createCommunity({ vouchers: "" });
             const challengeRequestMessage = createChallengeRequestMessage();
 
             try {
@@ -350,7 +350,7 @@ describe.skip("voucher challenge", () => {
         });
 
         it("handles whitespace in voucher list", async () => {
-            const subplebbit = createSubplebbit({
+            const subplebbit = createCommunity({
                 vouchers: " VOUCHER1 , VOUCHER2 , VOUCHER3 "
             });
             const challengeRequestMessage = createChallengeRequestMessage();
@@ -362,7 +362,7 @@ describe.skip("voucher challenge", () => {
         });
 
         it("filters out empty voucher codes", async () => {
-            const subplebbit = createSubplebbit({
+            const subplebbit = createCommunity({
                 vouchers: "VOUCHER1,,VOUCHER2,"
             });
             const challengeRequestMessage = createChallengeRequestMessage();

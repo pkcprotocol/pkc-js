@@ -5,22 +5,22 @@ import {
     publishRandomReply,
     publishWithExpectedResult,
     publishRandomPost,
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     itSkipIfRpc,
     iterateThroughPagesToFindCommentInParentPagesInstance,
-    waitTillPostInSubplebbitInstancePages,
+    waitTillPostInCommunityInstancePages,
     waitTillReplyInParentPagesInstance,
     publishCommentWithDepth
 } from "../../../../../dist/node/test/test-util.js";
 import { signComment } from "../../../../../dist/node/signer/signatures.js";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
-import type { PlebbitError } from "../../../../../dist/node/pkc-error.js";
+import type { PKCError } from "../../../../../dist/node/pkc-error.js";
 import type {
     CommentIpfsWithCidDefined,
     CommentPubsubMessagPublicationSignature
 } from "../../../../../dist/node/publications/comment/types.js";
-import type { Plebbit } from "../../../../../dist/node/pkc/pkc.js";
-import type { RemoteSubplebbit } from "../../../../../dist/node/community/remote-community.js";
+import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
+import type { RemoteCommunity } from "../../../../../dist/node/community/remote-community.js";
 import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
 
 // Helper type for replies that requires both cid and parentCid
@@ -28,13 +28,13 @@ type ReplyWithRequiredFields = Required<Pick<CommentIpfsWithCidDefined, "cid" | 
 
 const subplebbitAddress = signers[0].address;
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent("publishing posts - " + config.name, async () => {
-        let plebbit: Plebbit, sub: RemoteSubplebbit;
+        let plebbit: PKC, sub: RemoteCommunity;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            sub = (await plebbit.createSubplebbit({ address: subplebbitAddress })) as RemoteSubplebbit;
+            sub = (await plebbit.createCommunity({ address: subplebbitAddress })) as RemoteCommunity;
             await sub.update();
         });
 
@@ -47,7 +47,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const post = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit, postProps: { title } });
             expect(post.depth).to.equal(0);
             expect(post.title).to.equal(title);
-            await waitTillPostInSubplebbitInstancePages(post as Comment & { cid: string }, sub);
+            await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, sub);
             const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, sub.posts);
             expect(postInPage.title).to.equal(title);
         });
@@ -57,7 +57,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const post = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit, postProps: { link } });
             expect(post.link).to.equal(link);
             await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
-            await waitTillPostInSubplebbitInstancePages(post as Comment & { cid: string }, sub);
+            await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, sub);
             const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, sub.posts);
             expect(postInPage.link).to.equal(link);
         });
@@ -90,7 +90,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     const remotePostIpfs = JSON.stringify(remotePost.raw.comment!);
                     expect(await calculateIpfsHash(remotePostIpfs)).to.equal(publishedPostWithEmojiContent.cid);
 
-                    await waitTillPostInSubplebbitInstancePages(publishedPostWithEmojiContent as Comment & { cid: string }, sub);
+                    await waitTillPostInCommunityInstancePages(publishedPostWithEmojiContent as Comment & { cid: string }, sub);
                     const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
                         publishedPostWithEmojiContent.cid,
                         sub.posts
@@ -142,7 +142,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const post = await plebbit.createComment({ ...commentProps, signer: signers[6] });
 
             await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
-            await waitTillPostInSubplebbitInstancePages(post as Comment & { cid: string }, sub);
+            await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, sub);
             const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, sub.posts);
             expect(postInPage.author.avatar).to.deep.equal(commentProps.author.avatar);
             expect(postInPage.author.address).to.equal(commentProps.author.address);
@@ -168,7 +168,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     expect(post.spoiler).to.equal(spoilerValue);
                     const remotePostFromCid = await plebbit.getComment({ cid: post.cid });
                     expect(remotePostFromCid.spoiler).to.equal(spoilerValue);
-                    await waitTillPostInSubplebbitInstancePages(post as Comment & { cid: string }, sub);
+                    await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, sub);
                     const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, sub.posts);
                     expect(postInPage.spoiler).to.equal(spoilerValue);
                     await post.stop();
@@ -193,7 +193,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     expect(post.nsfw).to.equal(nsfwValue);
                     const remotePostFromCid = await plebbit.getComment({ cid: post.cid });
                     expect(remotePostFromCid.nsfw).to.equal(nsfwValue);
-                    await waitTillPostInSubplebbitInstancePages(post as Comment & { cid: string }, sub);
+                    await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, sub);
                     const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, sub.posts);
                     expect(postInPage.nsfw).to.equal(nsfwValue);
                     await post.stop();
@@ -216,7 +216,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             });
             expect(post.author.wallets).to.deep.equal(wallets);
             await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
-            await waitTillPostInSubplebbitInstancePages(post as Comment & { cid: string }, sub);
+            await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, sub);
             const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, sub.posts);
             expect(postInPage.author.wallets).to.deep.equal(wallets);
             await post.stop();
@@ -279,7 +279,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
             expect(post.author.wallets).to.be.undefined;
 
-            await waitTillPostInSubplebbitInstancePages(post as Comment & { cid: string }, sub);
+            await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, sub);
             const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, sub.posts);
             expect(postInPage.author.wallets).to.be.undefined;
 
@@ -289,15 +289,15 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         itSkipIfRpc(`publish() can be caught if subplebbit failed to load`, async () => {
             const randomSigner = await plebbit.createSigner();
-            const downSubplebbitAddress = randomSigner.address; // an offline sub
-            const post = await generateMockPost({ communityAddress: downSubplebbitAddress, plebbit: plebbit });
+            const downCommunityAddress = randomSigner.address; // an offline sub
+            const post = await generateMockPost({ communityAddress: downCommunityAddress, plebbit: plebbit });
             plebbit._timeouts["subplebbit-ipns"] = 100; // need to change time out from 5 minutes to 100ms
 
             try {
                 await post.publish();
                 expect.fail("should fail");
             } catch (e) {
-                expect((e as PlebbitError).code).to.be.oneOf([
+                expect((e as PKCError).code).to.be.oneOf([
                     "ERR_IPNS_RESOLUTION_P2P_TIMEOUT", // for kubo-rpc-client
                     "ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS", // for ipfs gateways
                     "ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED", // for kubo-rpc-client
@@ -345,7 +345,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     });
 
     describe.concurrent(`Publishing replies - ${config.name}`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -381,7 +381,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         [2, 3, 10, 30].map((depth) =>
             it(`Can publish reply with depth = ${depth}`, async () => {
-                const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+                const subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
                 const reply = await publishCommentWithDepth({ depth, subplebbit });
                 expect(reply.depth).to.be.equal(depth);
 

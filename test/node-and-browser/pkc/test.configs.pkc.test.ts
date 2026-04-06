@@ -1,6 +1,6 @@
 import { describe, it, beforeAll, afterAll } from "vitest";
-import { getAvailablePlebbitConfigsToTestAgainst, isRpcFlagOn, isRunningInBrowser, itIfRpc } from "../../../dist/node/test/test-util.js";
-import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
+import { getAvailablePKCConfigsToTestAgainst, isRpcFlagOn, isRunningInBrowser, itIfRpc } from "../../../dist/node/test/test-util.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
 
 const DEFAULT_IPFS_GATEWAYS = ["https://ipfsgateway.xyz", "https://gateway.plebpubsub.xyz", "https://gateway.forumindex.com"];
 const DEFAULT_LOCAL_KUBO_RPC_URL = "http://localhost:15001/api/v0";
@@ -8,9 +8,9 @@ const DEFAULT_LOCAL_PUBSUB_URLS = ["http://localhost:15002/api/v0", "http://loca
 const DEFAULT_REMOTE_PUBSUB_URLS = ["https://pubsubprovider.xyz/api/v0", "https://plebpubsub.xyz/api/v0"];
 const HELIA_KEY_PREFIX = "Helia config default for testing(remote)";
 
-const configs = getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true });
+const configs = getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true });
 
-describe.concurrent("getAvailablePlebbitConfigsToTestAgainst", () => {
+describe.concurrent("getAvailablePKCConfigsToTestAgainst", () => {
     it("returns the expected config codes for the current runtime", () => {
         // NOTE: "remote-libp2pjs" is temporarily disabled due to stability issues
         const expectedCodes = isRunningInBrowser()
@@ -25,7 +25,7 @@ describe.concurrent("getAvailablePlebbitConfigsToTestAgainst", () => {
 
     configs.forEach((config) => {
         describe(`${config.name} (${config.testConfigCode})`, () => {
-            let plebbit: Plebbit;
+            let plebbit: PKC;
 
             beforeAll(async () => {
                 plebbit = await config.plebbitInstancePromise();
@@ -38,7 +38,7 @@ describe.concurrent("getAvailablePlebbitConfigsToTestAgainst", () => {
             it("creates a plebbit instance with the expected client options", () => {
                 switch (config.testConfigCode) {
                     case "local-kubo-rpc": {
-                        expect(plebbit.plebbitRpcClientsOptions).to.be.undefined;
+                        expect(plebbit.pkcRpcClientsOptions).to.be.undefined;
                         expect(plebbit.kuboRpcClientsOptions).to.deep.equal([{ url: DEFAULT_LOCAL_KUBO_RPC_URL }]);
                         expect(plebbit.pubsubKuboRpcClientsOptions).to.deep.equal([{ url: DEFAULT_LOCAL_KUBO_RPC_URL }]);
                         expect(plebbit.ipfsGatewayUrls).to.deep.equal(DEFAULT_IPFS_GATEWAYS);
@@ -54,7 +54,7 @@ describe.concurrent("getAvailablePlebbitConfigsToTestAgainst", () => {
                         break;
                     }
                     case "remote-kubo-rpc": {
-                        expect(plebbit.plebbitRpcClientsOptions).to.be.undefined;
+                        expect(plebbit.pkcRpcClientsOptions).to.be.undefined;
                         expect(plebbit.kuboRpcClientsOptions).to.deep.equal([{ url: DEFAULT_LOCAL_KUBO_RPC_URL }]);
                         if (isRpcFlagOn()) {
                             expect(plebbit.pubsubKuboRpcClientsOptions).to.deep.equal([{ url: DEFAULT_LOCAL_KUBO_RPC_URL }]);
@@ -76,7 +76,7 @@ describe.concurrent("getAvailablePlebbitConfigsToTestAgainst", () => {
                         break;
                     }
                     case "remote-libp2pjs": {
-                        expect(plebbit.plebbitRpcClientsOptions).to.be.undefined;
+                        expect(plebbit.pkcRpcClientsOptions).to.be.undefined;
                         expect(plebbit.kuboRpcClientsOptions).to.deep.equal([]);
                         expect(plebbit.pubsubKuboRpcClientsOptions).to.deep.equal([]);
                         expect(plebbit.ipfsGatewayUrls).to.deep.equal(DEFAULT_IPFS_GATEWAYS);
@@ -96,7 +96,7 @@ describe.concurrent("getAvailablePlebbitConfigsToTestAgainst", () => {
                         break;
                     }
                     case "remote-ipfs-gateway": {
-                        expect(plebbit.plebbitRpcClientsOptions).to.be.undefined;
+                        expect(plebbit.pkcRpcClientsOptions).to.be.undefined;
                         expect(plebbit.kuboRpcClientsOptions).to.be.undefined;
                         expect(plebbit.pubsubKuboRpcClientsOptions).to.deep.equal(DEFAULT_REMOTE_PUBSUB_URLS.map((url) => ({ url })));
                         expect(plebbit.ipfsGatewayUrls).to.deep.equal(["http://localhost:18080"]);
@@ -112,7 +112,7 @@ describe.concurrent("getAvailablePlebbitConfigsToTestAgainst", () => {
                     }
                     case "remote-plebbit-rpc": {
                         expect(isRpcFlagOn()).to.be.true;
-                        expect(plebbit.plebbitRpcClientsOptions).to.deep.equal(["ws://localhost:39653"]);
+                        expect(plebbit.pkcRpcClientsOptions).to.deep.equal(["ws://localhost:39653"]);
                         expect(plebbit.kuboRpcClientsOptions).to.be.undefined;
                         expect(plebbit.pubsubKuboRpcClientsOptions).to.be.undefined;
                         expect(plebbit.ipfsGatewayUrls).to.be.undefined;

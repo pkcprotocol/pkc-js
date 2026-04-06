@@ -1,9 +1,9 @@
 import { describe, it, vi } from "vitest";
 import type { MockInstance } from "vitest";
 import {
-    getAvailablePlebbitConfigsToTestAgainst,
-    createMockedSubplebbitIpns,
-    isPlebbitFetchingUsingGateways
+    getAvailablePKCConfigsToTestAgainst,
+    createMockedCommunityIpns,
+    isPKCFetchingUsingGateways
 } from "../../../../../dist/node/test/test-util.js";
 import * as cborg from "cborg";
 import { io as createSocketClient } from "socket.io-client";
@@ -52,7 +52,7 @@ const waitForMockPubsub = async (timeoutMs = 5000): Promise<void> =>
     });
 
 // this hangs on test:browser:chrome
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway", "remote-kubo-rpc", "remote-libp2pjs"] }).map(
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway", "remote-kubo-rpc", "remote-libp2pjs"] }).map(
     (config) => {
         describe.sequential("comment.publish in parallel potential regressions - " + config.name, () => {
             it.sequential("emits challenge requests for every queued publication even when publishing to a non-existing sub", async () => {
@@ -64,8 +64,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
                 plebbit.on("error", console.error);
 
                 const stressPublishCount = 100;
-                const offlineSubplebbit = await createMockedSubplebbitIpns({});
-                const offlineSubAddress = offlineSubplebbit.communityAddress; // this sub is not online so can't respond to messages, although the IPNS record is fetchable
+                const offlineCommunity = await createMockedCommunityIpns({});
+                const offlineSubAddress = offlineCommunity.communityAddress; // this sub is not online so can't respond to messages, although the IPNS record is fetchable
 
                 const challengeRequestIds = new Set();
                 const externalPeerChallengeRequests = new Set();
@@ -146,13 +146,13 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
             });
 
             it("resolves the subplebbit IPNS record only once when multiple publishes start in parallel", async () => {
-                const localPlebbit = await config.plebbitInstancePromise({});
-                localPlebbit.on("error", console.error);
+                const localPKC = await config.plebbitInstancePromise({});
+                localPKC.on("error", console.error);
                 const stressPublishCount = typeof globalThis.window !== "undefined" ? 20 : 350;
-                const randomSub = await createMockedSubplebbitIpns({}); // sub has a reachable IPNS but is not online
+                const randomSub = await createMockedCommunityIpns({}); // sub has a reachable IPNS but is not online
 
-                const usesGateways = isPlebbitFetchingUsingGateways(localPlebbit);
-                const isRemoteIpfsGatewayConfig = isPlebbitFetchingUsingGateways(localPlebbit);
+                const usesGateways = isPKCFetchingUsingGateways(localPKC);
+                const isRemoteIpfsGatewayConfig = isPKCFetchingUsingGateways(localPKC);
                 const shouldMockFetchForIpns = isRemoteIpfsGatewayConfig && typeof globalThis.fetch === "function";
 
                 const targetAddressForGatewayIpnsUrl = convertBase58IpnsNameToBase36Cid(randomSub.communityAddress);
@@ -161,10 +161,10 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
 
                 if (!usesGateways) {
                     const p2pClient =
-                        Object.keys(localPlebbit.clients.kuboRpcClients).length > 0
-                            ? Object.values(localPlebbit.clients.kuboRpcClients)[0]._client
-                            : Object.keys(localPlebbit.clients.libp2pJsClients).length > 0
-                              ? Object.values(localPlebbit.clients.libp2pJsClients)[0].heliaWithKuboRpcClientFunctions
+                        Object.keys(localPKC.clients.kuboRpcClients).length > 0
+                            ? Object.values(localPKC.clients.kuboRpcClients)[0]._client
+                            : Object.keys(localPKC.clients.libp2pJsClients).length > 0
+                              ? Object.values(localPKC.clients.libp2pJsClients)[0].heliaWithKuboRpcClientFunctions
                               : undefined;
                     if (!p2pClient?.name?.resolve) {
                         throw new Error("Expected p2p client like kubo or helia RPC client with name.resolve for this test");
@@ -175,15 +175,15 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
                 }
 
                 try {
-                    expect(localPlebbit._updatingSubplebbits.size()).to.equal(0);
+                    expect(localPKC._updatingCommunitys.size()).to.equal(0);
 
                     const comments = await Promise.all(
                         new Array(stressPublishCount).fill(null).map(async (_, index) =>
-                            localPlebbit.createComment({
+                            localPKC.createComment({
                                 communityAddress: randomSub.communityAddress,
                                 title: `parallel publish cache regression ${index}`,
                                 content: `parallel publish cache regression content ${index}`,
-                                signer: await localPlebbit.createSigner()
+                                signer: await localPKC.createSigner()
                             })
                         )
                     );
@@ -192,7 +192,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
 
                     await new Promise((resolve) => setTimeout(resolve, 5000));
 
-                    expect(localPlebbit._updatingSubplebbits.size()).to.equal(0);
+                    expect(localPKC._updatingCommunitys.size()).to.equal(0);
 
                     const resolveCallsCount = fetchSpy
                         ? fetchSpy.mock.calls.filter(([input]: unknown[]) => {
@@ -206,7 +206,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
                 } finally {
                     if (nameResolveSpy) nameResolveSpy.mockRestore();
                     if (fetchSpy) fetchSpy.mockRestore();
-                    await localPlebbit.destroy();
+                    await localPKC.destroy();
                 }
             });
         });

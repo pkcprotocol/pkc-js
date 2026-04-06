@@ -1,31 +1,31 @@
 import { GenericStateClient } from "../generic-state-client.js";
 import type { NameResolverClient } from "../clients/name-resolver-client.js";
 
-type SubplebbitGatewayState = "stopped" | "fetching-ipns";
+type CommunityGatewayState = "stopped" | "fetching-ipns";
 
-type SubplebbitIpfsState = "stopped" | "fetching-ipns" | "fetching-ipfs" | "publishing-ipns";
-type SubplebbitPubsubState =
+type CommunityIpfsState = "stopped" | "fetching-ipns" | "fetching-ipfs" | "publishing-ipns";
+type CommunityPubsubState =
     | "stopped"
     | "waiting-challenge-requests"
     | "publishing-challenge"
     | "waiting-challenge-answers"
     | "publishing-challenge-verification";
 
-type SubplebbitRpcState =
+type CommunityRpcState =
     | NameResolverClient["state"]
-    | SubplebbitIpfsState
-    | SubplebbitPubsubState
-    | SubplebbitGatewayState
+    | CommunityIpfsState
+    | CommunityPubsubState
+    | CommunityGatewayState
     | "resolving-community-name";
 
-type SubplebbitLibp2pJsState = SubplebbitIpfsState | SubplebbitPubsubState;
+type CommunityLibp2pJsState = CommunityIpfsState | CommunityPubsubState;
 
-export class SubplebbitKuboPubsubClient extends GenericStateClient<SubplebbitPubsubState> {}
+export class CommunityKuboPubsubClient extends GenericStateClient<CommunityPubsubState> {}
 
-export class SubplebbitKuboRpcClient extends GenericStateClient<SubplebbitIpfsState> {}
+export class CommunityKuboRpcClient extends GenericStateClient<CommunityIpfsState> {}
 
-export class SubplebbitPlebbitRpcStateClient extends GenericStateClient<SubplebbitRpcState> {}
+export class CommunityPKCRpcStateClient extends GenericStateClient<CommunityRpcState> {}
 
-export class SubplebbitLibp2pJsClient extends GenericStateClient<SubplebbitLibp2pJsState> {}
+export class CommunityLibp2pJsClient extends GenericStateClient<CommunityLibp2pJsState> {}
 
-export class SubplebbitIpfsGatewayClient extends GenericStateClient<SubplebbitGatewayState> {}
+export class CommunityIpfsGatewayClient extends GenericStateClient<CommunityGatewayState> {}

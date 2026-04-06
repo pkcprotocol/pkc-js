@@ -5,13 +5,13 @@ import {
     generateMockPost,
     publishWithExpectedResult,
     publishRandomPost,
-    mockPlebbitV2,
+    mockPKCV2,
     resolveWhenConditionIsTrue,
     publishRandomReply,
     waitTillReplyInParentPages,
     describeSkipIfRpc
 } from "../../../../../dist/node/test/test-util.js";
-import type { Plebbit } from "../../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
 import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
 
 const subplebbitAddress = signers[0].address;
@@ -19,21 +19,21 @@ const subplebbitAddress = signers[0].address;
 // Helper type for required fields for test utilities
 type CommentWithRequiredFields = Required<Pick<CommentIpfsWithCidDefined, "cid" | "parentCid"> & { communityAddress: string }>;
 
-async function createPlebbitWithMockResolver({
+async function createPKCWithMockResolver({
     records = new Map<string, string | undefined>(),
-    remotePlebbit = false,
+    remotePKC = false,
     stubStorage = false,
     forceMockPubsub,
     plebbitOptions
 }: {
     records?: Map<string, string | undefined>;
-    remotePlebbit?: boolean;
+    remotePKC?: boolean;
     stubStorage?: boolean;
     forceMockPubsub?: boolean;
-    plebbitOptions?: Parameters<typeof mockPlebbitV2>[0]["plebbitOptions"];
+    plebbitOptions?: Parameters<typeof mockPKCV2>[0]["plebbitOptions"];
 } = {}) {
-    const plebbit = await mockPlebbitV2({
-        remotePlebbit,
+    const plebbit = await mockPKCV2({
+        remotePKC,
         stubStorage,
         forceMockPubsub,
         mockResolve: false,
@@ -48,9 +48,9 @@ async function createPlebbitWithMockResolver({
 
 // RPC clients don't have nameResolvers clients — name resolution happens server-side, so resolver state is not exposed to the client
 describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
-    let plebbit: Plebbit;
+    let plebbit: PKC;
     beforeAll(async () => {
-        ({ plebbit } = await createPlebbitWithMockResolver({
+        ({ plebbit } = await createPKCWithMockResolver({
             plebbitOptions: { dataPath: undefined },
             forceMockPubsub: false,
             stubStorage: false
@@ -71,11 +71,11 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
 
         await mockPost.stop();
 
-        const { plebbit: differentPlebbit } = await createPlebbitWithMockResolver({
-            remotePlebbit: true,
+        const { plebbit: differentPKC } = await createPKCWithMockResolver({
+            remotePKC: true,
             stubStorage: false
         });
-        const updatingPost = await differentPlebbit.createComment({ cid: mockPost.cid });
+        const updatingPost = await differentPKC.createComment({ cid: mockPost.cid });
 
         const expectedStates = ["resolving-community-name", "stopped"];
 
@@ -93,13 +93,13 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
 
         expect(actualStates.slice(0, expectedStates.length)).to.deep.equal(expectedStates);
 
-        await differentPlebbit.destroy();
+        await differentPKC.destroy();
     });
 
     it(`Correct order of nameResolvers state when updating a comment whose author address is a domain - uncached`, async () => {
         // Create a post with a domain as author address, signed with the correct signer
-        const { plebbit } = await createPlebbitWithMockResolver({
-            remotePlebbit: true,
+        const { plebbit } = await createPKCWithMockResolver({
+            remotePKC: true,
             stubStorage: false
         });
         const mockPost = await publishRandomPost({
@@ -112,12 +112,12 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
         });
 
         // Create a new plebbit instance to avoid caching
-        const { plebbit: differentPlebbit } = await createPlebbitWithMockResolver({
-            remotePlebbit: true,
+        const { plebbit: differentPKC } = await createPKCWithMockResolver({
+            remotePKC: true,
             stubStorage: false
         });
 
-        const updatingPost = await differentPlebbit.createComment({ cid: mockPost.cid });
+        const updatingPost = await differentPKC.createComment({ cid: mockPost.cid });
 
         const expectedStates = ["resolving-author-name", "stopped"];
         const actualStates: string[] = [];
@@ -134,7 +134,7 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
 
         expect(actualStates.slice(0, expectedStates.length)).to.deep.equal(expectedStates);
 
-        await differentPlebbit.destroy();
+        await differentPKC.destroy();
     });
 
     it(`Correct order of nameResolvers state when updating a comment whose author address is a domain`, async () => {
@@ -149,12 +149,12 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
         });
 
         // Create a new plebbit instance
-        const { plebbit: differentPlebbit } = await createPlebbitWithMockResolver({
-            remotePlebbit: true,
+        const { plebbit: differentPKC } = await createPKCWithMockResolver({
+            remotePKC: true,
             stubStorage: false
         });
 
-        const updatingPost = await differentPlebbit.createComment({ cid: mockPost.cid });
+        const updatingPost = await differentPKC.createComment({ cid: mockPost.cid });
 
         const expectedStates = ["resolving-author-name", "stopped"];
         const actualStates: string[] = [];
@@ -171,12 +171,12 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
 
         expect(actualStates.slice(0, expectedStates.length)).to.deep.equal(expectedStates);
 
-        await differentPlebbit.destroy();
+        await differentPKC.destroy();
     });
 
     it(`correct order of nameResolvers state when publishing a comment to a sub with a domain address - uncached`, async () => {
-        const { plebbit } = await createPlebbitWithMockResolver({
-            remotePlebbit: true,
+        const { plebbit } = await createPKCWithMockResolver({
+            remotePKC: true,
             stubStorage: false
         }); // need to use different plebbit so it won't use the memory cache of subplebbit for publishing
         const mockPost = await generateMockPost({ communityAddress: "plebbit.bso", plebbit: plebbit });
@@ -195,13 +195,13 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
     });
 
     it(`correct order of nameResolvers state when publishing a comment to a sub with a domain address - cached`, async () => {
-        const { plebbit: localPlebbit } = await createPlebbitWithMockResolver({ stubStorage: false });
+        const { plebbit: localPKC } = await createPKCWithMockResolver({ stubStorage: false });
 
-        // Pre-cache the subplebbit so _updatingSubplebbits has an entry
-        await localPlebbit.getSubplebbit({ address: "plebbit.bso" });
+        // Pre-cache the subplebbit so _updatingCommunitys has an entry
+        await localPKC.getCommunity({ address: "plebbit.bso" });
 
-        const mockPost = await generateMockPost({ communityAddress: "plebbit.bso", plebbit: localPlebbit });
-        const expectedStates: string[] = []; // empty because sub is cached in _updatingSubplebbits
+        const mockPost = await generateMockPost({ communityAddress: "plebbit.bso", plebbit: localPKC });
+        const expectedStates: string[] = []; // empty because sub is cached in _updatingCommunitys
 
         const actualStates: string[] = [];
 
@@ -212,7 +212,7 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
         await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });
 
         expect(actualStates).to.deep.equal(expectedStates);
-        await localPlebbit.destroy();
+        await localPKC.destroy();
     });
 
     it(`nameResolvers state does not show resolving-author-name for reply page authors`, async () => {
@@ -227,12 +227,12 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
         });
         await waitTillReplyInParentPages(reply as CommentWithRequiredFields, plebbit); // make sure until reply is in mockPost.replies
 
-        const { plebbit: differentPlebbit } = await createPlebbitWithMockResolver({
-            remotePlebbit: true,
+        const { plebbit: differentPKC } = await createPKCWithMockResolver({
+            remotePKC: true,
             stubStorage: true,
             plebbitOptions: { validatePages: true }
         });
-        const loadedPost = await differentPlebbit.createComment({ cid: mockPost.cid });
+        const loadedPost = await differentPKC.createComment({ cid: mockPost.cid });
         const actualStates: string[] = [];
 
         const resolverKey = Object.keys(loadedPost.clients.nameResolvers)[0];

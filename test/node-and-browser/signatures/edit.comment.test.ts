@@ -1,22 +1,22 @@
 import { beforeAll, afterAll } from "vitest";
-import { mockRemotePlebbit, describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
+import { mockRemotePKC, describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
 import signers from "../../fixtures/signers.js";
 import { timestamp } from "../../../dist/node/util.js";
 import * as remeda from "remeda";
 import { messages } from "../../../dist/node/errors.js";
 import { verifyCommentEdit, signCommentEdit } from "../../../dist/node/signer/signatures.js";
 import validCommentEditFixture from "../../fixtures/signatures/commentEdit/valid_comment_edit.json" with { type: "json" };
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
-import type { RemoteSubplebbit } from "../../../dist/node/community/remote-community.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 import type { CommentEditOptionsToSign, CommentEditPubsubMessagePublication } from "../../../dist/node/publications/comment-edit/types.js";
 
 describe("Sign commentedit", async () => {
-    let plebbit: PlebbitType;
-    let subplebbit: RemoteSubplebbit;
+    let plebbit: PKCType;
+    let subplebbit: RemoteCommunity;
     let editProps: CommentEditOptionsToSign;
     beforeAll(async () => {
-        plebbit = await mockRemotePlebbit();
-        subplebbit = await plebbit.getSubplebbit({ address: signers[0].address });
+        plebbit = await mockRemotePKC();
+        subplebbit = await plebbit.getCommunity({ address: signers[0].address });
         editProps = {
             author: { displayName: "Editor" },
             communityAddress: subplebbit.address,
@@ -69,9 +69,9 @@ describe("Sign commentedit", async () => {
 
 // Clients of RPC will trust the response of RPC and won't validate
 describeSkipIfRpc("Verify CommentEdit", async () => {
-    let plebbit: PlebbitType;
+    let plebbit: PKCType;
     beforeAll(async () => {
-        plebbit = await mockRemotePlebbit();
+        plebbit = await mockRemotePKC();
         await plebbit.createCommentEdit(validCommentEditFixture as unknown as CommentEditPubsubMessagePublication); // should throw if it has an invalid schema
     });
     it(`Valid CommentEdit signature fixture is validated correctly`, async () => {

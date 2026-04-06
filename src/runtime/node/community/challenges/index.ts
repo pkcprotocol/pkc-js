@@ -5,7 +5,7 @@ import {
     addToRateLimiter
 } from "./exclude/index.js";
 
-// all challenges included with plebbit-js, in Plebbit.challenges
+// all challenges included with plebbit-js, in PKC.challenges
 import textMath from "./pkc-js-challenges/text-math.js";
 import fail from "./pkc-js-challenges/fail.js";
 import blacklist from "./pkc-js-challenges/blacklist.js";
@@ -15,7 +15,7 @@ import publicationMatch from "./pkc-js-challenges/publication-match.js";
 import type {
     ChallengeVerificationMessageType,
     DecryptedChallengeAnswer,
-    DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor
+    DecryptedChallengeRequestMessageTypeWithCommunityAuthor
 } from "../../../../pubsub-messages/types.js";
 import type {
     Challenge,
@@ -23,13 +23,13 @@ import type {
     ChallengeFileFactory,
     ChallengeFileFactoryInput,
     ChallengeResult,
-    SubplebbitChallenge,
-    SubplebbitChallengeSetting
+    CommunityChallenge,
+    CommunityChallengeSetting
 } from "../../../../community/types.js";
-import { LocalSubplebbit } from "../local-community.js";
+import { LocalCommunity } from "../local-community.js";
 import * as remeda from "remeda";
-import { ChallengeFileFactorySchema, ChallengeFileSchema, SubplebbitChallengeSettingSchema } from "../../../../community/schema.js";
-import { PlebbitError } from "../../../../pkc-error.js";
+import { ChallengeFileFactorySchema, ChallengeFileSchema, CommunityChallengeSettingSchema } from "../../../../community/schema.js";
+import { PKCError } from "../../../../pkc-error.js";
 import { pathToFileURL } from "node:url";
 
 type PendingChallenge = Challenge & { index: number };
@@ -44,11 +44,11 @@ type ChallengeVerificationFailure = {
 };
 
 // Use structural typing for the plebbit param to avoid circular import issues
-type PlebbitWithSettingsChallenges = {
+type PKCWithSettingsChallenges = {
     settings?: { challenges?: Record<string, ChallengeFileFactoryInput> };
 };
 
-const resolveChallengeFactoryByName = (name: string, plebbit?: PlebbitWithSettingsChallenges): ChallengeFileFactoryInput | undefined => {
+const resolveChallengeFactoryByName = (name: string, plebbit?: PKCWithSettingsChallenges): ChallengeFileFactoryInput | undefined => {
     // User-defined shadows built-ins
     return plebbit?.settings?.challenges?.[name] ?? plebbitJsChallenges[name];
 };
@@ -62,7 +62,7 @@ const plebbitJsChallenges: Record<string, ChallengeFileFactoryInput> = {
     "publication-match": publicationMatch
 };
 
-const validateChallengeFileFactory = (challengeFileFactory: ChallengeFileFactory, challengeIndex: number, subplebbit: LocalSubplebbit) => {
+const validateChallengeFileFactory = (challengeFileFactory: ChallengeFileFactory, challengeIndex: number, subplebbit: LocalCommunity) => {
     const subplebbitChallengeSettings = subplebbit?.settings?.challenges?.[challengeIndex];
     if (typeof challengeFileFactory !== "function") {
         throw Error(
@@ -71,7 +71,7 @@ const validateChallengeFileFactory = (challengeFileFactory: ChallengeFileFactory
     }
 };
 
-const validateChallengeFile = (challengeFile: ChallengeFile, challengeIndex: number, subplebbit: LocalSubplebbit) => {
+const validateChallengeFile = (challengeFile: ChallengeFile, challengeIndex: number, subplebbit: LocalCommunity) => {
     const subplebbitChallengeSettings = subplebbit.settings?.challenges?.[challengeIndex];
     if (typeof challengeFile?.getChallenge !== "function") {
         throw Error(
@@ -80,7 +80,7 @@ const validateChallengeFile = (challengeFile: ChallengeFile, challengeIndex: num
     }
 };
 
-const validateChallengeResult = (challengeResult: ChallengeResult, challengeIndex: number, subplebbit: LocalSubplebbit) => {
+const validateChallengeResult = (challengeResult: ChallengeResult, challengeIndex: number, subplebbit: LocalCommunity) => {
     const subplebbitChallengeSettings = subplebbit.settings?.challenges?.[challengeIndex];
     const error = `invalid challenge result from subplebbit challenge '${subplebbitChallengeSettings?.name || subplebbitChallengeSettings?.path}' (challenge #${challengeIndex + 1})`;
     if (typeof challengeResult?.success !== "boolean") {
@@ -91,7 +91,7 @@ const validateChallengeResult = (challengeResult: ChallengeResult, challengeInde
 const validateChallengeOrChallengeResult = (
     challengeOrChallengeResult: Challenge | ChallengeResult,
     challengeIndex: number,
-    subplebbit: LocalSubplebbit
+    subplebbit: LocalCommunity
 ) => {
     if ("success" in challengeOrChallengeResult) {
         validateChallengeResult(challengeOrChallengeResult, challengeIndex, subplebbit);
@@ -105,8 +105,8 @@ const validateChallengeOrChallengeResult = (
 };
 
 const getPendingChallengesOrChallengeVerification = async (
-    challengeRequestMessage: DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor,
-    subplebbit: LocalSubplebbit
+    challengeRequestMessage: DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
+    subplebbit: LocalCommunity
 ): Promise<ChallengeVerificationSuccess | ChallengeVerificationPending | ChallengeVerificationFailure> => {
     // if sub has no challenges, no need to send a challenge
     if (!Array.isArray(subplebbit.settings?.challenges))
@@ -133,7 +133,7 @@ const getPendingChallengesOrChallengeVerification = async (
             );
             validateChallengeFileFactory(ChallengeFileFactory, challengeIndex, subplebbit);
         } catch (e) {
-            throw new PlebbitError("ERR_FAILED_TO_IMPORT_CHALLENGE_FILE_FACTORY", {
+            throw new PKCError("ERR_FAILED_TO_IMPORT_CHALLENGE_FILE_FACTORY", {
                 path: subplebbitChallengeSettings.path,
                 subplebbitChallengeSettings,
                 error: e,
@@ -155,7 +155,7 @@ const getPendingChallengesOrChallengeVerification = async (
             });
             validateChallengeOrChallengeResult(challengeOrChallengeResult, challengeIndex, subplebbit);
         } catch (e) {
-            throw new PlebbitError("ERR_INVALID_RESULT_FROM_GET_CHALLENGE_FUNCTION", {
+            throw new PKCError("ERR_INVALID_RESULT_FROM_GET_CHALLENGE_FUNCTION", {
                 subplebbitChallengeSettings,
                 challengeName: subplebbitChallengeSettings.name || subplebbitChallengeSettings.path,
                 challengeRequestMessage,
@@ -176,7 +176,7 @@ const getPendingChallengesOrChallengeVerification = async (
         const challengeOrChallengeResult = challengeOrChallengeResults[challengeIndex];
 
         const subplebbitChallengeSettings = subplebbit.settings.challenges[challengeIndex];
-        const subplebbitChallenge = await getSubplebbitChallengeFromSubplebbitChallengeSettings(
+        const subplebbitChallenge = await getCommunityChallengeFromCommunityChallengeSettings(
             subplebbitChallengeSettings,
             subplebbit._plebbit
         );
@@ -237,7 +237,7 @@ const getPendingChallengesOrChallengeVerification = async (
 const getChallengeVerificationFromChallengeAnswers = async (
     pendingChallenges: PendingChallenge[],
     challengeAnswers: DecryptedChallengeAnswer["challengeAnswers"],
-    subplebbit: LocalSubplebbit
+    subplebbit: LocalCommunity
 ): Promise<ChallengeVerificationSuccess | ChallengeVerificationFailure> => {
     const verifyChallengePromises: Promise<ChallengeResult>[] = [];
     for (const i in pendingChallenges) {
@@ -299,8 +299,8 @@ const getChallengeVerificationFromChallengeAnswers = async (
 };
 
 const getChallengeVerification = async (
-    challengeRequestMessage: DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor,
-    subplebbit: LocalSubplebbit,
+    challengeRequestMessage: DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
+    subplebbit: LocalCommunity,
     getChallengeAnswers: GetChallengeAnswers
 ): Promise<Pick<ChallengeVerificationMessageType, "challengeErrors" | "challengeSuccess"> & { pendingApproval?: boolean }> => {
     if (!challengeRequestMessage) {
@@ -358,11 +358,11 @@ const getChallengeVerification = async (
 };
 
 // get the data to be published publicly to subplebbit.challenges
-const getSubplebbitChallengeFromSubplebbitChallengeSettings = async (
-    subplebbitChallengeSettings: SubplebbitChallengeSetting,
-    plebbit?: PlebbitWithSettingsChallenges
-): Promise<SubplebbitChallenge> => {
-    subplebbitChallengeSettings = SubplebbitChallengeSettingSchema.parse(subplebbitChallengeSettings);
+const getCommunityChallengeFromCommunityChallengeSettings = async (
+    subplebbitChallengeSettings: CommunityChallengeSetting,
+    plebbit?: PKCWithSettingsChallenges
+): Promise<CommunityChallenge> => {
+    subplebbitChallengeSettings = CommunityChallengeSettingSchema.parse(subplebbitChallengeSettings);
 
     // if the challenge is an external file, fetch it and override the subplebbitChallengeSettings values
     let challengeFile: ChallengeFile | undefined = undefined;
@@ -372,14 +372,14 @@ const getSubplebbitChallengeFromSubplebbitChallengeSettings = async (
             const ChallengeFileFactory = ChallengeFileFactorySchema.parse(importedFile.default);
             challengeFile = ChallengeFileSchema.parse(ChallengeFileFactory({ challengeSettings: subplebbitChallengeSettings }));
         } catch (e) {
-            (e as PlebbitError).details = {
-                ...(e as PlebbitError).details,
+            (e as PKCError).details = {
+                ...(e as PKCError).details,
                 path: subplebbitChallengeSettings.path,
                 subplebbitChallengeSettings,
                 error: e
             };
             if (e instanceof Error)
-                e.message = `getSubplebbitChallengeFromSubplebbitChallengeSettings failed importing challenge with path '${subplebbitChallengeSettings.path}': ${e.message}`;
+                e.message = `getCommunityChallengeFromCommunityChallengeSettings failed importing challenge with path '${subplebbitChallengeSettings.path}': ${e.message}`;
             throw e;
         }
     }
@@ -407,5 +407,5 @@ export {
     getPendingChallengesOrChallengeVerification,
     getChallengeVerificationFromChallengeAnswers,
     getChallengeVerification,
-    getSubplebbitChallengeFromSubplebbitChallengeSettings
+    getCommunityChallengeFromCommunityChallengeSettings
 };

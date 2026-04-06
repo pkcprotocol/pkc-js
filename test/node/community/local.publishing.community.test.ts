@@ -1,6 +1,6 @@
 import { beforeAll, afterAll } from "vitest";
 import {
-    mockPlebbit,
+    mockPKC,
     generatePostToAnswerMathQuestion,
     resolveWhenConditionIsTrue,
     describeSkipIfRpc,
@@ -8,9 +8,9 @@ import {
     publishRandomPost
 } from "../../../dist/node/test/test-util.js";
 
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../dist/node/community/rpc-local-community.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 import type { SignerType } from "../../../dist/node/signer/types.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { PubsubClient } from "../../../dist/node/types.js";
@@ -26,15 +26,15 @@ interface ReceivedPubsubMessage {
 }
 
 describeSkipIfRpc("Local publishing to subplebbit", async () => {
-    let plebbit: PlebbitType;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    let plebbit: PKCType;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
     let commentSigner: SignerType;
     const receivedPubsubMessages: ReceivedPubsubMessage[] = [];
     let pubsubTopic: string;
 
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
-        subplebbit = (await plebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
+        plebbit = await mockPKC();
+        subplebbit = (await plebbit.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         const challenges = [{ name: "question", options: { question: "1+1=?", answer: "2" } }];
         await subplebbit.edit({ settings: { challenges } });
 
@@ -95,11 +95,11 @@ describeSkipIfRpc("Local publishing to subplebbit", async () => {
         expect((challengeVerification as { challengeSuccess: boolean }).challengeSuccess).to.be.true;
 
         // Verify that the subplebbit is indeed local (running on the same plebbit instance)
-        expect(plebbit._startedSubplebbits[subplebbit.address]).to.equal(subplebbit);
+        expect(plebbit._startedCommunitys[subplebbit.address]).to.equal(subplebbit);
 
-        // Verify that the publication was handled locally by checking the _publishingToLocalSubplebbit flag
+        // Verify that the publication was handled locally by checking the _publishingToLocalCommunity flag
         // This flag should be set during local publishing to prevent pubsub updates
-        expect(comment._publishingToLocalSubplebbit).to.equal(subplebbit);
+        expect(comment._publishingToLocalCommunity).to.equal(subplebbit);
 
         // Verify that no pubsub messages were received during local publishing
         // If we receive any messages, it means pubsub was used when it shouldn't be for local publishing
@@ -107,7 +107,7 @@ describeSkipIfRpc("Local publishing to subplebbit", async () => {
     });
 
     it("Should be able to publish comment without needing to await for updatedAt to be defined", async () => {
-        const subplebbit = (await createSubWithNoChallenge({}, plebbit)) as LocalSubplebbit | RpcLocalSubplebbit;
+        const subplebbit = (await createSubWithNoChallenge({}, plebbit)) as LocalCommunity | RpcLocalCommunity;
         await subplebbit.start();
         expect(subplebbit.updatedAt).to.be.undefined;
 

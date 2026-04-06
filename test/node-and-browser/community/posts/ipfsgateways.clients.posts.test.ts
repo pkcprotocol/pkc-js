@@ -1,24 +1,24 @@
 import { beforeAll, afterAll } from "vitest";
-import { getAvailablePlebbitConfigsToTestAgainst, addStringToIpfs } from "../../../../dist/node/test/test-util.js";
+import { getAvailablePKCConfigsToTestAgainst, addStringToIpfs } from "../../../../dist/node/test/test-util.js";
 
 import signers from "../../../fixtures/signers.js";
-import type { Plebbit as PlebbitType } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 
 const subplebbitAddress = signers[0].address;
 
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
     describe(`subplebbit.posts.clients.ipfsGateways - ${config.name}`, async () => {
-        let gatewayPlebbit: PlebbitType;
+        let gatewayPKC: PKCType;
         beforeAll(async () => {
-            gatewayPlebbit = await config.plebbitInstancePromise();
+            gatewayPKC = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await gatewayPlebbit.destroy();
+            await gatewayPKC.destroy();
         });
 
         it(`subplebbit.posts.clients.ipfsGateways[sortType][url] is stopped by default`, async () => {
-            const mockSub = await gatewayPlebbit.getSubplebbit({ address: subplebbitAddress });
+            const mockSub = await gatewayPKC.getCommunity({ address: subplebbitAddress });
             const gatewayUrl = Object.keys(mockSub.clients.ipfsGateways)[0];
             // add tests here
             expect(Object.keys(mockSub.posts.clients.ipfsGateways["new"]).length).to.equal(1);
@@ -26,7 +26,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
         });
 
         it(`Correct state of 'new' sort is updated after fetching from subplebbit.posts.pageCids.new`, async () => {
-            const mockSub = await gatewayPlebbit.getSubplebbit({ address: subplebbitAddress });
+            const mockSub = await gatewayPKC.getCommunity({ address: subplebbitAddress });
             const firstPageMocked = {
                 comments: mockSub.posts.pages.hot.comments.slice(0, 10).map((comment) => comment.raw)
             };

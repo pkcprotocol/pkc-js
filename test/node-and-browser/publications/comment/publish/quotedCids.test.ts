@@ -6,24 +6,24 @@ import {
     publishRandomPost,
     setExtraPropOnCommentAndSign,
     publishRandomReply,
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     resolveWhenConditionIsTrue
 } from "../../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../../dist/node/errors.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
-import type { Plebbit } from "../../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
 
 const subplebbitAddress = signers[0].address;
-const modSubplebbitAddress = signers[7].address; // this sub has mod roles configured
+const modCommunityAddress = signers[7].address; // this sub has mod roles configured
 
 // A valid CID format that won't exist in the database
 const nonExistentCid = "QmYjtig7VJQ6XsnUjqqJvj7QaMcCAwtrgNdahSiFofrE7o";
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`quotedCids validation - ${config.name}`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         let post: Comment;
         let reply1: Comment;
         let post2: Comment; // a different post for cross-thread testing
@@ -270,10 +270,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     });
 });
 
-// Separate test suite for removed/deleted comment quoting (uses modSubplebbitAddress which has roles)
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+// Separate test suite for removed/deleted comment quoting (uses modCommunityAddress which has roles)
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`quotedCids with removed/deleted comments - ${config.name}`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         let post: Comment;
         let replyToRemove: Comment;
         let replyToDelete: Comment;
@@ -281,14 +281,14 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             // Create a post
-            post = await publishRandomPost({ communityAddress: modSubplebbitAddress, plebbit: plebbit });
+            post = await publishRandomPost({ communityAddress: modCommunityAddress, plebbit: plebbit });
             // Create replies that will be removed/deleted
             replyToRemove = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
             replyToDelete = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
 
             // Remove the first reply (mod action)
             const removeModeration = await plebbit.createCommentModeration({
-                communityAddress: modSubplebbitAddress,
+                communityAddress: modCommunityAddress,
                 commentCid: replyToRemove.cid,
                 commentModeration: { removed: true, reason: "For quotedCids test" },
                 signer: signers[3] // mod signer
@@ -297,7 +297,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             // Delete the second reply (author action)
             const deleteEdit = await plebbit.createCommentEdit({
-                communityAddress: modSubplebbitAddress,
+                communityAddress: modCommunityAddress,
                 commentCid: replyToDelete.cid,
                 deleted: true,
                 signer: replyToDelete.signer,

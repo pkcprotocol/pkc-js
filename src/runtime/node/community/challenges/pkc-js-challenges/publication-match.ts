@@ -3,7 +3,7 @@ import type {
     ChallengeInput,
     ChallengeResultInput,
     GetChallengeArgsInput,
-    SubplebbitChallengeSetting
+    CommunityChallengeSetting
 } from "../../../../../community/types.js";
 import { derivePublicationFromChallengeRequest } from "../../../../../util.js";
 import * as remeda from "remeda";
@@ -158,7 +158,7 @@ const getChallenge = async ({ challengeSettings, challengeRequestMessage }: GetC
         };
 };
 
-function ChallengeFileFactory({ challengeSettings }: { challengeSettings: SubplebbitChallengeSetting }): ChallengeFileInput {
+function ChallengeFileFactory({ challengeSettings }: { challengeSettings: CommunityChallengeSetting }): ChallengeFileInput {
     const description = challengeSettings?.options?.description || defaultDescription;
     return { getChallenge, optionInputs, type, description };
 }

@@ -1,4 +1,4 @@
-import { describeSkipIfRpc, mockPlebbitV2 } from "../../dist/node/test/test-util.js";
+import { describeSkipIfRpc, mockPKCV2 } from "../../dist/node/test/test-util.js";
 
 function createAbortError(message: string) {
     const error = new Error(message);
@@ -14,8 +14,8 @@ describeSkipIfRpc(`nameResolver abortSignal support`, async () => {
             resolverCalled = resolve;
         });
 
-        const plebbit = await mockPlebbitV2({
-            remotePlebbit: true,
+        const plebbit = await mockPKCV2({
+            remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [

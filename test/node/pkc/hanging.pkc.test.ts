@@ -1,4 +1,4 @@
-import { getAvailablePlebbitConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
+import { getAvailablePKCConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
 import { resolveHangingScenarioModule } from "../../../dist/node/test/node/hanging-test/scenarios/hanging-test-util.js";
 import { describe, it, beforeAll } from "vitest";
 import type { HangingScenarioDefinition } from "../../../dist/node/test/node/hanging-test/scenarios/hanging-test-util.js";
@@ -28,7 +28,7 @@ const DESTROY_TIMEOUT_MS = (() => {
 const SCENARIO_MANIFEST_FILENAME = "scenario-manifest.json";
 const SCENARIO_DIST_DIR_URL = new URL("../../../dist/node/test/node/hanging-test/scenarios/", import.meta.url);
 const SCENARIO_MANIFEST_URL = new URL(SCENARIO_MANIFEST_FILENAME, SCENARIO_DIST_DIR_URL);
-const configs = getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true });
+const configs = getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true });
 const scenarioDefinitions = await loadScenarioDefinitions();
 
 if (!scenarioDefinitions.length) {

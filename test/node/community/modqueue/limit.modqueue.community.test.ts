@@ -1,29 +1,29 @@
 import { beforeAll, afterAll, describe, it } from "vitest";
 import {
-    mockPlebbit,
+    mockPKC,
     resolveWhenConditionIsTrue,
     publishToModQueueWithDepth,
     itSkipIfRpc,
-    mockPlebbitNoDataPathWithOnlyKuboClient,
+    mockPKCNoDataPathWithOnlyKuboClient,
     createPendingApprovalChallenge
 } from "../../../../dist/node/test/test-util.js";
-import type { Plebbit as PlebbitType } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
-import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../../dist/node/community/rpc-local-community.js";
+import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
 
 const pendingApprovalChallengeCommentProps = {
     challengeRequest: { challengeAnswers: ["pending"] }
 };
 
 describe(`Modqueue limits`, () => {
-    let plebbit: PlebbitType;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    let plebbit: PKCType;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
     const pendingComments: Comment[] = [];
 
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
-        subplebbit = (await plebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
+        plebbit = await mockPKC();
+        subplebbit = (await plebbit.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => Boolean(subplebbit.updatedAt) });
     });
@@ -55,19 +55,19 @@ describe(`Modqueue limits`, () => {
         expect(subplebbit.settings!.maxPendingApprovalCount).to.equal(limit);
 
         const totalToPublish = limit + 2;
-        const remotePlebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
+        const remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
 
         for (let index = 0; index < totalToPublish; index++) {
             const { comment, challengeVerification } = await publishToModQueueWithDepth({
                 subplebbit,
                 depth: 0,
-                plebbit: remotePlebbit,
+                plebbit: remotePKC,
                 commentProps: pendingApprovalChallengeCommentProps
             });
             expect(comment.pendingApproval).to.be.true;
             pendingComments.push(comment);
         }
-        await remotePlebbit.destroy();
+        await remotePKC.destroy();
 
         // none of the comments got rejected, instead 2 of them got removed from pending queue
     });
@@ -78,11 +78,11 @@ describe(`Modqueue limits`, () => {
             toUpdate: subplebbit,
             predicate: async () =>
                 // @ts-expect-error - accessing private _dbHandler
-                (subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryCommentsPendingApproval().length === limit
+                (subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryCommentsPendingApproval().length === limit
         });
 
         // @ts-expect-error - accessing private _dbHandler
-        const pendingRows = (subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryCommentsPendingApproval();
+        const pendingRows = (subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryCommentsPendingApproval();
         expect(pendingRows).to.have.length(limit);
 
         const expectedPendingCids = pendingComments
@@ -94,7 +94,7 @@ describe(`Modqueue limits`, () => {
         for (let i = 0; i < limit; i++) {
             const cidOfCommentThatGotRemovedFromPending = pendingComments[i].cid;
             // @ts-expect-error - accessing private _dbHandler
-            expect((subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(cidOfCommentThatGotRemovedFromPending)).to.be
+            expect((subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(cidOfCommentThatGotRemovedFromPending)).to.be
                 .undefined;
         }
     });

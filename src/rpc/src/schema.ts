@@ -1,10 +1,10 @@
 import { z } from "zod";
 
-import { NameResolverSerializedSchema, PlebbitParsedOptionsSchema, PlebbitUserOptionBaseSchema } from "../../schema.js";
+import { NameResolverSerializedSchema, PKCParsedOptionsSchema, PKCUserOptionBaseSchema } from "../../schema.js";
 import type { Server as HTTPServer } from "http";
 import type { Server as HTTPSServer } from "https";
 import { ChallengeFileSchema } from "../../community/schema.js";
-import type { InputPlebbitOptions } from "../../types.js";
+import type { InputPKCOptions } from "../../types.js";
 
 // Setting up WS
 
@@ -13,25 +13,25 @@ const WsServerClassOptions = z.object({
     server: z.custom<HTTPServer | HTTPSServer>().optional()
 });
 
-export const CreatePlebbitWsServerOptionsSchema = z
+export const CreatePKCWsServerOptionsSchema = z
     .object({
-        plebbitOptions: z.custom<InputPlebbitOptions>().optional(), // no need to validate here, will be validated with await Plebbit()
+        plebbitOptions: z.custom<InputPKCOptions>().optional(), // no need to validate here, will be validated with await PKC()
         authKey: z.string().optional(),
-        startStartedSubplebbitsOnStartup: z.boolean().optional()
+        startStartedCommunitysOnStartup: z.boolean().optional()
     })
     .merge(WsServerClassOptions)
     .loose();
 
 // rpc WS
 
-export const SetNewSettingsPlebbitWsServerSchema = z.object({
-    plebbitOptions: PlebbitUserOptionBaseSchema.extend({
+export const SetNewSettingsPKCWsServerSchema = z.object({
+    plebbitOptions: PKCUserOptionBaseSchema.extend({
         nameResolvers: NameResolverSerializedSchema.array().optional()
     }).loose()
 });
 
-export const PlebbitWsServerSettingsSerializedSchema = z.object({
-    plebbitOptions: PlebbitParsedOptionsSchema.loose(),
+export const PKCWsServerSettingsSerializedSchema = z.object({
+    plebbitOptions: PKCParsedOptionsSchema.loose(),
     challenges: z.record(
         z.string(),
         ChallengeFileSchema.omit({ getChallenge: true }) // to avoid throwing because of recursive dependency

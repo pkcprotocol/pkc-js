@@ -1,10 +1,10 @@
 import signers from "../../fixtures/signers.js";
 
-import { createMockNameResolver, processAllCommentsRecursively, mockPlebbitV2, createNewIpns } from "../../../dist/node/test/test-util.js";
+import { createMockNameResolver, processAllCommentsRecursively, mockPKCV2, createNewIpns } from "../../../dist/node/test/test-util.js";
 import { signCommunity } from "../../../dist/node/signer/signatures.js";
 import { it } from "vitest";
 import { describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
-import type { InputPlebbitOptions } from "../../../dist/node/types.js";
+import type { InputPKCOptions } from "../../../dist/node/types.js";
 
 const subplebbitAddress = signers[9].address;
 
@@ -37,11 +37,11 @@ function createTrackingResolver() {
     return { resolver, resolvedDomains };
 }
 
-function createRemotePlebbitWithTrackingResolver({ stubStorage = true }: { stubStorage?: boolean } = {}) {
+function createRemotePKCWithTrackingResolver({ stubStorage = true }: { stubStorage?: boolean } = {}) {
     const { resolver, resolvedDomains } = createTrackingResolver();
-    const plebbitPromise = mockPlebbitV2({
+    const plebbitPromise = mockPKCV2({
         stubStorage,
-        remotePlebbit: true,
+        remotePKC: true,
         mockResolve: false,
         plebbitOptions: {
             validatePages: false,
@@ -51,7 +51,7 @@ function createRemotePlebbitWithTrackingResolver({ stubStorage = true }: { stubS
     return { plebbitPromise, resolvedDomains };
 }
 
-async function createRemotePlebbitWithMockResolver({
+async function createRemotePKCWithMockResolver({
     records = new Map<string, string | undefined>(),
     stubStorage = true,
     validatePages = false,
@@ -60,11 +60,11 @@ async function createRemotePlebbitWithMockResolver({
     records?: Map<string, string | undefined>;
     stubStorage?: boolean;
     validatePages?: boolean;
-    nameResolvers?: InputPlebbitOptions["nameResolvers"];
+    nameResolvers?: InputPKCOptions["nameResolvers"];
 } = {}) {
-    const plebbit = await mockPlebbitV2({
+    const plebbit = await mockPKCV2({
         stubStorage,
-        remotePlebbit: true,
+        remotePKC: true,
         mockResolve: false,
         plebbitOptions: {
             validatePages,
@@ -123,20 +123,20 @@ function buildPageComment({
     };
 }
 
-// Create a static SubplebbitIpfs record published to IPNS with inline pages
+// Create a static CommunityIpfs record published to IPNS with inline pages
 // containing a known set of domain-author and non-domain comments.
-async function createSubplebbitFixtureWithDomainAuthors() {
+async function createCommunityFixtureWithDomainAuthors() {
     const ipnsObj = await createNewIpns();
     const communityAddress = ipnsObj.signer.address;
 
-    // Fetch a real SubplebbitIpfs to use as template
-    const templatePlebbit = await mockPlebbitV2({ stubStorage: true, remotePlebbit: true });
-    const templateSub = await templatePlebbit.createSubplebbit({ address: signers[1].address });
+    // Fetch a real CommunityIpfs to use as template
+    const templatePKC = await mockPKCV2({ stubStorage: true, remotePKC: true });
+    const templateSub = await templatePKC.createCommunity({ address: signers[1].address });
     await templateSub.update();
     await new Promise((resolve) => templateSub.once("update", resolve));
     const templateRecord = templateSub.raw.subplebbitIpfs!;
     await templateSub.stop();
-    await templatePlebbit.destroy();
+    await templatePKC.destroy();
 
     // Use CIDs from existing fixtures - these are valid CID v0 strings
     const fakeCids = [
@@ -184,8 +184,8 @@ async function createSubplebbitFixtureWithDomainAuthors() {
 // RPC clients don't have nameResolvers clients — name resolution happens server-side, so resolver state is not exposed to the client
 describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
     it(`subplebbit.clients.nameResolvers[resolverKey].state is stopped by default`, async () => {
-        const { plebbit } = await createRemotePlebbitWithMockResolver();
-        const mockSub = await plebbit.getSubplebbit({ address: subplebbitAddress });
+        const { plebbit } = await createRemotePKCWithMockResolver();
+        const mockSub = await plebbit.getCommunity({ address: subplebbitAddress });
         expect(Object.keys(mockSub.clients.nameResolvers).length).to.be.greaterThanOrEqual(1);
         for (const resolverKey of Object.keys(mockSub.clients.nameResolvers))
             expect(mockSub.clients.nameResolvers[resolverKey].state).to.equal("stopped");
@@ -199,11 +199,11 @@ describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
         // - Until the RPC protocol is extended to relay nameResolver state changes, these tests only exercise the non-RPC path
 
         // Create a static subplebbit with a known set of 3 domain-author + 1 non-domain comments
-        const { communityAddress } = await createSubplebbitFixtureWithDomainAuthors();
+        const { communityAddress } = await createCommunityFixtureWithDomainAuthors();
 
-        const { plebbitPromise, resolvedDomains } = createRemotePlebbitWithTrackingResolver({ stubStorage: true });
+        const { plebbitPromise, resolvedDomains } = createRemotePKCWithTrackingResolver({ stubStorage: true });
         const plebbit = await plebbitPromise;
-        const sub = await plebbit.createSubplebbit({ address: communityAddress });
+        const sub = await plebbit.createCommunity({ address: communityAddress });
 
         const recordedStates: string[] = [];
         const resolverKey = Object.keys(sub.clients.nameResolvers)[0];
@@ -249,11 +249,11 @@ describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
         await plebbit.destroy();
     });
 
-    it(`Correct order of nameResolvers state when updating a subplebbit that was created with plebbit.createSubplebbit({address}) - uncached`, async () => {
-        const { plebbit: remotePlebbit } = await createRemotePlebbitWithMockResolver({
+    it(`Correct order of nameResolvers state when updating a subplebbit that was created with plebbit.createCommunity({address}) - uncached`, async () => {
+        const { plebbit: remotePKC } = await createRemotePKCWithMockResolver({
             stubStorage: true
         });
-        const sub = await remotePlebbit.createSubplebbit({ address: "plebbit.bso" });
+        const sub = await remotePKC.createCommunity({ address: "plebbit.bso" });
 
         const expectedStates = ["resolving-community-name", "stopped"];
 
@@ -270,6 +270,6 @@ describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
         await sub.stop();
 
         expect(recordedStates.slice(0, 2)).to.deep.equal(expectedStates);
-        await remotePlebbit.destroy();
+        await remotePKC.destroy();
     });
 });

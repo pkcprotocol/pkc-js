@@ -3,7 +3,7 @@ import type {
     ChallengeInput,
     ChallengeResultInput,
     GetChallengeArgsInput,
-    SubplebbitChallengeSetting
+    CommunityChallengeSetting
 } from "../../../../../community/types.js";
 
 const optionInputs = <NonNullable<ChallengeFileInput["optionInputs"]>>[
@@ -74,7 +74,7 @@ const getChallenge = async ({
     };
 };
 
-function ChallengeFileFactory({ challengeSettings }: { challengeSettings: SubplebbitChallengeSetting }): ChallengeFileInput {
+function ChallengeFileFactory({ challengeSettings }: { challengeSettings: CommunityChallengeSetting }): ChallengeFileInput {
     // some challenges can prepublish the challenge so that it can be preanswered
     // in the challengeRequestMessage
     const question = challengeSettings?.options?.question;

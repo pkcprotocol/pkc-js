@@ -14,7 +14,7 @@ export default defineHangingScenario({
         const subplebbitAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
         const { plebbit, config } = await createScenarioContext(configCode);
 
-        const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+        const subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
 
         const post = await plebbit.createComment({ cid: subplebbit.lastPostCid! });
         await post.update();

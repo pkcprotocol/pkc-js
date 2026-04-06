@@ -67,7 +67,7 @@ export function buildRuntimeCommunityFields({ publication }: { publication?: Loo
  * Extract communityPublicKey and communityName from a loaded community instance.
  * Called during publish() to fill wire fields before signing.
  */
-export function normalizeCommunityInputFromSubplebbit({ communityInstance }: { communityInstance: { publicKey: string; name?: string } }): {
+export function normalizeCommunityInputFromCommunity({ communityInstance }: { communityInstance: { publicKey: string; name?: string } }): {
     communityPublicKey: string;
     communityName?: string;
 } {

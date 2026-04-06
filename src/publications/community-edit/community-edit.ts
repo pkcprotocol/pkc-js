@@ -1,26 +1,26 @@
 import Publication from "../publication.js";
 import type { PublicationTypeName } from "../../types.js";
-import { Plebbit } from "../../pkc/pkc.js";
+import { PKC } from "../../pkc/pkc.js";
 import { hideClassPrivateProps } from "../../util.js";
-import { PlebbitError } from "../../pkc-error.js";
+import { PKCError } from "../../pkc-error.js";
 import type {
-    CreateSubplebbitEditPublicationOptions,
-    SubplebbitEditPublicationOptionsToSign,
-    SubplebbitEditPubsubMessagePublication
+    CreateCommunityEditPublicationOptions,
+    CommunityEditPublicationOptionsToSign,
+    CommunityEditPubsubMessagePublication
 } from "./types.js";
 import type { SignerType } from "../../signer/types.js";
 import { signCommunityEdit, verifyCommunityEdit } from "../../signer/signatures.js";
 import type { CreatePublicationOptions } from "../../types.js";
 
 // subplebbitEdit.signer is inherited from Publication
-class SubplebbitEdit extends Publication implements SubplebbitEditPubsubMessagePublication {
-    subplebbitEdit!: SubplebbitEditPubsubMessagePublication["subplebbitEdit"];
-    override signature!: SubplebbitEditPubsubMessagePublication["signature"];
+class CommunityEdit extends Publication implements CommunityEditPubsubMessagePublication {
+    subplebbitEdit!: CommunityEditPubsubMessagePublication["subplebbitEdit"];
+    override signature!: CommunityEditPubsubMessagePublication["signature"];
 
-    override raw: { pubsubMessageToPublish?: SubplebbitEditPubsubMessagePublication } = {};
-    override challengeRequest?: CreateSubplebbitEditPublicationOptions["challengeRequest"];
+    override raw: { pubsubMessageToPublish?: CommunityEditPubsubMessagePublication } = {};
+    override challengeRequest?: CreateCommunityEditPublicationOptions["challengeRequest"];
 
-    constructor(plebbit: Plebbit) {
+    constructor(plebbit: PKC) {
         super(plebbit);
 
         // public method should be bound
@@ -39,14 +39,14 @@ class SubplebbitEdit extends Publication implements SubplebbitEditPubsubMessageP
         }
     >(opts: { unsignedOptions: T; challengeRequest?: CreatePublicationOptions["challengeRequest"] }) {
         super._initUnsignedLocalProps(opts);
-        const o = opts.unsignedOptions as unknown as SubplebbitEditPublicationOptionsToSign;
+        const o = opts.unsignedOptions as unknown as CommunityEditPublicationOptionsToSign;
         this.subplebbitEdit = o.subplebbitEdit;
     }
 
     _initLocalProps(props: {
-        subplebbitEdit: SubplebbitEditPubsubMessagePublication;
+        subplebbitEdit: CommunityEditPubsubMessagePublication;
         signer?: SignerType;
-        challengeRequest?: CreateSubplebbitEditPublicationOptions["challengeRequest"];
+        challengeRequest?: CreateCommunityEditPublicationOptions["challengeRequest"];
     }): void {
         this._initRemoteProps(props.subplebbitEdit);
         this.challengeRequest = props.challengeRequest;
@@ -55,14 +55,14 @@ class SubplebbitEdit extends Publication implements SubplebbitEditPubsubMessageP
 
     protected override async _signPublicationOptionsToPublish(
         cleanedPublication: unknown
-    ): Promise<SubplebbitEditPubsubMessagePublication["signature"]> {
+    ): Promise<CommunityEditPubsubMessagePublication["signature"]> {
         return signCommunityEdit({
-            subplebbitEdit: cleanedPublication as SubplebbitEditPublicationOptionsToSign,
+            subplebbitEdit: cleanedPublication as CommunityEditPublicationOptionsToSign,
             plebbit: this._plebbit
         });
     }
 
-    _initRemoteProps(props: SubplebbitEditPubsubMessagePublication): void {
+    _initRemoteProps(props: CommunityEditPubsubMessagePublication): void {
         super._initBaseRemoteProps(props);
         this.subplebbitEdit = props.subplebbitEdit;
         this.raw.pubsubMessageToPublish = props;
@@ -79,8 +79,8 @@ class SubplebbitEdit extends Publication implements SubplebbitEditPubsubMessageP
             resolveAuthorNames: this._plebbit.resolveAuthorNames,
             clientsManager: this._clientsManager
         });
-        if (!signatureValidity.valid) throw new PlebbitError("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
+        if (!signatureValidity.valid) throw new PKCError("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
     }
 }
 
-export default SubplebbitEdit;
+export default CommunityEdit;

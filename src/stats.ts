@@ -1,10 +1,10 @@
-import { Plebbit } from "./pkc/pkc.js";
+import { PKC } from "./pkc/pkc.js";
 import assert from "assert";
 import * as remeda from "remeda";
 
 type StatTypes = "ipns" | "ipfs" | "pubsub-publish" | "pubsub-subscribe" | "pubsub-unsubscribe";
 export default class Stats {
-    private _plebbit: Pick<Plebbit, "_storage" | "clients">;
+    private _plebbit: Pick<PKC, "_storage" | "clients">;
     constructor(plebbit: Stats["_plebbit"]) {
         this._plebbit = plebbit;
     }

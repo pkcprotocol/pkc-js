@@ -1,4 +1,4 @@
-import { describeSkipIfRpc, mockPlebbit } from "../../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc, mockPKC } from "../../../../dist/node/test/test-util.js";
 import { it, vi } from "vitest";
 import { of as calculateIpfsCidV0Lib } from "typestub-ipfs-only-hash";
 import { randomUUID } from "node:crypto";
@@ -8,17 +8,17 @@ import { calculateExpectedSignatureSize } from "../../../../dist/node/runtime/no
 import { calculateStringSizeSameAsIpfsAddCidV0, timestamp } from "../../../../dist/node/util.js";
 import env from "../../../../dist/node/version.js";
 import { sha256 } from "js-sha256";
-import { PlebbitError } from "../../../../dist/node/pkc-error.js";
+import { PKCError } from "../../../../dist/node/pkc-error.js";
 
-import type { Plebbit as PlebbitType } from "../../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/community/local-community.js";
+import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 import type { CommentsTableRow, CommentsTableRowInsert, CommentUpdateType } from "../../../../dist/node/publications/comment/types.js";
 import type { RepliesPagesTypeIpfs } from "../../../../dist/node/pages/types.js";
 import type { MockInstance } from "vitest";
 
-interface SubplebbitContext {
-    plebbit: PlebbitType;
-    subplebbit: LocalSubplebbit;
+interface CommunityContext {
+    plebbit: PKCType;
+    subplebbit: LocalCommunity;
     cleanup: () => Promise<void>;
 }
 
@@ -78,7 +78,7 @@ const DEFAULT_PRIMARY_CHAIN_DEPTH = 20;
 // TODO need to make this test faster
 
 // Helper to access private _pageGenerator property
-function getPageGenerator(subplebbit: LocalSubplebbit) {
+function getPageGenerator(subplebbit: LocalCommunity) {
     // @ts-expect-error - accessing private property for testing
     return subplebbit._pageGenerator as import("../../../../dist/node/runtime/node/community/page-generator.js").PageGenerator;
 }
@@ -87,7 +87,7 @@ function getPageGenerator(subplebbit: LocalSubplebbit) {
 // 38s without concurrency
 describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages", function () {
     it("returns undefined when attempting to generate mod queue pages with no pending approvals", async () => {
-        const context = await createSubplebbitWithDefaultDb();
+        const context = await createCommunityWithDefaultDb();
         try {
             const pageGenerator = getPageGenerator(context.subplebbit);
             const generatedModQueue = await pageGenerator.generateModQueuePages();
@@ -98,7 +98,7 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
     });
 
     it("splits mod queue pending approvals into multiple CIDs when the serialized payload would exceed 1mib", async () => {
-        const context = await createSubplebbitWithDefaultDb();
+        const context = await createCommunityWithDefaultDb();
         const HEAVY_PENDING_COUNT = 120;
         let addQueuedChunkSpy: MockInstance | undefined;
         try {
@@ -156,7 +156,7 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
     });
 
     it("keeps subplebbit.posts as a single preloaded page while deeper replies move best sort into pageCids", async () => {
-        const context = await createSubplebbitWithDefaultDb();
+        const context = await createCommunityWithDefaultDb();
         try {
             const { labelToCid, labels, rows } = await seedHeavyDiscussion(context.subplebbit, {
                 primaryChainDepth: 110
@@ -184,11 +184,11 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
             expect(movedDepths).to.deep.equal([85, 60, 35, 10]);
 
             const preloadedSortName = "hot";
-            const availablePostsSize = await calculateAvailablePostsSizeForSubplebbit(context.subplebbit);
+            const availablePostsSize = await calculateAvailablePostsSizeForCommunity(context.subplebbit);
             const pageGenerator = getPageGenerator(context.subplebbit);
-            const generatedPosts = await pageGenerator.generateSubplebbitPosts(preloadedSortName, availablePostsSize);
+            const generatedPosts = await pageGenerator.generateCommunityPosts(preloadedSortName, availablePostsSize);
 
-            expect(generatedPosts, "expected generateSubplebbitPosts to return posts data").to.exist;
+            expect(generatedPosts, "expected generateCommunityPosts to return posts data").to.exist;
             expect(generatedPosts).to.have.property("singlePreloadedPage"); // deeper comments should've gotten folded
 
             const postsPages = generatedPosts as {
@@ -208,12 +208,12 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
     });
 
     it("returns undefined when attempting to paginate an empty subplebbit", async () => {
-        const context = await createSubplebbitWithDefaultDb();
+        const context = await createCommunityWithDefaultDb();
         try {
-            const availablePostsSize = await calculateAvailablePostsSizeForSubplebbit(context.subplebbit);
+            const availablePostsSize = await calculateAvailablePostsSizeForCommunity(context.subplebbit);
             expect(availablePostsSize, "expected available posts budget to remain positive").to.be.greaterThan(0);
             const pageGenerator = getPageGenerator(context.subplebbit);
-            const generatedPosts = await pageGenerator.generateSubplebbitPosts("hot", availablePostsSize);
+            const generatedPosts = await pageGenerator.generateCommunityPosts("hot", availablePostsSize);
             expect(generatedPosts, "expected no pagination output when there are no posts").to.be.undefined;
         } finally {
             await context.cleanup();
@@ -221,7 +221,7 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
     });
 
     it("keeps subplebbit.posts hot preloaded under tight budget (tighter inline replies, no collapse)", async () => {
-        const context = await createSubplebbitWithDefaultDb();
+        const context = await createCommunityWithDefaultDb();
         try {
             context.subplebbit.description = "x".repeat(600 * 1024); // large metadata shrinks available posts budget
             const oversizedPostsConfig: SeedHeavyDiscussionOverrides = {
@@ -249,7 +249,7 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
             expect(movedDepths).to.deep.equal([35, 10]);
 
             const preloadedSortName = "hot";
-            const availablePostsSize = await calculateAvailablePostsSizeForSubplebbit(context.subplebbit);
+            const availablePostsSize = await calculateAvailablePostsSizeForCommunity(context.subplebbit);
             expect(availablePostsSize, "expected production budget to drop below 700kb due to oversized metadata").to.be.lessThan(0.7 * MB);
             const pageGenerator = getPageGenerator(context.subplebbit);
             const originalSortAndChunk = pageGenerator.sortAndChunkComments.bind(pageGenerator);
@@ -260,7 +260,7 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
                 return result;
             });
 
-            const generatedPosts = await pageGenerator.generateSubplebbitPosts(preloadedSortName, availablePostsSize);
+            const generatedPosts = await pageGenerator.generateCommunityPosts(preloadedSortName, availablePostsSize);
 
             expect(capturedFirstChunk, "expected to capture first chunk from sortAndChunkComments").to.exist;
             const firstChunkSerializedSize = await calculateStringSizeSameAsIpfsAddCidV0(JSON.stringify({ comments: capturedFirstChunk }));
@@ -270,7 +270,7 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
 
             expect(capturedFirstChunk?.length ?? 0).to.equal(1);
 
-            expect(generatedPosts, "expected generateSubplebbitPosts to return posts data").to.exist;
+            expect(generatedPosts, "expected generateCommunityPosts to return posts data").to.exist;
             expect(generatedPosts).to.have.property("singlePreloadedPage");
             expect((generatedPosts as { pageCids?: unknown }).pageCids).to.be.undefined;
 
@@ -294,7 +294,7 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
     });
 
     it("errors instead of collapsing subplebbit.posts preloads when the budget is too small", async () => {
-        const context = await createSubplebbitWithDefaultDb();
+        const context = await createCommunityWithDefaultDb();
         try {
             const { rows } = await seedHeavyDiscussion(context.subplebbit, { primaryChainDepth: 60 });
             expect(rows.length, "expected at least one seeded post").to.be.greaterThan(0);
@@ -305,21 +305,21 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
             const pageGenerator = getPageGenerator(context.subplebbit);
             let caughtError: Error | undefined;
             try {
-                await pageGenerator.generateSubplebbitPosts("hot", tinyBudgetBytes);
+                await pageGenerator.generateCommunityPosts("hot", tinyBudgetBytes);
             } catch (e) {
                 caughtError = e as Error;
             }
 
-            expect(caughtError, "expected generateSubplebbitPosts to reject when budget is too small").to.exist;
-            expect(caughtError).to.be.instanceOf(PlebbitError);
-            expect((caughtError as PlebbitError).code).to.equal("ERR_PAGE_GENERATED_IS_OVER_EXPECTED_SIZE");
+            expect(caughtError, "expected generateCommunityPosts to reject when budget is too small").to.exist;
+            expect(caughtError).to.be.instanceOf(PKCError);
+            expect((caughtError as PKCError).code).to.equal("ERR_PAGE_GENERATED_IS_OVER_EXPECTED_SIZE");
         } finally {
             await context.cleanup();
         }
     });
 
     it("A post.replies preloaded page page higher than 1mib should not be published a preload, instead it send preloaded sort into pageCids", async () => {
-        const context = await createSubplebbitWithDefaultDb();
+        const context = await createCommunityWithDefaultDb();
         try {
             const { labelToCid, labels, rows } = await seedHeavyDiscussion(context.subplebbit, {
                 primaryChainDepth: 95,
@@ -363,7 +363,7 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
     });
 
     it("A reply.replies preloaded page page higher than 1mib should not be published a preload, instead it send preloaded sort into pageCids", async () => {
-        const context = await createSubplebbitWithDefaultDb();
+        const context = await createCommunityWithDefaultDb();
         try {
             const { rows } = await seedHeavyDiscussion(context.subplebbit, {
                 primaryChainDepth: 150
@@ -404,11 +404,11 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
 });
 
 async function seedHeavyDiscussion(
-    subplebbit: LocalSubplebbit,
+    subplebbit: LocalCommunity,
     overrides: SeedHeavyDiscussionOverrides = {}
 ): Promise<SeededComments & { labels: HeavyTreeLabels }> {
     const { trees, labels } = buildHeavyTreeStructure(overrides);
-    const seeded = await seedSubplebbitComments(subplebbit, trees);
+    const seeded = await seedCommunityComments(subplebbit, trees);
     return { ...seeded, labels };
 }
 
@@ -518,17 +518,17 @@ function normalizeExtraChildrenPlan(
     return normalized;
 }
 
-async function calculateAvailablePostsSizeForSubplebbit(subplebbit: LocalSubplebbit): Promise<number> {
+async function calculateAvailablePostsSizeForCommunity(subplebbit: LocalCommunity): Promise<number> {
     const latestPost = subplebbit._dbHandler.queryLatestPostCid();
     const latestComment = subplebbit._dbHandler.queryLatestCommentCid();
-    const stats = subplebbit._dbHandler.querySubplebbitStats();
+    const stats = subplebbit._dbHandler.queryCommunityStats();
     const statsCid = await calculateIpfsCidV0Lib(JSON.stringify(stats));
 
     const postUpdates = { "86400": "QmX4Yd14J12ckSfsBjBarbMndo37oDFPNF3apF1reUhcHK" };
 
     const updatedAt = timestamp();
 
-    const baseSubplebbit = cleanUpBeforePublishing({
+    const baseCommunity = cleanUpBeforePublishing({
         // @ts-expect-error - accessing private method for testing
         ...remeda.omit(subplebbit._toJSONIpfsBaseNoPosts(), ["signature"]),
         lastPostCid: latestPost?.cid,
@@ -539,15 +539,15 @@ async function calculateAvailablePostsSizeForSubplebbit(subplebbit: LocalSubpleb
         protocolVersion: PROTOCOL_VERSION
     });
 
-    const baseSize = await calculateStringSizeSameAsIpfsAddCidV0(JSON.stringify(baseSubplebbit));
-    const expectedSignatureSize = calculateExpectedSignatureSize(baseSubplebbit);
+    const baseSize = await calculateStringSizeSameAsIpfsAddCidV0(JSON.stringify(baseCommunity));
+    const expectedSignatureSize = calculateExpectedSignatureSize(baseCommunity);
     return 1024 * 1024 - baseSize - expectedSignatureSize - 1000;
 }
 
-async function createSubplebbitWithDefaultDb(): Promise<SubplebbitContext> {
+async function createCommunityWithDefaultDb(): Promise<CommunityContext> {
     // Keep the disk-backed database configuration to avoid storing large fixtures in memory.
-    const plebbit: PlebbitType = await mockPlebbit();
-    const subplebbit = (await plebbit.createSubplebbit()) as LocalSubplebbit;
+    const plebbit: PKCType = await mockPKC();
+    const subplebbit = (await plebbit.createCommunity()) as LocalCommunity;
     await subplebbit._dbHandler.initDbIfNeeded();
     await subplebbit._dbHandler.createOrMigrateTablesIfNeeded();
     const fakeIpfsClient = createFakeIpfsClient();
@@ -612,7 +612,7 @@ function createFakeIpfsClient(): FakeIpfsClient {
     };
 }
 
-async function seedSubplebbitComments(subplebbit: LocalSubplebbit, commentTrees: TreeNode[]): Promise<SeededComments> {
+async function seedCommunityComments(subplebbit: LocalCommunity, commentTrees: TreeNode[]): Promise<SeededComments> {
     if (!Array.isArray(commentTrees) || commentTrees.length === 0) throw new Error("commentTrees array is required");
     const { rows, labelToCid } = await buildTestCommentRowsFromTrees({
         communityPublicKey: subplebbit.signer.address,
@@ -623,7 +623,7 @@ async function seedSubplebbitComments(subplebbit: LocalSubplebbit, commentTrees:
 }
 
 async function seedPendingApprovalComments(
-    subplebbit: LocalSubplebbit,
+    subplebbit: LocalCommunity,
     { pendingCount, contentBytes = HEAVY_COMMENT_BYTES }: { pendingCount: number; contentBytes?: number }
 ): Promise<TestCommentRow[]> {
     if (!Number.isFinite(pendingCount) || pendingCount <= 0) throw new Error("pendingCount must be a positive number");

@@ -1,25 +1,25 @@
 import {
-    mockPlebbit,
+    mockPKC,
     createSubWithNoChallenge,
     generateMockPost,
     overrideCommentInstancePropsAndSign,
     publishWithExpectedResult,
-    mockPlebbitNoDataPathWithOnlyKuboClient,
+    mockPKCNoDataPathWithOnlyKuboClient,
     resolveWhenConditionIsTrue
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../../dist/node/community/rpc-local-community.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
 
 describe(`subplebbit.features.requirePostLink`, async () => {
-    let plebbit: Plebbit;
-    let remotePlebbit: Plebbit;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    let plebbit: PKC;
+    let remotePKC: PKC;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
-        remotePlebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
+        plebbit = await mockPKC();
+        remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
         subplebbit = await createSubWithNoChallenge({}, plebbit);
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
@@ -28,7 +28,7 @@ describe(`subplebbit.features.requirePostLink`, async () => {
     afterAll(async () => {
         await subplebbit.delete();
         await plebbit.destroy();
-        await remotePlebbit.destroy();
+        await remotePKC.destroy();
     });
 
     it.sequential(`Feature is updated correctly in props`, async () => {
@@ -36,7 +36,7 @@ describe(`subplebbit.features.requirePostLink`, async () => {
         await subplebbit.edit({ features: { ...subplebbit.features, requirePostLink: true } });
         expect(subplebbit.features?.requirePostLink).to.be.true;
 
-        const remoteSub = await remotePlebbit.getSubplebbit({ address: subplebbit.address });
+        const remoteSub = await remotePKC.getCommunity({ address: subplebbit.address });
         await remoteSub.update();
         await resolveWhenConditionIsTrue({ toUpdate: remoteSub, predicate: async () => remoteSub.features?.requirePostLink === true });
 
@@ -46,7 +46,7 @@ describe(`subplebbit.features.requirePostLink`, async () => {
 
     it(`Can't publish a post with invalid link`, async () => {
         const invalidUrl = "test.com"; // invalid because it has no protocol
-        const post = await generateMockPost({ communityAddress: subplebbit.address, plebbit: remotePlebbit });
+        const post = await generateMockPost({ communityAddress: subplebbit.address, plebbit: remotePKC });
         await overrideCommentInstancePropsAndSign(post, { link: invalidUrl } as Parameters<typeof overrideCommentInstancePropsAndSign>[1]);
         expect(post.link).to.equal(invalidUrl);
         await publishWithExpectedResult({
@@ -59,7 +59,7 @@ describe(`subplebbit.features.requirePostLink`, async () => {
         const validUrl = "https://google.com";
         const post = await generateMockPost({
             communityAddress: subplebbit.address,
-            plebbit: remotePlebbit,
+            plebbit: remotePKC,
             postProps: { link: validUrl }
         });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });

@@ -1,8 +1,8 @@
-import { Plebbit } from "../../pkc/pkc.js";
+import { PKC } from "../../pkc/pkc.js";
 import retry, { RetryOperation } from "retry";
 import { AddressesRewriterProxyServer } from "./addresses-rewriter-proxy-server.js";
 import Logger from "../../logger.js";
-import { PlebbitError } from "../../pkc-error.js";
+import { PKCError } from "../../pkc-error.js";
 import * as remeda from "remeda";
 import tcpPortUsed from "tcp-port-used";
 
@@ -37,14 +37,14 @@ function _mergeRouterConfigs(existingConfig: any, newConfig: any) {
     };
 }
 
-async function _setProvideDhtSweepEnabledOnKuboNode(kuboClient: Plebbit["clients"]["kuboRpcClients"][string], sweepEnabled: boolean) {
+async function _setProvideDhtSweepEnabledOnKuboNode(kuboClient: PKC["clients"]["kuboRpcClients"][string], sweepEnabled: boolean) {
     const log = Logger("pkc-js:pkc:_init:retrySettingHttpRoutersOnIpfsNodes:setProvideDhtSweepEnabledOnIpfsNode");
     const configKey = "Provide.DHT.SweepEnabled";
     const url = `${kuboClient._clientOptions.url}/config?arg=${configKey}&arg=${JSON.stringify(sweepEnabled)}&json=true`;
     try {
         await fetch(url, { method: "POST", headers: kuboClient._clientOptions.headers });
     } catch (e) {
-        const error = new PlebbitError("ERR_FAILED_TO_SET_CONFIG_ON_KUBO_NODE", {
+        const error = new PKCError("ERR_FAILED_TO_SET_CONFIG_ON_KUBO_NODE", {
             fullUrl: url,
             actualError: e,
             kuboEndpoint: kuboClient._clientOptions.url,
@@ -57,7 +57,7 @@ async function _setProvideDhtSweepEnabledOnKuboNode(kuboClient: Plebbit["clients
     log.trace("Succeeded in setting config key", configKey, "on node", kuboClient._clientOptions.url, "to be", sweepEnabled);
 }
 
-async function _setHttpRouterOptionsOnKuboNode(kuboClient: Plebbit["clients"]["kuboRpcClients"][string], routingValue: any) {
+async function _setHttpRouterOptionsOnKuboNode(kuboClient: PKC["clients"]["kuboRpcClients"][string], routingValue: any) {
     const log = Logger("pkc-js:pkc:_init:retrySettingHttpRoutersOnIpfsNodes:setHttpRouterOptionsOnIpfsNode");
     const routingKey = "Routing";
 
@@ -65,7 +65,7 @@ async function _setHttpRouterOptionsOnKuboNode(kuboClient: Plebbit["clients"]["k
     try {
         routingConfigBeforeChanging = await kuboClient._client.config.get(routingKey);
     } catch (e) {
-        const error = new PlebbitError("ERR_FAILED_TO_GET_CONFIG_ON_KUBO_NODE", {
+        const error = new PKCError("ERR_FAILED_TO_GET_CONFIG_ON_KUBO_NODE", {
             actualError: e,
             kuboEndpoint: kuboClient._clientOptions.url,
             configKey: routingKey
@@ -80,7 +80,7 @@ async function _setHttpRouterOptionsOnKuboNode(kuboClient: Plebbit["clients"]["k
     try {
         await fetch(url, { method: "POST", headers: kuboClient._clientOptions.headers });
     } catch (e) {
-        const error = new PlebbitError("ERR_FAILED_TO_SET_CONFIG_ON_KUBO_NODE", {
+        const error = new PKCError("ERR_FAILED_TO_SET_CONFIG_ON_KUBO_NODE", {
             fullUrl: url,
             actualError: e,
             kuboEndpoint: kuboClient._clientOptions.url,
@@ -102,7 +102,7 @@ async function _setHttpRouterOptionsOnKuboNode(kuboClient: Plebbit["clients"]["k
     const endpointsAfter = Object.values(mergedRoutingValue.Routers).map((router) => router["Parameters"]["Endpoint"]);
     if (!remeda.isDeepEqual(endpointsBefore.sort(), endpointsAfter.sort())) {
         log(
-            "Config on kubo node has been changed. Plebbit-js will send shutdown command to node",
+            "Config on kubo node has been changed. PKC-js will send shutdown command to node",
             kuboClient._clientOptions.url,
             "Clients of plebbit-js should restart ipfs node"
         );
@@ -110,7 +110,7 @@ async function _setHttpRouterOptionsOnKuboNode(kuboClient: Plebbit["clients"]["k
         try {
             await fetch(shutdownUrl, { method: "POST", headers: kuboClient._clientOptions.headers });
         } catch (e) {
-            const error = new PlebbitError("ERR_FAILED_TO_SHUTDOWN_KUBO_NODE", {
+            const error = new PKCError("ERR_FAILED_TO_SHUTDOWN_KUBO_NODE", {
                 actualError: e,
                 kuboEndpoint: kuboClient._clientOptions.url,
                 shutdownUrl
@@ -121,7 +121,7 @@ async function _setHttpRouterOptionsOnKuboNode(kuboClient: Plebbit["clients"]["k
     }
 }
 
-async function _getStartedProxyUrl(plebbit: Plebbit, httpRouterUrl: string) {
+async function _getStartedProxyUrl(plebbit: PKC, httpRouterUrl: string) {
     if (plebbit.destroyed) return undefined;
     const mappingKeyName = `httprouter_proxy_${httpRouterUrl}`;
     try {
@@ -142,7 +142,7 @@ async function _getStartedProxyUrl(plebbit: Plebbit, httpRouterUrl: string) {
     }
 }
 
-export async function setupKuboAddressesRewriterAndHttpRouters(plebbit: Plebbit): Promise<{ destroy: () => Promise<void> }> {
+export async function setupKuboAddressesRewriterAndHttpRouters(plebbit: PKC): Promise<{ destroy: () => Promise<void> }> {
     if (plebbit.destroyed) {
         return {
             destroy: async () => {}

@@ -7,12 +7,12 @@ import type { Fetch } from "@libp2p/fetch";
 import { peerIdFromString } from "@libp2p/peer-id";
 import type { HeliaWithLibp2pPubsub } from "./types.js";
 import { binaryKeyToPubsubTopic, pubsubTopicToDhtKey, pubsubTopicToDhtKeyCid } from "../util.js";
-import { PlebbitError } from "../pkc-error.js";
+import { PKCError } from "../pkc-error.js";
 import { CID } from "kubo-rpc-client";
 
 const log = Logger("pkc-js:helia:ipns:routing:pubsub-with-fetch");
 
-export type PlebbitIpnsGetOptions = ipnsGetOptions & {
+export type PKCIpnsGetOptions = ipnsGetOptions & {
     ipnsName: string;
 };
 
@@ -44,14 +44,14 @@ export class IpnsFetchRouter implements IPNSRouting {
         peer: PeerId;
         routingKey: Uint8Array;
         topic: string;
-        options?: PlebbitIpnsGetOptions;
+        options?: PKCIpnsGetOptions;
     }): Promise<Uint8Array> {
         const contentCidString = pubsubTopicToDhtKeyCid(topic);
 
         const record = await pTimeout(this._fetchService.fetch(peer, routingKey), {
             milliseconds: IPNS_FETCH_FROM_PEER_TIMEOUT_MS,
             signal: options?.signal,
-            message: new PlebbitError("ERR_LIBP2P_FETCH_IPNS_FROM_PEER_TIMEDOUT", {
+            message: new PKCError("ERR_LIBP2P_FETCH_IPNS_FROM_PEER_TIMEDOUT", {
                 peerId: peer,
                 routingKey,
                 topic,
@@ -62,7 +62,7 @@ export class IpnsFetchRouter implements IPNSRouting {
         });
 
         if (!record) {
-            throw new PlebbitError("ERR_FETCH_OVER_IPNS_OVER_PUBSUB_RETURNED_UNDEFINED", {
+            throw new PKCError("ERR_FETCH_OVER_IPNS_OVER_PUBSUB_RETURNED_UNDEFINED", {
                 peerId: peer,
                 routingKey,
                 topic,
@@ -82,7 +82,7 @@ export class IpnsFetchRouter implements IPNSRouting {
         routingKey: Uint8Array;
         topic: string;
         pubsubSubscribers: PeerId[];
-        options: PlebbitIpnsGetOptions & { signal: AbortSignal; abortController: AbortController };
+        options: PKCIpnsGetOptions & { signal: AbortSignal; abortController: AbortController };
     }): Promise<Uint8Array> {
         const limit = pLimit(LIMIT_PARALLEL_FETCH_IPNS_FROM_PEERS);
 
@@ -132,7 +132,7 @@ export class IpnsFetchRouter implements IPNSRouting {
         } else {
             // All promises failed
             cleanUp();
-            throw new PlebbitError("ERR_FETCH_OVER_IPNS_OVER_PUBSUB_FAILED", {
+            throw new PKCError("ERR_FETCH_OVER_IPNS_OVER_PUBSUB_FAILED", {
                 peerIdToError,
                 topic,
                 routingKey,
@@ -149,7 +149,7 @@ export class IpnsFetchRouter implements IPNSRouting {
     }: {
         routingKey: Uint8Array;
         topic: string;
-        options: PlebbitIpnsGetOptions & { signal: AbortSignal; abortController: AbortController };
+        options: PKCIpnsGetOptions & { signal: AbortSignal; abortController: AbortController };
     }): Promise<Uint8Array> {
         const limit = pLimit(LIMIT_PARALLEL_FETCH_IPNS_FROM_PEERS);
         // No subscribers, need to find providers using content routing and process them as they come
@@ -237,7 +237,7 @@ export class IpnsFetchRouter implements IPNSRouting {
             cleanUp();
 
             // If we get here, all providers have been tried and failed
-            throw new PlebbitError("ERR_FETCH_OVER_IPNS_OVER_PUBSUB_FAILED", {
+            throw new PKCError("ERR_FETCH_OVER_IPNS_OVER_PUBSUB_FAILED", {
                 peerIdToError,
                 fetchingFromProviders: true,
                 topic,
@@ -262,7 +262,7 @@ export class IpnsFetchRouter implements IPNSRouting {
         }
     }
 
-    async get(routingKey: Uint8Array, options: PlebbitIpnsGetOptions): Promise<Uint8Array> {
+    async get(routingKey: Uint8Array, options: PKCIpnsGetOptions): Promise<Uint8Array> {
         const topic = binaryKeyToPubsubTopic(routingKey);
 
         // Check if we should use libp2p/fetch based on cooloff period

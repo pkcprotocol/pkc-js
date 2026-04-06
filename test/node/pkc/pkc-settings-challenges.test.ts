@@ -1,27 +1,27 @@
 import {
-    mockPlebbit,
+    mockPKC,
     publishWithExpectedResult,
     generateMockPost,
     resolveWhenConditionIsTrue,
     itSkipIfRpc,
-    mockPlebbitNoDataPathWithOnlyKuboClient,
+    mockPKCNoDataPathWithOnlyKuboClient,
     describeIfRpc
 } from "../../../dist/node/test/test-util.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
-import type { RemoteSubplebbit } from "../../../dist/node/community/remote-community.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 import type {
     ChallengeFileInput,
     ChallengeInput,
     ChallengeResultInput,
     GetChallengeArgsInput,
-    SubplebbitChallengeSetting
+    CommunityChallengeSetting
 } from "../../../dist/node/community/types.js";
 import type { ChallengeVerificationMessageType, DecryptedChallengeMessageType } from "../../../dist/node/pubsub-messages/types.js";
 
 // A custom challenge factory that asks "What color is the sky?" and accepts "blue"
-const customSkyChallenge = ({ challengeSettings }: { challengeSettings: SubplebbitChallengeSetting }): ChallengeFileInput => {
+const customSkyChallenge = ({ challengeSettings }: { challengeSettings: CommunityChallengeSetting }): ChallengeFileInput => {
     const type: ChallengeInput["type"] = "text/plain";
     const description = "A custom challenge asking about the sky color.";
     const challenge = "What color is the sky?";
@@ -53,7 +53,7 @@ const customSkyChallenge = ({ challengeSettings }: { challengeSettings: Subplebb
 };
 
 // A custom challenge factory that overrides the built-in "question" challenge
-const overriddenQuestionChallenge = ({ challengeSettings }: { challengeSettings: SubplebbitChallengeSetting }): ChallengeFileInput => {
+const overriddenQuestionChallenge = ({ challengeSettings }: { challengeSettings: CommunityChallengeSetting }): ChallengeFileInput => {
     const type: ChallengeInput["type"] = "text/plain";
     const description = "Overridden question challenge.";
     const customAnswer = challengeSettings?.options?.answer || "42";
@@ -85,21 +85,21 @@ const overriddenQuestionChallenge = ({ challengeSettings }: { challengeSettings:
 };
 
 describe("plebbit.settings.challenges", async () => {
-    let plebbit: PlebbitType;
-    let remotePlebbit: PlebbitType;
+    let plebbit: PKCType;
+    let remotePKC: PKCType;
 
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
+        plebbit = await mockPKC();
         // Register custom challenges on the plebbit instance
         plebbit.settings.challenges = {
             "sky-color": customSkyChallenge
         };
-        remotePlebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
+        remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
     });
 
     afterAll(async () => {
         await plebbit.destroy();
-        await remotePlebbit.destroy();
+        await remotePKC.destroy();
     });
 
     it(`plebbit.settings.challenges is initialized from constructor options`, async () => {
@@ -109,20 +109,20 @@ describe("plebbit.settings.challenges", async () => {
     });
 
     it(`plebbit.settings.challenges can be modified at runtime`, async () => {
-        const newPlebbit = await mockPlebbit();
-        expect(newPlebbit.settings.challenges).to.be.undefined;
+        const newPKC = await mockPKC();
+        expect(newPKC.settings.challenges).to.be.undefined;
 
-        newPlebbit.settings.challenges = { "sky-color": customSkyChallenge };
-        expect(newPlebbit.settings.challenges["sky-color"]).to.equal(customSkyChallenge);
+        newPKC.settings.challenges = { "sky-color": customSkyChallenge };
+        expect(newPKC.settings.challenges["sky-color"]).to.equal(customSkyChallenge);
 
-        newPlebbit.settings.challenges["another-challenge"] = overriddenQuestionChallenge;
-        expect(newPlebbit.settings.challenges["another-challenge"]).to.equal(overriddenQuestionChallenge);
-        await newPlebbit.destroy();
+        newPKC.settings.challenges["another-challenge"] = overriddenQuestionChallenge;
+        expect(newPKC.settings.challenges["another-challenge"]).to.equal(overriddenQuestionChallenge);
+        await newPKC.destroy();
     });
 
     itSkipIfRpc(`subplebbit can use a custom challenge from plebbit.settings.challenges`, async () => {
-        const subplebbit = (await plebbit.createSubplebbit({})) as LocalSubplebbit;
-        const challenges: SubplebbitChallengeSetting[] = [{ name: "sky-color" }];
+        const subplebbit = (await plebbit.createCommunity({})) as LocalCommunity;
+        const challenges: CommunityChallengeSetting[] = [{ name: "sky-color" }];
         await subplebbit.edit({ settings: { challenges } });
 
         expect(subplebbit.settings!.challenges).to.deep.equal(challenges);
@@ -137,7 +137,7 @@ describe("plebbit.settings.challenges", async () => {
         expect(subplebbit.challenges![0].challenge).to.equal("What color is the sky?");
 
         // Verify remote sub also sees the challenge metadata
-        const remoteSub = (await remotePlebbit.getSubplebbit({ address: subplebbit.address })) as RemoteSubplebbit;
+        const remoteSub = (await remotePKC.getCommunity({ address: subplebbit.address })) as RemoteCommunity;
         expect(remoteSub.challenges).to.have.length(1);
         expect(remoteSub.challenges![0].type).to.equal("text/plain");
         expect(remoteSub.challenges![0].description).to.equal("A custom challenge asking about the sky color.");
@@ -147,7 +147,7 @@ describe("plebbit.settings.challenges", async () => {
     });
 
     itSkipIfRpc(`custom challenge correctly verifies pre-answered challenge`, async () => {
-        const subplebbit = (await plebbit.createSubplebbit({})) as LocalSubplebbit;
+        const subplebbit = (await plebbit.createCommunity({})) as LocalCommunity;
         await subplebbit.edit({ settings: { challenges: [{ name: "sky-color" }] } });
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
@@ -182,12 +182,12 @@ describe("plebbit.settings.challenges", async () => {
     });
 
     itSkipIfRpc(`user-defined challenge shadows a built-in challenge with the same name`, async () => {
-        const plebbitWithOverride = await mockPlebbit();
+        const plebbitWithOverride = await mockPKC();
         plebbitWithOverride.settings.challenges = {
             question: overriddenQuestionChallenge
         };
 
-        const subplebbit = (await plebbitWithOverride.createSubplebbit({})) as LocalSubplebbit;
+        const subplebbit = (await plebbitWithOverride.createCommunity({})) as LocalCommunity;
         // Use the "question" name — should resolve to the overridden version
         await subplebbit.edit({
             settings: { challenges: [{ name: "question", options: { answer: "42" } }] }
@@ -233,8 +233,8 @@ describe("plebbit.settings.challenges", async () => {
 
 describeIfRpc("plebbit.settings.challenges RPC error handling", async () => {
     it("RPC client throws when setting a challenge name that doesn't exist on the server", async () => {
-        const plebbit = await mockPlebbit();
-        const subplebbit = await plebbit.createSubplebbit({});
+        const plebbit = await mockPKC();
+        const subplebbit = await plebbit.createCommunity({});
         try {
             await subplebbit.edit({ settings: { challenges: [{ name: "nonexistent-challenge" }] } });
             expect.fail("Should have thrown");

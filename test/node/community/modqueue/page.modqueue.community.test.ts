@@ -1,15 +1,15 @@
 import {
-    mockPlebbit,
+    mockPKC,
     resolveWhenConditionIsTrue,
     publishToModQueueWithDepth,
-    mockPlebbitNoDataPathWithOnlyKuboClient,
+    mockPKCNoDataPathWithOnlyKuboClient,
     createPendingApprovalChallenge
 } from "../../../../dist/node/test/test-util.js";
 import { testCommentFieldsInModQueuePageJson } from "../../../node-and-browser/pages/pages-test-util.js";
 import { describe, it } from "vitest";
-import type { Plebbit as PlebbitType } from "../../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../../dist/node/community/rpc-local-community.js";
+import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
 import type { SignerType } from "../../../../dist/node/signer/types.js";
 import type { ModQueuePageTypeJson } from "../../../../dist/node/pages/types.js";
 
@@ -17,14 +17,14 @@ const depthsToTest = [0, 1, 2, 3, 10, 15, 25, 35];
 const pendingApprovalCommentProps = { challengeRequest: { challengeAnswers: ["pending"] } };
 
 interface SetupResult {
-    plebbit: PlebbitType;
-    subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    plebbit: PKCType;
+    subplebbit: LocalCommunity | RpcLocalCommunity;
     modSigner: SignerType;
 }
 
-const setupSubplebbitWithModerator = async (): Promise<SetupResult> => {
-    const plebbit = await mockPlebbit();
-    const subplebbit = (await plebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
+const setupCommunityWithModerator = async (): Promise<SetupResult> => {
+    const plebbit = await mockPKC();
+    const subplebbit = (await plebbit.createCommunity()) as LocalCommunity | RpcLocalCommunity;
     const modSigner = await plebbit.createSigner();
     await subplebbit.edit({
         roles: {
@@ -51,10 +51,10 @@ describe("Modqueue depths", () => {
         describe(`Modqueue depths batch [${batch.join(",")}]`, () => {
             for (const depth of batch) {
                 it.concurrent(`should support mod queue pages with comments of the same depth, depth = ${depth}`, async () => {
-                    const { plebbit, subplebbit, modSigner } = await setupSubplebbitWithModerator();
+                    const { plebbit, subplebbit, modSigner } = await setupCommunityWithModerator();
                     expect(subplebbit.lastPostCid).to.be.undefined;
                     const numOfComments = 3;
-                    const remotePlebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
+                    const remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
 
                     try {
                         const pendingComments = await Promise.all(
@@ -63,7 +63,7 @@ describe("Modqueue depths", () => {
                                     subplebbit,
                                     depth,
                                     modCommentProps: { signer: modSigner },
-                                    plebbit: remotePlebbit,
+                                    plebbit: remotePKC,
                                     commentProps: pendingApprovalCommentProps
                                 })
                             )
@@ -93,7 +93,7 @@ describe("Modqueue depths", () => {
                             testCommentFieldsInModQueuePageJson(modQueuePage!.comments[i], subplebbit.address);
                         }
                     } finally {
-                        await remotePlebbit.destroy();
+                        await remotePKC.destroy();
                         await subplebbit.delete();
                         await plebbit.destroy();
                     }
@@ -103,11 +103,11 @@ describe("Modqueue depths", () => {
     }
 
     it.sequential("Should support modqueue pages with comments of different depths", async () => {
-        const { plebbit, subplebbit, modSigner } = await setupSubplebbitWithModerator();
+        const { plebbit, subplebbit, modSigner } = await setupCommunityWithModerator();
         // TODO: Create a mix of top-level posts and nested replies in pending approval
         // and verify modqueue page rendering/order handles varying depths correctly
 
-        const remotePlebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
+        const remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
 
         try {
             const pendingComments: Awaited<ReturnType<typeof publishToModQueueWithDepth>>[] = [];
@@ -120,7 +120,7 @@ describe("Modqueue depths", () => {
                             subplebbit,
                             depth,
                             modCommentProps: { signer: modSigner },
-                            plebbit: remotePlebbit,
+                            plebbit: remotePKC,
                             commentProps: pendingApprovalCommentProps
                         })
                     )
@@ -151,7 +151,7 @@ describe("Modqueue depths", () => {
                 testCommentFieldsInModQueuePageJson(pendingInPage!, subplebbit.address);
             }
         } finally {
-            await remotePlebbit.destroy();
+            await remotePKC.destroy();
             await subplebbit.delete();
             await plebbit.destroy();
         }

@@ -2,39 +2,39 @@ import {
     createSubWithNoChallenge,
     describeSkipIfRpc,
     forceLocalSubPagesToAlwaysGenerateMultipleChunks,
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     mockCommentToNotUsePagesForUpdates,
-    mockPlebbit,
-    mockPlebbitNoDataPathWithOnlyKuboClient,
+    mockPKC,
+    mockPKCNoDataPathWithOnlyKuboClient,
     mockReplyToUseParentPagesForUpdates,
     publishRandomPost,
     waitTillReplyInParentPages,
-    waitTillPostInSubplebbitPages,
+    waitTillPostInCommunityPages,
     publishRandomReply,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
-import { PlebbitError } from "../../../dist/node/pkc-error.js";
+import { PKCError } from "../../../dist/node/pkc-error.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { CommentUpdateType } from "../../../dist/node/publications/comment/types.js";
 
 // this test is testing the loading logic of Comment at a different depths
 // it was made because testing it on test-server.js subs take too long
 
-const plebbitLoadingConfigs = getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true });
+const plebbitLoadingConfigs = getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true });
 const replyDepthsToTest = [1, 2, 3, 10, 12];
 
 interface PostDepthTestContext {
-    plebbit: Plebbit;
-    subplebbit: LocalSubplebbit;
+    plebbit: PKC;
+    subplebbit: LocalCommunity;
     replyDepth: number;
     rootCid: string;
     leafCid: string;
     leafParentCid: string | undefined;
     expectedPostUpdate: CommentUpdateType;
-    forcedSubplebbitStoredUpdate?: {
+    forcedCommunityStoredUpdate?: {
         pageCids: Record<string, string>;
         pages: Record<string, { nextCid?: string; comments: never[] }>;
     };
@@ -42,8 +42,8 @@ interface PostDepthTestContext {
 }
 
 interface ReplyDepthTestContext {
-    plebbit: Plebbit;
-    subplebbit: LocalSubplebbit;
+    plebbit: PKC;
+    subplebbit: LocalCommunity;
     replyDepth: number;
     rootCid: string;
     leafCid: string;
@@ -66,7 +66,7 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
 
         beforeAll(async () => {
             context = await createPostDepthTestEnvironment({
-                forceSubplebbitPostsPageCids: false
+                forceCommunityPostsPageCids: false
             });
         });
 
@@ -116,7 +116,7 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
 
             beforeAll(async () => {
                 paginationContext = await createPostDepthTestEnvironment({
-                    forceSubplebbitPostsPageCids: true
+                    forceCommunityPostsPageCids: true
                 });
             });
 
@@ -126,19 +126,19 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
 
             plebbitLoadingConfigs.forEach((plebbitConfig) => {
                 it("loads post updates when from subplebbit.postUpdates - Remote plebbit config " + plebbitConfig.name, async () => {
-                    const storedSubplebbitUpdate = paginationContext.forcedSubplebbitStoredUpdate;
-                    expect(storedSubplebbitUpdate).to.exist;
-                    expect(storedSubplebbitUpdate?.pageCids).to.exist;
-                    expect(Object.keys(storedSubplebbitUpdate?.pageCids ?? {})).to.not.be.empty;
-                    const storedSubplebbitPages = storedSubplebbitUpdate?.pages || {};
-                    Object.values(storedSubplebbitPages).forEach((page) => {
+                    const storedCommunityUpdate = paginationContext.forcedCommunityStoredUpdate;
+                    expect(storedCommunityUpdate).to.exist;
+                    expect(storedCommunityUpdate?.pageCids).to.exist;
+                    expect(Object.keys(storedCommunityUpdate?.pageCids ?? {})).to.not.be.empty;
+                    const storedCommunityPages = storedCommunityUpdate?.pages || {};
+                    Object.values(storedCommunityPages).forEach((page) => {
                         if (page?.comments) expect(page.comments).to.deep.equal([]);
                     });
 
-                    const remotePlebbit = await plebbitConfig.plebbitInstancePromise();
+                    const remotePKC = await plebbitConfig.plebbitInstancePromise();
 
                     try {
-                        const postComment = await remotePlebbit.createComment({ cid: paginationContext.rootCid });
+                        const postComment = await remotePKC.createComment({ cid: paginationContext.rootCid });
 
                         await postComment.update();
                         await mockCommentToNotUsePagesForUpdates(postComment);
@@ -149,7 +149,7 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
                         const updatingPost = postComment._plebbit._updatingComments[postComment.cid!];
                         expect(updatingPost._commentUpdateIpfsPath).to.be.a("string"); // post shouldn't find itself in pages, rather it needs to use postUpdates
                     } finally {
-                        await remotePlebbit.destroy();
+                        await remotePKC.destroy();
                     }
                 });
             });
@@ -158,28 +158,28 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
         plebbitLoadingConfigs.forEach((plebbitConfig) => {
             describe.concurrent(`post loading with ${plebbitConfig.name}`, () => {
                 it.sequential("retries loading CommentIpfs when the post cid block is missing on publisher", async () => {
-                    let remotePlebbit: Plebbit | undefined;
+                    let remotePKC: PKC | undefined;
                     let postComment: Comment | undefined;
-                    let publisherPlebbit: Plebbit | undefined;
+                    let publisherPKC: PKC | undefined;
                     try {
-                        publisherPlebbit = await mockPlebbit();
-                        const sub = await createSubWithNoChallenge({}, publisherPlebbit);
+                        publisherPKC = await mockPKC();
+                        const sub = await createSubWithNoChallenge({}, publisherPKC);
                         await sub.start();
                         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
-                        const newPost = await publishRandomPost({ communityAddress: sub.address, plebbit: publisherPlebbit });
+                        const newPost = await publishRandomPost({ communityAddress: sub.address, plebbit: publisherPKC });
 
-                        remotePlebbit = await plebbitConfig.plebbitInstancePromise();
-                        await waitTillPostInSubplebbitPages(newPost as never, remotePlebbit);
+                        remotePKC = await plebbitConfig.plebbitInstancePromise();
+                        await waitTillPostInCommunityPages(newPost as never, remotePKC);
 
-                        await remotePlebbit.destroy();
+                        await remotePKC.destroy();
 
-                        remotePlebbit = await plebbitConfig.plebbitInstancePromise();
+                        remotePKC = await plebbitConfig.plebbitInstancePromise();
 
-                        remotePlebbit._timeouts["comment-ipfs"] = 250;
-                        makeCommentCidFetchFail(remotePlebbit, newPost.cid!);
+                        remotePKC._timeouts["comment-ipfs"] = 250;
+                        makeCommentCidFetchFail(remotePKC, newPost.cid!);
 
                         const errors: Error[] = [];
-                        postComment = await remotePlebbit.createComment({ cid: newPost.cid, communityAddress: newPost.communityAddress }); // need to include subplebbitAddress or otherwise plebbit-js cant load it from sub pages
+                        postComment = await remotePKC.createComment({ cid: newPost.cid, communityAddress: newPost.communityAddress }); // need to include subplebbitAddress or otherwise plebbit-js cant load it from sub pages
                         postComment.on("error", (err) => errors.push(err));
 
                         await postComment.update();
@@ -196,20 +196,20 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
                         expect(postComment.updatedAt).to.be.a("number");
                         expect(postComment.state).to.equal("updating");
                         expect(["ERR_FETCH_CID_P2P_TIMEOUT", "ERR_FAILED_TO_FETCH_COMMENT_IPFS_FROM_GATEWAYS"]).to.include(
-                            (errors[0] as PlebbitError)?.code
+                            (errors[0] as PKCError)?.code
                         );
                         expect(postComment._plebbit._updatingComments[postComment.cid!]).to.exist;
                     } finally {
-                        await remotePlebbit?.destroy();
-                        await publisherPlebbit?.destroy();
+                        await remotePKC?.destroy();
+                        await publisherPKC?.destroy();
                     }
                 });
 
                 it("loads post updates while the sub keeps updating", async () => {
                     const subInstance = context.subplebbit;
-                    const remotePlebbit = await plebbitConfig.plebbitInstancePromise();
+                    const remotePKC = await plebbitConfig.plebbitInstancePromise();
                     try {
-                        const postComment = await remotePlebbit.createComment({ cid: context.rootCid });
+                        const postComment = await remotePKC.createComment({ cid: context.rootCid });
                         expect(subInstance.state).to.equal("started");
                         await postComment.update();
                         await waitForCommentToMatchStoredUpdate(postComment, context.expectedPostUpdate.updatedAt);
@@ -218,7 +218,7 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
                         expect(updatingPost).to.exist;
                         expect(updatingPost.depth).to.equal(0);
                     } finally {
-                        await remotePlebbit.destroy();
+                        await remotePKC.destroy();
                     }
                 });
             });
@@ -240,7 +240,7 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
             plebbitLoadingConfigs.forEach((plebbitConfig) => {
                 describe.sequential(`reply loading with ${plebbitConfig.name}`, () => {
                     it.sequential("retries loading CommentIpfs when the reply cid block is missing on publisher", async () => {
-                        let remotePlebbit: Plebbit | undefined;
+                        let remotePKC: PKC | undefined;
                         let replyComment: Comment | undefined;
                         let newReply: Comment | undefined;
                         let parentComment: Comment | undefined;
@@ -250,11 +250,11 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
                             newReply = await publishRandomReply({ parentComment: parentComment as never, plebbit: context.plebbit });
                             await waitTillReplyInParentPages(newReply as never, context.plebbit);
 
-                            remotePlebbit = await plebbitConfig.plebbitInstancePromise();
-                            remotePlebbit._timeouts["comment-ipfs"] = 250;
-                            makeCommentCidFetchFail(remotePlebbit, newReply.cid!);
+                            remotePKC = await plebbitConfig.plebbitInstancePromise();
+                            remotePKC._timeouts["comment-ipfs"] = 250;
+                            makeCommentCidFetchFail(remotePKC, newReply.cid!);
 
-                            replyComment = await remotePlebbit.createComment({
+                            replyComment = await remotePKC.createComment({
                                 cid: newReply.cid,
                                 communityAddress: parentComment.communityAddress
                             });
@@ -275,17 +275,17 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
                             expect(replyComment.updatedAt).to.be.a("number");
                             expect(replyComment.state).to.equal("updating");
                             expect(["ERR_FETCH_CID_P2P_TIMEOUT", "ERR_FAILED_TO_FETCH_COMMENT_IPFS_FROM_GATEWAYS"]).to.include(
-                                (errors[0] as PlebbitError)?.code
+                                (errors[0] as PKCError)?.code
                             );
                             expect(replyComment._plebbit._updatingComments[replyComment.cid!]).to.exist;
                         } finally {
-                            await remotePlebbit?.destroy();
+                            await remotePKC?.destroy();
                         }
                     });
 
                     it.sequential("loads reply updates when the post was stopped", async () => {
-                        const remotePlebbit = await plebbitConfig.plebbitInstancePromise();
-                        const replyComment = await remotePlebbit.getComment({ cid: context.leafCid });
+                        const remotePKC = await plebbitConfig.plebbitInstancePromise();
+                        const replyComment = await remotePKC.getComment({ cid: context.leafCid });
                         try {
                             await replyComment.update();
                             await waitForCommentToMatchStoredUpdate(replyComment, context.expectedLeafUpdate.updatedAt);
@@ -302,16 +302,16 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
                             expect(updatingReply.depth).to.equal(replyDepth);
                         } finally {
                             await replyComment.stop();
-                            await remotePlebbit.destroy();
+                            await remotePKC.destroy();
                         }
                     });
 
                     it("loads reply updates while the post keeps updating", async () => {
-                        const remotePlebbit = await plebbitConfig.plebbitInstancePromise();
+                        const remotePKC = await plebbitConfig.plebbitInstancePromise();
 
-                        const postComment = await remotePlebbit.getComment({ cid: context.rootCid });
+                        const postComment = await remotePKC.getComment({ cid: context.rootCid });
 
-                        const replyComment = await remotePlebbit.getComment({ cid: context.leafCid });
+                        const replyComment = await remotePKC.getComment({ cid: context.leafCid });
                         try {
                             await postComment.update();
                             await waitForPostToStartUpdating(postComment);
@@ -331,7 +331,7 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
                         } finally {
                             await replyComment.stop();
                             await postComment.stop();
-                            await remotePlebbit.destroy();
+                            await remotePKC.destroy();
                         }
                     });
                 });
@@ -354,8 +354,8 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
 
             plebbitLoadingConfigs.forEach((plebbitConfig) => {
                 it("loads reply updates when the parent was stopped", async () => {
-                    const remotePlebbit = await plebbitConfig.plebbitInstancePromise();
-                    const replyComment = await remotePlebbit.getComment({ cid: paginationContext.leafCid });
+                    const remotePKC = await plebbitConfig.plebbitInstancePromise();
+                    const replyComment = await remotePKC.getComment({ cid: paginationContext.leafCid });
                     try {
                         const storedParentUpdate = paginationContext.forcedParentStoredUpdate;
                         expect(storedParentUpdate).to.exist;
@@ -379,14 +379,14 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
                         expect(parentFirstPageCidsAlreadyLoaded.size).to.be.greaterThan(0);
                         expect(updatingReply.depth).to.equal(replyDepth);
                     } finally {
-                        await remotePlebbit.destroy();
+                        await remotePKC.destroy();
                     }
                 });
 
                 it("loads reply updates while the parent keeps updating", async () => {
-                    const remotePlebbit = await plebbitConfig.plebbitInstancePromise();
-                    const parentComment = await remotePlebbit.getComment({ cid: paginationContext.leafParentCid });
-                    const replyComment = await remotePlebbit.getComment({ cid: paginationContext.leafCid });
+                    const remotePKC = await plebbitConfig.plebbitInstancePromise();
+                    const parentComment = await remotePKC.getComment({ cid: paginationContext.leafParentCid });
+                    const replyComment = await remotePKC.getComment({ cid: paginationContext.leafCid });
                     try {
                         await parentComment.update();
                         await waitForPostToStartUpdating(parentComment);
@@ -410,7 +410,7 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
                         expect(parentFirstPageCidsAlreadyLoaded.size).to.be.greaterThan(0);
                         expect(updatingReply.depth).to.equal(replyDepth);
                     } finally {
-                        await remotePlebbit.destroy();
+                        await remotePKC.destroy();
                     }
                 });
             });
@@ -441,9 +441,9 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
             }
 
             // Load from remote plebbit - this is where the bug manifests
-            const remotePlebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
+            const remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
             try {
-                const leafComment = await remotePlebbit.createComment({ cid: context.leafCid });
+                const leafComment = await remotePKC.createComment({ cid: context.leafCid });
                 await leafComment.update();
 
                 // Should succeed without 160s timeout
@@ -455,23 +455,23 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
                 expect(leafComment.updatedAt).to.be.a("number");
                 expect(leafComment.depth).to.equal(12);
             } finally {
-                await remotePlebbit.destroy();
+                await remotePKC.destroy();
             }
         });
 
-        it("loads reply update via Path B only (when _findCommentInPagesOfUpdatingCommentsOrSubplebbit is disabled)", async () => {
+        it("loads reply update via Path B only (when _findCommentInPagesOfUpdatingCommentsOrCommunity is disabled)", async () => {
             // This test verifies that Path B (usePageCidsOfParentToFetchCommentUpdateForReply)
             // works correctly when parent has no pageCids and reply is in preloaded pages.
             // We mock Path A to return undefined to force the code through Path B exclusively.
-            const remotePlebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
+            const remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
 
             try {
-                const leafComment = await remotePlebbit.createComment({ cid: context.leafCid });
+                const leafComment = await remotePKC.createComment({ cid: context.leafCid });
 
-                // CRITICAL: Mock _findCommentInPagesOfUpdatingCommentsOrSubplebbit to return undefined
+                // CRITICAL: Mock _findCommentInPagesOfUpdatingCommentsOrCommunity to return undefined
                 // This forces the code to use Path B (the previously buggy usePageCidsOfParentToFetchCommentUpdateForReply)
                 const clientsManager = leafComment._clientsManager as never as Record<string, unknown>;
-                clientsManager._findCommentInPagesOfUpdatingCommentsOrSubplebbit = (): undefined => undefined;
+                clientsManager._findCommentInPagesOfUpdatingCommentsOrCommunity = (): undefined => undefined;
 
                 await leafComment.update();
 
@@ -486,52 +486,52 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
                 expect(leafComment.updatedAt).to.be.a("number");
                 expect(leafComment.depth).to.equal(12);
             } finally {
-                await remotePlebbit.destroy();
+                await remotePKC.destroy();
             }
         });
     });
 });
 
 async function createPostDepthTestEnvironment({
-    forceSubplebbitPostsPageCids = false
+    forceCommunityPostsPageCids = false
 }: {
-    forceSubplebbitPostsPageCids?: boolean;
+    forceCommunityPostsPageCids?: boolean;
 }): Promise<PostDepthTestContext> {
-    const publisherPlebbit = await mockPlebbit();
-    const subplebbit = await createSubWithNoChallenge({}, publisherPlebbit);
+    const publisherPKC = await mockPKC();
+    const subplebbit = await createSubWithNoChallenge({}, publisherPKC);
     await subplebbit.start();
     await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
-    const post = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: publisherPlebbit });
-    const storedPostUpdate = await waitForStoredCommentUpdateWithAssertions(subplebbit as LocalSubplebbit, post);
+    const post = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: publisherPKC });
+    const storedPostUpdate = await waitForStoredCommentUpdateWithAssertions(subplebbit as LocalCommunity, post);
 
-    let forcedSubplebbitStoredUpdate: PostDepthTestContext["forcedSubplebbitStoredUpdate"];
-    if (forceSubplebbitPostsPageCids) {
+    let forcedCommunityStoredUpdate: PostDepthTestContext["forcedCommunityStoredUpdate"];
+    if (forceCommunityPostsPageCids) {
         await resolveWhenConditionIsTrue({
             toUpdate: subplebbit,
             predicate: async () => typeof subplebbit.updatedAt === "number"
         });
-        await forceLocalSubPagesToAlwaysGenerateMultipleChunks({ subplebbit: subplebbit as LocalSubplebbit });
+        await forceLocalSubPagesToAlwaysGenerateMultipleChunks({ subplebbit: subplebbit as LocalCommunity });
         await resolveWhenConditionIsTrue({
             toUpdate: subplebbit,
             predicate: async () => typeof subplebbit.updatedAt === "number"
         });
-        clearSubplebbitPreloadedPages(subplebbit as never);
-        forcedSubplebbitStoredUpdate = await waitForStoredSubplebbitPageCids(subplebbit as never);
+        clearCommunityPreloadedPages(subplebbit as never);
+        forcedCommunityStoredUpdate = await waitForStoredCommunityPageCids(subplebbit as never);
     }
 
     return {
-        plebbit: publisherPlebbit,
-        subplebbit: subplebbit as LocalSubplebbit,
+        plebbit: publisherPKC,
+        subplebbit: subplebbit as LocalCommunity,
         replyDepth: 0,
         rootCid: post.cid!,
         leafCid: post.cid!,
         leafParentCid: undefined,
         expectedPostUpdate: storedPostUpdate,
-        forcedSubplebbitStoredUpdate,
+        forcedCommunityStoredUpdate,
         cleanup: async () => {
             await subplebbit.delete();
-            await publisherPlebbit.destroy();
+            await publisherPKC.destroy();
         }
     };
 }
@@ -543,17 +543,17 @@ async function createReplyDepthTestEnvironment({
     replyDepth: number;
     forceParentRepliesPageCids?: boolean;
 }): Promise<ReplyDepthTestContext> {
-    const publisherPlebbit = await mockPlebbit();
-    const subplebbit = await createSubWithNoChallenge({}, publisherPlebbit);
+    const publisherPKC = await mockPKC();
+    const subplebbit = await createSubWithNoChallenge({}, publisherPKC);
     await subplebbit.start();
     await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
-    const chain = await buildReplyDepthChain({ replyDepth, plebbit: publisherPlebbit, subplebbit: subplebbit as LocalSubplebbit });
+    const chain = await buildReplyDepthChain({ replyDepth, plebbit: publisherPKC, subplebbit: subplebbit as LocalCommunity });
 
     let forcedParentStoredUpdate: CommentUpdateType | undefined;
     if (forceParentRepliesPageCids) {
         if (!chain.parentOfLeafCid) throw new Error("parent cid is required to force page generation");
-        const parentComment = await publisherPlebbit.createComment({ cid: chain.parentOfLeafCid });
+        const parentComment = await publisherPKC.createComment({ cid: chain.parentOfLeafCid });
         try {
             await parentComment.update();
             await resolveWhenConditionIsTrue({
@@ -561,16 +561,16 @@ async function createReplyDepthTestEnvironment({
                 predicate: async () => typeof parentComment.updatedAt === "number"
             });
             if (!parentComment.cid) throw new Error("parent comment cid should be defined after forcing page generation");
-            await forceLocalSubPagesToAlwaysGenerateMultipleChunks({ subplebbit: subplebbit as LocalSubplebbit, parentComment });
-            forcedParentStoredUpdate = await waitForStoredParentPageCids(subplebbit as LocalSubplebbit, parentComment.cid);
+            await forceLocalSubPagesToAlwaysGenerateMultipleChunks({ subplebbit: subplebbit as LocalCommunity, parentComment });
+            forcedParentStoredUpdate = await waitForStoredParentPageCids(subplebbit as LocalCommunity, parentComment.cid);
         } finally {
             await parentComment.stop();
         }
     }
 
     return {
-        plebbit: publisherPlebbit,
-        subplebbit: subplebbit as LocalSubplebbit,
+        plebbit: publisherPKC,
+        subplebbit: subplebbit as LocalCommunity,
         replyDepth,
         rootCid: chain.rootCid,
         leafCid: chain.leafCid,
@@ -579,7 +579,7 @@ async function createReplyDepthTestEnvironment({
         forcedParentStoredUpdate,
         cleanup: async () => {
             await subplebbit.delete();
-            await publisherPlebbit.destroy();
+            await publisherPKC.destroy();
         }
     };
 }
@@ -590,8 +590,8 @@ async function buildReplyDepthChain({
     subplebbit
 }: {
     replyDepth: number;
-    plebbit: Plebbit;
-    subplebbit: LocalSubplebbit;
+    plebbit: PKC;
+    subplebbit: LocalCommunity;
 }): Promise<ReplyChainResult> {
     const root = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
     let parent = root;
@@ -613,7 +613,7 @@ async function buildReplyDepthChain({
     };
 }
 
-async function waitForStoredCommentUpdateWithAssertions(subplebbit: LocalSubplebbit, comment: Comment): Promise<CommentUpdateType> {
+async function waitForStoredCommentUpdateWithAssertions(subplebbit: LocalCommunity, comment: Comment): Promise<CommentUpdateType> {
     const storedUpdate = await waitForStoredCommentUpdate(subplebbit, comment.cid!);
     expect(storedUpdate.cid).to.equal(comment.cid);
     expect(storedUpdate.updatedAt).to.be.a("number");
@@ -624,7 +624,7 @@ async function waitForStoredCommentUpdateWithAssertions(subplebbit: LocalSubpleb
     return storedUpdate;
 }
 
-async function waitForStoredCommentUpdate(subplebbit: LocalSubplebbit, cid: string): Promise<CommentUpdateType> {
+async function waitForStoredCommentUpdate(subplebbit: LocalCommunity, cid: string): Promise<CommentUpdateType> {
     const timeoutMs = 60000;
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
@@ -649,7 +649,7 @@ async function waitForPostToStartUpdating(postComment: Comment): Promise<void> {
     });
 }
 
-async function waitForStoredParentPageCids(subplebbit: LocalSubplebbit, parentCid: string): Promise<CommentUpdateType> {
+async function waitForStoredParentPageCids(subplebbit: LocalCommunity, parentCid: string): Promise<CommentUpdateType> {
     const timeoutMs = 60000;
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
@@ -661,7 +661,7 @@ async function waitForStoredParentPageCids(subplebbit: LocalSubplebbit, parentCi
     throw new Error(`Timed out waiting for parent comment ${parentCid} to have replies.pageCids in stored update`);
 }
 
-function clearSubplebbitPreloadedPages(subplebbit: { posts?: { pages?: Record<string, { comments?: unknown[] }> } }): void {
+function clearCommunityPreloadedPages(subplebbit: { posts?: { pages?: Record<string, { comments?: unknown[] }> } }): void {
     const postsPages = subplebbit.posts?.pages;
     if (!postsPages) return;
     Object.keys(postsPages).forEach((sortName) => {
@@ -670,10 +670,10 @@ function clearSubplebbitPreloadedPages(subplebbit: { posts?: { pages?: Record<st
     });
 }
 
-async function waitForStoredSubplebbitPageCids(subplebbit: {
+async function waitForStoredCommunityPageCids(subplebbit: {
     posts?: { pageCids?: Record<string, string>; pages?: Record<string, { nextCid?: string; comments?: unknown[] }> };
     address?: string;
-}): Promise<PostDepthTestContext["forcedSubplebbitStoredUpdate"]> {
+}): Promise<PostDepthTestContext["forcedCommunityStoredUpdate"]> {
     const timeoutMs = 60000;
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
@@ -715,14 +715,14 @@ async function resolveWhenConditionIsTrueWithTimeout({
     throw new Error(`Timed out waiting for condition after ${timeoutMs}ms`);
 }
 
-function makeCommentCidFetchFail(plebbit: Plebbit, cid: string): void {
+function makeCommentCidFetchFail(plebbit: PKC, cid: string): void {
     const inflightFetchManager = plebbit._inflightFetchManager as never as {
         _inflightFetches: Map<string, Promise<unknown>>;
     } | null;
     if (!inflightFetchManager?._inflightFetches) throw new Error("inflight fetch manager is not available");
     (plebbit._memCaches?.commentIpfs as never as Map<string, unknown> | undefined)?.delete?.(cid);
     const key = `comment-ipfs::${cid}`;
-    const rejection = Promise.reject(new PlebbitError("ERR_FETCH_CID_P2P_TIMEOUT", { cid }));
+    const rejection = Promise.reject(new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { cid }));
     rejection.catch(() => {}); // mark as handled to avoid unhandled rejection noise in vitest
     inflightFetchManager._inflightFetches.set(key, rejection);
 }

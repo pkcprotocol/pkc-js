@@ -1,10 +1,10 @@
 import {
     getPeerIdFromPublicKey,
     getPeerIdFromPublicKeyBuffer,
-    getPlebbitAddressFromPrivateKey,
-    getPlebbitAddressFromPublicKey,
-    getPlebbitAddressFromPublicKeyBuffer,
-    getPlebbitAddressFromPublicKeySync
+    getPKCAddressFromPrivateKey,
+    getPKCAddressFromPublicKey,
+    getPKCAddressFromPublicKeyBuffer,
+    getPKCAddressFromPublicKeySync
 } from "./util.js";
 import * as cborg from "cborg";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
@@ -12,10 +12,10 @@ import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import * as ed from "@noble/ed25519";
 
 import PeerId from "peer-id";
-import { areEquivalentSubplebbitAddresses, isStringDomain, removeNullUndefinedEmptyObjectsValuesRecursively, timestamp } from "../util.js";
+import { areEquivalentCommunityAddresses, isStringDomain, removeNullUndefinedEmptyObjectsValuesRecursively, timestamp } from "../util.js";
 import { getCommunityAddressFromRecord } from "../publications/publication-community.js";
-import { PlebbitError } from "../pkc-error.js";
-import { Plebbit } from "../pkc/pkc.js";
+import { PKCError } from "../pkc-error.js";
+import { PKC } from "../pkc/pkc.js";
 
 import type {
     ChallengeAnswerMessageSignature,
@@ -34,10 +34,10 @@ import Logger from "../logger.js";
 import { messages } from "../errors.js";
 import assert from "assert";
 import { BaseClientsManager } from "../clients/base-client-manager.js";
-import type { SubplebbitIpfsType, SubplebbitSignature } from "../community/types.js";
+import type { CommunityIpfsType, CommunitySignature } from "../community/types.js";
 import { sha256 } from "js-sha256";
 import * as remeda from "remeda"; // tree-shaking supported!
-import type { JsonSignature, PlebbitRecordToVerify, PubsubMsgToSign, PubsubSignature, SignerType } from "./types.js";
+import type { JsonSignature, PKCRecordToVerify, PubsubMsgToSign, PubsubSignature, SignerType } from "./types.js";
 import type {
     CommentEditOptionsToSign,
     CommentEditPubsubMessagePublication,
@@ -66,7 +66,7 @@ import {
     CommentUpdateSignedPropertyNames
 } from "../publications/comment/schema.js";
 import type { ModQueuePageIpfs, PageIpfs } from "../pages/types.js";
-import { SubplebbitIpfsReservedFields, SubplebbitSignedPropertyNames } from "../community/schema.js";
+import { CommunityIpfsReservedFields, CommunitySignedPropertyNames } from "../community/schema.js";
 import {
     ChallengeRequestMessageSignedPropertyNames,
     ChallengeMessageSignedPropertyNames,
@@ -80,15 +80,15 @@ import type {
 } from "../publications/comment-moderation/types.js";
 import { CommentModerationSignedPropertyNames } from "../publications/comment-moderation/schema.js";
 import type {
-    SubplebbitEditPublicationOptionsToSign,
-    SubplebbitEditPublicationSignature,
-    SubplebbitEditPubsubMessagePublication
+    CommunityEditPublicationOptionsToSign,
+    CommunityEditPublicationSignature,
+    CommunityEditPubsubMessagePublication
 } from "../publications/community-edit/types.js";
-import { SubplebbitEditPublicationSignedPropertyNames } from "../publications/community-edit/schema.js";
+import { CommunityEditPublicationSignedPropertyNames } from "../publications/community-edit/schema.js";
 import { AuthorCommentIpfsReservedFields } from "../schema/schema.js";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
-import { RemoteSubplebbit } from "../community/remote-community.js";
+import { RemoteCommunity } from "../community/remote-community.js";
 import { getAuthorNameFromWire } from "../publications/publication-author.js";
 
 export type ValidationResult = { valid: true } | { valid: false; reason: string };
@@ -128,11 +128,11 @@ export const verifyBufferEd25519 = async (bufferToSign: Uint8Array, bufferSignat
     return isValid;
 };
 
-async function _validateAuthorAddressBeforeSigning(author: CommentOptionsToSign["author"], signer: SignerType, plebbit: Plebbit) {
+async function _validateAuthorAddressBeforeSigning(author: CommentOptionsToSign["author"], signer: SignerType, plebbit: PKC) {
     const authorName = getAuthorNameFromWire(author);
     if (!authorName) return;
     if (isStringDomain(authorName)) return;
-    throw new PlebbitError("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58", {
+    throw new PKCError("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58", {
         authorAddress: authorName,
         signerAddress: signer.address,
         author
@@ -213,7 +213,7 @@ export async function signComment({
     plebbit
 }: {
     comment: CommentOptionsToSign;
-    plebbit: Plebbit;
+    plebbit: PKC;
 }): Promise<CommentPubsubMessagPublicationSignature> {
     const log = Logger("pkc-js:signatures:signComment");
     await _validateAuthorAddressBeforeSigning(comment.author, comment.signer, plebbit);
@@ -250,7 +250,7 @@ export async function signCommentUpdateForChallengeVerification({
     );
 }
 
-export async function signVote({ vote, plebbit }: { vote: VoteOptionsToSign; plebbit: Plebbit }): Promise<VoteSignature> {
+export async function signVote({ vote, plebbit }: { vote: VoteOptionsToSign; plebbit: PKC }): Promise<VoteSignature> {
     const log = Logger("pkc-js:signatures:signVote");
     await _validateAuthorAddressBeforeSigning(vote.author, vote.signer, plebbit);
     return <VoteSignature>await _signJson(VoteSignedPropertyNames, vote, vote.signer, log);
@@ -260,23 +260,17 @@ export async function signCommunityEdit({
     subplebbitEdit,
     plebbit
 }: {
-    subplebbitEdit: SubplebbitEditPublicationOptionsToSign;
-    plebbit: Plebbit;
-}): Promise<SubplebbitEditPublicationSignature> {
+    subplebbitEdit: CommunityEditPublicationOptionsToSign;
+    plebbit: PKC;
+}): Promise<CommunityEditPublicationSignature> {
     const log = Logger("pkc-js:signatures:signCommunityEdit");
     await _validateAuthorAddressBeforeSigning(subplebbitEdit.author, subplebbitEdit.signer, plebbit);
-    return <SubplebbitEditPublicationSignature>(
-        await _signJson(SubplebbitEditPublicationSignedPropertyNames, subplebbitEdit, subplebbitEdit.signer, log)
+    return <CommunityEditPublicationSignature>(
+        await _signJson(CommunityEditPublicationSignedPropertyNames, subplebbitEdit, subplebbitEdit.signer, log)
     );
 }
 
-export async function signCommentEdit({
-    edit,
-    plebbit
-}: {
-    edit: CommentEditOptionsToSign;
-    plebbit: Plebbit;
-}): Promise<CommentEditSignature> {
+export async function signCommentEdit({ edit, plebbit }: { edit: CommentEditOptionsToSign; plebbit: PKC }): Promise<CommentEditSignature> {
     const log = Logger("pkc-js:signatures:signCommentEdit");
     await _validateAuthorAddressBeforeSigning(edit.author, edit.signer, plebbit);
     return <CommentEditSignature>(
@@ -289,7 +283,7 @@ export async function signCommentModeration({
     plebbit
 }: {
     commentMod: CommentModerationOptionsToSign;
-    plebbit: Plebbit;
+    plebbit: PKC;
 }): Promise<CommentModerationSignature> {
     const log = Logger("pkc-js:signatures:signCommentModeration");
     await _validateAuthorAddressBeforeSigning(commentMod.author, commentMod.signer, plebbit);
@@ -300,13 +294,11 @@ export async function signCommunity({
     subplebbit,
     signer
 }: {
-    subplebbit: Omit<SubplebbitIpfsType, "signature">;
+    subplebbit: Omit<CommunityIpfsType, "signature">;
     signer: SignerType;
-}): Promise<SubplebbitSignature> {
+}): Promise<CommunitySignature> {
     const log = Logger("pkc-js:signatures:signCommunity");
-    return <SubplebbitSignature>(
-        await _signJson(<JsonSignature["signedPropertyNames"]>SubplebbitSignedPropertyNames, subplebbit, signer, log)
-    );
+    return <CommunitySignature>await _signJson(<JsonSignature["signedPropertyNames"]>CommunitySignedPropertyNames, subplebbit, signer, log);
 }
 
 export async function signChallengeRequest({
@@ -376,7 +368,7 @@ export async function signChallengeVerification({
 // Verify functions
 
 // DO NOT MODIFY THIS FUNCTION, OTHERWISE YOU RISK BREAKING BACKWARD COMPATIBILITY
-const _verifyJsonSignature = async (publicationToBeVerified: PlebbitRecordToVerify): Promise<boolean> => {
+const _verifyJsonSignature = async (publicationToBeVerified: PKCRecordToVerify): Promise<boolean> => {
     const propsToSign = {};
     for (const propertyName of publicationToBeVerified.signature.signedPropertyNames) {
         //@ts-expect-error
@@ -445,7 +437,7 @@ export async function verifyCommunityEdit({
     resolveAuthorNames,
     clientsManager
 }: {
-    subplebbitEdit: SubplebbitEditPubsubMessagePublication;
+    subplebbitEdit: CommunityEditPubsubMessagePublication;
     resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
 }): Promise<ValidationResult> {
@@ -533,7 +525,7 @@ export async function verifyCommentIpfs(opts: {
     if (
         opts.communityAddressFromInstance &&
         commentCommunityAddress &&
-        !areEquivalentSubplebbitAddresses(commentCommunityAddress, opts.communityAddressFromInstance)
+        !areEquivalentCommunityAddresses(commentCommunityAddress, opts.communityAddressFromInstance)
     )
         return { valid: false, reason: messages.ERR_COMMENT_IPFS_COMMUNITY_ADDRESS_MISMATCH };
 
@@ -563,7 +555,7 @@ export async function verifyCommentIpfs(opts: {
 function _allFieldsOfRecordInSignedPropertyNames(
     record:
         | PublicationFromDecryptedChallengeRequest
-        | SubplebbitIpfsType
+        | CommunityIpfsType
         | PubsubMessage
         | CommentUpdateType
         | CommentUpdateForChallengeVerification
@@ -582,7 +574,7 @@ export async function verifyCommunity({
     cacheIfValid,
     abortSignal
 }: {
-    subplebbit: SubplebbitIpfsType;
+    subplebbit: CommunityIpfsType;
     subplebbitIpnsName: string;
     resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
@@ -593,7 +585,7 @@ export async function verifyCommunity({
     const log = Logger("pkc-js:signatures:verifyCommunity");
     if (!_allFieldsOfRecordInSignedPropertyNames(subplebbit))
         return { valid: false, reason: messages.ERR_COMMUNITY_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
-    if (_isThereReservedFieldInRecord(subplebbit, SubplebbitIpfsReservedFields))
+    if (_isThereReservedFieldInRecord(subplebbit, CommunityIpfsReservedFields))
         return { valid: false, reason: messages.ERR_COMMUNITY_RECORD_INCLUDES_RESERVED_FIELD };
     const signatureValidity = await _verifyJsonSignature(subplebbit);
     if (!signatureValidity) return { valid: false, reason: messages.ERR_COMMUNITY_SIGNATURE_IS_INVALID };
@@ -602,8 +594,8 @@ export async function verifyCommunity({
     if (cacheIfValidWithDefault && clientsManager._plebbit._memCaches.subplebbitVerificationCache.get(cacheKey)) return { valid: true };
 
     // Derive address for page verification: name || publicKey || ipnsName
-    const subAddress = subplebbit.name || getPlebbitAddressFromPublicKeySync(subplebbit.signature.publicKey);
-    const subForPages: SubplebbitForVerifyingPages = { address: subAddress, signature: subplebbit.signature };
+    const subAddress = subplebbit.name || getPKCAddressFromPublicKeySync(subplebbit.signature.publicKey);
+    const subForPages: CommunityForVerifyingPages = { address: subAddress, signature: subplebbit.signature };
 
     if (subplebbit.posts?.pages && validatePages)
         for (const preloadedPageSortName of remeda.keys.strict(subplebbit.posts.pages)) {
@@ -625,7 +617,7 @@ export async function verifyCommunity({
 
             if (!pageValidity.valid) {
                 log.error(
-                    `Subplebbit (${subAddress}) page (${preloadedPageSortName} - ${subplebbit.posts.pageCids?.[preloadedPageSortName]}) has an invalid signature due to reason (${pageValidity.reason})`
+                    `Community (${subAddress}) page (${preloadedPageSortName} - ${subplebbit.posts.pageCids?.[preloadedPageSortName]}) has an invalid signature due to reason (${pageValidity.reason})`
                 );
                 return { valid: false, reason: messages.ERR_COMMUNITY_POSTS_INVALID };
             }
@@ -639,7 +631,7 @@ export async function verifyCommunity({
     return { valid: true };
 }
 
-async function _validateSignatureOfPlebbitRecord(publication: PlebbitRecordToVerify): Promise<ValidationResult> {
+async function _validateSignatureOfPKCRecord(publication: PKCRecordToVerify): Promise<ValidationResult> {
     if (typeof publication.signature.publicKey !== "string") return { valid: false, reason: messages.ERR_SIGNATURE_HAS_NO_PUBLIC_KEY };
     const signatureValidity = await _verifyJsonSignature(publication);
     if (!signatureValidity) return { valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID };
@@ -653,7 +645,7 @@ async function _validateSignatureOfPubsubMsg(publication: PubsubMessage): Promis
 }
 
 function _isThereReservedFieldInRecord(
-    record: CommentUpdateType | SubplebbitIpfsType | CommentUpdateForChallengeVerification | CommentIpfsType,
+    record: CommentUpdateType | CommunityIpfsType | CommentUpdateForChallengeVerification | CommentIpfsType,
     reservedFields: readonly string[]
 ) {
     return remeda.intersection(Object.keys(record), reservedFields).length > 0;
@@ -672,7 +664,7 @@ export async function verifyCommentUpdate({
     update: CommentUpdateType | CommentUpdateForChallengeVerification | ModQueuePageIpfs["comments"][0]["commentUpdate"];
     resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
-    subplebbit: SubplebbitForVerifyingPages;
+    subplebbit: CommunityForVerifyingPages;
     comment: Pick<CommentIpfsWithCidPostCidDefined, "signature" | "cid" | "depth" | "postCid">;
     validatePages: boolean;
     validateUpdateSignature: boolean;
@@ -686,7 +678,7 @@ export async function verifyCommentUpdate({
     const log = Logger("pkc-js:signatures:verifyCommentUpdate");
 
     if (validateUpdateSignature) {
-        const jsonValidation = await _validateSignatureOfPlebbitRecord(update);
+        const jsonValidation = await _validateSignatureOfPKCRecord(update);
 
         if (!jsonValidation.valid) return jsonValidation;
     }
@@ -699,7 +691,7 @@ export async function verifyCommentUpdate({
     if ("edit" in update && update.edit) {
         if (update.edit.signature.publicKey !== comment.signature.publicKey)
             return { valid: false, reason: messages.ERR_AUTHOR_EDIT_IS_NOT_SIGNED_BY_AUTHOR };
-        const editSignatureValidation = await _validateSignatureOfPlebbitRecord(update.edit);
+        const editSignatureValidation = await _validateSignatureOfPKCRecord(update.edit);
         if (!editSignatureValidation.valid) return { valid: false, reason: messages.ERR_COMMENT_UPDATE_EDIT_SIGNATURE_IS_INVALID };
     }
     if (update.cid !== comment.cid) return { valid: false, reason: messages.ERR_COMMENT_UPDATE_DIFFERENT_CID_THAN_COMMENT };
@@ -783,7 +775,7 @@ export async function verifyChallengeMessage({
     if (!_allFieldsOfRecordInSignedPropertyNames(challenge))
         return { valid: false, reason: messages.ERR_CHALLENGE_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
 
-    const msgSignerAddress = await getPlebbitAddressFromPublicKeyBuffer(challenge.signature.publicKey);
+    const msgSignerAddress = await getPKCAddressFromPublicKeyBuffer(challenge.signature.publicKey);
     if (msgSignerAddress !== pubsubTopic) return { valid: false, reason: messages.ERR_CHALLENGE_MSG_SIGNER_IS_NOT_COMMUNITY };
     if ((validateTimestampRange && _minimumTimestamp() > challenge.timestamp) || _maximumTimestamp() < challenge.timestamp)
         return { valid: false, reason: messages.ERR_PUBSUB_MSG_TIMESTAMP_IS_OUTDATED };
@@ -822,7 +814,7 @@ export async function verifyChallengeVerification({
     if (!_allFieldsOfRecordInSignedPropertyNames(verification))
         return { valid: false, reason: messages.ERR_CHALLENGE_VERIFICATION_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
 
-    const msgSignerAddress = await getPlebbitAddressFromPublicKeyBuffer(verification.signature.publicKey);
+    const msgSignerAddress = await getPKCAddressFromPublicKeyBuffer(verification.signature.publicKey);
     if (msgSignerAddress !== pubsubTopic) return { valid: false, reason: messages.ERR_CHALLENGE_VERIFICATION_MSG_SIGNER_IS_NOT_COMMUNITY };
     if ((validateTimestampRange && _minimumTimestamp() > verification.timestamp) || _maximumTimestamp() < verification.timestamp)
         return { valid: false, reason: messages.ERR_PUBSUB_MSG_TIMESTAMP_IS_OUTDATED };
@@ -835,7 +827,7 @@ type ParentCommentForVerifyingPages =
     | Pick<CommentIpfsWithCidDefined, "postCid"> // when we're verifying a flat page
     | { cid: undefined; depth: -1; postCid: undefined }; // when we're verifying a subplebbit posts page
 
-type SubplebbitForVerifyingPages = { address: string; signature?: SubplebbitIpfsType["signature"] };
+type CommunityForVerifyingPages = { address: string; signature?: CommunityIpfsType["signature"] };
 
 export async function verifyPageComment({
     pageComment,
@@ -848,7 +840,7 @@ export async function verifyPageComment({
     abortSignal
 }: {
     pageComment: (PageIpfs | ModQueuePageIpfs)["comments"][0];
-    subplebbit: SubplebbitForVerifyingPages;
+    subplebbit: CommunityForVerifyingPages;
     parentComment: ParentCommentForVerifyingPages | undefined;
     resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
@@ -863,7 +855,7 @@ export async function verifyPageComment({
     // another sceneario is when we're verifying a mod queue page that has comments with different depths with different parentCids and not necessarily a shared postCid
     // Handle both old format (subplebbitAddress) and new format (communityPublicKey/communityName)
     const pageCommunityAddress = getCommunityAddressFromRecord(pageComment.comment as unknown as Record<string, unknown>);
-    if (pageCommunityAddress && !areEquivalentSubplebbitAddresses(pageCommunityAddress, subplebbit.address))
+    if (pageCommunityAddress && !areEquivalentCommunityAddresses(pageCommunityAddress, subplebbit.address))
         return { valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY };
 
     if (pageComment.comment.depth === 0 && pageComment.comment.postCid)
@@ -933,7 +925,7 @@ export async function verifyPage({
     page: PageIpfs;
     resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
-    subplebbit: SubplebbitForVerifyingPages;
+    subplebbit: CommunityForVerifyingPages;
     parentComment: ParentCommentForVerifyingPages;
     validatePages: boolean;
     validateUpdateSignature: boolean;
@@ -985,7 +977,7 @@ export async function verifyModQueuePage({
     page: ModQueuePageIpfs;
     resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
-    subplebbit: SubplebbitForVerifyingPages;
+    subplebbit: CommunityForVerifyingPages;
     validatePages: boolean;
     validateUpdateSignature: boolean;
     abortSignal?: AbortSignal;

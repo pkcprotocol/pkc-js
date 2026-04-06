@@ -7,13 +7,13 @@ import {
     generateMockVote,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     iterateThroughPagesToFindCommentInParentPagesInstance
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
 import * as remeda from "remeda";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 
@@ -24,9 +24,9 @@ const roles = [
     { role: "mod", signer: signers[3] }
 ];
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent("Deleting a post - " + config.name, async () => {
-        let plebbit: Plebbit, postToDelete: Comment, modPostToDelete: Comment, postReply: Comment;
+        let plebbit: PKC, postToDelete: Comment, modPostToDelete: Comment, postReply: Comment;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -94,7 +94,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`Deleted post is omitted from subplebbit.posts`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: postToDelete.communityAddress });
+            const sub = await plebbit.createCommunity({ address: postToDelete.communityAddress });
             await sub.update();
 
             await resolveWhenConditionIsTrue({
@@ -213,7 +213,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     });
 
     describe.concurrent("Deleting a reply - " + config.name, async () => {
-        let plebbit: Plebbit, replyToDelete: Comment, post: Comment, replyUnderDeletedReply: Comment;
+        let plebbit: PKC, replyToDelete: Comment, post: Comment, replyUnderDeletedReply: Comment;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();

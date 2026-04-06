@@ -15,11 +15,11 @@ export const SignerWithAddressPublicKeyShortAddressSchema = SignerWithAddressPub
     shortAddress: z.string().length(12)
 });
 
-export const SubplebbitAddressSchema = z.string().min(1); // TODO add a regex for checking if it's a domain or IPNS address
+export const CommunityAddressSchema = z.string().min(1); // TODO add a regex for checking if it's a domain or IPNS address
 
 export const AuthorAddressSchema = z.string().min(1);
 
-export const PlebbitTimestampSchema = z.number().positive().int(); // Math.round(Date.now() / 1000)
+export const PKCTimestampSchema = z.number().positive().int(); // Math.round(Date.now() / 1000)
 
 export const ProtocolVersionSchema = z.string().min(1);
 
@@ -27,7 +27,7 @@ export const UserAgentSchema = z.string().min(1); // TODO should use regex to va
 
 const WalletSchema = z.object({
     address: z.string(),
-    timestamp: PlebbitTimestampSchema,
+    timestamp: PKCTimestampSchema,
     signature: z.object({ signature: z.string().min(1), type: z.string().min(1) })
 });
 
@@ -55,7 +55,7 @@ export const AuthorAvatarNftSchema = z.looseObject({
     chainTicker: ChainTickerSchema,
     address: z.string(),
     id: z.string(),
-    timestamp: PlebbitTimestampSchema,
+    timestamp: PKCTimestampSchema,
     signature: z.object({ signature: z.string().min(1), type: z.string().min(1) })
 });
 
@@ -63,7 +63,7 @@ export const FlairSchema = z.looseObject({
     text: z.string(),
     backgroundColor: z.string().optional(),
     textColor: z.string().optional(),
-    expiresAt: PlebbitTimestampSchema.optional()
+    expiresAt: PKCTimestampSchema.optional()
 });
 
 // When author creates their publication, this is publication.author
@@ -84,11 +84,11 @@ export const ChallengeAnswersSchema = ChallengeAnswerStringSchema.array().nonemp
 export const CreatePublicationUserOptionsSchema = z.object({
     signer: CreateSignerSchema,
     author: AuthorPubsubSchema.partial().loose().optional(),
-    communityAddress: SubplebbitAddressSchema,
+    communityAddress: CommunityAddressSchema,
     communityPublicKey: z.string().min(1).optional(), // IPNS key of the community; optional in schema for backward compat with old CommentIpfs, but communities mandate it on new incoming publications
     communityName: z.string().min(1).optional(), // domain name of the community, if any
     protocolVersion: ProtocolVersionSchema.optional(),
-    timestamp: PlebbitTimestampSchema.optional(),
+    timestamp: PKCTimestampSchema.optional(),
     // pubsubMessage field will contain fields to be added to request.encrypted
     challengeRequest: z
         .object({
@@ -108,12 +108,12 @@ export const JsonSignatureSchema = z.object({
 // Common stuff here
 export const PublicationBaseBeforeSigning = z.object({
     signer: SignerWithAddressPublicKeySchema,
-    timestamp: PlebbitTimestampSchema,
+    timestamp: PKCTimestampSchema,
     author: AuthorPubsubSchema.optional(),
     protocolVersion: ProtocolVersionSchema
 });
 
-// We need testing if `challengerequest` in LocalSubplebbit emits the actual publication values including `author.subplebbit` values without anonymization
+// We need testing if `challengerequest` in LocalCommunity emits the actual publication values including `author.subplebbit` values without anonymization
 
 // `author.subplebbit.lastCommentCid` should be set to comment.timestamp always if `anonMode=per-reply`
 // `author.subplebbit.lastCommentCid` should be the last comment the anon author made inside the post if `anonMode=per-post`
@@ -137,18 +137,18 @@ export const PublicationBaseBeforeSigning = z.object({
 // anonMode=per-author, `author.subplebbit.firstCommentTimestamp` should use the value of timestamp of the first comment by the author in the subplebbit.
 
 // values below are added by the sub, not the author
-export const SubplebbitAuthorSchema = z.looseObject({
+export const CommunityAuthorSchema = z.looseObject({
     postScore: z.number(), // total post karma in the subplebbit
     replyScore: z.number(), // total reply karma in the subplebbit
-    banExpiresAt: PlebbitTimestampSchema.optional(), // timestamp in second, if defined the author was banned for this comment
+    banExpiresAt: PKCTimestampSchema.optional(), // timestamp in second, if defined the author was banned for this comment
     flairs: FlairSchema.array().optional(), // not part of the signature, mod can edit it after comment is published
-    firstCommentTimestamp: PlebbitTimestampSchema, // timestamp of the first comment by the author in the subplebbit, used for account age based challenges
+    firstCommentTimestamp: PKCTimestampSchema, // timestamp of the first comment by the author in the subplebbit, used for account age based challenges
     lastCommentCid: CidStringSchema // last comment by the author in the subplebbit, can be used with author.previousCommentCid to get a recent author comment history in all subplebbits
 });
-export const CommentAuthorSchema = SubplebbitAuthorSchema.pick({ banExpiresAt: true, flairs: true });
+export const CommentAuthorSchema = CommunityAuthorSchema.pick({ banExpiresAt: true, flairs: true });
 
 export const AuthorWithOptionalCommentUpdateSchema = AuthorPubsubSchema.extend({
-    subplebbit: SubplebbitAuthorSchema.optional() // (added by CommentUpdate) up to date author properties specific to the subplebbit it's in
+    subplebbit: CommunityAuthorSchema.optional() // (added by CommentUpdate) up to date author properties specific to the subplebbit it's in
 });
 
 export const AuthorReservedFields = remeda.difference(

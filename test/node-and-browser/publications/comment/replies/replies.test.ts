@@ -1,10 +1,10 @@
 import {
     publishRandomPost,
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     publishRandomReply,
-    mockPlebbitV2,
+    mockPKCV2,
     loadAllPagesBySortName,
-    isPlebbitFetchingUsingGateways,
+    isPKCFetchingUsingGateways,
     waitTillReplyInParentPagesInstance,
     resolveWhenConditionIsTrue,
     itSkipIfRpc
@@ -15,25 +15,25 @@ import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { messages } from "../../../../../dist/node/errors.js";
 import { testCommentFieldsInPageJson } from "../../../pages/pages-test-util.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { PlebbitError } from "../../../../../dist/node/pkc-error.js";
+import type { PKCError } from "../../../../../dist/node/pkc-error.js";
 import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
-import type { Plebbit } from "../../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
-import type { RemoteSubplebbit } from "../../../../../dist/node/community/remote-community.js";
+import type { RemoteCommunity } from "../../../../../dist/node/community/remote-community.js";
 
 // Helper type for replies that require both cid and parentCid
 type ReplyWithRequiredFields = Required<Pick<CommentIpfsWithCidDefined, "cid" | "parentCid"> & { communityAddress: string }>;
 
 const subplebbitAddress = signers[0].address;
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent("post.replies - " + config.name, async () => {
-        let plebbit: Plebbit, subplebbit: RemoteSubplebbit;
+        let plebbit: PKC, subplebbit: RemoteCommunity;
         let post: Comment, firstLevelReply: Comment, secondLevelReply: Comment, thirdLevelReply: Comment;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            subplebbit = await plebbit.getSubplebbit({ address: signers[0].address });
+            subplebbit = await plebbit.getCommunity({ address: signers[0].address });
             post = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
             await post.update();
             await resolveWhenConditionIsTrue({ toUpdate: post, predicate: async () => typeof post.updatedAt === "number" });
@@ -84,12 +84,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     });
 });
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
-    let plebbit: Plebbit, reply: Comment, subplebbit: RemoteSubplebbit;
+getAvailablePKCConfigsToTestAgainst().map((config) => {
+    let plebbit: PKC, reply: Comment, subplebbit: RemoteCommunity;
     describe.concurrent(`reply.replies - ${config.name}`, async () => {
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
             const post = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
             reply = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
             await reply.update();
@@ -143,9 +143,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
     });
 });
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent("comment.replies - " + config.name, async () => {
-        let plebbit: Plebbit, post: Comment;
+        let plebbit: PKC, post: Comment;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             post = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
@@ -158,7 +158,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         describe.concurrent(`comment.replies.getPage - ${config.name}`, async () => {
             itSkipIfRpc("replies.getPage will throw a timeout error when request times out", async () => {
                 // Create a plebbit instance with a very short timeout for page-ipfs
-                const plebbit = await mockPlebbitV2({ plebbitOptions: { validatePages: false }, remotePlebbit: true });
+                const plebbit = await mockPKCV2({ plebbitOptions: { validatePages: false }, remotePKC: true });
 
                 plebbit._timeouts["page-ipfs"] = 100;
 
@@ -175,14 +175,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     await comment.replies.getPage({ cid: nonExistentCid });
                     expect.fail("Should have timed out");
                 } catch (e) {
-                    if (isPlebbitFetchingUsingGateways(plebbit)) {
-                        expect((e as PlebbitError).code).to.equal("ERR_FAILED_TO_FETCH_PAGE_IPFS_FROM_GATEWAYS");
+                    if (isPKCFetchingUsingGateways(plebbit)) {
+                        expect((e as PKCError).code).to.equal("ERR_FAILED_TO_FETCH_PAGE_IPFS_FROM_GATEWAYS");
                         for (const gatewayUrl of Object.keys(plebbit.clients.ipfsGateways))
-                            expect((e as PlebbitError).details.gatewayToError[gatewayUrl].code).to.equal(
-                                "ERR_GATEWAY_TIMED_OUT_OR_ABORTED"
-                            );
+                            expect((e as PKCError).details.gatewayToError[gatewayUrl].code).to.equal("ERR_GATEWAY_TIMED_OUT_OR_ABORTED");
                     } else {
-                        expect((e as PlebbitError).code).to.equal("ERR_FETCH_CID_P2P_TIMEOUT");
+                        expect((e as PKCError).code).to.equal("ERR_FETCH_CID_P2P_TIMEOUT");
                     }
                 }
                 await plebbit.destroy();
@@ -191,7 +189,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     });
 
     describe.concurrent("replies.validatePage validation tests", async () => {
-        let plebbit: Plebbit, postWithReplies: Comment;
+        let plebbit: PKC, postWithReplies: Comment;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: false } });
@@ -221,8 +219,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await post.replies.validatePage(pageWithInvalidComment);
                 expect.fail("Should have thrown");
             } catch (e) {
-                expect((e as PlebbitError).code).to.equal("ERR_REPLIES_PAGE_IS_INVALID");
-                expect((e as PlebbitError).details.signatureValidity.reason).to.equal(messages.ERR_SIGNATURE_IS_INVALID);
+                expect((e as PKCError).code).to.equal("ERR_REPLIES_PAGE_IS_INVALID");
+                expect((e as PKCError).details.signatureValidity.reason).to.equal(messages.ERR_SIGNATURE_IS_INVALID);
             }
             await plebbit.destroy();
         });
@@ -240,8 +238,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await post.replies.validatePage(pageWithInvalidComment);
                 expect.fail("Should have thrown");
             } catch (e) {
-                expect((e as PlebbitError).code).to.equal("ERR_REPLIES_PAGE_IS_INVALID");
-                expect((e as PlebbitError).details.signatureValidity.reason).to.equal(
+                expect((e as PKCError).code).to.equal("ERR_REPLIES_PAGE_IS_INVALID");
+                expect((e as PKCError).details.signatureValidity.reason).to.equal(
                     messages.ERR_PAGE_COMMENT_POST_CID_IS_NOT_SAME_AS_POST_CID_OF_COMMENT_INSTANCE
                 );
             }
@@ -261,7 +259,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await post.replies.validatePage(pageWithInvalidComment);
                 expect.fail("Should have thrown");
             } catch (e) {
-                expect((e as PlebbitError).code).to.equal("ERR_USER_ATTEMPTS_TO_VALIDATE_REPLIES_PAGE_WITHOUT_PARENT_COMMENT_POST_CID");
+                expect((e as PKCError).code).to.equal("ERR_USER_ATTEMPTS_TO_VALIDATE_REPLIES_PAGE_WITHOUT_PARENT_COMMENT_POST_CID");
             }
             await plebbit.destroy();
         });
@@ -288,8 +286,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await postWithReplies.replies.validatePage(invalidFlatPage);
                 expect.fail("Should have thrown");
             } catch (e) {
-                expect((e as PlebbitError).code).to.equal("ERR_REPLIES_PAGE_IS_INVALID");
-                expect((e as PlebbitError).details.signatureValidity.reason).to.equal(messages.ERR_SIGNATURE_IS_INVALID);
+                expect((e as PKCError).code).to.equal("ERR_REPLIES_PAGE_IS_INVALID");
+                expect((e as PKCError).details.signatureValidity.reason).to.equal(messages.ERR_SIGNATURE_IS_INVALID);
             }
         });
 
@@ -304,8 +302,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await postWithReplies.replies.validatePage(invalidPage);
                 expect.fail("Should have thrown");
             } catch (e) {
-                expect((e as PlebbitError).code).to.equal("ERR_REPLIES_PAGE_IS_INVALID");
-                expect((e as PlebbitError).details.signatureValidity.reason).to.equal(
+                expect((e as PKCError).code).to.equal("ERR_REPLIES_PAGE_IS_INVALID");
+                expect((e as PKCError).details.signatureValidity.reason).to.equal(
                     messages.ERR_PAGE_COMMENT_DEPTH_VALUE_IS_NOT_RELATIVE_TO_ITS_PARENT
                 );
             }
@@ -323,8 +321,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await postWithReplies.replies.validatePage(invalidPage);
                 expect.fail("Should have thrown");
             } catch (e) {
-                expect((e as PlebbitError).code).to.equal("ERR_REPLIES_PAGE_IS_INVALID");
-                expect((e as PlebbitError).details.signatureValidity.reason).to.equal(
+                expect((e as PKCError).code).to.equal("ERR_REPLIES_PAGE_IS_INVALID");
+                expect((e as PKCError).details.signatureValidity.reason).to.equal(
                     messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY
                 );
             }
@@ -342,8 +340,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await postWithReplies.replies.validatePage(invalidPage);
                 expect.fail("Should have thrown");
             } catch (e) {
-                expect((e as PlebbitError).code).to.equal("ERR_REPLIES_PAGE_IS_INVALID");
-                expect((e as PlebbitError).details.signatureValidity.reason).to.equal(
+                expect((e as PKCError).code).to.equal("ERR_REPLIES_PAGE_IS_INVALID");
+                expect((e as PKCError).details.signatureValidity.reason).to.equal(
                     messages.ERR_PARENT_CID_OF_COMMENT_IN_PAGE_IS_NOT_CORRECT
                 );
             }
@@ -362,8 +360,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await postWithReplies.replies.validatePage(invalidPage);
                 expect.fail("Should have thrown");
             } catch (e) {
-                expect((e as PlebbitError).code).to.equal("ERR_REPLIES_PAGE_IS_INVALID");
-                expect((e as PlebbitError).details.signatureValidity.reason).to.equal(messages.ERR_SIGNATURE_IS_INVALID);
+                expect((e as PKCError).code).to.equal("ERR_REPLIES_PAGE_IS_INVALID");
+                expect((e as PKCError).details.signatureValidity.reason).to.equal(messages.ERR_SIGNATURE_IS_INVALID);
             }
         });
 

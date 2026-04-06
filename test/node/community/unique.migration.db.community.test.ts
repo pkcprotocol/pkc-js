@@ -5,10 +5,10 @@ import type { JsonSignature } from "../../../dist/node/signer/types.js";
 import type { CommentsTableRowInsert } from "../../../dist/node/publications/comment/types.js";
 import type { CommentEditsTableRowInsert } from "../../../dist/node/publications/comment-edit/types.js";
 import type { CommentModerationsTableRowInsert } from "../../../dist/node/publications/comment-moderation/types.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { PurgedCommentTableRows } from "../../../dist/node/runtime/node/community/db-handler-types.js";
 
-interface FakeSubplebbit {
+interface FakeCommunity {
     address: string;
     _plebbit: { noData: boolean };
     _cidsToUnPin: Set<string>;
@@ -58,10 +58,10 @@ describeSkipIfRpc("db-handler duplicate signature purge during migration", funct
     });
 
     async function createTestDbHandler(): Promise<DbHandler> {
-        const fakePlebbit = { noData: true };
-        const fakeSubplebbit: FakeSubplebbit = {
+        const fakePKC = { noData: true };
+        const fakeCommunity: FakeCommunity = {
             address: communityAddress,
-            _plebbit: fakePlebbit,
+            _plebbit: fakePKC,
             _cidsToUnPin: new Set<string>(),
             _blocksToRm: [],
             _mfsPathsToRemove: new Set<string>(),
@@ -80,7 +80,7 @@ describeSkipIfRpc("db-handler duplicate signature purge during migration", funct
                 }
             }
         };
-        const handler = new DbHandler(fakeSubplebbit as unknown as LocalSubplebbit);
+        const handler = new DbHandler(fakeCommunity as unknown as LocalCommunity);
         await handler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
         await handler.createOrMigrateTablesIfNeeded();
         return handler;
@@ -238,7 +238,7 @@ describeSkipIfRpc("db-handler duplicate signature purge during migration", funct
 
         const dbHandlerWithPrivate = dbHandler as unknown as {
             _purgePublicationTablesWithDuplicateSignatures: () => void;
-            _subplebbit: FakeSubplebbit;
+            _subplebbit: FakeCommunity;
         };
         dbHandlerWithPrivate._purgePublicationTablesWithDuplicateSignatures();
 

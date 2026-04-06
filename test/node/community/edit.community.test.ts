@@ -2,14 +2,14 @@ import { beforeAll, afterAll, describe, it, beforeEach } from "vitest";
 import {
     createMockNameResolver,
     publishRandomPost,
-    mockPlebbit,
+    mockPKC,
     createSubWithNoChallenge,
-    mockPlebbitNoDataPathWithOnlyKuboClient,
+    mockPKCNoDataPathWithOnlyKuboClient,
     resolveWhenConditionIsTrue,
     describeSkipIfRpc,
     describeIfRpc,
-    waitTillPostInSubplebbitPages,
-    mockPlebbitV2
+    waitTillPostInCommunityPages,
+    mockPKCV2
 } from "../../../dist/node/test/test-util.js";
 import { timestamp } from "../../../dist/node/util.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
@@ -19,17 +19,17 @@ import * as remeda from "remeda";
 
 import { v4 as uuidV4 } from "uuid";
 
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../dist/node/community/rpc-local-community.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
-import type { RemoteSubplebbit } from "../../../dist/node/community/remote-community.js";
-import type { SubplebbitEditOptions } from "../../../dist/node/community/types.js";
+import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
+import type { CommunityEditOptions } from "../../../dist/node/community/types.js";
 
 describeSkipIfRpc(`subplebbit.edit`, async () => {
-    let plebbit: PlebbitType;
-    let remotePlebbit: PlebbitType;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    let plebbit: PKCType;
+    let remotePKC: PKCType;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
     let postToPublishAfterEdit: Comment;
     let bsoNameAddress: string;
     let plebbitResolverRecords: Map<string, string | undefined>;
@@ -37,16 +37,16 @@ describeSkipIfRpc(`subplebbit.edit`, async () => {
     beforeAll(async () => {
         plebbitResolverRecords = new Map();
         remoteResolverRecords = new Map();
-        plebbit = await mockPlebbitV2({
+        plebbit = await mockPKCV2({
             stubStorage: false,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: plebbitResolverRecords })]
             }
         });
-        remotePlebbit = await mockPlebbitV2({
+        remotePKC = await mockPKCV2({
             stubStorage: false,
-            remotePlebbit: true,
+            remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: remoteResolverRecords })]
@@ -59,7 +59,7 @@ describeSkipIfRpc(`subplebbit.edit`, async () => {
         plebbitResolverRecords.set(bsoNameAddress, subplebbit.signer.address);
         remoteResolverRecords.set(bsoNameAddress, subplebbit.signer.address);
 
-        const resolvedSubAddress = await remotePlebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: bsoNameAddress });
+        const resolvedSubAddress = await remotePKC._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: bsoNameAddress });
         expect(resolvedSubAddress).to.equal(subplebbit.signer.address);
 
         await plebbit.resolveAuthorName({ address: "esteban.bso" });
@@ -70,7 +70,7 @@ describeSkipIfRpc(`subplebbit.edit`, async () => {
     afterAll(async () => {
         await subplebbit.stop();
         await plebbit.destroy();
-        await remotePlebbit.destroy();
+        await remotePKC.destroy();
     });
 
     [{ title: `Test subplebbit title edit ${Date.now()}` }, { description: `Test subplebbit description edit ${Date.now()}` }].map(
@@ -79,17 +79,17 @@ describeSkipIfRpc(`subplebbit.edit`, async () => {
                 const [keyToEdit, newValue] = Object.entries(editArgs)[0] as [keyof typeof editArgs, string];
                 await subplebbit.edit(editArgs);
                 expect(subplebbit[keyToEdit]).to.equal(newValue);
-                const updatingRemoteSubplebbit = (await remotePlebbit.getSubplebbit({
+                const updatingRemoteCommunity = (await remotePKC.getCommunity({
                     address: subplebbit.address
-                })) as RemoteSubplebbit;
-                await updatingRemoteSubplebbit.update();
+                })) as RemoteCommunity;
+                await updatingRemoteCommunity.update();
                 await resolveWhenConditionIsTrue({
-                    toUpdate: updatingRemoteSubplebbit,
-                    predicate: async () => updatingRemoteSubplebbit[keyToEdit] === newValue
+                    toUpdate: updatingRemoteCommunity,
+                    predicate: async () => updatingRemoteCommunity[keyToEdit] === newValue
                 });
-                await updatingRemoteSubplebbit.stop();
-                expect(updatingRemoteSubplebbit[keyToEdit]).to.equal(newValue);
-                expect(updatingRemoteSubplebbit.raw.subplebbitIpfs).to.deep.equal(subplebbit.raw.subplebbitIpfs);
+                await updatingRemoteCommunity.stop();
+                expect(updatingRemoteCommunity[keyToEdit]).to.equal(newValue);
+                expect(updatingRemoteCommunity.raw.subplebbitIpfs).to.deep.equal(subplebbit.raw.subplebbitIpfs);
             })
     );
 
@@ -101,16 +101,16 @@ describeSkipIfRpc(`subplebbit.edit`, async () => {
         await sub.edit({ features: { requirePostLink: true } });
         expect(sub.features!.requirePostLink).to.be.true;
         // Access private property via casting
-        expect((sub as LocalSubplebbit)["_subplebbitUpdateTrigger"]).to.be.true;
+        expect((sub as LocalCommunity)["_subplebbitUpdateTrigger"]).to.be.true;
         await new Promise((resolve) => sub.once("update", resolve)); // the edit should trigger an update immedietely
-        expect((sub as LocalSubplebbit)["_subplebbitUpdateTrigger"]).to.be.false;
+        expect((sub as LocalCommunity)["_subplebbitUpdateTrigger"]).to.be.false;
         expect(sub.features!.requirePostLink).to.be.true;
 
         await sub.delete();
     });
     it(`Sub is locked for start`, async () => {
         // Check for locks
-        const localSub = subplebbit as LocalSubplebbit;
+        const localSub = subplebbit as LocalCommunity;
         expect(await localSub._dbHandler.isSubStartLocked(subplebbit.signer.address)).to.be.true;
     });
 
@@ -152,17 +152,17 @@ describeSkipIfRpc(`subplebbit.edit`, async () => {
     });
 
     it(`Can load a subplebbit with ENS domain as address`, async () => {
-        const loadedSubplebbit = (await remotePlebbit.getSubplebbit({ address: bsoNameAddress })) as RemoteSubplebbit;
-        expect(loadedSubplebbit.address).to.equal(bsoNameAddress);
-        expect(loadedSubplebbit.raw.subplebbitIpfs).to.deep.equal(subplebbit.raw.subplebbitIpfs);
+        const loadedCommunity = (await remotePKC.getCommunity({ address: bsoNameAddress })) as RemoteCommunity;
+        expect(loadedCommunity.address).to.equal(bsoNameAddress);
+        expect(loadedCommunity.raw.subplebbitIpfs).to.deep.equal(subplebbit.raw.subplebbitIpfs);
     });
 
     it(`remote subplebbit.posts is reset after changing address`, async () => {
-        const loadedSubplebbit = (await plebbit.getSubplebbit({ address: bsoNameAddress })) as RemoteSubplebbit;
+        const loadedCommunity = (await plebbit.getCommunity({ address: bsoNameAddress })) as RemoteCommunity;
         // subplebbit.posts should omit all comments that referenced the old subplebbit address
         // So in essence it be undefined
-        expect(loadedSubplebbit.posts.pages).to.deep.equal({});
-        expect(loadedSubplebbit.posts.pageCids).to.deep.equal({});
+        expect(loadedCommunity.posts.pages).to.deep.equal({});
+        expect(loadedCommunity.posts.pageCids).to.deep.equal({});
     });
 
     it(`Started Sub can receive publications on new ENS address`, async () => {
@@ -178,23 +178,23 @@ describeSkipIfRpc(`subplebbit.edit`, async () => {
         expect(Object.keys(subplebbit.posts.pageCids).sort()).to.deep.equal([]); // empty array because it's a single preloaded page
     });
 
-    it(`calling subplebbit.edit() should not add subplebbit to plebbit._updatingSubplebbits or plebbit._startedSubplebbits`, async () => {
-        const plebbitInstance = await mockPlebbit();
-        const sub = (await plebbitInstance.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
-        expect(plebbitInstance._updatingSubplebbits[sub.address]).to.be.undefined;
-        expect(plebbitInstance._startedSubplebbits[sub.address]).to.be.undefined;
+    it(`calling subplebbit.edit() should not add subplebbit to plebbit._updatingCommunitys or plebbit._startedCommunitys`, async () => {
+        const plebbitInstance = await mockPKC();
+        const sub = (await plebbitInstance.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+        expect(plebbitInstance._updatingCommunitys[sub.address]).to.be.undefined;
+        expect(plebbitInstance._startedCommunitys[sub.address]).to.be.undefined;
         await sub.edit({ address: "123" + bsoNameAddress });
-        expect(plebbitInstance._updatingSubplebbits[sub.address]).to.be.undefined;
-        expect(plebbitInstance._startedSubplebbits[sub.address]).to.be.undefined;
+        expect(plebbitInstance._updatingCommunitys[sub.address]).to.be.undefined;
+        expect(plebbitInstance._startedCommunitys[sub.address]).to.be.undefined;
 
         await plebbitInstance.destroy();
     });
 });
 
 describeSkipIfRpc(`subplebbit.edit .eth -> .bso transition`, async () => {
-    let plebbit: PlebbitType;
-    let remotePlebbit: PlebbitType;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    let plebbit: PKCType;
+    let remotePKC: PKCType;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
     let ethAddress: string;
     let bsoAddress: string;
     let postPublishedOnBso: Comment;
@@ -204,16 +204,16 @@ describeSkipIfRpc(`subplebbit.edit .eth -> .bso transition`, async () => {
     beforeAll(async () => {
         plebbitResolverRecords = new Map();
         remoteResolverRecords = new Map();
-        plebbit = await mockPlebbitV2({
+        plebbit = await mockPKCV2({
             stubStorage: false,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: plebbitResolverRecords })]
             }
         });
-        remotePlebbit = await mockPlebbitV2({
+        remotePKC = await mockPKCV2({
             stubStorage: false,
-            remotePlebbit: true,
+            remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: remoteResolverRecords })]
@@ -230,10 +230,10 @@ describeSkipIfRpc(`subplebbit.edit .eth -> .bso transition`, async () => {
         remoteResolverRecords.set(ethAddress, subplebbit.signer.address);
         remoteResolverRecords.set(bsoAddress, subplebbit.signer.address);
 
-        expect(await remotePlebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: ethAddress })).to.equal(
+        expect(await remotePKC._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: ethAddress })).to.equal(
             subplebbit.signer.address
         );
-        expect(await remotePlebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: bsoAddress })).to.equal(
+        expect(await remotePKC._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: bsoAddress })).to.equal(
             subplebbit.signer.address
         );
 
@@ -241,13 +241,13 @@ describeSkipIfRpc(`subplebbit.edit .eth -> .bso transition`, async () => {
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
         const publishedPost = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit }); // ensure posts are non-empty before edits
-        await waitTillPostInSubplebbitPages(publishedPost as Comment & { cid: string }, plebbit);
+        await waitTillPostInCommunityPages(publishedPost as Comment & { cid: string }, plebbit);
     });
 
     afterAll(async () => {
         await subplebbit.stop();
         await plebbit.destroy();
-        await remotePlebbit.destroy();
+        await remotePKC.destroy();
     });
 
     it(`started sub can transition from .eth to .bso with update events`, async () => {
@@ -314,12 +314,12 @@ describeSkipIfRpc(`subplebbit.edit .eth -> .bso transition`, async () => {
 });
 
 describeSkipIfRpc(`Concurrency with subplebbit.edit`, async () => {
-    let plebbit: PlebbitType;
+    let plebbit: PKCType;
     let plebbitResolverRecords: Map<string, string | undefined>;
     beforeEach(async () => {
         if (plebbit) await plebbit.destroy();
         plebbitResolverRecords = new Map();
-        plebbit = await mockPlebbitV2({
+        plebbit = await mockPKCV2({
             stubStorage: false,
             mockResolve: false,
             plebbitOptions: {
@@ -335,7 +335,7 @@ describeSkipIfRpc(`Concurrency with subplebbit.edit`, async () => {
     it("Two unstarted local sub instances can receive each other updates with subplebbit.update and edit", async () => {
         const subOne = await createSubWithNoChallenge({}, plebbit);
         // subOne is published now
-        const subTwo = (await plebbit.createSubplebbit({ address: subOne.address })) as LocalSubplebbit | RpcLocalSubplebbit;
+        const subTwo = (await plebbit.createCommunity({ address: subOne.address })) as LocalCommunity | RpcLocalCommunity;
         await subTwo.update();
 
         const newTitle = "Test new Title" + Date.now();
@@ -355,49 +355,49 @@ describeSkipIfRpc(`Concurrency with subplebbit.edit`, async () => {
             { address: `address-bso-${uuidV4()}-1.bso` },
             { rules: ["rule 1", "rule 2"] },
             { address: `address-bso-${uuidV4()}-2.bso`, rules: ["rule 1", "rule 2"] }
-        ] as SubplebbitEditOptions[]
+        ] as CommunityEditOptions[]
     ).map((editArgs) =>
-        it(`Calling startedSubplebbit.stop() after edit while updating another subplebbit should not reset the edit (${Object.keys(editArgs)})`, async () => {
-            const startedSub = (await plebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
-            const editKeys = Object.keys(editArgs) as (keyof SubplebbitEditOptions)[];
+        it(`Calling startedCommunity.stop() after edit while updating another subplebbit should not reset the edit (${Object.keys(editArgs)})`, async () => {
+            const startedSub = (await plebbit.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+            const editKeys = Object.keys(editArgs) as (keyof CommunityEditOptions)[];
 
-            const hasLatestEditProps = (sub: LocalSubplebbit | RpcLocalSubplebbit): boolean => {
+            const hasLatestEditProps = (sub: LocalCommunity | RpcLocalCommunity): boolean => {
                 const picked = remeda.pick(sub, editKeys);
                 return remeda.isDeepEqual(picked, editArgs as typeof picked);
             };
 
-            const expectSubToHaveLatestEditProps = (sub: LocalSubplebbit | RpcLocalSubplebbit) => {
+            const expectSubToHaveLatestEditProps = (sub: LocalCommunity | RpcLocalCommunity) => {
                 expect(remeda.pick(sub, editKeys)).to.deep.equal(editArgs);
             };
 
-            const updatingSubplebbit = (await plebbit.createSubplebbit({ address: startedSub.address })) as
-                | LocalSubplebbit
-                | RpcLocalSubplebbit;
-            await updatingSubplebbit.update();
+            const updatingCommunity = (await plebbit.createCommunity({ address: startedSub.address })) as
+                | LocalCommunity
+                | RpcLocalCommunity;
+            await updatingCommunity.update();
 
             await startedSub.start();
 
-            const subToEdit = (await plebbit.createSubplebbit({ address: startedSub.address })) as LocalSubplebbit | RpcLocalSubplebbit;
+            const subToEdit = (await plebbit.createCommunity({ address: startedSub.address })) as LocalCommunity | RpcLocalCommunity;
             await subToEdit.edit(editArgs);
             expectSubToHaveLatestEditProps(subToEdit);
             expectSubToHaveLatestEditProps(startedSub);
 
             await resolveWhenConditionIsTrue({
-                toUpdate: updatingSubplebbit,
-                predicate: async () => hasLatestEditProps(updatingSubplebbit)
+                toUpdate: updatingCommunity,
+                predicate: async () => hasLatestEditProps(updatingCommunity)
             });
             expectSubToHaveLatestEditProps(startedSub);
             expectSubToHaveLatestEditProps(subToEdit);
-            expectSubToHaveLatestEditProps(updatingSubplebbit);
+            expectSubToHaveLatestEditProps(updatingCommunity);
 
             await startedSub.stop();
             expectSubToHaveLatestEditProps(startedSub);
-            expectSubToHaveLatestEditProps(updatingSubplebbit);
+            expectSubToHaveLatestEditProps(updatingCommunity);
             expectSubToHaveLatestEditProps(subToEdit);
 
-            await updatingSubplebbit.stop();
+            await updatingCommunity.stop();
             expectSubToHaveLatestEditProps(startedSub);
-            expectSubToHaveLatestEditProps(updatingSubplebbit);
+            expectSubToHaveLatestEditProps(updatingCommunity);
             expectSubToHaveLatestEditProps(subToEdit);
         })
     );
@@ -407,13 +407,13 @@ describeSkipIfRpc(`Concurrency with subplebbit.edit`, async () => {
             { address: `address-bso-${uuidV4()}-1.bso` },
             { rules: ["rule 1", "rule 2"] },
             { address: `address-bso-${uuidV4()}-2.bso`, rules: ["rule 1", "rule 2"] }
-        ] as SubplebbitEditOptions[]
+        ] as CommunityEditOptions[]
     ).map((editArgs) =>
         it(`edit subplebbit with multiple subplebbit instances running (${Object.keys(editArgs)})`, async () => {
             // TODO investigate why this test gets slower the more times it's run
             const subplebbitTitle = "subplebbit title" + timestamp();
-            const subplebbitInstance = (await plebbit.createSubplebbit({ title: subplebbitTitle })) as LocalSubplebbit | RpcLocalSubplebbit;
-            const editKeys = Object.keys(editArgs) as (keyof SubplebbitEditOptions)[];
+            const subplebbitInstance = (await plebbit.createCommunity({ title: subplebbitTitle })) as LocalCommunity | RpcLocalCommunity;
+            const editKeys = Object.keys(editArgs) as (keyof CommunityEditOptions)[];
             if (editArgs.address) {
                 plebbitResolverRecords.set(editArgs.address, subplebbitInstance.signer.address);
                 plebbit._storage.removeItem = () => Promise.resolve(false); // stop clearing cache when editing subplebbit address
@@ -427,56 +427,56 @@ describeSkipIfRpc(`Concurrency with subplebbit.edit`, async () => {
             let editIsFinished: boolean;
 
             // subplebbit is updating
-            const updatingSubplebbit = (await plebbit.createSubplebbit({ address: subplebbitInstance.address })) as
-                | LocalSubplebbit
-                | RpcLocalSubplebbit;
-            updatingSubplebbit.on("update", () => {
-                const picked = remeda.pick(updatingSubplebbit, editKeys);
+            const updatingCommunity = (await plebbit.createCommunity({ address: subplebbitInstance.address })) as
+                | LocalCommunity
+                | RpcLocalCommunity;
+            updatingCommunity.on("update", () => {
+                const picked = remeda.pick(updatingCommunity, editKeys);
                 if (remeda.isDeepEqual(picked, editArgs as typeof picked)) editIsFinished = true; // there's a case where the edit is finished and update is emitted before we get to update editIsFinished
             });
 
-            expect(updatingSubplebbit.signer).to.be.a("object");
-            expect(updatingSubplebbit.title).to.equal(subplebbitTitle);
-            await updatingSubplebbit.update();
+            expect(updatingCommunity.signer).to.be.a("object");
+            expect(updatingCommunity.title).to.equal(subplebbitTitle);
+            await updatingCommunity.update();
 
             // start subplebbit
-            const startedSubplebbit = (await plebbit.createSubplebbit({ address: subplebbitInstance.address })) as
-                | LocalSubplebbit
-                | RpcLocalSubplebbit;
-            await startedSubplebbit.start();
+            const startedCommunity = (await plebbit.createCommunity({ address: subplebbitInstance.address })) as
+                | LocalCommunity
+                | RpcLocalCommunity;
+            await startedCommunity.start();
 
-            startedSubplebbit.on("update", () => {
-                const picked = remeda.pick(startedSubplebbit, editKeys);
+            startedCommunity.on("update", () => {
+                const picked = remeda.pick(startedCommunity, editKeys);
                 if (remeda.isDeepEqual(picked, editArgs as typeof picked)) editIsFinished = true; // there's a case where the edit is finished and update is emitted before we get to update editIsFinished
             });
 
-            expect(startedSubplebbit.title).to.equal(subplebbitTitle);
+            expect(startedCommunity.title).to.equal(subplebbitTitle);
 
             const updateEventPromise = new Promise((resolve) =>
-                updatingSubplebbit.on("update", (updatedSubplebbit) => editIsFinished && resolve(updatedSubplebbit))
+                updatingCommunity.on("update", (updatedCommunity) => editIsFinished && resolve(updatedCommunity))
             );
 
-            updatingSubplebbit.on("update", (updatedSubplebbit) => {
-                console.log("updatingSubplebbit update", updatedSubplebbit.rules);
+            updatingCommunity.on("update", (updatedCommunity) => {
+                console.log("updatingCommunity update", updatedCommunity.rules);
             });
 
             const updateStartedSubEventPromise = new Promise((resolve) =>
-                startedSubplebbit.on("update", (updatedSubplebbit) => editIsFinished && resolve(updatedSubplebbit))
+                startedCommunity.on("update", (updatedCommunity) => editIsFinished && resolve(updatedCommunity))
             );
 
             // edit subplebbit
-            console.log("editSubplebbit");
-            const editedSubplebbit = (await plebbit.createSubplebbit({ address: subplebbitInstance.address })) as
-                | LocalSubplebbit
-                | RpcLocalSubplebbit;
-            await editedSubplebbit.edit(editArgs); // it should be sent to the started subplebbit
-            expect(remeda.pick(editedSubplebbit, editKeys)).to.deep.equal(editArgs);
-            expect(remeda.pick(startedSubplebbit, editKeys)).to.deep.equal(editArgs);
+            console.log("editCommunity");
+            const editedCommunity = (await plebbit.createCommunity({ address: subplebbitInstance.address })) as
+                | LocalCommunity
+                | RpcLocalCommunity;
+            await editedCommunity.edit(editArgs); // it should be sent to the started subplebbit
+            expect(remeda.pick(editedCommunity, editKeys)).to.deep.equal(editArgs);
+            expect(remeda.pick(startedCommunity, editKeys)).to.deep.equal(editArgs);
 
             editIsFinished = true;
-            expect(editedSubplebbit.title).to.equal(subplebbitTitle);
+            expect(editedCommunity.title).to.equal(subplebbitTitle);
             for (const [editKey, editValue] of Object.entries(editArgs))
-                expect(deterministicStringify(editedSubplebbit[editKey as keyof SubplebbitEditOptions])).to.equal(
+                expect(deterministicStringify(editedCommunity[editKey as keyof CommunityEditOptions])).to.equal(
                     deterministicStringify(editValue)
                 );
 
@@ -485,41 +485,41 @@ describeSkipIfRpc(`Concurrency with subplebbit.edit`, async () => {
             console.log("wait for subplebbit update");
             await updateEventPromise;
 
-            expect(remeda.pick(editedSubplebbit, editKeys)).to.deep.equal(editArgs);
-            expect(remeda.pick(startedSubplebbit, editKeys)).to.deep.equal(editArgs); // this fails
+            expect(remeda.pick(editedCommunity, editKeys)).to.deep.equal(editArgs);
+            expect(remeda.pick(startedCommunity, editKeys)).to.deep.equal(editArgs); // this fails
 
-            expect(updatingSubplebbit.title).to.equal(subplebbitTitle);
+            expect(updatingCommunity.title).to.equal(subplebbitTitle);
             for (const [editKey, editValue] of Object.entries(editArgs))
-                expect(deterministicStringify(updatingSubplebbit[editKey as keyof SubplebbitEditOptions])).to.equal(
+                expect(deterministicStringify(updatingCommunity[editKey as keyof CommunityEditOptions])).to.equal(
                     deterministicStringify(editValue)
                 );
 
-            await updatingSubplebbit.stop();
+            await updatingCommunity.stop();
 
             console.log("Before await updateStartedSubEventPromise");
             await updateStartedSubEventPromise;
 
-            expect(startedSubplebbit.title).to.equal(subplebbitTitle);
+            expect(startedCommunity.title).to.equal(subplebbitTitle);
             for (const [editKey, editValue] of Object.entries(editArgs)) {
-                if (deterministicStringify(startedSubplebbit[editKey as keyof SubplebbitEditOptions]) !== deterministicStringify(editValue))
-                    await new Promise((resolve) => startedSubplebbit.once("update", resolve)); // Wait until the new props are included in the next update
-                expect(deterministicStringify(startedSubplebbit[editKey as keyof SubplebbitEditOptions])).to.equal(
+                if (deterministicStringify(startedCommunity[editKey as keyof CommunityEditOptions]) !== deterministicStringify(editValue))
+                    await new Promise((resolve) => startedCommunity.once("update", resolve)); // Wait until the new props are included in the next update
+                expect(deterministicStringify(startedCommunity[editKey as keyof CommunityEditOptions])).to.equal(
                     deterministicStringify(editValue)
                 );
             }
 
-            expect(remeda.pick(startedSubplebbit, editKeys)).to.deep.equal(editArgs);
-            await startedSubplebbit.stop();
-            expect(remeda.pick(startedSubplebbit, editKeys)).to.deep.equal(editArgs);
+            expect(remeda.pick(startedCommunity, editKeys)).to.deep.equal(editArgs);
+            await startedCommunity.stop();
+            expect(remeda.pick(startedCommunity, editKeys)).to.deep.equal(editArgs);
 
             expect(subplebbitInstance.rules).to.equal(undefined); // subplebbit is not updating, started or editing so it has no way to get the rules
 
-            const newlyCreatedSubplebbit = (await plebbit.createSubplebbit({ address: startedSubplebbit.address })) as
-                | LocalSubplebbit
-                | RpcLocalSubplebbit;
-            expect(newlyCreatedSubplebbit.title).to.equal(subplebbitTitle);
+            const newlyCreatedCommunity = (await plebbit.createCommunity({ address: startedCommunity.address })) as
+                | LocalCommunity
+                | RpcLocalCommunity;
+            expect(newlyCreatedCommunity.title).to.equal(subplebbitTitle);
             for (const [editKey, editValue] of Object.entries(editArgs))
-                expect(deterministicStringify(newlyCreatedSubplebbit[editKey as keyof SubplebbitEditOptions])).to.equal(
+                expect(deterministicStringify(newlyCreatedCommunity[editKey as keyof CommunityEditOptions])).to.equal(
                     deterministicStringify(editValue)
                 );
         })
@@ -527,22 +527,22 @@ describeSkipIfRpc(`Concurrency with subplebbit.edit`, async () => {
 
     it(`Can edit a local sub address, then start it`, async () => {
         const customResolverRecords = new Map<string, string | undefined>();
-        const customPlebbit = await mockPlebbitV2({
+        const customPKC = await mockPKCV2({
             stubStorage: false,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: customResolverRecords })]
             }
         });
-        const signer = await customPlebbit.createSigner();
+        const signer = await customPKC.createSigner();
         const domain = `edit-before-start-${uuidV4()}.bso`;
 
         customResolverRecords.set(domain, signer.address);
 
-        const sub = await createSubWithNoChallenge({ signer }, customPlebbit);
+        const sub = await createSubWithNoChallenge({ signer }, customPKC);
         await sub.edit({ address: domain });
         // Check for locks
-        const localSub = sub as LocalSubplebbit;
+        const localSub = sub as LocalCommunity;
         expect(await localSub._dbHandler.isSubStartLocked(sub.signer.address)).to.be.false;
         expect(await localSub._dbHandler.isSubStartLocked(domain)).to.be.false;
 
@@ -554,15 +554,15 @@ describeSkipIfRpc(`Concurrency with subplebbit.edit`, async () => {
         expect(await localSub._dbHandler.isSubStartLocked(sub.signer.address)).to.be.false;
         expect(await localSub._dbHandler.isSubStartLocked(domain)).to.be.true;
 
-        const post = await publishRandomPost({ communityAddress: sub.address, plebbit: customPlebbit });
-        await waitTillPostInSubplebbitPages(post as Comment & { cid: string }, customPlebbit);
+        const post = await publishRandomPost({ communityAddress: sub.address, plebbit: customPKC });
+        await waitTillPostInCommunityPages(post as Comment & { cid: string }, customPKC);
         await sub.stop();
-        await customPlebbit.destroy();
+        await customPKC.destroy();
     });
 
     it(`subplebbit.edit() changes persist through IPNS publish cycles`, async () => {
         const sub = await createSubWithNoChallenge({}, plebbit);
-        const localSub = sub as LocalSubplebbit;
+        const localSub = sub as LocalCommunity;
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
 
@@ -603,7 +603,7 @@ describeSkipIfRpc(`Concurrency with subplebbit.edit`, async () => {
         // Wait for the publish cycle to complete
         await new Promise((resolve) => sub.once("update", resolve));
 
-        // Without the fix, initSubplebbitIpfsPropsNoMerge overwrites this.features
+        // Without the fix, initCommunityIpfsPropsNoMerge overwrites this.features
         // with the stale IPNS record (which was constructed before edit #2)
         expect(sub.features?.authorFlairs).to.be.true;
 
@@ -615,10 +615,10 @@ describeSkipIfRpc(`Concurrency with subplebbit.edit`, async () => {
 
 describe(`Edit misc`, async () => {
     it(`Can edit subplebbit.address to a new domain even if subplebbit-address text record does not exist`, async () => {
-        const customPlebbit = await mockPlebbitV2({ stubStorage: false, mockResolve: true });
-        const newSub = (await customPlebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
-        if (!customPlebbit._plebbitRpcClient) {
-            const resolvedSubAddress = await customPlebbit._clientsManager.resolveCommunityNameIfNeeded({
+        const customPKC = await mockPKCV2({ stubStorage: false, mockResolve: true });
+        const newSub = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+        if (!customPKC._plebbitRpcClient) {
+            const resolvedSubAddress = await customPKC._clientsManager.resolveCommunityNameIfNeeded({
                 communityAddress: "no-sub-address.bso"
             });
             expect(resolvedSubAddress).to.equal(null);
@@ -629,52 +629,52 @@ describe(`Edit misc`, async () => {
 
         expect(newSub.address).to.equal("no-sub-address.bso");
         await newSub.delete();
-        await customPlebbit.destroy();
+        await customPKC.destroy();
     });
 
     it(`Can edit subplebbit.address to a new domain even if subplebbit-address text record does not match subplebbit.signer.address`, async () => {
-        const customPlebbit = await mockPlebbit();
+        const customPKC = await mockPKC();
         const subAddress = "different-signer.bso";
-        if (customPlebbit.subplebbits.includes(subAddress)) {
-            const sub = (await customPlebbit.createSubplebbit({ address: subAddress })) as LocalSubplebbit | RpcLocalSubplebbit;
+        if (customPKC.subplebbits.includes(subAddress)) {
+            const sub = (await customPKC.createCommunity({ address: subAddress })) as LocalCommunity | RpcLocalCommunity;
             await sub.delete();
-            await new Promise((resolve) => customPlebbit.once("subplebbitschange", resolve));
+            await new Promise((resolve) => customPKC.once("subplebbitschange", resolve));
         }
-        const newSub = (await customPlebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
+        const newSub = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
 
         // Should not match signer.address
         await newSub.edit({ address: subAddress });
         expect(newSub.address).to.equal(subAddress);
         await newSub.delete();
-        await customPlebbit.destroy();
+        await customPKC.destroy();
     });
 
     it(`subplebbit.edit({address}) fails if the new address is already taken by another subplebbit`, async () => {
-        const customPlebbit = await mockPlebbit();
-        const newSub = (await customPlebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
+        const customPKC = await mockPKC();
+        const newSub = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         const bsoNameAddress = `subplebbit-address-${uuidV4()}.bso`;
         await newSub.edit({ address: bsoNameAddress });
 
-        const anotherSub = (await customPlebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
+        const anotherSub = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         try {
             await anotherSub.edit({ address: newSub.address });
             expect.fail("Should fail");
         } catch (e) {
             expect((e as { code: string }).code).to.equal("ERR_COMMUNITY_OWNER_ATTEMPTED_EDIT_NEW_ADDRESS_THAT_ALREADY_EXISTS");
         }
-        await customPlebbit.destroy();
+        await customPKC.destroy();
     });
 });
 
 describe(`Editing subplebbit.roles`, async () => {
-    let plebbit: PlebbitType;
-    let sub: LocalSubplebbit | RpcLocalSubplebbit;
-    let remotePlebbit: PlebbitType;
+    let plebbit: PKCType;
+    let sub: LocalCommunity | RpcLocalCommunity;
+    let remotePKC: PKCType;
 
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
-        remotePlebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
-        sub = (await plebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
+        plebbit = await mockPKC();
+        remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
+        sub = (await plebbit.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => Boolean(sub.updatedAt) });
     });
@@ -682,7 +682,7 @@ describe(`Editing subplebbit.roles`, async () => {
     afterAll(async () => {
         await sub.delete();
         await plebbit.destroy();
-        await remotePlebbit.destroy();
+        await remotePKC.destroy();
     });
 
     it(`Setting sub.roles[author-address] to undefined removes the role`, async () => {
@@ -697,7 +697,7 @@ describe(`Editing subplebbit.roles`, async () => {
 
         await new Promise((resolve) => sub.once("update", resolve));
 
-        let remoteSub = (await remotePlebbit.getSubplebbit({ address: sub.address })) as RemoteSubplebbit;
+        let remoteSub = (await remotePKC.getCommunity({ address: sub.address })) as RemoteCommunity;
         expect(remoteSub.roles![authorAddress].role).to.equal("admin");
         expect(remoteSub.roles![secondAuthorAddress].role).to.equal("moderator");
 
@@ -707,7 +707,7 @@ describe(`Editing subplebbit.roles`, async () => {
 
         await new Promise((resolve) => sub.once("update", resolve));
 
-        remoteSub = (await remotePlebbit.getSubplebbit({ address: sub.address })) as RemoteSubplebbit;
+        remoteSub = (await remotePKC.getCommunity({ address: sub.address })) as RemoteCommunity;
         expect(remoteSub.roles![authorAddress]).to.be.undefined;
         expect(remoteSub.roles![secondAuthorAddress].role).to.equal("moderator");
 
@@ -718,7 +718,7 @@ describe(`Editing subplebbit.roles`, async () => {
         await new Promise((resolve) => sub.once("update", resolve));
         expect(sub.roles).to.be.undefined;
 
-        remoteSub = (await remotePlebbit.getSubplebbit({ address: sub.address })) as RemoteSubplebbit;
+        remoteSub = (await remotePKC.getCommunity({ address: sub.address })) as RemoteCommunity;
         expect(remoteSub.roles).to.be.undefined;
     });
 
@@ -747,7 +747,7 @@ describe(`Editing subplebbit.roles`, async () => {
         const newSub = await createSubWithNoChallenge({}, plebbit);
         await newSub.start();
         await resolveWhenConditionIsTrue({ toUpdate: newSub, predicate: async () => Boolean(newSub.updatedAt) }); // wait until it publishes an ipns record
-        await remotePlebbit.getSubplebbit({ address: newSub.address }); // no problem with signature
+        await remotePKC.getCommunity({ address: newSub.address }); // no problem with signature
 
         const newRoles: Record<string, { role: string | null }> = {
             "author-address.bso": { role: null },
@@ -759,7 +759,7 @@ describe(`Editing subplebbit.roles`, async () => {
         await new Promise((resolve) => newSub.once("update", resolve));
         expect(newSub.roles).to.deep.equal({ "author-address2.bso": { role: "admin" } });
 
-        const remoteSub = (await remotePlebbit.getSubplebbit({ address: newSub.address })) as RemoteSubplebbit;
+        const remoteSub = (await remotePKC.getCommunity({ address: newSub.address })) as RemoteCommunity;
         expect(remoteSub.roles).to.deep.equal({ "author-address2.bso": { role: "admin" } });
 
         await newSub.delete();
@@ -768,13 +768,13 @@ describe(`Editing subplebbit.roles`, async () => {
 
 // TODO change this testing to be about capturing the edit args sent to RPC server
 describeIfRpc(`subplebbit.edit (RPC)`, async () => {
-    let plebbit: PlebbitType;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    let plebbit: PKCType;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
 
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
+        plebbit = await mockPKC();
         const signer = await plebbit.createSigner();
-        subplebbit = (await plebbit.createSubplebbit({ signer })) as LocalSubplebbit | RpcLocalSubplebbit;
+        subplebbit = (await plebbit.createCommunity({ signer })) as LocalCommunity | RpcLocalCommunity;
         expect(subplebbit.address).to.equal(signer.address);
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
@@ -794,26 +794,26 @@ describeIfRpc(`subplebbit.edit (RPC)`, async () => {
             await subplebbit.edit(editArgs);
             expect(subplebbit[keyToEdit]).to.equal(newValue);
             await new Promise((resolve) => subplebbit.once("update", resolve));
-            const remotePlebbitInstance = await mockPlebbitNoDataPathWithOnlyKuboClient(); // This plebbit instance won't use RPC
-            const loadedSubplebbit = (await remotePlebbitInstance.createSubplebbit({ address: subplebbit.address })) as
-                | LocalSubplebbit
-                | RpcLocalSubplebbit;
-            await loadedSubplebbit.update();
+            const remotePKCInstance = await mockPKCNoDataPathWithOnlyKuboClient(); // This plebbit instance won't use RPC
+            const loadedCommunity = (await remotePKCInstance.createCommunity({ address: subplebbit.address })) as
+                | LocalCommunity
+                | RpcLocalCommunity;
+            await loadedCommunity.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: loadedSubplebbit,
-                predicate: async () => loadedSubplebbit[keyToEdit] === newValue
+                toUpdate: loadedCommunity,
+                predicate: async () => loadedCommunity[keyToEdit] === newValue
             });
-            expect(loadedSubplebbit[keyToEdit]).to.equal(newValue);
-            await loadedSubplebbit.stop();
-            await remotePlebbitInstance.destroy();
+            expect(loadedCommunity[keyToEdit]).to.equal(newValue);
+            await loadedCommunity.stop();
+            await remotePKCInstance.destroy();
         })
     );
 });
 
 describeSkipIfRpc(`.eth <-> .bso alias address transitions`, async () => {
-    let plebbit: PlebbitType;
-    let remotePlebbit: PlebbitType;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    let plebbit: PKCType;
+    let remotePKC: PKCType;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
     let ethNameAddress: string;
     let bsoNameAddress: string;
     let postPublishedOnEth: Comment;
@@ -823,16 +823,16 @@ describeSkipIfRpc(`.eth <-> .bso alias address transitions`, async () => {
     beforeAll(async () => {
         plebbitResolverRecords = new Map();
         remoteResolverRecords = new Map();
-        plebbit = await mockPlebbitV2({
+        plebbit = await mockPKCV2({
             stubStorage: false,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: plebbitResolverRecords })]
             }
         });
-        remotePlebbit = await mockPlebbitV2({
+        remotePKC = await mockPKCV2({
             stubStorage: false,
-            remotePlebbit: true,
+            remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: remoteResolverRecords })]
@@ -870,7 +870,7 @@ describeSkipIfRpc(`.eth <-> .bso alias address transitions`, async () => {
     afterAll(async () => {
         await subplebbit.stop();
         await plebbit.destroy();
-        await remotePlebbit.destroy();
+        await remotePKC.destroy();
     });
 
     it(`Posts are preserved after editing address from .eth to .bso`, async () => {
@@ -889,40 +889,40 @@ describeSkipIfRpc(`.eth <-> .bso alias address transitions`, async () => {
     });
 
     it(`Remote loading of .bso sub also has the post published under .eth`, async () => {
-        const loadedSub = (await remotePlebbit.getSubplebbit({ address: bsoNameAddress })) as RemoteSubplebbit;
+        const loadedSub = (await remotePKC.getCommunity({ address: bsoNameAddress })) as RemoteCommunity;
         expect(loadedSub.address).to.equal(bsoNameAddress);
         expect(loadedSub.posts.pages.hot!.comments.length).to.be.greaterThan(0);
     });
 
     it(`Can load a local subplebbit by .eth alias when address is .bso`, async () => {
         // The sub's current address is bsoNameAddress, but loading with ethNameAddress should still find the local sub
-        const loadedSub = await plebbit.createSubplebbit({ address: ethNameAddress });
+        const loadedSub = await plebbit.createCommunity({ address: ethNameAddress });
         expect(loadedSub.address).to.equal(bsoNameAddress);
-        expect((loadedSub as LocalSubplebbit).signer).to.not.be.undefined;
+        expect((loadedSub as LocalCommunity).signer).to.not.be.undefined;
     });
 
     it(`Can load a local subplebbit by .bso alias when address is .eth`, async () => {
         // Create a separate non-started sub with .eth address and load it with .bso
-        const customPlebbit = await mockPlebbit();
-        const sub = (await customPlebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
+        const customPKC = await mockPKC();
+        const sub = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         const domain = `load-alias-${uuidV4()}`;
         await sub.edit({ address: `${domain}.eth` });
         expect(sub.address).to.equal(`${domain}.eth`);
 
         // Load with .bso — should find the local sub
-        const loadedSub = await customPlebbit.createSubplebbit({ address: `${domain}.bso` });
+        const loadedSub = await customPKC.createCommunity({ address: `${domain}.bso` });
         expect(loadedSub.address).to.equal(`${domain}.eth`);
-        expect((loadedSub as LocalSubplebbit).signer).to.not.be.undefined;
-        await customPlebbit.destroy();
+        expect((loadedSub as LocalCommunity).signer).to.not.be.undefined;
+        await customPKC.destroy();
     });
 
     it(`subplebbit.edit({address}) fails if the .eth/.bso equivalent is already taken by another subplebbit`, async () => {
-        const customPlebbit = await mockPlebbit();
-        const sub1 = (await customPlebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
+        const customPKC = await mockPKC();
+        const sub1 = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         const domain = `address-equiv-${uuidV4()}`;
         await sub1.edit({ address: `${domain}.eth` });
 
-        const sub2 = (await customPlebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
+        const sub2 = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         try {
             // Trying to claim the .bso alias of a domain already taken by another sub
             await sub2.edit({ address: `${domain}.bso` });
@@ -930,12 +930,12 @@ describeSkipIfRpc(`.eth <-> .bso alias address transitions`, async () => {
         } catch (e) {
             expect((e as { code: string }).code).to.equal("ERR_COMMUNITY_OWNER_ATTEMPTED_EDIT_NEW_ADDRESS_THAT_ALREADY_EXISTS");
         }
-        await customPlebbit.destroy();
+        await customPKC.destroy();
     });
 
     it(`Same sub can transition between .eth and .bso aliases`, async () => {
-        const customPlebbit = await mockPlebbit();
-        const sub = (await customPlebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
+        const customPKC = await mockPKC();
+        const sub = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         const domain = `self-alias-${uuidV4()}`;
         await sub.edit({ address: `${domain}.eth` });
         expect(sub.address).to.equal(`${domain}.eth`);
@@ -943,6 +943,6 @@ describeSkipIfRpc(`.eth <-> .bso alias address transitions`, async () => {
         // Should NOT throw — it's the same sub changing its own alias
         await sub.edit({ address: `${domain}.bso` });
         expect(sub.address).to.equal(`${domain}.bso`);
-        await customPlebbit.destroy();
+        await customPKC.destroy();
     });
 });

@@ -1,23 +1,23 @@
-import Plebbit from "../../../dist/node/index.js";
+import PKC from "../../../dist/node/index.js";
 import { describe, it } from "vitest";
 import {
     createSubWithNoChallenge,
     itIfRpc,
     publishRandomPost,
     itSkipIfRpc,
-    mockPlebbit,
-    mockPlebbitNoDataPathWithOnlyKuboClient,
+    mockPKC,
+    mockPKCNoDataPathWithOnlyKuboClient,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../dist/node/community/rpc-local-community.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 
 // example of node only tests
 
 describe("await plebbit()", () => {
     it("has default plebbit options", async () => {
-        const plebbit = await Plebbit({ httpRoutersOptions: [] });
+        const plebbit = await PKC({ httpRoutersOptions: [] });
         expect(Object.keys(plebbit.clients.ipfsGateways).sort()).to.deep.equal(
             ["https://ipfsgateway.xyz", "https://gateway.plebpubsub.xyz", "https://gateway.forumindex.com"].sort()
         );
@@ -39,26 +39,26 @@ describe("await plebbit()", () => {
 
 describe.concurrent(`plebbit.subplebbits`, async () => {
     it(`plebbit.subplebbits updates after creating a new sub`, async () => {
-        const plebbit = await mockPlebbit();
-        const newSubplebbit = await plebbit.createSubplebbit({
+        const plebbit = await mockPKC();
+        const newCommunity = await plebbit.createCommunity({
             signer: await plebbit.createSigner()
         });
         // A new subplebbit should be created, and its SQLite db file be listed under plebbit.dataPath/subplebbits
-        expect(plebbit.subplebbits).to.include(newSubplebbit.address);
+        expect(plebbit.subplebbits).to.include(newCommunity.address);
 
         JSON.stringify(plebbit); // Will throw an error if circular json
         await plebbit.destroy();
     });
 
-    itSkipIfRpc(`plebbit.subplebbits should be defined after creating Plebbit instance (NodeJS/IPFS-P2P)`, async () => {
-        const plebbit = await mockPlebbit(); // mockPlebbit will set up a nodejs plebbit or RPC plebbit
+    itSkipIfRpc(`plebbit.subplebbits should be defined after creating PKC instance (NodeJS/IPFS-P2P)`, async () => {
+        const plebbit = await mockPKC(); // mockPKC will set up a nodejs plebbit or RPC plebbit
         expect(plebbit.subplebbits).to.be.a("array");
         expect(plebbit.subplebbits).to.have.length.of.at.least(1);
         await plebbit.destroy();
     });
 
     itIfRpc(`plebbit.subplebbits is defined after emitting rpcstatechange with rpcState=connected (RPC client)`, async () => {
-        const plebbit = await mockPlebbit(); // mockPlebbit will set up a RPC plebbit
+        const plebbit = await mockPKC(); // mockPKC will set up a RPC plebbit
         await new Promise((resolve) => plebbit.once("subplebbitschange", resolve));
         const defaultRpcClient = plebbit.clients.plebbitRpcClients[Object.keys(plebbit.clients.plebbitRpcClients)[0]];
         expect(defaultRpcClient.state).to.equal("connected");
@@ -70,17 +70,17 @@ describe.concurrent(`plebbit.subplebbits`, async () => {
     });
 });
 
-describe(`Plebbit.challenges`, async () => {
-    it(`Plebbit.challenges contains default challenges`, async () => {
-        const challenges = Object.keys(Plebbit.challenges);
+describe(`PKC.challenges`, async () => {
+    it(`PKC.challenges contains default challenges`, async () => {
+        const challenges = Object.keys(PKC.challenges);
         expect(challenges).to.deep.equal(["text-math", "fail", "blacklist", "whitelist", "question", "publication-match"]);
     });
 });
 
 describe.concurrent(`plebbit.destroy()`, async () => {
     itSkipIfRpc(`plebbit.destroy() should stop running local sub`, async () => {
-        const plebbit = await mockPlebbit();
-        const sub = (await createSubWithNoChallenge({}, plebbit)) as LocalSubplebbit;
+        const plebbit = await mockPKC();
+        const sub = (await createSubWithNoChallenge({}, plebbit)) as LocalCommunity;
         await sub.start();
         expect(sub.state).to.equal("started");
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
@@ -89,12 +89,12 @@ describe.concurrent(`plebbit.destroy()`, async () => {
     });
 
     it(`plebbit.destroy() should stop updating local subs`, async () => {
-        const plebbit = await mockPlebbit();
-        const sub = (await createSubWithNoChallenge({}, plebbit)) as LocalSubplebbit | RpcLocalSubplebbit;
+        const plebbit = await mockPKC();
+        const sub = (await createSubWithNoChallenge({}, plebbit)) as LocalCommunity | RpcLocalCommunity;
 
         await sub.update();
-        expect(plebbit._updatingSubplebbits[sub.address]).to.exist;
-        expect(plebbit._startedSubplebbits[sub.address]).to.not.exist;
+        expect(plebbit._updatingCommunitys[sub.address]).to.exist;
+        expect(plebbit._startedCommunitys[sub.address]).to.not.exist;
 
         let calledUpdate = false;
         await plebbit.destroy();
@@ -103,23 +103,23 @@ describe.concurrent(`plebbit.destroy()`, async () => {
             calledUpdate = true;
         };
         await new Promise((resolve) => setTimeout(resolve, 1000));
-        expect(plebbit._updatingSubplebbits[sub.address]).to.not.exist;
-        expect(plebbit._startedSubplebbits[sub.address]).to.not.exist;
+        expect(plebbit._updatingCommunitys[sub.address]).to.not.exist;
+        expect(plebbit._startedCommunitys[sub.address]).to.not.exist;
 
         expect(calledUpdate).to.be.false;
     });
 
     itIfRpc(`plebbit.destroy() should not stop running local subplebbits (RPC client)`, async () => {
-        const plebbit = await mockPlebbit();
-        const sub = (await createSubWithNoChallenge({}, plebbit)) as RpcLocalSubplebbit;
+        const plebbit = await mockPKC();
+        const sub = (await createSubWithNoChallenge({}, plebbit)) as RpcLocalCommunity;
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
         expect(sub.state).to.equal("started");
         await plebbit.destroy();
 
-        const remotePlebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
-        await publishRandomPost({ communityAddress: sub.address, plebbit: remotePlebbit }); // if we can publish a post, the sub is running
+        const remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
+        await publishRandomPost({ communityAddress: sub.address, plebbit: remotePKC }); // if we can publish a post, the sub is running
 
-        await remotePlebbit.destroy();
+        await remotePKC.destroy();
     });
 });

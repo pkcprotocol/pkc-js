@@ -1,12 +1,12 @@
 import {
     publishRandomPost,
-    mockGatewayPlebbit,
+    mockGatewayPKC,
     addStringToIpfs,
-    getAvailablePlebbitConfigsToTestAgainst,
-    waitTillPostInSubplebbitPages,
+    getAvailablePKCConfigsToTestAgainst,
+    waitTillPostInCommunityPages,
     publishRandomReply,
     loadAllPagesBySortName,
-    isPlebbitFetchingUsingGateways,
+    isPKCFetchingUsingGateways,
     resolveWhenConditionIsTrue,
     itSkipIfRpc
 } from "../../../../dist/node/test/test-util.js";
@@ -19,23 +19,23 @@ import { messages } from "../../../../dist/node/errors.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { describe, it, beforeAll, afterAll } from "vitest";
 
-import type { Plebbit as PlebbitType } from "../../../../dist/node/pkc/pkc.js";
-import type { RemoteSubplebbit } from "../../../../dist/node/community/remote-community.js";
+import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
+import type { RemoteCommunity } from "../../../../dist/node/community/remote-community.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
-import type { PlebbitError } from "../../../../dist/node/pkc-error.js";
+import type { PKCError } from "../../../../dist/node/pkc-error.js";
 import type { PageTypeJson } from "../../../../dist/node/pages/types.js";
 import type { CommentIpfsWithCidDefined, CommentWithinRepliesPostsPageJson } from "../../../../dist/node/publications/comment/types.js";
 
 const subplebbitAddress = signers[0].address;
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.sequential(`subplebbit.posts - ${config.name}`, async () => {
-        let plebbit: PlebbitType, newPost: Comment, subplebbit: RemoteSubplebbit;
+        let plebbit: PKCType, newPost: Comment, subplebbit: RemoteCommunity;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             newPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit }); // After publishing this post it should appear on all pages
-            await waitTillPostInSubplebbitPages(newPost as Comment & { cid: string }, plebbit);
-            subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            await waitTillPostInCommunityPages(newPost as Comment & { cid: string }, plebbit);
+            subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
         });
 
         afterAll(async () => {
@@ -55,7 +55,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             }
         });
 
-        it(`If all posts fit in a single preloaded page, there should not be any pageCids on SubplebbitIpfs`, async () => {
+        it(`If all posts fit in a single preloaded page, there should not be any pageCids on CommunityIpfs`, async () => {
             if (subplebbit.posts.pages.hot.nextCid) return;
             expect(subplebbit.posts.pageCids).to.deep.equal({});
         });
@@ -108,7 +108,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             // Create a comment with a CID that doesn't exist or will time out
             const nonExistentCid = "QmbSiusGgY4Uk5LdAe91bzLkBzidyKyKHRKwhXPDz7gGzx"; // Random CID that doesn't exist
 
-            const sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.getCommunity({ address: subplebbitAddress });
 
             // Override the pageCid to use our non-existent CID
             sub.posts.pageCids.hot = nonExistentCid;
@@ -118,13 +118,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await sub.posts.getPage({ cid: nonExistentCid });
                 expect.fail("Should have timed out");
             } catch (e) {
-                const error = e as PlebbitError;
-                if (isPlebbitFetchingUsingGateways(plebbit)) {
+                const error = e as PKCError;
+                if (isPKCFetchingUsingGateways(plebbit)) {
                     expect(error.code).to.equal("ERR_FAILED_TO_FETCH_PAGE_IPFS_FROM_GATEWAYS");
                     for (const gatewayUrl of Object.keys(plebbit.clients.ipfsGateways))
-                        expect((error.details.gatewayToError[gatewayUrl] as PlebbitError).code).to.equal(
-                            "ERR_GATEWAY_TIMED_OUT_OR_ABORTED"
-                        );
+                        expect((error.details.gatewayToError[gatewayUrl] as PKCError).code).to.equal("ERR_GATEWAY_TIMED_OUT_OR_ABORTED");
                 } else {
                     expect(error.code).to.equal("ERR_FETCH_CID_P2P_TIMEOUT");
                 }
@@ -133,7 +131,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`.getPage will throw if the first page is over 1mb`, async () => {
-            const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
             const page = remeda.clone(subplebbit.raw.subplebbitIpfs.posts.pages.hot);
 
             // Make sure the page is over 1MB
@@ -154,24 +152,24 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await subplebbit.posts.getPage({ cid: subplebbit.posts.pageCids.hot });
                 expect.fail("Should have thrown");
             } catch (e) {
-                const error = e as PlebbitError;
-                if (isPlebbitFetchingUsingGateways(plebbit)) {
+                const error = e as PKCError;
+                if (isPKCFetchingUsingGateways(plebbit)) {
                     expect(error.code).to.equal("ERR_FAILED_TO_FETCH_PAGE_IPFS_FROM_GATEWAYS");
                     for (const gatewayUrl of Object.keys(plebbit.clients.ipfsGateways))
-                        expect((error.details.gatewayToError[gatewayUrl] as PlebbitError).code).to.equal("ERR_OVER_DOWNLOAD_LIMIT");
+                        expect((error.details.gatewayToError[gatewayUrl] as PKCError).code).to.equal("ERR_OVER_DOWNLOAD_LIMIT");
                 } else expect(error.code).to.equal("ERR_OVER_DOWNLOAD_LIMIT");
             }
         });
 
         describe.concurrent(`subplebbit.posts.validatePage - ${config.name}`, async () => {
-            let plebbit: PlebbitType, subplebbit: RemoteSubplebbit, validPageJson: PageTypeJson, newPost: Comment;
+            let plebbit: PKCType, subplebbit: RemoteCommunity, validPageJson: PageTypeJson, newPost: Comment;
 
             beforeAll(async () => {
                 plebbit = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: false } });
                 newPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
                 await publishRandomReply({ parentComment: newPost as CommentIpfsWithCidDefined, plebbit: plebbit });
-                await waitTillPostInSubplebbitPages(newPost as Comment & { cid: string }, plebbit);
-                subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+                await waitTillPostInCommunityPages(newPost as Comment & { cid: string }, plebbit);
+                subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
                 validPageJson = remeda.clone(subplebbit.posts.pages.hot); // PageTypeJson, not PageIpfs
             });
 
@@ -191,7 +189,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     await subplebbit.posts.validatePage(invalidPage);
                     expect.fail("Should have thrown");
                 } catch (e) {
-                    const error = e as PlebbitError;
+                    const error = e as PKCError;
                     expect(error.code).to.equal("ERR_POSTS_PAGE_IS_INVALID");
                     expect(error.details.signatureValidity.reason).to.equal(messages.ERR_SIGNATURE_IS_INVALID);
                 }
@@ -205,7 +203,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     await subplebbit.posts.validatePage(invalidPage);
                     expect.fail("Should have thrown");
                 } catch (e) {
-                    const error = e as PlebbitError;
+                    const error = e as PKCError;
                     expect(error.code).to.equal("ERR_POSTS_PAGE_IS_INVALID");
                     expect(error.details.signatureValidity.reason).to.equal(messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY);
                 }
@@ -220,7 +218,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     await subplebbit.posts.validatePage(invalidPage);
                     expect.fail("Should have thrown");
                 } catch (e) {
-                    const error = e as PlebbitError;
+                    const error = e as PKCError;
                     expect(error.code).to.equal("ERR_POSTS_PAGE_IS_INVALID");
                     expect(error.details.signatureValidity.reason).to.equal(messages.ERR_SIGNATURE_IS_INVALID);
                 }
@@ -239,7 +237,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     await subplebbit.posts.validatePage(invalidPage);
                     expect.fail("Should have thrown");
                 } catch (e) {
-                    const error = e as PlebbitError;
+                    const error = e as PKCError;
                     expect(error.code).to.equal("ERR_POSTS_PAGE_IS_INVALID");
                     expect(error.details.signatureValidity.reason).to.equal(
                         messages.ERR_PAGE_COMMENT_IS_A_REPLY_BUT_HAS_NO_PARENT_COMMENT_INSTANCE
@@ -260,7 +258,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     await subplebbit.posts.validatePage(invalidPage);
                     expect.fail("Should have thrown");
                 } catch (e) {
-                    const error = e as PlebbitError;
+                    const error = e as PKCError;
                     expect(error.code).to.equal("ERR_POSTS_PAGE_IS_INVALID");
                     expect(error.details.signatureValidity.reason).to.equal(messages.ERR_PARENT_CID_OF_COMMENT_IN_PAGE_IS_NOT_CORRECT);
                 }
@@ -289,7 +287,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     await subplebbit.posts.validatePage(invalidPage);
                     expect.fail("Should have thrown");
                 } catch (e) {
-                    const error = e as PlebbitError;
+                    const error = e as PKCError;
                     expect(error.code).to.equal("ERR_POSTS_PAGE_IS_INVALID");
                     expect(error.details.signatureValidity.reason).to.equal(
                         messages.ERR_PAGE_COMMENT_POST_HAS_POST_CID_DEFINED_WITH_DEPTH_0
@@ -313,7 +311,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     await subplebbit.posts.validatePage(repliesPage);
                     expect.fail("Should have thrown");
                 } catch (e) {
-                    const error = e as PlebbitError;
+                    const error = e as PKCError;
                     expect(error.code).to.equal("ERR_POSTS_PAGE_IS_INVALID");
                     expect(error.details.signatureValidity.reason).to.equal(messages.ERR_PARENT_CID_OF_COMMENT_IN_PAGE_IS_NOT_CORRECT);
                 }
@@ -333,12 +331,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     });
 });
 
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
     describe.concurrent(`getPage - ${config.name}`, async () => {
         it(`.getPage will throw if retrieved page has an invalid signature `, async () => {
             const plebbit = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: true } });
 
-            const sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.getCommunity({ address: subplebbitAddress });
 
             const pageIpfs = { comments: sub.posts.pages.hot.comments.map((comment) => comment.raw) };
             expect(pageIpfs).to.exist;
@@ -353,7 +351,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                 await sub.posts.getPage({ cid: invalidPageCid });
                 expect.fail("should fail");
             } catch (e) {
-                const error = e as PlebbitError;
+                const error = e as PKCError;
                 expect(error.code).to.equal("ERR_POSTS_PAGE_IS_INVALID");
                 expect(error.details.signatureValidity.reason).to.equal(messages.ERR_SIGNATURE_IS_INVALID);
             }
@@ -362,13 +360,13 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
     });
 });
 
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
     describe.concurrent(`getPage - ${config.name}`, async () => {
         it(`.getPage will throw if retrieved page is not equivalent to its CID - IPFS Gateway`, async () => {
             const gatewayUrl = "http://localhost:13415"; // a gateway that's gonna respond with invalid content
-            const plebbit = await mockGatewayPlebbit({ plebbitOptions: { ipfsGatewayUrls: [gatewayUrl], validatePages: true } });
+            const plebbit = await mockGatewayPKC({ plebbitOptions: { ipfsGatewayUrls: [gatewayUrl], validatePages: true } });
 
-            const sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.getCommunity({ address: subplebbitAddress });
 
             const invalidPageCid = "QmUFu8fzuT1th3jJYgR4oRgGpw3sgRALr4nbenA4pyoCav"; // Gateway will respond with content that is not mapped to this cid
             sub.posts.pageCids.active = invalidPageCid; // need to hardcode it here so we can calculate max size
@@ -376,9 +374,9 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
                 await sub.posts.getPage({ cid: invalidPageCid });
                 expect.fail("Should fail");
             } catch (e) {
-                const error = e as PlebbitError;
+                const error = e as PKCError;
                 expect(error.code).to.equal("ERR_FAILED_TO_FETCH_PAGE_IPFS_FROM_GATEWAYS");
-                expect((error.details.gatewayToError[gatewayUrl] as PlebbitError).code).to.equal("ERR_CALCULATED_CID_DOES_NOT_MATCH");
+                expect((error.details.gatewayToError[gatewayUrl] as PKCError).code).to.equal("ERR_CALCULATED_CID_DOES_NOT_MATCH");
             }
             await plebbit.destroy();
         });

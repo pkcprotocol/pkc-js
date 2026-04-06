@@ -1,32 +1,32 @@
 import {
-    mockPlebbit,
+    mockPKC,
     createSubWithNoChallenge,
     describeSkipIfRpc,
     generateMockPost,
     generateMockComment,
     publishWithExpectedResult,
-    mockPlebbitNoDataPathWithOnlyKuboClient,
+    mockPKCNoDataPathWithOnlyKuboClient,
     resolveWhenConditionIsTrue,
     publishRandomPost
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../../dist/node/community/rpc-local-community.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 
 describe(`subplebbit.features.authorFlairs`, async () => {
-    let plebbit: Plebbit;
-    let remotePlebbit: Plebbit;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    let plebbit: PKC;
+    let remotePKC: PKC;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
     let publishedPost: Comment;
     const validAuthorFlair = { text: "Verified", backgroundColor: "#00ff00", textColor: "#000000" };
 
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
-        remotePlebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
+        plebbit = await mockPKC();
+        remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
         subplebbit = await createSubWithNoChallenge({}, plebbit);
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
@@ -35,20 +35,20 @@ describe(`subplebbit.features.authorFlairs`, async () => {
         await subplebbit.edit({ flairs: { author: [validAuthorFlair] } });
 
         // Publish a post before enabling the feature
-        publishedPost = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: remotePlebbit });
+        publishedPost = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: remotePKC });
     });
 
     afterAll(async () => {
         await subplebbit.delete();
         await plebbit.destroy();
-        await remotePlebbit.destroy();
+        await remotePKC.destroy();
     });
 
     it(`Can't publish a post with author flairs when authorFlairs feature is disabled (default)`, async () => {
         expect(subplebbit.features?.authorFlairs).to.be.undefined;
         const post = await generateMockPost({
             communityAddress: subplebbit.address,
-            plebbit: remotePlebbit,
+            plebbit: remotePKC,
             postProps: {
                 author: { displayName: "Test", flairs: [validAuthorFlair] }
             }
@@ -61,7 +61,7 @@ describe(`subplebbit.features.authorFlairs`, async () => {
     });
 
     it(`Can't publish a reply with author flairs when authorFlairs feature is disabled (default)`, async () => {
-        const reply = await generateMockComment(publishedPost as CommentIpfsWithCidDefined, remotePlebbit, false, {
+        const reply = await generateMockComment(publishedPost as CommentIpfsWithCidDefined, remotePKC, false, {
             author: { displayName: "Test", flairs: [validAuthorFlair] }
         });
         await publishWithExpectedResult({
@@ -79,7 +79,7 @@ describe(`subplebbit.features.authorFlairs`, async () => {
     it(`Can publish a post with valid author flair when feature is enabled`, async () => {
         const post = await generateMockPost({
             communityAddress: subplebbit.address,
-            plebbit: remotePlebbit,
+            plebbit: remotePKC,
             postProps: {
                 author: { displayName: "Test", flairs: [validAuthorFlair] }
             }
@@ -88,7 +88,7 @@ describe(`subplebbit.features.authorFlairs`, async () => {
     });
 
     it(`Can publish a reply with valid author flair when feature is enabled`, async () => {
-        const reply = await generateMockComment(publishedPost as CommentIpfsWithCidDefined, remotePlebbit, false, {
+        const reply = await generateMockComment(publishedPost as CommentIpfsWithCidDefined, remotePKC, false, {
             author: { displayName: "Test", flairs: [validAuthorFlair] }
         });
         await publishWithExpectedResult({ publication: reply, expectedChallengeSuccess: true });
@@ -98,7 +98,7 @@ describe(`subplebbit.features.authorFlairs`, async () => {
         const invalidFlair = { text: "Invalid", backgroundColor: "#ff0000" };
         const post = await generateMockPost({
             communityAddress: subplebbit.address,
-            plebbit: remotePlebbit,
+            plebbit: remotePKC,
             postProps: {
                 author: { displayName: "Test", flairs: [invalidFlair] }
             }
@@ -114,7 +114,7 @@ describe(`subplebbit.features.authorFlairs`, async () => {
         const wrongColorFlair = { text: "Verified", backgroundColor: "#ff0000", textColor: "#ffffff" };
         const post = await generateMockPost({
             communityAddress: subplebbit.address,
-            plebbit: remotePlebbit,
+            plebbit: remotePKC,
             postProps: {
                 author: { displayName: "Test", flairs: [wrongColorFlair] }
             }
@@ -127,7 +127,7 @@ describe(`subplebbit.features.authorFlairs`, async () => {
     });
 
     it(`Can publish a post without author flairs when feature is enabled`, async () => {
-        const post = await generateMockPost({ communityAddress: subplebbit.address, plebbit: remotePlebbit });
+        const post = await generateMockPost({ communityAddress: subplebbit.address, plebbit: remotePKC });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });
 
@@ -135,7 +135,7 @@ describe(`subplebbit.features.authorFlairs`, async () => {
         const flairWithExtraProps = { text: "Verified", backgroundColor: "#00ff00", textColor: "#000000", expiresAt: 12345 };
         const post = await generateMockPost({
             communityAddress: subplebbit.address,
-            plebbit: remotePlebbit,
+            plebbit: remotePKC,
             postProps: {
                 author: { displayName: "Test", flairs: [flairWithExtraProps] }
             }
@@ -152,7 +152,7 @@ describe(`subplebbit.features.authorFlairs`, async () => {
         const flairMissingProps = { text: "Verified" };
         const post = await generateMockPost({
             communityAddress: subplebbit.address,
-            plebbit: remotePlebbit,
+            plebbit: remotePKC,
             postProps: {
                 author: { displayName: "Test", flairs: [flairMissingProps] }
             }
@@ -166,15 +166,15 @@ describe(`subplebbit.features.authorFlairs`, async () => {
 });
 
 describeSkipIfRpc(`subplebbit.features.authorFlairs with pseudonymityMode`, () => {
-    let plebbit: Plebbit;
-    let remotePlebbit: Plebbit;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    let plebbit: PKC;
+    let remotePKC: PKC;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
     let publishedPost: Comment;
     const validAuthorFlair = { text: "Verified", backgroundColor: "#00ff00", textColor: "#000000" };
 
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
-        remotePlebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
+        plebbit = await mockPKC();
+        remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
         subplebbit = await createSubWithNoChallenge({}, plebbit);
         await subplebbit.edit({
             features: { pseudonymityMode: "per-author" },
@@ -183,13 +183,13 @@ describeSkipIfRpc(`subplebbit.features.authorFlairs with pseudonymityMode`, () =
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
-        publishedPost = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: remotePlebbit });
+        publishedPost = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: remotePKC });
     });
 
     afterAll(async () => {
         await subplebbit.delete();
         await plebbit.destroy();
-        await remotePlebbit.destroy();
+        await remotePKC.destroy();
     });
 
     it(`Author flairs validation is skipped when pseudonymityMode is active (flairs will be stripped)`, async () => {
@@ -200,7 +200,7 @@ describeSkipIfRpc(`subplebbit.features.authorFlairs with pseudonymityMode`, () =
 
         const post = await generateMockPost({
             communityAddress: subplebbit.address,
-            plebbit: remotePlebbit,
+            plebbit: remotePKC,
             postProps: {
                 author: { displayName: "Test", flairs: [validAuthorFlair] }
             }
@@ -212,7 +212,7 @@ describeSkipIfRpc(`subplebbit.features.authorFlairs with pseudonymityMode`, () =
         expect(subplebbit.features?.authorFlairs).to.be.undefined;
         expect(subplebbit.features?.pseudonymityMode).to.equal("per-author");
 
-        const reply = await generateMockComment(publishedPost as CommentIpfsWithCidDefined, remotePlebbit, false, {
+        const reply = await generateMockComment(publishedPost as CommentIpfsWithCidDefined, remotePKC, false, {
             author: { displayName: "Test", flairs: [validAuthorFlair] }
         });
         await publishWithExpectedResult({ publication: reply, expectedChallengeSuccess: true });
@@ -226,7 +226,7 @@ describeSkipIfRpc(`subplebbit.features.authorFlairs with pseudonymityMode`, () =
 
         // Publishing without author flairs should succeed because pseudonymityMode
         // would strip them anyway, so requiring them is meaningless
-        const post = await generateMockPost({ communityAddress: subplebbit.address, plebbit: remotePlebbit });
+        const post = await generateMockPost({ communityAddress: subplebbit.address, plebbit: remotePKC });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });
 });

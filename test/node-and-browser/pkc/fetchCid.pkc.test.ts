@@ -1,20 +1,20 @@
-import Plebbit from "../../../dist/node/index.js";
+import PKC from "../../../dist/node/index.js";
 import signers from "../../fixtures/signers.js";
 import {
     addStringToIpfs,
-    getAvailablePlebbitConfigsToTestAgainst,
-    mockGatewayPlebbit,
-    isPlebbitFetchingUsingGateways
+    getAvailablePKCConfigsToTestAgainst,
+    mockGatewayPKC,
+    isPKCFetchingUsingGateways
 } from "../../../dist/node/test/test-util.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
-import type { PlebbitError } from "../../../dist/node/pkc-error.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import type { PKCError } from "../../../dist/node/pkc-error.js";
 
 const fixtureSigner = signers[0];
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`plebbit.fetchCid - ${config.name}`, async () => {
-        let plebbit: PlebbitType;
+        let plebbit: PKCType;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
         });
@@ -60,12 +60,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await plebbit.fetchCid({ cid: cid });
                 expect.fail("should not succeed");
             } catch (e) {
-                const error = e as PlebbitError;
-                if (isPlebbitFetchingUsingGateways(plebbit)) {
+                const error = e as PKCError;
+                if (isPKCFetchingUsingGateways(plebbit)) {
                     expect(error.code).to.equal("ERR_FAILED_TO_FETCH_GENERIC_IPFS_FROM_GATEWAYS");
                     expect(
-                        (error.details.gatewayToError as Record<string, PlebbitError>)[
-                            Object.keys(error.details.gatewayToError as Record<string, PlebbitError>)[0]
+                        (error.details.gatewayToError as Record<string, PKCError>)[
+                            Object.keys(error.details.gatewayToError as Record<string, PKCError>)[0]
                         ].code
                     ).to.equal("ERR_OVER_DOWNLOAD_LIMIT");
                 } else {
@@ -77,14 +77,14 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     });
 });
 
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
     describe.concurrent("plebbit.fetchCid - " + config.name, () => {
         it(`Throws an error if malicious gateway modifies content of file`, async () => {
             // RPC exception
             const [fileString1, fileString2] = ["Hello plebs", "Hello plebs 2"];
             const cids = await Promise.all([fileString1, fileString2].map((file) => addStringToIpfs(file)));
 
-            const plebbitWithMaliciousGateway = await mockGatewayPlebbit({
+            const plebbitWithMaliciousGateway = await mockGatewayPKC({
                 plebbitOptions: {
                     ipfsGatewayUrls: ["http://127.0.0.1:13415"],
                     httpRoutersOptions: [],
@@ -100,11 +100,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
                 await plebbitWithMaliciousGateway.fetchCid({ cid: cids[1] });
                 expect.fail("Should have thrown");
             } catch (e) {
-                const error = e as PlebbitError;
+                const error = e as PKCError;
                 expect(error.code).to.equal("ERR_FAILED_TO_FETCH_GENERIC_IPFS_FROM_GATEWAYS");
                 expect(
-                    (error.details.gatewayToError as Record<string, PlebbitError>)[
-                        Object.keys(error.details.gatewayToError as Record<string, PlebbitError>)[0]
+                    (error.details.gatewayToError as Record<string, PKCError>)[
+                        Object.keys(error.details.gatewayToError as Record<string, PKCError>)[0]
                     ].code
                 ).to.equal("ERR_CALCULATED_CID_DOES_NOT_MATCH");
             }
@@ -114,7 +114,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
         it(`plebbit.fetchCid({cid}) resolves with the first gateway response`, async () => {
             // Have two gateways, the first is a gateway that takes 10s to respond, and the second should be near instant
             // RPC exception
-            const multipleGatewayPlebbit = await Plebbit({
+            const multipleGatewayPKC = await PKC({
                 ipfsGatewayUrls: ["http://localhost:13417", "http://127.0.0.1:18080"],
                 httpRoutersOptions: [],
                 dataPath: undefined
@@ -124,12 +124,12 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
             const cid = await addStringToIpfs(JSON.stringify(jsonFileTest)); // should be "QmaZN2117dty2gHUDx2kHM61Vz9UcVDHFCx9PQt2bP2CEo"
 
             const timeBefore = Date.now();
-            const content = await multipleGatewayPlebbit.fetchCid({ cid });
+            const content = await multipleGatewayPKC.fetchCid({ cid });
             expect(content).to.be.a("string");
             const timeItTookInMs = Date.now() - timeBefore;
             expect(timeItTookInMs).to.be.lessThan(9000);
 
-            await multipleGatewayPlebbit.destroy();
+            await multipleGatewayPKC.destroy();
         });
     });
 });

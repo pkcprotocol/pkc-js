@@ -5,11 +5,11 @@ import {
     CidStringSchema,
     CreatePublicationUserOptionsSchema,
     JsonSignatureSchema,
-    PlebbitTimestampSchema,
+    PKCTimestampSchema,
     ProtocolVersionSchema,
     PublicationBaseBeforeSigning,
     SignerWithAddressPublicKeySchema,
-    SubplebbitAuthorSchema
+    CommunityAuthorSchema
 } from "../../schema/schema.js";
 import { CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema } from "../comment-edit/schema.js";
 import * as remeda from "remeda";
@@ -113,7 +113,7 @@ export const CommentIpfsWithRefinmentSchema = CommentIpfsSchema.refine(
 export const AuthorWithCommentUpdateSchema = CommentPubsubMessagePublicationSchema.shape.author
     .unwrap()
     .extend({
-        subplebbit: SubplebbitAuthorSchema.optional()
+        subplebbit: CommunityAuthorSchema.optional()
     })
     .loose();
 
@@ -136,10 +136,10 @@ export const CommentUpdateSchema = z
         removed: z.boolean().optional(), // mod deleted a comment
         reason: z.string().optional(), // reason the mod took a mood action,
         approved: z.boolean().optional(), // if comment was pending approval and it got approved or disapproved. Does not apply to comments pending approvals, you need to use moderation.pageCids.pendingApproval to fetch pending comments
-        updatedAt: PlebbitTimestampSchema, // timestamp in seconds the CommentUpdate was updated
+        updatedAt: PKCTimestampSchema, // timestamp in seconds the CommentUpdate was updated
         author: AuthorWithCommentUpdateSchema.pick({ subplebbit: true }).optional(), // add commentUpdate.author.subplebbit to comment.author.subplebbit, override comment.author.flairs with commentUpdate.author.subplebbit.flairs if any
         lastChildCid: CidStringSchema.optional(), // The cid of the most recent direct child of the comment
-        lastReplyTimestamp: PlebbitTimestampSchema.optional(), // The timestamp of the most recent direct or indirect child of the comment
+        lastReplyTimestamp: PKCTimestampSchema.optional(), // The timestamp of the most recent direct or indirect child of the comment
         signature: JsonSignatureSchema, // signature of the CommentUpdate by the sub owner to protect against malicious gateway
         protocolVersion: ProtocolVersionSchema,
         get replies() {
@@ -190,7 +190,7 @@ export const CommentUpdateForChallengeVerificationSignedPropertyNames = remeda.k
 export const CommentsTableRowSchema = CommentIpfsSchema.extend({
     cid: CidStringSchema, // cid of CommentIpfs, cid v0
     postCid: CidStringSchema,
-    insertedAt: PlebbitTimestampSchema,
+    insertedAt: PKCTimestampSchema,
     authorSignerAddress: SignerWithAddressPublicKeySchema.shape.address,
     originalCommentSignatureEncoded: CommentPubsubMessagePublicationSchema.shape.signature.shape.signature.optional(),
     extraProps: z.looseObject({}).optional(),
@@ -200,7 +200,7 @@ export const CommentsTableRowSchema = CommentIpfsSchema.extend({
 }).strict();
 
 export const CommentUpdateTableRowSchema = CommentUpdateSchema.extend({
-    insertedAt: PlebbitTimestampSchema,
+    insertedAt: PKCTimestampSchema,
     postUpdatesBucket: z.int().nonnegative().optional(), // the post updates bucket of post CommentUpdate, not applicable to replies
     publishedToPostUpdatesMFS: z.boolean() // whether the comment latest update has been published
 });
@@ -210,7 +210,7 @@ export const CommentUpdateTableRowSchema = CommentUpdateSchema.extend({
 const additionalCommentReservedFields = [
     "original",
     "shortCid",
-    "shortSubplebbitAddress",
+    "shortCommunityAddress",
     "shortCommunityAddress",
     "communityPublicKey",
     "communityName",

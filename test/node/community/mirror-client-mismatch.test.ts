@@ -1,23 +1,23 @@
 import { it, expect } from "vitest";
-import { mockPlebbit, describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
+import { mockPKC, describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 
 describeSkipIfRpc(`mirror() should not crash when client URLs mismatch between subplebbit instances`, () => {
     it(`updating sub with different pubsubKuboRpcClientsOptions should not emit TypeError`, async () => {
-        // Plebbit A: started sub uses the default mockPlebbit pubsub URLs
+        // PKC A: started sub uses the default mockPKC pubsub URLs
         // (http://localhost:15002, http://localhost:42234, http://localhost:42254)
-        const plebbitA = await mockPlebbit();
+        const plebbitA = await mockPKC();
 
-        const startedSub = (await plebbitA.createSubplebbit()) as LocalSubplebbit;
+        const startedSub = (await plebbitA.createCommunity()) as LocalCommunity;
         await startedSub.start();
 
         try {
-            // Plebbit B: uses a different pubsub URL that doesn't exist on plebbitA
-            const plebbitB = await mockPlebbit({
+            // PKC B: uses a different pubsub URL that doesn't exist on plebbitA
+            const plebbitB = await mockPKC({
                 pubsubKuboRpcClientsOptions: ["http://localhost:15001/api/v0"]
             });
 
-            const updatingSub = (await plebbitB.createSubplebbit({ address: startedSub.address })) as LocalSubplebbit;
+            const updatingSub = (await plebbitB.createCommunity({ address: startedSub.address })) as LocalCommunity;
 
             // Track any errors emitted during mirroring
             const errors: Error[] = [];

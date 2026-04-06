@@ -7,19 +7,19 @@ import {
     itSkipIfRpc,
     createMockNameResolver,
     resolveWhenConditionIsTrue,
-    getAvailablePlebbitConfigsToTestAgainst,
-    createStaticSubplebbitRecordForComment,
+    getAvailablePKCConfigsToTestAgainst,
+    createStaticCommunityRecordForComment,
     addStringToIpfs
 } from "../../../../dist/node/test/test-util.js";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { PageIpfs } from "../../../../dist/node/pages/types.js";
 import type Publication from "../../../../dist/node/publications/publication.js";
 
 const subplebbitAddress = signers[0].address;
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe(`author.nameResolved - ${config.name}`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         let domainCommentCid: string;
         let noDomainCommentCid: string;
         let mismatchedDomainCommentCid: string;
@@ -44,7 +44,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const noDomainComment = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit });
             noDomainCommentCid = noDomainComment.cid!;
 
-            const mismatchedDomainComment = await createStaticSubplebbitRecordForComment({
+            const mismatchedDomainComment = await createStaticCommunityRecordForComment({
                 plebbit,
                 commentOptions: {
                     author: { name: "plebbit.bso" },
@@ -54,7 +54,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             mismatchedDomainCommentCid = mismatchedDomainComment.commentCid;
 
             // Comment with a domain that no resolver can resolve
-            const unresolvableDomainComment = await createStaticSubplebbitRecordForComment({
+            const unresolvableDomainComment = await createStaticCommunityRecordForComment({
                 plebbit,
                 commentOptions: {
                     author: { name: "hello.scam" },
@@ -64,7 +64,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             unresolvableDomainCommentCid = unresolvableDomainComment.commentCid;
 
             // Create a manual page from the preloaded hot page for getPage() tests
-            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.createCommunity({ address: subplebbitAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -196,7 +196,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it("createComment({...pageComment}) does not carry over author.nameResolved from pages", async () => {
-            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.createCommunity({ address: subplebbitAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -244,12 +244,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         itSkipIfRpc("nameResolved is undefined when resolveAuthorNames is false", async () => {
-            const noResolvePlebbit = await config.plebbitInstancePromise({
+            const noResolvePKC = await config.plebbitInstancePromise({
                 stubStorage: false,
                 plebbitOptions: { resolveAuthorNames: false }
             });
 
-            const loaded = await noResolvePlebbit.createComment({ cid: domainCommentCid });
+            const loaded = await noResolvePKC.createComment({ cid: domainCommentCid });
             await loaded.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: loaded,
@@ -260,7 +260,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             // Verification skips resolution when disabled, cache never populated
             expect(loaded.author.nameResolved).to.be.undefined;
 
-            await noResolvePlebbit.destroy();
+            await noResolvePKC.destroy();
         });
 
         it("nameResolved is false when resolver throws", async () => {
@@ -345,7 +345,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         // === Page-level nameResolved tests ===
 
         it("nameResolved is true for domain author in subplebbit.posts preloaded pages", async () => {
-            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.createCommunity({ address: subplebbitAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -363,7 +363,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it("nameResolved is undefined for non-domain author in subplebbit.posts preloaded pages", async () => {
-            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.createCommunity({ address: subplebbitAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -377,7 +377,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it("nameResolved is true for domain author in pages fetched via sub.posts.getPage()", async () => {
-            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.createCommunity({ address: subplebbitAddress });
             await sub.update();
             // Wait for background resolution to populate the cache first
             await resolveWhenConditionIsTrue({
@@ -399,7 +399,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it("nameResolved is undefined for non-domain author in fetched pages", async () => {
-            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.createCommunity({ address: subplebbitAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -415,7 +415,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it("nameResolved is false for mismatched domain in subplebbit.posts preloaded pages", async () => {
-            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.createCommunity({ address: subplebbitAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -432,7 +432,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it("nameResolved is false for unresolvable domain in subplebbit.posts preloaded pages", async () => {
-            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.createCommunity({ address: subplebbitAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -508,7 +508,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it("page with no domain authors has no nameResolved set", async () => {
-            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.createCommunity({ address: subplebbitAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -523,7 +523,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it("nameResolved is false for mismatched domain in fetched pages", async () => {
-            const sub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.createCommunity({ address: subplebbitAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -542,7 +542,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         it("nameResolved is false when reader has no resolver for the author's TLD", async () => {
             // Create a comment with .xyz TLD using default plebbit (which accepts all TLDs)
-            const xyzComment = await createStaticSubplebbitRecordForComment({
+            const xyzComment = await createStaticCommunityRecordForComment({
                 plebbit,
                 commentOptions: {
                     author: { name: "testuser.xyz" },
@@ -552,7 +552,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             // Create a reader plebbit with a restricted resolver (only .eth/.bso)
             // even for RPC servers they should not be able to resolve .xyz
-            const readerPlebbit = await config.plebbitInstancePromise({
+            const readerPKC = await config.plebbitInstancePromise({
                 stubStorage: false,
                 mockResolve: false,
                 plebbitOptions: {
@@ -565,7 +565,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 }
             });
 
-            const comment = await readerPlebbit.createComment({ cid: xyzComment.commentCid });
+            const comment = await readerPKC.createComment({ cid: xyzComment.commentCid });
             await comment.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: comment,
@@ -577,14 +577,14 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(comment.author.nameResolved).to.equal(false);
             expect(comment.author.address).to.equal("testuser.xyz");
 
-            await readerPlebbit.destroy();
+            await readerPKC.destroy();
         });
 
         it("nameResolved change emits a separate update event", async () => {
             // Use a fresh plebbit instance so the cache is empty
-            const freshPlebbit = await config.plebbitInstancePromise();
+            const freshPKC = await config.plebbitInstancePromise();
 
-            const comment = await freshPlebbit.createComment({ cid: domainCommentCid });
+            const comment = await freshPKC.createComment({ cid: domainCommentCid });
             let updateCount = 0;
             let nameResolvedOnUpdateWhenSet: boolean | undefined;
 
@@ -607,7 +607,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             // There should have been at least 2 update events (initial load + nameResolved change)
             expect(updateCount).to.be.greaterThanOrEqual(2);
 
-            await freshPlebbit.destroy();
+            await freshPKC.destroy();
         });
 
         it("background resolution of reply page authors does not emit spurious update on comment", async () => {

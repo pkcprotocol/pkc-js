@@ -1,6 +1,6 @@
 import signers from "../../../fixtures/signers.js";
 import {
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     iterateThroughPagesToFindCommentInParentPagesInstance,
     publishRandomPost,
     publishWithExpectedResult,
@@ -9,7 +9,7 @@ import {
 import { messages } from "../../../../dist/node/errors.js";
 import * as remeda from "remeda";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentWithinRepliesPostsPageJson } from "../../../../dist/node/publications/comment/types.js";
 
@@ -20,9 +20,9 @@ const roles = [
     { role: "mod", signer: signers[3] }
 ];
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent("Editing comment.content - " + config.name, async () => {
-        let plebbit: Plebbit, commentToBeEdited: Comment, originalContent: string;
+        let plebbit: PKC, commentToBeEdited: Comment, originalContent: string;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -113,7 +113,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`The new content should be reflected in subplebbit.posts.getPage`, async () => {
-            const subplebbit1 = await plebbit.createSubplebbit({ address: commentToBeEdited.communityAddress });
+            const subplebbit1 = await plebbit.createCommunity({ address: commentToBeEdited.communityAddress });
             await subplebbit1.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: subplebbit1,
@@ -125,8 +125,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     return Boolean(editedCommentInPage?.edit?.reason?.startsWith("To test editing content"));
                 }
             });
-            const subplebbit2 = await plebbit.createSubplebbit(subplebbit1); // we're testing if posts from subplebbit are parsed correctly
-            const subplebbit3 = await plebbit.createSubplebbit(JSON.parse(JSON.stringify(subplebbit1)));
+            const subplebbit2 = await plebbit.createCommunity(subplebbit1); // we're testing if posts from subplebbit are parsed correctly
+            const subplebbit3 = await plebbit.createCommunity(JSON.parse(JSON.stringify(subplebbit1)));
             for (const subplebbit of [subplebbit1, subplebbit2, subplebbit3]) {
                 const editedCommentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
                     commentToBeEdited.cid,
@@ -144,7 +144,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`The new content should be reflected in JSON.parse(JSON.stringify(subplebbit)).posts.pages`, async () => {
-            const sub1 = await plebbit.createSubplebbit({ address: commentToBeEdited.communityAddress });
+            const sub1 = await plebbit.createCommunity({ address: commentToBeEdited.communityAddress });
             await sub1.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub1,
@@ -156,8 +156,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     return Boolean(editedCommentInPage?.edit?.reason?.startsWith("To test editing content"));
                 }
             });
-            const sub2 = await plebbit.createSubplebbit(sub1); // we're testing if posts from subplebbit are parsed correctly
-            const sub3 = await plebbit.createSubplebbit(JSON.parse(JSON.stringify(sub1)));
+            const sub2 = await plebbit.createCommunity(sub1); // we're testing if posts from subplebbit are parsed correctly
+            const sub3 = await plebbit.createCommunity(JSON.parse(JSON.stringify(sub1)));
 
             for (const subJson of [
                 sub1,

@@ -3,14 +3,14 @@ import {
     RpcAuthorNameParamSchema,
     RpcCidParamSchema,
     RpcCommentRepliesPageParamSchema,
-    RpcSubplebbitAddressParamSchema,
-    RpcSubplebbitLookupParamSchema,
-    RpcSubplebbitPageParamSchema
+    RpcCommunityAddressParamSchema,
+    RpcCommunityLookupParamSchema,
+    RpcCommunityPageParamSchema
 } from "./schema.js";
 
 export type CidRpcParam = z.infer<typeof RpcCidParamSchema>;
-export type SubplebbitAddressRpcParam = z.infer<typeof RpcSubplebbitAddressParamSchema>;
-export type SubplebbitLookupRpcParam = z.infer<typeof RpcSubplebbitLookupParamSchema>;
+export type CommunityAddressRpcParam = z.infer<typeof RpcCommunityAddressParamSchema>;
+export type CommunityLookupRpcParam = z.infer<typeof RpcCommunityLookupParamSchema>;
 export type AuthorNameRpcParam = z.infer<typeof RpcAuthorNameParamSchema>;
 export type CommentPageRpcParam = z.infer<typeof RpcCommentRepliesPageParamSchema>;
-export type SubplebbitPageRpcParam = z.infer<typeof RpcSubplebbitPageParamSchema>;
+export type CommunityPageRpcParam = z.infer<typeof RpcCommunityPageParamSchema>;

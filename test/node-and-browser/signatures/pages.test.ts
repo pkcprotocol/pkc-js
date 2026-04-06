@@ -1,5 +1,5 @@
 import { beforeAll, afterAll } from "vitest";
-import { mockRemotePlebbit, describeSkipIfRpc, createMockNameResolver } from "../../../dist/node/test/test-util.js";
+import { mockRemotePKC, describeSkipIfRpc, createMockNameResolver } from "../../../dist/node/test/test-util.js";
 import { verifyPage } from "../../../dist/node/signer/signatures.js";
 import { messages } from "../../../dist/node/errors.js";
 import signers from "../../fixtures/signers.js";
@@ -9,8 +9,8 @@ import { v4 as uuidV4 } from "uuid";
 import validPageIpfsFixture from "../../fixtures/valid_page.json" with { type: "json" };
 import legacyPageIpfsFixture from "../../fixtures/valid_page_legacy_subplebbitAddress.json" with { type: "json" };
 
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
-import type { RemoteSubplebbit } from "../../../dist/node/community/remote-community.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 import type { PageIpfs } from "../../../dist/node/pages/types.js";
 
 const subAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
@@ -26,8 +26,8 @@ const getParentComment = (parentCid: string | undefined) => {
 
 const verifyPageJsonAlongWithObject = async (
     pageJson: PageIpfs,
-    plebbit: PlebbitType,
-    subplebbit: RemoteSubplebbit,
+    plebbit: PKCType,
+    subplebbit: RemoteCommunity,
     parentCid: string | undefined
 ) => {
     // randomize pageCid so that we don't rely on cache
@@ -61,11 +61,11 @@ const verifyPageJsonAlongWithObject = async (
 // RPC tests don't need to run this because clients of RPC trust RPC response and won't validate
 
 describeSkipIfRpc(`verify pages`, async () => {
-    let plebbit: PlebbitType;
-    let subplebbit: RemoteSubplebbit;
+    let plebbit: PKCType;
+    let subplebbit: RemoteCommunity;
     beforeAll(async () => {
-        plebbit = await mockRemotePlebbit();
-        subplebbit = await plebbit.getSubplebbit({ address: subAddress });
+        plebbit = await mockRemotePKC();
+        subplebbit = await plebbit.getCommunity({ address: subAddress });
     });
 
     afterAll(async () => {
@@ -94,7 +94,7 @@ describeSkipIfRpc(`verify pages`, async () => {
         expect(commentWithDomainIndex).to.be.greaterThanOrEqual(0);
         const domainName = invalidPage.comments[commentWithDomainIndex].comment.author!.name!;
 
-        const tempPlebbit: PlebbitType = await mockRemotePlebbit({
+        const tempPKC: PKCType = await mockRemotePKC({
             mockResolve: false,
             plebbitOptions: {
                 nameResolvers: [
@@ -106,10 +106,10 @@ describeSkipIfRpc(`verify pages`, async () => {
             }
         });
 
-        const verification = await verifyPageJsonAlongWithObject(invalidPage, tempPlebbit, subplebbit, undefined);
+        const verification = await verifyPageJsonAlongWithObject(invalidPage, tempPKC, subplebbit, undefined);
         expect(verification).to.deep.equal({ valid: true });
         expect(invalidPage.comments[commentWithDomainIndex].comment.author!.name).to.equal(domainName);
-        await tempPlebbit.destroy();
+        await tempPKC.destroy();
     });
 
     describe(`A sub owner changing any of comment fields in page will invalidate`, async () => {

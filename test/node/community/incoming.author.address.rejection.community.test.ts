@@ -6,7 +6,7 @@ import {
     describeSkipIfRpc,
     disableValidationOfSignatureBeforePublishing,
     ensurePublicationIsSigned,
-    mockPlebbit,
+    mockPKC,
     publishRandomPost,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
@@ -17,15 +17,15 @@ import {
 } from "../../../dist/node/test/test-util.js";
 import { messages } from "../../../dist/node/errors.js";
 import { _signJson, cleanUpBeforePublishing } from "../../../dist/node/signer/signatures.js";
-import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type Publication from "../../../dist/node/publications/publication.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type Vote from "../../../dist/node/publications/vote/vote.js";
 import type { CommentEdit } from "../../../dist/node/publications/comment-edit/comment-edit.js";
 import type { CommentModeration } from "../../../dist/node/publications/comment-moderation/comment-moderation.js";
-import type SubplebbitEdit from "../../../dist/node/publications/community-edit/community-edit.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../dist/node/community/rpc-local-community.js";
+import type CommunityEdit from "../../../dist/node/publications/community-edit/community-edit.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 import type { SignerType } from "../../../dist/node/signer/types.js";
 
 type PublicationKey = "comment" | "vote" | "commentEdit" | "commentModeration" | "subplebbitEdit";
@@ -34,14 +34,14 @@ type PublicationWithSigner = Publication & {
     signer?: SignerType;
 };
 
-describeSkipIfRpc.sequential("LocalSubplebbit rejects incoming signed wire author.address", async () => {
-    let plebbit: Plebbit;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+describeSkipIfRpc.sequential("LocalCommunity rejects incoming signed wire author.address", async () => {
+    let plebbit: PKC;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
     let targetPost: Comment;
     let moderatorSigner: SignerType;
 
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
+        plebbit = await mockPKC();
         subplebbit = await createSubWithNoChallenge({}, plebbit);
 
         await subplebbit.start();
@@ -106,7 +106,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects incoming signed wire autho
         });
     }
 
-    async function injectSignedAuthorAddressIntoSubplebbitEdit(subplebbitEdit: SubplebbitEdit, authorAddress: string) {
+    async function injectSignedAuthorAddressIntoCommunityEdit(subplebbitEdit: CommunityEdit, authorAddress: string) {
         if (!subplebbitEdit.signer) throw Error("Expected subplebbitEdit.signer to be defined");
         await ensurePublicationIsSigned(subplebbitEdit, subplebbit);
 
@@ -218,7 +218,7 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects incoming signed wire autho
     it("rejects a live incoming subplebbitEdit with signed wire author.address", async () => {
         if (!subplebbit.signer || !("privateKey" in subplebbit.signer) || typeof subplebbit.signer.privateKey !== "string")
             throw Error("Expected local subplebbit to expose its owner signer with a private key");
-        const subplebbitEdit = await plebbit.createSubplebbitEdit({
+        const subplebbitEdit = await plebbit.createCommunityEdit({
             communityAddress: subplebbit.address,
             subplebbitEdit: {
                 description: `Reserved author.address sub edit ${Date.now()}`
@@ -230,20 +230,20 @@ describeSkipIfRpc.sequential("LocalSubplebbit rejects incoming signed wire autho
             publication: subplebbitEdit,
             publicationKey: "subplebbitEdit",
             injectAuthorAddress: async (authorAddress) => {
-                await injectSignedAuthorAddressIntoSubplebbitEdit(subplebbitEdit, authorAddress);
+                await injectSignedAuthorAddressIntoCommunityEdit(subplebbitEdit, authorAddress);
             }
         });
     });
 });
 
 // RPC skipped because these tests require direct subplebbit interaction with crafted wire payloads
-describeSkipIfRpc.sequential("LocalSubplebbit rejects incoming non-domain author.name", async () => {
-    let plebbit: Plebbit;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+describeSkipIfRpc.sequential("LocalCommunity rejects incoming non-domain author.name", async () => {
+    let plebbit: PKC;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
     let targetPost: Comment;
 
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
+        plebbit = await mockPKC();
         subplebbit = await createSubWithNoChallenge({}, plebbit);
 
         await subplebbit.start();

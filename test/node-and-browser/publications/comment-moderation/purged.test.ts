@@ -1,17 +1,17 @@
 import signers from "../../../fixtures/signers.js";
 import {
     publishRandomReply,
-    findCommentInSubplebbitInstancePagesPreloadedAndPageCids,
+    findCommentInCommunityInstancePagesPreloadedAndPageCids,
     generateMockComment,
     publishCommentWithDepth,
     generateMockVote,
     findReplyInParentCommentPagesInstancePreloadedAndPageCids,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     waitTillReplyInParentPages,
-    mockPlebbitNoDataPathWithOnlyKuboClient,
-    mockPlebbitNoDataPathWithOnlyKuboClientNoAdd,
+    mockPKCNoDataPathWithOnlyKuboClient,
+    mockPKCNoDataPathWithOnlyKuboClientNoAdd,
     itSkipIfRpc
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
@@ -21,7 +21,7 @@ import * as remeda from "remeda";
 import { findCommentInPageInstanceRecursively } from "../../../../dist/node/pages/util.js";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 
@@ -35,18 +35,18 @@ const roles = [
 ];
 
 // I suspect libp2p config is not emitting error
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     [0, 1, 2, 15, 30].map((commentDepth) => {
         const describeMethod = config.testConfigCode === "remote-plebbit-rpc" ? describe.sequential : describe.concurrent;
         describeMethod(`Purging comment with depth ${commentDepth} - ${config.name}`, async () => {
-            let plebbit: Plebbit, commentToPurge: Comment, replyOfCommentToPurge: Comment, replyUnderReplyOfCommentToPurge: Comment;
+            let plebbit: PKC, commentToPurge: Comment, replyOfCommentToPurge: Comment, replyUnderReplyOfCommentToPurge: Comment;
             let replyCountOfParentOfPurgedComment: number; // undefined if commentDepth is 0
-            let remotePlebbitIpfs: Plebbit;
-            let updateCidOfSubplebbitWithPurgedComment: string;
+            let remotePKCIpfs: PKC;
+            let updateCidOfCommunityWithPurgedComment: string;
             beforeAll(async () => {
                 plebbit = await config.plebbitInstancePromise();
-                remotePlebbitIpfs = await mockPlebbitNoDataPathWithOnlyKuboClientNoAdd(); // this instance is connected to the same IPFS node as the sub
-                const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+                remotePKCIpfs = await mockPKCNoDataPathWithOnlyKuboClientNoAdd(); // this instance is connected to the same IPFS node as the sub
+                const subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
                 const commentToPurgeTemp = await publishCommentWithDepth({ depth: commentDepth, subplebbit }); // reason why we publish in a different plebbit instance so it doesn't get added to local kubo node
                 commentToPurge = await plebbit.createComment({ cid: commentToPurgeTemp.cid });
                 await commentToPurge.update();
@@ -90,21 +90,21 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 // make sure both postToPurge and postReply exists on the IPFS node
 
                 for (const cid of [commentToPurge.cid, replyOfCommentToPurge.cid, replyUnderReplyOfCommentToPurge.cid]) {
-                    const res = await remotePlebbitIpfs.clients.kuboRpcClients[
-                        Object.keys(remotePlebbitIpfs.clients.kuboRpcClients)[0]
+                    const res = await remotePKCIpfs.clients.kuboRpcClients[
+                        Object.keys(remotePKCIpfs.clients.kuboRpcClients)[0]
                     ]._client.block.stat(CID.parse(cid));
                     expect(res.size).to.be.a("number");
                 }
 
                 // make sure comment to be purged is in pages of subplebbit
-                const sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
+                const sub = await plebbit.getCommunity({ address: subplebbitAddress });
                 const purgedCommentInPage = findCommentInPageInstanceRecursively(sub.posts, commentToPurge.cid);
                 expect(purgedCommentInPage).to.exist;
-                updateCidOfSubplebbitWithPurgedComment = sub.updateCid;
+                updateCidOfCommunityWithPurgedComment = sub.updateCid;
             });
             afterAll(async () => {
                 await plebbit.destroy();
-                await remotePlebbitIpfs.destroy();
+                await remotePKCIpfs.destroy();
             });
 
             it(`Regular author can not purge a comment with depth ${commentDepth}`, async () => {
@@ -210,7 +210,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             });
 
             it(`Author of comment with depth ${commentDepth} can't purge their own comment`, async () => {
-                const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+                const subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
                 const commentToAttemptToPurge = await publishCommentWithDepth({ depth: commentDepth, subplebbit });
                 const purgeCommentModeration = await plebbit.createCommentModeration({
                     communityAddress: commentToAttemptToPurge.communityAddress,
@@ -241,7 +241,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             it(`Purged comment with depth ${commentDepth} don't show in subplebbit.posts`, async () => {
                 const plebbit = await config.plebbitInstancePromise();
-                const sub = await plebbit.createSubplebbit({ address: commentToPurge.communityAddress });
+                const sub = await plebbit.createCommunity({ address: commentToPurge.communityAddress });
 
                 await sub.update();
 
@@ -250,7 +250,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await resolveWhenConditionIsTrue({
                     toUpdate: sub,
                     predicate: async () => {
-                        const purgedPostInPage = await findCommentInSubplebbitInstancePagesPreloadedAndPageCids({
+                        const purgedPostInPage = await findCommentInCommunityInstancePagesPreloadedAndPageCids({
                             comment: commentToPurge as Comment & { cid: string },
                             sub
                         });
@@ -258,11 +258,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     }
                 });
 
-                const purgedCommentInRemoteSubplebbitPage = await findCommentInSubplebbitInstancePagesPreloadedAndPageCids({
+                const purgedCommentInRemoteCommunityPage = await findCommentInCommunityInstancePagesPreloadedAndPageCids({
                     sub,
                     comment: commentToPurge as Comment & { cid: string }
                 });
-                expect(purgedCommentInRemoteSubplebbitPage).to.be.undefined;
+                expect(purgedCommentInRemoteCommunityPage).to.be.undefined;
 
                 await sub.stop();
 
@@ -271,14 +271,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             if (commentDepth === 0)
                 itSkipIfRpc(`Purged post should not appear in subplebbit.postUpdates`, async () => {
-                    const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+                    const subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
                     if (!subplebbit.postUpdates) return; // sub has no post updates, good!
                     const postUpdatesTimes = Object.keys(subplebbit.postUpdates);
                     expect(postUpdatesTimes.length).to.equal(1);
                     const mfsPath = `/${commentToPurge.communityAddress}/postUpdates/${postUpdatesTimes[0]}/${commentToPurge.postCid}/update`;
 
-                    const ipfsClient =
-                        remotePlebbitIpfs.clients.kuboRpcClients[Object.keys(remotePlebbitIpfs.clients.kuboRpcClients)[0]]._client;
+                    const ipfsClient = remotePKCIpfs.clients.kuboRpcClients[Object.keys(remotePKCIpfs.clients.kuboRpcClients)[0]]._client;
 
                     // Retry until MFS entry is removed (async purge cleanup)
                     for (let i = 0; i < 30; i++) {
@@ -293,7 +292,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     expect.fail(`MFS path ${mfsPath} still exists after 30s - purge cleanup did not complete`);
                 });
             it(`purged comment should not appear in subplebbit.lastPostCid`, async () => {
-                const subplebbit = await plebbit.createSubplebbit({ address: subplebbitAddress });
+                const subplebbit = await plebbit.createCommunity({ address: subplebbitAddress });
                 await subplebbit.update();
                 const intervalId = setInterval(() => {
                     if (subplebbit.state === "updating")
@@ -316,7 +315,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             });
 
             it(`purged comment should not appear in subplebbit.lastCommentCid`, async () => {
-                const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+                const subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
                 expect(subplebbit.lastCommentCid).to.not.equal(commentToPurge.cid);
             });
 
@@ -325,7 +324,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 async () => {
                     await new Promise((resolve) => setTimeout(resolve, 3000));
                     const cidEntries = [
-                        { label: "updateCidOfSubplebbitWithPurgedComment", cid: updateCidOfSubplebbitWithPurgedComment },
+                        { label: "updateCidOfCommunityWithPurgedComment", cid: updateCidOfCommunityWithPurgedComment },
                         { label: "commentToPurge.cid", cid: commentToPurge.cid },
                         { label: "replyOfCommentToPurge.cid", cid: replyOfCommentToPurge.cid },
                         { label: "replyUnderReplyOfCommentToPurge.cid", cid: replyUnderReplyOfCommentToPurge.cid },
@@ -359,7 +358,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     const allLabeledCids = [...labeledCids, ...labeledCidsV1];
                     const cidLabelMap = new Map(allLabeledCids.map((entry) => [entry.cid, entry.label]));
                     const ipfsClientOfSub =
-                        remotePlebbitIpfs.clients.kuboRpcClients[Object.keys(remotePlebbitIpfs.clients.kuboRpcClients)[0]]._client;
+                        remotePKCIpfs.clients.kuboRpcClients[Object.keys(remotePKCIpfs.clients.kuboRpcClients)[0]]._client;
                     // Collect all pinned CIDs
                     for await (const pin of ipfsClientOfSub.pin.ls()) {
                         const pinCid = pin.cid.toString();
@@ -370,24 +369,24 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             );
 
             it.sequential(`Should not be able to load a comment update of a purged post or its reply tree`, async () => {
-                const differentPlebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
-                differentPlebbit._timeouts["comment-ipfs"] = 2000;
-                differentPlebbit._timeouts["comment-update-ipfs"] = 2000;
+                const differentPKC = await mockPKCNoDataPathWithOnlyKuboClient();
+                differentPKC._timeouts["comment-ipfs"] = 2000;
+                differentPKC._timeouts["comment-update-ipfs"] = 2000;
 
-                const commentsWithDifferentPlebbit = await Promise.all(
+                const commentsWithDifferentPKC = await Promise.all(
                     [commentToPurge, replyOfCommentToPurge, replyUnderReplyOfCommentToPurge].map((comment) =>
-                        differentPlebbit.createComment({ cid: comment.cid })
+                        differentPKC.createComment({ cid: comment.cid })
                     )
                 );
 
-                for (const purgedComment of commentsWithDifferentPlebbit) {
+                for (const purgedComment of commentsWithDifferentPKC) {
                     expect(purgedComment.raw.comment).to.be.undefined;
                     expect(purgedComment.raw.commentUpdate).to.be.undefined;
                     expect(purgedComment.depth).to.be.undefined; // comment depth is not defined
                     expect(purgedComment.updatedAt).to.be.undefined; // comment update is not defined
                 }
                 await Promise.all(
-                    commentsWithDifferentPlebbit.map(async (purgedComment) => {
+                    commentsWithDifferentPKC.map(async (purgedComment) => {
                         const waitingRetryErrs: Error[] = [];
                         purgedComment.on("error", (err) => waitingRetryErrs.push(err));
 
@@ -435,7 +434,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                         await purgedComment.stop();
                     })
                 );
-                await differentPlebbit.destroy();
+                await differentPKC.destroy();
             });
         });
     });

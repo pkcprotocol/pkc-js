@@ -373,177 +373,177 @@ After renaming directories and files, update ALL import statements across the co
 ## Phase 6: Class, Type & Interface Renaming
 
 ### 6.1 Main Classes (src/plebbit/ → src/pkc/)
-- [ ] Factory function `Plebbit()` → `PKC()` (src/index.ts — async factory function, the default export)
-- [ ] `Plebbit.challenges` → `PKC.challenges` (static property on factory function)
-- [ ] `Plebbit.setNativeFunctions` → `PKC.setNativeFunctions`
-- [ ] `Plebbit.nativeFunctions` → `PKC.nativeFunctions`
-- [ ] `Plebbit.getShortCid` → `PKC.getShortCid`
-- [ ] `Plebbit.getShortAddress` → `PKC.getShortAddress`
-- [ ] `class Plebbit` → `class PKC`
-- [ ] `class PlebbitWithRpcClient` → `class PKCWithRpcClient`
-- [ ] `class PlebbitRpcClient` → `class PKCRpcClient`
-- [ ] `class PlebbitTypedEmitter` → `class PKCTypedEmitter`
-- [ ] `class PlebbitClientsManager` → `class PKCClientsManager`
-- [ ] `class PlebbitError` → `class PKCError`
-- [ ] `class PlebbitIpfsGatewayClient` → `class PKCIpfsGatewayClient`
-- [ ] `class PlebbitKuboRpcClient` → `class PKCKuboRpcClient`
-- [ ] `class PlebbitLibp2pJsClient` → `class PKCLibp2pJsClient`
-- [ ] `class PublicationPlebbitRpcStateClient` → `class PublicationPKCRpcStateClient` (src/publications/publication-clients.ts)
-- [ ] `class CommentPlebbitRpcStateClient` → `class CommentPKCRpcStateClient` (src/publications/comment/comment-clients.ts)
-- [ ] `class PublicationClientsManager` → rename only if base class `PlebbitClientsManager` rename propagates (src/publications/publication-client-manager.ts)
-- [ ] `class PlebbitWsServer` → `class PKCWsServer` (src/rpc/src/index.ts — non-exported, but internal RPC server class)
+- [x] Factory function `Plebbit()` → `PKC()` (src/index.ts — async factory function, the default export)
+- [x] `Plebbit.challenges` → `PKC.challenges` (static property on factory function)
+- [x] `Plebbit.setNativeFunctions` → `PKC.setNativeFunctions`
+- [x] `Plebbit.nativeFunctions` → `PKC.nativeFunctions`
+- [x] `Plebbit.getShortCid` → `PKC.getShortCid`
+- [x] `Plebbit.getShortAddress` → `PKC.getShortAddress`
+- [x] `class Plebbit` → `class PKC`
+- [x] `class PlebbitWithRpcClient` → `class PKCWithRpcClient`
+- [x] `class PlebbitRpcClient` → `class PKCRpcClient`
+- [x] `class PlebbitTypedEmitter` → `class PKCTypedEmitter`
+- [x] `class PlebbitClientsManager` → `class PKCClientsManager`
+- [x] `class PlebbitError` → `class PKCError`
+- [x] `class PlebbitIpfsGatewayClient` → `class PKCIpfsGatewayClient`
+- [x] `class PlebbitKuboRpcClient` → `class PKCKuboRpcClient`
+- [x] `class PlebbitLibp2pJsClient` → `class PKCLibp2pJsClient`
+- [x] `class PublicationPlebbitRpcStateClient` → `class PublicationPKCRpcStateClient` (src/publications/publication-clients.ts)
+- [x] `class CommentPlebbitRpcStateClient` → `class CommentPKCRpcStateClient` (src/publications/comment/comment-clients.ts)
+- [x] `class PublicationClientsManager` → rename only if base class `PlebbitClientsManager` rename propagates (src/publications/publication-client-manager.ts)
+- [x] `class PlebbitWsServer` → `class PKCWsServer` (src/rpc/src/index.ts — non-exported, but internal RPC server class)
 
 ### 6.2 Subplebbit Classes (src/subplebbit/ → src/community/)
-- [ ] `class RemoteSubplebbit` → `class RemoteCommunity`
-- [ ] `class RpcRemoteSubplebbit` → `class RpcRemoteCommunity`
-- [ ] `class RpcLocalSubplebbit` → `class RpcLocalCommunity`
-- [ ] `class LocalSubplebbit` → `class LocalCommunity`
-- [ ] `class SubplebbitClientsManager` → `class CommunityClientsManager`
-- [ ] `class SubplebbitKuboPubsubClient` → `class CommunityKuboPubsubClient`
-- [ ] `class SubplebbitKuboRpcClient` → `class CommunityKuboRpcClient`
-- [ ] `class SubplebbitPlebbitRpcStateClient` → `class CommunityPKCRpcStateClient`
-- [ ] `class SubplebbitLibp2pJsClient` → `class CommunityLibp2pJsClient`
-- [ ] `class SubplebbitIpfsGatewayClient` → `class CommunityIpfsGatewayClient`
-- [ ] `class SubplebbitEdit` → `class CommunityEdit`
-- [ ] `class SubplebbitPostsPagesClientsManager` → `class CommunityPostsPagesClientsManager` (src/pages/pages-client-manager.ts)
-- [ ] `class SubplebbitModQueueClientsManager` → `class CommunityModQueueClientsManager` (src/pages/pages-client-manager.ts)
-- [ ] `class PagesPlebbitRpcStateClient` → `class PagesPKCRpcStateClient` (src/pages/pages-clients.ts)
+- [x] `class RemoteSubplebbit` → `class RemoteCommunity`
+- [x] `class RpcRemoteSubplebbit` → `class RpcRemoteCommunity`
+- [x] `class RpcLocalSubplebbit` → `class RpcLocalCommunity`
+- [x] `class LocalSubplebbit` → `class LocalCommunity`
+- [x] `class SubplebbitClientsManager` → `class CommunityClientsManager`
+- [x] `class SubplebbitKuboPubsubClient` → `class CommunityKuboPubsubClient`
+- [x] `class SubplebbitKuboRpcClient` → `class CommunityKuboRpcClient`
+- [x] `class SubplebbitPlebbitRpcStateClient` → `class CommunityPKCRpcStateClient`
+- [x] `class SubplebbitLibp2pJsClient` → `class CommunityLibp2pJsClient`
+- [x] `class SubplebbitIpfsGatewayClient` → `class CommunityIpfsGatewayClient`
+- [x] `class SubplebbitEdit` → `class CommunityEdit`
+- [x] `class SubplebbitPostsPagesClientsManager` → `class CommunityPostsPagesClientsManager` (src/pages/pages-client-manager.ts)
+- [x] `class SubplebbitModQueueClientsManager` → `class CommunityModQueueClientsManager` (src/pages/pages-client-manager.ts)
+- [x] `class PagesPlebbitRpcStateClient` → `class PagesPKCRpcStateClient` (src/pages/pages-clients.ts)
 
 ### 6.3 Type Definitions (src/types.ts, src/subplebbit/types.ts)
 **Plebbit types:**
-- [ ] `interface PlebbitEvents` → `interface PKCEvents` (includes renaming event key `"subplebbitschange"` → `"communitieschange"` in the interface definition)
-- [ ] `interface PlebbitRpcClientEvents` → `interface PKCRpcClientEvents`
-- [ ] `interface ParsedPlebbitOptions` → `interface ParsedPKCOptions`
-- [ ] `type InputPlebbitOptions` → `type InputPKCOptions`
-- [ ] `type PlebbitMemCaches` → `type PKCMemCaches`
-- [ ] `interface PlebbitIpnsGetOptions` → `interface PKCIpnsGetOptions`
-- [ ] `interface PlebbitWsServerClassOptions` → `interface PKCWsServerClassOptions`
-- [ ] `type PlebbitWsServerSettingsSerialized` → `type PKCWsServerSettingsSerialized`
-- [ ] `type PlebbitRpcServerEvents` → `type PKCRpcServerEvents`
-- [ ] `type PlebbitRecordToVerify` → `type PKCRecordToVerify`
-- [ ] `type IpfsSubplebbitStats` → `type IpfsCommunityStats` (src/types.ts)
-- [ ] `type PubsubSubplebbitStats` → `type PubsubCommunityStats` (src/types.ts)
-- [ ] `type ResultOfFetchingSubplebbit` → `type ResultOfFetchingCommunity` (src/types.ts)
+- [x] `interface PlebbitEvents` → `interface PKCEvents` (includes renaming event key `"subplebbitschange"` → `"communitieschange"` in the interface definition)
+- [x] `interface PlebbitRpcClientEvents` → `interface PKCRpcClientEvents`
+- [x] `interface ParsedPlebbitOptions` → `interface ParsedPKCOptions`
+- [x] `type InputPlebbitOptions` → `type InputPKCOptions`
+- [x] `type PlebbitMemCaches` → `type PKCMemCaches`
+- [x] `interface PlebbitIpnsGetOptions` → `interface PKCIpnsGetOptions`
+- [x] `interface PlebbitWsServerClassOptions` → `interface PKCWsServerClassOptions`
+- [x] `type PlebbitWsServerSettingsSerialized` → `type PKCWsServerSettingsSerialized`
+- [x] `type PlebbitRpcServerEvents` → `type PKCRpcServerEvents`
+- [x] `type PlebbitRecordToVerify` → `type PKCRecordToVerify`
+- [x] `type IpfsSubplebbitStats` → `type IpfsCommunityStats` (src/types.ts)
+- [x] `type PubsubSubplebbitStats` → `type PubsubCommunityStats` (src/types.ts)
+- [x] `type ResultOfFetchingSubplebbit` → `type ResultOfFetchingCommunity` (src/types.ts)
 
 **Subplebbit types:**
-- [ ] `type SubplebbitStats` → `type CommunityStats`
-- [ ] `type SubplebbitFeatures` → `type CommunityFeatures`
-- [ ] `type SubplebbitSuggested` → `type CommunitySuggested`
-- [ ] `type SubplebbitEncryption` → `type CommunityEncryption`
-- [ ] `type SubplebbitRole` → `type CommunityRole`
-- [ ] `type SubplebbitRoleNameUnion` → `type CommunityRoleNameUnion`
-- [ ] `type SubplebbitIpfsType` → `type CommunityIpfsType`
-- [ ] `interface SubplebbitSignature` → `interface CommunitySignature`
-- [ ] `type SubplebbitChallenge` → `type CommunityChallenge`
-- [ ] `type SubplebbitChallengeSetting` → `type CommunityChallengeSetting`
-- [ ] `type SubplebbitSettings` → `type CommunitySettings`
-- [ ] `type SubplebbitState` → `type CommunityState`
-- [ ] `type SubplebbitStartedState` → `type CommunityStartedState`
-- [ ] `type SubplebbitUpdatingState` → `type CommunityUpdatingState`
-- [ ] `type SubplebbitJson` → `type CommunityJson`
-- [ ] `interface SubplebbitEvents` → `interface CommunityEvents`
-- [ ] `type RemoteSubplebbitJson` → `type RemoteCommunityJson`
-- [ ] `type RpcRemoteSubplebbitJson` → `type RpcRemoteCommunityJson`
-- [ ] `type RpcLocalSubplebbitJson` → `type RpcLocalCommunityJson`
-- [ ] `type LocalSubplebbitJson` → `type LocalCommunityJson`
-- [ ] `type CreateRemoteSubplebbitOptions` → `type CreateRemoteCommunityOptions`
-- [ ] `type CreateNewLocalSubplebbitUserOptions` → `type CreateNewLocalCommunityUserOptions`
-- [ ] `type CreateNewLocalSubplebbitParsedOptions` → `type CreateNewLocalCommunityParsedOptions`
-- [ ] `type SubplebbitEditOptions` → `type CommunityEditOptions`
-- [ ] `type ParsedSubplebbitEditOptions` → `type ParsedCommunityEditOptions`
-- [ ] All `*WithSubplebbitAuthor` types → `*WithCommunityAuthor`
-- [ ] `type InternalSubplebbitRecordBeforeFirstUpdateType` → `type InternalCommunityRecordBeforeFirstUpdateType` (src/subplebbit/types.ts)
-- [ ] `type InternalSubplebbitRecordAfterFirstUpdateType` → `type InternalCommunityRecordAfterFirstUpdateType` (src/subplebbit/types.ts)
-- [ ] `type RpcInternalSubplebbitRecordBeforeFirstUpdateType` → `type RpcInternalCommunityRecordBeforeFirstUpdateType` (src/subplebbit/types.ts)
-- [ ] `type RpcInternalSubplebbitRecordAfterFirstUpdateType` → `type RpcInternalCommunityRecordAfterFirstUpdateType` (src/subplebbit/types.ts)
-- [ ] `type RpcLocalSubplebbitUpdateResultType` → `type RpcLocalCommunityUpdateResultType` (src/subplebbit/types.ts)
-- [ ] `type SubplebbitEventArgs` → `type CommunityEventArgs` (src/subplebbit/types.ts)
-- [ ] `type SubplebbitRpcErrorToTransmit` → `type CommunityRpcErrorToTransmit` (src/subplebbit/types.ts)
+- [x] `type SubplebbitStats` → `type CommunityStats`
+- [x] `type SubplebbitFeatures` → `type CommunityFeatures`
+- [x] `type SubplebbitSuggested` → `type CommunitySuggested`
+- [x] `type SubplebbitEncryption` → `type CommunityEncryption`
+- [x] `type SubplebbitRole` → `type CommunityRole`
+- [x] `type SubplebbitRoleNameUnion` → `type CommunityRoleNameUnion`
+- [x] `type SubplebbitIpfsType` → `type CommunityIpfsType`
+- [x] `interface SubplebbitSignature` → `interface CommunitySignature`
+- [x] `type SubplebbitChallenge` → `type CommunityChallenge`
+- [x] `type SubplebbitChallengeSetting` → `type CommunityChallengeSetting`
+- [x] `type SubplebbitSettings` → `type CommunitySettings`
+- [x] `type SubplebbitState` → `type CommunityState`
+- [x] `type SubplebbitStartedState` → `type CommunityStartedState`
+- [x] `type SubplebbitUpdatingState` → `type CommunityUpdatingState`
+- [x] `type SubplebbitJson` → `type CommunityJson`
+- [x] `interface SubplebbitEvents` → `interface CommunityEvents`
+- [x] `type RemoteSubplebbitJson` → `type RemoteCommunityJson`
+- [x] `type RpcRemoteSubplebbitJson` → `type RpcRemoteCommunityJson`
+- [x] `type RpcLocalSubplebbitJson` → `type RpcLocalCommunityJson`
+- [x] `type LocalSubplebbitJson` → `type LocalCommunityJson`
+- [x] `type CreateRemoteSubplebbitOptions` → `type CreateRemoteCommunityOptions`
+- [x] `type CreateNewLocalSubplebbitUserOptions` → `type CreateNewLocalCommunityUserOptions`
+- [x] `type CreateNewLocalSubplebbitParsedOptions` → `type CreateNewLocalCommunityParsedOptions`
+- [x] `type SubplebbitEditOptions` → `type CommunityEditOptions`
+- [x] `type ParsedSubplebbitEditOptions` → `type ParsedCommunityEditOptions`
+- [x] All `*WithSubplebbitAuthor` types → `*WithCommunityAuthor`
+- [x] `type InternalSubplebbitRecordBeforeFirstUpdateType` → `type InternalCommunityRecordBeforeFirstUpdateType` (src/subplebbit/types.ts)
+- [x] `type InternalSubplebbitRecordAfterFirstUpdateType` → `type InternalCommunityRecordAfterFirstUpdateType` (src/subplebbit/types.ts)
+- [x] `type RpcInternalSubplebbitRecordBeforeFirstUpdateType` → `type RpcInternalCommunityRecordBeforeFirstUpdateType` (src/subplebbit/types.ts)
+- [x] `type RpcInternalSubplebbitRecordAfterFirstUpdateType` → `type RpcInternalCommunityRecordAfterFirstUpdateType` (src/subplebbit/types.ts)
+- [x] `type RpcLocalSubplebbitUpdateResultType` → `type RpcLocalCommunityUpdateResultType` (src/subplebbit/types.ts)
+- [x] `type SubplebbitEventArgs` → `type CommunityEventArgs` (src/subplebbit/types.ts)
+- [x] `type SubplebbitRpcErrorToTransmit` → `type CommunityRpcErrorToTransmit` (src/subplebbit/types.ts)
 
 **SubplebbitEdit types (src/publications/subplebbit-edit/types.ts):**
-- [ ] `type CreateSubplebbitEditPublicationOptions` → `type CreateCommunityEditPublicationOptions`
-- [ ] `type SubplebbitEditChallengeRequestToEncryptType` → `type CommunityEditChallengeRequestToEncryptType`
-- [ ] `type SubplebbitEditJson` → `type CommunityEditJson`
-- [ ] `interface SubplebbitEditPublicationOptionsToSign` → `interface CommunityEditPublicationOptionsToSign`
-- [ ] `interface SubplebbitEditPublicationSignature` → `interface CommunityEditPublicationSignature`
-- [ ] `type SubplebbitEditPubsubMessagePublication` → `type CommunityEditPubsubMessagePublication`
-- [ ] `interface SubplebbitEditPublicationPubsubMessageWithSubplebbitAuthor` → `interface CommunityEditPublicationPubsubMessageWithCommunityAuthor`
+- [x] `type CreateSubplebbitEditPublicationOptions` → `type CreateCommunityEditPublicationOptions`
+- [x] `type SubplebbitEditChallengeRequestToEncryptType` → `type CommunityEditChallengeRequestToEncryptType`
+- [x] `type SubplebbitEditJson` → `type CommunityEditJson`
+- [x] `interface SubplebbitEditPublicationOptionsToSign` → `interface CommunityEditPublicationOptionsToSign`
+- [x] `interface SubplebbitEditPublicationSignature` → `interface CommunityEditPublicationSignature`
+- [x] `type SubplebbitEditPubsubMessagePublication` → `type CommunityEditPubsubMessagePublication`
+- [x] `interface SubplebbitEditPublicationPubsubMessageWithSubplebbitAuthor` → `interface CommunityEditPublicationPubsubMessageWithCommunityAuthor`
 
 **SubplebbitEdit schemas (src/publications/subplebbit-edit/schema.ts):**
-- [ ] `CreateSubplebbitEditPublicationOptionsSchema` → `CreateCommunityEditPublicationOptionsSchema`
-- [ ] `SubplebbitEditPubsubMessagePublicationSchema` → `CommunityEditPubsubMessagePublicationSchema`
-- [ ] `SubplebbitEditPublicationChallengeRequestToEncryptSchema` → `CommunityEditPublicationChallengeRequestToEncryptSchema`
-- [ ] `SubplebbitEditPublicationPubsubReservedFields` → `CommunityEditPublicationPubsubReservedFields`
+- [x] `CreateSubplebbitEditPublicationOptionsSchema` → `CreateCommunityEditPublicationOptionsSchema`
+- [x] `SubplebbitEditPubsubMessagePublicationSchema` → `CommunityEditPubsubMessagePublicationSchema`
+- [x] `SubplebbitEditPublicationChallengeRequestToEncryptSchema` → `CommunityEditPublicationChallengeRequestToEncryptSchema`
+- [x] `SubplebbitEditPublicationPubsubReservedFields` → `CommunityEditPublicationPubsubReservedFields`
 
 **Subplebbit schema constants (src/subplebbit/schema.ts):**
-- [ ] `SubplebbitIpfsReservedFields` → `CommunityIpfsReservedFields`
+- [x] `SubplebbitIpfsReservedFields` → `CommunityIpfsReservedFields`
 
 **RPC types (src/rpc/src/types.ts):**
-- [ ] `interface RpcSubplebbitState` → `interface RpcCommunityState`
+- [x] `interface RpcSubplebbitState` → `interface RpcCommunityState`
 
 ---
 
 ## Phase 7: Schema Renaming (Zod)
 
 ### 7.1 Main Schemas (src/schema.ts)
-- [ ] `PlebbitUserOptionBaseSchema` → `PKCUserOptionBaseSchema`
-- [ ] `PlebbitUserOptionsSchema` → `PKCUserOptionsSchema`
-- [ ] `PlebbitParsedOptionsSchema` → `PKCParsedOptionsSchema`
-- [ ] Property: `plebbitRpcClientsOptions` → `pkcRpcClientsOptions`
+- [x] `PlebbitUserOptionBaseSchema` → `PKCUserOptionBaseSchema`
+- [x] `PlebbitUserOptionsSchema` → `PKCUserOptionsSchema`
+- [x] `PlebbitParsedOptionsSchema` → `PKCParsedOptionsSchema`
+- [x] Property: `plebbitRpcClientsOptions` → `pkcRpcClientsOptions`
 
 ### 7.2 Author & Shared Schemas (src/schema/schema.ts)
-- [ ] `SubplebbitAddressSchema` → `CommunityAddressSchema`
-- [ ] `PlebbitTimestampSchema` → `PKCTimestampSchema`
-- [ ] `SubplebbitAuthorSchema` → `CommunityAuthorSchema`
+- [x] `SubplebbitAddressSchema` → `CommunityAddressSchema`
+- [x] `PlebbitTimestampSchema` → `PKCTimestampSchema`
+- [x] `SubplebbitAuthorSchema` → `CommunityAuthorSchema`
 - [x] **Remove** `address` from `AuthorPubsubSchema` — now instance-only, computed as `name || publicKey` (**breaking change**). `AuthorIpfsSchema` was also removed (no separate schema exists).
 - [x] **Add** `name: z.string().min(1).optional()` to `AuthorPubsubSchema` (wire field — domain name like `"vitalik.bso"`)
 - [x] Use `.loose()` on author schemas to accept old records with `address` field (used on `CreatePublicationUserOptionsSchema.author`)
 
 ### 7.3 Subplebbit Schemas (src/subplebbit/schema.ts)
-- [ ] `SubplebbitEncryptionSchema` → `CommunityEncryptionSchema`
-- [ ] `SubplebbitRoleSchema` → `CommunityRoleSchema`
-- [ ] `SubplebbitRoleNames` → `CommunityRoleNames`
-- [ ] `SubplebbitSuggestedSchema` → `CommunitySuggestedSchema`
-- [ ] `SubplebbitFeaturesSchema` → `CommunityFeaturesSchema`
-- [ ] `SubplebbitChallengeSettingSchema` → `CommunityChallengeSettingSchema`
-- [ ] `SubplebbitChallengeSchema` → `CommunityChallengeSchema`
-- [ ] `SubplebbitIpfsSchema` → `CommunityIpfsSchema`
-- [ ] `SubplebbitSignedPropertyNames` → `CommunitySignedPropertyNames`
-- [ ] `SubplebbitSignatureSchema` → `CommunitySignatureSchema`
-- [ ] `CreateRemoteSubplebbitOptionsSchema` → `CreateRemoteCommunityOptionsSchema`
-- [ ] `SubplebbitSettingsSchema` → `CommunitySettingsSchema`
-- [ ] `SubplebbitEditOptionsSchema` → `CommunityEditOptionsSchema`
-- [ ] `SubplebbitEditPublicationChallengeRequestToEncryptSchema` → `CommunityEditPublicationChallengeRequestToEncryptSchema`
-- [ ] `CreateRemoteSubplebbitFunctionArgumentSchema` → `CreateRemoteCommunityFunctionArgumentSchema`
-- [ ] `CreateNewLocalSubplebbitUserOptionsSchema` → `CreateNewLocalCommunityUserOptionsSchema`
-- [ ] `CreateNewLocalSubplebbitParsedOptionsSchema` → `CreateNewLocalCommunityParsedOptionsSchema`
-- [ ] `ChallengeExcludeSubplebbitSchema` → `ChallengeExcludeCommunitySchema`
-- [ ] `ChallengeExcludeSchema` field: `subplebbit` → `community` (the field name referencing `ChallengeExcludeCommunitySchema`)
-- [ ] `ChallengeExcludePublicationTypeSchema` field: `subplebbitEdit` → `communityEdit`
-- [ ] `RpcRemoteSubplebbitUpdateEventResultSchema` → `RpcRemoteCommunityUpdateEventResultSchema`
-- [ ] **Remove** `address` from `SubplebbitIpfsSchema` — instance-only, computed as `name || publicKey` (see [proposal](./NAMES_AND_PUBLIC_KEY_PROPOSAL.md#1-add-name-field-to-subplebbitipfs))
-- [ ] Use `.loose()` on `SubplebbitIpfsSchema` to accept old records that include `address` field (do NOT use `.strip()` — stripping can remove fields referenced in `signedPropertyNames` and corrupt signature verification)
-- [ ] `CreateRpcSubplebbitFunctionArgumentSchema` → `CreateRpcCommunityFunctionArgumentSchema` (src/subplebbit/schema.ts)
-- [ ] `ListOfSubplebbitsSchema` → `ListOfCommunitiesSchema` (src/subplebbit/schema.ts)
+- [x] `SubplebbitEncryptionSchema` → `CommunityEncryptionSchema`
+- [x] `SubplebbitRoleSchema` → `CommunityRoleSchema`
+- [x] `SubplebbitRoleNames` → `CommunityRoleNames`
+- [x] `SubplebbitSuggestedSchema` → `CommunitySuggestedSchema`
+- [x] `SubplebbitFeaturesSchema` → `CommunityFeaturesSchema`
+- [x] `SubplebbitChallengeSettingSchema` → `CommunityChallengeSettingSchema`
+- [x] `SubplebbitChallengeSchema` → `CommunityChallengeSchema`
+- [x] `SubplebbitIpfsSchema` → `CommunityIpfsSchema`
+- [x] `SubplebbitSignedPropertyNames` → `CommunitySignedPropertyNames`
+- [x] `SubplebbitSignatureSchema` → `CommunitySignatureSchema`
+- [x] `CreateRemoteSubplebbitOptionsSchema` → `CreateRemoteCommunityOptionsSchema`
+- [x] `SubplebbitSettingsSchema` → `CommunitySettingsSchema`
+- [x] `SubplebbitEditOptionsSchema` → `CommunityEditOptionsSchema`
+- [x] `SubplebbitEditPublicationChallengeRequestToEncryptSchema` → `CommunityEditPublicationChallengeRequestToEncryptSchema`
+- [x] `CreateRemoteSubplebbitFunctionArgumentSchema` → `CreateRemoteCommunityFunctionArgumentSchema`
+- [x] `CreateNewLocalSubplebbitUserOptionsSchema` → `CreateNewLocalCommunityUserOptionsSchema`
+- [x] `CreateNewLocalSubplebbitParsedOptionsSchema` → `CreateNewLocalCommunityParsedOptionsSchema`
+- [x] `ChallengeExcludeSubplebbitSchema` → `ChallengeExcludeCommunitySchema`
+- [x] `ChallengeExcludeSchema` field: `subplebbit` → `community` (the field name referencing `ChallengeExcludeCommunitySchema`)
+- [x] `ChallengeExcludePublicationTypeSchema` field: `subplebbitEdit` → `communityEdit`
+- [x] `RpcRemoteSubplebbitUpdateEventResultSchema` → `RpcRemoteCommunityUpdateEventResultSchema`
+- [x] **Remove** `address` from `SubplebbitIpfsSchema` — instance-only, computed as `name || publicKey` (see [proposal](./NAMES_AND_PUBLIC_KEY_PROPOSAL.md#1-add-name-field-to-subplebbitipfs))
+- [x] Use `.loose()` on `SubplebbitIpfsSchema` to accept old records that include `address` field (do NOT use `.strip()` — stripping can remove fields referenced in `signedPropertyNames` and corrupt signature verification)
+- [x] `CreateRpcSubplebbitFunctionArgumentSchema` → `CreateRpcCommunityFunctionArgumentSchema` (src/subplebbit/schema.ts)
+- [x] `ListOfSubplebbitsSchema` → `ListOfCommunitiesSchema` (src/subplebbit/schema.ts)
 
 ### 7.4 RPC Client Schemas (src/clients/rpc-client/schema.ts)
-- [ ] `RpcSubplebbitAddressParamSchema` → `RpcCommunityAddressParamSchema`
-- [ ] `RpcSubplebbitPageParamSchema` → `RpcCommunityPageParamSchema`
+- [x] `RpcSubplebbitAddressParamSchema` → `RpcCommunityAddressParamSchema`
+- [x] `RpcSubplebbitPageParamSchema` → `RpcCommunityPageParamSchema`
 
 ### 7.4.1 RPC Server Schemas (src/rpc/src/schema.ts)
-- [ ] `CreatePlebbitWsServerOptionsSchema` → `CreatePKCWsServerOptionsSchema`
-- [ ] `SetNewSettingsPlebbitWsServerSchema` → `SetNewSettingsPKCWsServerSchema`
-- [ ] `PlebbitWsServerSettingsSerializedSchema` → `PKCWsServerSettingsSerializedSchema`
+- [x] `CreatePlebbitWsServerOptionsSchema` → `CreatePKCWsServerOptionsSchema`
+- [x] `SetNewSettingsPlebbitWsServerSchema` → `SetNewSettingsPKCWsServerSchema`
+- [x] `PlebbitWsServerSettingsSerializedSchema` → `PKCWsServerSettingsSerializedSchema`
 
 ### 7.4.2 RPC Server Types (src/rpc/src/types.ts)
-- [ ] `type CreatePlebbitWsServerOptions` → `type CreatePKCWsServerOptions`
-- [ ] `type SetNewSettingsPlebbitWsServer` → `type SetNewSettingsPKCWsServer`
+- [x] `type CreatePlebbitWsServerOptions` → `type CreatePKCWsServerOptions`
+- [x] `type SetNewSettingsPlebbitWsServer` → `type SetNewSettingsPKCWsServer`
 
 ### 7.4.3 SubplebbitEdit Schemas (src/publications/subplebbit-edit/schema.ts)
-- [ ] `SubplebbitEditPublicationSignedPropertyNames` → `CommunityEditPublicationSignedPropertyNames`
+- [x] `SubplebbitEditPublicationSignedPropertyNames` → `CommunityEditPublicationSignedPropertyNames`
 
 ### 7.4.4 Publication Comment Types (src/publications/comment/types.ts)
-- [ ] `type SubplebbitAuthor` → `type CommunityAuthor`
+- [x] `type SubplebbitAuthor` → `type CommunityAuthor`
 
 ### 7.5 Signed Property Names
 
@@ -555,16 +555,16 @@ Update the `signedPropertyNames` arrays to reflect wire format changes:
 **Note:** Old records with old `signedPropertyNames` remain valid — self-describing signature verification reads `signedPropertyNames` from each record. No explicit protocol version field is needed for backward compatibility.
 
 ### 7.6 Schema Parser Functions (src/schema/schema-util.ts)
-- [ ] All `parse*PlebbitErrorIfItFails` → `parse*PKCErrorIfItFails`
-- [ ] All `parse*SubplebbitSchemaWithPlebbitErrorIfItFails` → `parse*CommunitySchemaWithPKCErrorIfItFails`
+- [x] All `parse*PlebbitErrorIfItFails` → `parse*PKCErrorIfItFails`
+- [x] All `parse*SubplebbitSchemaWithPlebbitErrorIfItFails` → `parse*CommunitySchemaWithPKCErrorIfItFails`
 
 ### 7.7 Backward Compatibility Tests for Old Records
 
 Add tests to verify old records with legacy field names are parsed correctly:
-- [ ] Test parsing old `SubplebbitIpfs` records that include `address` field (should be accepted via `.loose()`)
-- [ ] Test parsing old `CommentIpfs` records that include `subplebbitAddress` field (should be accepted via `.loose()`)
-- [ ] Test parsing old `AuthorPubsub` records that include `address` field (should be accepted via `.loose()`)
-- [ ] Test signature verification of old records with old `signedPropertyNames` (self-describing verification should still pass)
+- [x] Test parsing old `SubplebbitIpfs` records that include `address` field (should be accepted via `.loose()`)
+- [x] Test parsing old `CommentIpfs` records that include `subplebbitAddress` field (should be accepted via `.loose()`)
+- [x] Test parsing old `AuthorPubsub` records that include `address` field (should be accepted via `.loose()`)
+- [x] Test signature verification of old records with old `signedPropertyNames` (self-describing verification should still pass)
 
 **Important:** Use `.loose()` not `.strip()` when parsing old records — `.strip()` can remove fields referenced in `signedPropertyNames` and corrupt signature verification.
 

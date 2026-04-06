@@ -26,4 +26,4 @@ export class CommentKuboPubsubClient extends GenericStateClient<CommentPubsubSta
 
 export class CommentIpfsGatewayClient extends GenericStateClient<CommentGatewayState> {}
 
-export class CommentPlebbitRpcStateClient extends GenericStateClient<CommentRpcState> {}
+export class CommentPKCRpcStateClient extends GenericStateClient<CommentRpcState> {}

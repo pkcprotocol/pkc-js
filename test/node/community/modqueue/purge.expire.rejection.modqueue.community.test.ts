@@ -1,17 +1,17 @@
 import { beforeAll, afterAll, describe, it } from "vitest";
 import {
-    mockPlebbit,
-    mockGatewayPlebbit,
+    mockPKC,
+    mockGatewayPKC,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
     publishToModQueueWithDepth,
     describeSkipIfRpc,
     createPendingApprovalChallenge
 } from "../../../../dist/node/test/test-util.js";
-import type { Plebbit as PlebbitType } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
-import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../../dist/node/community/rpc-local-community.js";
+import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
 import type { SignerType } from "../../../../dist/node/signer/types.js";
 import type { CommentUpdateType } from "../../../../dist/node/publications/comment/types.js";
 
@@ -21,18 +21,18 @@ const ONE_MINUTE = 60;
 const DEFAULT_MOD_PROPS = { approved: false, reason: "Expired disapproval" };
 
 interface TestContext {
-    plebbit: PlebbitType;
-    remotePlebbit: PlebbitType;
-    subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    plebbit: PKCType;
+    remotePKC: PKCType;
+    subplebbit: LocalCommunity | RpcLocalCommunity;
     modSigner: SignerType;
     retentionSeconds?: number;
     cleanup: () => Promise<void>;
 }
 
 async function createTestContext({ retentionSeconds }: { retentionSeconds?: number } = {}): Promise<TestContext> {
-    const plebbit = await mockPlebbit();
-    const remotePlebbit = await mockGatewayPlebbit();
-    const subplebbit = (await plebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
+    const plebbit = await mockPKC();
+    const remotePKC = await mockGatewayPKC();
+    const subplebbit = (await plebbit.createCommunity()) as LocalCommunity | RpcLocalCommunity;
     subplebbit.setMaxListeners(100);
     await subplebbit.start();
     const modSigner = await plebbit.createSigner();
@@ -62,10 +62,10 @@ async function createTestContext({ retentionSeconds }: { retentionSeconds?: numb
     async function cleanup() {
         await subplebbit.delete();
         await plebbit.destroy();
-        await remotePlebbit.destroy();
+        await remotePKC.destroy();
     }
 
-    return { plebbit, remotePlebbit, subplebbit, modSigner, retentionSeconds, cleanup };
+    return { plebbit, remotePKC, subplebbit, modSigner, retentionSeconds, cleanup };
 }
 
 async function createDisapprovedComment(
@@ -74,7 +74,7 @@ async function createDisapprovedComment(
 ): Promise<Comment> {
     const pending = await publishToModQueueWithDepth({
         subplebbit: ctx.subplebbit,
-        plebbit: ctx.remotePlebbit,
+        plebbit: ctx.remotePKC,
         depth,
         modCommentProps: { signer: ctx.modSigner },
         commentProps: pendingApprovalCommentProps
@@ -97,7 +97,7 @@ async function createDisapprovedComment(
         toUpdate: ctx.subplebbit,
         predicate: async () => {
             // @ts-expect-error - accessing private _dbHandler
-            const storedUpdate = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryStoredCommentUpdate({
+            const storedUpdate = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryStoredCommentUpdate({
                 cid: pendingComment.cid!
             });
             return Boolean(storedUpdate && storedUpdate.approved === false);
@@ -110,7 +110,7 @@ async function createDisapprovedComment(
 async function createApprovedComment(ctx: TestContext, { depth = 1 }: { depth?: number } = {}): Promise<Comment> {
     const pending = await publishToModQueueWithDepth({
         subplebbit: ctx.subplebbit,
-        plebbit: ctx.remotePlebbit,
+        plebbit: ctx.remotePKC,
         depth,
         modCommentProps: { signer: ctx.modSigner },
         commentProps: pendingApprovalCommentProps
@@ -133,7 +133,7 @@ async function createApprovedComment(ctx: TestContext, { depth = 1 }: { depth?: 
         toUpdate: ctx.subplebbit,
         predicate: async () => {
             // @ts-expect-error - accessing private _dbHandler
-            const storedUpdate = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryStoredCommentUpdate({
+            const storedUpdate = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryStoredCommentUpdate({
                 cid: pendingComment.cid!
             });
             return Boolean(storedUpdate && storedUpdate.approved === true);
@@ -145,14 +145,14 @@ async function createApprovedComment(ctx: TestContext, { depth = 1 }: { depth?: 
 
 async function setPendingApproval(ctx: TestContext, commentCid: string, pending = true): Promise<void> {
     // @ts-expect-error - accessing private _dbHandler._db
-    (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"])._db
+    (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"])._db
         .prepare(`UPDATE comments SET pendingApproval = ? WHERE cid = ?`)
         .run(pending ? 1 : 0, commentCid);
     await resolveWhenConditionIsTrue({
         toUpdate: ctx.subplebbit,
         predicate: async () => {
             // @ts-expect-error - accessing private _dbHandler
-            const comment = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(commentCid);
+            const comment = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(commentCid);
             return Boolean(comment && (pending ? comment.pendingApproval : !comment.pendingApproval));
         }
     });
@@ -161,7 +161,7 @@ async function setPendingApproval(ctx: TestContext, commentCid: string, pending 
 function backdateAllDisapprovals(ctx: TestContext, commentCid: string, secondsAgo: number): number {
     const cutoffTimestamp = Math.floor(Date.now() / 1000) - secondsAgo;
     // @ts-expect-error - accessing private _dbHandler._db
-    (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"])._db
+    (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"])._db
         .prepare(`UPDATE commentModerations SET timestamp = ? WHERE commentCid = ?`)
         .run(cutoffTimestamp, commentCid);
     return cutoffTimestamp;
@@ -169,13 +169,13 @@ function backdateAllDisapprovals(ctx: TestContext, commentCid: string, secondsAg
 
 function updateSpecificModerationTimestamp(ctx: TestContext, commentCid: string, rowIndex: number, secondsAgo: number): number {
     // @ts-expect-error - accessing private _dbHandler._db
-    const row = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"])._db
+    const row = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"])._db
         .prepare(`SELECT rowid FROM commentModerations WHERE commentCid = ? ORDER BY rowid ASC LIMIT 1 OFFSET ?`)
         .get(commentCid, rowIndex) as { rowid: number } | undefined;
     if (!row) throw new Error(`Expected moderation row at index ${rowIndex}`);
     const cutoffTimestamp = Math.floor(Date.now() / 1000) - secondsAgo;
     // @ts-expect-error - accessing private _dbHandler._db
-    (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"])._db
+    (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"])._db
         .prepare(`UPDATE commentModerations SET timestamp = ? WHERE rowid = ?`)
         .run(cutoffTimestamp, row.rowid);
     return cutoffTimestamp;
@@ -184,7 +184,7 @@ function updateSpecificModerationTimestamp(ctx: TestContext, commentCid: string,
 function backdateCommentUpdate(ctx: TestContext, commentCid: string, secondsAgo: number): number {
     const cutoffTimestamp = Math.floor(Date.now() / 1000) - secondsAgo;
     // @ts-expect-error - accessing private _dbHandler._db
-    (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"])._db
+    (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"])._db
         .prepare(`UPDATE commentUpdates SET updatedAt = ? WHERE cid = ?`)
         .run(cutoffTimestamp, commentCid);
     return cutoffTimestamp;
@@ -192,12 +192,12 @@ function backdateCommentUpdate(ctx: TestContext, commentCid: string, secondsAgo:
 
 describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
     describe("default retention configuration", () => {
-        let plebbit: PlebbitType;
-        let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+        let plebbit: PKCType;
+        let subplebbit: LocalCommunity | RpcLocalCommunity;
 
         beforeAll(async () => {
-            plebbit = await mockPlebbit();
-            subplebbit = (await plebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
+            plebbit = await mockPKC();
+            subplebbit = (await plebbit.createCommunity()) as LocalCommunity | RpcLocalCommunity;
             subplebbit.setMaxListeners(100);
             await subplebbit.start();
             await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => Boolean(subplebbit.updatedAt) });
@@ -217,7 +217,7 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
         const retentionSeconds = ONE_MINUTE;
         let ctx: TestContext;
         let disapprovedComment: Comment;
-        let commentBeforePurge: ReturnType<LocalSubplebbit["_dbHandler"]["queryComment"]>;
+        let commentBeforePurge: ReturnType<LocalCommunity["_dbHandler"]["queryComment"]>;
         let parentCid: string | undefined;
         let parentUpdateBefore: CommentUpdateType | undefined;
         let parentUpdateAfterPurge: CommentUpdateType | undefined;
@@ -228,26 +228,26 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
             disapprovedComment = await createDisapprovedComment(ctx);
             parentCid = disapprovedComment.parentCid;
             // @ts-expect-error - accessing private _dbHandler
-            commentBeforePurge = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(disapprovedComment.cid!);
+            commentBeforePurge = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(disapprovedComment.cid!);
             if (parentCid)
                 // @ts-expect-error - accessing private _dbHandler
-                (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).markCommentsAsPublishedToPostUpdates([parentCid]);
+                (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).markCommentsAsPublishedToPostUpdates([parentCid]);
             parentUpdateBefore = parentCid
                 ? // @ts-expect-error - accessing private _dbHandler
-                  (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryStoredCommentUpdate({ cid: parentCid })
+                  (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryStoredCommentUpdate({ cid: parentCid })
                 : undefined;
             backdateAllDisapprovals(ctx, disapprovedComment.cid!, retentionSeconds + 10);
             // @ts-expect-error - accessing private _dbHandler
-            (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).purgeDisapprovedCommentsOlderThan(retentionSeconds);
+            (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).purgeDisapprovedCommentsOlderThan(retentionSeconds);
             parentUpdateAfterPurge = parentCid
                 ? // @ts-expect-error - accessing private _dbHandler
-                  (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryStoredCommentUpdate({ cid: parentCid })
+                  (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryStoredCommentUpdate({ cid: parentCid })
                 : undefined;
             if (parentCid) {
                 // @ts-expect-error - accessing private _updateCommentsThatNeedToBeUpdated
-                await (ctx.subplebbit as LocalSubplebbit)._updateCommentsThatNeedToBeUpdated();
+                await (ctx.subplebbit as LocalCommunity)._updateCommentsThatNeedToBeUpdated();
                 // @ts-expect-error - accessing private _dbHandler
-                parentUpdateAfterRefresh = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryStoredCommentUpdate({
+                parentUpdateAfterRefresh = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryStoredCommentUpdate({
                     cid: parentCid
                 });
             }
@@ -260,10 +260,10 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
         it("purges the disapproved comment", () => {
             expect(commentBeforePurge).to.exist;
             // @ts-expect-error - accessing private _dbHandler
-            const after = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(disapprovedComment.cid!);
+            const after = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(disapprovedComment.cid!);
             expect(after).to.be.undefined;
             // @ts-expect-error - accessing private _dbHandler
-            const updateAfter = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryStoredCommentUpdate({
+            const updateAfter = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryStoredCommentUpdate({
                 cid: disapprovedComment.cid!
             });
             expect(updateAfter).to.be.undefined;
@@ -303,14 +303,14 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
         let ctx: TestContext;
         let commentCid: string;
         let parentCid: string | undefined;
-        let commentBeforeModeration: ReturnType<LocalSubplebbit["_dbHandler"]["queryComment"]>;
+        let commentBeforeModeration: ReturnType<LocalCommunity["_dbHandler"]["queryComment"]>;
         let parentUpdateAfterImmediatePurge: CommentUpdateType | undefined;
 
         beforeAll(async () => {
             ctx = await createTestContext({ retentionSeconds: ONE_MINUTE });
             const pending = await publishToModQueueWithDepth({
                 subplebbit: ctx.subplebbit,
-                plebbit: ctx.remotePlebbit,
+                plebbit: ctx.remotePKC,
                 depth: 1,
                 modCommentProps: { signer: ctx.modSigner },
                 commentProps: pendingApprovalCommentProps
@@ -322,7 +322,7 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
                 predicate: async () => Boolean(ctx.subplebbit.modQueue?.pageCids?.pendingApproval)
             });
             // @ts-expect-error - accessing private _dbHandler
-            commentBeforeModeration = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(commentCid);
+            commentBeforeModeration = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(commentCid);
 
             const moderation = await ctx.plebbit.createCommentModeration({
                 communityAddress: ctx.subplebbit.address,
@@ -335,11 +335,11 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
             await resolveWhenConditionIsTrue({
                 toUpdate: ctx.subplebbit,
                 // @ts-expect-error - accessing private _dbHandler
-                predicate: async () => !(ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(commentCid)
+                predicate: async () => !(ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(commentCid)
             });
             parentUpdateAfterImmediatePurge = parentCid
                 ? // @ts-expect-error - accessing private _dbHandler
-                  (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryStoredCommentUpdate({ cid: parentCid })
+                  (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryStoredCommentUpdate({ cid: parentCid })
                 : undefined;
         });
 
@@ -354,10 +354,10 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
 
         it("purges the comment immediately after moderation", () => {
             // @ts-expect-error - accessing private _dbHandler
-            const commentAfter = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(commentCid);
+            const commentAfter = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(commentCid);
             expect(commentAfter).to.be.undefined;
             // @ts-expect-error - accessing private _dbHandler
-            const updateAfter = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryStoredCommentUpdate({ cid: commentCid });
+            const updateAfter = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryStoredCommentUpdate({ cid: commentCid });
             expect(updateAfter).to.be.undefined;
         });
 
@@ -380,7 +380,7 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
         const retentionSeconds = ONE_MINUTE;
         let ctx: TestContext;
         let disapprovedPost: Comment;
-        let postBeforePurge: ReturnType<LocalSubplebbit["_dbHandler"]["queryComment"]>;
+        let postBeforePurge: ReturnType<LocalCommunity["_dbHandler"]["queryComment"]>;
         let postUpdatesBucket: number;
         let postUpdatesPath: string;
 
@@ -390,7 +390,7 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
                 depth: 0,
                 moderationProps: { approved: false, reason: "post rejection" }
             });
-            const dbHandler = (ctx.subplebbit as LocalSubplebbit)._dbHandler;
+            const dbHandler = (ctx.subplebbit as LocalCommunity)._dbHandler;
             postBeforePurge = dbHandler.queryComment(disapprovedPost.cid!);
             const storedUpdateBefore = dbHandler.queryStoredCommentUpdate({
                 cid: disapprovedPost.cid!
@@ -400,13 +400,13 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
             postUpdatesPath = `/${ctx.subplebbit.address}/postUpdates/${postUpdatesBucket}/${disapprovedPost.cid}/update`;
             console.log("[debug] pre-purge postUpdates path", postUpdatesPath);
 
-            const kuboClientBefore = (ctx.subplebbit as LocalSubplebbit)._clientsManager.getDefaultKuboRpcClient()._client;
+            const kuboClientBefore = (ctx.subplebbit as LocalCommunity)._clientsManager.getDefaultKuboRpcClient()._client;
             const statBefore = await kuboClientBefore.files.stat(postUpdatesPath);
             expect(statBefore.size).to.be.greaterThan(0);
 
             backdateAllDisapprovals(ctx, disapprovedPost.cid!, retentionSeconds + 10);
             // @ts-expect-error - accessing private _purgeDisapprovedCommentsOlderThan
-            await (ctx.subplebbit as LocalSubplebbit)._purgeDisapprovedCommentsOlderThan();
+            await (ctx.subplebbit as LocalCommunity)._purgeDisapprovedCommentsOlderThan();
         });
 
         afterAll(async () => {
@@ -421,14 +421,14 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
 
         it(" purges the post once retention is exceeded", async () => {
             await new Promise((resolve) => setTimeout(resolve, 2000)); // wait till new post updates is flushed
-            const dbHandler = (ctx.subplebbit as LocalSubplebbit)._dbHandler;
+            const dbHandler = (ctx.subplebbit as LocalCommunity)._dbHandler;
             const after = dbHandler.queryComment(disapprovedPost.cid!);
             expect(after).to.be.undefined;
             const updateAfter = dbHandler.queryStoredCommentUpdate({
                 cid: disapprovedPost.cid!
             });
             expect(updateAfter).to.be.undefined;
-            const kuboClientAfter = (ctx.subplebbit as LocalSubplebbit)._clientsManager.getDefaultKuboRpcClient()._client;
+            const kuboClientAfter = (ctx.subplebbit as LocalCommunity)._clientsManager.getDefaultKuboRpcClient()._client;
             try {
                 const res = await kuboClientAfter.files.stat(postUpdatesPath);
                 expect.fail("should fail");
@@ -441,13 +441,13 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
     describe("when {approved:false} is published on a post", () => {
         let ctx: TestContext;
         let commentCid: string;
-        let commentBeforeModeration: ReturnType<LocalSubplebbit["_dbHandler"]["queryComment"]>;
+        let commentBeforeModeration: ReturnType<LocalCommunity["_dbHandler"]["queryComment"]>;
 
         beforeAll(async () => {
             ctx = await createTestContext({ retentionSeconds: ONE_MINUTE });
             const pending = await publishToModQueueWithDepth({
                 subplebbit: ctx.subplebbit,
-                plebbit: ctx.remotePlebbit,
+                plebbit: ctx.remotePKC,
                 depth: 0,
                 commentProps: pendingApprovalCommentProps
             });
@@ -457,7 +457,7 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
                 predicate: async () => Boolean(ctx.subplebbit.modQueue?.pageCids?.pendingApproval)
             });
             // @ts-expect-error - accessing private _dbHandler
-            commentBeforeModeration = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(commentCid);
+            commentBeforeModeration = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(commentCid);
 
             const moderation = await ctx.plebbit.createCommentModeration({
                 communityAddress: ctx.subplebbit.address,
@@ -469,7 +469,7 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
             await resolveWhenConditionIsTrue({
                 toUpdate: ctx.subplebbit,
                 // @ts-expect-error - accessing private _dbHandler
-                predicate: async () => !(ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(commentCid)
+                predicate: async () => !(ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(commentCid)
             });
         });
 
@@ -480,7 +480,7 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
         it(" removes the post immediately", () => {
             expect(commentBeforeModeration).to.exist;
             expect(commentBeforeModeration?.depth).to.equal(0);
-            const after = (ctx.subplebbit as LocalSubplebbit)._dbHandler.queryComment(commentCid);
+            const after = (ctx.subplebbit as LocalCommunity)._dbHandler.queryComment(commentCid);
             expect(after).to.be.undefined;
         });
     });
@@ -489,20 +489,20 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
         const retentionSeconds = ONE_MINUTE;
         let ctx: TestContext;
         let commentCid: string;
-        let commentBeforePurge: ReturnType<LocalSubplebbit["_dbHandler"]["queryComment"]>;
-        let commentAfterPurge: ReturnType<LocalSubplebbit["_dbHandler"]["queryComment"]>;
+        let commentBeforePurge: ReturnType<LocalCommunity["_dbHandler"]["queryComment"]>;
+        let commentAfterPurge: ReturnType<LocalCommunity["_dbHandler"]["queryComment"]>;
 
         beforeAll(async () => {
             ctx = await createTestContext({ retentionSeconds });
             const approved = await createApprovedComment(ctx);
             commentCid = approved.cid!;
             // @ts-expect-error - accessing private _dbHandler
-            commentBeforePurge = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(commentCid);
+            commentBeforePurge = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(commentCid);
             backdateCommentUpdate(ctx, commentCid, retentionSeconds + 120);
             // @ts-expect-error - accessing private _dbHandler
-            (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).purgeDisapprovedCommentsOlderThan(retentionSeconds);
+            (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).purgeDisapprovedCommentsOlderThan(retentionSeconds);
             // @ts-expect-error - accessing private _dbHandler
-            commentAfterPurge = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(commentCid);
+            commentAfterPurge = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(commentCid);
         });
 
         afterAll(async () => {
@@ -516,7 +516,7 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
 
         it(" keeps the reply in database after purge", () => {
             expect(commentAfterPurge).to.exist;
-            const update = (ctx.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({ cid: commentCid });
+            const update = (ctx.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({ cid: commentCid });
             expect(update).to.exist;
             expect(update?.approved).to.equal(true);
         });
@@ -526,20 +526,20 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
         const retentionSeconds = ONE_MINUTE;
         let ctx: TestContext;
         let commentCid: string;
-        let commentBeforePurge: ReturnType<LocalSubplebbit["_dbHandler"]["queryComment"]>;
-        let commentAfterPurge: ReturnType<LocalSubplebbit["_dbHandler"]["queryComment"]>;
+        let commentBeforePurge: ReturnType<LocalCommunity["_dbHandler"]["queryComment"]>;
+        let commentAfterPurge: ReturnType<LocalCommunity["_dbHandler"]["queryComment"]>;
 
         beforeAll(async () => {
             ctx = await createTestContext({ retentionSeconds });
             const approved = await createApprovedComment(ctx, { depth: 0 });
             commentCid = approved.cid!;
             // @ts-expect-error - accessing private _dbHandler
-            commentBeforePurge = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(commentCid);
+            commentBeforePurge = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(commentCid);
             backdateCommentUpdate(ctx, commentCid, retentionSeconds + 120);
             // @ts-expect-error - accessing private _dbHandler
-            (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).purgeDisapprovedCommentsOlderThan(retentionSeconds);
+            (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).purgeDisapprovedCommentsOlderThan(retentionSeconds);
             // @ts-expect-error - accessing private _dbHandler
-            commentAfterPurge = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(commentCid);
+            commentAfterPurge = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(commentCid);
         });
 
         afterAll(async () => {
@@ -553,7 +553,7 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
 
         it(" keeps the post in database after purge", () => {
             expect(commentAfterPurge).to.exist;
-            const update = (ctx.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({ cid: commentCid });
+            const update = (ctx.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({ cid: commentCid });
             expect(update).to.exist;
             expect(update?.approved).to.equal(true);
         });
@@ -569,7 +569,7 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
             disapprovedComment = await createDisapprovedComment(ctx);
             backdateAllDisapprovals(ctx, disapprovedComment.cid!, retentionSeconds - 5);
             // @ts-expect-error - accessing private _dbHandler
-            (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).purgeDisapprovedCommentsOlderThan(retentionSeconds);
+            (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).purgeDisapprovedCommentsOlderThan(retentionSeconds);
         });
 
         afterAll(async () => {
@@ -578,7 +578,7 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
 
         it("keeps the disapproved comment", () => {
             // @ts-expect-error - accessing private _dbHandler
-            const stored = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(disapprovedComment.cid!);
+            const stored = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(disapprovedComment.cid!);
             expect(stored).to.exist;
         });
     });
@@ -600,25 +600,25 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
 
         it("does nothing when retention is undefined", () => {
             // @ts-expect-error - accessing private _dbHandler
-            (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).purgeDisapprovedCommentsOlderThan(undefined);
+            (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).purgeDisapprovedCommentsOlderThan(undefined);
             // @ts-expect-error - accessing private _dbHandler
-            const stored = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(disapprovedComment.cid!);
+            const stored = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(disapprovedComment.cid!);
             expect(stored).to.exist;
         });
 
         it("does nothing when retention is non-positive", () => {
             // @ts-expect-error - accessing private _dbHandler
-            (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).purgeDisapprovedCommentsOlderThan(0);
+            (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).purgeDisapprovedCommentsOlderThan(0);
             // @ts-expect-error - accessing private _dbHandler
-            const stored = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(disapprovedComment.cid!);
+            const stored = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(disapprovedComment.cid!);
             expect(stored).to.exist;
         });
 
         it("purges once a valid retention is provided", () => {
             // @ts-expect-error - accessing private _dbHandler
-            (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).purgeDisapprovedCommentsOlderThan(retentionSeconds);
+            (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).purgeDisapprovedCommentsOlderThan(retentionSeconds);
             // @ts-expect-error - accessing private _dbHandler
-            const stored = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(disapprovedComment.cid!);
+            const stored = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(disapprovedComment.cid!);
             expect(stored).to.be.undefined;
         });
     });
@@ -647,7 +647,7 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
                 toUpdate: ctx.subplebbit,
                 predicate: async () => {
                     // @ts-expect-error - accessing private _dbHandler._db
-                    const updates = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"])._db
+                    const updates = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"])._db
                         .prepare(`SELECT COUNT(1) as count FROM commentModerations WHERE commentCid = ?`)
                         .get(disapprovedComment.cid!) as { count: number };
                     return updates?.count >= 2;
@@ -657,7 +657,7 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
             updateSpecificModerationTimestamp(ctx, disapprovedComment.cid!, 0, retentionSeconds + 15);
             updateSpecificModerationTimestamp(ctx, disapprovedComment.cid!, 1, 5);
             // @ts-expect-error - accessing private _dbHandler
-            (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).purgeDisapprovedCommentsOlderThan(retentionSeconds);
+            (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).purgeDisapprovedCommentsOlderThan(retentionSeconds);
         });
 
         afterAll(async () => {
@@ -666,7 +666,7 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
 
         it("uses the earliest disapproval timestamp for expiration", () => {
             // @ts-expect-error - accessing private _dbHandler
-            const stored = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(disapprovedComment.cid!);
+            const stored = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(disapprovedComment.cid!);
             expect(stored).to.be.undefined;
         });
     });
@@ -693,7 +693,7 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
                 toUpdate: ctx.subplebbit,
                 predicate: async () => {
                     // @ts-expect-error - accessing private _dbHandler
-                    const stored = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryStoredCommentUpdate({
+                    const stored = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryStoredCommentUpdate({
                         cid: disapprovedComment.cid!
                     });
                     return Boolean(stored && stored.approved === true);
@@ -702,7 +702,7 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
 
             backdateAllDisapprovals(ctx, disapprovedComment.cid!, retentionSeconds + 30);
             // @ts-expect-error - accessing private _dbHandler
-            (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).purgeDisapprovedCommentsOlderThan(retentionSeconds);
+            (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).purgeDisapprovedCommentsOlderThan(retentionSeconds);
         });
 
         afterAll(async () => {
@@ -711,7 +711,7 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
 
         it("keeps the comment because it is no longer disapproved", () => {
             // @ts-expect-error - accessing private _dbHandler
-            const stored = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(disapprovedComment.cid!);
+            const stored = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(disapprovedComment.cid!);
             expect(stored).to.exist;
         });
     });
@@ -725,12 +725,12 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
             ctx = await createTestContext({ retentionSeconds });
             disapprovedComment = await createDisapprovedComment(ctx);
             // @ts-expect-error - accessing private _dbHandler._db
-            (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"])._db
+            (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"])._db
                 .prepare(`DELETE FROM commentModerations WHERE commentCid = ?`)
                 .run(disapprovedComment.cid!);
             backdateCommentUpdate(ctx, disapprovedComment.cid!, retentionSeconds + 25);
             // @ts-expect-error - accessing private _dbHandler
-            (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).purgeDisapprovedCommentsOlderThan(retentionSeconds);
+            (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).purgeDisapprovedCommentsOlderThan(retentionSeconds);
         });
 
         afterAll(async () => {
@@ -739,7 +739,7 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
 
         it("falls back to the comment update timestamp for expiration", () => {
             // @ts-expect-error - accessing private _dbHandler
-            const stored = (ctx.subplebbit._dbHandler as LocalSubplebbit["_dbHandler"]).queryComment(disapprovedComment.cid!);
+            const stored = (ctx.subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(disapprovedComment.cid!);
             expect(stored).to.be.undefined;
         });
     });

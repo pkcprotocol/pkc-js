@@ -4,23 +4,23 @@ import validCommentFixture from "../../../../fixtures/signatures/comment/comment
 import {
     publishRandomPost,
     publishRandomReply,
-    mockPlebbitNoDataPathWithOnlyKuboClient,
+    mockPKCNoDataPathWithOnlyKuboClient,
     mockPostToFailToLoadFromPostUpdates,
     createCommentUpdateWithInvalidSignature,
-    mockPostToHaveSubplebbitWithNoPostUpdates,
+    mockPostToHaveCommunityWithNoPostUpdates,
     addStringToIpfs,
     resolveWhenConditionIsTrue,
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     mockPostToReturnSpecificCommentUpdate,
-    isPlebbitFetchingUsingGateways,
+    isPKCFetchingUsingGateways,
     itSkipIfRpc,
     waitTillReplyInParentPagesInstance
 } from "../../../../../dist/node/test/test-util.js";
 import { cleanUpBeforePublishing } from "../../../../../dist/node/signer/signatures.js";
 import { messages } from "../../../../../dist/node/errors.js";
-import type { PlebbitError } from "../../../../../dist/node/pkc-error.js";
+import type { PKCError } from "../../../../../dist/node/pkc-error.js";
 import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
-import type { Plebbit } from "../../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
 
 // Type for replies with required parentCid
 type ReplyWithRequiredFields = Required<Pick<CommentIpfsWithCidDefined, "cid" | "parentCid"> & { communityAddress: string }>;
@@ -30,9 +30,9 @@ const subplebbitAddress = signers[0].address;
 // TODO add a test where we call comment.update() on 100 comments in parallel, will it resolve ipns name 100 times or once (should be once)
 // TODO add a test where you call comment.update() on 100 comments who have the same cid, will it call _fetchCidP2P 100 times?
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`comment.update - ${config.name}`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
         });
@@ -65,7 +65,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         it.sequential(
             `plebbit.createComment({cid}).update() fetches comment ipfs and update correctly when cid is the cid of a reply`,
             async () => {
-                const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+                const subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
 
                 const postCid =
                     subplebbit.posts.pages.hot.comments.find(
@@ -98,7 +98,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         );
 
         it.sequential(`comment.stop() stops loading of comment updates (before update)`, async () => {
-            const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
 
             const comment = await plebbit.createComment({ cid: subplebbit.posts.pages.hot.comments[0].cid });
             await comment.update();
@@ -112,7 +112,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`comment.stop() stops loading of comment updates (after update)`, async () => {
-            const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
 
             const comment = await plebbit.createComment({ cid: subplebbit.posts.pages.hot.comments[0].cid });
             await comment.update();
@@ -131,7 +131,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         it(`comment.update() is working as expected after calling comment.stop()`, async () => {
             const plebbit = await config.plebbitInstancePromise();
             try {
-                const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+                const subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
                 const postToStop = await plebbit.createComment({ cid: subplebbit.posts.pages.hot.comments[0].cid });
 
                 await postToStop.update();
@@ -170,8 +170,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 });
 
 const addCommentIpfsWithInvalidSignatureToIpfs = async () => {
-    const plebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
-    const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+    const plebbit = await mockPKCNoDataPathWithOnlyKuboClient();
+    const subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
 
     const postIpfs = cleanUpBeforePublishing((await plebbit.getComment({ cid: subplebbit.posts.pages.hot.comments[0].cid })).raw.comment!);
 
@@ -184,8 +184,8 @@ const addCommentIpfsWithInvalidSignatureToIpfs = async () => {
 };
 
 const addCommentIpfsWithInvalidSchemaToIpfs = async () => {
-    const plebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
-    const subplebbit = await plebbit.getSubplebbit({ address: subplebbitAddress });
+    const plebbit = await mockPKCNoDataPathWithOnlyKuboClient();
+    const subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
 
     const postIpfs = (await plebbit.getComment({ cid: subplebbit.posts.pages.hot.comments[0].cid })).raw.comment!;
 
@@ -206,21 +206,21 @@ const addInvalidJsonToIpfs = async () => {
     return addStringToIpfs("<html>something</html>");
 };
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`comment.update() emits errors for issues with CommentIpfs or CommentUpdate record - ${config.name}`, async () => {
         let invalidCommentIpfsCid: string;
         let cidOfInvalidJson: string;
         let cidOfCommentIpfsWithInvalidSchema: string;
-        let cidOfCommentIpfsWithMismatchedSubplebbitAddress: string;
-        let plebbit: Plebbit;
+        let cidOfCommentIpfsWithMismatchedCommunityAddress: string;
+        let plebbit: PKC;
         let commentUpdateWithInvalidSignatureJson: { cid: string };
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
             invalidCommentIpfsCid = await addCommentIpfsWithInvalidSignatureToIpfs();
             cidOfInvalidJson = await addInvalidJsonToIpfs();
             cidOfCommentIpfsWithInvalidSchema = await addCommentIpfsWithInvalidSchemaToIpfs();
-            cidOfCommentIpfsWithMismatchedSubplebbitAddress = await addValidCommentIpfsToIpfs();
-            const sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            cidOfCommentIpfsWithMismatchedCommunityAddress = await addValidCommentIpfsToIpfs();
+            const sub = await plebbit.getCommunity({ address: subplebbitAddress });
             commentUpdateWithInvalidSignatureJson = await createCommentUpdateWithInvalidSignature(sub.posts.pages.hot.comments[0].cid);
         });
 
@@ -234,10 +234,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const createdComment = await plebbit.createComment({ cid: invalidCommentIpfsCid });
             expect(createdComment.content).to.be.undefined; // Make sure it didn't use the props sub pages
 
-            const errors: PlebbitError[] = [];
+            const errors: PKCError[] = [];
             const updatingStates: string[] = [];
             createdComment.on("updatingstatechange", () => updatingStates.push(createdComment.updatingState));
-            createdComment.on("error", (err) => errors.push(err as PlebbitError));
+            createdComment.on("error", (err) => errors.push(err as PKCError));
             let updateHasBeenEmitted = false;
             createdComment.once("update", () => (updateHasBeenEmitted = true));
             await createdComment.update();
@@ -261,8 +261,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             const updatingStates: string[] = [];
             createdComment.on("updatingstatechange", () => updatingStates.push(createdComment.updatingState));
-            const errors: PlebbitError[] = [];
-            createdComment.on("error", (err) => errors.push(err as PlebbitError));
+            const errors: PKCError[] = [];
+            createdComment.on("error", (err) => errors.push(err as PKCError));
             let updateHasBeenEmitted = false;
             createdComment.once("update", () => (updateHasBeenEmitted = true));
             await createdComment.update();
@@ -288,8 +288,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             createdComment.on("updatingstatechange", () => updatingStates.push(createdComment.updatingState));
             let updateHasBeenEmitted = false;
             createdComment.once("update", () => (updateHasBeenEmitted = true));
-            const errors: PlebbitError[] = [];
-            createdComment.on("error", (err) => errors.push(err as PlebbitError));
+            const errors: PKCError[] = [];
+            createdComment.on("error", (err) => errors.push(err as PKCError));
             await createdComment.update();
 
             await resolveWhenConditionIsTrue({ toUpdate: createdComment, predicate: async () => errors.length >= 1, eventName: "error" });
@@ -306,18 +306,18 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`comment.update() emits error and stops updating loop if CommentIpfs subplebbitAddress does not match`, async () => {
-            const expectedSubplebbitAddress = signers[1].address;
-            expect(expectedSubplebbitAddress).to.not.equal(validCommentFixture.subplebbitAddress);
+            const expectedCommunityAddress = signers[1].address;
+            expect(expectedCommunityAddress).to.not.equal(validCommentFixture.subplebbitAddress);
 
             const createdComment = await plebbit.createComment({
-                cid: cidOfCommentIpfsWithMismatchedSubplebbitAddress,
-                communityAddress: expectedSubplebbitAddress
+                cid: cidOfCommentIpfsWithMismatchedCommunityAddress,
+                communityAddress: expectedCommunityAddress
             });
 
             const updatingStates: string[] = [];
             createdComment.on("updatingstatechange", () => updatingStates.push(createdComment.updatingState));
-            const errors: PlebbitError[] = [];
-            createdComment.on("error", (err) => errors.push(err as PlebbitError));
+            const errors: PKCError[] = [];
+            createdComment.on("error", (err) => errors.push(err as PKCError));
             let updateHasBeenEmitted = false;
             createdComment.once("update", () => (updateHasBeenEmitted = true));
             await createdComment.update();
@@ -340,14 +340,14 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             // Pass a communityPublicKey that differs from what the CommentIpfs actually has.
             // After CommentIpfs loads, the real communityPublicKey from the record takes over.
             // The full pipeline (CommentIpfs + CommentUpdate) should complete without errors.
-            const sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.getCommunity({ address: subplebbitAddress });
             const commentCid = sub.posts.pages.hot.comments[0].cid;
 
             const createdComment = await plebbit.createComment({ cid: commentCid, communityPublicKey: signers[6].address });
             expect(createdComment.communityPublicKey).to.equal(signers[6].address); // initially set to the "old" key
 
-            const errors: PlebbitError[] = [];
-            createdComment.on("error", (err) => errors.push(err as PlebbitError));
+            const errors: PKCError[] = [];
+            createdComment.on("error", (err) => errors.push(err as PKCError));
             await createdComment.update();
 
             // Wait for CommentUpdate to load (implies CommentIpfs already loaded successfully)
@@ -375,9 +375,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 cid: commentUpdateWithInvalidSignatureJson.cid
             });
 
-            const errors: PlebbitError[] = [];
+            const errors: PKCError[] = [];
 
-            createdComment.on("error", (err) => errors.push(err as PlebbitError));
+            createdComment.on("error", (err) => errors.push(err as PKCError));
 
             await createdComment.update();
 
@@ -394,7 +394,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(plebbit._updatingComments[createdComment.cid]._invalidCommentUpdateMfsPaths.size).to.equal(errors.length); // it should mark the path as invalid
 
             for (const error of errors) {
-                if (isPlebbitFetchingUsingGateways(plebbit)) {
+                if (isPKCFetchingUsingGateways(plebbit)) {
                     expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMENT_UPDATE_FROM_GATEWAYS");
                     for (const gatewayUrl of Object.keys(plebbit.clients.ipfsGateways)) {
                         expect(error.details.gatewayToError[gatewayUrl].code).to.equal("ERR_COMMENT_UPDATE_SIGNATURE_IS_INVALID");
@@ -418,9 +418,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     cid: commentUpdateWithInvalidSignatureJson.cid
                 });
 
-                const errors: PlebbitError[] = [];
+                const errors: PKCError[] = [];
 
-                createdComment.on("error", (err) => errors.push(err as PlebbitError));
+                createdComment.on("error", (err) => errors.push(err as PKCError));
 
                 await createdComment.update();
                 await mockPostToReturnSpecificCommentUpdate(createdComment, invalidCommentUpdateJson);
@@ -440,7 +440,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 expect(plebbit._updatingComments[createdComment.cid]._invalidCommentUpdateMfsPaths.size).to.equal(errors.length); // it should mark the path as invalid
 
                 for (const error of errors) {
-                    if (isPlebbitFetchingUsingGateways(plebbit)) {
+                    if (isPKCFetchingUsingGateways(plebbit)) {
                         expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMENT_UPDATE_FROM_GATEWAYS");
                         for (const gatewayUrl of Object.keys(plebbit.clients.ipfsGateways)) {
                             expect(error.details.gatewayToError[gatewayUrl].code).to.equal("ERR_INVALID_JSON");
@@ -462,9 +462,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             const invalidCommentUpdateSchema = { hello: "this should fail the schema parse" };
 
-            const errors: PlebbitError[] = [];
+            const errors: PKCError[] = [];
 
-            createdComment.on("error", (err) => errors.push(err as PlebbitError));
+            createdComment.on("error", (err) => errors.push(err as PKCError));
 
             await createdComment.update();
 
@@ -481,7 +481,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(plebbit._updatingComments[createdComment.cid]._invalidCommentUpdateMfsPaths.size).to.equal(errors.length); // it should mark the path as invalid
 
             for (const error of errors) {
-                if (isPlebbitFetchingUsingGateways(plebbit)) {
+                if (isPKCFetchingUsingGateways(plebbit)) {
                     expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMENT_UPDATE_FROM_GATEWAYS");
                     for (const gatewayUrl of Object.keys(plebbit.clients.ipfsGateways)) {
                         expect(error.details.gatewayToError[gatewayUrl].code).to.equal("ERR_INVALID_COMMENT_UPDATE_SCHEMA");
@@ -493,12 +493,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         itSkipIfRpc.sequential(`postCommentInstance.update() emits error when post fails to load from postUpdates`, async () => {
-            const sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.getCommunity({ address: subplebbitAddress });
             const postCid = sub.posts.pages.hot.comments[0].cid;
 
             const post = await plebbit.getComment({ cid: postCid });
-            const errors: PlebbitError[] = [];
-            post.on("error", (err) => errors.push(err as PlebbitError));
+            const errors: PKCError[] = [];
+            post.on("error", (err) => errors.push(err as PKCError));
             await post.update();
             await mockPostToFailToLoadFromPostUpdates(post);
 
@@ -514,14 +514,14 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         itSkipIfRpc.sequential(`postCommentInstance.update() emits error when subplebbit has no postUpdates`, async () => {
-            const sub = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const sub = await plebbit.getCommunity({ address: subplebbitAddress });
             const postCid = sub.posts.pages.hot.comments[0].cid;
 
             const post = await plebbit.getComment({ cid: postCid });
-            const errors: PlebbitError[] = [];
-            post.on("error", (err) => errors.push(err as PlebbitError));
+            const errors: PKCError[] = [];
+            post.on("error", (err) => errors.push(err as PKCError));
             await post.update();
-            await mockPostToHaveSubplebbitWithNoPostUpdates(post);
+            await mockPostToHaveCommunityWithNoPostUpdates(post);
 
             await resolveWhenConditionIsTrue({ toUpdate: post, predicate: async () => errors.length === 1, eventName: "error" });
             expect(post.updatingState).to.equal("failed");
@@ -536,7 +536,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     });
 });
 
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
     describe(`comment.update() emits errors for gateways that return content that does not correspond to their cids`, async () => {
         it(`comment.update() emit an error and stops updating loop if gateway responded with a CommentIpfs that's not derived from its CID - IPFS Gateway`, async () => {
             const gatewayUrl = "http://localhost:13415"; // This gateway responds with content that is not equivalent to its CID
@@ -554,7 +554,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
             createdComment.once("update", () => (updateHasBeenEmitted = true));
             await createdComment.update();
 
-            const err = await new Promise<PlebbitError>((resolve) => createdComment.once("error", resolve as (err: unknown) => void));
+            const err = await new Promise<PKCError>((resolve) => createdComment.once("error", resolve as (err: unknown) => void));
             expect(err.code).to.equal("ERR_FAILED_TO_FETCH_COMMENT_IPFS_FROM_GATEWAYS");
             expect(err.details.gatewayToError[gatewayUrl].code).to.equal("ERR_CALCULATED_CID_DOES_NOT_MATCH");
 

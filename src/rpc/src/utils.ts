@@ -3,12 +3,12 @@ import type {
     DecryptedChallengeAnswerMessageType,
     DecryptedChallengeMessageType,
     DecryptedChallengeRequestMessageType,
-    DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor,
+    DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
     DecryptedChallengeVerificationMessageType,
     EncodedDecryptedChallengeAnswerMessageType,
     EncodedDecryptedChallengeMessageType,
     EncodedDecryptedChallengeRequestMessageType,
-    EncodedDecryptedChallengeRequestMessageTypeWithSubplebbitAuthor,
+    EncodedDecryptedChallengeRequestMessageTypeWithCommunityAuthor,
     EncodedDecryptedChallengeVerificationMessageType
 } from "../../pubsub-messages/types.js";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
@@ -47,8 +47,8 @@ function _encodeSignature(
 }
 
 export function encodeChallengeRequest(
-    msg: DecryptedChallengeRequestMessageType | DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor
-): EncodedDecryptedChallengeRequestMessageType | EncodedDecryptedChallengeRequestMessageTypeWithSubplebbitAuthor {
+    msg: DecryptedChallengeRequestMessageType | DecryptedChallengeRequestMessageTypeWithCommunityAuthor
+): EncodedDecryptedChallengeRequestMessageType | EncodedDecryptedChallengeRequestMessageTypeWithCommunityAuthor {
     return {
         ...msg,
         challengeRequestId: _encodeChallengeRequestId(msg.challengeRequestId),

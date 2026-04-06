@@ -2,7 +2,7 @@ import { z } from "zod";
 import {
     ChallengeAnswersSchema,
     CreatePublicationUserOptionsSchema,
-    PlebbitTimestampSchema,
+    PKCTimestampSchema,
     ProtocolVersionSchema,
     UserAgentSchema
 } from "../schema/schema.js";
@@ -16,7 +16,7 @@ import {
 import { ChallengeFileSchema, ChallengeFromGetChallengeSchema } from "../community/schema.js";
 import * as remeda from "remeda";
 import { CommentModerationPubsubMessagePublicationSchema } from "../publications/comment-moderation/schema.js";
-import { SubplebbitEditPubsubMessagePublicationSchema } from "../publications/community-edit/schema.js";
+import { CommunityEditPubsubMessagePublicationSchema } from "../publications/community-edit/schema.js";
 import { Uint8ArraySchema, nonNegativeIntStringSchema } from "../schema.js";
 
 const AcceptedChallengeTypeSchema = z.string().min(1);
@@ -35,7 +35,7 @@ const PubsubMessageBaseSchema = z.object({
     signature: PubsubMessageSignatureSchema,
     protocolVersion: ProtocolVersionSchema,
     userAgent: UserAgentSchema,
-    timestamp: PlebbitTimestampSchema
+    timestamp: PKCTimestampSchema
 });
 
 export const EncryptedSchema = z
@@ -63,7 +63,7 @@ export const DecryptedChallengeRequestPublicationSchema = z.object({
     vote: VotePubsubMessagePublicationSchema.loose().optional(),
     commentEdit: CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema.loose().optional(),
     commentModeration: CommentModerationPubsubMessagePublicationSchema.loose().optional(),
-    subplebbitEdit: SubplebbitEditPubsubMessagePublicationSchema.loose().optional()
+    subplebbitEdit: CommunityEditPubsubMessagePublicationSchema.loose().optional()
 });
 
 // ChallengeRequestMessage.encrypted.ciphertext decrypts to JSON, with these props

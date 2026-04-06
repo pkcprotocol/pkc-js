@@ -1,21 +1,21 @@
 import {
-    mockRemotePlebbit,
+    mockRemotePKC,
     describeSkipIfRpc,
     resolveWhenConditionIsTrue,
-    getAvailablePlebbitConfigsToTestAgainst,
-    mockPlebbit,
+    getAvailablePKCConfigsToTestAgainst,
+    mockPKC,
     createSubWithNoChallenge,
     publishRandomPost,
     forceLocalSubPagesToAlwaysGenerateMultipleChunks
 } from "../../../dist/node/test/test-util.js";
-import { PlebbitError } from "../../../dist/node/pkc-error.js";
+import { PKCError } from "../../../dist/node/pkc-error.js";
 import signers from "../../fixtures/signers.js";
 import * as remeda from "remeda";
 import { describe, beforeAll, afterAll, beforeEach, afterEach, it } from "vitest";
-import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
-import type { RemoteSubplebbit } from "../../../dist/node/community/remote-community.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { CommentWithinRepliesPostsPageJson } from "../../../dist/node/publications/comment/types.js";
 
 interface ValidateCommentTestEnvironment {
@@ -37,10 +37,10 @@ const cloneCommentInstance = (source: Comment): Comment => {
     return clone;
 };
 
-getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map((config) => {
     describeSkipIfRpc.concurrent(`plebbit.validateComment - ${config.name}`, async () => {
-        let remotePlebbit: Plebbit;
-        let subplebbit: RemoteSubplebbit;
+        let remotePKC: PKC;
+        let subplebbit: RemoteCommunity;
         let postCommentInstance: Comment;
         let postWithRepliesInstance: Comment;
         let postPageComment: CommentWithinRepliesPostsPageJson;
@@ -50,8 +50,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
 
         beforeAll(async () => {
             publisherEnv = await createValidateCommentTestEnvironment();
-            remotePlebbit = await config.plebbitInstancePromise();
-            subplebbit = (await remotePlebbit.getSubplebbit({ address: publisherEnv.communityAddress })) as RemoteSubplebbit;
+            remotePKC = await config.plebbitInstancePromise();
+            subplebbit = (await remotePKC.getCommunity({ address: publisherEnv.communityAddress })) as RemoteCommunity;
             await subplebbit.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: subplebbit,
@@ -64,7 +64,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
                     )
             });
 
-            postCommentInstance = await remotePlebbit.getComment({ cid: publisherEnv.postCid });
+            postCommentInstance = await remotePKC.getComment({ cid: publisherEnv.postCid });
             await postCommentInstance.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: postCommentInstance,
@@ -75,7 +75,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
             expect(foundPostPageComment, "Failed to find the post comment in the page").to.exist;
             postPageComment = foundPostPageComment!;
 
-            postWithRepliesInstance = await remotePlebbit.getComment({ cid: publisherEnv.repliesPostCid });
+            postWithRepliesInstance = await remotePKC.getComment({ cid: publisherEnv.repliesPostCid });
             await postWithRepliesInstance.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: postWithRepliesInstance,
@@ -104,7 +104,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
         afterAll(async () => {
             if (postCommentInstance) await postCommentInstance.stop();
             if (postWithRepliesInstance) await postWithRepliesInstance.stop();
-            if (remotePlebbit) await remotePlebbit.destroy();
+            if (remotePKC) await remotePKC.destroy();
             if (publisherEnv) await publisherEnv.cleanup();
         });
 
@@ -112,7 +112,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
             // --- Tests for Post Comment Instance ---
             it("should validate a valid Post Comment instance (validateReplies=undefined)", async () => {
                 try {
-                    await remotePlebbit.validateComment(cloneCommentInstance(postCommentInstance));
+                    await remotePKC.validateComment(cloneCommentInstance(postCommentInstance));
                 } catch (e) {
                     expect.fail(`Expected promise to fulfill, but it rejected with: ${e}`);
                 }
@@ -120,7 +120,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
 
             it("should validate a valid Post Comment instance (validateReplies=false)", async () => {
                 try {
-                    await remotePlebbit.validateComment(cloneCommentInstance(postCommentInstance), { validateReplies: false });
+                    await remotePKC.validateComment(cloneCommentInstance(postCommentInstance), { validateReplies: false });
                 } catch (e) {
                     expect.fail(`Expected promise to fulfill, but it rejected with: ${e}`);
                 }
@@ -128,7 +128,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
 
             it("should validate a valid Post Comment instance (validateReplies=true)", async () => {
                 try {
-                    await remotePlebbit.validateComment(cloneCommentInstance(postCommentInstance), { validateReplies: true });
+                    await remotePKC.validateComment(cloneCommentInstance(postCommentInstance), { validateReplies: true });
                 } catch (e) {
                     expect.fail(`Expected promise to fulfill, but it rejected with: ${e}`);
                 }
@@ -137,7 +137,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
             // --- Tests for Post Page Comment ---
             it("should validate a valid Post pageComment object (validateReplies=undefined)", async () => {
                 try {
-                    await remotePlebbit.validateComment(postPageComment);
+                    await remotePKC.validateComment(postPageComment);
                 } catch (e) {
                     expect.fail(`Expected promise to fulfill, but it rejected with: ${e}`);
                 }
@@ -145,7 +145,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
 
             it("should validate a valid Post pageComment object (validateReplies=false)", async () => {
                 try {
-                    await remotePlebbit.validateComment(remeda.clone(postPageComment), { validateReplies: false });
+                    await remotePKC.validateComment(remeda.clone(postPageComment), { validateReplies: false });
                 } catch (e) {
                     expect.fail(`Expected promise to fulfill, but it rejected with: ${e}`);
                 }
@@ -153,7 +153,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
 
             it("should validate a valid Post pageComment object (validateReplies=true)", async () => {
                 try {
-                    await remotePlebbit.validateComment(remeda.clone(postPageComment), { validateReplies: true });
+                    await remotePKC.validateComment(remeda.clone(postPageComment), { validateReplies: true });
                 } catch (e) {
                     expect.fail(`Expected promise to fulfill, but it rejected with: ${e}`);
                 }
@@ -162,7 +162,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
             // --- Tests for Reply Page Comment (from Flat Page) ---
             it("should validate a valid Reply pageComment object from flat page (validateReplies=undefined)", async () => {
                 try {
-                    await remotePlebbit.validateComment(remeda.clone(replyFromFlatPage));
+                    await remotePKC.validateComment(remeda.clone(replyFromFlatPage));
                 } catch (e) {
                     expect.fail(`Expected promise to fulfill for replyFromFlatPage, but it rejected with: ${e}`);
                 }
@@ -170,7 +170,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
 
             it("should validate a valid Reply pageComment object from flat page (validateReplies=false)", async () => {
                 try {
-                    await remotePlebbit.validateComment(remeda.clone(replyFromFlatPage), { validateReplies: false });
+                    await remotePKC.validateComment(remeda.clone(replyFromFlatPage), { validateReplies: false });
                 } catch (e) {
                     expect.fail(`Expected promise to fulfill for replyFromFlatPage, but it rejected with: ${e}`);
                 }
@@ -179,7 +179,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
             it("should validate a valid Reply pageComment object from flat page (validateReplies=true)", async () => {
                 // Since this reply might itself have replies (even though fetched via flat page), validating them is valid
                 try {
-                    await remotePlebbit.validateComment(remeda.clone(replyFromFlatPage), { validateReplies: true });
+                    await remotePKC.validateComment(remeda.clone(replyFromFlatPage), { validateReplies: true });
                 } catch (e) {
                     expect.fail(`Expected promise to fulfill for replyFromFlatPage, but it rejected with: ${e}`);
                 }
@@ -188,7 +188,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
             // --- Tests for Reply Page Comment (from Best Page) ---
             it("should validate a valid Reply pageComment object from best page (validateReplies=undefined)", async () => {
                 try {
-                    await remotePlebbit.validateComment(remeda.clone(replyFromBestPage));
+                    await remotePKC.validateComment(remeda.clone(replyFromBestPage));
                 } catch (e) {
                     expect.fail(`Expected promise to fulfill for replyFromBestPage, but it rejected with: ${e}`);
                 }
@@ -196,7 +196,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
 
             it("should validate a valid Reply pageComment object from best page (validateReplies=false)", async () => {
                 try {
-                    await remotePlebbit.validateComment(remeda.clone(replyFromBestPage), { validateReplies: false });
+                    await remotePKC.validateComment(remeda.clone(replyFromBestPage), { validateReplies: false });
                 } catch (e) {
                     expect.fail(`Expected promise to fulfill for replyFromBestPage, but it rejected with: ${e}`);
                 }
@@ -205,7 +205,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
             it("should validate a valid Reply pageComment object from best page (validateReplies=true)", async () => {
                 // Since this reply might itself have replies, validating them is valid
                 try {
-                    await remotePlebbit.validateComment(remeda.clone(replyFromBestPage), { validateReplies: true });
+                    await remotePKC.validateComment(remeda.clone(replyFromBestPage), { validateReplies: true });
                 } catch (e) {
                     expect.fail(`Expected promise to fulfill for replyFromBestPage, but it rejected with: ${e}`);
                 }
@@ -213,11 +213,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
         });
 
         describe.sequential("Invalid Comments", () => {
-            let plebbit: Plebbit; // Use a separate plebbit instance for invalid tests to reset caches if needed
+            let plebbit: PKC; // Use a separate plebbit instance for invalid tests to reset caches if needed
             let sourcePostCommentInstance: Comment; // Need a valid instance for cloning/copying tests
             beforeEach(async () => {
-                plebbit = await mockRemotePlebbit();
-                const sub = (await plebbit.getSubplebbit({ address: signers[0].address })) as RemoteSubplebbit;
+                plebbit = await mockRemotePKC();
+                const sub = (await plebbit.getCommunity({ address: signers[0].address })) as RemoteCommunity;
                 await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.lastPostCid === "string" });
                 sourcePostCommentInstance = await plebbit.getComment({ cid: sub.lastPostCid! });
                 await sourcePostCommentInstance.update();
@@ -247,8 +247,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
                     await plebbit.validateComment(invalidComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
-                    expect(e).to.be.instanceOf(PlebbitError);
-                    expect((e as PlebbitError).code).to.equal("ERR_INVALID_COMMENT_IPFS");
+                    expect(e).to.be.instanceOf(PKCError);
+                    expect((e as PKCError).code).to.equal("ERR_INVALID_COMMENT_IPFS");
                 } finally {
                     if (invalidComment) await invalidComment.stop();
                 }
@@ -264,8 +264,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
                     await plebbit.validateComment(invalidComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
-                    expect(e).to.be.instanceOf(PlebbitError);
-                    expect((e as PlebbitError).code).to.equal("ERR_INVALID_COMMENT_UPDATE");
+                    expect(e).to.be.instanceOf(PKCError);
+                    expect((e as PKCError).code).to.equal("ERR_INVALID_COMMENT_UPDATE");
                 } finally {
                     if (invalidComment) await invalidComment.stop();
                 }
@@ -279,8 +279,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
                     await plebbit.validateComment(invalidComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
-                    expect(e).to.be.instanceOf(PlebbitError);
-                    expect((e as PlebbitError).code).to.equal("ERR_COMMENT_MISSING_IPFS");
+                    expect(e).to.be.instanceOf(PKCError);
+                    expect((e as PKCError).code).to.equal("ERR_COMMENT_MISSING_IPFS");
                 } finally {
                     if (invalidComment) await invalidComment.stop();
                 }
@@ -294,8 +294,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
                     await plebbit.validateComment(invalidComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
-                    expect(e).to.be.instanceOf(PlebbitError);
-                    expect((e as PlebbitError).code).to.equal("ERR_COMMENT_MISSING_UPDATE");
+                    expect(e).to.be.instanceOf(PKCError);
+                    expect((e as PKCError).code).to.equal("ERR_COMMENT_MISSING_UPDATE");
                 } finally {
                     if (invalidComment) await invalidComment.stop();
                 }
@@ -310,8 +310,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
                     await plebbit.validateComment(invalidComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
-                    expect(e).to.be.instanceOf(PlebbitError);
-                    expect((e as PlebbitError).code).to.equal("ERR_COMMENT_MISSING_CID");
+                    expect(e).to.be.instanceOf(PKCError);
+                    expect((e as PKCError).code).to.equal("ERR_COMMENT_MISSING_CID");
                 } finally {
                     if (invalidComment) await invalidComment.stop();
                 }
@@ -325,8 +325,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
                     await plebbit.validateComment(invalidComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
-                    expect(e).to.be.instanceOf(PlebbitError);
-                    expect((e as PlebbitError).code).to.equal("ERR_COMMENT_MISSING_POST_CID");
+                    expect(e).to.be.instanceOf(PKCError);
+                    expect((e as PKCError).code).to.equal("ERR_COMMENT_MISSING_POST_CID");
                 } finally {
                     if (invalidComment) await invalidComment.stop();
                 }
@@ -365,8 +365,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
                     await plebbit.validateComment(invalidPageComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
-                    expect(e).to.be.instanceOf(PlebbitError);
-                    expect((e as PlebbitError).code).to.equal("ERR_INVALID_COMMENT_IPFS");
+                    expect(e).to.be.instanceOf(PKCError);
+                    expect((e as PKCError).code).to.equal("ERR_INVALID_COMMENT_IPFS");
                 }
             });
 
@@ -378,8 +378,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
                     await plebbit.validateComment(invalidPageComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
-                    expect(e).to.be.instanceOf(PlebbitError);
-                    expect((e as PlebbitError).code).to.equal("ERR_INVALID_COMMENT_UPDATE");
+                    expect(e).to.be.instanceOf(PKCError);
+                    expect((e as PKCError).code).to.equal("ERR_INVALID_COMMENT_UPDATE");
                 }
             });
 
@@ -390,8 +390,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
                     await plebbit.validateComment(invalidPageComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
-                    expect(e).to.be.instanceOf(PlebbitError);
-                    expect((e as PlebbitError).code).to.equal("ERR_COMMENT_MISSING_IPFS");
+                    expect(e).to.be.instanceOf(PKCError);
+                    expect((e as PKCError).code).to.equal("ERR_COMMENT_MISSING_IPFS");
                 }
             });
 
@@ -402,8 +402,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
                     await plebbit.validateComment(invalidPageComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
-                    expect(e).to.be.instanceOf(PlebbitError);
-                    expect((e as PlebbitError).code).to.equal("ERR_COMMENT_MISSING_UPDATE");
+                    expect(e).to.be.instanceOf(PKCError);
+                    expect((e as PKCError).code).to.equal("ERR_COMMENT_MISSING_UPDATE");
                 }
             });
 
@@ -415,8 +415,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
                     await plebbit.validateComment(invalidPageComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
-                    expect(e).to.be.instanceOf(PlebbitError);
-                    expect((e as PlebbitError).code).to.equal("ERR_COMMENT_MISSING_CID");
+                    expect(e).to.be.instanceOf(PKCError);
+                    expect((e as PKCError).code).to.equal("ERR_COMMENT_MISSING_CID");
                 }
             });
 
@@ -427,8 +427,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
                     await plebbit.validateComment(invalidPageComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
-                    expect(e).to.be.instanceOf(PlebbitError);
-                    expect((e as PlebbitError).code).to.equal("ERR_COMMENT_MISSING_POST_CID");
+                    expect(e).to.be.instanceOf(PKCError);
+                    expect((e as PKCError).code).to.equal("ERR_COMMENT_MISSING_POST_CID");
                 }
             });
         });
@@ -436,8 +436,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })
 });
 
 async function createValidateCommentTestEnvironment(): Promise<ValidateCommentTestEnvironment> {
-    const publisherPlebbit = await mockPlebbit();
-    const subplebbit = (await createSubWithNoChallenge({}, publisherPlebbit)) as LocalSubplebbit;
+    const publisherPKC = await mockPKC();
+    const subplebbit = (await createSubWithNoChallenge({}, publisherPKC)) as LocalCommunity;
     await subplebbit.start();
     await resolveWhenConditionIsTrue({
         toUpdate: subplebbit,
@@ -446,7 +446,7 @@ async function createValidateCommentTestEnvironment(): Promise<ValidateCommentTe
 
     const postForInstance = await publishRandomPost({
         communityAddress: subplebbit.address,
-        plebbit: publisherPlebbit,
+        plebbit: publisherPKC,
         postProps: {
             content: `validate-comment-post ${Date.now()}`
         }
@@ -459,7 +459,7 @@ async function createValidateCommentTestEnvironment(): Promise<ValidateCommentTe
 
     const postWithReplies = await publishRandomPost({
         communityAddress: subplebbit.address,
-        plebbit: publisherPlebbit,
+        plebbit: publisherPKC,
         postProps: {
             content: `validate-comment-reply-root ${Date.now()}`
         }
@@ -481,12 +481,12 @@ async function createValidateCommentTestEnvironment(): Promise<ValidateCommentTe
         repliesPostCid: postWithReplies.cid!,
         cleanup: async () => {
             await subplebbit.delete().catch(() => {});
-            await publisherPlebbit.destroy().catch(() => {});
+            await publisherPKC.destroy().catch(() => {});
         }
     };
 }
 
-async function ensureCommentHasPaginatedReplies({ subplebbit, comment }: { subplebbit: LocalSubplebbit; comment: Comment }): Promise<void> {
+async function ensureCommentHasPaginatedReplies({ subplebbit, comment }: { subplebbit: LocalCommunity; comment: Comment }): Promise<void> {
     const { cleanup: cleanupForcedChunking } = await forceLocalSubPagesToAlwaysGenerateMultipleChunks({
         subplebbit,
         parentComment: comment,

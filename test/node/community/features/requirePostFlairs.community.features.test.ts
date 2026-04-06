@@ -1,30 +1,30 @@
 import {
-    mockPlebbit,
+    mockPKC,
     createSubWithNoChallenge,
     generateMockPost,
     generateMockComment,
     publishWithExpectedResult,
-    mockPlebbitNoDataPathWithOnlyKuboClient,
+    mockPKCNoDataPathWithOnlyKuboClient,
     resolveWhenConditionIsTrue,
     publishRandomPost
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../../dist/node/community/rpc-local-community.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 
 describe(`subplebbit.features.requirePostFlairs`, async () => {
-    let plebbit: Plebbit;
-    let remotePlebbit: Plebbit;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    let plebbit: PKC;
+    let remotePKC: PKC;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
     let publishedPost: CommentIpfsWithCidDefined;
     const validPostFlair = { text: "Discussion", backgroundColor: "#0000ff", textColor: "#ffffff" };
 
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
-        remotePlebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
+        plebbit = await mockPKC();
+        remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
         subplebbit = await createSubWithNoChallenge({}, plebbit);
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
@@ -38,7 +38,7 @@ describe(`subplebbit.features.requirePostFlairs`, async () => {
         // Publish a post before enabling requirePostFlairs (with flair since postFlairs is enabled)
         publishedPost = (await publishRandomPost({
             communityAddress: subplebbit.address,
-            plebbit: remotePlebbit,
+            plebbit: remotePKC,
             postProps: {
                 flairs: [validPostFlair]
             }
@@ -48,7 +48,7 @@ describe(`subplebbit.features.requirePostFlairs`, async () => {
     afterAll(async () => {
         await subplebbit.delete();
         await plebbit.destroy();
-        await remotePlebbit.destroy();
+        await remotePKC.destroy();
     });
 
     it.sequential(`Feature is updated correctly in props`, async () => {
@@ -57,7 +57,7 @@ describe(`subplebbit.features.requirePostFlairs`, async () => {
     });
 
     it(`Can't publish a post without post flairs`, async () => {
-        const post = await generateMockPost({ communityAddress: subplebbit.address, plebbit: remotePlebbit });
+        const post = await generateMockPost({ communityAddress: subplebbit.address, plebbit: remotePKC });
         await publishWithExpectedResult({
             publication: post,
             expectedChallengeSuccess: false,
@@ -66,14 +66,14 @@ describe(`subplebbit.features.requirePostFlairs`, async () => {
     });
 
     it(`Can publish a reply without post flairs (requirePostFlairs only applies to posts)`, async () => {
-        const reply = await generateMockComment(publishedPost, remotePlebbit, false);
+        const reply = await generateMockComment(publishedPost, remotePKC, false);
         await publishWithExpectedResult({ publication: reply, expectedChallengeSuccess: true });
     });
 
     it(`Can publish a post with valid post flair`, async () => {
         const post = await generateMockPost({
             communityAddress: subplebbit.address,
-            plebbit: remotePlebbit,
+            plebbit: remotePKC,
             postProps: {
                 flairs: [validPostFlair]
             }
@@ -85,7 +85,7 @@ describe(`subplebbit.features.requirePostFlairs`, async () => {
         const invalidFlair = { text: "Invalid", backgroundColor: "#ff0000" };
         const post = await generateMockPost({
             communityAddress: subplebbit.address,
-            plebbit: remotePlebbit,
+            plebbit: remotePKC,
             postProps: {
                 flairs: [invalidFlair]
             }

@@ -3,15 +3,15 @@ import {
     describeSkipIfRpc,
     ensurePublicationIsSigned,
     generateMockPost,
-    mockPlebbit,
+    mockPKC,
     publishWithExpectedResult
 } from "../../../dist/node/test/test-util.js";
 import { messages } from "../../../dist/node/errors.js";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import { LRUCache } from "lru-cache";
 
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type Publication from "../../../dist/node/publications/publication.js";
 import type { SignerWithPublicKeyAddress } from "../../../dist/node/signer/index.js";
 import type { DecryptedChallengeVerificationMessageType } from "../../../dist/node/pubsub-messages/types.js";
@@ -25,7 +25,7 @@ import type {
     CommentModerationsTableRowInsert
 } from "../../../dist/node/publications/comment-moderation/types.js";
 import type { VotePubsubMessagePublication, VotesTableRowInsert } from "../../../dist/node/publications/vote/types.js";
-import type { SubplebbitEditPubsubMessagePublication } from "../../../dist/node/publications/community-edit/types.js";
+import type { CommunityEditPubsubMessagePublication } from "../../../dist/node/publications/community-edit/types.js";
 
 class InMemoryDbHandlerMock {
     comments: CommentsTableRowInsert[] = [];
@@ -35,7 +35,7 @@ class InMemoryDbHandlerMock {
     subplebbitAuthors: Map<string, { firstCommentTimestamp: number; lastCommentCid: string }> = new Map();
     _keyv: Map<string, Record<string, number | string | boolean>> = new Map([["INTERNAL_SUBPLEBBIT", {}]]);
 
-    // transaction helpers used by LocalSubplebbit
+    // transaction helpers used by LocalCommunity
     createTransaction(): void {}
     commitTransaction(): void {}
     rollbackTransaction(): void {}
@@ -197,7 +197,7 @@ class InMemoryDbHandlerMock {
         return undefined;
     }
 
-    querySubplebbitAuthor(address: string): { firstCommentTimestamp: number; lastCommentCid: string } | undefined {
+    queryCommunityAuthor(address: string): { firstCommentTimestamp: number; lastCommentCid: string } | undefined {
         return this.subplebbitAuthors.get(address);
     }
 }
@@ -208,7 +208,7 @@ type PublicationType =
     | CommentEditPubsubMessagePublication
     | CommentModerationPubsubMessagePublication
     | VotePubsubMessagePublication
-    | SubplebbitEditPubsubMessagePublication;
+    | CommunityEditPubsubMessagePublication;
 
 // Challenge request interface for testing
 interface MockChallengeRequest {
@@ -218,29 +218,29 @@ interface MockChallengeRequest {
     commentEdit?: CommentEditPubsubMessagePublication;
     commentModeration?: CommentModerationPubsubMessagePublication;
     vote?: VotePubsubMessagePublication;
-    subplebbitEdit?: SubplebbitEditPubsubMessagePublication;
+    subplebbitEdit?: CommunityEditPubsubMessagePublication;
     [key: string]: bigint | { publicKey: Uint8Array } | PublicationType | undefined;
 }
 
-describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", function () {
-    let plebbit: PlebbitType;
-    let subplebbit: LocalSubplebbit;
+describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", function () {
+    let plebbit: PKCType;
+    let subplebbit: LocalCommunity;
     let dbMock: InMemoryDbHandlerMock;
-    let originalEdit: LocalSubplebbit["edit"];
+    let originalEdit: LocalCommunity["edit"];
     const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
     const toPublicKeyBuffer = (publicKey: string | Uint8Array): Uint8Array =>
         typeof publicKey === "string" ? uint8ArrayFromString(publicKey, "base64") : publicKey;
 
-    // Accessing private members on LocalSubplebbit for testing purposes
+    // Accessing private members on LocalCommunity for testing purposes
     // We use Object casting to bypass TypeScript's private member restrictions
     // since at runtime these members exist on the object
 
-    const setDbHandler = (sub: LocalSubplebbit, handler: InMemoryDbHandlerMock): void => {
+    const setDbHandler = (sub: LocalCommunity, handler: InMemoryDbHandlerMock): void => {
         // Using Object to allow any property access
         (sub as object as { _dbHandler: InMemoryDbHandlerMock })._dbHandler = handler;
     };
 
-    const setInternalMaps = (sub: LocalSubplebbit): void => {
+    const setInternalMaps = (sub: LocalCommunity): void => {
         // Using Object to allow any property access
         const s = sub as object as {
             _ongoingChallengeExchanges: Map<string, Record<string, number | string | boolean>>;
@@ -257,7 +257,7 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
     };
 
     const publishChallengeVerification = async (
-        sub: LocalSubplebbit,
+        sub: LocalCommunity,
         challengeResult: { challengeSuccess: boolean; challengeErrors: undefined },
         request: MockChallengeRequest,
         pendingApproval: boolean
@@ -320,8 +320,8 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
     };
 
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
-        subplebbit = (await plebbit.createSubplebbit()) as LocalSubplebbit;
+        plebbit = await mockPKC();
+        subplebbit = (await plebbit.createCommunity()) as LocalCommunity;
         originalEdit = subplebbit.edit;
     });
 
@@ -378,8 +378,8 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
         vote: clone(votePublication)
     });
 
-    const makeSubplebbitEditRequest = (
-        subplebbitEditPublication: SubplebbitEditPubsubMessagePublication,
+    const makeCommunityEditRequest = (
+        subplebbitEditPublication: CommunityEditPubsubMessagePublication,
         requestId: number
     ): MockChallengeRequest => ({
         challengeRequestId: BigInt(requestId),
@@ -573,7 +573,7 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
         const signer = await plebbit.createSigner();
         subplebbit.roles = { [signer.address]: { role: "owner" } };
 
-        const editInstance = await plebbit.createSubplebbitEdit({
+        const editInstance = await plebbit.createCommunityEdit({
             communityAddress: subplebbit.address,
             subplebbitEdit: { description: "Updated description" },
             signer
@@ -583,7 +583,7 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
 
         const { challengeVerifications, dispose } = captureChallengeVerifications();
 
-        const editRequest = makeSubplebbitEditRequest(editPublication, 41);
+        const editRequest = makeCommunityEditRequest(editPublication, 41);
         await publishViaMockedSubAndAssert({
             publication: editInstance,
             request: editRequest,
@@ -592,10 +592,10 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
         expect(challengeVerifications.length).to.equal(1);
         expect(challengeVerifications[0].challengeSuccess).to.be.true;
 
-        const duplicateSubplebbitEditInstance = await plebbit.createSubplebbitEdit(clone(editPublication));
-        const duplicateEditRequest = makeSubplebbitEditRequest(clone(editPublication), 42);
+        const duplicateCommunityEditInstance = await plebbit.createCommunityEdit(clone(editPublication));
+        const duplicateEditRequest = makeCommunityEditRequest(clone(editPublication), 42);
         await publishViaMockedSubAndAssert({
-            publication: duplicateSubplebbitEditInstance,
+            publication: duplicateCommunityEditInstance,
             request: duplicateEditRequest,
             expectedChallengeSuccess: true
         });
@@ -607,7 +607,7 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
 
     // Helpers for idempotent duplicate tests
     const checkPublicationValidity = async (
-        sub: LocalSubplebbit,
+        sub: LocalCommunity,
         request: MockChallengeRequest,
         publication: { signature: { publicKey: string; signature: string } }
     ): Promise<string | undefined> => {
@@ -622,7 +622,7 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
     };
 
     const publishIdempotentDuplicateVerification = async (
-        sub: LocalSubplebbit,
+        sub: LocalCommunity,
         request: MockChallengeRequest,
         challengeRequestId: bigint,
         duplicateReason: string
@@ -637,12 +637,12 @@ describeSkipIfRpc("LocalSubplebbit duplicate publication regression coverage", f
         return s._publishIdempotentDuplicateVerification(request, challengeRequestId, duplicateReason);
     };
 
-    const getDuplicateAttempts = (sub: LocalSubplebbit, sig: string): number => {
+    const getDuplicateAttempts = (sub: LocalCommunity, sig: string): number => {
         const s = sub as object as { _duplicatePublicationAttempts: LRUCache<string, number> };
         return s._duplicatePublicationAttempts.get(sig) || 0;
     };
 
-    const setDuplicateAttempts = (sub: LocalSubplebbit, sig: string, count: number): void => {
+    const setDuplicateAttempts = (sub: LocalCommunity, sig: string, count: number): void => {
         const s = sub as object as { _duplicatePublicationAttempts: LRUCache<string, number> };
         s._duplicatePublicationAttempts.set(sig, count);
     };

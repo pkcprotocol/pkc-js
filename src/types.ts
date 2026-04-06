@@ -1,7 +1,7 @@
 import { create as CreateIpfsClient, Options as IpfsHttpClientOptions } from "kubo-rpc-client";
 import type Publication from "./publications/publication.js";
-import type { PlebbitError } from "./pkc-error.js";
-import type { Plebbit } from "./pkc/pkc.js";
+import type { PKCError } from "./pkc-error.js";
+import type { PKC } from "./pkc/pkc.js";
 import {
     AuthorAvatarNftSchema,
     AuthorPubsubSchema,
@@ -12,11 +12,11 @@ import {
 import { z } from "zod";
 
 import type { DecryptedChallengeRequestPublication } from "./pubsub-messages/types.js";
-import { ChainTickerSchema, NameResolverSchema, PlebbitParsedOptionsSchema, PlebbitUserOptionsSchema } from "./schema.js";
-import PlebbitRpcClient from "./clients/rpc-client/pkc-rpc-client.js";
-import type { PlebbitWsServerSettingsSerialized } from "./rpc/src/types.js";
+import { ChainTickerSchema, NameResolverSchema, PKCParsedOptionsSchema, PKCUserOptionsSchema } from "./schema.js";
+import PKCRpcClient from "./clients/rpc-client/pkc-rpc-client.js";
+import type { PKCWsServerSettingsSerialized } from "./rpc/src/types.js";
 import { LRUCache } from "lru-cache";
-import type { SubplebbitIpfsType } from "./community/types.js";
+import type { CommunityIpfsType } from "./community/types.js";
 import type { PageIpfs } from "./pages/types.js";
 import type { CommentIpfsType } from "./publications/comment/types.js";
 
@@ -24,8 +24,8 @@ export type ProtocolVersion = z.infer<typeof ProtocolVersionSchema>;
 export type ChainTicker = z.infer<typeof ChainTickerSchema>;
 export type NameResolver = z.infer<typeof NameResolverSchema>;
 
-export type InputPlebbitOptions = z.input<typeof PlebbitUserOptionsSchema>;
-export type ParsedPlebbitOptions = z.output<typeof PlebbitParsedOptionsSchema>;
+export type InputPKCOptions = z.input<typeof PKCUserOptionsSchema>;
+export type ParsedPKCOptions = z.output<typeof PKCParsedOptionsSchema>;
 
 export type AuthorPubsubType = z.infer<typeof AuthorPubsubSchema>;
 
@@ -60,24 +60,24 @@ export type NativeFunctions = {
 
 // Event emitter declaration
 
-export interface PlebbitEvents {
-    error: (error: PlebbitError | Error) => void;
-    subplebbitschange: (listOfSubplebbits: string[]) => void;
-    settingschange: (newSettings: ParsedPlebbitOptions) => void;
+export interface PKCEvents {
+    error: (error: PKCError | Error) => void;
+    subplebbitschange: (listOfCommunitys: string[]) => void;
+    settingschange: (newSettings: ParsedPKCOptions) => void;
 }
 
-export interface PlebbitRpcClientEvents {
-    statechange: (state: PlebbitRpcClient["state"]) => void;
-    error: (error: PlebbitError | Error) => void;
-    subplebbitschange: (listOfSubplebbits: string[]) => void;
-    settingschange: (newSettings: PlebbitWsServerSettingsSerialized) => void;
+export interface PKCRpcClientEvents {
+    statechange: (state: PKCRpcClient["state"]) => void;
+    error: (error: PKCError | Error) => void;
+    subplebbitschange: (listOfCommunitys: string[]) => void;
+    settingschange: (newSettings: PKCWsServerSettingsSerialized) => void;
 }
 
 export interface GenericClientEvents<T extends string> {
     statechange: (state: T) => void;
 }
 
-// Plebbit types here
+// PKC types here
 
 export interface IpfsStats {
     totalIn: number; // IPFS stats https://docs.ipfs.tech/reference/kubo/rpc/#api-v0-stats-bw
@@ -94,7 +94,7 @@ export interface IpfsStats {
     succeededIpnsMedianTime: number;
 }
 
-export interface IpfsSubplebbitStats {
+export interface IpfsCommunityStats {
     stats: IpfsStats;
     sessionStats: IpfsStats; // session means in the last 1h
 }
@@ -114,7 +114,7 @@ export interface PubsubStats {
     succeededChallengeAnswerMessageMedianTime: number;
 }
 
-export interface PubsubSubplebbitStats {
+export interface PubsubCommunityStats {
     stats: PubsubStats;
     sessionStats: PubsubStats; // session means in the last 1h
 }
@@ -146,7 +146,7 @@ export interface PubsubClient {
 export interface GatewayClient {
     stats?: IpfsStats; // Should be defined, will change later
     sessionStats?: IpfsStats; // Should be defined, will change later. session means in the last 1h
-    subplebbitStats?: { [subplebbitAddress: string]: IpfsSubplebbitStats }; // Should be defined, will change later
+    subplebbitStats?: { [subplebbitAddress: string]: IpfsCommunityStats }; // Should be defined, will change later
 }
 
 // Storage interface, will be used to set up storage cache using localforage (for browser) or key-v SQLite (Node)
@@ -164,7 +164,7 @@ type LRUStorageCacheNames = "plebbitjs_lrustorage_postTimestamp" | "plebbitjs_lr
 export interface LRUStorageConstructor {
     maxItems: number; // Will start evicting after this number of items is stored
     cacheName: LRUStorageCacheNames | string; // The cache name will be used as the name of the table in sqlite. For browser it will be used as the name of the local forage instance
-    plebbit: Pick<Plebbit, "dataPath" | "noData">;
+    plebbit: Pick<PKC, "dataPath" | "noData">;
 }
 
 export interface LRUStorageInterface {
@@ -184,9 +184,9 @@ type ExcludeMethods<T> = { [K in keyof T as T[K] extends Function ? never : K]: 
 
 export type JsonOfClass<T> = ExcludeMethods<OmitUnderscoreProps<T>>;
 
-export type ResultOfFetchingSubplebbit = { subplebbit: SubplebbitIpfsType; cid: string } | undefined;
+export type ResultOfFetchingCommunity = { subplebbit: CommunityIpfsType; cid: string } | undefined;
 
-export type PlebbitMemCaches = {
+export type PKCMemCaches = {
     subplebbitVerificationCache: LRUCache<string, boolean>;
     pageVerificationCache: LRUCache<string, boolean>;
     commentVerificationCache: LRUCache<string, boolean>;

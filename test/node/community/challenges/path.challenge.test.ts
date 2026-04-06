@@ -1,42 +1,42 @@
 import { beforeAll, afterAll } from "vitest";
 import {
-    mockPlebbit,
+    mockPKC,
     generateMockPost,
     publishWithExpectedResult,
-    mockPlebbitNoDataPathWithOnlyKuboClient,
+    mockPKCNoDataPathWithOnlyKuboClient,
     resolveWhenConditionIsTrue,
     describeSkipIfRpc
 } from "../../../../dist/node/test/test-util.js";
 import path from "path";
-import type { Plebbit as PlebbitType } from "../../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../../dist/node/community/rpc-local-community.js";
-import type { RemoteSubplebbit } from "../../../../dist/node/community/remote-community.js";
+import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
+import type { RemoteCommunity } from "../../../../dist/node/community/remote-community.js";
 import type { DecryptedChallengeMessageType } from "../../../../dist/node/pubsub-messages/types.js";
-import type { SubplebbitChallengeSetting } from "../../../../dist/node/community/types.js";
+import type { CommunityChallengeSetting } from "../../../../dist/node/community/types.js";
 
 describeSkipIfRpc.concurrent(`subplebbit.settings.challenges with path`, async () => {
-    let plebbit: PlebbitType;
-    let remotePlebbit: PlebbitType;
+    let plebbit: PKCType;
+    let remotePKC: PKCType;
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
-        remotePlebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
+        plebbit = await mockPKC();
+        remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
     });
 
     afterAll(async () => {
         await plebbit.destroy();
-        await remotePlebbit.destroy();
+        await remotePKC.destroy();
     });
 
     it(`Can use a challenge via path instead of name`, async () => {
-        const subplebbit = (await plebbit.createSubplebbit({})) as LocalSubplebbit | RpcLocalSubplebbit;
+        const subplebbit = (await plebbit.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
 
         // Use the built question challenge via path instead of name
         const questionChallengePath = path.resolve(
             process.cwd(),
             "dist/node/runtime/node/community/challenges/plebbit-js-challenges/question.js"
         );
-        const challenges: SubplebbitChallengeSetting[] = [
+        const challenges: CommunityChallengeSetting[] = [
             {
                 path: questionChallengePath,
                 options: { question: "What is 2+2?", answer: "4" }
@@ -50,7 +50,7 @@ describeSkipIfRpc.concurrent(`subplebbit.settings.challenges with path`, async (
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
-        const remoteSub = (await remotePlebbit.getSubplebbit({ address: subplebbit.address })) as RemoteSubplebbit;
+        const remoteSub = (await remotePKC.getCommunity({ address: subplebbit.address })) as RemoteCommunity;
 
         expect(subplebbit.updatedAt).to.equal(remoteSub.updatedAt);
         for (const _subplebbit of [subplebbit, remoteSub]) {
@@ -83,13 +83,13 @@ describeSkipIfRpc.concurrent(`subplebbit.settings.challenges with path`, async (
     });
 
     it(`Challenge via path sends challenge when answer is wrong`, async () => {
-        const subplebbit = (await plebbit.createSubplebbit({})) as LocalSubplebbit | RpcLocalSubplebbit;
+        const subplebbit = (await plebbit.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
 
         const questionChallengePath = path.resolve(
             process.cwd(),
             "dist/node/runtime/node/community/challenges/plebbit-js-challenges/question.js"
         );
-        const challenges: SubplebbitChallengeSetting[] = [
+        const challenges: CommunityChallengeSetting[] = [
             {
                 path: questionChallengePath,
                 options: { question: "What is the capital of France?", answer: "Paris" }
@@ -122,13 +122,13 @@ describeSkipIfRpc.concurrent(`subplebbit.settings.challenges with path`, async (
     });
 
     it(`Can use multiple challenges with mix of path and name`, async () => {
-        const subplebbit = (await plebbit.createSubplebbit({})) as LocalSubplebbit | RpcLocalSubplebbit;
+        const subplebbit = (await plebbit.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
 
         const questionChallengePath = path.resolve(
             process.cwd(),
             "dist/node/runtime/node/community/challenges/plebbit-js-challenges/question.js"
         );
-        const challenges: SubplebbitChallengeSetting[] = [
+        const challenges: CommunityChallengeSetting[] = [
             {
                 path: questionChallengePath,
                 options: { question: "What is 3+3?", answer: "6" }
@@ -143,7 +143,7 @@ describeSkipIfRpc.concurrent(`subplebbit.settings.challenges with path`, async (
         await subplebbit.start();
         await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
-        const remoteSub = (await remotePlebbit.getSubplebbit({ address: subplebbit.address })) as RemoteSubplebbit;
+        const remoteSub = (await remotePKC.getCommunity({ address: subplebbit.address })) as RemoteCommunity;
 
         for (const _subplebbit of [subplebbit, remoteSub]) {
             expect(_subplebbit.challenges).to.have.length(2);
@@ -172,10 +172,10 @@ describeSkipIfRpc.concurrent(`subplebbit.settings.challenges with path`, async (
     });
 
     it(`Throws error for invalid challenge path when we try to edit subplebbit`, async () => {
-        const subplebbit = (await plebbit.createSubplebbit({})) as LocalSubplebbit | RpcLocalSubplebbit;
+        const subplebbit = (await plebbit.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
 
         const invalidPath = "/path/to/nonexistent/challenge.js";
-        const challenges: SubplebbitChallengeSetting[] = [
+        const challenges: CommunityChallengeSetting[] = [
             {
                 path: invalidPath,
                 options: { question: "What is 2+2?", answer: "4" }

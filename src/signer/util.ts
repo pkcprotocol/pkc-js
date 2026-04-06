@@ -13,24 +13,24 @@ export const generatePrivateKey = async (): Promise<string> => {
     return privateKeyBase64;
 };
 
-export const getPlebbitAddressFromPrivateKey = async (privateKeyBase64: string) => {
+export const getPKCAddressFromPrivateKey = async (privateKeyBase64: string) => {
     const peerId = await getPeerIdFromPrivateKey(privateKeyBase64);
     return peerId.toB58String().trim();
 };
 
-export const getPlebbitAddressFromPublicKey = async (publicKeyBase64: string) => {
+export const getPKCAddressFromPublicKey = async (publicKeyBase64: string) => {
     const peerId = await getPeerIdFromPublicKey(publicKeyBase64);
     return peerId.toB58String().trim();
 };
 
-export const getPlebbitAddressFromPublicKeyBuffer = async (publicKeyBuffer: Uint8Array) => {
+export const getPKCAddressFromPublicKeyBuffer = async (publicKeyBuffer: Uint8Array) => {
     // the PeerId public key is not a raw public key, it adds a suffix
     const peerId = await getPeerIdFromPublicKeyBuffer(publicKeyBuffer);
 
     return peerId.toB58String().trim();
 };
 
-export const getBufferedPlebbitAddressFromPublicKey = async (publicKeyBase64: string) => {
+export const getBufferedPKCAddressFromPublicKey = async (publicKeyBase64: string) => {
     const peerId = await getPeerIdFromPublicKey(publicKeyBase64);
     const buffered = uint8ArrayFromString(publicKeyBase64, "base64");
 
@@ -142,20 +142,20 @@ export function convertBase32ToBase58btc(base32String: string) {
     return peerId.toB58String().trim();
 }
 
-export const getPlebbitAddressFromPublicKeySync = (publicKeyBase64: string): string => {
+export const getPKCAddressFromPublicKeySync = (publicKeyBase64: string): string => {
     // plebbit address is the base58 string of the peer id of the public key
     if (!publicKeyBase64 || typeof publicKeyBase64 !== "string")
-        throw Error(`getPlebbitAddressFromPublicKeySync publicKeyBase64 '${publicKeyBase64}' not a string`);
+        throw Error(`getPKCAddressFromPublicKeySync publicKeyBase64 '${publicKeyBase64}' not a string`);
     let publicKeyBuffer: Uint8Array;
     try {
         publicKeyBuffer = uint8ArrayFromString(publicKeyBase64, "base64");
     } catch (e) {
-        if (e instanceof Error) e.message = `getPlebbitAddressFromPublicKeySync publicKeyBase64 invalid: ${e.message}`;
+        if (e instanceof Error) e.message = `getPKCAddressFromPublicKeySync publicKeyBase64 invalid: ${e.message}`;
         throw e;
     }
     if (publicKeyBuffer.length !== 32)
         throw Error(
-            `getPlebbitAddressFromPublicKeySync publicKeyBase64 '${publicKeyBase64}' ed25519 public key length not 32 bytes (${publicKeyBuffer.length} bytes)`
+            `getPKCAddressFromPublicKeySync publicKeyBase64 '${publicKeyBase64}' ed25519 public key length not 32 bytes (${publicKeyBuffer.length} bytes)`
         );
 
     // Marshal to libp2p protobuf bytes to build the identity multihash

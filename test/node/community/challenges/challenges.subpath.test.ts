@@ -4,7 +4,7 @@ import type {
     ChallengeInput,
     ChallengeResultInput,
     GetChallengeArgsInput,
-    SubplebbitChallengeSetting
+    CommunityChallengeSetting
 } from "../../../../dist/node/challenges.js";
 
 type ChallengeSubpathExports = {
@@ -12,7 +12,7 @@ type ChallengeSubpathExports = {
     challengeInput: ChallengeInput;
     challengeResultInput: ChallengeResultInput;
     getChallengeArgsInput: GetChallengeArgsInput;
-    subplebbitChallengeSetting: SubplebbitChallengeSetting;
+    subplebbitChallengeSetting: CommunityChallengeSetting;
 };
 
 const _typecheckChallengeSubpathExports: ChallengeSubpathExports | undefined = undefined;

@@ -1,35 +1,35 @@
 import {
-    mockPlebbit,
+    mockPKC,
     publishRandomPost,
     createSubWithNoChallenge,
     publishRandomReply,
     describeSkipIfRpc,
     mockCommentToNotUsePagesForUpdates,
     resolveWhenConditionIsTrue,
-    waitTillPostInSubplebbitPages,
-    mockPlebbitNoDataPathWithOnlyKuboClient,
+    waitTillPostInCommunityPages,
+    mockPKCNoDataPathWithOnlyKuboClient,
     forceLocalSubPagesToAlwaysGenerateMultipleChunks,
     publishCommentWithDepth
 } from "../../../dist/node/test/test-util.js";
 import Logger from "@pkc/pkc-logger";
 import { describe, it, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 
-import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../dist/node/community/rpc-local-community.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../dist/node/publications/comment/types.js";
 
 const depthsToTest = [1, 2, 3, 5, 15, 30];
 
 describeSkipIfRpc("subplebbit.postUpdates", async () => {
-    let plebbit: Plebbit;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
-    let remotePlebbit: Plebbit;
+    let plebbit: PKC;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
+    let remotePKC: PKC;
     const replyCidByDepth: Record<number, string> = {};
 
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
+        plebbit = await mockPKC();
         subplebbit = await createSubWithNoChallenge({}, plebbit);
         subplebbit.setMaxListeners(200);
         await subplebbit.start();
@@ -37,10 +37,10 @@ describeSkipIfRpc("subplebbit.postUpdates", async () => {
     });
 
     beforeEach(async () => {
-        remotePlebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
+        remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
     });
     afterEach(async () => {
-        await remotePlebbit.destroy();
+        await remotePKC.destroy();
     });
 
     afterAll(async () => {
@@ -54,10 +54,10 @@ describeSkipIfRpc("subplebbit.postUpdates", async () => {
     });
 
     it(`subplebbit.postUpdates = {86400} when a post is published`, async () => {
-        const post = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: remotePlebbit });
-        await waitTillPostInSubplebbitPages(post as Comment & { cid: string }, remotePlebbit);
+        const post = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: remotePKC });
+        await waitTillPostInCommunityPages(post as Comment & { cid: string }, remotePKC);
 
-        const postRecreated = await remotePlebbit.createComment({ cid: post.cid });
+        const postRecreated = await remotePKC.createComment({ cid: post.cid });
         await postRecreated.update();
         mockCommentToNotUsePagesForUpdates(postRecreated);
 
@@ -89,7 +89,7 @@ describeSkipIfRpc("subplebbit.postUpdates", async () => {
 
             const reply = await publishRandomReply({
                 parentComment: parentCommentInstance as CommentIpfsWithCidDefined,
-                plebbit: remotePlebbit
+                plebbit: remotePKC
             });
             const { cleanup } = await forceLocalSubPagesToAlwaysGenerateMultipleChunks({
                 subplebbit,
@@ -104,7 +104,7 @@ describeSkipIfRpc("subplebbit.postUpdates", async () => {
             // maybe we should have a setInterval printing pageCids of parent comment, with local plebbit
 
             log("Creating and updating reply", reply.cid, "and depth", reply.depth);
-            const replyRecreated = await remotePlebbit.createComment({ cid: reply.cid });
+            const replyRecreated = await remotePKC.createComment({ cid: reply.cid });
 
             await replyRecreated.update();
 
@@ -147,7 +147,7 @@ describeSkipIfRpc("subplebbit.postUpdates", async () => {
 
     it(`Can fetch post updates with new bucket`, async () => {
         const postCid = subplebbit.posts.pages.hot!.comments[0].cid;
-        const post = await remotePlebbit.createComment({ cid: postCid });
+        const post = await remotePKC.createComment({ cid: postCid });
         await post.update();
         mockCommentToNotUsePagesForUpdates(post);
 
@@ -167,7 +167,7 @@ describeSkipIfRpc("subplebbit.postUpdates", async () => {
 
             // Create and update the reply comment
             expect(replyCid).to.be.a("string");
-            const reply = await remotePlebbit.createComment({ cid: replyCid });
+            const reply = await remotePKC.createComment({ cid: replyCid });
             await reply.update();
 
             // Wait for CommentIpfs update

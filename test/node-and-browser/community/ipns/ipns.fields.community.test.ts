@@ -1,29 +1,29 @@
 import { beforeAll, afterAll } from "vitest";
 import {
     createMockNameResolver,
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     resolveWhenConditionIsTrue,
     describeSkipIfRpc
 } from "../../../../dist/node/test/test-util.js";
 import signers from "../../../fixtures/signers.js";
 import { ipnsNameToIpnsOverPubsubTopic, pubsubTopicToDhtKey } from "../../../../dist/node/util.js";
 
-import type { Plebbit as PlebbitType } from "../../../../dist/node/pkc/pkc.js";
-import type { PlebbitError } from "../../../../dist/node/pkc-error.js";
-import type { RemoteSubplebbit } from "../../../../dist/node/community/remote-community.js";
+import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
+import type { PKCError } from "../../../../dist/node/pkc-error.js";
+import type { RemoteCommunity } from "../../../../dist/node/community/remote-community.js";
 
 const ipnsB58 = signers[0].address;
 const expectedIpnsPubsubTopic = "/record/L2lwbnMvACQIARIgtkPPciAVI7kfzmSHjazd0ekx8z9bCt9RlE5RnEpFRGo";
 const expectedIpnsPubsubTopicRoutingCid = "bafkreiftvi7wgbdhbxnenslhu5sytlid73siolkd2syhdnjhnvn3mksggi";
 const expectedPubsubTopicRoutingCid = "bafkreidwoelrflsx5dgll7s6jfkhsj6ffkfplde2j5dyino6t7m4ijutem";
 
-function setMockResolverRecords(plebbit: PlebbitType, records: Map<string, string | undefined>) {
+function setMockResolverRecords(plebbit: PKCType, records: Map<string, string | undefined>) {
     plebbit.nameResolvers = [createMockNameResolver({ includeDefaultRecords: true, records })];
 }
 
 // Test for domain address that resolves to b58 IPNS but fails to load IPNS record
 // The ipnsPubsubTopic and ipnsPubsubTopicRoutingCid should still be set
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describeSkipIfRpc(
         `subplebbit.{ipnsName, ipnsPubsubTopic, ipnsPubsubTopicRoutingCid} with domain that fails IPNS loading - ${config.name}`,
         async () => {
@@ -37,12 +37,12 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
                 setMockResolverRecords(plebbit, new Map([[testDomain, nonExistantIpnsAddress]]));
 
-                const errors: PlebbitError[] = [];
+                const errors: PKCError[] = [];
 
-                const subplebbit = await plebbit.createSubplebbit({ address: testDomain });
+                const subplebbit = await plebbit.createCommunity({ address: testDomain });
 
-                subplebbit.on("error", (err: PlebbitError | Error) => {
-                    errors.push(err as PlebbitError);
+                subplebbit.on("error", (err: PKCError | Error) => {
+                    errors.push(err as PKCError);
                 });
 
                 // At this point, the domain hasn't been resolved yet
@@ -83,7 +83,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     );
 });
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describeSkipIfRpc(`subplebbit.ipns accessors persist after first resolve - ${config.name}`, async () => {
         it(`keeps ipns accessors defined after stop`, async () => {
             const plebbit = await config.plebbitInstancePromise({ stubStorage: false });
@@ -95,10 +95,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             setMockResolverRecords(plebbit, new Map([[testDomain, nonExistantIpnsAddress]]));
 
-            const subplebbit = await plebbit.createSubplebbit({ address: testDomain });
-            const errors: PlebbitError[] = [];
-            subplebbit.on("error", (err: PlebbitError | Error) => {
-                errors.push(err as PlebbitError);
+            const subplebbit = await plebbit.createCommunity({ address: testDomain });
+            const errors: PKCError[] = [];
+            subplebbit.on("error", (err: PKCError | Error) => {
+                errors.push(err as PKCError);
             });
 
             await subplebbit.update();
@@ -123,7 +123,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     });
 });
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describeSkipIfRpc(`subplebbit.ipns accessors mirror updating subplebbit - ${config.name}`, async () => {
         it(`mirrors ipns accessors when update fails before record is loaded`, async () => {
             const plebbit = await config.plebbitInstancePromise({ stubStorage: false });
@@ -135,10 +135,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             setMockResolverRecords(plebbit, new Map([[testDomain, nonExistantIpnsAddress]]));
 
-            const subplebbitA = await plebbit.createSubplebbit({ address: testDomain });
-            const errorsA: PlebbitError[] = [];
-            subplebbitA.on("error", (err: PlebbitError | Error) => {
-                errorsA.push(err as PlebbitError);
+            const subplebbitA = await plebbit.createCommunity({ address: testDomain });
+            const errorsA: PKCError[] = [];
+            subplebbitA.on("error", (err: PKCError | Error) => {
+                errorsA.push(err as PKCError);
             });
 
             await subplebbitA.update();
@@ -148,7 +148,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 eventName: "error"
             });
 
-            const subplebbitB = await plebbit.createSubplebbit({ address: testDomain });
+            const subplebbitB = await plebbit.createCommunity({ address: testDomain });
             await subplebbitB.update();
 
             expect(subplebbitA.ipnsName).to.equal(nonExistantIpnsAddress);
@@ -166,11 +166,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     });
 });
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe(`subplebbit.ipns accessors persist after successful update - ${config.name}`, async () => {
         it(`keeps ipns accessors defined after stop`, async () => {
             const plebbit = await config.plebbitInstancePromise();
-            const subplebbit = await plebbit.createSubplebbit({ address: ipnsB58 });
+            const subplebbit = await plebbit.createCommunity({ address: ipnsB58 });
 
             expect(subplebbit.ipnsName).to.equal(ipnsB58);
             expect(subplebbit.ipnsPubsubTopic).to.equal(expectedIpnsPubsubTopic);
@@ -189,13 +189,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     });
 });
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe(`subplebbit.{ipnsName, ipnsPubsubTopic, ipnsPubsubTopicRoutingCid, pubsubTopicRoutingCid} on create`, async () => {
-        let plebbit: PlebbitType;
-        let subplebbit: RemoteSubplebbit;
+        let plebbit: PKCType;
+        let subplebbit: RemoteCommunity;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            subplebbit = await plebbit.createSubplebbit({ address: ipnsB58 });
+            subplebbit = await plebbit.createCommunity({ address: ipnsB58 });
             expect(subplebbit.updatedAt).to.be.undefined;
         });
 
@@ -211,11 +211,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     });
 
     describe(`subplebbit.{ipnsName, ipnsPubsubTopic, ipnsPubsubTopicRoutingCid, pubsubTopicRoutingCid}`, async () => {
-        let plebbit: PlebbitType;
-        let subplebbit: RemoteSubplebbit;
+        let plebbit: PKCType;
+        let subplebbit: RemoteCommunity;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
-            subplebbit = await plebbit.createSubplebbit({ address: ipnsB58 });
+            subplebbit = await plebbit.createCommunity({ address: ipnsB58 });
 
             await subplebbit.update();
             await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });

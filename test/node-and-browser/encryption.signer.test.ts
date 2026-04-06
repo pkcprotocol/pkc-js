@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, describe, it } from "vitest";
 import fixtureSigners from "../fixtures/signers.js";
 import type { SignerType, Encrypted } from "../../dist/node/signer/types.js";
-import type { Plebbit } from "../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../dist/node/pkc/pkc.js";
 
 const authorSignerFixture = fixtureSigners[1];
 const subplebbitSignerFixture = fixtureSigners[2];
@@ -9,15 +9,15 @@ import { comment as fixtureComment } from "../fixtures/publications.js";
 import { encryptEd25519AesGcm, decryptEd25519AesGcm, encryptStringAesGcm, decryptStringAesGcm } from "../../dist/node/signer/encryption.js";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
-import { mockRemotePlebbit } from "../../dist/node/test/test-util.js";
+import { mockRemotePKC } from "../../dist/node/test/test-util.js";
 import * as ed from "@noble/ed25519";
 
 describe("encryption", () => {
-    let plebbit: Plebbit;
+    let plebbit: PKC;
     let authorSigner: SignerType;
 
     beforeAll(async function () {
-        plebbit = await mockRemotePlebbit();
+        plebbit = await mockRemotePKC();
         authorSigner = await plebbit.createSigner({ privateKey: authorSignerFixture.privateKey, type: "ed25519" });
     });
 

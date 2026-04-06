@@ -1,6 +1,6 @@
 import { beforeAll, afterAll } from "vitest";
 import {
-    mockPlebbit,
+    mockPKC,
     publishWithExpectedResult,
     generateMockVote,
     publishRandomPost,
@@ -9,10 +9,10 @@ import {
     createSubWithNoChallenge
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
-import type { Plebbit as PlebbitType } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
-import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../../dist/node/community/rpc-local-community.js";
+import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
 import type { SignerType } from "../../../../dist/node/signer/types.js";
 import type { DecryptedChallengeVerificationMessageType } from "../../../../dist/node/pubsub-messages/types.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
@@ -21,13 +21,13 @@ import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publicatio
 // comment.approved = true is treated like a regular comment
 
 describe(`Pending approval modqueue functionality`, async () => {
-    let plebbit: PlebbitType;
-    let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    let plebbit: PKCType;
+    let subplebbit: LocalCommunity | RpcLocalCommunity;
     let modSigner: SignerType;
     let regularPublishedComment: Comment;
 
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
+        plebbit = await mockPKC();
         subplebbit = await createSubWithNoChallenge({}, plebbit);
         await subplebbit.start();
 

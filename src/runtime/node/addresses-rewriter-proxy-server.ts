@@ -4,7 +4,7 @@ import path from "node:path";
 import Logger from "../../logger.js";
 import * as remeda from "remeda";
 import retry from "retry";
-import { Plebbit } from "../../pkc/pkc.js";
+import { PKC } from "../../pkc/pkc.js";
 import { hideClassPrivateProps } from "../../util.js";
 import { RoutingQueryEvent } from "kubo-rpc-client";
 import { AddressRewriterDatabase, RequestLogEntry } from "./address-rewriter-db.js";
@@ -12,11 +12,11 @@ const debug = Logger("pkc-js:addresses-rewriter");
 const MAX_BODY_PREVIEW_BYTES = 4096;
 
 type AddressesRewriterOptions = {
-    kuboClients: Plebbit["clients"]["kuboRpcClients"][string]["_client"][];
+    kuboClients: PKC["clients"]["kuboRpcClients"][string]["_client"][];
     port: number;
     hostname: string | undefined;
     proxyTargetUrl: string;
-    plebbit: Pick<Plebbit, "_storage" | "dataPath">;
+    plebbit: Pick<PKC, "_storage" | "dataPath">;
 };
 
 export class AddressesRewriterProxyServer {
@@ -27,7 +27,7 @@ export class AddressesRewriterProxyServer {
     proxyTarget: URL;
     server: ReturnType<(typeof http)["createServer"]>;
     _storageKeyName: string;
-    _plebbit: Pick<Plebbit, "_storage" | "dataPath">;
+    _plebbit: Pick<PKC, "_storage" | "dataPath">;
 
     // SQLite logging
     private _db: AddressRewriterDatabase | null;
@@ -355,7 +355,7 @@ export class AddressesRewriterProxyServer {
             return error?.response?.status === 500 || error?.status === 500 || error?.statusCode === 500;
         };
 
-        const tryUpdateAddressesForClient = async (kuboClient: Plebbit["clients"]["kuboRpcClients"][string]["_client"]): Promise<void> => {
+        const tryUpdateAddressesForClient = async (kuboClient: PKC["clients"]["kuboRpcClients"][string]["_client"]): Promise<void> => {
             return new Promise((resolve) => {
                 const operation = retry.operation({
                     retries: 3,

@@ -1,31 +1,31 @@
 import { z } from "zod";
 import {
-    CreateSubplebbitEditPublicationOptionsSchema,
-    SubplebbitEditPublicationChallengeRequestToEncryptSchema,
-    SubplebbitEditPublicationSignedPropertyNames,
-    SubplebbitEditPubsubMessagePublicationSchema
+    CreateCommunityEditPublicationOptionsSchema,
+    CommunityEditPublicationChallengeRequestToEncryptSchema,
+    CommunityEditPublicationSignedPropertyNames,
+    CommunityEditPubsubMessagePublicationSchema
 } from "./schema.js";
 import type { JsonSignature, SignerType } from "../../signer/types.js";
 import type { JsonOfClass, RuntimeAuthorWithCommentUpdateType } from "../../types.js";
-import SubplebbitEdit from "./community-edit.js";
+import CommunityEdit from "./community-edit.js";
 
-export type CreateSubplebbitEditPublicationOptions = z.infer<typeof CreateSubplebbitEditPublicationOptionsSchema>;
+export type CreateCommunityEditPublicationOptions = z.infer<typeof CreateCommunityEditPublicationOptionsSchema>;
 
-export type SubplebbitEditChallengeRequestToEncryptType = z.infer<typeof SubplebbitEditPublicationChallengeRequestToEncryptSchema>;
+export type CommunityEditChallengeRequestToEncryptType = z.infer<typeof CommunityEditPublicationChallengeRequestToEncryptSchema>;
 
-export type SubplebbitEditJson = JsonOfClass<SubplebbitEdit>;
+export type CommunityEditJson = JsonOfClass<CommunityEdit>;
 
-export interface SubplebbitEditPublicationOptionsToSign extends Omit<SubplebbitEditPubsubMessagePublication, "signature"> {
+export interface CommunityEditPublicationOptionsToSign extends Omit<CommunityEditPubsubMessagePublication, "signature"> {
     signer: SignerType;
     communityAddress: string;
 }
 
-export interface SubplebbitEditPublicationSignature extends JsonSignature {
-    signedPropertyNames: typeof SubplebbitEditPublicationSignedPropertyNames;
+export interface CommunityEditPublicationSignature extends JsonSignature {
+    signedPropertyNames: typeof CommunityEditPublicationSignedPropertyNames;
 }
 
-export type SubplebbitEditPubsubMessagePublication = z.infer<typeof SubplebbitEditPubsubMessagePublicationSchema>;
+export type CommunityEditPubsubMessagePublication = z.infer<typeof CommunityEditPubsubMessagePublicationSchema>;
 
-export interface SubplebbitEditPublicationPubsubMessageWithSubplebbitAuthor extends SubplebbitEditPubsubMessagePublication {
+export interface CommunityEditPublicationPubsubMessageWithCommunityAuthor extends CommunityEditPubsubMessagePublication {
     author: RuntimeAuthorWithCommentUpdateType;
 }

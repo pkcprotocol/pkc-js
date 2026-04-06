@@ -7,7 +7,7 @@ import { createHelia } from "helia";
 import type { KuboRpcClientCreateOption } from "./util.js";
 import type { ChallengeFileFactoryInput } from "./community/types.js";
 
-// This file will have misc schemas, as well as Plebbit class schema
+// This file will have misc schemas, as well as PKC class schema
 
 export const ChainTickerSchema = z.string().min(1);
 
@@ -25,7 +25,7 @@ export const Uint8ArraySchema = z.custom<Uint8Array<ArrayBufferLike>>(
 
 const IpfsGatewayUrlSchema = z.url().startsWith("http", "IPFS gateway URL must start with http:// or https://");
 
-const RpcUrlSchema = z.url().startsWith("ws", "Plebbit RPC URL must start with ws:// or wss://"); // Optional websocket URLs of plebbit RPC servers, required to run a sub from a browser/electron/webview
+const RpcUrlSchema = z.url().startsWith("ws", "PKC RPC URL must start with ws:// or wss://"); // Optional websocket URLs of plebbit RPC servers, required to run a sub from a browser/electron/webview
 
 const KuboRpcCreateClientOptionSchema = z.custom<KuboRpcClientCreateOption>(); // Kubo-rpc-client library will do the validation for us
 
@@ -63,12 +63,12 @@ const ParsedKuboRpcClientOptionsSchema = z.custom<z.output<typeof TransformKuboR
 type heliaOptions = Parameters<typeof createHelia>[0];
 type libp2pOptions = ReturnType<typeof libp2pDefaults>;
 
-export const PlebbitUserOptionBaseSchema = z.object({
+export const PKCUserOptionBaseSchema = z.object({
     ipfsGatewayUrls: IpfsGatewayUrlSchema.array().optional(),
     kuboRpcClientsOptions: TransformKuboRpcClientOptionsSchema.optional(),
     httpRoutersOptions: z.string().url().startsWith("http", "HTTP router URL must start with http:// or https://").array().optional(),
     pubsubKuboRpcClientsOptions: TransformKuboRpcClientOptionsSchema.optional(),
-    plebbitRpcClientsOptions: RpcUrlSchema.array().nonempty().optional(),
+    pkcRpcClientsOptions: RpcUrlSchema.array().nonempty().optional(),
     dataPath: DirectoryPathSchema.optional(),
     resolveAuthorNames: z.boolean(),
     nameResolvers: NameResolverSchema.array().optional(),
@@ -81,7 +81,7 @@ export const PlebbitUserOptionBaseSchema = z.object({
         .array()
         .max(1, "Only one libp2pJsClientOptions is allowed at the moment")
         .optional(),
-    validatePages: z.boolean(), // if false, plebbit-js will not validate pages in commentUpdate/Subplebbit/getPage
+    validatePages: z.boolean(), // if false, plebbit-js will not validate pages in commentUpdate/Community/getPage
     userAgent: UserAgentSchema,
     // Options for tests only. Should not be used in production
     publishInterval: z.number().positive(), // in ms, the time to wait for subplebbit instances to publish updates. Default is 20s
@@ -97,26 +97,24 @@ const defaultPubsubKuboRpcClientsOptions = [
 
 const defaultIpfsGatewayUrls = ["https://ipfsgateway.xyz", "https://gateway.plebpubsub.xyz", "https://gateway.forumindex.com"] as const;
 
-export const PlebbitUserOptionsSchema = PlebbitUserOptionBaseSchema.extend({
-    // used in await Plebbit({PlebbitOption}), will set defaults here
-    ipfsGatewayUrls: PlebbitUserOptionBaseSchema.shape.ipfsGatewayUrls
+export const PKCUserOptionsSchema = PKCUserOptionBaseSchema.extend({
+    // used in await PKC({PKCOption}), will set defaults here
+    ipfsGatewayUrls: PKCUserOptionBaseSchema.shape.ipfsGatewayUrls
         .default([...defaultIpfsGatewayUrls])
         .transform((val) => (val === undefined ? [...defaultIpfsGatewayUrls] : val)),
-    pubsubKuboRpcClientsOptions: PlebbitUserOptionBaseSchema.shape.pubsubKuboRpcClientsOptions.default([
-        ...defaultPubsubKuboRpcClientsOptions
-    ]),
-    httpRoutersOptions: PlebbitUserOptionBaseSchema.shape.httpRoutersOptions.default([
+    pubsubKuboRpcClientsOptions: PKCUserOptionBaseSchema.shape.pubsubKuboRpcClientsOptions.default([...defaultPubsubKuboRpcClientsOptions]),
+    httpRoutersOptions: PKCUserOptionBaseSchema.shape.httpRoutersOptions.default([
         "https://peers.pleb.bot",
         "https://routing.lol",
         "https://peers.forumindex.com",
         "https://peers.plebpubsub.xyz"
     ]),
-    resolveAuthorNames: PlebbitUserOptionBaseSchema.shape.resolveAuthorNames.default(true),
-    publishInterval: PlebbitUserOptionBaseSchema.shape.publishInterval.default(20000),
-    updateInterval: PlebbitUserOptionBaseSchema.shape.updateInterval.default(60000),
-    noData: PlebbitUserOptionBaseSchema.shape.noData.default(false),
-    validatePages: PlebbitUserOptionBaseSchema.shape.validatePages.default(true),
-    userAgent: PlebbitUserOptionBaseSchema.shape.userAgent.default(version.USER_AGENT)
+    resolveAuthorNames: PKCUserOptionBaseSchema.shape.resolveAuthorNames.default(true),
+    publishInterval: PKCUserOptionBaseSchema.shape.publishInterval.default(20000),
+    updateInterval: PKCUserOptionBaseSchema.shape.updateInterval.default(60000),
+    noData: PKCUserOptionBaseSchema.shape.noData.default(false),
+    validatePages: PKCUserOptionBaseSchema.shape.validatePages.default(true),
+    userAgent: PKCUserOptionBaseSchema.shape.userAgent.default(version.USER_AGENT)
 }).transform((args) => {
     if (
         JSON.stringify(args.pubsubKuboRpcClientsOptions) === JSON.stringify(defaultPubsubKuboRpcClientsOptions) &&
@@ -124,12 +122,12 @@ export const PlebbitUserOptionsSchema = PlebbitUserOptionBaseSchema.extend({
     ) {
         return {
             ...args,
-            pubsubKuboRpcClientsOptions: [] as z.infer<typeof PlebbitUserOptionBaseSchema.shape.pubsubKuboRpcClientsOptions>
+            pubsubKuboRpcClientsOptions: [] as z.infer<typeof PKCUserOptionBaseSchema.shape.pubsubKuboRpcClientsOptions>
         };
     } else return args;
 });
 
-export const PlebbitParsedOptionsSchema = PlebbitUserOptionBaseSchema.extend({
+export const PKCParsedOptionsSchema = PKCUserOptionBaseSchema.extend({
     // used to parse responses from rpc when calling getSettings
     kuboRpcClientsOptions: ParsedKuboRpcClientOptionsSchema.optional(),
     pubsubKuboRpcClientsOptions: ParsedKuboRpcClientOptionsSchema.optional(),

@@ -1,13 +1,13 @@
 import { GenericStateClient } from "../generic-state-client.js";
 
-type PlebbitIpfsGatewayState = "fetching-ipfs" | "stopped";
+type PKCIpfsGatewayState = "fetching-ipfs" | "stopped";
 
-type PlebbitKuboRpcState = "fetching-ipfs" | "stopped";
+type PKCKuboRpcState = "fetching-ipfs" | "stopped";
 
-type PlebbitLibp2pJsState = "fetching-ipfs" | "stopped";
+type PKCLibp2pJsState = "fetching-ipfs" | "stopped";
 
-export class PlebbitIpfsGatewayClient extends GenericStateClient<PlebbitIpfsGatewayState | string> {}
+export class PKCIpfsGatewayClient extends GenericStateClient<PKCIpfsGatewayState | string> {}
 
-export class PlebbitKuboRpcClient extends GenericStateClient<PlebbitKuboRpcState | string> {}
+export class PKCKuboRpcClient extends GenericStateClient<PKCKuboRpcState | string> {}
 
-export class PlebbitLibp2pJsClient extends GenericStateClient<PlebbitLibp2pJsState | string> {}
+export class PKCLibp2pJsClient extends GenericStateClient<PKCLibp2pJsState | string> {}

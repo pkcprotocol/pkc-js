@@ -1,20 +1,20 @@
 import { beforeAll, afterAll, describe, it } from "vitest";
-import PlebbitWsServer from "../../../../dist/node/rpc/src/index.js";
-import { describeSkipIfRpc, mockPlebbit } from "../../../../dist/node/test/test-util.js";
+import PKCWsServer from "../../../../dist/node/rpc/src/index.js";
+import { describeSkipIfRpc, mockPKC } from "../../../../dist/node/test/test-util.js";
 import tempy from "tempy";
 
 import os from "os";
-import Plebbit from "../../../../dist/node/index.js";
-import type { Plebbit as PlebbitType } from "../../../../dist/node/pkc/pkc.js";
-import type { RpcLocalSubplebbit } from "../../../../dist/node/community/rpc-local-community.js";
-import type { CreatePlebbitWsServerOptions } from "../../../../dist/node/rpc/src/types.js";
-import { PlebbitError } from "../../../../dist/node/pkc-error.js";
+import PKC from "../../../../dist/node/index.js";
+import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
+import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
+import type { CreatePKCWsServerOptions } from "../../../../dist/node/rpc/src/types.js";
+import { PKCError } from "../../../../dist/node/pkc-error.js";
 
-type PlebbitWsServerType = Awaited<ReturnType<typeof PlebbitWsServer.PlebbitWsServer>>;
+type PKCWsServerType = Awaited<ReturnType<typeof PKCWsServer.PKCWsServer>>;
 
 // Standalone interface for accessing private members via unknown casting
 // Using a separate interface avoids TypeScript's intersection-with-private-members issue
-interface PlebbitWsServerPrivateAccess {
+interface PKCWsServerPrivateAccess {
     _getIpFromConnectionRequest: () => string;
 }
 
@@ -31,11 +31,11 @@ const getLanIpV4Address = (): string | undefined => {
 };
 
 describeSkipIfRpc(`Setting up rpc server`, async () => {
-    let plebbit: PlebbitType;
+    let plebbit: PKCType;
 
     const lanAddress = getLanIpV4Address(); // LAN address (non-internal)
     beforeAll(async () => {
-        plebbit = await mockPlebbit();
+        plebbit = await mockPKC();
         expect(plebbit.dataPath).to.be.a("string");
         expect(lanAddress).to.be.a("string");
     });
@@ -46,18 +46,17 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
 
     it(`Rpc server emits an error is rpc port is already taken`, async () => {
         const rpcServerPort = 19138;
-        const options: CreatePlebbitWsServerOptions = {
+        const options: CreatePKCWsServerOptions = {
             port: rpcServerPort,
             plebbitOptions: {
-                kuboRpcClientsOptions:
-                    plebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                kuboRpcClientsOptions: plebbit.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
                 httpRoutersOptions: plebbit.httpRoutersOptions,
                 dataPath: plebbit.dataPath
             }
         };
-        const rpcServer = await PlebbitWsServer.PlebbitWsServer(options); // was able to create an rpc server
+        const rpcServer = await PKCWsServer.PKCWsServer(options); // was able to create an rpc server
 
-        const rpcServer2 = await PlebbitWsServer.PlebbitWsServer(options);
+        const rpcServer2 = await PKCWsServer.PKCWsServer(options);
         const e = await new Promise<NodeJS.ErrnoException>((resolve) => rpcServer2.once("error", resolve));
 
         expect(e.code).to.equal("EADDRINUSE");
@@ -69,137 +68,132 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
     it(`Can connect to rpc server locally with ws://localhost:port`, async () => {
         const rpcServerPort = 9139;
         const authKey = "dwadwa";
-        const options: CreatePlebbitWsServerOptions = {
+        const options: CreatePKCWsServerOptions = {
             port: rpcServerPort,
             authKey,
             plebbitOptions: {
-                kuboRpcClientsOptions:
-                    plebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                kuboRpcClientsOptions: plebbit.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
                 httpRoutersOptions: plebbit.httpRoutersOptions,
                 dataPath: plebbit.dataPath
             }
         };
-        const rpcServer = await PlebbitWsServer.PlebbitWsServer(options); // was able to create an rpc server
+        const rpcServer = await PKCWsServer.PKCWsServer(options); // was able to create an rpc server
 
         const rpcUrl = `ws://localhost:${rpcServerPort}`;
-        const clientPlebbit = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+        const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-        const sub = (await clientPlebbit.createSubplebbit({})) as RpcLocalSubplebbit;
+        const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
         expect(sub.address).to.exist; // should be able to create a sub successfully over RPC
-        expect(clientPlebbit.subplebbits).to.include(sub.address);
+        expect(clientPKC.subplebbits).to.include(sub.address);
 
-        await clientPlebbit.destroy();
+        await clientPKC.destroy();
         await rpcServer.destroy();
     });
 
     it(`Can connect to rpc server locally with ws://127.0.0.1:port`, async () => {
         const rpcServerPort = 9139;
         const authKey = "dwadwa";
-        const options: CreatePlebbitWsServerOptions = {
+        const options: CreatePKCWsServerOptions = {
             port: rpcServerPort,
             authKey,
             plebbitOptions: {
-                kuboRpcClientsOptions:
-                    plebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                kuboRpcClientsOptions: plebbit.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
                 httpRoutersOptions: plebbit.httpRoutersOptions,
                 dataPath: plebbit.dataPath
             }
         };
-        const rpcServer = await PlebbitWsServer.PlebbitWsServer(options); // was able to create an rpc server
+        const rpcServer = await PKCWsServer.PKCWsServer(options); // was able to create an rpc server
 
         const rpcUrl = `ws://127.0.0.1:${rpcServerPort}`;
-        const clientPlebbit = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+        const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-        const sub = (await clientPlebbit.createSubplebbit({})) as RpcLocalSubplebbit;
+        const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
         expect(sub.address).to.exist; // should be able to create a sub successfully over RPC
-        expect(clientPlebbit.subplebbits).to.include(sub.address);
+        expect(clientPKC.subplebbits).to.include(sub.address);
 
-        await clientPlebbit.destroy();
+        await clientPKC.destroy();
         await rpcServer.destroy();
     });
 
     it(`Can connect to rpc server locally with ws://localhost:port/authkey`, async () => {
         const rpcServerPort = 9139;
         const authKey = "dwadwa";
-        const options: CreatePlebbitWsServerOptions = {
+        const options: CreatePKCWsServerOptions = {
             port: rpcServerPort,
             authKey,
             plebbitOptions: {
-                kuboRpcClientsOptions:
-                    plebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                kuboRpcClientsOptions: plebbit.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
                 httpRoutersOptions: plebbit.httpRoutersOptions,
                 dataPath: plebbit.dataPath
             }
         };
-        const rpcServer = await PlebbitWsServer.PlebbitWsServer(options); // was able to create an rpc server
+        const rpcServer = await PKCWsServer.PKCWsServer(options); // was able to create an rpc server
 
         const rpcUrl = `ws://localhost:${rpcServerPort}/${authKey}`;
-        const clientPlebbit = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+        const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-        const sub = (await clientPlebbit.createSubplebbit({})) as RpcLocalSubplebbit;
+        const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
         expect(sub.address).to.exist; // should be able to create a sub successfully over RPC
-        expect(clientPlebbit.subplebbits).to.include(sub.address);
+        expect(clientPKC.subplebbits).to.include(sub.address);
 
-        await clientPlebbit.destroy();
+        await clientPKC.destroy();
         await rpcServer.destroy();
     });
 
     it(`Can connect to rpc server locally with ws://127.0.0.1:port/authkey`, async () => {
         const rpcServerPort = 9139;
         const authKey = "dwadwa";
-        const options: CreatePlebbitWsServerOptions = {
+        const options: CreatePKCWsServerOptions = {
             port: rpcServerPort,
             authKey,
             plebbitOptions: {
-                kuboRpcClientsOptions:
-                    plebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                kuboRpcClientsOptions: plebbit.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
                 httpRoutersOptions: plebbit.httpRoutersOptions,
                 dataPath: plebbit.dataPath
             }
         };
-        const rpcServer = await PlebbitWsServer.PlebbitWsServer(options); // was able to create an rpc server
+        const rpcServer = await PKCWsServer.PKCWsServer(options); // was able to create an rpc server
 
         const rpcUrl = `ws://127.0.0.1:${rpcServerPort}/${authKey}`;
-        const clientPlebbit = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+        const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-        const sub = (await clientPlebbit.createSubplebbit({})) as RpcLocalSubplebbit;
+        const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
         expect(sub.address).to.exist; // should be able to create a sub successfully over RPC
-        expect(clientPlebbit.subplebbits).to.include(sub.address);
+        expect(clientPKC.subplebbits).to.include(sub.address);
 
-        await clientPlebbit.destroy();
+        await clientPKC.destroy();
         await rpcServer.destroy();
     });
 
     it(`Fails to connect to rpc server with remote device with no auth key`, async () => {
         const rpcServerPort = 9139;
         const authKey = "dwadwa";
-        const options: CreatePlebbitWsServerOptions = {
+        const options: CreatePKCWsServerOptions = {
             port: rpcServerPort,
             authKey,
             plebbitOptions: {
-                kuboRpcClientsOptions:
-                    plebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                kuboRpcClientsOptions: plebbit.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
                 httpRoutersOptions: plebbit.httpRoutersOptions,
                 dataPath: plebbit.dataPath
             }
         };
-        const rpcServer = await PlebbitWsServer.PlebbitWsServer(options); // was able to create an rpc server
+        const rpcServer = await PKCWsServer.PKCWsServer(options); // was able to create an rpc server
 
-        (rpcServer as unknown as PlebbitWsServerPrivateAccess)._getIpFromConnectionRequest = () => "::ffff:192.168.1.80"; // random ip address, trying to emulate a remote device
+        (rpcServer as unknown as PKCWsServerPrivateAccess)._getIpFromConnectionRequest = () => "::ffff:192.168.1.80"; // random ip address, trying to emulate a remote device
 
         const rpcUrl = `ws://${lanAddress}:${rpcServerPort}`;
-        const clientPlebbit = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], httpRoutersOptions: [] });
-        const emittedErrors: (PlebbitError | Error)[] = [];
-        clientPlebbit.on("error", (err) => emittedErrors.push(err));
+        const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], httpRoutersOptions: [] });
+        const emittedErrors: (PKCError | Error)[] = [];
+        clientPKC.on("error", (err) => emittedErrors.push(err));
 
         try {
-            await clientPlebbit.createSubplebbit({});
+            await clientPKC.createCommunity({});
             expect.fail("Should throw an error");
         } catch (e) {
             expect((e as { code: string }).code).to.equal("ERR_RPC_AUTH_REQUIRED");
-            expect(emittedErrors.some((err) => err instanceof PlebbitError && err.code === "ERR_RPC_AUTH_REQUIRED")).to.be.true;
+            expect(emittedErrors.some((err) => err instanceof PKCError && err.code === "ERR_RPC_AUTH_REQUIRED")).to.be.true;
         } finally {
-            await clientPlebbit.destroy();
+            await clientPKC.destroy();
             await rpcServer.destroy();
         }
     });
@@ -207,33 +201,32 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
     it(`Fails to connect to rpc server from remote device with wrong auth key`, async () => {
         const rpcServerPort = 9139;
         const authKey = "correct-key";
-        const options: CreatePlebbitWsServerOptions = {
+        const options: CreatePKCWsServerOptions = {
             port: rpcServerPort,
             authKey,
             plebbitOptions: {
-                kuboRpcClientsOptions:
-                    plebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                kuboRpcClientsOptions: plebbit.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
                 httpRoutersOptions: plebbit.httpRoutersOptions,
                 dataPath: plebbit.dataPath
             }
         };
-        const rpcServer = await PlebbitWsServer.PlebbitWsServer(options);
+        const rpcServer = await PKCWsServer.PKCWsServer(options);
 
-        (rpcServer as unknown as PlebbitWsServerPrivateAccess)._getIpFromConnectionRequest = () => "::ffff:192.168.1.80";
+        (rpcServer as unknown as PKCWsServerPrivateAccess)._getIpFromConnectionRequest = () => "::ffff:192.168.1.80";
 
         const rpcUrl = `ws://${lanAddress}:${rpcServerPort}/wrong-key`;
-        const clientPlebbit = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], httpRoutersOptions: [] });
-        const emittedErrors: (PlebbitError | Error)[] = [];
-        clientPlebbit.on("error", (err) => emittedErrors.push(err));
+        const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], httpRoutersOptions: [] });
+        const emittedErrors: (PKCError | Error)[] = [];
+        clientPKC.on("error", (err) => emittedErrors.push(err));
 
         try {
-            await clientPlebbit.createSubplebbit({});
+            await clientPKC.createCommunity({});
             expect.fail("Should throw an error");
         } catch (e) {
             expect((e as { code: string }).code).to.equal("ERR_RPC_AUTH_REQUIRED");
-            expect(emittedErrors.some((err) => err instanceof PlebbitError && err.code === "ERR_RPC_AUTH_REQUIRED")).to.be.true;
+            expect(emittedErrors.some((err) => err instanceof PKCError && err.code === "ERR_RPC_AUTH_REQUIRED")).to.be.true;
         } finally {
-            await clientPlebbit.destroy();
+            await clientPKC.destroy();
             await rpcServer.destroy();
         }
     });
@@ -241,106 +234,103 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
     it(`Succeeds in connecting to rpc server from remote device with auth key`, async () => {
         const rpcServerPort = 9139;
         const authKey = "dwadwa";
-        const options: CreatePlebbitWsServerOptions = {
+        const options: CreatePKCWsServerOptions = {
             port: rpcServerPort,
             authKey,
             plebbitOptions: {
-                kuboRpcClientsOptions:
-                    plebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                kuboRpcClientsOptions: plebbit.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
                 httpRoutersOptions: plebbit.httpRoutersOptions,
                 dataPath: plebbit.dataPath
             }
         };
-        const rpcServer = await PlebbitWsServer.PlebbitWsServer(options); // was able to create an rpc server
+        const rpcServer = await PKCWsServer.PKCWsServer(options); // was able to create an rpc server
 
-        (rpcServer as unknown as PlebbitWsServerPrivateAccess)._getIpFromConnectionRequest = () => "::ffff:192.168.1.80"; // random ip address, trying to emulate a remote device
+        (rpcServer as unknown as PKCWsServerPrivateAccess)._getIpFromConnectionRequest = () => "::ffff:192.168.1.80"; // random ip address, trying to emulate a remote device
 
         const rpcUrl = `ws://${lanAddress}:${rpcServerPort}/${authKey}`;
-        const clientPlebbit = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+        const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-        const sub = (await clientPlebbit.createSubplebbit({})) as RpcLocalSubplebbit;
+        const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
         expect(sub.address).to.exist; // should be able to create a sub successfully over RPC
-        expect(clientPlebbit.subplebbits).to.include(sub.address);
+        expect(clientPKC.subplebbits).to.include(sub.address);
 
-        await clientPlebbit.destroy();
+        await clientPKC.destroy();
         await rpcServer.destroy();
     });
 
     it(`Can connect to rpc server if from local device and used remote address (no auth key)`, async () => {
         const rpcServerPort = 9139;
         const authKey = "dwadwa";
-        const options: CreatePlebbitWsServerOptions = {
+        const options: CreatePKCWsServerOptions = {
             port: rpcServerPort,
             authKey,
             plebbitOptions: {
-                kuboRpcClientsOptions:
-                    plebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                kuboRpcClientsOptions: plebbit.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
                 httpRoutersOptions: plebbit.httpRoutersOptions,
                 dataPath: plebbit.dataPath
             }
         };
-        const rpcServer = await PlebbitWsServer.PlebbitWsServer(options); // was able to create an rpc server
+        const rpcServer = await PKCWsServer.PKCWsServer(options); // was able to create an rpc server
 
         const rpcUrl = `ws://${lanAddress}:${rpcServerPort}`;
-        const clientPlebbit = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+        const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-        const sub = (await clientPlebbit.createSubplebbit({})) as RpcLocalSubplebbit;
+        const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
         expect(sub.address).to.exist; // should be able to create a sub successfully over RPC
-        expect(clientPlebbit.subplebbits).to.include(sub.address);
+        expect(clientPKC.subplebbits).to.include(sub.address);
 
-        await clientPlebbit.destroy();
+        await clientPKC.destroy();
         await rpcServer.destroy();
     });
 
     it(`Can connect to rpc server if from local device but used remote address (with auth key)`, async () => {
         const rpcServerPort = 9139;
         const authKey = "dwadwa";
-        const options: CreatePlebbitWsServerOptions = {
+        const options: CreatePKCWsServerOptions = {
             port: rpcServerPort,
             authKey,
             plebbitOptions: {
-                kuboRpcClientsOptions:
-                    plebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                kuboRpcClientsOptions: plebbit.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
                 httpRoutersOptions: plebbit.httpRoutersOptions,
                 dataPath: plebbit.dataPath
             }
         };
-        const rpcServer = await PlebbitWsServer.PlebbitWsServer(options); // was able to create an rpc server
+        const rpcServer = await PKCWsServer.PKCWsServer(options); // was able to create an rpc server
 
         const rpcUrl = `ws://${lanAddress}:${rpcServerPort}/${authKey}`;
-        const clientPlebbit = await Plebbit({ plebbitRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+        const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-        const sub = (await clientPlebbit.createSubplebbit({})) as RpcLocalSubplebbit;
+        const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
         expect(sub.address).to.exist; // should be able to create a sub successfully over RPC
-        expect(clientPlebbit.subplebbits).to.include(sub.address);
+        expect(clientPKC.subplebbits).to.include(sub.address);
 
-        await clientPlebbit.destroy();
+        await clientPKC.destroy();
         await rpcServer.destroy();
     });
 
     describe(`RPC server subplebbit edit error handling`, () => {
         it(`Returns domain mismatch errors to RPC clients without crashing the server`, async () => {
             const rpcServerPort = 19145;
-            const options: CreatePlebbitWsServerOptions = {
+            const options: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
                 plebbitOptions: {
                     kuboRpcClientsOptions:
-                        plebbit.kuboRpcClientsOptions as CreatePlebbitWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                        plebbit.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
                     httpRoutersOptions: plebbit.httpRoutersOptions,
                     dataPath: tempy.directory()
                 }
             };
-            const rpcServer = await PlebbitWsServer.PlebbitWsServer(options);
+            const rpcServer = await PKCWsServer.PKCWsServer(options);
 
             const rpcUrl = `ws://localhost:${rpcServerPort}`;
-            let clientPlebbit: PlebbitType | undefined;
-            clientPlebbit = await Plebbit({
-                plebbitRpcClientsOptions: [rpcUrl],
+            let clientPKC: PKCType | undefined;
+            clientPKC = await PKC({
+                pkcRpcClientsOptions: [rpcUrl],
                 dataPath: undefined,
                 httpRoutersOptions: []
             });
 
-            const rpcSub = (await clientPlebbit.createSubplebbit({})) as RpcLocalSubplebbit;
+            const rpcSub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
             const mismatchedDomain = "my-sub.bso";
 
             await rpcSub.edit({ address: mismatchedDomain });
@@ -353,9 +343,9 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
                     await rpcSub.delete();
                 } catch {}
             }
-            if (clientPlebbit) {
+            if (clientPKC) {
                 try {
-                    await clientPlebbit.destroy();
+                    await clientPKC.destroy();
                 } catch {}
             }
             try {

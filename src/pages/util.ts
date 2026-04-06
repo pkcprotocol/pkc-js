@@ -17,14 +17,14 @@ import { BasePages, PostsPages, RepliesPages } from "./pages.js";
 import * as remeda from "remeda";
 import type { CommentWithinModQueuePageJson, CommentWithinRepliesPostsPageJson, CommentUpdateType } from "../publications/comment/types.js";
 import { shortifyAddress, shortifyCid } from "../util.js";
-import { RemoteSubplebbit } from "../community/remote-community.js";
+import { RemoteCommunity } from "../community/remote-community.js";
 import { getAuthorDomainFromWire } from "../publications/publication-author.js";
 import { getCommunityAddressFromRecord } from "../publications/publication-community.js";
 import { sha256 } from "js-sha256";
 import type { LRUCache } from "lru-cache";
 import { BaseClientsManager } from "../clients/base-client-manager.js";
-import { parseJsonWithPlebbitErrorIfFails, parsePageIpfsSchemaWithPlebbitErrorIfItFails } from "../schema/schema-util.js";
-import type { SubplebbitIpfsType } from "../community/types.js";
+import { parseJsonWithPKCErrorIfFails, parsePageIpfsSchemaWithPKCErrorIfItFails } from "../schema/schema-util.js";
+import type { CommunityIpfsType } from "../community/types.js";
 import { buildRuntimeAuthor } from "../publications/publication-author.js";
 
 export const TIMEFRAMES_TO_SECONDS: Record<Timeframe, number> = Object.freeze({
@@ -285,7 +285,7 @@ export function parseRawPages(
 // finding comments within pages
 
 export function findCommentInPageInstance(
-    pageInstance: RemoteSubplebbit["posts"] | Comment["replies"],
+    pageInstance: RemoteCommunity["posts"] | Comment["replies"],
     targetCommentCid: string
 ): PageIpfs["comments"][0] | undefined {
     if (!pageInstance) throw Error("should define page ipfs");
@@ -405,7 +405,7 @@ export function extractParsedPagesRuntimeFields(
     return result;
 }
 
-export function extractSubplebbitRuntimeFieldsFromParsedPages({
+export function extractCommunityRuntimeFieldsFromParsedPages({
     postsPages,
     modQueuePages
 }: {
@@ -431,7 +431,7 @@ export function extractSubplebbitRuntimeFieldsFromParsedPages({
 }
 
 export function findCommentInPageInstanceRecursively(
-    pageInstance: RemoteSubplebbit["posts"] | Comment["replies"],
+    pageInstance: RemoteCommunity["posts"] | Comment["replies"],
     targetCid: string
 ): PageIpfs["comments"][0] | undefined {
     if (!pageInstance) throw Error("should define page instance");
@@ -455,8 +455,8 @@ const FIRST_PAGE_MAX_FILE_SIZE_BYTES = 1024 * 1024;
 
 type PendingPageCid = { cid: string; maxSize: number };
 type PagesSource =
-    | NonNullable<SubplebbitIpfsType["posts"]>
-    | NonNullable<CommentUpdateType["replies"] | NonNullable<SubplebbitIpfsType["modQueue"]>>;
+    | NonNullable<CommunityIpfsType["posts"]>
+    | NonNullable<CommentUpdateType["replies"] | NonNullable<CommunityIpfsType["modQueue"]>>;
 
 export async function iterateOverPageCidsToFindAllCids(opts: { pages: PagesSource; clientManager: BaseClientsManager }): Promise<string[]> {
     if (!opts?.pages) throw Error("expected pages to be defined when iterating over page cids");
@@ -501,8 +501,8 @@ export async function iterateOverPageCidsToFindAllCids(opts: { pages: PagesSourc
 
     const fetchPage = async (cid: string, maxSizeBytes: number): Promise<PageIpfs> => {
         const rawPage = await clientManager._fetchCidP2P(cid, { maxFileSizeBytes: maxSizeBytes, timeoutMs });
-        const parsedPage = parseJsonWithPlebbitErrorIfFails(rawPage);
-        const pageIpfs = parsePageIpfsSchemaWithPlebbitErrorIfItFails(parsedPage);
+        const parsedPage = parseJsonWithPKCErrorIfFails(rawPage);
+        const pageIpfs = parsePageIpfsSchemaWithPKCErrorIfItFails(parsedPage);
         return pageIpfs;
     };
 

@@ -1,14 +1,14 @@
 import signers from "../../fixtures/signers.js";
 
-import { createNewIpns, resolveWhenConditionIsTrue, getAvailablePlebbitConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
+import { createNewIpns, resolveWhenConditionIsTrue, getAvailablePKCConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
 
 import { signCommunity } from "../../../dist/node/signer/signatures.js";
 
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbit-rpc"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbit-rpc"] }).map((config) => {
     describe(`subplebbit.clients.plebbitRpcClients (remote sub)`, async () => {
-        let plebbit: PlebbitType;
+        let plebbit: PKCType;
 
         beforeEach(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -19,7 +19,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbi
         });
 
         it(`subplebbit.clients.plebbitRpcClients[rpcUrl] is stopped by default`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: signers[0].address });
+            const sub = await plebbit.createCommunity({ address: signers[0].address });
             const rpcUrl = Object.keys(plebbit.clients.plebbitRpcClients)[0];
             expect(sub.clients.plebbitRpcClients[rpcUrl].state).to.equal("stopped");
             expect(sub.updatingState).to.equal("stopped");
@@ -27,7 +27,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbi
 
         it(`subplebbit.clients.plebbitRpcClients states are correct if fetching a sub with IPNS address`, async () => {
             const newIpns = await createNewIpns();
-            const actualSub = await plebbit.getSubplebbit({ address: signers[0].address });
+            const actualSub = await plebbit.getCommunity({ address: signers[0].address });
 
             const record: Record<string, unknown> = JSON.parse(JSON.stringify(actualSub.raw.subplebbitIpfs));
             delete record["posts"];
@@ -38,7 +38,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbi
 
             await newIpns.publishToIpns(JSON.stringify(record));
 
-            const sub = await plebbit.createSubplebbit({ address: newIpns.signer.address });
+            const sub = await plebbit.createCommunity({ address: newIpns.signer.address });
             const rpcUrl = Object.keys(plebbit.clients.plebbitRpcClients)[0];
             const recordedStates: string[] = [];
             const expectedStates = ["fetching-ipns", "fetching-ipfs", "stopped"];
@@ -57,7 +57,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbi
         });
 
         it(`subplebbit.clients.plebbitRpcClients states are correct if fetching a sub with ENS address`, async () => {
-            const sub = await plebbit.createSubplebbit({ address: "plebbit.bso" });
+            const sub = await plebbit.createCommunity({ address: "plebbit.bso" });
             const rpcUrl = Object.keys(plebbit.clients.plebbitRpcClients)[0];
             const recordedStates: string[] = [];
             const expectedStates = ["resolving-community-name", "fetching-ipns", "fetching-ipfs", "stopped"];

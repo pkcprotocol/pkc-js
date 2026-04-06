@@ -13,7 +13,7 @@ import {
     CommentUpdateTableRowSchema,
     CreateCommentOptionsSchema
 } from "./schema.js";
-import { SubplebbitAuthorSchema } from "../../schema/schema.js";
+import { CommunityAuthorSchema } from "../../schema/schema.js";
 import { RpcCommentEventResultSchema, RpcCommentUpdateResultSchema } from "../../clients/rpc-client/schema.js";
 import type { JsonOfClass, RuntimeAuthorWithCommentUpdateType } from "../../types.js";
 import { Comment } from "./comment.js";
@@ -22,7 +22,7 @@ import type { PublicationRpcErrorToTransmit, PublicationState } from "../types.j
 import type { JsonSignature, SignerType } from "../../signer/types.js";
 import Publication from "../publication.js";
 
-export type SubplebbitAuthor = z.infer<typeof SubplebbitAuthorSchema>;
+export type CommunityAuthor = z.infer<typeof CommunityAuthorSchema>;
 
 export type CreateCommentOptions = z.infer<typeof CreateCommentOptionsSchema>;
 
@@ -106,15 +106,15 @@ export type CommentUpdatingState =
 
 // Native types here
 
-export interface CommentPubsubMessageWithSubplebbitAuthor extends CommentPubsubMessagePublication {
+export interface CommentPubsubMessageWithCommunityAuthor extends CommentPubsubMessagePublication {
     author: RuntimeAuthorWithCommentUpdateType;
 }
 
-export interface PostPubsubMessageWithSubplebbitAuthor extends CommentPubsubMessageWithSubplebbitAuthor {
+export interface PostPubsubMessageWithCommunityAuthor extends CommentPubsubMessageWithCommunityAuthor {
     parentCid: undefined;
 }
 
-export interface ReplyPubsubMessageWithSubplebbitAuthor extends CommentPubsubMessageWithSubplebbitAuthor {
+export interface ReplyPubsubMessageWithCommunityAuthor extends CommentPubsubMessageWithCommunityAuthor {
     parentCid: string;
 }
 

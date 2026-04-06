@@ -4,22 +4,22 @@ import {
     publishWithExpectedResult,
     publishRandomPost,
     generatePostToAnswerMathQuestion,
-    mockRemotePlebbit,
-    getAvailablePlebbitConfigsToTestAgainst
+    mockRemotePKC,
+    getAvailablePKCConfigsToTestAgainst
 } from "../../../dist/node/test/test-util.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
-import type { RemoteSubplebbit } from "../../../dist/node/community/remote-community.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
+import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 
-const mathCliSubplebbitAddress = signers[1].address;
+const mathCliCommunityAddress = signers[1].address;
 
 describe.skip(`Stress test challenge exchange`, async () => {
     const num = 50;
-    let plebbit: Plebbit, subplebbit: RemoteSubplebbit;
+    let plebbit: PKC, subplebbit: RemoteCommunity;
 
     beforeAll(async () => {
-        plebbit = await mockRemotePlebbit();
-        subplebbit = await plebbit.getSubplebbit({ address: signers[0].address });
+        plebbit = await mockRemotePKC();
+        subplebbit = await plebbit.getCommunity({ address: signers[0].address });
     });
 
     afterAll(async () => {
@@ -32,9 +32,9 @@ describe.skip(`Stress test challenge exchange`, async () => {
     });
 });
 
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
     describe.concurrent(`math-cli - ${config.name}`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -45,12 +45,12 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it("can post after answering correctly", async function () {
-            const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliSubplebbitAddress }, plebbit);
+            const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, plebbit);
             await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });
         });
         it("Throws an error when user fails to solve mathcli captcha", async function () {
             const mockPost = await generateMockPost({
-                communityAddress: mathCliSubplebbitAddress,
+                communityAddress: mathCliCommunityAddress,
                 plebbit: plebbit,
                 postProps: { signer: signers[0] }
             });

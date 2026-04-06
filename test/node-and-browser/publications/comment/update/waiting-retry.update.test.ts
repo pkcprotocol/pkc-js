@@ -2,12 +2,12 @@ import { describe } from "vitest";
 import {
     itSkipIfRpc,
     resolveWhenConditionIsTrue,
-    getAvailablePlebbitConfigsToTestAgainst,
-    isPlebbitFetchingUsingGateways
+    getAvailablePKCConfigsToTestAgainst,
+    isPKCFetchingUsingGateways
 } from "../../../../../dist/node/test/test-util.js";
-import type { PlebbitError } from "../../../../../dist/node/pkc-error.js";
+import type { PKCError } from "../../../../../dist/node/pkc-error.js";
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe(`comment.update() waiting-retry errors - ${config.name}`, () => {
         itSkipIfRpc(
             `comment.update() emits error and changes updatingState to waiting-retry and keeps retrying if CommentIpfs loading times out`,
@@ -22,8 +22,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 let updateHasBeenEmitted = false;
                 createdComment.once("update", () => (updateHasBeenEmitted = true));
 
-                const waitingRetries: PlebbitError[] = [];
-                createdComment.on("error", (err) => waitingRetries.push(err as PlebbitError));
+                const waitingRetries: PKCError[] = [];
+                createdComment.on("error", (err) => waitingRetries.push(err as PKCError));
 
                 // Start the update process
                 await createdComment.update();
@@ -36,7 +36,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
                 await createdComment.stop();
                 for (const waitingRetryErr of waitingRetries) {
-                    if (isPlebbitFetchingUsingGateways(plebbit)) {
+                    if (isPKCFetchingUsingGateways(plebbit)) {
                         expect(waitingRetryErr.code).to.equal("ERR_FAILED_TO_FETCH_COMMENT_IPFS_FROM_GATEWAYS");
                         for (const gatewayUrl of Object.keys(plebbit.clients.ipfsGateways))
                             expect(waitingRetryErr.details.gatewayToError[gatewayUrl].code).to.equal("ERR_GATEWAY_TIMED_OUT_OR_ABORTED");

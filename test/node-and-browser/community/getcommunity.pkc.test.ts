@@ -3,22 +3,22 @@ import signers from "../../fixtures/signers.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import {
     createNewIpns,
-    getAvailablePlebbitConfigsToTestAgainst,
-    createMockedSubplebbitIpns,
+    getAvailablePKCConfigsToTestAgainst,
+    createMockedCommunityIpns,
     itSkipIfRpc,
-    isPlebbitFetchingUsingGateways
+    isPKCFetchingUsingGateways
 } from "../../../dist/node/test/test-util.js";
 import { convertBase58IpnsNameToBase36Cid } from "../../../dist/node/signer/util.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
 
-import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
-import type { PlebbitError } from "../../../dist/node/pkc-error.js";
-const ensSubplebbitAddress = "plebbit.bso";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import type { PKCError } from "../../../dist/node/pkc-error.js";
+const ensCommunityAddress = "plebbit.bso";
 const subplebbitSigner = signers[0];
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
-    describe.concurrent(`plebbit.getSubplebbit (Remote) - ${config.name}`, async () => {
-        let plebbit: PlebbitType;
+getAvailablePKCConfigsToTestAgainst().map((config) => {
+    describe.concurrent(`plebbit.getCommunity (Remote) - ${config.name}`, async () => {
+        let plebbit: PKCType;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
         });
@@ -27,14 +27,14 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await plebbit.destroy();
         });
 
-        itSkipIfRpc("calling plebbit.getSubplebbit({address}) in parallel of the same subplebbit resolves IPNS only once", async () => {
-            const localPlebbit = await config.plebbitInstancePromise();
-            const randomSub = await createMockedSubplebbitIpns({});
+        itSkipIfRpc("calling plebbit.getCommunity({address}) in parallel of the same subplebbit resolves IPNS only once", async () => {
+            const localPKC = await config.plebbitInstancePromise();
+            const randomSub = await createMockedCommunityIpns({});
             let fetchSpy: ReturnType<typeof vi.spyOn> | undefined;
             let nameResolveSpy: ReturnType<typeof vi.spyOn> | undefined;
             try {
-                const usesGateways = isPlebbitFetchingUsingGateways(localPlebbit);
-                const isRemoteIpfsGatewayConfig = isPlebbitFetchingUsingGateways(localPlebbit);
+                const usesGateways = isPKCFetchingUsingGateways(localPKC);
+                const isRemoteIpfsGatewayConfig = isPKCFetchingUsingGateways(localPKC);
                 const shouldMockFetchForIpns = isRemoteIpfsGatewayConfig && typeof globalThis.fetch === "function";
 
                 const targetAddress = convertBase58IpnsNameToBase36Cid(randomSub.communityAddress);
@@ -42,10 +42,10 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
                 if (!usesGateways) {
                     const p2pClient =
-                        Object.keys(localPlebbit.clients.kuboRpcClients).length > 0
-                            ? Object.values(localPlebbit.clients.kuboRpcClients)[0]._client
-                            : Object.keys(localPlebbit.clients.libp2pJsClients).length > 0
-                              ? Object.values(localPlebbit.clients.libp2pJsClients)[0].heliaWithKuboRpcClientFunctions
+                        Object.keys(localPKC.clients.kuboRpcClients).length > 0
+                            ? Object.values(localPKC.clients.kuboRpcClients)[0]._client
+                            : Object.keys(localPKC.clients.libp2pJsClients).length > 0
+                              ? Object.values(localPKC.clients.libp2pJsClients)[0].heliaWithKuboRpcClientFunctions
                               : undefined;
                     if (!p2pClient?.name?.resolve) {
                         throw new Error("Expected p2p client like kubo or helia RPC client with name.resolve for this test");
@@ -54,15 +54,15 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 } else if (shouldMockFetchForIpns) {
                     fetchSpy = vi.spyOn(globalThis, "fetch");
                 }
-                expect(localPlebbit._updatingSubplebbits.size()).to.equal(0);
+                expect(localPKC._updatingCommunitys.size()).to.equal(0);
 
                 const subInstances = await Promise.all(
                     new Array(stressCount).fill(null).map(async () => {
-                        return localPlebbit.getSubplebbit({ address: randomSub.communityAddress });
+                        return localPKC.getCommunity({ address: randomSub.communityAddress });
                     })
                 );
 
-                expect(localPlebbit._updatingSubplebbits.size()).to.equal(0);
+                expect(localPKC._updatingCommunitys.size()).to.equal(0);
 
                 const resolveCallsCount = fetchSpy
                     ? fetchSpy.mock.calls.filter(([input]: [unknown]) => {
@@ -73,21 +73,21 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
                 expect(resolveCallsCount).to.equal(
                     1,
-                    "calling getSubplebbit() on many subplebbit instances with the same address should only resolve IPNS once"
+                    "calling getCommunity() on many subplebbit instances with the same address should only resolve IPNS once"
                 );
             } finally {
                 if (nameResolveSpy) nameResolveSpy.mockRestore();
                 if (fetchSpy) fetchSpy.mockRestore();
-                await localPlebbit.destroy();
+                await localPKC.destroy();
             }
         });
 
         it("Can load subplebbit via IPNS address", async () => {
-            const loadedSubplebbit = await plebbit.getSubplebbit({ address: subplebbitSigner.address });
-            const _subplebbitIpns = loadedSubplebbit.raw.subplebbitIpfs!;
+            const loadedCommunity = await plebbit.getCommunity({ address: subplebbitSigner.address });
+            const _subplebbitIpns = loadedCommunity.raw.subplebbitIpfs!;
             expect(_subplebbitIpns.lastPostCid).to.be.a.string;
             expect(_subplebbitIpns.pubsubTopic).to.be.a.string;
-            expect(loadedSubplebbit.address).to.be.a.string;
+            expect(loadedCommunity.address).to.be.a.string;
             expect(_subplebbitIpns.statsCid).to.be.a.string;
             expect(_subplebbitIpns.createdAt).to.be.a("number");
             expect(_subplebbitIpns.updatedAt).to.be.a("number");
@@ -96,55 +96,53 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(_subplebbitIpns.signature).to.be.a("object");
             expect(_subplebbitIpns.posts).to.be.a("object");
             // Remove undefined keys from json
-            expect(deterministicStringify(loadedSubplebbit.raw.subplebbitIpfs!)).to.equals(deterministicStringify(_subplebbitIpns));
+            expect(deterministicStringify(loadedCommunity.raw.subplebbitIpfs!)).to.equals(deterministicStringify(_subplebbitIpns));
         });
 
-        it("can load subplebbit with ENS domain via plebbit.getSubplebbit", async () => {
-            const subplebbit = await plebbit.getSubplebbit({ address: ensSubplebbitAddress });
-            expect(subplebbit.address).to.equal(ensSubplebbitAddress);
+        it("can load subplebbit with ENS domain via plebbit.getCommunity", async () => {
+            const subplebbit = await plebbit.getCommunity({ address: ensCommunityAddress });
+            expect(subplebbit.address).to.equal(ensCommunityAddress);
             expect(subplebbit.updatedAt).to.be.a("number");
         });
 
-        it("can load subplebbit with .eth/.bso ENS aliases interchangeably via plebbit.getSubplebbit", { retry: 3 }, async () => {
-            const subplebbit = await plebbit.getSubplebbit({ address: "plebbit.eth" });
+        it("can load subplebbit with .eth/.bso ENS aliases interchangeably via plebbit.getCommunity", { retry: 3 }, async () => {
+            const subplebbit = await plebbit.getCommunity({ address: "plebbit.eth" });
             expect(["plebbit.eth", "plebbit.bso"]).to.include(subplebbit.address);
             expect(subplebbit.updatedAt).to.be.a("number");
         });
 
-        it(`plebbit.getSubplebbit fails to fetch a sub with ENS address if it has capital letter`, async () => {
+        it(`plebbit.getCommunity fails to fetch a sub with ENS address if it has capital letter`, async () => {
             try {
-                await plebbit.getSubplebbit({ address: "testSub.bso" });
+                await plebbit.getCommunity({ address: "testSub.bso" });
                 expect.fail("Should have thrown");
             } catch (e) {
                 expect((e as { code: string }).code).to.equal("ERR_COMMUNITY_NAME_HAS_CAPITAL_LETTER");
             }
         });
 
-        it(`plebbit.getSubplebbit is not fetching subplebbit updates in background after fulfilling its promise`, async () => {
-            const loadedSubplebbit = await plebbit.getSubplebbit({ address: subplebbitSigner.address });
+        it(`plebbit.getCommunity is not fetching subplebbit updates in background after fulfilling its promise`, async () => {
+            const loadedCommunity = await plebbit.getCommunity({ address: subplebbitSigner.address });
             let updatedHasBeenCalled = false;
-            (loadedSubplebbit as unknown as Record<string, Function>)["_setUpdatingState"] = async () => {
+            (loadedCommunity as unknown as Record<string, Function>)["_setUpdatingState"] = async () => {
                 updatedHasBeenCalled = true;
             };
             await new Promise((resolve) => setTimeout(resolve, plebbit.updateInterval * 3));
             expect(updatedHasBeenCalled).to.be.false;
         });
 
-        it.sequential(`plebbit.getSubplebbit should throw if it loads a record with invalid json`, async () => {
+        it.sequential(`plebbit.getCommunity should throw if it loads a record with invalid json`, async () => {
             // this test fails sometimes
             const ipnsObj = await createNewIpns();
             await ipnsObj.publishToIpns("<html>hello this is not a valid json</html>");
 
             try {
-                await plebbit.getSubplebbit({ address: ipnsObj.signer.address });
+                await plebbit.getCommunity({ address: ipnsObj.signer.address });
                 expect.fail("should not succeed");
             } catch (e) {
-                const plebbitErr = e as PlebbitError;
-                if (isPlebbitFetchingUsingGateways(plebbit)) {
+                const plebbitErr = e as PKCError;
+                if (isPKCFetchingUsingGateways(plebbit)) {
                     expect(plebbitErr.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
-                    const gatewayError = plebbitErr.details.gatewayToError[
-                        Object.keys(plebbitErr.details.gatewayToError)[0]
-                    ] as PlebbitError;
+                    const gatewayError = plebbitErr.details.gatewayToError[Object.keys(plebbitErr.details.gatewayToError)[0]] as PKCError;
                     expect(gatewayError.code).to.equal("ERR_INVALID_JSON");
                 } else expect(plebbitErr.code).to.equal("ERR_INVALID_JSON");
             } finally {
@@ -152,13 +150,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             }
         });
 
-        it(`plebbit.getSubplebbit should throw immedietly if it loads a record with invalid signature`, async () => {
-            const loadedSubplebbit = await plebbit.getSubplebbit({ address: subplebbitSigner.address });
+        it(`plebbit.getCommunity should throw immedietly if it loads a record with invalid signature`, async () => {
+            const loadedCommunity = await plebbit.getCommunity({ address: subplebbitSigner.address });
             const ipnsObj = await createNewIpns();
-            await ipnsObj.publishToIpns(JSON.stringify({ ...loadedSubplebbit.raw.subplebbitIpfs, updatedAt: 12345 })); // publish invalid signature
+            await ipnsObj.publishToIpns(JSON.stringify({ ...loadedCommunity.raw.subplebbitIpfs, updatedAt: 12345 })); // publish invalid signature
 
             try {
-                await plebbit.getSubplebbit({ address: ipnsObj.signer.address });
+                await plebbit.getCommunity({ address: ipnsObj.signer.address });
                 expect.fail("should not succeed");
             } catch (e) {
                 expect([
@@ -170,13 +168,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             }
         });
 
-        it(`plebbit.getSubplebbit times out if subplebbit does not load`, async () => {
-            const doesNotExistSubplebbitAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zx"; // random sub address, should not be able to resolve this
-            const customPlebbit = await config.plebbitInstancePromise();
-            customPlebbit._timeouts["subplebbit-ipns"] = 1 * 1000; // change timeout from 5min to 1s
+        it(`plebbit.getCommunity times out if subplebbit does not load`, async () => {
+            const doesNotExistCommunityAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zx"; // random sub address, should not be able to resolve this
+            const customPKC = await config.plebbitInstancePromise();
+            customPKC._timeouts["subplebbit-ipns"] = 1 * 1000; // change timeout from 5min to 1s
 
             try {
-                await customPlebbit.getSubplebbit({ address: doesNotExistSubplebbitAddress });
+                await customPKC.getCommunity({ address: doesNotExistCommunityAddress });
                 expect.fail("should not succeed");
             } catch (e) {
                 expect([
@@ -187,7 +185,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     "ERR_GET_COMMUNITY_TIMED_OUT"
                 ]).to.include((e as { code: string }).code, "Error is not as expected:" + JSON.stringify(e));
             } finally {
-                await customPlebbit.destroy();
+                await customPKC.destroy();
             }
         });
     });

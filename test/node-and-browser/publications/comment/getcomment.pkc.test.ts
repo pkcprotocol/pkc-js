@@ -1,9 +1,9 @@
 import signers from "../../../fixtures/signers.js";
 import {
-    getAvailablePlebbitConfigsToTestAgainst,
+    getAvailablePKCConfigsToTestAgainst,
     addStringToIpfs,
     itSkipIfRpc,
-    isPlebbitFetchingUsingGateways
+    isPKCFetchingUsingGateways
 } from "../../../../dist/node/test/test-util.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { describe, it, beforeAll, afterAll, vi } from "vitest";
@@ -11,11 +11,11 @@ import { CID } from "kubo-rpc-client";
 import validCommentFixture from "../../../fixtures/signatures/comment/commentUpdate/valid_comment_ipfs.json" with { type: "json" };
 import validCommentAuthorAddressDomainFixture from "../../../fixtures/signatures/comment/valid_comment_author_address_as_domain.json" with { type: "json" };
 import { messages } from "../../../../dist/node/errors.js";
-import { getPlebbitAddressFromPublicKeySync } from "../../../../dist/node/signer/util.js";
+import { getPKCAddressFromPublicKeySync } from "../../../../dist/node/signer/util.js";
 import { _signJson, cleanUpBeforePublishing } from "../../../../dist/node/signer/signatures.js";
 import Logger from "@pkc/pkc-logger";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
-import type { PlebbitError } from "../../../../dist/node/pkc-error.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
+import type { PKCError } from "../../../../dist/node/pkc-error.js";
 
 // Helper type for accessing internal methods on Comment
 type CommentWithInternals = { updateOnce: () => Promise<void>; _setUpdatingState: () => Promise<void> };
@@ -23,9 +23,9 @@ type LegacyRawAuthor = { address?: string; name?: string; publicKey?: string };
 
 const subplebbitSigner = signers[0];
 
-getAvailablePlebbitConfigsToTestAgainst().map((config) => {
+getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`plebbit.getComment - ${config.name}`, async () => {
-        let plebbit: Plebbit;
+        let plebbit: PKC;
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
         });
@@ -36,27 +36,27 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         // sequential because we're spying on global fetch here which may affect other tests
         itSkipIfRpc.sequential(
-            "calling plebbit.getSubplebbit({address: ) in parallel of the same subplebbit resolves IPNS only once",
+            "calling plebbit.getCommunity({address: ) in parallel of the same subplebbit resolves IPNS only once",
             async () => {
-                const localPlebbit: Plebbit = await config.plebbitInstancePromise();
-                const randomCid = (await plebbit.getSubplebbit({ address: subplebbitSigner.address })).lastPostCid;
+                const localPKC: PKC = await config.plebbitInstancePromise();
+                const randomCid = (await plebbit.getCommunity({ address: subplebbitSigner.address })).lastPostCid;
                 expect(randomCid).to.be.a("string");
                 const randomCidInGatewayUrl = CID.parse(randomCid).toV1().toString();
                 let fetchSpy: ReturnType<typeof vi.spyOn> | undefined;
                 let catSpy: ReturnType<typeof vi.spyOn> | undefined;
                 try {
-                    const usesGateways = isPlebbitFetchingUsingGateways(localPlebbit);
-                    const isRemoteIpfsGatewayConfig = isPlebbitFetchingUsingGateways(localPlebbit);
+                    const usesGateways = isPKCFetchingUsingGateways(localPKC);
+                    const isRemoteIpfsGatewayConfig = isPKCFetchingUsingGateways(localPKC);
                     const shouldMockFetchForIpns = isRemoteIpfsGatewayConfig && typeof globalThis.fetch === "function";
 
                     const stressCount = 100;
 
                     if (!usesGateways) {
                         const p2pClient =
-                            Object.keys(localPlebbit.clients.kuboRpcClients).length > 0
-                                ? Object.values(localPlebbit.clients.kuboRpcClients)[0]._client
-                                : Object.keys(localPlebbit.clients.libp2pJsClients).length > 0
-                                  ? Object.values(localPlebbit.clients.libp2pJsClients)[0].heliaWithKuboRpcClientFunctions
+                            Object.keys(localPKC.clients.kuboRpcClients).length > 0
+                                ? Object.values(localPKC.clients.kuboRpcClients)[0]._client
+                                : Object.keys(localPKC.clients.libp2pJsClients).length > 0
+                                  ? Object.values(localPKC.clients.libp2pJsClients)[0].heliaWithKuboRpcClientFunctions
                                   : undefined;
                         if (!p2pClient?.cat) {
                             throw new Error("Expected p2p client like kubo or helia RPC client with cat for this test");
@@ -65,15 +65,15 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     } else if (shouldMockFetchForIpns) {
                         fetchSpy = vi.spyOn(globalThis, "fetch");
                     }
-                    expect(localPlebbit._updatingComments.size()).to.equal(0);
+                    expect(localPKC._updatingComments.size()).to.equal(0);
 
                     const commentInstances = await Promise.all(
                         new Array(stressCount).fill(null).map(async () => {
-                            return localPlebbit.getComment({ cid: randomCid });
+                            return localPKC.getComment({ cid: randomCid });
                         })
                     );
 
-                    expect(localPlebbit._updatingComments.size()).to.equal(0);
+                    expect(localPKC._updatingComments.size()).to.equal(0);
 
                     const catOrFetchCallsCount = fetchSpy
                         ? fetchSpy.mock.calls.filter(([input]: [string | { url?: string }]) => {
@@ -89,13 +89,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 } finally {
                     if (catSpy) catSpy.mockRestore();
                     if (fetchSpy) fetchSpy.mockRestore();
-                    await localPlebbit.destroy();
+                    await localPKC.destroy();
                 }
             }
         );
 
         it("post props are loaded correctly", async () => {
-            const subplebbit = await plebbit.getSubplebbit({ address: subplebbitSigner.address });
+            const subplebbit = await plebbit.getCommunity({ address: subplebbitSigner.address });
             expect(subplebbit.lastPostCid).to.be.a("string"); // Part of setting up test-server.js to publish a test post
             const expectedPostProps = JSON.parse(await plebbit.fetchCid({ cid: subplebbit.lastPostCid }));
             const loadedPost = await plebbit.getComment({ cid: subplebbit.lastPostCid });
@@ -119,7 +119,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it("reply props are loaded correctly", async () => {
-            const subplebbit = await plebbit.getSubplebbit({ address: subplebbitSigner.address });
+            const subplebbit = await plebbit.getCommunity({ address: subplebbitSigner.address });
             const reply = subplebbit.posts.pages.hot.comments.find((comment) => comment.replies).replies.pages.best.comments[0];
             expect(reply).to.exist;
             const expectedReplyProps = JSON.parse(await plebbit.fetchCid({ cid: reply.cid }));
@@ -158,7 +158,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             // Use a byte-distinct payload so this test does not warm caches for later tests that reuse the raw fixture CID.
             const legacyCommentCid = await addStringToIpfs(JSON.stringify(validCommentFixture, null, 2));
             const loadedComment = await plebbit.getComment({ cid: legacyCommentCid });
-            const expectedPublicKey = getPlebbitAddressFromPublicKeySync(validCommentFixture.signature.publicKey);
+            const expectedPublicKey = getPKCAddressFromPublicKeySync(validCommentFixture.signature.publicKey);
 
             expect(loadedComment.author.publicKey).to.equal(expectedPublicKey);
             expect(loadedComment.author.name).to.be.undefined;
@@ -173,7 +173,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         it("loads a legacy comment fixture with domain wire author.address and computes runtime author.name", async () => {
             const legacyCommentCid = await addStringToIpfs(JSON.stringify(validCommentAuthorAddressDomainFixture));
             const loadedComment = await plebbit.getComment({ cid: legacyCommentCid });
-            const expectedPublicKey = getPlebbitAddressFromPublicKeySync(validCommentAuthorAddressDomainFixture.signature.publicKey);
+            const expectedPublicKey = getPKCAddressFromPublicKeySync(validCommentAuthorAddressDomainFixture.signature.publicKey);
 
             expect(loadedComment.author.publicKey).to.equal(expectedPublicKey);
             expect(loadedComment.author.name).to.equal("plebbit.eth");
@@ -203,7 +203,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             const cid = await addStringToIpfs(JSON.stringify(commentIpfsWithSignature));
             const loadedComment = await plebbit.getComment({ cid });
-            const expectedPublicKey = getPlebbitAddressFromPublicKeySync(signer.publicKey!);
+            const expectedPublicKey = getPKCAddressFromPublicKeySync(signer.publicKey!);
 
             expect(loadedComment.author.publicKey).to.equal(expectedPublicKey);
             expect(loadedComment.author.name).to.be.undefined;
@@ -228,7 +228,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             const cid = await addStringToIpfs(JSON.stringify(commentIpfsWithSignature));
             const loadedComment = await plebbit.getComment({ cid });
-            const expectedPublicKey = getPlebbitAddressFromPublicKeySync(signer.publicKey!);
+            const expectedPublicKey = getPKCAddressFromPublicKeySync(signer.publicKey!);
 
             expect(loadedComment.author.publicKey).to.equal(expectedPublicKey);
             expect(loadedComment.author.name).to.equal("plebbit.bso");
@@ -236,8 +236,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
         });
 
         it(`plebbit.getComment is not fetching comment updates in background after fulfilling its promise`, async () => {
-            const loadedSubplebbit = await plebbit.getSubplebbit({ address: subplebbitSigner.address });
-            const comment = await plebbit.getComment({ cid: loadedSubplebbit.posts.pages.hot.comments[0].cid });
+            const loadedCommunity = await plebbit.getCommunity({ address: subplebbitSigner.address });
+            const comment = await plebbit.getComment({ cid: loadedCommunity.posts.pages.hot.comments[0].cid });
             let updatedHasBeenCalled = false;
             const commentWithInternals = comment as unknown as CommentWithInternals;
             commentWithInternals.updateOnce = commentWithInternals._setUpdatingState = async () => {
@@ -257,20 +257,20 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await plebbit.getComment({ cid: commentIpfsInvalidSignatureCid });
                 expect.fail("should not succeed");
             } catch (e) {
-                expect((e as PlebbitError).code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
+                expect((e as PKCError).code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
             }
         });
 
         it(`plebbit.getComment should throw if CommentIpfs subplebbitAddress does not match the requested one`, async () => {
             const commentIpfsCid = await addStringToIpfs(JSON.stringify(validCommentFixture));
-            const expectedSubplebbitAddress = signers[1].address;
-            expect(expectedSubplebbitAddress).to.not.equal(validCommentFixture.subplebbitAddress);
+            const expectedCommunityAddress = signers[1].address;
+            expect(expectedCommunityAddress).to.not.equal(validCommentFixture.subplebbitAddress);
 
             try {
-                await plebbit.getComment({ cid: commentIpfsCid, communityAddress: expectedSubplebbitAddress });
+                await plebbit.getComment({ cid: commentIpfsCid, communityAddress: expectedCommunityAddress });
                 expect.fail("should not succeed");
             } catch (e) {
-                const error = e as PlebbitError;
+                const error = e as PKCError;
                 expect(error.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
                 expect(error.details.commentIpfsValidation.reason).to.equal(messages.ERR_COMMENT_IPFS_COMMUNITY_ADDRESS_MISMATCH);
             }
@@ -293,21 +293,21 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
         itSkipIfRpc(`plebbit.getComment times out if commentCid does not exist`, async () => {
             const commentCid = "QmbSiusGgY4Uk5LdAe91bzLkBzidyKyKHRKwhXPDz7gGzx"; // random cid doesn't exist anywhere
-            const customPlebbit: Plebbit = await config.plebbitInstancePromise();
-            customPlebbit._timeouts["comment-ipfs"] = 100;
+            const customPKC: PKC = await config.plebbitInstancePromise();
+            customPKC._timeouts["comment-ipfs"] = 100;
             try {
-                await customPlebbit.getComment({ cid: commentCid });
+                await customPKC.getComment({ cid: commentCid });
                 expect.fail("should not succeed");
             } catch (e) {
-                const error = e as PlebbitError;
-                if (isPlebbitFetchingUsingGateways(customPlebbit)) {
+                const error = e as PKCError;
+                if (isPKCFetchingUsingGateways(customPKC)) {
                     expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMENT_IPFS_FROM_GATEWAYS");
-                    expect((error.details.gatewayToError as Record<string, PlebbitError>)["http://localhost:18080"].code).to.equal(
+                    expect((error.details.gatewayToError as Record<string, PKCError>)["http://localhost:18080"].code).to.equal(
                         "ERR_GATEWAY_TIMED_OUT_OR_ABORTED"
                     );
                 } else expect(error.code).to.equal("ERR_FETCH_CID_P2P_TIMEOUT");
             }
-            await customPlebbit.destroy();
+            await customPKC.destroy();
         });
     });
 });

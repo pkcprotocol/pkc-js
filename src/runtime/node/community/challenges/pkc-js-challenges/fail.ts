@@ -1,11 +1,11 @@
-// the purpose of this challenge is to always fail, can be used with SubplebbitChallenge.exclude to whitelist users
+// the purpose of this challenge is to always fail, can be used with CommunityChallenge.exclude to whitelist users
 
 import type {
     ChallengeFileInput,
     ChallengeInput,
     ChallengeResultInput,
     GetChallengeArgsInput,
-    SubplebbitChallengeSetting
+    CommunityChallengeSetting
 } from "../../../../../community/types.js";
 
 const optionInputs = <NonNullable<ChallengeFileInput["optionInputs"]>>[
@@ -33,7 +33,7 @@ const getChallenge = async ({ challengeSettings }: GetChallengeArgsInput): Promi
     };
 };
 
-function ChallengeFileFactory({ challengeSettings }: { challengeSettings: SubplebbitChallengeSetting }): ChallengeFileInput {
+function ChallengeFileFactory({ challengeSettings }: { challengeSettings: CommunityChallengeSetting }): ChallengeFileInput {
     return { getChallenge, optionInputs, type, description };
 }
 

@@ -27,7 +27,7 @@ export interface CommentModerationSignature extends JsonSignature {
 
 export type CommentModerationPubsubMessagePublication = z.infer<typeof CommentModerationPubsubMessagePublicationSchema>;
 
-export interface CommentModerationPubsubMessagePublicationWithSubplebbitAuthor extends CommentModerationPubsubMessagePublication {
+export interface CommentModerationPubsubMessagePublicationWithCommunityAuthor extends CommentModerationPubsubMessagePublication {
     author: RuntimeAuthorWithCommentUpdateType;
 }
 

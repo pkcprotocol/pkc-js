@@ -2,13 +2,13 @@
 // comments with pendingApproval should not show up in comment.replies, post.replies, subplebbit.posts
 
 import {
-    mockPlebbit,
+    mockPKC,
     publishWithExpectedResult,
     processAllCommentsRecursively,
     resolveWhenConditionIsTrue,
     loadAllPages,
     getCommentWithCommentUpdateProps,
-    mockGatewayPlebbit,
+    mockGatewayPKC,
     publishRandomPost,
     forceLocalSubPagesToAlwaysGenerateMultipleChunks,
     publishToModQueueWithDepth,
@@ -20,10 +20,10 @@ import {
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit as PlebbitType } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
-import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../../dist/node/community/rpc-local-community.js";
+import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
 import type { SignerType } from "../../../../dist/node/signer/types.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 import type { DecryptedChallengeVerificationMessageType } from "../../../../dist/node/pubsub-messages/types.js";
@@ -34,16 +34,16 @@ const pendingApprovalCommentProps = { challengeRequest: { challengeAnswers: ["pe
 for (const commentInPendingApprovalDepth of depthsToTest) {
     // made it sequential because maybe it can stop failing in CI
     describeSkipIfRpc.sequential(`Pending approval of comments with depth ` + commentInPendingApprovalDepth, async () => {
-        let plebbit: PlebbitType;
-        let remotePlebbit: PlebbitType;
+        let plebbit: PKCType;
+        let remotePKC: PKCType;
         let commentInPendingApproval: Comment;
         let modSigner: SignerType;
-        let subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+        let subplebbit: LocalCommunity | RpcLocalCommunity;
 
         beforeAll(async () => {
-            plebbit = await mockPlebbit();
-            remotePlebbit = await mockGatewayPlebbit();
-            subplebbit = (await plebbit.createSubplebbit()) as LocalSubplebbit | RpcLocalSubplebbit;
+            plebbit = await mockPKC();
+            remotePKC = await mockGatewayPKC();
+            subplebbit = (await plebbit.createCommunity()) as LocalCommunity | RpcLocalCommunity;
             subplebbit.setMaxListeners(100);
             modSigner = await plebbit.createSigner();
             await subplebbit.edit({
@@ -61,7 +61,7 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
         afterAll(async () => {
             await subplebbit.delete();
             await plebbit.destroy();
-            await remotePlebbit.destroy();
+            await remotePKC.destroy();
         });
 
         it.sequential("Should put failed comment in pending approval queue when challenge has pendingApproval: true", async () => {
@@ -71,7 +71,7 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
 
             const { comment, challengeVerification } = await publishToModQueueWithDepth({
                 subplebbit,
-                plebbit: remotePlebbit,
+                plebbit: remotePKC,
                 depth: commentInPendingApprovalDepth,
                 modCommentProps: { signer: modSigner },
                 commentProps: pendingApprovalCommentProps
@@ -131,7 +131,7 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
         it.sequential("pending approval comments do not affect number/postNumber for later approved posts", async () => {
             const approvedPost = await publishRandomPost({
                 communityAddress: subplebbit.address,
-                plebbit: remotePlebbit,
+                plebbit: remotePKC,
                 postProps: { signer: modSigner }
             });
             const approvedPostWithUpdate = await getCommentWithCommentUpdateProps({ cid: approvedPost.cid!, plebbit });

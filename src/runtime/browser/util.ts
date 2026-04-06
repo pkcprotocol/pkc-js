@@ -2,7 +2,7 @@ import type { KuboRpcClient, NativeFunctions } from "../../types.js";
 import { default as browserNativeFunctions } from "./native-functions.js";
 import Logger from "../../logger.js";
 import { create as CreateKuboRpcClient } from "kubo-rpc-client";
-import { PlebbitError } from "../../pkc-error.js";
+import { PKCError } from "../../pkc-error.js";
 
 // Functions should not be called in browser
 export const getDefaultDataPath = () => undefined;
@@ -11,16 +11,16 @@ export const mkdir = () => {
     throw Error("mkdir should not be called in browser");
 };
 
-export const listSubplebbits = () => {
-    throw Error("listSubplebbits should not be called in browser");
+export const listCommunitys = () => {
+    throw Error("listCommunitys should not be called in browser");
 };
 
-export const listSubplebbitsSync = () => {
-    throw Error("listSubplebbitsSync should not be called in browser");
+export const listCommunitysSync = () => {
+    throw Error("listCommunitysSync should not be called in browser");
 };
 
-export const monitorSubplebbitsDirectory = () => {
-    throw Error("monitorSubplebbitsDirectory should not be called in browser");
+export const monitorCommunitysDirectory = () => {
+    throw Error("monitorCommunitysDirectory should not be called in browser");
 };
 
 export const trytoDeleteSubsThatFailedToBeDeletedBefore = () => {
@@ -46,7 +46,7 @@ export async function importSignerIntoKuboNode(ipnsKeyName: string, ipfsKey: Uin
     });
 
     if (res.status !== 200)
-        throw new PlebbitError("ERR_FAILED_TO_IMPORT_IPFS_KEY", { url, status: res.status, statusText: res.statusText, ipnsKeyName });
+        throw new PKCError("ERR_FAILED_TO_IMPORT_IPFS_KEY", { url, status: res.status, statusText: res.statusText, ipnsKeyName });
     const resJson = (await res.json()) as { Id: string; Name: string };
 
     return { id: resJson.Id, name: resJson.Name };

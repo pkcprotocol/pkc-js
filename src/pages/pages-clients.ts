@@ -8,4 +8,4 @@ export class PagesKuboRpcClient extends GenericStateClient<PagesGatewayState> {}
 
 export class PagesLibp2pJsClient extends GenericStateClient<PagesGatewayState> {}
 
-export class PagesPlebbitRpcStateClient extends GenericStateClient<PagesGatewayState> {}
+export class PagesPKCRpcStateClient extends GenericStateClient<PagesGatewayState> {}

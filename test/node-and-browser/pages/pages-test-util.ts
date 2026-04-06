@@ -1,15 +1,15 @@
 import { loadAllUniqueCommentsUnderCommentInstance } from "../../../dist/node/test/test-util.js";
 import { TIMEFRAMES_TO_SECONDS, POSTS_SORT_TYPES, POST_REPLIES_SORT_TYPES } from "../../../dist/node/pages/util.js";
 import signers from "../../fixtures/signers.js";
-import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
-import type { RemoteSubplebbit } from "../../../dist/node/community/remote-community.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
+import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 import type { CommentWithinRepliesPostsPageJson } from "../../../dist/node/publications/comment/types.js";
 
-const defaultSubplebbitAddress = signers[0].address;
+const defaultCommunityAddress = signers[0].address;
 
 export const testCommentFieldsInPageJson = (
     comment: CommentWithinRepliesPostsPageJson,
-    expectedSubplebbitAddress: string = defaultSubplebbitAddress
+    expectedCommunityAddress: string = defaultCommunityAddress
 ) => {
     if (!comment.link && !comment.content && !comment.title) expect.fail("Comment should either have link, content or title defined");
     expect(comment.author.address).to.be.a("string");
@@ -30,7 +30,7 @@ export const testCommentFieldsInPageJson = (
     expect(comment.childCount).to.be.a("number");
 
     expect(comment.signature).to.be.a("object");
-    expect(comment.communityAddress).to.equal(expectedSubplebbitAddress);
+    expect(comment.communityAddress).to.equal(expectedCommunityAddress);
     expect(comment.timestamp).to.be.a("number");
 
     // Verify CommentUpdate fields
@@ -117,7 +117,7 @@ export const testCommentFieldsInModQueuePageJson = (comment: Record<string, any>
     expect(comment.pendingApproval).to.be.true;
 };
 
-const activeScore = async (comment: CommentWithinRepliesPostsPageJson, plebbit: Plebbit): Promise<number> => {
+const activeScore = async (comment: CommentWithinRepliesPostsPageJson, plebbit: PKC): Promise<number> => {
     if (!comment.replies) return comment.timestamp;
     let maxTimestamp = comment.timestamp;
 
@@ -144,16 +144,16 @@ const activeScore = async (comment: CommentWithinRepliesPostsPageJson, plebbit: 
 export const testPageCommentsIfSortedCorrectly = async (
     sortedComments: CommentWithinRepliesPostsPageJson[],
     sortName: string,
-    subplebbit: RemoteSubplebbit
+    subplebbit: RemoteCommunity
 ) => {
     const currentTimeframe = Object.keys(TIMEFRAMES_TO_SECONDS).filter((timeframe: string) =>
         sortName.toLowerCase().includes(timeframe.toLowerCase())
     )[0];
-    const expectedSubplebbitAddress = subplebbit?.address || defaultSubplebbitAddress;
+    const expectedCommunityAddress = subplebbit?.address || defaultCommunityAddress;
 
     for (let j = 0; j < sortedComments.length - 1; j++) {
         // Check if timestamp is within [timestamp() - timeframe, subplebbit.updatedAt]
-        testCommentFieldsInPageJson(sortedComments[j], expectedSubplebbitAddress);
+        testCommentFieldsInPageJson(sortedComments[j], expectedCommunityAddress);
         if (currentTimeframe && !sortedComments[j].pinned && currentTimeframe !== "ALL") {
             const syncIntervalSeconds = 5 * 60;
 

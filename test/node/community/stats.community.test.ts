@@ -2,7 +2,7 @@ import assert from "assert";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import { TIMEFRAMES_TO_SECONDS } from "../../../dist/node/pages/util.js";
 import { describe, it, beforeEach, afterEach } from "vitest";
-import type { SubplebbitStats } from "../../../dist/node/community/types.js";
+import type { CommunityStats } from "../../../dist/node/community/types.js";
 import type {
     CommentsTableRow,
     CommentsTableRowInsert,
@@ -14,7 +14,7 @@ import signers from "../../fixtures/signers.js";
 const PROTOCOL_VERSION = "1.0.0";
 const BUFFER_SECONDS = 60;
 
-const activeUserCountKeys: (keyof SubplebbitStats)[] = [
+const activeUserCountKeys: (keyof CommunityStats)[] = [
     "allActiveUserCount",
     "yearActiveUserCount",
     "monthActiveUserCount",
@@ -23,7 +23,7 @@ const activeUserCountKeys: (keyof SubplebbitStats)[] = [
     "hourActiveUserCount"
 ];
 
-const replyCountKeys: (keyof SubplebbitStats)[] = [
+const replyCountKeys: (keyof CommunityStats)[] = [
     "allReplyCount",
     "yearReplyCount",
     "monthReplyCount",
@@ -32,7 +32,7 @@ const replyCountKeys: (keyof SubplebbitStats)[] = [
     "hourReplyCount"
 ];
 
-const postCountKeys: (keyof SubplebbitStats)[] = [
+const postCountKeys: (keyof CommunityStats)[] = [
     "allPostCount",
     "yearPostCount",
     "monthPostCount",
@@ -76,9 +76,9 @@ function createMockEdit(comment: InsertedComment, subAddress: string, deleted: b
 
 async function createTestDbHandler(): Promise<{ dbHandler: DbHandler; communityAddress: string }> {
     const subplebbitAddress = `test-sub-${Date.now()}-${Math.random()}`;
-    const fakePlebbit = { noData: true };
-    const fakeSubplebbit = { address: subplebbitAddress, _plebbit: fakePlebbit };
-    const handler = new DbHandler(fakeSubplebbit as DbHandler extends { _subplebbit: infer T } ? T : never);
+    const fakePKC = { noData: true };
+    const fakeCommunity = { address: subplebbitAddress, _plebbit: fakePKC };
+    const handler = new DbHandler(fakeCommunity as DbHandler extends { _subplebbit: infer T } ? T : never);
     await handler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
     await handler.createOrMigrateTablesIfNeeded();
     return { dbHandler: handler, communityAddress: subplebbitAddress };
@@ -97,9 +97,9 @@ describe(`subplebbit.statsCid`, function () {
         return Math.floor(Date.now() / 1000);
     }
 
-    function queryStats(): SubplebbitStats {
+    function queryStats(): CommunityStats {
         assert(dbHandler, "DbHandler not initialised");
-        return dbHandler.querySubplebbitStats();
+        return dbHandler.queryCommunityStats();
     }
 
     function insertComment({
@@ -251,7 +251,7 @@ describe(`subplebbit.statsCid`, function () {
         ]);
     }
 
-    function expectDelta(keys: (keyof SubplebbitStats)[], before: SubplebbitStats, after: SubplebbitStats, delta: number): void {
+    function expectDelta(keys: (keyof CommunityStats)[], before: CommunityStats, after: CommunityStats, delta: number): void {
         keys.forEach((key) => expect(after[key]).to.equal(before[key] + delta));
     }
 

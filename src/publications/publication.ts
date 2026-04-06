@@ -22,7 +22,7 @@ import type {
 import type { AuthorPubsubJsonType, CreatePublicationOptions, IpfsHttpClientPubsubMessage, PublicationTypeName } from "../types.js";
 import Logger from "../logger.js";
 import env from "../version.js";
-import { Plebbit } from "../pkc/pkc.js";
+import { PKC } from "../pkc/pkc.js";
 import {
     cleanUpBeforePublishing,
     signChallengeAnswer,
@@ -33,18 +33,18 @@ import {
 import { deepMergeRuntimeFields, hideClassPrivateProps, isStringDomain, shortifyAddress, timestamp } from "../util.js";
 import { TypedEmitter } from "tiny-typed-emitter";
 import { Comment } from "./comment/comment.js";
-import { PlebbitError } from "../pkc-error.js";
-import { getBufferedPlebbitAddressFromPublicKey } from "../signer/util.js";
+import { PKCError } from "../pkc-error.js";
+import { getBufferedPKCAddressFromPublicKey } from "../signer/util.js";
 import * as cborg from "cborg";
 import * as remeda from "remeda";
-import type { SubplebbitIpfsType } from "../community/types.js";
-import { findStartedSubplebbit, findUpdatingSubplebbit } from "../pkc/tracked-instance-registry-util.js";
+import type { CommunityIpfsType } from "../community/types.js";
+import { findStartedCommunity, findUpdatingCommunity } from "../pkc/tracked-instance-registry-util.js";
 import type { CommentIpfsType } from "./comment/types.js";
 import {
-    parseDecryptedChallengeAnswerWithPlebbitErrorIfItFails,
+    parseDecryptedChallengeAnswerWithPKCErrorIfItFails,
     parseDecryptedChallengeVerification,
-    parseDecryptedChallengeWithPlebbitErrorIfItFails,
-    parseJsonWithPlebbitErrorIfFails
+    parseDecryptedChallengeWithPKCErrorIfItFails,
+    parseJsonWithPKCErrorIfFails
 } from "../schema/schema-util.js";
 import {
     ChallengeRequestMessageSchema,
@@ -67,11 +67,11 @@ import type {
     PublicationState
 } from "./types.js";
 import type { SignerType } from "../signer/types.js";
-import PlebbitRpcClient from "../clients/rpc-client/pkc-rpc-client.js";
+import PKCRpcClient from "../clients/rpc-client/pkc-rpc-client.js";
 import { PublicationClientsManager } from "./publication-client-manager.js";
-import { LocalSubplebbit } from "../runtime/node/community/local-community.js";
+import { LocalCommunity } from "../runtime/node/community/local-community.js";
 import { buildRuntimeAuthor } from "./publication-author.js";
-import { buildRuntimeCommunityFields, normalizeCommunityInputFromSubplebbit } from "./publication-community.js";
+import { buildRuntimeCommunityFields, normalizeCommunityInputFromCommunity } from "./publication-community.js";
 
 class Publication extends TypedEmitter<PublicationEvents> {
     // Only publication props
@@ -102,10 +102,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
         address: string;
         publicKey: string;
         name?: string;
-        encryption: SubplebbitIpfsType["encryption"];
-        pubsubTopic?: SubplebbitIpfsType["pubsubTopic"];
+        encryption: CommunityIpfsType["encryption"];
+        pubsubTopic?: CommunityIpfsType["pubsubTopic"];
     } = undefined; // will be used for publishing
-    _publishingToLocalSubplebbit?: LocalSubplebbit;
+    _publishingToLocalCommunity?: LocalCommunity;
 
     _challengeExchanges: Record<
         string, // challengeRequestId stringified
@@ -126,9 +126,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
     private _setProviderFailureThresholdSeconds: number;
     private _rpcPublishSubscriptionId?: number = undefined;
     _clientsManager!: PublicationClientsManager;
-    _plebbit: Plebbit;
+    _plebbit: PKC;
 
-    constructor(plebbit: Plebbit) {
+    constructor(plebbit: PKC) {
         super();
         this._plebbit = plebbit;
         this._updatePublishingStateWithEmission("stopped");
@@ -232,7 +232,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
     async _signPublicationWithCommunityFields() {
         if (!this._community) throw Error("Community must be loaded before signing");
-        const communityFields = normalizeCommunityInputFromSubplebbit({ communityInstance: this._community });
+        const communityFields = normalizeCommunityInputFromCommunity({ communityInstance: this._community });
 
         await this._signPublication({ communityFields });
     }
@@ -306,7 +306,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             validateTimestampRange: true
         });
         if (!challengeMsgValidity.valid) {
-            const error = new PlebbitError("ERR_CHALLENGE_SIGNATURE_IS_INVALID", {
+            const error = new PKCError("ERR_CHALLENGE_SIGNATURE_IS_INVALID", {
                 pubsubMsg: msg,
                 reason: challengeMsgValidity.reason
             });
@@ -329,7 +329,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         try {
             decryptedRawString = await decryptEd25519AesGcm(msg.encrypted, pubsubSigner.privateKey, this._community!.encryption.publicKey);
         } catch (e) {
-            const plebbitError = new PlebbitError("ERR_PUBLICATION_FAILED_TO_DECRYPT_CHALLENGE", { decryptErr: e });
+            const plebbitError = new PKCError("ERR_PUBLICATION_FAILED_TO_DECRYPT_CHALLENGE", { decryptErr: e });
             log.error("could not decrypt challengemessage.encrypted", plebbitError.toString());
             this._changePublicationStateEmitEventEmitStateChangeEvent({
                 newPublishingState: "failed",
@@ -341,12 +341,12 @@ class Publication extends TypedEmitter<PublicationEvents> {
         let decryptedJson: any;
 
         try {
-            decryptedJson = await parseJsonWithPlebbitErrorIfFails(decryptedRawString);
+            decryptedJson = await parseJsonWithPKCErrorIfFails(decryptedRawString);
         } catch (e) {
             log.error("could not parse decrypted challengemessage.encrypted as a json", String(e));
             this._changePublicationStateEmitEventEmitStateChangeEvent({
                 newPublishingState: "failed",
-                event: { name: "error", args: [<PlebbitError>e] }
+                event: { name: "error", args: [<PKCError>e] }
             });
             return;
         }
@@ -354,12 +354,12 @@ class Publication extends TypedEmitter<PublicationEvents> {
         let decryptedChallenge: DecryptedChallenge;
 
         try {
-            decryptedChallenge = parseDecryptedChallengeWithPlebbitErrorIfItFails(decryptedJson);
+            decryptedChallenge = parseDecryptedChallengeWithPKCErrorIfItFails(decryptedJson);
         } catch (e) {
             log.error("could not parse z challengemessage.encrypted as a json", String(e));
             this._changePublicationStateEmitEventEmitStateChangeEvent({
                 newPublishingState: "failed",
-                event: { name: "error", args: [<PlebbitError>e] }
+                event: { name: "error", args: [<PKCError>e] }
             });
             return;
         }
@@ -387,7 +387,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             validateTimestampRange: true
         });
         if (!signatureValidation.valid) {
-            const error = new PlebbitError("ERR_CHALLENGE_VERIFICATION_SIGNATURE_IS_INVALID", {
+            const error = new PKCError("ERR_CHALLENGE_VERIFICATION_SIGNATURE_IS_INVALID", {
                 pubsubMsg: msg,
                 reason: signatureValidation.reason
             });
@@ -415,7 +415,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                         this._community!.encryption.publicKey
                     );
                 } catch (e) {
-                    const plebbitError = new PlebbitError("ERR_INVALID_CHALLENGE_VERIFICATION_DECRYPTED_SCHEMA", {
+                    const plebbitError = new PKCError("ERR_INVALID_CHALLENGE_VERIFICATION_DECRYPTED_SCHEMA", {
                         decryptErr: e,
                         challenegVerificationMsg: msg
                     });
@@ -427,10 +427,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 let decryptedJson: any;
 
                 try {
-                    decryptedJson = await parseJsonWithPlebbitErrorIfFails(decryptedRawString);
+                    decryptedJson = await parseJsonWithPKCErrorIfFails(decryptedRawString);
                 } catch (e) {
                     log.error("could not parse decrypted challengeverification.encrypted as a json", e);
-                    this.emit("error", <PlebbitError>e);
+                    this.emit("error", <PKCError>e);
                     return;
                 }
 
@@ -438,7 +438,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     decryptedChallengeVerification = parseDecryptedChallengeVerification(decryptedJson);
                 } catch (e) {
                     log.error("could not parse challengeverification.encrypted due to invalid schema", e);
-                    this.emit("error", <PlebbitError>e);
+                    this.emit("error", <PKCError>e);
                     return;
                 }
 
@@ -528,7 +528,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     private _updatePubsubState(pubsubState: Publication["clients"]["pubsubKuboRpcClients"][string]["state"], keyOrUrl: string) {
-        if (this._publishingToLocalSubplebbit) return; // there's no pubsub for local subplebbit
+        if (this._publishingToLocalCommunity) return; // there's no pubsub for local subplebbit
         const kuboOrHelia = this._clientsManager.getDefaultPubsubKuboRpcClientOrHelia();
         if ("_helia" in kuboOrHelia) this._clientsManager.updateLibp2pJsClientState(pubsubState, keyOrUrl);
         else this._clientsManager.updateKuboRpcPubsubState(pubsubState, keyOrUrl);
@@ -537,7 +537,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
     async publishChallengeAnswers(challengeAnswers: DecryptedChallengeAnswerMessageType["challengeAnswers"]) {
         const log = Logger("pkc-js:publication:publishChallengeAnswers");
 
-        const toEncryptAnswers = parseDecryptedChallengeAnswerWithPlebbitErrorIfItFails(<DecryptedChallengeAnswer>{
+        const toEncryptAnswers = parseDecryptedChallengeAnswerWithPKCErrorIfItFails(<DecryptedChallengeAnswer>{
             challengeAnswers: challengeAnswers
         });
 
@@ -582,12 +582,12 @@ class Publication extends TypedEmitter<PublicationEvents> {
         this._updatePublishingStateWithEmission("publishing-challenge-answer");
         this._updatePubsubState("publishing-challenge-answer", challengeExchange.providerUrl);
 
-        if (this._publishingToLocalSubplebbit) {
+        if (this._publishingToLocalCommunity) {
             try {
-                await this._publishingToLocalSubplebbit.handleChallengeAnswer(answerMsgToPublish);
+                await this._publishingToLocalCommunity.handleChallengeAnswer(answerMsgToPublish);
             } catch (e) {
                 this._challengeExchanges[challengeExchange.challengeRequest.challengeRequestId.toString()].challengeAnswerPublishError =
-                    e as Error | PlebbitError;
+                    e as Error | PKCError;
                 this._updatePublishingStateWithEmission("failed");
                 this._updatePubsubState("stopped", challengeExchange.providerUrl);
                 throw e;
@@ -601,7 +601,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 );
             } catch (e) {
                 this._challengeExchanges[challengeExchange.challengeRequest.challengeRequestId.toString()].challengeAnswerPublishError =
-                    e as Error | PlebbitError;
+                    e as Error | PKCError;
                 this._updatePublishingStateWithEmission("failed");
                 this._updatePubsubState("stopped", challengeExchange.providerUrl);
                 throw e;
@@ -630,19 +630,19 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
     private _validatePublicationFields() {
         if (typeof this.timestamp !== "number" || this.timestamp < 0)
-            throw new PlebbitError("ERR_PUBLICATION_MISSING_FIELD", { type: this.getType, timestamp: this.timestamp });
+            throw new PKCError("ERR_PUBLICATION_MISSING_FIELD", { type: this.getType, timestamp: this.timestamp });
 
         if (typeof this.author?.address !== "string")
-            throw new PlebbitError("ERR_PUBLICATION_MISSING_FIELD", { type: this.getType(), authorAddress: this.author?.address });
+            throw new PKCError("ERR_PUBLICATION_MISSING_FIELD", { type: this.getType(), authorAddress: this.author?.address });
         if (typeof this.communityAddress !== "string")
-            throw new PlebbitError("ERR_PUBLICATION_MISSING_FIELD", { type: this.getType(), communityAddress: this.communityAddress });
+            throw new PKCError("ERR_PUBLICATION_MISSING_FIELD", { type: this.getType(), communityAddress: this.communityAddress });
     }
 
     private _validateSubFields() {
         if (typeof this._community?.encryption?.publicKey !== "string")
-            throw new PlebbitError("ERR_COMMUNITY_MISSING_FIELD", { subplebbitPublicKey: this._community?.encryption?.publicKey });
+            throw new PKCError("ERR_COMMUNITY_MISSING_FIELD", { subplebbitPublicKey: this._community?.encryption?.publicKey });
         if (typeof this._communityPubsubTopicWithFallback() !== "string")
-            throw new PlebbitError("ERR_COMMUNITY_MISSING_FIELD", {
+            throw new PKCError("ERR_COMMUNITY_MISSING_FIELD", {
                 pubsubTopic: this._community?.pubsubTopic,
                 address: this._community?.address
             });
@@ -708,8 +708,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
         const cached = this._plebbit._memCaches.subplebbitForPublishing.get(this.communityAddress, { allowStale: true });
         if (cached) return cached;
         const subInstance =
-            findUpdatingSubplebbit(this._plebbit, { address: this.communityAddress }) ||
-            findStartedSubplebbit(this._plebbit, { address: this.communityAddress });
+            findUpdatingCommunity(this._plebbit, { address: this.communityAddress }) ||
+            findStartedCommunity(this._plebbit, { address: this.communityAddress });
         const subIpfs = subInstance?.raw.subplebbitIpfs;
         if (subIpfs && subInstance.publicKey)
             return {
@@ -733,7 +733,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             if (!this._plebbit._memCaches.subplebbitForPublishing.has(this.communityAddress)) {
                 log("The cache of community is stale, we will use the cached and update in the background");
                 this._plebbit
-                    .getSubplebbit({ address: this.communityAddress })
+                    .getCommunity({ address: this.communityAddress })
                     .catch((e) => log.error("Failed to update cache of community", this.communityAddress, e));
             }
             return cachedCommunity;
@@ -851,15 +851,15 @@ class Publication extends TypedEmitter<PublicationEvents> {
             throw Error("Can't publish to RPC without publication.plebbit.plebbitRpcClient being defined");
         this._setStateWithEmission("publishing");
 
-        const pubNameToPublishFunction: Record<PublicationTypeName, PlebbitRpcClient["publishComment"]> = {
+        const pubNameToPublishFunction: Record<PublicationTypeName, PKCRpcClient["publishComment"]> = {
             comment: this._plebbit._plebbitRpcClient.publishComment,
             vote: this._plebbit._plebbitRpcClient.publishVote,
             commentEdit: this._plebbit._plebbitRpcClient.publishCommentEdit,
             commentModeration: this._plebbit._plebbitRpcClient.publishCommentModeration,
-            subplebbitEdit: this._plebbit._plebbitRpcClient.publishSubplebbitEdit
+            subplebbitEdit: this._plebbit._plebbitRpcClient.publishCommunityEdit
         };
 
-        // PlebbitRpcClient will take care of zod parsing for us
+        // PKCRpcClient will take care of zod parsing for us
         this._rpcPublishSubscriptionId = await pubNameToPublishFunction[this.getType()].bind(this._plebbit._plebbitRpcClient)(
             this.toJSONPubsubRequestToEncrypt()
         );
@@ -930,7 +930,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             this._community!.encryption.publicKey
         );
 
-        const challengeRequestId = await getBufferedPlebbitAddressFromPublicKey(pubsubMessageSigner.publicKey);
+        const challengeRequestId = await getBufferedPKCAddressFromPublicKey(pubsubMessageSigner.publicKey);
 
         const toSignMsg: Omit<ChallengeRequestMessageType, "signature"> = cleanUpBeforePublishing({
             type: "CHALLENGEREQUEST",
@@ -1011,7 +1011,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             // plebbit-js tried all providers and still no response is received
             log.error(`Failed to receive any response for publication`, this.getType());
             await this._postSucessOrFailurePublishing();
-            const error = new PlebbitError("ERR_PUBSUB_DID_NOT_RECEIVE_RESPONSE_AFTER_PUBLISHING_CHALLENGE_REQUEST", {
+            const error = new PKCError("ERR_PUBSUB_DID_NOT_RECEIVE_RESPONSE_AFTER_PUBLISHING_CHALLENGE_REQUEST", {
                 challengeExchanges: this._challengeExchangesFormattedForErrors(),
                 publishToDifferentProviderThresholdSeconds: this._publishToDifferentProviderThresholdSeconds
             });
@@ -1059,7 +1059,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                         log.error("Failed to publish challenge request using provider ", providerUrl, e);
                         this._challengeExchanges[challengeRequest.challengeRequestId.toString()].challengeRequestPublishError = e as
                             | Error
-                            | PlebbitError;
+                            | PKCError;
                         continue;
                     } finally {
                         currentPubsubProviderIndex += 1;
@@ -1077,7 +1077,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 await new Promise((resolve) => setTimeout(resolve, this._setProviderFailureThresholdSeconds * 1000));
                 if (this._isAllAttemptsExhausted(providers.length)) {
                     await this._postSucessOrFailurePublishing();
-                    const allAttemptsFailedError = new PlebbitError("ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS", {
+                    const allAttemptsFailedError = new PKCError("ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS", {
                         challengeExchanges: this._challengeExchangesFormattedForErrors(),
                         pubsubTopic: this._communityPubsubTopicWithFallback()
                     });
@@ -1097,17 +1097,17 @@ class Publication extends TypedEmitter<PublicationEvents> {
             this.clients.libp2pJsClients && remeda.keys.strict(this.clients.libp2pJsClients).length > 0
                 ? remeda.keys.strict(this.clients.libp2pJsClients)
                 : remeda.keys.strict(this.clients.pubsubKuboRpcClients);
-        if (providers.length === 0) throw new PlebbitError("ERR_NO_PUBSUB_PROVIDERS_AVAILABLE_TO_PUBLISH_OVER_PUBSUB", { providers });
+        if (providers.length === 0) throw new PKCError("ERR_NO_PUBSUB_PROVIDERS_AVAILABLE_TO_PUBLISH_OVER_PUBSUB", { providers });
         if (providers.length === 1) providers.push(providers[0]); // Same provider should be retried twice if publishing fails
 
         return providers;
     }
 
-    private async _publishWithLocalSubplebbit(sub: LocalSubplebbit, challengeRequest: ChallengeRequestMessageType) {
-        this._publishingToLocalSubplebbit = sub;
-        const log = Logger("pkc-js:publication:publish:_publishWithLocalSubplebbit");
+    private async _publishWithLocalCommunity(sub: LocalCommunity, challengeRequest: ChallengeRequestMessageType) {
+        this._publishingToLocalCommunity = sub;
+        const log = Logger("pkc-js:publication:publish:_publishWithLocalCommunity");
         log(
-            "Sub is local, will not publish over pubsub, and instead will publish directly to the subplebbit by accessing plebbit._startedSubplebbits"
+            "Sub is local, will not publish over pubsub, and instead will publish directly to the subplebbit by accessing plebbit._startedCommunitys"
         );
 
         const subChallengeListener = async (challenge: DecryptedChallengeMessageType) => {
@@ -1147,7 +1147,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 log.error("Failed to handle challenge request with local subplebbit", e);
                 this._challengeExchanges[challengeRequest.challengeRequestId.toString()].challengeRequestPublishError = e as
                     | Error
-                    | PlebbitError;
+                    | PKCError;
                 throw e;
             })
             .finally(() => {
@@ -1176,10 +1176,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
         const options = { acceptedChallengeTypes: [] };
 
         const providers = this._getPubsubProviders();
-        const startedSubplebbit = findStartedSubplebbit(this._plebbit, { address: this.communityAddress }) as LocalSubplebbit | undefined;
-        if (startedSubplebbit) {
-            return this._publishWithLocalSubplebbit(
-                startedSubplebbit,
+        const startedCommunity = findStartedCommunity(this._plebbit, { address: this.communityAddress }) as LocalCommunity | undefined;
+        if (startedCommunity) {
+            return this._publishWithLocalCommunity(
+                startedCommunity,
                 await this._generateChallengeRequestToPublish(
                     "publishing directly to local subplebbit instance",
                     options.acceptedChallengeTypes
@@ -1211,10 +1211,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 currentPubsubProviderIndex += 1;
                 this._challengeExchanges[challengeRequest.challengeRequestId.toString()].challengeRequestPublishError = e as
                     | Error
-                    | PlebbitError;
+                    | PKCError;
                 if (this._isAllAttemptsExhausted(providers.length)) {
                     await this._postSucessOrFailurePublishing();
-                    const allAttemptsFailedError = new PlebbitError("ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS", {
+                    const allAttemptsFailedError = new PKCError("ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS", {
                         challengeExchanges: this._challengeExchangesFormattedForErrors(),
                         pubsubTopic: this._communityPubsubTopicWithFallback()
                     });

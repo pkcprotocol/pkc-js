@@ -5,17 +5,17 @@ import {
     expectDeferredUnsignedLocalPublication,
     expectEagerSignedLocalPublication
 } from "../community-fields-test-util.js";
-import { mockRemotePlebbit } from "../../../../dist/node/test/test-util.js";
+import { mockRemotePKC } from "../../../../dist/node/test/test-util.js";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 
 const VOTE_FIELDS = { extraSignedPropertyNames: ["commentCid", "vote"], extraFields: { commentCid: DUMMY_COMMENT_CID, vote: 1 } };
 
 describe("Vote - community fields", () => {
-    let plebbit: Plebbit;
+    let plebbit: PKC;
 
     beforeAll(async () => {
-        plebbit = await mockRemotePlebbit();
+        plebbit = await mockRemotePKC();
     });
 
     afterAll(async () => {

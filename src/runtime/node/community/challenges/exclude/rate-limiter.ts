@@ -1,10 +1,10 @@
 import QuickLRU from "quick-lru";
-import { isVote, isReply, isPost, isCommentEdit, isCommentModeration, isSubplebbitEdit, testPublicationType } from "./utils.js";
+import { isVote, isReply, isPost, isCommentEdit, isCommentModeration, isCommunityEdit, testPublicationType } from "./utils.js";
 import type {
-    DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor,
-    PublicationWithSubplebbitAuthorFromDecryptedChallengeRequest
+    DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
+    PublicationWithCommunityAuthorFromDecryptedChallengeRequest
 } from "../../../../../pubsub-messages/types.js";
-import type { ChallengeResult, Exclude, SubplebbitSettings } from "../../../../../community/types.js";
+import type { ChallengeResult, Exclude, CommunitySettings } from "../../../../../community/types.js";
 import * as limiterCompat from "limiter-es6-compat";
 import {
     derivePublicationFromChallengeRequest,
@@ -16,12 +16,12 @@ import {
 const { RateLimiter } = limiterCompat as any;
 type RateLimiterInstance = InstanceType<typeof RateLimiter>;
 
-type PublicationType = "post" | "reply" | "vote" | "commentEdit" | "commentModeration" | "subplebbitEdit";
+type PublicationType = "post" | "reply" | "vote" | "commentEdit" | "commentModeration" | "communityEdit";
 // each author could have 20+ rate limiters each if the sub has
 // several rate limit rules so keep a large cache
 const rateLimiters = new QuickLRU<string, RateLimiterInstance>({ maxSize: 50000 });
 
-const getPublicationType = (request: DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor): PublicationType | undefined =>
+const getPublicationType = (request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor): PublicationType | undefined =>
     isPost(request)
         ? "post"
         : isReply(request)
@@ -32,20 +32,20 @@ const getPublicationType = (request: DecryptedChallengeRequestMessageTypeWithSub
               ? "commentEdit"
               : isCommentModeration(request)
                 ? "commentModeration"
-                : isSubplebbitEdit(request)
-                  ? "subplebbitEdit"
+                : isCommunityEdit(request)
+                  ? "communityEdit"
                   : undefined;
 
 const getRateLimiterName = (
     exclude: Exclude,
-    publication: PublicationWithSubplebbitAuthorFromDecryptedChallengeRequest,
+    publication: PublicationWithCommunityAuthorFromDecryptedChallengeRequest,
     publicationType: PublicationType,
     challengeSuccess: ChallengeResult["success"]
 ) => `${publication.author.address}-${exclude.rateLimit}-${publicationType}-${challengeSuccess}`;
 
 const getOrCreateRateLimiter = (
     exclude: Exclude,
-    publication: PublicationWithSubplebbitAuthorFromDecryptedChallengeRequest,
+    publication: PublicationWithCommunityAuthorFromDecryptedChallengeRequest,
     publicationType: PublicationType,
     challengeSuccess: ChallengeResult["success"]
 ) => {
@@ -63,7 +63,7 @@ const getOrCreateRateLimiter = (
 
 const addFilteredRateLimiter = (
     exclude: Exclude,
-    publication: PublicationWithSubplebbitAuthorFromDecryptedChallengeRequest,
+    publication: PublicationWithCommunityAuthorFromDecryptedChallengeRequest,
     publicationType: PublicationType,
     challengeSuccess: ChallengeResult["success"],
     filteredRateLimiters: Record<string, RateLimiterInstance>
@@ -78,7 +78,7 @@ const addFilteredRateLimiter = (
 
 const getRateLimitersToTest = (
     exclude: Exclude,
-    request: DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor,
+    request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
     challengeSuccess: ChallengeResult["success"]
 ) => {
     // TODO I think we need to change this
@@ -96,7 +96,7 @@ const getRateLimitersToTest = (
     return filteredRateLimiters;
 };
 
-const testRateLimit = (exclude: Exclude, request: DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor) => {
+const testRateLimit = (exclude: Exclude, request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor) => {
     // will come back here later
 
     if (exclude?.rateLimit === undefined || !testPublicationType(exclude.publicationType, request)) {
@@ -123,7 +123,7 @@ const testRateLimit = (exclude: Exclude, request: DecryptedChallengeRequestMessa
 
 const getRateLimitersToAddTo = (
     excludeArray: Exclude[],
-    request: DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor,
+    request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
     challengeSuccess: ChallengeResult["success"]
 ) => {
     // get all rate limiters associated with the exclude (publication type and challengeSuccess true/false)
@@ -145,15 +145,15 @@ const getRateLimitersToAddTo = (
             addFilteredRateLimiter(exclude, publication, "commentModeration", challengeSuccess, filteredRateLimiters);
         }
         if (request.subplebbitEdit) {
-            addFilteredRateLimiter(exclude, publication, "subplebbitEdit", challengeSuccess, filteredRateLimiters);
+            addFilteredRateLimiter(exclude, publication, "communityEdit", challengeSuccess, filteredRateLimiters);
         }
     }
     return filteredRateLimiters;
 };
 
 const addToRateLimiter = (
-    subplebbitChallenges: NonNullable<SubplebbitSettings["challenges"]>,
-    request: DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor,
+    subplebbitChallenges: NonNullable<CommunitySettings["challenges"]>,
+    request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
     challengeSuccess: ChallengeResult["success"]
 ) => {
     if (!subplebbitChallenges) {

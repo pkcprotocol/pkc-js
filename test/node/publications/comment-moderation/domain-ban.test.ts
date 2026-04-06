@@ -5,15 +5,15 @@ import {
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
     createSubWithNoChallenge,
-    mockPlebbitV2,
+    mockPKCV2,
     describeSkipIfRpc
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { timestamp } from "../../../../dist/node/util.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
-import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/community/local-community.js";
+import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 import type { SignerType } from "../../../../dist/node/signer/types.js";
 
 // Tests for domain-based author bans
@@ -21,8 +21,8 @@ import type { SignerType } from "../../../../dist/node/signer/types.js";
 // we store both targetAuthorSignerAddress AND targetAuthorDomain
 // so that bans can be enforced by either public key OR domain
 
-async function createPlebbitWithMockResolver(records: Map<string, string | undefined>) {
-    return mockPlebbitV2({
+async function createPKCWithMockResolver(records: Map<string, string | undefined>) {
+    return mockPKCV2({
         stubStorage: false,
         mockResolve: false,
         plebbitOptions: {
@@ -32,15 +32,15 @@ async function createPlebbitWithMockResolver(records: Map<string, string | undef
 }
 
 describeSkipIfRpc("Domain-based author bans", () => {
-    let plebbit: Plebbit;
-    let subplebbit: LocalSubplebbit;
+    let plebbit: PKC;
+    let subplebbit: LocalCommunity;
     let moderatorSigner: SignerType;
     let resolverRecords: Map<string, string | undefined>;
 
     beforeAll(async () => {
         resolverRecords = new Map();
-        plebbit = await createPlebbitWithMockResolver(resolverRecords);
-        subplebbit = (await createSubWithNoChallenge({}, plebbit)) as LocalSubplebbit;
+        plebbit = await createPKCWithMockResolver(resolverRecords);
+        subplebbit = (await createSubWithNoChallenge({}, plebbit)) as LocalCommunity;
         await subplebbit.start();
         await resolveWhenConditionIsTrue({
             toUpdate: subplebbit,
@@ -228,8 +228,8 @@ describeSkipIfRpc("Domain-based author bans", () => {
 });
 
 describeSkipIfRpc("Domain bans with pseudonymity mode", () => {
-    let plebbit: Plebbit;
-    let subplebbit: LocalSubplebbit;
+    let plebbit: PKC;
+    let subplebbit: LocalCommunity;
     let moderatorSigner: SignerType;
     const testDomain = "pseudonymuser.bso";
     let domainAuthorSigner: SignerType;
@@ -237,8 +237,8 @@ describeSkipIfRpc("Domain bans with pseudonymity mode", () => {
 
     beforeAll(async () => {
         resolverRecords = new Map();
-        plebbit = await createPlebbitWithMockResolver(resolverRecords);
-        subplebbit = (await createSubWithNoChallenge({}, plebbit)) as LocalSubplebbit;
+        plebbit = await createPKCWithMockResolver(resolverRecords);
+        subplebbit = (await createSubWithNoChallenge({}, plebbit)) as LocalCommunity;
 
         // Enable per-post pseudonymity mode
         await subplebbit.edit({ features: { pseudonymityMode: "per-post" } });

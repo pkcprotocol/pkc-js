@@ -1,52 +1,52 @@
 import Logger from "../../logger.js";
 import { Client as WebSocketClient } from "rpc-websockets";
 import assert from "assert";
-import { PlebbitError } from "../../pkc-error.js";
+import { PKCError } from "../../pkc-error.js";
 import EventEmitter from "events";
 import pTimeout from "p-timeout";
 import { hideClassPrivateProps, replaceXWithY, resolveWhenPredicateIsTrue } from "../../util.js";
 import type {
-    CreateNewLocalSubplebbitUserOptions,
-    RpcInternalSubplebbitRecordBeforeFirstUpdateType,
-    SubplebbitEditOptions,
-    RpcLocalSubplebbitUpdateResultType
+    CreateNewLocalCommunityUserOptions,
+    RpcInternalCommunityRecordBeforeFirstUpdateType,
+    CommunityEditOptions,
+    RpcLocalCommunityUpdateResultType
 } from "../../community/types.js";
 import type { ModQueuePageIpfs, PageIpfs } from "../../pages/types.js";
 import type { PageRuntimeFields } from "../../pages/util.js";
 import { SubscriptionIdSchema } from "./schema.js";
 import type { DecryptedChallengeAnswer, DecryptedChallengeRequest } from "../../pubsub-messages/types.js";
-import type { PlebbitWsServerSettingsSerialized } from "../../rpc/src/types.js";
-import { parseSetNewSettingsPlebbitWsServerSchemaWithPlebbitErrorIfItFails } from "../../schema/schema-util.js";
+import type { PKCWsServerSettingsSerialized } from "../../rpc/src/types.js";
+import { parseSetNewSettingsPKCWsServerSchemaWithPKCErrorIfItFails } from "../../schema/schema-util.js";
 import { ZodError } from "zod";
 import type { CommentIpfsType } from "../../publications/comment/types.js";
-import { SetNewSettingsPlebbitWsServerSchema } from "../../rpc/src/schema.js";
+import { SetNewSettingsPKCWsServerSchema } from "../../rpc/src/schema.js";
 import * as z from "zod";
 import { TypedEmitter } from "tiny-typed-emitter";
-import type { PlebbitRpcClientEvents } from "../../types.js";
+import type { PKCRpcClientEvents } from "../../types.js";
 import type { RpcPublishResult } from "../../publications/types.js";
 import { messages } from "../../errors.js";
 import type {
-    SubplebbitAddressRpcParam,
-    SubplebbitLookupRpcParam,
+    CommunityAddressRpcParam,
+    CommunityLookupRpcParam,
     CidRpcParam,
     CommentPageRpcParam,
-    SubplebbitPageRpcParam
+    CommunityPageRpcParam
 } from "./types.js";
 import {
-    parseRpcSubplebbitAddressParam,
-    parseRpcSubplebbitLookupParam,
+    parseRpcCommunityAddressParam,
+    parseRpcCommunityLookupParam,
     parseRpcAuthorNameParam,
     parseRpcCidParam,
     parseRpcCommentRepliesPageParam,
-    parseRpcSubplebbitPageParam
+    parseRpcCommunityPageParam
 } from "./rpc-schema-util.js";
 
-const log = Logger("pkc-js:PlebbitRpcClient");
+const log = Logger("pkc-js:PKCRpcClient");
 
-export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvents> {
+export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     state: "stopped" | "connecting" | "failed" | "connected";
     subplebbits: string[];
-    settings?: PlebbitWsServerSettingsSerialized;
+    settings?: PKCWsServerSettingsSerialized;
 
     private _webSocketClient: WebSocketClient;
     private _websocketServerUrl: string;
@@ -57,7 +57,7 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
     private _destroyRequested: boolean;
     constructor(rpcServerUrl: string) {
         super();
-        assert(rpcServerUrl, "plebbit.plebbitRpcClientsOptions needs to be defined to create a new rpc client");
+        assert(rpcServerUrl, "plebbit.pkcRpcClientsOptions needs to be defined to create a new rpc client");
 
         this._websocketServerUrl = rpcServerUrl; // default to first for now. Will change later
         this._timeoutSeconds = 20;
@@ -85,7 +85,7 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
         this._destroyRequested = false;
     }
 
-    setState(newState: PlebbitRpcClient["state"]) {
+    setState(newState: PKCRpcClient["state"]) {
         if (newState === this.state) return;
         this.state = newState;
         this.emit("statechange", this.state);
@@ -111,7 +111,7 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
                 if (subscriptionId) {
                     this._initSubscriptionEvent(subscriptionId);
 
-                    // We need to parse error props into PlebbitErrors
+                    // We need to parse error props into PKCErrors
                     if (message?.params?.event === "error") {
                         message.params.result = this._deserializeRpcError(message.params.result);
                         delete (<any>message.params.result).stack; // Need to delete locally generated stack traces
@@ -126,7 +126,7 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
                 log("Connected to RPC server", this._websocketServerUrl);
                 this.setState("connected");
             });
-            // forward errors to Plebbit
+            // forward errors to PKC
             this._webSocketClient.on("error", (error) => {
                 lastWebsocketError = error;
                 if (this._destroyRequested) {
@@ -136,7 +136,7 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
                 // Detect HTTP 403 from server auth rejection
                 const errorMessage = typeof error?.message === "string" ? error.message : "";
                 if (errorMessage.includes("Unexpected server response: 403")) {
-                    lastWebsocketError = new PlebbitError("ERR_RPC_AUTH_REQUIRED", {
+                    lastWebsocketError = new PKCError("ERR_RPC_AUTH_REQUIRED", {
                         rpcServerUrl: this._websocketServerUrl
                     });
                     this._webSocketClient.setAutoReconnect(false);
@@ -153,7 +153,7 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
                 this.setState("stopped");
             });
 
-            // Process error JSON from server into a PlebbitError instance
+            // Process error JSON from server into a PKCError instance
             const originalWebsocketCall = this._webSocketClient.call.bind(this._webSocketClient);
 
             this._webSocketClient.call = async (...args) => {
@@ -161,8 +161,8 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
                     await this._init();
                     return await originalWebsocketCall(...args);
                 } catch (e) {
-                    const typedError = <PlebbitError | { code: number; message: string } | Error | ZodError>e;
-                    //e is an error json representation of PlebbitError
+                    const typedError = <PKCError | { code: number; message: string } | Error | ZodError>e;
+                    //e is an error json representation of PKCError
                     //@ts-expect-error
                     typedError.details = { ...typedError.details, rpcArgs: args, rpcServerUrl: this._websocketServerUrl };
 
@@ -178,7 +178,7 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
                     toUpdate: this,
                     predicate: () => {
                         if (this.state === "connected") return true;
-                        if (lastWebsocketError instanceof PlebbitError) throw lastWebsocketError;
+                        if (lastWebsocketError instanceof PKCError) throw lastWebsocketError;
                         return false;
                     },
                     eventName: "statechange"
@@ -196,9 +196,9 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
                 return;
             }
             const err =
-                e instanceof PlebbitError
+                e instanceof PKCError
                     ? e
-                    : new PlebbitError("ERR_FAILED_TO_OPEN_CONNECTION_TO_RPC", {
+                    : new PKCError("ERR_FAILED_TO_OPEN_CONNECTION_TO_RPC", {
                           timeoutSeconds: this._timeoutSeconds,
                           error: lastWebsocketError,
                           rpcServerUrl: this._websocketServerUrl
@@ -255,7 +255,7 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
         delete this._pendingSubscriptionMsgs[subscriptionId];
     }
 
-    private _deserializeRpcError(errorPayload: any): PlebbitError | Error {
+    private _deserializeRpcError(errorPayload: any): PKCError | Error {
         if (!errorPayload || typeof errorPayload !== "object") {
             const genericError = new Error("Received malformed RPC error payload");
             (<any>genericError).details = { rawError: errorPayload };
@@ -273,14 +273,14 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
             typeof message === "string" && message.length > 0 ? (message as string) : "RPC server returned an unknown error";
 
         if (hasValidCode) {
-            const plebbitError = new PlebbitError(code as keyof typeof messages, details);
+            const plebbitError = new PKCError(code as keyof typeof messages, details);
             this._setErrorName(plebbitError, name);
             this._assignAdditionalProps(plebbitError, rest);
             return plebbitError;
         }
 
-        if (typeof code === "string" && typeof name === "string" && name === "PlebbitError") {
-            const plebbitError = new PlebbitError("ERR_FAILED_TO_OPEN_CONNECTION_TO_RPC", details);
+        if (typeof code === "string" && typeof name === "string" && name === "PKCError") {
+            const plebbitError = new PKCError("ERR_FAILED_TO_OPEN_CONNECTION_TO_RPC", details);
             (<any>plebbitError).code = code;
             (<any>plebbitError).message = serverMessage;
             this._setErrorName(plebbitError, name);
@@ -296,7 +296,7 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
         return genericError;
     }
 
-    private _setErrorName(target: PlebbitError | Error, name?: unknown) {
+    private _setErrorName(target: PKCError | Error, name?: unknown) {
         if (typeof name !== "string" || name.length === 0 || target.name === name) return;
         const descriptor = Object.getOwnPropertyDescriptor(target, "name");
         try {
@@ -307,7 +307,7 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
         }
     }
 
-    private _assignAdditionalProps(target: PlebbitError | Error, rest: Record<string, unknown>) {
+    private _assignAdditionalProps(target: PKCError | Error, rest: Record<string, unknown>) {
         if (rest && Object.keys(rest).length > 0) Object.assign(target, rest);
     }
 
@@ -330,20 +330,18 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
         return result as { page: PageIpfs; runtimeFields?: PageRuntimeFields };
     }
 
-    async getSubplebbitPage(
-        page: SubplebbitPageRpcParam
-    ): Promise<{ page: PageIpfs | ModQueuePageIpfs; runtimeFields?: PageRuntimeFields }> {
-        const parsedGetSubplebbitPostsPage = parseRpcSubplebbitPageParam(page);
-        const result = await this._webSocketClient.call("getSubplebbitPage", [parsedGetSubplebbitPostsPage]);
+    async getCommunityPage(page: CommunityPageRpcParam): Promise<{ page: PageIpfs | ModQueuePageIpfs; runtimeFields?: PageRuntimeFields }> {
+        const parsedGetCommunityPostsPage = parseRpcCommunityPageParam(page);
+        const result = await this._webSocketClient.call("getCommunityPage", [parsedGetCommunityPostsPage]);
         return result as { page: PageIpfs | ModQueuePageIpfs; runtimeFields?: PageRuntimeFields };
     }
 
-    async createSubplebbit(
-        createSubplebbitOptions: CreateNewLocalSubplebbitUserOptions
-    ): Promise<RpcInternalSubplebbitRecordBeforeFirstUpdateType> {
+    async createCommunity(
+        createCommunityOptions: CreateNewLocalCommunityUserOptions
+    ): Promise<RpcInternalCommunityRecordBeforeFirstUpdateType> {
         // This is gonna create a new local sub. Not an instance of an existing sub
-        const subProps = <RpcInternalSubplebbitRecordBeforeFirstUpdateType>(
-            await this._webSocketClient.call("createSubplebbit", [createSubplebbitOptions])
+        const subProps = <RpcInternalCommunityRecordBeforeFirstUpdateType>(
+            await this._webSocketClient.call("createCommunity", [createCommunityOptions])
         );
         return subProps;
     }
@@ -353,41 +351,41 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
         if (!this._pendingSubscriptionMsgs[subscriptionId]) this._pendingSubscriptionMsgs[subscriptionId] = [];
     }
 
-    async startSubplebbit(subplebbitAddress: SubplebbitAddressRpcParam) {
-        const parsedStartSubplebbitArgs = parseRpcSubplebbitAddressParam(subplebbitAddress);
-        const subscriptionId = SubscriptionIdSchema.parse(await this._webSocketClient.call("startSubplebbit", [parsedStartSubplebbitArgs]));
+    async startCommunity(subplebbitAddress: CommunityAddressRpcParam) {
+        const parsedStartCommunityArgs = parseRpcCommunityAddressParam(subplebbitAddress);
+        const subscriptionId = SubscriptionIdSchema.parse(await this._webSocketClient.call("startCommunity", [parsedStartCommunityArgs]));
         this._initSubscriptionEvent(subscriptionId);
         return subscriptionId;
     }
 
-    async stopSubplebbit(subplebbitAddress: SubplebbitAddressRpcParam): Promise<void> {
-        const parsedStopSubplebbitArgs = parseRpcSubplebbitAddressParam(subplebbitAddress);
+    async stopCommunity(subplebbitAddress: CommunityAddressRpcParam): Promise<void> {
+        const parsedStopCommunityArgs = parseRpcCommunityAddressParam(subplebbitAddress);
 
-        const res = await this._webSocketClient.call("stopSubplebbit", [parsedStopSubplebbitArgs]);
+        const res = await this._webSocketClient.call("stopCommunity", [parsedStopCommunityArgs]);
         if (res !== true) throw Error("Calling RPC function should throw or return true");
     }
 
-    async editSubplebbit(
+    async editCommunity(
         subplebbitAddress: string,
-        subplebbitEditOptions: SubplebbitEditOptions
-    ): Promise<RpcLocalSubplebbitUpdateResultType> {
+        subplebbitEditOptions: CommunityEditOptions
+    ): Promise<RpcLocalCommunityUpdateResultType> {
         const propsAfterReplacing = replaceXWithY(subplebbitEditOptions, undefined, null);
-        const rawRes = <RpcLocalSubplebbitUpdateResultType>(
-            await this._webSocketClient.call("editSubplebbit", [{ address: subplebbitAddress, editOptions: propsAfterReplacing }])
+        const rawRes = <RpcLocalCommunityUpdateResultType>(
+            await this._webSocketClient.call("editCommunity", [{ address: subplebbitAddress, editOptions: propsAfterReplacing }])
         );
         return rawRes;
     }
 
-    async deleteSubplebbit(subplebbitAddress: SubplebbitAddressRpcParam) {
-        const parsedDeleteSubplebbitArgs = parseRpcSubplebbitAddressParam(subplebbitAddress);
-        const res = await this._webSocketClient.call("deleteSubplebbit", [parsedDeleteSubplebbitArgs]);
-        if (res !== true) throw Error("Calling RPC function deleteSubplebbit should either return true or throw");
+    async deleteCommunity(subplebbitAddress: CommunityAddressRpcParam) {
+        const parsedDeleteCommunityArgs = parseRpcCommunityAddressParam(subplebbitAddress);
+        const res = await this._webSocketClient.call("deleteCommunity", [parsedDeleteCommunityArgs]);
+        if (res !== true) throw Error("Calling RPC function deleteCommunity should either return true or throw");
     }
 
-    async subplebbitUpdateSubscribe(subplebbitAddress: SubplebbitLookupRpcParam): Promise<number> {
-        const parsedSubplebbitUpdateArgs = parseRpcSubplebbitLookupParam(subplebbitAddress);
+    async subplebbitUpdateSubscribe(subplebbitAddress: CommunityLookupRpcParam): Promise<number> {
+        const parsedCommunityUpdateArgs = parseRpcCommunityLookupParam(subplebbitAddress);
         const subscriptionId = SubscriptionIdSchema.parse(
-            await this._webSocketClient.call("subplebbitUpdateSubscribe", [parsedSubplebbitUpdateArgs])
+            await this._webSocketClient.call("subplebbitUpdateSubscribe", [parsedCommunityUpdateArgs])
         );
         this._initSubscriptionEvent(subscriptionId);
         return subscriptionId;
@@ -417,8 +415,8 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
         return publishRes;
     }
 
-    async publishSubplebbitEdit(subplebbitEdit: DecryptedChallengeRequest): Promise<RpcPublishResult> {
-        const publishRes = <RpcPublishResult>await this._webSocketClient.call("publishSubplebbitEdit", [subplebbitEdit]);
+    async publishCommunityEdit(subplebbitEdit: DecryptedChallengeRequest): Promise<RpcPublishResult> {
+        const publishRes = <RpcPublishResult>await this._webSocketClient.call("publishCommunityEdit", [subplebbitEdit]);
         this._initSubscriptionEvent(publishRes);
         return publishRes;
     }
@@ -439,7 +437,7 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
         return res;
     }
 
-    async resolveAuthorName(parsedAuthorAddress: SubplebbitAddressRpcParam) {
+    async resolveAuthorName(parsedAuthorAddress: CommunityAddressRpcParam) {
         const resolveAuthorAddressArgs = parseRpcAuthorNameParam(parsedAuthorAddress);
         const res = <{ resolvedAddress: string | null }>await this._webSocketClient.call("resolveAuthorName", [resolveAuthorAddressArgs]);
         if (typeof res?.resolvedAddress !== "string" && res?.resolvedAddress !== null)
@@ -447,7 +445,7 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
         return res.resolvedAddress;
     }
 
-    async initalizeSubplebbitschangeEvent() {
+    async initalizeCommunityschangeEvent() {
         const subscriptionId = SubscriptionIdSchema.parse(await this._webSocketClient.call("subplebbitsSubscribe", []));
         this._initSubscriptionEvent(subscriptionId);
         this.getSubscription(subscriptionId).on("subplebbitschange", (res) => {
@@ -460,7 +458,7 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
         const subscriptionId = SubscriptionIdSchema.parse(await this._webSocketClient.call("settingsSubscribe", []));
         this._initSubscriptionEvent(subscriptionId);
         this.getSubscription(subscriptionId).on("settingschange", (res) => {
-            this.emit("settingschange", <PlebbitWsServerSettingsSerialized>res.params.result);
+            this.emit("settingschange", <PKCWsServerSettingsSerialized>res.params.result);
         });
         this.emitAllPendingMessages(subscriptionId);
     }
@@ -472,8 +470,8 @@ export default class PlebbitRpcClient extends TypedEmitter<PlebbitRpcClientEvent
         return res.content;
     }
 
-    async setSettings(settings: z.input<typeof SetNewSettingsPlebbitWsServerSchema>) {
-        const parsedSettings = parseSetNewSettingsPlebbitWsServerSchemaWithPlebbitErrorIfItFails(settings);
+    async setSettings(settings: z.input<typeof SetNewSettingsPKCWsServerSchema>) {
+        const parsedSettings = parseSetNewSettingsPKCWsServerSchemaWithPKCErrorIfItFails(settings);
         const res = <boolean>await this._webSocketClient.call("setSettings", [parsedSettings]);
         if (res !== true) throw Error("Failed setSettings");
         return res;

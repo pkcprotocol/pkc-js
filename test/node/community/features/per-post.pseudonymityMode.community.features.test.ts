@@ -2,14 +2,14 @@ import { describe, it, beforeAll, afterAll } from "vitest";
 import {
     createSubWithNoChallenge,
     describeSkipIfRpc,
-    getAvailablePlebbitConfigsToTestAgainst,
-    mockPlebbit,
+    getAvailablePKCConfigsToTestAgainst,
+    mockPKC,
     publishRandomPost,
     publishRandomReply,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
-    forceSubplebbitToGenerateAllPostsPages,
-    waitTillPostInSubplebbitPages,
+    forceCommunityToGenerateAllPostsPages,
+    waitTillPostInCommunityPages,
     waitTillReplyInParentPages,
     waitTillReplyInParentPagesInstance
 } from "../../../../dist/node/test/test-util.js";
@@ -18,11 +18,11 @@ import { timestamp } from "../../../../dist/node/util.js";
 import { createSigner, SignerWithPublicKeyAddress } from "../../../../dist/node/signer/index.js";
 import { signComment } from "../../../../dist/node/signer/signatures.js";
 import signers from "../../../fixtures/signers.js";
-import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
-import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalSubplebbit } from "../../../../dist/node/community/rpc-local-community.js";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
-import type { DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor } from "../../../../dist/node/pubsub-messages/types.js";
+import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../../../../dist/node/pubsub-messages/types.js";
 import type {
     CommentPubsubMessagePublication,
     CommentIpfsWithCidDefined,
@@ -31,11 +31,11 @@ import type {
 } from "../../../../dist/node/publications/comment/types.js";
 import type { PseudonymityAliasRow } from "../../../../dist/node/runtime/node/community/db-handler-types.js";
 
-const remotePlebbitConfigs = getAvailablePlebbitConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true });
+const remotePKCConfigs = getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true });
 
 interface PerPostContext {
-    publisherPlebbit: Plebbit;
-    subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
+    publisherPKC: PKC;
+    subplebbit: LocalCommunity | RpcLocalCommunity;
     cleanup: () => Promise<void>;
     post?: Comment;
     reply?: Comment;
@@ -46,9 +46,9 @@ interface PerPostContext {
 }
 
 interface AnonymityTransitionContext {
-    subplebbit: LocalSubplebbit | RpcLocalSubplebbit;
-    dbHandler: LocalSubplebbit["_dbHandler"];
-    plebbit: Plebbit;
+    subplebbit: LocalCommunity | RpcLocalCommunity;
+    dbHandler: LocalCommunity["_dbHandler"];
+    plebbit: PKC;
     communityAddress: string;
     cleanup: () => Promise<void>;
 }
@@ -61,10 +61,10 @@ type StoredCommentUpdate = Pick<
 type StoredComment = Pick<CommentsTableRow, "cid" | "author" | "signature" | "parentCid" | "pseudonymityMode">;
 
 // Type to access private methods for testing purposes
-interface LocalSubplebbitWithPrivateMethods {
+interface LocalCommunityWithPrivateMethods {
     storePublication: (args: { comment: CommentPubsubMessagePublication }) => Promise<{ cid: string }>;
     initDbHandlerIfNeeded: () => Promise<void>;
-    _dbHandler: LocalSubplebbit["_dbHandler"];
+    _dbHandler: LocalCommunity["_dbHandler"];
 }
 
 describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
@@ -74,9 +74,9 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
         let otherSigner: SignerWithPublicKeyAddress;
 
         beforeAll(async () => {
-            context = await createPerPostSubplebbit();
-            authorSigner = await context.publisherPlebbit.createSigner();
-            otherSigner = await context.publisherPlebbit.createSigner();
+            context = await createPerPostCommunity();
+            authorSigner = await context.publisherPKC.createSigner();
+            otherSigner = await context.publisherPKC.createSigner();
         });
 
         afterAll(async () => {
@@ -86,24 +86,24 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
         it('Spec: sub re-signs comments with an anonymized author address when pseudonymityMode="per-post"', async () => {
             const post = await publishRandomPost({
                 communityAddress: context.subplebbit.address,
-                plebbit: context.publisherPlebbit,
+                plebbit: context.publisherPKC,
                 postProps: { signer: authorSigner }
             });
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, post);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, post);
 
-            const aliasRow = (context.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasByCommentCid(post.cid) as AliasRow;
+            const aliasRow = (context.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasByCommentCid(post.cid) as AliasRow;
             expect(aliasRow).to.exist;
             expect(aliasRow?.mode).to.equal("per-post");
             expect(aliasRow?.originalAuthorSignerPublicKey).to.equal(authorSigner.publicKey);
 
-            const aliasSigner = await context.publisherPlebbit.createSigner({ privateKey: aliasRow.aliasPrivateKey, type: "ed25519" });
-            const stored = (context.subplebbit as LocalSubplebbit)._dbHandler.queryComment(post.cid) as StoredComment;
+            const aliasSigner = await context.publisherPKC.createSigner({ privateKey: aliasRow.aliasPrivateKey, type: "ed25519" });
+            const stored = (context.subplebbit as LocalCommunity)._dbHandler.queryComment(post.cid) as StoredComment;
 
             expect(stored?.author?.address).to.be.undefined;
             expect(stored?.signature?.publicKey).to.equal(aliasSigner.publicKey);
             expect(stored?.signature?.publicKey).to.not.equal(authorSigner.publicKey);
             expect(stored?.pseudonymityMode).to.equal("per-post");
-            await expectCommentCidToUseAlias(context.publisherPlebbit, post.cid, aliasSigner);
+            await expectCommentCidToUseAlias(context.publisherPKC, post.cid, aliasSigner);
 
             // Verify raw.pubsubMessageToPublish has pre-pseudonymization data
             expect(post.raw.pubsubMessageToPublish?.signature?.publicKey).to.equal(authorSigner.publicKey);
@@ -119,36 +119,36 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
         });
 
         it("Spec: same signer maps to the same anonymized author address within a single post thread", async () => {
-            const threadSigner = await context.publisherPlebbit.createSigner();
+            const threadSigner = await context.publisherPKC.createSigner();
             const post = await publishRandomPost({
                 communityAddress: context.subplebbit.address,
-                plebbit: context.publisherPlebbit,
+                plebbit: context.publisherPKC,
                 postProps: { signer: threadSigner }
             });
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, post);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, post);
             const reply = await publishRandomReply({
                 parentComment: post as CommentIpfsWithCidDefined,
-                plebbit: context.publisherPlebbit,
+                plebbit: context.publisherPKC,
                 commentProps: { signer: threadSigner }
             });
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, reply);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, reply);
 
-            const aliasRow = (context.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasForPost(
+            const aliasRow = (context.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasForPost(
                 threadSigner.publicKey,
                 post.cid
             ) as AliasRow;
             expect(aliasRow).to.exist;
-            const aliasSigner = await context.publisherPlebbit.createSigner({ privateKey: aliasRow.aliasPrivateKey, type: "ed25519" });
+            const aliasSigner = await context.publisherPKC.createSigner({ privateKey: aliasRow.aliasPrivateKey, type: "ed25519" });
 
-            const storedPost = (context.subplebbit as LocalSubplebbit)._dbHandler.queryComment(post.cid) as StoredComment;
-            const storedReply = (context.subplebbit as LocalSubplebbit)._dbHandler.queryComment(reply.cid) as StoredComment;
+            const storedPost = (context.subplebbit as LocalCommunity)._dbHandler.queryComment(post.cid) as StoredComment;
+            const storedReply = (context.subplebbit as LocalCommunity)._dbHandler.queryComment(reply.cid) as StoredComment;
 
             [storedPost, storedReply].forEach((stored) => {
                 expect(stored?.author?.address).to.be.undefined;
                 expect(stored?.signature?.publicKey).to.equal(aliasSigner.publicKey);
             });
-            await expectCommentCidToUseAlias(context.publisherPlebbit, storedPost.cid, aliasSigner);
-            await expectCommentCidToUseAlias(context.publisherPlebbit, storedReply.cid, aliasSigner);
+            await expectCommentCidToUseAlias(context.publisherPKC, storedPost.cid, aliasSigner);
+            await expectCommentCidToUseAlias(context.publisherPKC, storedReply.cid, aliasSigner);
             expect(storedReply?.parentCid).to.equal(post.cid);
             await post.stop();
             await reply.stop();
@@ -157,33 +157,33 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
         it("Spec: two different signers never share the same anonymized author address within a single post thread", async () => {
             const post = await publishRandomPost({
                 communityAddress: context.subplebbit.address,
-                plebbit: context.publisherPlebbit,
+                plebbit: context.publisherPKC,
                 postProps: { signer: authorSigner }
             });
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, post);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, post);
 
             const replyFromAuthor = await publishRandomReply({
                 parentComment: post as CommentIpfsWithCidDefined,
-                plebbit: context.publisherPlebbit,
+                plebbit: context.publisherPKC,
                 commentProps: {
                     signer: authorSigner
                 }
             });
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, replyFromAuthor);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, replyFromAuthor);
             const replyFromOther = await publishRandomReply({
                 parentComment: post as CommentIpfsWithCidDefined,
-                plebbit: context.publisherPlebbit,
+                plebbit: context.publisherPKC,
                 commentProps: {
                     signer: otherSigner
                 }
             });
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, replyFromOther);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, replyFromOther);
 
-            const firstAlias = (context.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasForPost(
+            const firstAlias = (context.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasForPost(
                 authorSigner.publicKey,
                 post.cid
             ) as AliasRow;
-            const secondAlias = (context.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasForPost(
+            const secondAlias = (context.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasForPost(
                 otherSigner.publicKey,
                 post.cid
             ) as AliasRow;
@@ -191,33 +191,33 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
             expect(firstAlias).to.exist;
             expect(secondAlias).to.exist;
 
-            const firstAliasSigner = await context.publisherPlebbit.createSigner({
+            const firstAliasSigner = await context.publisherPKC.createSigner({
                 privateKey: firstAlias.aliasPrivateKey,
                 type: "ed25519"
             });
-            const secondAliasSigner = await context.publisherPlebbit.createSigner({
+            const secondAliasSigner = await context.publisherPKC.createSigner({
                 privateKey: secondAlias.aliasPrivateKey,
                 type: "ed25519"
             });
 
             expect(firstAliasSigner.address).to.not.equal(secondAliasSigner.address);
             expect(firstAlias.aliasPrivateKey).to.not.equal(secondAlias.aliasPrivateKey);
-            await expectCommentCidToUseAlias(context.publisherPlebbit, post.cid, firstAliasSigner);
-            await expectCommentCidToUseAlias(context.publisherPlebbit, replyFromAuthor.cid, firstAliasSigner);
-            await expectCommentCidToUseAlias(context.publisherPlebbit, replyFromOther.cid, secondAliasSigner);
+            await expectCommentCidToUseAlias(context.publisherPKC, post.cid, firstAliasSigner);
+            await expectCommentCidToUseAlias(context.publisherPKC, replyFromAuthor.cid, firstAliasSigner);
+            await expectCommentCidToUseAlias(context.publisherPKC, replyFromOther.cid, secondAliasSigner);
             await post.stop();
             await replyFromAuthor.stop();
             await replyFromOther.stop();
         });
 
         it("Spec: author.address domains resolve and are anonymized per post thread", async () => {
-            const domainSigner = await context.publisherPlebbit.createSigner(signers[3]);
+            const domainSigner = await context.publisherPKC.createSigner(signers[3]);
             const domainAddress = "plebbit.bso";
 
-            const resolvedAddress = await context.publisherPlebbit.resolveAuthorName({ address: domainAddress });
+            const resolvedAddress = await context.publisherPKC.resolveAuthorName({ address: domainAddress });
             expect(resolvedAddress).to.equal(domainSigner.address);
 
-            const domainPost = await context.publisherPlebbit.createComment({
+            const domainPost = await context.publisherPKC.createComment({
                 communityAddress: context.subplebbit.address,
                 signer: domainSigner,
                 author: { address: domainAddress, name: domainAddress, displayName: "Domain author" },
@@ -225,14 +225,14 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                 title: "Domain anonymization title " + Date.now()
             });
             await publishWithExpectedResult({ publication: domainPost, expectedChallengeSuccess: true });
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, domainPost);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, domainPost);
 
-            const aliasRow = (context.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasForPost(
+            const aliasRow = (context.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasForPost(
                 domainSigner.publicKey,
                 domainPost.cid
             ) as AliasRow;
             expect(aliasRow).to.exist;
-            const aliasSigner = await context.publisherPlebbit.createSigner({
+            const aliasSigner = await context.publisherPKC.createSigner({
                 privateKey: aliasRow.aliasPrivateKey,
                 type: "ed25519"
             });
@@ -242,7 +242,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                 predicate: async () => domainPost.author?.address === aliasSigner.address
             });
 
-            const stored = (context.subplebbit as LocalSubplebbit)._dbHandler.queryComment(domainPost.cid) as StoredComment;
+            const stored = (context.subplebbit as LocalCommunity)._dbHandler.queryComment(domainPost.cid) as StoredComment;
             expect(stored?.author?.address).to.be.undefined;
             expect(stored?.signature?.publicKey).to.equal(aliasSigner.publicKey);
             // Verify raw.pubsubMessageToPublish has pre-pseudonymization data
@@ -257,7 +257,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
             expect(domainPost.author.address).to.equal(aliasSigner.address);
             expect(domainPost.signature?.publicKey).to.equal(aliasSigner.publicKey);
 
-            await expectCommentCidToUseAlias(context.publisherPlebbit, domainPost.cid, aliasSigner);
+            await expectCommentCidToUseAlias(context.publisherPKC, domainPost.cid, aliasSigner);
 
             await domainPost.stop();
         });
@@ -265,22 +265,22 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
         it("Spec: same signer maps to a different anonymized author address across different posts", async () => {
             const firstPost = await publishRandomPost({
                 communityAddress: context.subplebbit.address,
-                plebbit: context.publisherPlebbit,
+                plebbit: context.publisherPKC,
                 postProps: { signer: authorSigner }
             });
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, firstPost);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, firstPost);
             const secondPost = await publishRandomPost({
                 communityAddress: context.subplebbit.address,
-                plebbit: context.publisherPlebbit,
+                plebbit: context.publisherPKC,
                 postProps: { signer: authorSigner }
             });
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, secondPost);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, secondPost);
 
-            const firstAlias = (context.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasForPost(
+            const firstAlias = (context.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasForPost(
                 authorSigner.publicKey,
                 firstPost.cid
             ) as AliasRow;
-            const secondAlias = (context.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasForPost(
+            const secondAlias = (context.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasForPost(
                 authorSigner.publicKey,
                 secondPost.cid
             ) as AliasRow;
@@ -288,46 +288,46 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
             expect(secondAlias).to.exist;
             expect(firstAlias.aliasPrivateKey).to.not.equal(secondAlias.aliasPrivateKey);
 
-            const firstAliasSigner = await context.publisherPlebbit.createSigner({
+            const firstAliasSigner = await context.publisherPKC.createSigner({
                 privateKey: firstAlias.aliasPrivateKey,
                 type: "ed25519"
             });
-            const secondAliasSigner = await context.publisherPlebbit.createSigner({
+            const secondAliasSigner = await context.publisherPKC.createSigner({
                 privateKey: secondAlias.aliasPrivateKey,
                 type: "ed25519"
             });
 
             expect(firstAliasSigner.address).to.not.equal(secondAliasSigner.address);
-            await expectCommentCidToUseAlias(context.publisherPlebbit, firstPost.cid, firstAliasSigner);
-            await expectCommentCidToUseAlias(context.publisherPlebbit, secondPost.cid, secondAliasSigner);
+            await expectCommentCidToUseAlias(context.publisherPKC, firstPost.cid, firstAliasSigner);
+            await expectCommentCidToUseAlias(context.publisherPKC, secondPost.cid, secondAliasSigner);
             await firstPost.stop();
             await secondPost.stop();
         });
 
         it("Spec: replies and edits under a post reuse that post's anonymized author mapping", async () => {
-            const threadSigner = await context.publisherPlebbit.createSigner();
+            const threadSigner = await context.publisherPKC.createSigner();
             const post = await publishRandomPost({
                 communityAddress: context.subplebbit.address,
-                plebbit: context.publisherPlebbit,
+                plebbit: context.publisherPKC,
                 postProps: { signer: threadSigner }
             });
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, post);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, post);
             const reply = await publishRandomReply({
                 parentComment: post as CommentIpfsWithCidDefined,
-                plebbit: context.publisherPlebbit,
+                plebbit: context.publisherPKC,
                 commentProps: { signer: threadSigner }
             });
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, reply);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, reply);
 
-            const aliasRow = (context.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasForPost(
+            const aliasRow = (context.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasForPost(
                 threadSigner.publicKey,
                 post.cid
             ) as AliasRow;
             expect(aliasRow).to.exist;
-            const aliasSigner = await context.publisherPlebbit.createSigner({ privateKey: aliasRow.aliasPrivateKey, type: "ed25519" });
+            const aliasSigner = await context.publisherPKC.createSigner({ privateKey: aliasRow.aliasPrivateKey, type: "ed25519" });
 
             const editedContent = "Edited content " + Date.now();
-            const edit = await context.publisherPlebbit.createCommentEdit({
+            const edit = await context.publisherPKC.createCommentEdit({
                 communityAddress: post.communityAddress,
                 commentCid: post.cid,
                 content: editedContent,
@@ -338,18 +338,18 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
             await resolveWhenConditionIsTrue({
                 toUpdate: context.subplebbit,
                 predicate: async () =>
-                    ((context.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({ cid: post.cid }) as StoredCommentUpdate)
+                    ((context.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({ cid: post.cid }) as StoredCommentUpdate)
                         ?.edit?.content === editedContent
             });
 
-            const storedPost = (context.subplebbit as LocalSubplebbit)._dbHandler.queryComment(post.cid) as StoredComment;
-            const storedReply = (context.subplebbit as LocalSubplebbit)._dbHandler.queryComment(reply.cid) as StoredComment;
+            const storedPost = (context.subplebbit as LocalCommunity)._dbHandler.queryComment(post.cid) as StoredComment;
+            const storedReply = (context.subplebbit as LocalCommunity)._dbHandler.queryComment(reply.cid) as StoredComment;
             expect(storedPost?.author?.address).to.be.undefined;
             expect(storedReply?.author?.address).to.be.undefined;
-            await expectCommentCidToUseAlias(context.publisherPlebbit, storedPost.cid, aliasSigner);
-            await expectCommentCidToUseAlias(context.publisherPlebbit, storedReply.cid, aliasSigner);
+            await expectCommentCidToUseAlias(context.publisherPKC, storedPost.cid, aliasSigner);
+            await expectCommentCidToUseAlias(context.publisherPKC, storedReply.cid, aliasSigner);
 
-            const storedUpdate = (context.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+            const storedUpdate = (context.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                 cid: post.cid
             }) as StoredCommentUpdate;
             expect(storedUpdate?.edit?.signature?.publicKey).to.equal(aliasSigner.publicKey);
@@ -380,55 +380,55 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
             };
             const noisyPost = await publishRandomPost({
                 communityAddress: context.subplebbit.address,
-                plebbit: context.publisherPlebbit,
+                plebbit: context.publisherPKC,
                 postProps: {
                     author: noisyAuthor,
                     signer: authorSigner
                 }
             });
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, noisyPost);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, noisyPost);
 
-            const aliasRow = (context.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasForPost(
+            const aliasRow = (context.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasForPost(
                 authorSigner.publicKey,
                 noisyPost.cid
             ) as AliasRow;
-            const aliasSigner = await context.publisherPlebbit.createSigner({ privateKey: aliasRow.aliasPrivateKey, type: "ed25519" });
+            const aliasSigner = await context.publisherPKC.createSigner({ privateKey: aliasRow.aliasPrivateKey, type: "ed25519" });
 
-            const stored = (context.subplebbit as LocalSubplebbit)._dbHandler.queryComment(noisyPost.cid) as StoredComment;
+            const stored = (context.subplebbit as LocalCommunity)._dbHandler.queryComment(noisyPost.cid) as StoredComment;
             expect(stored?.author).to.deep.equal({ displayName: noisyAuthor.displayName });
             expect(stored?.signature?.publicKey).to.equal(aliasSigner.publicKey);
-            await expectCommentCidToUseAlias(context.publisherPlebbit, noisyPost.cid, aliasSigner);
+            await expectCommentCidToUseAlias(context.publisherPKC, noisyPost.cid, aliasSigner);
             await noisyPost.stop();
         });
 
         it("Spec: anonymized publication omits author.previousCommentCid", async () => {
-            const chainAuthor = await context.publisherPlebbit.createSigner();
+            const chainAuthor = await context.publisherPKC.createSigner();
             const previousPost = await publishRandomPost({
                 communityAddress: context.subplebbit.address,
-                plebbit: context.publisherPlebbit,
+                plebbit: context.publisherPKC,
                 postProps: { signer: chainAuthor }
             });
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, previousPost);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, previousPost);
 
             const chainedPost = await publishRandomPost({
                 communityAddress: context.subplebbit.address,
-                plebbit: context.publisherPlebbit,
+                plebbit: context.publisherPKC,
                 postProps: {
                     signer: chainAuthor,
                     author: { previousCommentCid: previousPost.cid, address: chainAuthor.address }
                 }
             });
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, chainedPost);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, chainedPost);
 
-            const aliasRow = (context.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasForPost(
+            const aliasRow = (context.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasForPost(
                 chainAuthor.publicKey,
                 chainedPost.cid
             ) as AliasRow;
-            const aliasSigner = await context.publisherPlebbit.createSigner({ privateKey: aliasRow.aliasPrivateKey, type: "ed25519" });
-            const stored = (context.subplebbit as LocalSubplebbit)._dbHandler.queryComment(chainedPost.cid) as StoredComment;
+            const aliasSigner = await context.publisherPKC.createSigner({ privateKey: aliasRow.aliasPrivateKey, type: "ed25519" });
+            const stored = (context.subplebbit as LocalCommunity)._dbHandler.queryComment(chainedPost.cid) as StoredComment;
             expect(stored?.author?.previousCommentCid).to.be.undefined;
             expect(stored?.author?.address).to.be.undefined;
-            await expectCommentCidToUseAlias(context.publisherPlebbit, chainedPost.cid, aliasSigner);
+            await expectCommentCidToUseAlias(context.publisherPKC, chainedPost.cid, aliasSigner);
             await previousPost.stop();
             await chainedPost.stop();
         });
@@ -450,7 +450,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
             const originalContent = "Content before anonymization";
             const originalTitle = "Title before anonymization";
 
-            const authoredPost = await context.publisherPlebbit.createComment({
+            const authoredPost = await context.publisherPKC.createComment({
                 communityAddress: context.subplebbit.address,
                 signer: authorSigner,
                 author: originalAuthor,
@@ -459,14 +459,14 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
             });
             await publishWithExpectedResult({ publication: authoredPost, expectedChallengeSuccess: true });
             expect(authoredPost.raw.pubsubMessageToPublish).to.be.ok;
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, authoredPost);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, authoredPost);
 
-            const aliasRow = (context.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasForPost(
+            const aliasRow = (context.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasForPost(
                 authorSigner.publicKey,
                 authoredPost.cid
             ) as AliasRow;
             expect(aliasRow).to.exist;
-            const alias = await context.publisherPlebbit.createSigner({ privateKey: aliasRow.aliasPrivateKey, type: "ed25519" });
+            const alias = await context.publisherPKC.createSigner({ privateKey: aliasRow.aliasPrivateKey, type: "ed25519" });
             const rawPubsub = () => authoredPost.raw.pubsubMessageToPublish;
             const expectOriginalFields = () => {
                 expect(rawPubsub()?.author?.displayName).to.equal(originalAuthor.displayName);
@@ -477,10 +477,10 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                 expect(rawPubsub()?.signature?.publicKey).to.equal(authorSigner.publicKey);
             };
 
-            const stored = (context.subplebbit as LocalSubplebbit)._dbHandler.queryComment(authoredPost.cid) as StoredComment;
+            const stored = (context.subplebbit as LocalCommunity)._dbHandler.queryComment(authoredPost.cid) as StoredComment;
             expect(stored?.author?.address).to.be.undefined;
             expect(stored?.signature?.publicKey).to.equal(alias.publicKey);
-            await expectCommentCidToUseAlias(context.publisherPlebbit, authoredPost.cid, alias);
+            await expectCommentCidToUseAlias(context.publisherPKC, authoredPost.cid, alias);
             expectOriginalFields();
 
             // Verify raw.comment has alias (post-pseudonymization) data
@@ -505,23 +505,23 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
         });
 
         it("Spec: comment edit signed by original author is accepted and re-signed with anonymized author key", async () => {
-            const editSigner = await context.publisherPlebbit.createSigner();
+            const editSigner = await context.publisherPKC.createSigner();
             const editablePost = await publishRandomPost({
                 communityAddress: context.subplebbit.address,
-                plebbit: context.publisherPlebbit,
+                plebbit: context.publisherPKC,
                 postProps: { signer: editSigner }
             });
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, editablePost);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, editablePost);
 
-            const aliasRow = (context.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasForPost(
+            const aliasRow = (context.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasForPost(
                 editSigner.publicKey,
                 editablePost.cid
             ) as AliasRow;
             expect(aliasRow).to.exist;
-            const aliasSigner = await context.publisherPlebbit.createSigner({ privateKey: aliasRow.aliasPrivateKey, type: "ed25519" });
+            const aliasSigner = await context.publisherPKC.createSigner({ privateKey: aliasRow.aliasPrivateKey, type: "ed25519" });
 
             const editedContent = "Edited content - " + Date.now();
-            const edit = await context.publisherPlebbit.createCommentEdit({
+            const edit = await context.publisherPKC.createCommentEdit({
                 communityAddress: editablePost.communityAddress,
                 commentCid: editablePost.cid,
                 content: editedContent,
@@ -533,34 +533,34 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                 toUpdate: context.subplebbit,
                 predicate: async () =>
                     (
-                        (context.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                        (context.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                             cid: editablePost.cid
                         }) as StoredCommentUpdate
                     )?.edit?.content === editedContent
             });
 
-            const storedUpdate = (context.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+            const storedUpdate = (context.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                 cid: editablePost.cid
             }) as StoredCommentUpdate;
             expect(storedUpdate?.edit?.content).to.equal(editedContent);
             expect(storedUpdate?.edit?.signature?.publicKey).to.equal(aliasSigner.publicKey);
-            const storedComment = (context.subplebbit as LocalSubplebbit)._dbHandler.queryComment(editablePost.cid) as StoredComment;
+            const storedComment = (context.subplebbit as LocalCommunity)._dbHandler.queryComment(editablePost.cid) as StoredComment;
             expect(storedComment?.author?.address).to.be.undefined;
-            await expectCommentCidToUseAlias(context.publisherPlebbit, editablePost.cid, aliasSigner);
+            await expectCommentCidToUseAlias(context.publisherPKC, editablePost.cid, aliasSigner);
             await editablePost.stop();
         });
 
         it("Spec: comment edit is rejected when original author does not match stored anonymization mapping", async () => {
-            const ownerSigner = await context.publisherPlebbit.createSigner();
-            const intruderSigner = await context.publisherPlebbit.createSigner();
+            const ownerSigner = await context.publisherPKC.createSigner();
+            const intruderSigner = await context.publisherPKC.createSigner();
             const targetPost = await publishRandomPost({
                 communityAddress: context.subplebbit.address,
-                plebbit: context.publisherPlebbit,
+                plebbit: context.publisherPKC,
                 postProps: { signer: ownerSigner }
             });
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, targetPost);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, targetPost);
 
-            const badEdit = await context.publisherPlebbit.createCommentEdit({
+            const badEdit = await context.publisherPKC.createCommentEdit({
                 communityAddress: targetPost.communityAddress,
                 commentCid: targetPost.cid,
                 content: "Unauthorized edit " + Date.now(),
@@ -572,7 +572,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                 expectedReason: messages.ERR_COMMENT_EDIT_CAN_NOT_EDIT_COMMENT_IF_NOT_ORIGINAL_AUTHOR
             });
 
-            const storedUpdate = (context.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({ cid: targetPost.cid }) as
+            const storedUpdate = (context.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({ cid: targetPost.cid }) as
                 | StoredCommentUpdate
                 | undefined;
             expect(storedUpdate?.edit).to.be.undefined;
@@ -580,80 +580,80 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
         });
 
         it("Spec: anonymized comment.signature.publicKey differs from original author's signer publicKey", async () => {
-            const freshSigner = await context.publisherPlebbit.createSigner();
+            const freshSigner = await context.publisherPKC.createSigner();
             const post = await publishRandomPost({
                 communityAddress: context.subplebbit.address,
-                plebbit: context.publisherPlebbit,
+                plebbit: context.publisherPKC,
                 postProps: { signer: freshSigner }
             });
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, post);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, post);
 
-            const stored = (context.subplebbit as LocalSubplebbit)._dbHandler.queryComment(post.cid) as StoredComment;
-            const aliasRow = (context.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasByCommentCid(post.cid) as AliasRow;
+            const stored = (context.subplebbit as LocalCommunity)._dbHandler.queryComment(post.cid) as StoredComment;
+            const aliasRow = (context.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasByCommentCid(post.cid) as AliasRow;
             expect(aliasRow).to.exist;
-            const aliasSigner = await context.publisherPlebbit.createSigner({
+            const aliasSigner = await context.publisherPKC.createSigner({
                 privateKey: aliasRow.aliasPrivateKey,
                 type: "ed25519"
             });
             expect(stored?.signature?.publicKey).to.not.equal(freshSigner.publicKey);
             expect(stored?.signature?.publicKey).to.equal(aliasSigner.publicKey);
             expect(stored?.author?.address).to.be.undefined;
-            await expectCommentCidToUseAlias(context.publisherPlebbit, post.cid, aliasSigner);
+            await expectCommentCidToUseAlias(context.publisherPKC, post.cid, aliasSigner);
             await post.stop();
         });
 
         it("Spec: purging an anonymized post without postCid still removes its alias mapping", async () => {
-            const purgeSigner = await context.publisherPlebbit.createSigner();
+            const purgeSigner = await context.publisherPKC.createSigner();
             // publish post, alias will be generated without postCid available to reuse
             const post = await publishRandomPost({
                 communityAddress: context.subplebbit.address,
-                plebbit: context.publisherPlebbit,
+                plebbit: context.publisherPKC,
                 postProps: { signer: purgeSigner }
             });
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, post);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, post);
 
-            const aliasRow = (context.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasByCommentCid(post.cid);
+            const aliasRow = (context.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasByCommentCid(post.cid);
             expect(aliasRow).to.exist;
 
-            await (context.subplebbit as LocalSubplebbit)._dbHandler.purgeComment(post.cid);
+            await (context.subplebbit as LocalCommunity)._dbHandler.purgeComment(post.cid);
 
-            const aliasAfterPurge = (context.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasByCommentCid(post.cid);
+            const aliasAfterPurge = (context.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasByCommentCid(post.cid);
             expect(aliasAfterPurge).to.be.undefined;
-            const commentAfterPurge = (context.subplebbit as LocalSubplebbit)._dbHandler.queryComment(post.cid);
+            const commentAfterPurge = (context.subplebbit as LocalCommunity)._dbHandler.queryComment(post.cid);
             expect(commentAfterPurge).to.be.undefined;
             await post.stop();
         });
 
         it("Spec: purging an anonymized comment removes only that thread's alias mapping", async () => {
-            const purgeSigner = await context.publisherPlebbit.createSigner();
+            const purgeSigner = await context.publisherPKC.createSigner();
             const firstPost = await publishRandomPost({
                 communityAddress: context.subplebbit.address,
-                plebbit: context.publisherPlebbit,
+                plebbit: context.publisherPKC,
                 postProps: { signer: purgeSigner }
             });
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, firstPost);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, firstPost);
             const secondPost = await publishRandomPost({
                 communityAddress: context.subplebbit.address,
-                plebbit: context.publisherPlebbit,
+                plebbit: context.publisherPKC,
                 postProps: { signer: purgeSigner }
             });
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, secondPost);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, secondPost);
 
-            const aliasFirst = (context.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasByCommentCid(firstPost.cid);
-            const aliasSecond = (context.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasByCommentCid(secondPost.cid);
+            const aliasFirst = (context.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasByCommentCid(firstPost.cid);
+            const aliasSecond = (context.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasByCommentCid(secondPost.cid);
             expect(aliasFirst).to.exist;
             expect(aliasSecond).to.exist;
 
-            await (context.subplebbit as LocalSubplebbit)._dbHandler.purgeComment(firstPost.cid);
+            await (context.subplebbit as LocalCommunity)._dbHandler.purgeComment(firstPost.cid);
 
-            const aliasAfterFirstPurge = (context.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasByCommentCid(
+            const aliasAfterFirstPurge = (context.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasByCommentCid(
                 firstPost.cid
             );
             expect(aliasAfterFirstPurge).to.be.undefined;
-            const aliasAfterSecond = (context.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasByCommentCid(secondPost.cid);
+            const aliasAfterSecond = (context.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasByCommentCid(secondPost.cid);
             expect(aliasAfterSecond).to.exist;
 
-            const commentAfterPurge = (context.subplebbit as LocalSubplebbit)._dbHandler.queryComment(firstPost.cid);
+            const commentAfterPurge = (context.subplebbit as LocalCommunity)._dbHandler.queryComment(firstPost.cid);
             expect(commentAfterPurge).to.be.undefined;
             await firstPost.stop();
             await secondPost.stop();
@@ -662,19 +662,19 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
         it("Spec: sub owner can resolve an anonymized author address back to the original author address", async () => {
             const resolvablePost = await publishRandomPost({
                 communityAddress: context.subplebbit.address,
-                plebbit: context.publisherPlebbit,
+                plebbit: context.publisherPKC,
                 postProps: { signer: authorSigner }
             });
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, resolvablePost);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, resolvablePost);
 
-            const aliasRow = (context.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasForPost(
+            const aliasRow = (context.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasForPost(
                 authorSigner.publicKey,
                 resolvablePost.cid
             ) as AliasRow;
             expect(aliasRow).to.exist;
             expect(aliasRow?.originalAuthorSignerPublicKey).to.equal(authorSigner.publicKey);
 
-            const aliasSigner = await context.publisherPlebbit.createSigner({
+            const aliasSigner = await context.publisherPKC.createSigner({
                 privateKey: aliasRow.aliasPrivateKey,
                 type: "ed25519"
             });
@@ -685,22 +685,22 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
         it("Spec: owner resolution differentiates multiple anonymized addresses created by the same signer across different posts", async () => {
             const firstPost = await publishRandomPost({
                 communityAddress: context.subplebbit.address,
-                plebbit: context.publisherPlebbit,
+                plebbit: context.publisherPKC,
                 postProps: { signer: authorSigner }
             });
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, firstPost);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, firstPost);
             const secondPost = await publishRandomPost({
                 communityAddress: context.subplebbit.address,
-                plebbit: context.publisherPlebbit,
+                plebbit: context.publisherPKC,
                 postProps: { signer: authorSigner }
             });
-            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, secondPost);
+            await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, secondPost);
 
-            const firstAlias = (context.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasForPost(
+            const firstAlias = (context.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasForPost(
                 authorSigner.publicKey,
                 firstPost.cid
             ) as AliasRow;
-            const secondAlias = (context.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasForPost(
+            const secondAlias = (context.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasForPost(
                 authorSigner.publicKey,
                 secondPost.cid
             ) as AliasRow;
@@ -709,11 +709,11 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
             expect(firstAlias?.originalAuthorSignerPublicKey).to.equal(authorSigner.publicKey);
             expect(secondAlias?.originalAuthorSignerPublicKey).to.equal(authorSigner.publicKey);
 
-            const firstAliasSigner = await context.publisherPlebbit.createSigner({
+            const firstAliasSigner = await context.publisherPKC.createSigner({
                 privateKey: firstAlias.aliasPrivateKey,
                 type: "ed25519"
             });
-            const secondAliasSigner = await context.publisherPlebbit.createSigner({
+            const secondAliasSigner = await context.publisherPKC.createSigner({
                 privateKey: secondAlias.aliasPrivateKey,
                 type: "ed25519"
             });
@@ -724,8 +724,8 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
         });
 
         it("Spec: disabling per-post anonymity stops anonymization for new comments without rewriting old ones", async () => {
-            const localContext = await createPerPostSubplebbit();
-            const plainSigner = await localContext.publisherPlebbit.createSigner();
+            const localContext = await createPerPostCommunity();
+            const plainSigner = await localContext.publisherPKC.createSigner();
             let plainPost: Comment | undefined;
 
             try {
@@ -737,18 +737,18 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
 
                 plainPost = await publishRandomPost({
                     communityAddress: localContext.subplebbit.address,
-                    plebbit: localContext.publisherPlebbit,
+                    plebbit: localContext.publisherPKC,
                     postProps: {
                         signer: plainSigner
                     }
                 });
-                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalSubplebbit, plainPost);
+                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalCommunity, plainPost);
 
-                const stored = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryComment(plainPost.cid) as StoredComment;
+                const stored = (localContext.subplebbit as LocalCommunity)._dbHandler.queryComment(plainPost.cid) as StoredComment;
                 expect(stored?.author?.address).to.be.undefined;
                 expect(stored?.signature?.publicKey).to.equal(plainSigner.publicKey);
                 expect(stored?.pseudonymityMode).to.be.undefined;
-                const alias = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasByCommentCid(plainPost.cid);
+                const alias = (localContext.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasByCommentCid(plainPost.cid);
                 expect(alias).to.be.undefined;
             } finally {
                 await plainPost?.stop();
@@ -757,21 +757,21 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
         });
 
         it("Spec: challengerequest emits full publication author.subplebbit fields without anonymization in per-post mode", async () => {
-            const localContext = await createPerPostSubplebbit();
-            const localAuthor = await localContext.publisherPlebbit.createSigner();
-            const voter = await localContext.publisherPlebbit.createSigner();
+            const localContext = await createPerPostCommunity();
+            const localAuthor = await localContext.publisherPKC.createSigner();
+            const voter = await localContext.publisherPKC.createSigner();
 
             try {
                 const seededPost = await publishRandomPost({
                     communityAddress: localContext.subplebbit.address,
-                    plebbit: localContext.publisherPlebbit,
+                    plebbit: localContext.publisherPKC,
                     postProps: {
                         signer: localAuthor
                     }
                 });
-                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalSubplebbit, seededPost);
+                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalCommunity, seededPost);
 
-                const upvote = await localContext.publisherPlebbit.createVote({
+                const upvote = await localContext.publisherPKC.createVote({
                     communityAddress: localContext.subplebbit.address,
                     commentCid: seededPost.cid,
                     vote: 1,
@@ -782,9 +782,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                 await resolveWhenConditionIsTrue({
                     toUpdate: localContext.subplebbit,
                     predicate: async () => {
-                        const aggregated = (localContext.subplebbit as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(
-                            localAuthor.address
-                        );
+                        const aggregated = (localContext.subplebbit as LocalCommunity)._dbHandler.queryCommunityAuthor(localAuthor.address);
                         return (
                             aggregated?.lastCommentCid === seededPost.cid &&
                             aggregated?.firstCommentTimestamp === seededPost.timestamp &&
@@ -794,7 +792,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                     }
                 });
 
-                const subplebbitAuthorBefore = (localContext.subplebbit as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(
+                const subplebbitAuthorBefore = (localContext.subplebbit as LocalCommunity)._dbHandler.queryCommunityAuthor(
                     localAuthor.address
                 );
                 expect(subplebbitAuthorBefore, "expected subplebbit author to exist for original signer").to.be.ok;
@@ -803,10 +801,10 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                 expect(subplebbitAuthorBefore.postScore).to.equal(1);
                 expect(subplebbitAuthorBefore.replyScore).to.equal(0);
 
-                const challengeRequestPromise = new Promise<DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor>((resolve) =>
+                const challengeRequestPromise = new Promise<DecryptedChallengeRequestMessageTypeWithCommunityAuthor>((resolve) =>
                     localContext.subplebbit.once("challengerequest", resolve)
                 );
-                const publication = await localContext.publisherPlebbit.createComment({
+                const publication = await localContext.publisherPKC.createComment({
                     communityAddress: localContext.subplebbit.address,
                     signer: localAuthor,
                     content: "per-post challengerequest author.subplebbit check",
@@ -830,37 +828,37 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
         });
 
         it("Spec: author.subplebbit.lastCommentCid reflects the author's latest comment within the post when pseudonymityMode is per-post", async () => {
-            const localContext = await createPerPostSubplebbit();
-            const localAuthor = await localContext.publisherPlebbit.createSigner();
+            const localContext = await createPerPostCommunity();
+            const localAuthor = await localContext.publisherPKC.createSigner();
 
             try {
                 const post = await publishRandomPost({
                     communityAddress: localContext.subplebbit.address,
-                    plebbit: localContext.publisherPlebbit,
+                    plebbit: localContext.publisherPKC,
                     postProps: {
                         signer: localAuthor
                     }
                 });
-                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalSubplebbit, post);
+                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalCommunity, post);
 
                 const reply = await publishRandomReply({
                     parentComment: post as CommentIpfsWithCidDefined,
-                    plebbit: localContext.publisherPlebbit,
+                    plebbit: localContext.publisherPKC,
                     commentProps: {
                         signer: localAuthor
                     }
                 });
-                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalSubplebbit, reply);
+                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalCommunity, reply);
 
-                const postUpdate = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                const postUpdate = (localContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                     cid: post.cid
                 }) as StoredCommentUpdate;
-                const replyUpdate = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                const replyUpdate = (localContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                     cid: reply.cid
                 }) as StoredCommentUpdate;
                 expect(postUpdate?.author?.subplebbit?.lastCommentCid).to.equal(reply.cid);
                 expect(replyUpdate?.author?.subplebbit?.lastCommentCid).to.equal(reply.cid);
-                const aggregatedAuthor = (localContext.subplebbit as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(localAuthor.address);
+                const aggregatedAuthor = (localContext.subplebbit as LocalCommunity)._dbHandler.queryCommunityAuthor(localAuthor.address);
                 expect(aggregatedAuthor?.lastCommentCid).to.equal(reply.cid);
 
                 await post.stop();
@@ -871,9 +869,9 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
         });
 
         it("Spec: author.subplebbit.banExpiresAt rejects publications and only surfaces on the author's post and replies within their post thread", async () => {
-            const localContext = await createPerPostSubplebbit();
-            const localAuthor = await localContext.publisherPlebbit.createSigner();
-            const moderator = await localContext.publisherPlebbit.createSigner();
+            const localContext = await createPerPostCommunity();
+            const localAuthor = await localContext.publisherPKC.createSigner();
+            const moderator = await localContext.publisherPKC.createSigner();
 
             await localContext.subplebbit.edit({ roles: { [moderator.address]: { role: "moderator" } } });
             await resolveWhenConditionIsTrue({
@@ -884,32 +882,32 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
             try {
                 const post = await publishRandomPost({
                     communityAddress: localContext.subplebbit.address,
-                    plebbit: localContext.publisherPlebbit,
+                    plebbit: localContext.publisherPKC,
                     postProps: {
                         signer: localAuthor
                     }
                 });
-                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalSubplebbit, post);
+                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalCommunity, post);
                 const reply = await publishRandomReply({
                     parentComment: post as CommentIpfsWithCidDefined,
-                    plebbit: localContext.publisherPlebbit,
+                    plebbit: localContext.publisherPKC,
                     commentProps: {
                         signer: localAuthor
                     }
                 });
-                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalSubplebbit, reply);
+                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalCommunity, reply);
 
                 const otherPost = await publishRandomPost({
                     communityAddress: localContext.subplebbit.address,
-                    plebbit: localContext.publisherPlebbit,
+                    plebbit: localContext.publisherPKC,
                     postProps: {
                         signer: localAuthor
                     }
                 });
-                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalSubplebbit, otherPost);
+                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalCommunity, otherPost);
 
                 const banExpiresAt = timestamp() + 60;
-                const banModeration = await localContext.publisherPlebbit.createCommentModeration({
+                const banModeration = await localContext.publisherPKC.createCommentModeration({
                     communityAddress: localContext.subplebbit.address,
                     commentCid: post.cid,
                     commentModeration: { author: { banExpiresAt }, reason: "ban for per-post test" },
@@ -920,17 +918,17 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                 await resolveWhenConditionIsTrue({
                     toUpdate: localContext.subplebbit,
                     predicate: async () =>
-                        (localContext.subplebbit as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(localAuthor.address)?.banExpiresAt ===
+                        (localContext.subplebbit as LocalCommunity)._dbHandler.queryCommunityAuthor(localAuthor.address)?.banExpiresAt ===
                         banExpiresAt
                 });
 
                 await resolveWhenConditionIsTrue({
                     toUpdate: localContext.subplebbit,
                     predicate: async () => {
-                        const postUpdate = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                        const postUpdate = (localContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                             cid: post.cid
                         }) as StoredCommentUpdate;
-                        const replyUpdate = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                        const replyUpdate = (localContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                             cid: reply.cid
                         }) as StoredCommentUpdate;
                         return (
@@ -940,12 +938,12 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                     }
                 });
 
-                const otherPostUpdate = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                const otherPostUpdate = (localContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                     cid: otherPost.cid
                 }) as StoredCommentUpdate;
                 expect(otherPostUpdate?.author?.subplebbit?.banExpiresAt).to.be.undefined;
 
-                const blockedReply = await localContext.publisherPlebbit.createComment({
+                const blockedReply = await localContext.publisherPKC.createComment({
                     communityAddress: localContext.subplebbit.address,
                     signer: localAuthor,
                     title: "should be rejected",
@@ -966,9 +964,9 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
         });
 
         it("Spec: banning an anonymized comment maps to original and alias author addresses in per-post mode", async () => {
-            const localContext = await createPerPostSubplebbit();
-            const localAuthor = await localContext.publisherPlebbit.createSigner();
-            const moderator = await localContext.publisherPlebbit.createSigner();
+            const localContext = await createPerPostCommunity();
+            const localAuthor = await localContext.publisherPKC.createSigner();
+            const moderator = await localContext.publisherPKC.createSigner();
 
             await localContext.subplebbit.edit({ roles: { [moderator.address]: { role: "moderator" } } });
             await resolveWhenConditionIsTrue({
@@ -979,26 +977,26 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
             try {
                 const post = await publishRandomPost({
                     communityAddress: localContext.subplebbit.address,
-                    plebbit: localContext.publisherPlebbit,
+                    plebbit: localContext.publisherPKC,
                     postProps: {
                         signer: localAuthor
                     }
                 });
-                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalSubplebbit, post);
+                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalCommunity, post);
 
-                const aliasRow = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasForPost(
+                const aliasRow = (localContext.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasForPost(
                     localAuthor.publicKey,
                     post.cid
                 ) as AliasRow;
                 expect(aliasRow).to.exist;
-                const aliasSigner = await localContext.publisherPlebbit.createSigner({
+                const aliasSigner = await localContext.publisherPKC.createSigner({
                     privateKey: aliasRow.aliasPrivateKey,
                     type: "ed25519"
                 });
                 expect(aliasSigner.address).to.not.equal(localAuthor.address);
 
                 const banExpiresAt = timestamp() + 60;
-                const banModeration = await localContext.publisherPlebbit.createCommentModeration({
+                const banModeration = await localContext.publisherPKC.createCommentModeration({
                     communityAddress: localContext.subplebbit.address,
                     commentCid: post.cid,
                     commentModeration: { author: { banExpiresAt }, reason: "ban alias mapping test" },
@@ -1009,18 +1007,18 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                 await resolveWhenConditionIsTrue({
                     toUpdate: localContext.subplebbit,
                     predicate: async () => {
-                        const originalAuthor = (localContext.subplebbit as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(
+                        const originalAuthor = (localContext.subplebbit as LocalCommunity)._dbHandler.queryCommunityAuthor(
                             localAuthor.address
                         );
-                        const aliasAuthor = (localContext.subplebbit as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(
+                        const aliasAuthor = (localContext.subplebbit as LocalCommunity)._dbHandler.queryCommunityAuthor(
                             aliasSigner.address
                         );
                         return originalAuthor?.banExpiresAt === banExpiresAt && aliasAuthor?.banExpiresAt === banExpiresAt;
                     }
                 });
 
-                const originalAuthor = (localContext.subplebbit as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(localAuthor.address);
-                const aliasAuthor = (localContext.subplebbit as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(aliasSigner.address);
+                const originalAuthor = (localContext.subplebbit as LocalCommunity)._dbHandler.queryCommunityAuthor(localAuthor.address);
+                const aliasAuthor = (localContext.subplebbit as LocalCommunity)._dbHandler.queryCommunityAuthor(aliasSigner.address);
                 expect(originalAuthor?.banExpiresAt).to.equal(banExpiresAt);
                 expect(aliasAuthor?.banExpiresAt).to.equal(banExpiresAt);
 
@@ -1031,21 +1029,21 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
         });
 
         it("Spec: author.subplebbit.postScore reflects total post karma when pseudonymityMode is per-post", async () => {
-            const localContext = await createPerPostSubplebbit();
-            const localAuthor = await localContext.publisherPlebbit.createSigner();
-            const voter = await localContext.publisherPlebbit.createSigner();
+            const localContext = await createPerPostCommunity();
+            const localAuthor = await localContext.publisherPKC.createSigner();
+            const voter = await localContext.publisherPKC.createSigner();
 
             try {
                 const post = await publishRandomPost({
                     communityAddress: localContext.subplebbit.address,
-                    plebbit: localContext.publisherPlebbit,
+                    plebbit: localContext.publisherPKC,
                     postProps: {
                         signer: localAuthor
                     }
                 });
-                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalSubplebbit, post);
+                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalCommunity, post);
 
-                const upvote = await localContext.publisherPlebbit.createVote({
+                const upvote = await localContext.publisherPKC.createVote({
                     communityAddress: localContext.subplebbit.address,
                     commentCid: post.cid,
                     vote: 1,
@@ -1057,7 +1055,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                     toUpdate: localContext.subplebbit,
                     predicate: async () =>
                         (
-                            (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                            (localContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                                 cid: post.cid
                             }) as StoredCommentUpdate
                         )?.author?.subplebbit?.postScore === 1
@@ -1065,43 +1063,43 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
 
                 const reply = await publishRandomReply({
                     parentComment: post as CommentIpfsWithCidDefined,
-                    plebbit: localContext.publisherPlebbit,
+                    plebbit: localContext.publisherPKC,
                     commentProps: {
                         signer: localAuthor
                     }
                 });
                 const secondPost = await publishRandomPost({
                     communityAddress: localContext.subplebbit.address,
-                    plebbit: localContext.publisherPlebbit,
+                    plebbit: localContext.publisherPKC,
                     postProps: {
                         signer: localAuthor
                     }
                 });
-                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalSubplebbit, reply);
-                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalSubplebbit, secondPost);
+                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalCommunity, reply);
+                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalCommunity, secondPost);
 
                 await resolveWhenConditionIsTrue({
                     toUpdate: localContext.subplebbit,
                     predicate: async () => {
-                        const replyUpdate = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                        const replyUpdate = (localContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                             cid: reply.cid
                         }) as StoredCommentUpdate;
-                        const secondPostUpdate = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                        const secondPostUpdate = (localContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                             cid: secondPost.cid
                         }) as StoredCommentUpdate;
                         return replyUpdate?.author?.subplebbit?.postScore === 1 && secondPostUpdate?.author?.subplebbit?.postScore === 0;
                     }
                 });
 
-                const postUpdate = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                const postUpdate = (localContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                     cid: post.cid
                 }) as StoredCommentUpdate;
                 expect(postUpdate?.author?.subplebbit?.postScore).to.equal(1);
-                const replyUpdate = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                const replyUpdate = (localContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                     cid: reply.cid
                 }) as StoredCommentUpdate;
                 expect(replyUpdate?.author?.subplebbit?.postScore).to.equal(1);
-                const secondPostUpdate = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                const secondPostUpdate = (localContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                     cid: secondPost.cid
                 }) as StoredCommentUpdate;
                 expect(secondPostUpdate?.author?.subplebbit?.postScore).to.equal(0);
@@ -1115,29 +1113,29 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
         });
 
         it("Spec: author.subplebbit.replyScore reflects total replies karma inside the post when pseudonymityMode is per-post", async () => {
-            const localContext = await createPerPostSubplebbit();
-            const localAuthor = await localContext.publisherPlebbit.createSigner();
-            const voter = await localContext.publisherPlebbit.createSigner();
+            const localContext = await createPerPostCommunity();
+            const localAuthor = await localContext.publisherPKC.createSigner();
+            const voter = await localContext.publisherPKC.createSigner();
 
             try {
                 const post = await publishRandomPost({
                     communityAddress: localContext.subplebbit.address,
-                    plebbit: localContext.publisherPlebbit,
+                    plebbit: localContext.publisherPKC,
                     postProps: {
                         signer: localAuthor
                     }
                 });
-                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalSubplebbit, post);
+                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalCommunity, post);
                 const reply = await publishRandomReply({
                     parentComment: post as CommentIpfsWithCidDefined,
-                    plebbit: localContext.publisherPlebbit,
+                    plebbit: localContext.publisherPKC,
                     commentProps: {
                         signer: localAuthor
                     }
                 });
-                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalSubplebbit, reply);
+                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalCommunity, reply);
 
-                const upvote = await localContext.publisherPlebbit.createVote({
+                const upvote = await localContext.publisherPKC.createVote({
                     communityAddress: localContext.subplebbit.address,
                     commentCid: reply.cid,
                     vote: 1,
@@ -1149,16 +1147,16 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                     toUpdate: localContext.subplebbit,
                     predicate: async () =>
                         (
-                            (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                            (localContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                                 cid: reply.cid
                             }) as StoredCommentUpdate
                         )?.author?.subplebbit?.replyScore === 1
                 });
 
-                const postUpdate = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                const postUpdate = (localContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                     cid: post.cid
                 }) as StoredCommentUpdate;
-                const replyUpdate = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                const replyUpdate = (localContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                     cid: reply.cid
                 }) as StoredCommentUpdate;
                 expect(postUpdate?.author?.subplebbit?.replyScore).to.equal(1);
@@ -1175,22 +1173,22 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
             // In per-post mode, each thread has its own alias
             // Karma from thread1 should NOT appear in thread2's author.subplebbit
 
-            const localContext = await createPerPostSubplebbit();
-            const localAuthor = await localContext.publisherPlebbit.createSigner();
-            const voter = await localContext.publisherPlebbit.createSigner();
+            const localContext = await createPerPostCommunity();
+            const localAuthor = await localContext.publisherPKC.createSigner();
+            const voter = await localContext.publisherPKC.createSigner();
 
             try {
                 // Create first thread (post1) and upvote it
                 const post1 = await publishRandomPost({
                     communityAddress: localContext.subplebbit.address,
-                    plebbit: localContext.publisherPlebbit,
+                    plebbit: localContext.publisherPKC,
                     postProps: {
                         signer: localAuthor
                     }
                 });
-                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalSubplebbit, post1);
+                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalCommunity, post1);
 
-                const upvotePost1 = await localContext.publisherPlebbit.createVote({
+                const upvotePost1 = await localContext.publisherPKC.createVote({
                     communityAddress: localContext.subplebbit.address,
                     commentCid: post1.cid,
                     vote: 1,
@@ -1202,7 +1200,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                 await resolveWhenConditionIsTrue({
                     toUpdate: localContext.subplebbit,
                     predicate: async () => {
-                        const update = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                        const update = (localContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                             cid: post1.cid
                         }) as StoredCommentUpdate | undefined;
                         return update?.author?.subplebbit?.postScore === 1;
@@ -1212,31 +1210,31 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                 // Create second thread (post2) - different alias
                 const post2 = await publishRandomPost({
                     communityAddress: localContext.subplebbit.address,
-                    plebbit: localContext.publisherPlebbit,
+                    plebbit: localContext.publisherPKC,
                     postProps: {
                         signer: localAuthor
                     }
                 });
-                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalSubplebbit, post2);
+                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalCommunity, post2);
 
                 // Verify post1's alias has postScore = 1
-                const post1Update = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                const post1Update = (localContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                     cid: post1.cid
                 }) as StoredCommentUpdate;
                 expect(post1Update?.author?.subplebbit?.postScore).to.equal(1);
 
                 // Verify post2's alias has postScore = 0 (not shared from post1)
-                const post2Update = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                const post2Update = (localContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                     cid: post2.cid
                 }) as StoredCommentUpdate;
                 expect(post2Update?.author?.subplebbit?.postScore).to.equal(0);
                 expect(post2Update?.author?.subplebbit?.replyScore).to.equal(0);
 
                 // Verify they have different aliases by checking the alias private keys
-                const post1Alias = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasByCommentCid(
+                const post1Alias = (localContext.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasByCommentCid(
                     post1.cid
                 ) as AliasRow;
-                const post2Alias = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasByCommentCid(
+                const post2Alias = (localContext.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasByCommentCid(
                     post2.cid
                 ) as AliasRow;
                 expect(post1Alias).to.exist;
@@ -1251,37 +1249,37 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
         });
 
         it("Spec: author.subplebbit.firstCommentTimestamp tracks the first author comment inside the post when pseudonymityMode is per-post", async () => {
-            const localContext = await createPerPostSubplebbit();
-            const localAuthor = await localContext.publisherPlebbit.createSigner();
+            const localContext = await createPerPostCommunity();
+            const localAuthor = await localContext.publisherPKC.createSigner();
 
             try {
                 const post = await publishRandomPost({
                     communityAddress: localContext.subplebbit.address,
-                    plebbit: localContext.publisherPlebbit,
+                    plebbit: localContext.publisherPKC,
                     postProps: {
                         signer: localAuthor
                     }
                 });
-                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalSubplebbit, post);
+                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalCommunity, post);
 
                 const reply = await publishRandomReply({
                     parentComment: post as CommentIpfsWithCidDefined,
-                    plebbit: localContext.publisherPlebbit,
+                    plebbit: localContext.publisherPKC,
                     commentProps: {
                         signer: localAuthor
                     }
                 });
-                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalSubplebbit, reply);
+                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalCommunity, reply);
 
-                const postUpdate = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                const postUpdate = (localContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                     cid: post.cid
                 }) as StoredCommentUpdate;
-                const replyUpdate = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                const replyUpdate = (localContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                     cid: reply.cid
                 }) as StoredCommentUpdate;
                 expect(postUpdate?.author?.subplebbit?.firstCommentTimestamp).to.equal(post.timestamp);
                 expect(replyUpdate?.author?.subplebbit?.firstCommentTimestamp).to.equal(post.timestamp);
-                const aggregatedAuthor = (localContext.subplebbit as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(localAuthor.address);
+                const aggregatedAuthor = (localContext.subplebbit as LocalCommunity)._dbHandler.queryCommunityAuthor(localAuthor.address);
                 expect(aggregatedAuthor?.firstCommentTimestamp).to.equal(post.timestamp);
 
                 await post.stop();
@@ -1298,7 +1296,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
             // 3. Author publishes new post (gets an alias for that thread)
             // 4. Alias's author.subplebbit should show 0 karma, not the original author's prior karma
 
-            const plebbit = await mockPlebbit();
+            const plebbit = await mockPKC();
             const sub = await createSubWithNoChallenge({}, plebbit);
 
             // Ensure pseudonymity mode is initially disabled
@@ -1319,7 +1317,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                     plebbit: plebbit,
                     postProps: { signer: author }
                 });
-                await waitForStoredCommentUpdateWithAssertions(sub as LocalSubplebbit, nonPseudonymousPost);
+                await waitForStoredCommentUpdateWithAssertions(sub as LocalCommunity, nonPseudonymousPost);
 
                 // Upvote the post to give author post karma
                 const upvote = await plebbit.createVote({
@@ -1334,12 +1332,12 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                 await resolveWhenConditionIsTrue({
                     toUpdate: sub,
                     predicate: async () => {
-                        const authorSubplebbit = (sub as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(author.address);
-                        return authorSubplebbit?.postScore === 1;
+                        const authorCommunity = (sub as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);
+                        return authorCommunity?.postScore === 1;
                     }
                 });
 
-                const originalAuthorKarma = (sub as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(author.address);
+                const originalAuthorKarma = (sub as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);
                 expect(originalAuthorKarma?.postScore).to.equal(1);
 
                 // Step 2: Enable pseudonymity mode
@@ -1355,10 +1353,10 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                     plebbit: plebbit,
                     postProps: { signer: author }
                 });
-                await waitForStoredCommentUpdateWithAssertions(sub as LocalSubplebbit, pseudonymousPost);
+                await waitForStoredCommentUpdateWithAssertions(sub as LocalCommunity, pseudonymousPost);
 
                 // Step 4: Verify the alias's CommentUpdate shows isolated karma (0), not original author's karma (1)
-                const postUpdate = (sub as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                const postUpdate = (sub as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                     cid: pseudonymousPost.cid
                 }) as StoredCommentUpdate;
 
@@ -1367,12 +1365,12 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                 expect(postUpdate?.author?.subplebbit?.replyScore).to.equal(0);
 
                 // Verify the alias is different from the original author
-                const aliasRow = (sub as LocalSubplebbit)._dbHandler.queryPseudonymityAliasByCommentCid(pseudonymousPost.cid);
+                const aliasRow = (sub as LocalCommunity)._dbHandler.queryPseudonymityAliasByCommentCid(pseudonymousPost.cid);
                 expect(aliasRow).to.exist;
                 expect(aliasRow?.originalAuthorSignerPublicKey).to.equal(author.publicKey);
 
                 // Double-check: original author's karma should still be 1
-                const originalAuthorKarmaAfter = (sub as LocalSubplebbit)._dbHandler.querySubplebbitAuthor(author.address);
+                const originalAuthorKarmaAfter = (sub as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);
                 expect(originalAuthorKarmaAfter?.postScore).to.equal(1);
 
                 await nonPseudonymousPost.stop();
@@ -1384,9 +1382,9 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
         });
 
         it("Spec: banning an author reply in per-post mode includes banExpiresAt on that thread's comments and blocks further replies", async () => {
-            const localContext = await createPerPostSubplebbit();
-            const localAuthor = await localContext.publisherPlebbit.createSigner();
-            const moderator = await localContext.publisherPlebbit.createSigner();
+            const localContext = await createPerPostCommunity();
+            const localAuthor = await localContext.publisherPKC.createSigner();
+            const moderator = await localContext.publisherPKC.createSigner();
 
             await localContext.subplebbit.edit({ roles: { [moderator.address]: { role: "moderator" } } });
             await resolveWhenConditionIsTrue({
@@ -1397,32 +1395,32 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
             try {
                 const postOne = await publishRandomPost({
                     communityAddress: localContext.subplebbit.address,
-                    plebbit: localContext.publisherPlebbit,
+                    plebbit: localContext.publisherPKC,
                     postProps: {
                         signer: localAuthor
                     }
                 });
-                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalSubplebbit, postOne);
+                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalCommunity, postOne);
                 const replyOne = await publishRandomReply({
                     parentComment: postOne as CommentIpfsWithCidDefined,
-                    plebbit: localContext.publisherPlebbit,
+                    plebbit: localContext.publisherPKC,
                     commentProps: {
                         signer: localAuthor
                     }
                 });
-                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalSubplebbit, replyOne);
+                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalCommunity, replyOne);
 
                 const postTwo = await publishRandomPost({
                     communityAddress: localContext.subplebbit.address,
-                    plebbit: localContext.publisherPlebbit,
+                    plebbit: localContext.publisherPKC,
                     postProps: {
                         signer: localAuthor
                     }
                 });
-                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalSubplebbit, postTwo);
+                await waitForStoredCommentUpdateWithAssertions(localContext.subplebbit as LocalCommunity, postTwo);
 
                 const banExpiresAt = timestamp() + 60;
-                const banModeration = await localContext.publisherPlebbit.createCommentModeration({
+                const banModeration = await localContext.publisherPKC.createCommentModeration({
                     communityAddress: localContext.subplebbit.address,
                     commentCid: replyOne.cid,
                     commentModeration: { author: { banExpiresAt }, reason: "ban reply per-post test" },
@@ -1433,10 +1431,10 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                 await resolveWhenConditionIsTrue({
                     toUpdate: localContext.subplebbit,
                     predicate: async () => {
-                        const postUpdate = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                        const postUpdate = (localContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                             cid: postOne.cid
                         }) as StoredCommentUpdate;
-                        const replyUpdate = (localContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                        const replyUpdate = (localContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                             cid: replyOne.cid
                         }) as StoredCommentUpdate;
                         return (
@@ -1446,7 +1444,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                     }
                 });
 
-                const blockedReply = await localContext.publisherPlebbit.createComment({
+                const blockedReply = await localContext.publisherPKC.createComment({
                     communityAddress: localContext.subplebbit.address,
                     signer: localAuthor,
                     parentCid: postOne.cid,
@@ -1459,7 +1457,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                     expectedReason: messages.ERR_AUTHOR_IS_BANNED
                 });
 
-                const blockedPost = await localContext.publisherPlebbit.createComment({
+                const blockedPost = await localContext.publisherPKC.createComment({
                     communityAddress: localContext.subplebbit.address,
                     signer: localAuthor,
                     title: "blocked post after ban",
@@ -1487,8 +1485,8 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
         const clonePublication = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 
         beforeAll(async () => {
-            context = await createPerPostSubplebbit();
-            duplicateSigner = await context.publisherPlebbit.createSigner();
+            context = await createPerPostCommunity();
+            duplicateSigner = await context.publisherPKC.createSigner();
         });
 
         afterAll(async () => {
@@ -1500,7 +1498,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
             let duplicatePost: Comment | undefined;
 
             try {
-                originalPost = await context.publisherPlebbit.createComment({
+                originalPost = await context.publisherPKC.createComment({
                     communityAddress: context.subplebbit.address,
                     signer: duplicateSigner,
                     title: `duplicate-per-post-title-${Date.now()}`,
@@ -1508,11 +1506,11 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                 });
                 await publishWithExpectedResult({ publication: originalPost, expectedChallengeSuccess: true });
                 const originalPublication = clonePublication(originalPost.raw.pubsubMessageToPublish!);
-                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, originalPost);
+                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, originalPost);
 
                 // First 1 duplicate attempt should succeed idempotently
                 for (let i = 0; i < 1; i++) {
-                    const idempotentDup = await context.publisherPlebbit.createComment(originalPublication);
+                    const idempotentDup = await context.publisherPKC.createComment(originalPublication);
                     try {
                         await publishWithExpectedResult({ publication: idempotentDup, expectedChallengeSuccess: true });
                     } finally {
@@ -1520,7 +1518,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                     }
                 }
                 // 2nd attempt should fail
-                duplicatePost = await context.publisherPlebbit.createComment(originalPublication);
+                duplicatePost = await context.publisherPKC.createComment(originalPublication);
                 await publishWithExpectedResult({
                     publication: duplicatePost,
                     expectedChallengeSuccess: false,
@@ -1540,12 +1538,12 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
             try {
                 parentPost = await publishRandomPost({
                     communityAddress: context.subplebbit.address,
-                    plebbit: context.publisherPlebbit,
+                    plebbit: context.publisherPKC,
                     postProps: { signer: duplicateSigner }
                 });
-                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, parentPost);
+                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, parentPost);
 
-                originalReply = await context.publisherPlebbit.createComment({
+                originalReply = await context.publisherPKC.createComment({
                     communityAddress: context.subplebbit.address,
                     signer: duplicateSigner,
                     parentCid: parentPost.cid,
@@ -1554,11 +1552,11 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                 });
                 await publishWithExpectedResult({ publication: originalReply, expectedChallengeSuccess: true });
                 const originalReplyPublication = clonePublication(originalReply.raw.pubsubMessageToPublish!);
-                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalSubplebbit, originalReply);
+                await waitForStoredCommentUpdateWithAssertions(context.subplebbit as LocalCommunity, originalReply);
 
                 // First 1 duplicate attempt should succeed idempotently
                 for (let i = 0; i < 1; i++) {
-                    const idempotentDup = await context.publisherPlebbit.createComment(originalReplyPublication);
+                    const idempotentDup = await context.publisherPKC.createComment(originalReplyPublication);
                     try {
                         await publishWithExpectedResult({ publication: idempotentDup, expectedChallengeSuccess: true });
                     } finally {
@@ -1566,7 +1564,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                     }
                 }
                 // 2nd attempt should fail
-                duplicateReply = await context.publisherPlebbit.createComment(originalReplyPublication);
+                duplicateReply = await context.publisherPKC.createComment(originalReplyPublication);
                 await publishWithExpectedResult({
                     publication: duplicateReply,
                     expectedChallengeSuccess: false,
@@ -1587,41 +1585,41 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
             let signingAuthor: SignerWithPublicKeyAddress;
 
             beforeAll(async () => {
-                sharedContext = await createPerPostSubplebbit();
-                signingAuthor = await sharedContext.publisherPlebbit.createSigner();
+                sharedContext = await createPerPostCommunity();
+                signingAuthor = await sharedContext.publisherPKC.createSigner();
                 sharedContext.post = await publishRandomPost({
                     communityAddress: sharedContext.subplebbit.address,
-                    plebbit: sharedContext.publisherPlebbit,
+                    plebbit: sharedContext.publisherPKC,
                     postProps: {
                         signer: signingAuthor
                     }
                 });
                 sharedContext.postDisplayName = sharedContext.post.author.displayName;
-                await waitForStoredCommentUpdateWithAssertions(sharedContext.subplebbit as LocalSubplebbit, sharedContext.post);
+                await waitForStoredCommentUpdateWithAssertions(sharedContext.subplebbit as LocalCommunity, sharedContext.post);
                 sharedContext.reply = await publishRandomReply({
                     parentComment: sharedContext.post as CommentIpfsWithCidDefined,
-                    plebbit: sharedContext.publisherPlebbit,
+                    plebbit: sharedContext.publisherPKC,
                     commentProps: {
                         signer: signingAuthor
                     }
                 });
                 sharedContext.replyDisplayName = sharedContext.reply.author.displayName;
-                await waitForStoredCommentUpdateWithAssertions(sharedContext.subplebbit as LocalSubplebbit, sharedContext.reply);
-                await waitTillPostInSubplebbitPages(sharedContext.post as Comment & { cid: string }, sharedContext.publisherPlebbit);
+                await waitForStoredCommentUpdateWithAssertions(sharedContext.subplebbit as LocalCommunity, sharedContext.reply);
+                await waitTillPostInCommunityPages(sharedContext.post as Comment & { cid: string }, sharedContext.publisherPKC);
                 await waitTillReplyInParentPages(
                     sharedContext.reply as Comment & { cid: string; parentCid: string },
-                    sharedContext.publisherPlebbit
+                    sharedContext.publisherPKC
                 );
 
-                const aliasRow = (sharedContext.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasForPost(
+                const aliasRow = (sharedContext.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasForPost(
                     signingAuthor.publicKey,
                     sharedContext.post.cid
                 ) as AliasRow;
                 expect(aliasRow).to.exist;
-                aliasSigner = await sharedContext.publisherPlebbit.createSigner({ privateKey: aliasRow.aliasPrivateKey, type: "ed25519" });
+                aliasSigner = await sharedContext.publisherPKC.createSigner({ privateKey: aliasRow.aliasPrivateKey, type: "ed25519" });
 
                 sharedContext.editContent = "Edited content for remote per-post " + Date.now();
-                const edit = await sharedContext.publisherPlebbit.createCommentEdit({
+                const edit = await sharedContext.publisherPKC.createCommentEdit({
                     communityAddress: sharedContext.subplebbit.address,
                     commentCid: sharedContext.post.cid,
                     content: sharedContext.editContent,
@@ -1632,7 +1630,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                     toUpdate: sharedContext.subplebbit,
                     predicate: async () =>
                         (
-                            (sharedContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                            (sharedContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                                 cid: sharedContext.post!.cid
                             }) as StoredCommentUpdate
                         )?.edit?.content === sharedContext.editContent
@@ -1645,28 +1643,25 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                 await sharedContext?.cleanup();
             });
 
-            remotePlebbitConfigs.forEach((config) => {
+            remotePKCConfigs.forEach((config) => {
                 describe(`${config.name} - preloaded`, () => {
-                    let remotePlebbit: Plebbit;
+                    let remotePKC: PKC;
 
                     beforeAll(async () => {
-                        remotePlebbit = await config.plebbitInstancePromise();
-                        await waitTillPostInSubplebbitPages(sharedContext.post! as Comment & { cid: string }, remotePlebbit);
-                        await waitTillReplyInParentPages(
-                            sharedContext.reply! as Comment & { cid: string; parentCid: string },
-                            remotePlebbit
-                        );
+                        remotePKC = await config.plebbitInstancePromise();
+                        await waitTillPostInCommunityPages(sharedContext.post! as Comment & { cid: string }, remotePKC);
+                        await waitTillReplyInParentPages(sharedContext.reply! as Comment & { cid: string; parentCid: string }, remotePKC);
                     });
 
                     afterAll(async () => {
-                        await remotePlebbit.destroy();
+                        await remotePKC.destroy();
                     });
 
                     it("Spec: loads preloaded pages with anonymized posts/replies without failing verification", async () => {
-                        const remoteSubplebbit = await remotePlebbit.getSubplebbit({ address: sharedContext.subplebbit.address });
-                        expect(Object.keys(remoteSubplebbit.posts.pages).length).to.be.greaterThan(0);
-                        for (const sortName of Object.keys(remoteSubplebbit.posts.pages)) {
-                            const page = remoteSubplebbit.posts.pages[sortName];
+                        const remoteCommunity = await remotePKC.getCommunity({ address: sharedContext.subplebbit.address });
+                        expect(Object.keys(remoteCommunity.posts.pages).length).to.be.greaterThan(0);
+                        for (const sortName of Object.keys(remoteCommunity.posts.pages)) {
+                            const page = remoteCommunity.posts.pages[sortName];
                             const postInPage = page?.comments?.find((c) => c.cid === sharedContext.post!.cid);
                             expect(postInPage).to.be.ok;
                             expect(postInPage?.author?.address).to.equal(aliasSigner.address);
@@ -1679,7 +1674,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                     });
 
                     it("Spec: getComment returns an anonymized post/reply and keeps per-post alias stable on update", async () => {
-                        const remoteComment = await remotePlebbit.getComment({ cid: sharedContext.post!.cid });
+                        const remoteComment = await remotePKC.getComment({ cid: sharedContext.post!.cid });
                         await remoteComment.update();
                         await resolveWhenConditionIsTrue({
                             toUpdate: remoteComment,
@@ -1699,7 +1694,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                     });
 
                     it("Spec: comment.update() on an anonymized reply keeps per-post alias and signature verification passing", async () => {
-                        const remoteReply = await remotePlebbit.getComment({ cid: sharedContext.reply!.cid });
+                        const remoteReply = await remotePKC.getComment({ cid: sharedContext.reply!.cid });
                         await remoteReply.update();
                         await resolveWhenConditionIsTrue({
                             toUpdate: remoteReply,
@@ -1720,60 +1715,57 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
             let secondPostAliasSigner: SignerWithPublicKeyAddress;
 
             beforeAll(async () => {
-                paginatedContext = await createPerPostSubplebbit();
-                paginatedSigningAuthor = await paginatedContext.publisherPlebbit.createSigner();
+                paginatedContext = await createPerPostCommunity();
+                paginatedSigningAuthor = await paginatedContext.publisherPKC.createSigner();
                 paginatedContext.post = await publishRandomPost({
                     communityAddress: paginatedContext.subplebbit.address,
-                    plebbit: paginatedContext.publisherPlebbit,
+                    plebbit: paginatedContext.publisherPKC,
                     postProps: {
                         signer: paginatedSigningAuthor
                     }
                 });
-                await waitForStoredCommentUpdateWithAssertions(paginatedContext.subplebbit as LocalSubplebbit, paginatedContext.post);
+                await waitForStoredCommentUpdateWithAssertions(paginatedContext.subplebbit as LocalCommunity, paginatedContext.post);
                 paginatedContext.reply = await publishRandomReply({
                     parentComment: paginatedContext.post as CommentIpfsWithCidDefined,
-                    plebbit: paginatedContext.publisherPlebbit,
+                    plebbit: paginatedContext.publisherPKC,
                     commentProps: {
                         signer: paginatedSigningAuthor
                     }
                 });
-                await waitForStoredCommentUpdateWithAssertions(paginatedContext.subplebbit as LocalSubplebbit, paginatedContext.reply);
+                await waitForStoredCommentUpdateWithAssertions(paginatedContext.subplebbit as LocalCommunity, paginatedContext.reply);
 
                 paginatedContext.secondPost = await publishRandomPost({
                     communityAddress: paginatedContext.subplebbit.address,
-                    plebbit: paginatedContext.publisherPlebbit,
+                    plebbit: paginatedContext.publisherPKC,
                     postProps: {
                         signer: paginatedSigningAuthor
                     }
                 });
-                await waitForStoredCommentUpdateWithAssertions(paginatedContext.subplebbit as LocalSubplebbit, paginatedContext.secondPost);
+                await waitForStoredCommentUpdateWithAssertions(paginatedContext.subplebbit as LocalCommunity, paginatedContext.secondPost);
 
-                await forceSubplebbitToGenerateAllPostsPages(paginatedContext.subplebbit);
-                await waitTillPostInSubplebbitPages(paginatedContext.post as Comment & { cid: string }, paginatedContext.publisherPlebbit);
-                await waitTillPostInSubplebbitPages(
-                    paginatedContext.secondPost as Comment & { cid: string },
-                    paginatedContext.publisherPlebbit
-                );
+                await forceCommunityToGenerateAllPostsPages(paginatedContext.subplebbit);
+                await waitTillPostInCommunityPages(paginatedContext.post as Comment & { cid: string }, paginatedContext.publisherPKC);
+                await waitTillPostInCommunityPages(paginatedContext.secondPost as Comment & { cid: string }, paginatedContext.publisherPKC);
                 await waitTillReplyInParentPages(
                     paginatedContext.reply as Comment & { cid: string; parentCid: string },
-                    paginatedContext.publisherPlebbit
+                    paginatedContext.publisherPKC
                 );
 
-                const aliasRow = (paginatedContext.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasForPost(
+                const aliasRow = (paginatedContext.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasForPost(
                     paginatedSigningAuthor.publicKey,
                     paginatedContext.post.cid
                 ) as AliasRow;
-                const secondAliasRow = (paginatedContext.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasForPost(
+                const secondAliasRow = (paginatedContext.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasForPost(
                     paginatedSigningAuthor.publicKey,
                     paginatedContext.secondPost.cid
                 ) as AliasRow;
                 expect(aliasRow).to.exist;
                 expect(secondAliasRow).to.exist;
-                paginatedAliasSigner = await paginatedContext.publisherPlebbit.createSigner({
+                paginatedAliasSigner = await paginatedContext.publisherPKC.createSigner({
                     privateKey: aliasRow.aliasPrivateKey,
                     type: "ed25519"
                 });
-                secondPostAliasSigner = await paginatedContext.publisherPlebbit.createSigner({
+                secondPostAliasSigner = await paginatedContext.publisherPKC.createSigner({
                     privateKey: secondAliasRow.aliasPrivateKey,
                     type: "ed25519"
                 });
@@ -1786,32 +1778,32 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                 await paginatedContext?.cleanup();
             });
 
-            remotePlebbitConfigs.forEach((config) => {
+            remotePKCConfigs.forEach((config) => {
                 describe.concurrent(`${config.name} - paginated`, () => {
-                    let remotePlebbit: Plebbit;
+                    let remotePKC: PKC;
 
                     beforeAll(async () => {
-                        remotePlebbit = await config.plebbitInstancePromise();
-                        await waitTillPostInSubplebbitPages(paginatedContext.post! as Comment & { cid: string }, remotePlebbit);
-                        await waitTillPostInSubplebbitPages(paginatedContext.secondPost! as Comment & { cid: string }, remotePlebbit);
+                        remotePKC = await config.plebbitInstancePromise();
+                        await waitTillPostInCommunityPages(paginatedContext.post! as Comment & { cid: string }, remotePKC);
+                        await waitTillPostInCommunityPages(paginatedContext.secondPost! as Comment & { cid: string }, remotePKC);
                         await waitTillReplyInParentPages(
                             paginatedContext.reply! as Comment & { cid: string; parentCid: string },
-                            remotePlebbit
+                            remotePKC
                         );
                     });
 
                     afterAll(async () => {
-                        await remotePlebbit?.destroy();
+                        await remotePKC?.destroy();
                     });
 
                     it("Spec: subplebbit.posts.getPage({ cid }) loads a page with anonymized comments", async () => {
-                        const remoteSubplebbit = await remotePlebbit.getSubplebbit({ address: paginatedContext.subplebbit.address });
-                        expect(Object.keys(remoteSubplebbit.posts.pageCids).length).to.be.greaterThan(0);
-                        for (const firstPageCid of Object.values(remoteSubplebbit.posts.pageCids)) {
+                        const remoteCommunity = await remotePKC.getCommunity({ address: paginatedContext.subplebbit.address });
+                        expect(Object.keys(remoteCommunity.posts.pageCids).length).to.be.greaterThan(0);
+                        for (const firstPageCid of Object.values(remoteCommunity.posts.pageCids)) {
                             let currentCid: string | undefined = firstPageCid;
                             let found = false;
                             while (currentCid && !found) {
-                                const page = await remoteSubplebbit.posts.getPage({ cid: currentCid });
+                                const page = await remoteCommunity.posts.getPage({ cid: currentCid });
                                 const postInPage = page.comments.find((c) => c.cid === paginatedContext.post!.cid);
                                 if (postInPage) {
                                     expect(postInPage?.author?.address).to.equal(paginatedAliasSigner.address);
@@ -1824,7 +1816,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                     });
 
                     it("Spec: comment.replies.getPage({ cid }) loads a page with anonymized replies", async () => {
-                        const remoteParent = await remotePlebbit.getComment({ cid: paginatedContext.post!.cid });
+                        const remoteParent = await remotePKC.getComment({ cid: paginatedContext.post!.cid });
                         await remoteParent.update();
                         await waitTillReplyInParentPagesInstance(
                             paginatedContext.reply! as Required<
@@ -1852,13 +1844,13 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                     });
 
                     it("Spec: when two posts share the same signer, paginated pages surface distinct anonymized addresses per post with valid signatures", async () => {
-                        const remoteSubplebbit = await remotePlebbit.getSubplebbit({ address: paginatedContext.subplebbit.address });
+                        const remoteCommunity = await remotePKC.getCommunity({ address: paginatedContext.subplebbit.address });
                         const seenAddresses = new Map<string, { address: string; publicKey: string }>();
 
-                        for (const firstPageCid of Object.values(remoteSubplebbit.posts.pageCids)) {
+                        for (const firstPageCid of Object.values(remoteCommunity.posts.pageCids)) {
                             let currentCid: string | undefined = firstPageCid;
                             while (currentCid) {
-                                const page = await remoteSubplebbit.posts.getPage({ cid: currentCid });
+                                const page = await remoteCommunity.posts.getPage({ cid: currentCid });
                                 page.comments.forEach((comment) => {
                                     if (comment.cid === paginatedContext.post!.cid) {
                                         seenAddresses.set(comment.cid, {
@@ -1903,9 +1895,9 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
         let regularSigner: SignerWithPublicKeyAddress;
 
         beforeAll(async () => {
-            modContext = await createPerPostSubplebbit();
-            modSigner = await modContext.publisherPlebbit.createSigner();
-            regularSigner = await modContext.publisherPlebbit.createSigner();
+            modContext = await createPerPostCommunity();
+            modSigner = await modContext.publisherPKC.createSigner();
+            regularSigner = await modContext.publisherPKC.createSigner();
 
             // Assign mod role
             await modContext.subplebbit.edit({ roles: { [modSigner.address]: { role: "moderator" } } });
@@ -1922,17 +1914,17 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
         it("Spec: mod comment is NOT pseudonymized in per-post mode", async () => {
             const modPost = await publishRandomPost({
                 communityAddress: modContext.subplebbit.address,
-                plebbit: modContext.publisherPlebbit,
+                plebbit: modContext.publisherPKC,
                 postProps: { signer: modSigner }
             });
-            await waitForStoredCommentUpdateWithAssertions(modContext.subplebbit as LocalSubplebbit, modPost);
+            await waitForStoredCommentUpdateWithAssertions(modContext.subplebbit as LocalCommunity, modPost);
 
-            const stored = (modContext.subplebbit as LocalSubplebbit)._dbHandler.queryComment(modPost.cid) as StoredComment;
+            const stored = (modContext.subplebbit as LocalCommunity)._dbHandler.queryComment(modPost.cid) as StoredComment;
             expect(stored?.author?.address).to.be.undefined;
             expect(stored?.signature?.publicKey).to.equal(modSigner.publicKey);
             expect(stored?.pseudonymityMode).to.be.undefined;
 
-            const aliasRow = (modContext.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasByCommentCid(modPost.cid);
+            const aliasRow = (modContext.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasByCommentCid(modPost.cid);
             expect(aliasRow).to.be.undefined;
 
             await modPost.stop();
@@ -1941,31 +1933,31 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
         it("Spec: non-mod is still pseudonymized alongside mod in per-post mode", async () => {
             const modPost = await publishRandomPost({
                 communityAddress: modContext.subplebbit.address,
-                plebbit: modContext.publisherPlebbit,
+                plebbit: modContext.publisherPKC,
                 postProps: { signer: modSigner }
             });
-            await waitForStoredCommentUpdateWithAssertions(modContext.subplebbit as LocalSubplebbit, modPost);
+            await waitForStoredCommentUpdateWithAssertions(modContext.subplebbit as LocalCommunity, modPost);
 
             const regularPost = await publishRandomPost({
                 communityAddress: modContext.subplebbit.address,
-                plebbit: modContext.publisherPlebbit,
+                plebbit: modContext.publisherPKC,
                 postProps: {
                     signer: regularSigner
                 }
             });
-            await waitForStoredCommentUpdateWithAssertions(modContext.subplebbit as LocalSubplebbit, regularPost);
+            await waitForStoredCommentUpdateWithAssertions(modContext.subplebbit as LocalCommunity, regularPost);
 
             // Mod should use real address
-            const storedMod = (modContext.subplebbit as LocalSubplebbit)._dbHandler.queryComment(modPost.cid) as StoredComment;
+            const storedMod = (modContext.subplebbit as LocalCommunity)._dbHandler.queryComment(modPost.cid) as StoredComment;
             expect(storedMod?.author?.address).to.be.undefined;
             expect(storedMod?.signature?.publicKey).to.equal(modSigner.publicKey);
 
             // Regular user should be pseudonymized
-            const storedRegular = (modContext.subplebbit as LocalSubplebbit)._dbHandler.queryComment(regularPost.cid) as StoredComment;
+            const storedRegular = (modContext.subplebbit as LocalCommunity)._dbHandler.queryComment(regularPost.cid) as StoredComment;
             expect(storedRegular?.author?.address).to.be.undefined;
             expect(storedRegular?.signature?.publicKey).to.not.equal(regularSigner.publicKey);
 
-            const aliasRow = (modContext.subplebbit as LocalSubplebbit)._dbHandler.queryPseudonymityAliasByCommentCid(
+            const aliasRow = (modContext.subplebbit as LocalCommunity)._dbHandler.queryPseudonymityAliasByCommentCid(
                 regularPost.cid
             ) as AliasRow;
             expect(aliasRow).to.exist;
@@ -1978,13 +1970,13 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
         it("Spec: mod comment edit uses real key in per-post mode", async () => {
             const modPost = await publishRandomPost({
                 communityAddress: modContext.subplebbit.address,
-                plebbit: modContext.publisherPlebbit,
+                plebbit: modContext.publisherPKC,
                 postProps: { signer: modSigner }
             });
-            await waitForStoredCommentUpdateWithAssertions(modContext.subplebbit as LocalSubplebbit, modPost);
+            await waitForStoredCommentUpdateWithAssertions(modContext.subplebbit as LocalCommunity, modPost);
 
             const editedContent = "Mod edited content - " + Date.now();
-            const edit = await modContext.publisherPlebbit.createCommentEdit({
+            const edit = await modContext.publisherPKC.createCommentEdit({
                 communityAddress: modPost.communityAddress,
                 commentCid: modPost.cid,
                 content: editedContent,
@@ -1996,13 +1988,13 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
                 toUpdate: modContext.subplebbit,
                 predicate: async () =>
                     (
-                        (modContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+                        (modContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                             cid: modPost.cid
                         }) as StoredCommentUpdate
                     )?.edit?.content === editedContent
             });
 
-            const storedUpdate = (modContext.subplebbit as LocalSubplebbit)._dbHandler.queryStoredCommentUpdate({
+            const storedUpdate = (modContext.subplebbit as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                 cid: modPost.cid
             }) as StoredCommentUpdate;
             expect(storedUpdate?.edit?.content).to.equal(editedContent);
@@ -2023,7 +2015,7 @@ describeSkipIfRpc('subplebbit.features.pseudonymityMode="per-post"', () => {
     });
 });
 
-async function expectCommentCidToUseAlias(plebbit: Plebbit, cid: string, aliasSigner: SignerWithPublicKeyAddress) {
+async function expectCommentCidToUseAlias(plebbit: PKC, cid: string, aliasSigner: SignerWithPublicKeyAddress) {
     const fetched = JSON.parse(await plebbit.fetchCid({ cid })) as {
         author?: { address?: string };
         signature?: { publicKey?: string };
@@ -2045,7 +2037,7 @@ async function assertPseudonymityModeTransition({ initialMode, nextMode }: { ini
             signer: authorSigner,
             communityAddress: context.communityAddress
         });
-        const storedParentPost = await (context.subplebbit as unknown as LocalSubplebbitWithPrivateMethods).storePublication({
+        const storedParentPost = await (context.subplebbit as unknown as LocalCommunityWithPrivateMethods).storePublication({
             comment: parentPost
         });
         const postCid = storedParentPost.cid;
@@ -2056,7 +2048,7 @@ async function assertPseudonymityModeTransition({ initialMode, nextMode }: { ini
             postCid,
             parentCid: postCid
         });
-        const oldStored = await (context.subplebbit as unknown as LocalSubplebbitWithPrivateMethods).storePublication({
+        const oldStored = await (context.subplebbit as unknown as LocalCommunityWithPrivateMethods).storePublication({
             comment: originalReply
         });
         const oldReplyCid = oldStored.cid;
@@ -2067,7 +2059,7 @@ async function assertPseudonymityModeTransition({ initialMode, nextMode }: { ini
         expectStoredCommentToUseAlias(context.dbHandler, oldReplyCid, oldAliasSigner);
 
         await context.subplebbit.edit({ features: { pseudonymityMode: nextMode as "per-author" | "per-post" | "per-reply" } });
-        await ensureSubplebbitDbReady(context.subplebbit as LocalSubplebbit);
+        await ensureCommunityDbReady(context.subplebbit as LocalCommunity);
 
         const newReply = await buildSignedReplyPublication({
             signer: authorSigner,
@@ -2075,7 +2067,7 @@ async function assertPseudonymityModeTransition({ initialMode, nextMode }: { ini
             postCid,
             parentCid: postCid
         });
-        const newReplyStored = await (context.subplebbit as unknown as LocalSubplebbitWithPrivateMethods).storePublication({
+        const newReplyStored = await (context.subplebbit as unknown as LocalCommunityWithPrivateMethods).storePublication({
             comment: newReply
         });
         const newReplyAliasRow = context.dbHandler.queryPseudonymityAliasByCommentCid(newReplyStored.cid) as AliasRow;
@@ -2089,7 +2081,7 @@ async function assertPseudonymityModeTransition({ initialMode, nextMode }: { ini
             signer: authorSigner,
             communityAddress: context.communityAddress
         });
-        const newPostStored = await (context.subplebbit as unknown as LocalSubplebbitWithPrivateMethods).storePublication({
+        const newPostStored = await (context.subplebbit as unknown as LocalCommunityWithPrivateMethods).storePublication({
             comment: newPost
         });
         const newPostAliasRow = context.dbHandler.queryPseudonymityAliasByCommentCid(newPostStored.cid) as AliasRow;
@@ -2127,7 +2119,7 @@ async function buildSignedReplyPublication({
         postCid,
         parentCid
     };
-    const signature = await signComment({ comment: base, plebbit: {} as Plebbit });
+    const signature = await signComment({ comment: base, plebbit: {} as PKC });
     const publication = { ...base, signature } as CommentPubsubMessagePublication & { signer?: SignerWithPublicKeyAddress };
     delete publication.signer;
     return publication;
@@ -2148,29 +2140,29 @@ async function buildSignedPostPublication({
         title: `transition-post-${Date.now()}`,
         content: `transition-post-content-${Date.now()}`
     };
-    const signature = await signComment({ comment: base, plebbit: {} as Plebbit });
+    const signature = await signComment({ comment: base, plebbit: {} as PKC });
     const publication = { ...base, signature } as CommentPubsubMessagePublication & { signer?: SignerWithPublicKeyAddress };
     delete publication.signer;
     return publication;
 }
 
-async function ensureSubplebbitDbReady(subplebbit: LocalSubplebbit) {
-    const sub = subplebbit as unknown as LocalSubplebbitWithPrivateMethods;
+async function ensureCommunityDbReady(subplebbit: LocalCommunity) {
+    const sub = subplebbit as unknown as LocalCommunityWithPrivateMethods;
     if (typeof sub.initDbHandlerIfNeeded === "function") {
         await sub.initDbHandlerIfNeeded();
     }
     await subplebbit._dbHandler.initDbIfNeeded({ fileMustExist: false });
 }
 
-function expectStoredCommentToUseAlias(dbHandler: LocalSubplebbit["_dbHandler"], cid: string, aliasSigner: SignerWithPublicKeyAddress) {
+function expectStoredCommentToUseAlias(dbHandler: LocalCommunity["_dbHandler"], cid: string, aliasSigner: SignerWithPublicKeyAddress) {
     const stored = dbHandler.queryComment(cid) as StoredComment;
     expect(stored?.author?.address).to.be.undefined;
     expect(stored?.signature?.publicKey).to.equal(aliasSigner.publicKey);
 }
 
 async function createAnonymityTransitionContext(initialMode: string): Promise<AnonymityTransitionContext> {
-    const plebbit = await mockPlebbit();
-    const subplebbit = (await createSubWithNoChallenge({}, plebbit)) as LocalSubplebbit;
+    const plebbit = await mockPKC();
+    const subplebbit = (await createSubWithNoChallenge({}, plebbit)) as LocalCommunity;
     await subplebbit.edit({ features: { pseudonymityMode: initialMode as "per-author" | "per-post" | "per-reply" } });
     await subplebbit._dbHandler.initDbIfNeeded({ fileMustExist: false });
     await subplebbit._dbHandler.createOrMigrateTablesIfNeeded();
@@ -2186,24 +2178,24 @@ async function createAnonymityTransitionContext(initialMode: string): Promise<An
     };
 }
 
-async function createPerPostSubplebbit(): Promise<PerPostContext> {
-    const publisherPlebbit = await mockPlebbit();
-    const subplebbit = await createSubWithNoChallenge({}, publisherPlebbit);
+async function createPerPostCommunity(): Promise<PerPostContext> {
+    const publisherPKC = await mockPKC();
+    const subplebbit = await createSubWithNoChallenge({}, publisherPKC);
     await subplebbit.edit({ features: { pseudonymityMode: "per-post" } });
     await subplebbit.start();
     await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
 
     return {
-        publisherPlebbit,
+        publisherPKC,
         subplebbit,
         cleanup: async () => {
             await subplebbit.delete();
-            await publisherPlebbit.destroy();
+            await publisherPKC.destroy();
         }
     };
 }
 
-async function waitForStoredCommentUpdateWithAssertions(subplebbit: LocalSubplebbit, comment: Comment): Promise<StoredCommentUpdate> {
+async function waitForStoredCommentUpdateWithAssertions(subplebbit: LocalCommunity, comment: Comment): Promise<StoredCommentUpdate> {
     const storedUpdate = await waitForStoredCommentUpdate(subplebbit, comment.cid);
     expect(storedUpdate.cid).to.equal(comment.cid);
     expect(storedUpdate.updatedAt).to.be.a("number");
@@ -2214,7 +2206,7 @@ async function waitForStoredCommentUpdateWithAssertions(subplebbit: LocalSubpleb
     return storedUpdate;
 }
 
-async function waitForStoredCommentUpdate(subplebbit: LocalSubplebbit, cid: string): Promise<StoredCommentUpdate> {
+async function waitForStoredCommentUpdate(subplebbit: LocalCommunity, cid: string): Promise<StoredCommentUpdate> {
     const timeoutMs = 60000;
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {

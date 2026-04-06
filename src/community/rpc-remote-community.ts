@@ -1,22 +1,22 @@
 import Logger from "../logger.js";
-import { RemoteSubplebbit } from "./remote-community.js";
-import type { RpcRemoteSubplebbitType, SubplebbitEvents, SubplebbitRpcErrorToTransmit } from "./types.js";
+import { RemoteCommunity } from "./remote-community.js";
+import type { RpcRemoteCommunityType, CommunityEvents, CommunityRpcErrorToTransmit } from "./types.js";
 import * as remeda from "remeda";
-import { PlebbitError } from "../pkc-error.js";
-import { parseRpcRemoteSubplebbitUpdateEventWithPlebbitErrorIfItFails } from "../schema/schema-util.js";
+import { PKCError } from "../pkc-error.js";
+import { parseRpcRemoteCommunityUpdateEventWithPKCErrorIfItFails } from "../schema/schema-util.js";
 import { deepMergeRuntimeFields } from "../util.js";
-import { RpcLocalSubplebbit } from "./rpc-local-community.js";
+import { RpcLocalCommunity } from "./rpc-local-community.js";
 import {
-    findStartedSubplebbit,
-    findUpdatingSubplebbit,
-    trackUpdatingSubplebbit,
-    untrackUpdatingSubplebbit
+    findStartedCommunity,
+    findUpdatingCommunity,
+    trackUpdatingCommunity,
+    untrackUpdatingCommunity
 } from "../pkc/tracked-instance-registry-util.js";
 
-export class RpcRemoteSubplebbit extends RemoteSubplebbit {
+export class RpcRemoteCommunity extends RemoteCommunity {
     private _updateRpcSubscriptionId?: number = undefined;
-    private _updatingRpcSubInstanceWithListeners?: { subplebbit: RpcRemoteSubplebbit | RpcLocalSubplebbit } & Pick<
-        SubplebbitEvents,
+    private _updatingRpcSubInstanceWithListeners?: { subplebbit: RpcRemoteCommunity | RpcLocalCommunity } & Pick<
+        CommunityEvents,
         | "error"
         | "updatingstatechange"
         | "startedstatechange"
@@ -26,16 +26,16 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
         | "challengeverification"
         | "challengeanswer"
         | "challenge"
-    > = undefined; // The plebbit._updatingSubplebbits we're subscribed to
+    > = undefined; // The plebbit._updatingCommunitys we're subscribed to
 
-    protected _setRpcClientStateWithoutEmission(newState: RemoteSubplebbit["clients"]["plebbitRpcClients"][""]["state"]) {
+    protected _setRpcClientStateWithoutEmission(newState: RemoteCommunity["clients"]["plebbitRpcClients"][""]["state"]) {
         const currentRpcUrl = remeda.keys.strict(this.clients.plebbitRpcClients)[0];
         const currentState = this.clients.plebbitRpcClients[currentRpcUrl].state;
         if (newState === currentState) return;
         this.clients.plebbitRpcClients[currentRpcUrl].state = newState;
     }
 
-    protected _setRpcClientStateWithEmission(newState: RemoteSubplebbit["clients"]["plebbitRpcClients"][""]["state"]) {
+    protected _setRpcClientStateWithEmission(newState: RemoteCommunity["clients"]["plebbitRpcClients"][""]["state"]) {
         const currentRpcUrl = remeda.keys.strict(this.clients.plebbitRpcClients)[0];
         const currentState = this.clients.plebbitRpcClients[currentRpcUrl].state;
         if (newState === currentState) return;
@@ -43,16 +43,16 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
         this.clients.plebbitRpcClients[currentRpcUrl].emit("statechange", newState);
     }
 
-    override get updatingState(): RemoteSubplebbit["updatingState"] {
+    override get updatingState(): RemoteCommunity["updatingState"] {
         if (this._updatingRpcSubInstanceWithListeners) {
             return this._updatingRpcSubInstanceWithListeners.subplebbit.updatingState;
         } else return this._updatingState;
     }
 
-    protected _updateRpcClientStateFromUpdatingState(updatingState: RpcRemoteSubplebbit["updatingState"]) {
+    protected _updateRpcClientStateFromUpdatingState(updatingState: RpcRemoteCommunity["updatingState"]) {
         // We're deriving the the rpc state from updating state
 
-        const mapper: Record<RpcRemoteSubplebbit["updatingState"], RemoteSubplebbit["clients"]["plebbitRpcClients"][0]["state"][]> = {
+        const mapper: Record<RpcRemoteCommunity["updatingState"], RemoteCommunity["clients"]["plebbitRpcClients"][0]["state"][]> = {
             failed: ["stopped"],
             "fetching-ipfs": ["fetching-ipfs"],
             "fetching-ipns": ["fetching-ipns"],
@@ -68,15 +68,15 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
     }
 
     protected _processUpdateEventFromRpcUpdate(args: any) {
-        // This function is to handle "update" event emitted after calling rpcRemoteSubplebbit.update()
+        // This function is to handle "update" event emitted after calling rpcRemoteCommunity.update()
         // It's overidden in rpc-local-subplebbit
         const log = Logger("pkc-js:rpc-remote-community:_processUpdateEventFromRpcUpdate");
-        let updateRecord: RpcRemoteSubplebbitType;
+        let updateRecord: RpcRemoteCommunityType;
         try {
-            updateRecord = parseRpcRemoteSubplebbitUpdateEventWithPlebbitErrorIfItFails(args.params.result);
+            updateRecord = parseRpcRemoteCommunityUpdateEventWithPKCErrorIfItFails(args.params.result);
         } catch (e) {
             log.error("Failed to parse the schema of remote subplebbit sent by rpc", e);
-            this.emit("error", <PlebbitError>e);
+            this.emit("error", <PKCError>e);
             throw e;
         }
 
@@ -88,7 +88,7 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
             return;
         }
 
-        this.initSubplebbitIpfsPropsNoMerge(updateRecord.subplebbit!);
+        this.initCommunityIpfsPropsNoMerge(updateRecord.subplebbit!);
         this.updateCid = updateRecord.runtimeFields.updateCid!;
         this._setUpdatingStateNoEmission(updateRecord.runtimeFields.updatingState || "succeeded");
         this.raw.runtimeFieldsFromRpc = updateRecord.runtimeFields;
@@ -98,38 +98,38 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
     }
 
     private _handleUpdatingStateChangeFromRpcUpdate(args: any) {
-        const newUpdatingState: RpcRemoteSubplebbit["updatingState"] = args.params.result.state; // we're being optimistic that RPC server sent an appropiate updating state string
+        const newUpdatingState: RpcRemoteCommunity["updatingState"] = args.params.result.state; // we're being optimistic that RPC server sent an appropiate updating state string
 
         this._setUpdatingStateWithEventEmissionIfNewState(newUpdatingState);
         this._updateRpcClientStateFromUpdatingState(newUpdatingState);
     }
 
-    private async _initMirroringUpdatingSubplebbit(updatingSubplebbit: RpcRemoteSubplebbit) {
-        if (updatingSubplebbit === this) return; // avoid mirroring to itself
+    private async _initMirroringUpdatingCommunity(updatingCommunity: RpcRemoteCommunity) {
+        if (updatingCommunity === this) return; // avoid mirroring to itself
         this._updatingRpcSubInstanceWithListeners = {
-            subplebbit: updatingSubplebbit,
+            subplebbit: updatingCommunity,
             error: (err) => this.emit("error", err),
             updatingstatechange: (updatingState) => this._setUpdatingStateWithEventEmissionIfNewState.bind(this)(updatingState),
-            update: (updatingSubplebbit) => {
-                const keyChanged = updatingSubplebbit.publicKey && updatingSubplebbit.publicKey !== this.publicKey;
-                if (!updatingSubplebbit.raw.subplebbitIpfs || !updatingSubplebbit.updateCid) {
-                    if (updatingSubplebbit.publicKey) this._clearDataForKeyMigration(updatingSubplebbit.publicKey);
+            update: (updatingCommunity) => {
+                const keyChanged = updatingCommunity.publicKey && updatingCommunity.publicKey !== this.publicKey;
+                if (!updatingCommunity.raw.subplebbitIpfs || !updatingCommunity.updateCid) {
+                    if (updatingCommunity.publicKey) this._clearDataForKeyMigration(updatingCommunity.publicKey);
                 } else {
-                    this.initSubplebbitIpfsPropsNoMerge(updatingSubplebbit.raw.subplebbitIpfs);
-                    this.updateCid = updatingSubplebbit.updateCid;
-                    if (updatingSubplebbit.raw.runtimeFieldsFromRpc)
-                        deepMergeRuntimeFields(this, updatingSubplebbit.raw.runtimeFieldsFromRpc);
+                    this.initCommunityIpfsPropsNoMerge(updatingCommunity.raw.subplebbitIpfs);
+                    this.updateCid = updatingCommunity.updateCid;
+                    if (updatingCommunity.raw.runtimeFieldsFromRpc)
+                        deepMergeRuntimeFields(this, updatingCommunity.raw.runtimeFieldsFromRpc);
                 }
-                if (typeof updatingSubplebbit.nameResolved === "boolean") this.nameResolved = updatingSubplebbit.nameResolved;
+                if (typeof updatingCommunity.nameResolved === "boolean") this.nameResolved = updatingCommunity.nameResolved;
                 // Only emit when there's actual data or a key migration — avoid spurious updates for empty subs
-                if ((updatingSubplebbit.raw.subplebbitIpfs && updatingSubplebbit.updateCid) || keyChanged) {
+                if ((updatingCommunity.raw.subplebbitIpfs && updatingCommunity.updateCid) || keyChanged) {
                     this.emit("update", this);
                 }
             },
             statechange: async (newState) => {
                 if (newState === "stopped" && this.state !== "stopped")
-                    // plebbit._updatingSubplebbits[address].stop() has been called, we need to clean up the subscription
-                    // or plebbit._startedSubplebbits[address].stop has been called
+                    // plebbit._updatingCommunitys[address].stop() has been called, we need to clean up the subscription
+                    // or plebbit._startedCommunitys[address].stop has been called
                     await this.stop();
             },
             challengerequest: (challengeRequest) => this.emit("challengerequest", challengeRequest),
@@ -167,26 +167,26 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
         const clientKeys = remeda.keys.strict(this.clients);
 
         for (const clientType of clientKeys)
-            if (updatingSubplebbit.clients[clientType])
-                for (const clientUrl of Object.keys(updatingSubplebbit.clients[clientType]))
-                    this.clients[clientType][clientUrl].mirror(updatingSubplebbit.clients[clientType][clientUrl]);
+            if (updatingCommunity.clients[clientType])
+                for (const clientUrl of Object.keys(updatingCommunity.clients[clientType]))
+                    this.clients[clientType][clientUrl].mirror(updatingCommunity.clients[clientType][clientUrl]);
 
         this._updatingRpcSubInstanceWithListeners.subplebbit._numOfListenersForUpdatingInstance++;
-        if (!updatingSubplebbit.raw.subplebbitIpfs || !updatingSubplebbit.updateCid) {
-            if (updatingSubplebbit.publicKey) this._clearDataForKeyMigration(updatingSubplebbit.publicKey);
+        if (!updatingCommunity.raw.subplebbitIpfs || !updatingCommunity.updateCid) {
+            if (updatingCommunity.publicKey) this._clearDataForKeyMigration(updatingCommunity.publicKey);
         } else {
-            this.initSubplebbitIpfsPropsNoMerge(updatingSubplebbit.raw.subplebbitIpfs);
-            this.updateCid = updatingSubplebbit.updateCid;
-            if (updatingSubplebbit.raw.runtimeFieldsFromRpc) deepMergeRuntimeFields(this, updatingSubplebbit.raw.runtimeFieldsFromRpc);
+            this.initCommunityIpfsPropsNoMerge(updatingCommunity.raw.subplebbitIpfs);
+            this.updateCid = updatingCommunity.updateCid;
+            if (updatingCommunity.raw.runtimeFieldsFromRpc) deepMergeRuntimeFields(this, updatingCommunity.raw.runtimeFieldsFromRpc);
         }
-        if (typeof updatingSubplebbit.nameResolved === "boolean") this.nameResolved = updatingSubplebbit.nameResolved;
-        if (updatingSubplebbit.raw.subplebbitIpfs || updatingSubplebbit.updateCid) {
+        if (typeof updatingCommunity.nameResolved === "boolean") this.nameResolved = updatingCommunity.nameResolved;
+        if (updatingCommunity.raw.subplebbitIpfs || updatingCommunity.updateCid) {
             this.emit("update", this);
         }
     }
 
     protected _handleRpcErrorEvent(args: any) {
-        const error: SubplebbitRpcErrorToTransmit = args.params.result;
+        const error: CommunityRpcErrorToTransmit = args.params.result;
         if (error.details?.newUpdatingState) this._setUpdatingStateNoEmission(error.details.newUpdatingState);
         if (error.details?.newStartedState) this._setStartedStateNoEmission(error.details.newStartedState);
         if ("code" in error && error.code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY" && error.details?.newPublicKey) {
@@ -221,42 +221,42 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
         this._plebbit._plebbitRpcClient!.emitAllPendingMessages(this._updateRpcSubscriptionId);
     }
 
-    async _createAndSubscribeToNewUpdatingSubplebbit(updatingSubplebbit?: RpcRemoteSubplebbit) {
-        const log = Logger("pkc-js:rpc-remote-community:_createNewUpdatingSubplebbit");
+    async _createAndSubscribeToNewUpdatingCommunity(updatingCommunity?: RpcRemoteCommunity) {
+        const log = Logger("pkc-js:rpc-remote-community:_createNewUpdatingCommunity");
         const updatingSub =
-            updatingSubplebbit ||
-            ((await this._plebbit.createSubplebbit({
+            updatingCommunity ||
+            ((await this._plebbit.createCommunity({
                 address: this.address,
                 ...(this.name ? { name: this.name } : undefined),
                 ...(this.publicKey ? { publicKey: this.publicKey } : undefined)
-            })) as RpcRemoteSubplebbit);
-        trackUpdatingSubplebbit(this._plebbit, updatingSub);
-        log("Creating a new entry for this._plebbit._updatingSubplebbits", this.address);
+            })) as RpcRemoteCommunity);
+        trackUpdatingCommunity(this._plebbit, updatingSub);
+        log("Creating a new entry for this._plebbit._updatingCommunitys", this.address);
 
         if (updatingSub !== this)
-            // in plebbit.createSubplebbit() this function is called with the subplebbit instance itself
-            await this._initMirroringUpdatingSubplebbit(updatingSub);
+            // in plebbit.createCommunity() this function is called with the subplebbit instance itself
+            await this._initMirroringUpdatingCommunity(updatingSub);
         await updatingSub._initRpcUpdateSubscription();
     }
 
     override async update() {
         const log = Logger("pkc-js:rpc-remote-community:update");
 
-        if (this.state === "started") throw new PlebbitError("ERR_COMMUNITY_ALREADY_STARTED", { address: this.address });
+        if (this.state === "started") throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: this.address });
         if (this.state !== "stopped") return; // No need to do anything if subplebbit is already updating
         this._setState("updating");
         try {
-            const existingSub = findUpdatingSubplebbit(this._plebbit, { address: this.address }) as RpcRemoteSubplebbit | undefined;
+            const existingSub = findUpdatingCommunity(this._plebbit, { address: this.address }) as RpcRemoteCommunity | undefined;
             if (existingSub) {
                 if (existingSub === this) await this._initRpcUpdateSubscription();
-                else await this._initMirroringUpdatingSubplebbit(existingSub);
+                else await this._initMirroringUpdatingCommunity(existingSub);
             } else {
-                const startedSub = findStartedSubplebbit(this._plebbit, { address: this.address });
-                if (startedSub) await this._initMirroringUpdatingSubplebbit(startedSub as RpcLocalSubplebbit);
+                const startedSub = findStartedCommunity(this._plebbit, { address: this.address });
+                if (startedSub) await this._initMirroringUpdatingCommunity(startedSub as RpcLocalCommunity);
                 else {
-                    // creating a new entry in plebbit._updatingSubplebbits
+                    // creating a new entry in plebbit._updatingCommunitys
                     // poll updates from RPC
-                    await this._createAndSubscribeToNewUpdatingSubplebbit();
+                    await this._createAndSubscribeToNewUpdatingCommunity();
                 }
             }
         } catch (e) {
@@ -265,9 +265,9 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
         }
     }
 
-    private async _cleanupMirroringUpdatingSubplebbit() {
+    private async _cleanupMirroringUpdatingCommunity() {
         if (!this._updatingRpcSubInstanceWithListeners)
-            throw Error("rpcRemoteSubplebbit.state is updating but no mirroring updating subplebbit");
+            throw Error("rpcRemoteCommunity.state is updating but no mirroring updating subplebbit");
         this._updatingRpcSubInstanceWithListeners.subplebbit.removeListener("update", this._updatingRpcSubInstanceWithListeners.update);
         this._updatingRpcSubInstanceWithListeners.subplebbit.removeListener(
             "updatingstatechange",
@@ -309,8 +309,8 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
             this._updatingRpcSubInstanceWithListeners.subplebbit._numOfListenersForUpdatingInstance === 0 &&
             this._updatingRpcSubInstanceWithListeners.subplebbit.state === "updating"
         ) {
-            const log = Logger("pkc-js:rpc-remote-community:_cleanupMirroringUpdatingSubplebbit");
-            log("Cleaning up plebbit._updatingSubplebbits", this.address, "There are no subplebbits using it for updates");
+            const log = Logger("pkc-js:rpc-remote-community:_cleanupMirroringUpdatingCommunity");
+            log("Cleaning up plebbit._updatingCommunitys", this.address, "There are no subplebbits using it for updates");
             await this._updatingRpcSubInstanceWithListeners.subplebbit.stop();
         }
         this._updatingRpcSubInstanceWithListeners = undefined;
@@ -321,7 +321,7 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
         if (this.state === "stopped") return;
 
         if (this._updatingRpcSubInstanceWithListeners) {
-            await this._cleanupMirroringUpdatingSubplebbit();
+            await this._cleanupMirroringUpdatingCommunity();
         } else if (this._updateRpcSubscriptionId) {
             try {
                 await this._plebbit._plebbitRpcClient!.unsubscribe(this._updateRpcSubscriptionId);
@@ -330,7 +330,7 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
             }
             this._updateRpcSubscriptionId = undefined;
             log.trace(`Stopped the update of remote subplebbit (${this.address}) via RPC`);
-            untrackUpdatingSubplebbit(this._plebbit, this);
+            untrackUpdatingCommunity(this._plebbit, this);
         }
         this._setRpcClientStateWithEmission("stopped");
         this._setUpdatingStateWithEventEmissionIfNewState("stopped");

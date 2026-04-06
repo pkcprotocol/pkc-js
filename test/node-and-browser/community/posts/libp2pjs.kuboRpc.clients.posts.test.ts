@@ -3,12 +3,12 @@ import signers from "../../../fixtures/signers.js";
 
 import {
     describeSkipIfRpc,
-    mockGatewayPlebbit,
-    getAvailablePlebbitConfigsToTestAgainst,
+    mockGatewayPKC,
+    getAvailablePKCConfigsToTestAgainst,
     addStringToIpfs
 } from "../../../../dist/node/test/test-util.js";
 
-import type { Plebbit as PlebbitType } from "../../../../dist/node/pkc/pkc.js";
+import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 
 const subplebbitAddress = signers[0].address;
 
@@ -17,10 +17,10 @@ const clientsFieldName: Record<string, string> = {
     "remote-libp2pjs": "libp2pJsClients"
 };
 
-getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
     const clientFieldName = clientsFieldName[config.testConfigCode];
     describeSkipIfRpc(`subplebbit.posts.clients.${clientFieldName} - ${config.name}`, async () => {
-        let plebbit: PlebbitType;
+        let plebbit: PKCType;
 
         beforeAll(async () => {
             plebbit = await config.plebbitInstancePromise();
@@ -31,8 +31,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`subplebbit.posts.clients.${clientFieldName} is undefined for gateway plebbit`, async () => {
-            const gatewayPlebbit = await mockGatewayPlebbit();
-            const mockSub = await gatewayPlebbit.createSubplebbit({ address: subplebbitAddress });
+            const gatewayPKC = await mockGatewayPKC();
+            const mockSub = await gatewayPKC.createCommunity({ address: subplebbitAddress });
             const sortTypes = Object.keys(
                 (mockSub.posts.clients as unknown as Record<string, Record<string, Record<string, { on: Function; state: string }>>>)[
                     clientFieldName
@@ -45,11 +45,11 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                         clientFieldName
                     ][sortType]
                 ).to.deep.equal({});
-            await gatewayPlebbit.destroy();
+            await gatewayPKC.destroy();
         });
 
         it(`subplebbit.posts.clients.${clientFieldName}[sortType][url] is stopped by default`, async () => {
-            const mockSub = await plebbit.createSubplebbit({ address: subplebbitAddress });
+            const mockSub = await plebbit.createCommunity({ address: subplebbitAddress });
             const key = Object.keys((mockSub.clients as unknown as Record<string, Record<string, unknown>>)[clientFieldName])[0];
             // add tests here
             expect(
@@ -69,7 +69,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it(`Correct state of 'new' sort is updated after fetching from subplebbit.posts.pageCids.new`, async () => {
-            const mockSub = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const mockSub = await plebbit.getCommunity({ address: subplebbitAddress });
             const firstPageMocked = {
                 comments: mockSub.posts.pages.hot.comments.slice(0, 10).map((comment) => comment.raw)
             };
@@ -93,7 +93,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
         });
 
         it("Correct state of 'new' sort is updated after fetching second page of 'new' pages", async () => {
-            const mockSub = await plebbit.getSubplebbit({ address: subplebbitAddress });
+            const mockSub = await plebbit.getCommunity({ address: subplebbitAddress });
             const clientKey = Object.keys((mockSub.clients as unknown as Record<string, Record<string, unknown>>)[clientFieldName])[0];
 
             const secondPageMocked = { comments: mockSub.posts.pages.hot.comments.slice(1, 5).map((comment) => comment.raw) }; // create a slightly different page
@@ -123,9 +123,9 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
             expect(actualStates).to.deep.equal(expectedStates);
         });
 
-        it(`Correct state of 'new' sort is updated after fetching with a subplebbit created with plebbit.createSubplebbit({address, pageCids})`, async () => {
-            const remotePlebbit = await config.plebbitInstancePromise();
-            const mockSub = await remotePlebbit.getSubplebbit({ address: subplebbitAddress });
+        it(`Correct state of 'new' sort is updated after fetching with a subplebbit created with plebbit.createCommunity({address, pageCids})`, async () => {
+            const remotePKC = await config.plebbitInstancePromise();
+            const mockSub = await remotePKC.getCommunity({ address: subplebbitAddress });
 
             const firstPageMocked = {
                 comments: mockSub.posts.pages.hot.comments.slice(0, 10).map((comment) => comment.raw)
@@ -133,7 +133,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
             const firstPageMockedCid = await addStringToIpfs(JSON.stringify(firstPageMocked));
 
-            const fetchSub = await remotePlebbit.createSubplebbit({
+            const fetchSub = await remotePKC.createCommunity({
                 address: subplebbitAddress,
                 posts: { pageCids: { ...mockSub.posts.pageCids, new: firstPageMockedCid } }
             });
@@ -151,7 +151,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
             await fetchSub.posts.getPage({ cid: fetchSub.posts.pageCids.new });
             expect(actualStates).to.deep.equal(expectedStates);
-            await remotePlebbit.destroy();
+            await remotePKC.destroy();
         });
     });
 });
