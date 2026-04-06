@@ -333,7 +333,7 @@ describe("Test fetching subplebbit record from multiple gateways (isolated)", as
             expect(
                 (e as { details: { gatewayToError: Record<string, { code: string }> } }).details.gatewayToError[stallingGateway].code
             ).to.equal("ERR_GATEWAY_TIMED_OUT_OR_ABORTED");
-            expect((e as { message: string }).message).to.equal(messages["ERR_FAILED_TO_FETCH_SUBPLEBBIT_FROM_GATEWAYS"]);
+            expect((e as { message: string }).message).to.equal(messages["ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS"]);
         } finally {
             await customPlebbit.destroy();
         }
@@ -376,7 +376,7 @@ describe("Test fetching subplebbit record from multiple gateways (isolated)", as
             await customPlebbit.getSubplebbit({ address: subAddress });
             expect.fail("Should have thrown");
         } catch (e) {
-            expect((e as { code: string }).code).to.equal("ERR_FAILED_TO_FETCH_SUBPLEBBIT_FROM_GATEWAYS");
+            expect((e as { code: string }).code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
         } finally {
             await customPlebbit.destroy();
         }

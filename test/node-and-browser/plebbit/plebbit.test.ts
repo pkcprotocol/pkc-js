@@ -271,7 +271,7 @@ describe(`plebbit.destroy`, async () => {
             await plebbit.fetchCid({ cid: "QmYHzA8euDgUpNy3fh7JRwpPwt6jCgF35YTutYkyGGyr8f" });
             expect.fail("Should have thrown");
         } catch (e) {
-            expect((e as PlebbitError).code).to.equal("ERR_PLEBBIT_IS_DESTROYED");
+            expect((e as PlebbitError).code).to.equal("ERR_PKC_IS_DESTROYED");
         }
     });
 

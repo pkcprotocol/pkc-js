@@ -159,7 +159,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                 comment.once("challengeverification", resolve)
             );
             expect(verificationMsg.challengeSuccess).to.be.false;
-            expect(verificationMsg.reason).to.equal(messages.ERR_SUB_FAILED_TO_DECRYPT_PUBSUB_MSG);
+            expect(verificationMsg.reason).to.equal(messages.ERR_COMMUNITY_FAILED_TO_DECRYPT_PUBSUB_MSG);
             expect("publication" in verificationMsg).to.be.false;
             expect(verificationMsg.comment).to.be.undefined;
             expect(verificationMsg.commentUpdate).to.be.undefined;
@@ -308,7 +308,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                 pubsubTopic: (await plebbit.createSigner()).address,
                 validateTimestampRange: false
             }); // Random pubsub topic
-            expect(verificaiton).to.deep.equal({ valid: false, reason: messages.ERR_CHALLENGE_MSG_SIGNER_IS_NOT_SUBPLEBBIT });
+            expect(verificaiton).to.deep.equal({ valid: false, reason: messages.ERR_CHALLENGE_MSG_SIGNER_IS_NOT_COMMUNITY });
         });
         it(`Valid live challengemessage gets validated correctly`, async () => {
             const comment = await generateMockPost({
@@ -477,7 +477,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
             await publishWithExpectedResult({
                 publication: comment,
                 expectedChallengeSuccess: false,
-                expectedReason: messages.ERR_SUB_FAILED_TO_DECRYPT_PUBSUB_MSG
+                expectedReason: messages.ERR_COMMUNITY_FAILED_TO_DECRYPT_PUBSUB_MSG
             });
             await tempPlebbit.destroy();
         });

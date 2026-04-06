@@ -325,7 +325,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbi
         }, 70000);
 
         it.sequential(
-            "createSubplebbit survives setSettings overlap (no ERR_PLEBBIT_IS_DESTROYED)",
+            "createSubplebbit survives setSettings overlap (no ERR_PKC_IS_DESTROYED)",
             async () => {
                 const plebbitA = await config.plebbitInstancePromise();
                 const plebbitB = await config.plebbitInstancePromise();
@@ -596,7 +596,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbi
             }
         }, 80000);
 
-        it("does not throw ERR_PLEBBIT_IS_DESTROYED when setSettings overlaps with startSubplebbit/getComment", async () => {
+        it("does not throw ERR_PKC_IS_DESTROYED when setSettings overlaps with startSubplebbit/getComment", async () => {
             const plebbitA = await config.plebbitInstancePromise();
             const plebbitB = await config.plebbitInstancePromise();
 

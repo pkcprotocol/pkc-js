@@ -450,7 +450,7 @@ export async function verifySubplebbitEdit({
     clientsManager: BaseClientsManager;
 }): Promise<ValidationResult> {
     if (!_allFieldsOfRecordInSignedPropertyNames(subplebbitEdit))
-        return { valid: false, reason: messages.ERR_SUBPLEBBIT_EDIT_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
+        return { valid: false, reason: messages.ERR_COMMUNITY_EDIT_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
 
     const res = await _verifyPublicationSignatureAndAuthor({ publicationJson: subplebbitEdit });
     if (!res.valid) return res;
@@ -592,11 +592,11 @@ export async function verifySubplebbit({
 }): Promise<ValidationResult> {
     const log = Logger("pkc-js:signatures:verifySubplebbit");
     if (!_allFieldsOfRecordInSignedPropertyNames(subplebbit))
-        return { valid: false, reason: messages.ERR_SUBPLEBBIT_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
+        return { valid: false, reason: messages.ERR_COMMUNITY_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
     if (_isThereReservedFieldInRecord(subplebbit, SubplebbitIpfsReservedFields))
-        return { valid: false, reason: messages.ERR_SUBPLEBBIT_RECORD_INCLUDES_RESERVED_FIELD };
+        return { valid: false, reason: messages.ERR_COMMUNITY_RECORD_INCLUDES_RESERVED_FIELD };
     const signatureValidity = await _verifyJsonSignature(subplebbit);
-    if (!signatureValidity) return { valid: false, reason: messages.ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID };
+    if (!signatureValidity) return { valid: false, reason: messages.ERR_COMMUNITY_SIGNATURE_IS_INVALID };
     const cacheIfValidWithDefault = typeof cacheIfValid === "boolean" ? cacheIfValid : true;
     const cacheKey = sha256(subplebbit.signature.signature + validatePages + subplebbitIpnsName);
     if (cacheIfValidWithDefault && clientsManager._plebbit._memCaches.subplebbitVerificationCache.get(cacheKey)) return { valid: true };
@@ -627,14 +627,14 @@ export async function verifySubplebbit({
                 log.error(
                     `Subplebbit (${subAddress}) page (${preloadedPageSortName} - ${subplebbit.posts.pageCids?.[preloadedPageSortName]}) has an invalid signature due to reason (${pageValidity.reason})`
                 );
-                return { valid: false, reason: messages.ERR_SUBPLEBBIT_POSTS_INVALID };
+                return { valid: false, reason: messages.ERR_COMMUNITY_POSTS_INVALID };
             }
         }
 
     const subPeerId = PeerId.createFromB58String(subplebbitIpnsName);
     const signaturePeerId = await getPeerIdFromPublicKey(subplebbit.signature.publicKey);
     if (!subPeerId.equals(signaturePeerId))
-        return { valid: false, reason: messages.ERR_SUBPLEBBIT_IPNS_NAME_DOES_NOT_MATCH_SIGNATURE_PUBLIC_KEY };
+        return { valid: false, reason: messages.ERR_COMMUNITY_IPNS_NAME_DOES_NOT_MATCH_SIGNATURE_PUBLIC_KEY };
     clientsManager._plebbit._memCaches.subplebbitVerificationCache.set(cacheKey, true);
     return { valid: true };
 }
@@ -728,7 +728,7 @@ export async function verifyCommentUpdate({
     }
 
     if (subplebbit.signature && update.signature.publicKey !== subplebbit.signature.publicKey)
-        return { valid: false, reason: messages.ERR_COMMENT_UPDATE_IS_NOT_SIGNED_BY_SUBPLEBBIT };
+        return { valid: false, reason: messages.ERR_COMMENT_UPDATE_IS_NOT_SIGNED_BY_COMMUNITY };
 
     clientsManager._plebbit._memCaches.commentUpdateVerificationCache.set(cacheKey, true);
 
@@ -784,7 +784,7 @@ export async function verifyChallengeMessage({
         return { valid: false, reason: messages.ERR_CHALLENGE_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
 
     const msgSignerAddress = await getPlebbitAddressFromPublicKeyBuffer(challenge.signature.publicKey);
-    if (msgSignerAddress !== pubsubTopic) return { valid: false, reason: messages.ERR_CHALLENGE_MSG_SIGNER_IS_NOT_SUBPLEBBIT };
+    if (msgSignerAddress !== pubsubTopic) return { valid: false, reason: messages.ERR_CHALLENGE_MSG_SIGNER_IS_NOT_COMMUNITY };
     if ((validateTimestampRange && _minimumTimestamp() > challenge.timestamp) || _maximumTimestamp() < challenge.timestamp)
         return { valid: false, reason: messages.ERR_PUBSUB_MSG_TIMESTAMP_IS_OUTDATED };
 
@@ -823,7 +823,7 @@ export async function verifyChallengeVerification({
         return { valid: false, reason: messages.ERR_CHALLENGE_VERIFICATION_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
 
     const msgSignerAddress = await getPlebbitAddressFromPublicKeyBuffer(verification.signature.publicKey);
-    if (msgSignerAddress !== pubsubTopic) return { valid: false, reason: messages.ERR_CHALLENGE_VERIFICATION_MSG_SIGNER_IS_NOT_SUBPLEBBIT };
+    if (msgSignerAddress !== pubsubTopic) return { valid: false, reason: messages.ERR_CHALLENGE_VERIFICATION_MSG_SIGNER_IS_NOT_COMMUNITY };
     if ((validateTimestampRange && _minimumTimestamp() > verification.timestamp) || _maximumTimestamp() < verification.timestamp)
         return { valid: false, reason: messages.ERR_PUBSUB_MSG_TIMESTAMP_IS_OUTDATED };
 
@@ -864,7 +864,7 @@ export async function verifyPageComment({
     // Handle both old format (subplebbitAddress) and new format (communityPublicKey/communityName)
     const pageCommunityAddress = getCommunityAddressFromRecord(pageComment.comment as unknown as Record<string, unknown>);
     if (pageCommunityAddress && !areEquivalentSubplebbitAddresses(pageCommunityAddress, subplebbit.address))
-        return { valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_SUB };
+        return { valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY };
 
     if (pageComment.comment.depth === 0 && pageComment.comment.postCid)
         return { valid: false, reason: messages.ERR_PAGE_COMMENT_POST_HAS_POST_CID_DEFINED_WITH_DEPTH_0 };

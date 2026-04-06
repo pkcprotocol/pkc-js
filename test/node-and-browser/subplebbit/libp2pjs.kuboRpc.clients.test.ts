@@ -156,7 +156,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
 
             await sub.stop();
             expect(sub.updatedAt).to.be.undefined;
-            expect(err.code).to.equal("ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID");
+            expect(err.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
 
             const expectedFirstStates = ["fetching-ipns", "fetching-ipfs", "stopped"];
             expect(recordedStates.slice(0, expectedFirstStates.length)).to.deep.equal(expectedFirstStates);

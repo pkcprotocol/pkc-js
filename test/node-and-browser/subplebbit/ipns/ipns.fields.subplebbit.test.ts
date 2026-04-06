@@ -71,7 +71,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
                 const error = errors[0];
                 if (config.testConfigCode === "remote-ipfs-gateway") {
-                    expect(error.code).to.equal("ERR_FAILED_TO_FETCH_SUBPLEBBIT_FROM_GATEWAYS");
+                    expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
                 } else {
                     expect(error.code).to.be.oneOf(["ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED", "ERR_IPNS_RESOLUTION_P2P_TIMEOUT"]);
                 }

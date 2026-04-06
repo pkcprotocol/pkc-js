@@ -324,7 +324,9 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 expect.fail("Should have thrown");
             } catch (e) {
                 expect((e as PlebbitError).code).to.equal("ERR_REPLIES_PAGE_IS_INVALID");
-                expect((e as PlebbitError).details.signatureValidity.reason).to.equal(messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_SUB);
+                expect((e as PlebbitError).details.signatureValidity.reason).to.equal(
+                    messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY
+                );
             }
         });
 

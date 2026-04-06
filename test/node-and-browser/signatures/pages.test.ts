@@ -202,13 +202,13 @@ describeSkipIfRpc(`verify pages`, async () => {
             const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
             (invalidPage.comments[0].comment as Record<string, unknown>).communityPublicKey += "1234";
             const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
-            expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_SUB });
+            expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY });
         });
         it(`comment.communityName`, async () => {
             const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
             (invalidPage.comments[0].comment as Record<string, unknown>).communityName = "fake.eth";
             const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
-            expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_SUB });
+            expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY });
         });
         it("comment.timestamp", async () => {
             const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;

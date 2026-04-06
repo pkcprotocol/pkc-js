@@ -213,7 +213,7 @@ describe(`Start lock`, async () => {
             await subplebbit.start();
             expect.fail("Should have thrown");
         } catch (e) {
-            expect((e as PlebbitError).code).to.equal("ERR_SUB_ALREADY_STARTED");
+            expect((e as PlebbitError).code).to.equal("ERR_COMMUNITY_ALREADY_STARTED");
         }
         await subplebbit.delete();
     });
@@ -230,7 +230,7 @@ describe(`Start lock`, async () => {
             await sameSubplebbit.start();
             expect.fail("Should have thrown");
         } catch (e) {
-            expect((e as PlebbitError).code).to.equal("ERR_SUB_ALREADY_STARTED");
+            expect((e as PlebbitError).code).to.equal("ERR_COMMUNITY_ALREADY_STARTED");
         }
         await subplebbit.stop();
     });
@@ -247,7 +247,7 @@ describe(`Start lock`, async () => {
             await sameSub.start();
             expect.fail("Should have thrown");
         } catch (e) {
-            expect((e as PlebbitError).code).to.equal("ERR_SUB_ALREADY_STARTED");
+            expect((e as PlebbitError).code).to.equal("ERR_COMMUNITY_ALREADY_STARTED");
         }
         await sub.stop();
     });
@@ -281,7 +281,7 @@ describe(`Start lock`, async () => {
                 await Promise.all([sub.start(), sameSub.start()]);
                 expect.fail("Should have thrown");
             } catch (e) {
-                expect((e as PlebbitError).code).to.equal("ERR_SUB_ALREADY_STARTED");
+                expect((e as PlebbitError).code).to.equal("ERR_COMMUNITY_ALREADY_STARTED");
             }
             if (sub.state === "started") await sub.stop();
             if (sameSub.state === "started") await sameSub.stop();
@@ -300,8 +300,8 @@ describe(`Start lock`, async () => {
             expect.fail("Should have thrown");
         } catch (e) {
             expect((e as PlebbitError).code).to.be.oneOf([
-                "ERR_SUB_ALREADY_STARTED",
-                "ERR_CAN_NOT_LOAD_DB_IF_LOCAL_SUB_ALREADY_STARTED_IN_ANOTHER_PROCESS"
+                "ERR_COMMUNITY_ALREADY_STARTED",
+                "ERR_CAN_NOT_LOAD_DB_IF_LOCAL_COMMUNITY_ALREADY_STARTED_IN_ANOTHER_PROCESS"
             ]);
         }
         await new Promise((resolve) => setTimeout(resolve, 11000)); // Wait for 11s for lock to be considered stale
@@ -342,7 +342,7 @@ describe(`Start lock`, async () => {
         try {
             await sub2.start(); // should not fail
         } catch (e) {
-            expect((e as PlebbitError).code).to.equal("ERR_SUB_ALREADY_STARTED_IN_SAME_PLEBBIT_INSTANCE");
+            expect((e as PlebbitError).code).to.equal("ERR_COMMUNITY_ALREADY_STARTED_IN_SAME_PKC_INSTANCE");
         }
     });
 

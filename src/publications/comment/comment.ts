@@ -454,7 +454,7 @@ export class Comment
         const pubsubMsgFromPublishedPubsubMsg = remeda.pick(this.raw.pubsubMessageToPublish, keysToCompare);
 
         if (!remeda.isDeepEqual(pubsubMsgFromCommentIpfs, pubsubMsgFromPublishedPubsubMsg)) {
-            const error = new PlebbitError("ERR_SUB_CHANGED_COMMENT_PUBSUB_PUBLICATION_PROPS", {
+            const error = new PlebbitError("ERR_COMMUNITY_CHANGED_COMMENT_PUBSUB_PUBLICATION_PROPS", {
                 pubsubMsgFromSub: pubsubMsgFromCommentIpfs,
                 originalPubsubMsg: this.raw.pubsubMessageToPublish
             });
@@ -480,7 +480,7 @@ export class Comment
             calculatedCommentCid: calculatedCid
         });
         if (!commentIpfsValidity.valid) {
-            const error = new PlebbitError("ERR_SUB_SENT_CHALLENGE_VERIFICATION_WITH_INVALID_COMMENT", {
+            const error = new PlebbitError("ERR_COMMUNITY_SENT_CHALLENGE_VERIFICATION_WITH_INVALID_COMMENT", {
                 reason: commentIpfsValidity.reason,
                 decryptedChallengeVerification: decryptedVerification
             });
@@ -498,7 +498,7 @@ export class Comment
             validatePages: true
         });
         if (!commentUpdateValidity.valid) {
-            const error = new PlebbitError("ERR_SUB_SENT_CHALLENGE_VERIFICATION_WITH_INVALID_COMMENTUPDATE", {
+            const error = new PlebbitError("ERR_COMMUNITY_SENT_CHALLENGE_VERIFICATION_WITH_INVALID_COMMENTUPDATE", {
                 reason: commentUpdateValidity.reason,
                 decryptedChallengeVerification: decryptedVerification
             });
@@ -508,7 +508,7 @@ export class Comment
         }
 
         if (calculatedCid !== decryptedVerification.commentUpdate.cid) {
-            const error = new PlebbitError("ERR_SUB_SENT_CHALLENGE_VERIFICATION_WITH_INVALID_CID", {
+            const error = new PlebbitError("ERR_COMMUNITY_SENT_CHALLENGE_VERIFICATION_WITH_INVALID_CID", {
                 cidSentBySub: decryptedVerification.commentUpdate.cid,
                 calculatedCid,
                 decryptedChallengeVerification: decryptedVerification

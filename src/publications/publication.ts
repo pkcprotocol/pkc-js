@@ -640,9 +640,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
     private _validateSubFields() {
         if (typeof this._community?.encryption?.publicKey !== "string")
-            throw new PlebbitError("ERR_SUBPLEBBIT_MISSING_FIELD", { subplebbitPublicKey: this._community?.encryption?.publicKey });
+            throw new PlebbitError("ERR_COMMUNITY_MISSING_FIELD", { subplebbitPublicKey: this._community?.encryption?.publicKey });
         if (typeof this._communityPubsubTopicWithFallback() !== "string")
-            throw new PlebbitError("ERR_SUBPLEBBIT_MISSING_FIELD", {
+            throw new PlebbitError("ERR_COMMUNITY_MISSING_FIELD", {
                 pubsubTopic: this._community?.pubsubTopic,
                 address: this._community?.address
             });

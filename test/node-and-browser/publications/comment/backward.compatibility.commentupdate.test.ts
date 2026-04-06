@@ -263,7 +263,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             const error = (await errorPromise) as PlebbitError;
 
-            expect(error.code).to.equal("ERR_SUB_SENT_CHALLENGE_VERIFICATION_WITH_INVALID_COMMENTUPDATE");
+            expect(error.code).to.equal("ERR_COMMUNITY_SENT_CHALLENGE_VERIFICATION_WITH_INVALID_COMMENTUPDATE");
             expect(error.details.reason).to.equal(messages["ERR_COMMENT_UPDATE_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES"]);
             await post.stop();
         });

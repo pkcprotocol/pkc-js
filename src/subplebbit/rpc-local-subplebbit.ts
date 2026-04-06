@@ -231,13 +231,14 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
 
     override async start() {
         const log = Logger("pkc-js:rpc-local-community:start");
-        if (this.state === "updating") throw new PlebbitError("ERR_NEED_TO_STOP_UPDATING_SUB_BEFORE_STARTING", { address: this.address });
+        if (this.state === "updating")
+            throw new PlebbitError("ERR_NEED_TO_STOP_UPDATING_COMMUNITY_BEFORE_STARTING", { address: this.address });
         // we can't start the same instance multiple times
         if (typeof this._startRpcSubscriptionId === "number")
-            throw new PlebbitError("ERR_SUB_ALREADY_STARTED", { subplebbitAddress: this.address });
+            throw new PlebbitError("ERR_COMMUNITY_ALREADY_STARTED", { subplebbitAddress: this.address });
 
         if (findStartedSubplebbit(this._plebbit, { address: this.address }))
-            throw new PlebbitError("ERR_SUB_ALREADY_STARTED_IN_SAME_PLEBBIT_INSTANCE", { subplebbitAddress: this.address });
+            throw new PlebbitError("ERR_COMMUNITY_ALREADY_STARTED_IN_SAME_PKC_INSTANCE", { subplebbitAddress: this.address });
         try {
             this._startRpcSubscriptionId = await this._plebbit._plebbitRpcClient!.startSubplebbit({ address: this.address });
             this._setState("started");
@@ -328,7 +329,7 @@ export class RpcLocalSubplebbit extends RpcRemoteSubplebbit {
     }
 
     override async update() {
-        if (this.state === "started") throw new PlebbitError("ERR_SUB_ALREADY_STARTED", { address: this.address });
+        if (this.state === "started") throw new PlebbitError("ERR_COMMUNITY_ALREADY_STARTED", { address: this.address });
 
         return super.update();
     }

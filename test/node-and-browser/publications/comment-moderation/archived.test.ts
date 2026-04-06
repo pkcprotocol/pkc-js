@@ -80,7 +80,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({
                 publication: archivedEdit,
                 expectedChallengeSuccess: false,
-                expectedReason: messages.ERR_SUB_COMMENT_MOD_CAN_NOT_ARCHIVE_REPLY
+                expectedReason: messages.ERR_COMMUNITY_COMMENT_MOD_CAN_NOT_ARCHIVE_REPLY
             });
         });
 
@@ -130,7 +130,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({
                 publication: comment,
                 expectedChallengeSuccess: false,
-                expectedReason: messages.ERR_SUB_PUBLICATION_POST_IS_ARCHIVED
+                expectedReason: messages.ERR_COMMUNITY_PUBLICATION_POST_IS_ARCHIVED
             });
         });
 
@@ -139,7 +139,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({
                 publication: vote,
                 expectedChallengeSuccess: false,
-                expectedReason: messages.ERR_SUB_PUBLICATION_POST_IS_ARCHIVED
+                expectedReason: messages.ERR_COMMUNITY_PUBLICATION_POST_IS_ARCHIVED
             });
         });
 
@@ -148,7 +148,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({
                 publication: vote,
                 expectedChallengeSuccess: false,
-                expectedReason: messages.ERR_SUB_PUBLICATION_POST_IS_ARCHIVED
+                expectedReason: messages.ERR_COMMUNITY_PUBLICATION_POST_IS_ARCHIVED
             });
         });
 
@@ -157,7 +157,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({
                 publication: reply,
                 expectedChallengeSuccess: false,
-                expectedReason: messages.ERR_SUB_PUBLICATION_POST_IS_ARCHIVED
+                expectedReason: messages.ERR_COMMUNITY_PUBLICATION_POST_IS_ARCHIVED
             });
         });
 

@@ -169,7 +169,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                 const createErrorPromise = () =>
                     new Promise<void>((resolve) =>
                         mockReply.once("error", (err) => {
-                            if ((err as PlebbitError).code === "ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID") resolve();
+                            if ((err as PlebbitError).code === "ERR_COMMUNITY_SIGNATURE_IS_INVALID") resolve();
                         })
                     );
                 await mockReply.update();
@@ -250,7 +250,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
                         mockReply.once("error", (err) => {
                             if (
                                 (err as PlebbitError).details.gatewayToError["http://localhost:18080"].code ===
-                                "ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID"
+                                "ERR_COMMUNITY_SIGNATURE_IS_INVALID"
                             )
                                 resolve();
                         })

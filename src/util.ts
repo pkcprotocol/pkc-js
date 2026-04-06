@@ -579,7 +579,7 @@ export async function waitForUpdateInSubInstanceWithErrorAndTimeout(subplebbit: 
             milliseconds: timeoutMs,
             message:
                 updateError ||
-                new PlebbitError("ERR_GET_SUBPLEBBIT_TIMED_OUT", {
+                new PlebbitError("ERR_GET_COMMUNITY_TIMED_OUT", {
                     subplebbitAddress: subplebbit.address,
                     timeoutMs,
                     error: updateError,

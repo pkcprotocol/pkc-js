@@ -178,7 +178,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await publishWithExpectedResult({
                     publication: vote,
                     expectedChallengeSuccess: false,
-                    expectedReason: messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_SUB
+                    expectedReason: messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_COMMUNITY
                 });
             });
 
@@ -187,7 +187,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await publishWithExpectedResult({
                     publication: reply,
                     expectedChallengeSuccess: false,
-                    expectedReason: messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_SUB
+                    expectedReason: messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_COMMUNITY
                 });
             });
 
@@ -196,7 +196,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await publishWithExpectedResult({
                     publication: vote,
                     expectedChallengeSuccess: false,
-                    expectedReason: messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_SUB
+                    expectedReason: messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_COMMUNITY
                 });
             });
 
@@ -205,7 +205,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await publishWithExpectedResult({
                     publication: reply,
                     expectedChallengeSuccess: false,
-                    expectedReason: messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_SUB
+                    expectedReason: messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_COMMUNITY
                 });
             });
 
@@ -235,7 +235,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await publishWithExpectedResult({
                     publication: unPurgeMod,
                     expectedChallengeSuccess: false,
-                    expectedReason: messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_SUB
+                    expectedReason: messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_COMMUNITY
                 });
             });
 

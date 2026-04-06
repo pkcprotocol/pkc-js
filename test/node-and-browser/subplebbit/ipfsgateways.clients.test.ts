@@ -160,9 +160,9 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
             expect(emittedErrors.length).to.equal(1); // it's only a single emitted error since we never re-download an invalid record
 
             for (const emittedError of emittedErrors) {
-                expect(emittedError.code).to.equal("ERR_FAILED_TO_FETCH_SUBPLEBBIT_FROM_GATEWAYS");
+                expect(emittedError.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
                 expect((emittedError.details.gatewayToError["http://localhost:18080"] as PlebbitError).code).to.equal(
-                    "ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID"
+                    "ERR_COMMUNITY_SIGNATURE_IS_INVALID"
                 );
             }
 

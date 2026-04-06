@@ -249,7 +249,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
             })
         ).to.deep.equal({
             valid: false,
-            reason: messages.ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID
+            reason: messages.ERR_COMMUNITY_SIGNATURE_IS_INVALID
         });
     });
 
@@ -320,7 +320,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
         });
         expect(validation).to.deep.equal({
             valid: false,
-            reason: messages.ERR_SUBPLEBBIT_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES
+            reason: messages.ERR_COMMUNITY_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES
         });
         await tempPlebbit.destroy();
     });
@@ -368,7 +368,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
         });
         expect(validation).to.deep.equal({
             valid: false,
-            reason: messages.ERR_SUBPLEBBIT_RECORD_INCLUDES_RESERVED_FIELD
+            reason: messages.ERR_COMMUNITY_RECORD_INCLUDES_RESERVED_FIELD
         });
         await tempPlebbit.destroy();
     });

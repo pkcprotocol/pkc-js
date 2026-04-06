@@ -149,7 +149,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 const sub = await testPlebbit.createSubplebbit({ address: ipnsKey });
                 const errorPromise = new Promise<PlebbitError>((resolve) => {
                     sub.on("error", (err) => {
-                        if ((err as PlebbitError).code === "ERR_SUBPLEBBIT_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY") {
+                        if ((err as PlebbitError).code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY") {
                             resolve(err as PlebbitError);
                         }
                     });
@@ -211,7 +211,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
                 let keyMigrationErrorEmitted = false;
                 sub.on("error", (err) => {
-                    if ((err as PlebbitError).code === "ERR_SUBPLEBBIT_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY") {
+                    if ((err as PlebbitError).code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY") {
                         keyMigrationErrorEmitted = true;
                     }
                 });
@@ -249,7 +249,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             // Publish a valid record signed with ipnsObj.signer first, then corrupt a signed field.
             // We cannot just copy signers[0]'s record because its publicKey would mismatch the IPNS address,
-            // causing ERR_THE_SUBPLEBBIT_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED instead of ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID.
+            // causing ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED instead of ERR_COMMUNITY_SIGNATURE_IS_INVALID.
             const { subplebbitRecord, ipnsObj } = await publishSubplebbitRecordWithExtraProp();
             (subplebbitRecord as Record<string, unknown>).updatedAt = (subplebbitRecord.updatedAt || 0) + 9999; // corrupt a signed field
             await ipnsObj.publishToIpns(JSON.stringify(subplebbitRecord));
@@ -259,13 +259,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 tempSubplebbit.once("error", (err: PlebbitError | Error) => {
                     const pErr = err as PlebbitError;
                     if (isPlebbitFetchingUsingGateways(plebbit)) {
-                        expect(pErr.code).to.equal("ERR_FAILED_TO_FETCH_SUBPLEBBIT_FROM_GATEWAYS");
+                        expect(pErr.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
                         for (const gatewayUrl of Object.keys(plebbit.clients.ipfsGateways))
                             expect((pErr.details.gatewayToError[gatewayUrl] as PlebbitError).code).to.equal(
-                                "ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID"
+                                "ERR_COMMUNITY_SIGNATURE_IS_INVALID"
                             );
                     } else {
-                        expect(pErr.code).to.equal("ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID");
+                        expect(pErr.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
                     }
                     resolve();
                 });
@@ -288,13 +288,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 tempSubplebbit.once("error", (err: PlebbitError | Error) => {
                     const pErr = err as PlebbitError;
                     if (isPlebbitFetchingUsingGateways(plebbit)) {
-                        expect(pErr.code).to.equal("ERR_FAILED_TO_FETCH_SUBPLEBBIT_FROM_GATEWAYS");
+                        expect(pErr.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
                         for (const gatewayUrl of Object.keys(plebbit.clients.ipfsGateways))
                             expect((pErr.details.gatewayToError[gatewayUrl] as PlebbitError).code).to.equal(
-                                "ERR_INVALID_SUBPLEBBIT_IPFS_SCHEMA"
+                                "ERR_INVALID_COMMUNITY_IPFS_SCHEMA"
                             );
                     } else {
-                        expect(pErr.code).to.equal("ERR_INVALID_SUBPLEBBIT_IPFS_SCHEMA");
+                        expect(pErr.code).to.equal("ERR_INVALID_COMMUNITY_IPFS_SCHEMA");
                     }
                     resolve();
                 });
@@ -317,7 +317,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                     const pErr = err as PlebbitError;
                     if (isPlebbitFetchingUsingGateways(plebbit)) {
                         // we're using gateways to fetch
-                        expect(pErr.code).to.equal("ERR_FAILED_TO_FETCH_SUBPLEBBIT_FROM_GATEWAYS");
+                        expect(pErr.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
                         for (const gatewayUrl of Object.keys(tempSubplebbit.clients.ipfsGateways)) {
                             expect((pErr.details.gatewayToError[gatewayUrl] as PlebbitError).code).to.equal("ERR_INVALID_JSON");
                         }
@@ -408,7 +408,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
                 const errorPromise = new Promise<PlebbitError>((resolve) => {
                     sub.on("error", (err) => {
-                        if ((err as PlebbitError).code === "ERR_SUBPLEBBIT_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY") {
+                        if ((err as PlebbitError).code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY") {
                             resolve(err as PlebbitError);
                         }
                     });
@@ -425,7 +425,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
                 await sub.update();
 
-                // Should emit ERR_SUBPLEBBIT_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY
+                // Should emit ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY
                 const error = await errorPromise;
                 expect(error.details.previousPublicKey).to.equal(oldPublicKey);
                 expect(error.details.newPublicKey).to.equal(newPublicKey);
@@ -475,14 +475,14 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 const error = await errorPromise;
 
                 if (isPlebbitFetchingUsingGateways(testPlebbit)) {
-                    expect(error.code).to.equal("ERR_FAILED_TO_FETCH_SUBPLEBBIT_FROM_GATEWAYS");
+                    expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
                     for (const gatewayUrl of Object.keys(testPlebbit.clients.ipfsGateways)) {
                         expect((error.details.gatewayToError[gatewayUrl] as PlebbitError).code).to.equal(
-                            "ERR_THE_SUBPLEBBIT_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED"
+                            "ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED"
                         );
                     }
                 } else {
-                    expect(error.code).to.equal("ERR_THE_SUBPLEBBIT_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED");
+                    expect(error.code).to.equal("ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED");
                 }
                 // Record should not be accepted
                 expect(sub.updatedAt).to.be.undefined;
@@ -506,7 +506,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 // Should not emit the key migration error
                 let keyMigrationErrorEmitted = false;
                 sub.on("error", (err) => {
-                    if ((err as PlebbitError).code === "ERR_SUBPLEBBIT_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY") {
+                    if ((err as PlebbitError).code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY") {
                         keyMigrationErrorEmitted = true;
                     }
                 });
@@ -608,7 +608,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
 
             if (isPlebbitFetchingUsingGateways(plebbit)) {
                 // we're using gateways to fetch
-                expect(err.code).to.equal("ERR_FAILED_TO_FETCH_SUBPLEBBIT_FROM_GATEWAYS");
+                expect(err.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
                 for (const gatewayUrl of Object.keys(tempSubplebbit.clients.ipfsGateways))
                     expect((err.details.gatewayToError[gatewayUrl] as PlebbitError).code).to.equal("ERR_OVER_DOWNLOAD_LIMIT");
             } else expect(err.code).to.equal("ERR_OVER_DOWNLOAD_LIMIT");

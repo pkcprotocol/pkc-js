@@ -33,7 +33,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
             await tempSubplebbit.stop();
 
             for (const err of waitingRetryErrs) {
-                expect(err.code).to.equal("ERR_FAILED_TO_FETCH_SUBPLEBBIT_FROM_GATEWAYS");
+                expect(err.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
                 for (const gatewayUrl of Object.keys(tempSubplebbit.clients.ipfsGateways))
                     expect((err.details.gatewayToError[gatewayUrl] as PlebbitError).code).to.equal("ERR_GATEWAY_TIMED_OUT_OR_ABORTED");
             }

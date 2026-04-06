@@ -369,10 +369,10 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
         // check if domain or ipns
         // else, throw an error
         if (doesDomainAddressHaveCapitalLetter(newAddress))
-            throw new PlebbitError("ERR_DOMAIN_ADDRESS_HAS_CAPITAL_LETTER", { subplebbitAddress: newAddress });
+            throw new PlebbitError("ERR_COMMUNITY_NAME_HAS_CAPITAL_LETTER", { subplebbitAddress: newAddress });
         const isDomain = newAddress.includes(".");
         if (!isDomain && !isIpns(newAddress))
-            throw new PlebbitError("ERR_INVALID_SUBPLEBBIT_ADDRESS_SCHEMA", { subplebbitAddress: newAddress, isDomain, isIpns: false });
+            throw new PlebbitError("ERR_INVALID_COMMUNITY_ADDRESS_SCHEMA", { subplebbitAddress: newAddress, isDomain, isIpns: false });
 
         this.address = newAddress;
         this.shortAddress = shortifyAddress(this.address);
@@ -514,9 +514,9 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
     _isRetriableErrorWhenLoading(err: PlebbitError | Error): boolean {
         if (!(err instanceof PlebbitError)) return false; // If it's not a recognizable error, then we throw to notify the user
         if (
-            err.code === "ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID" ||
-            err.code === "ERR_INVALID_SUBPLEBBIT_IPFS_SCHEMA" ||
-            err.code === "ERR_THE_SUBPLEBBIT_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED" ||
+            err.code === "ERR_COMMUNITY_SIGNATURE_IS_INVALID" ||
+            err.code === "ERR_INVALID_COMMUNITY_IPFS_SCHEMA" ||
+            err.code === "ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED" ||
             err.code === "ERR_OVER_DOWNLOAD_LIMIT" ||
             err.code === "ERR_INVALID_JSON" ||
             err.code === "ERR_NO_RESOLVER_FOR_NAME"
@@ -687,7 +687,7 @@ export class RemoteSubplebbit extends TypedEmitter<SubplebbitEvents> implements 
 
     async stop() {
         if (this.state === "stopped") return; // no-op if already stopped, mirrors update()'s idempotency
-        if (this.state !== "updating") throw new PlebbitError("ERR_CALLED_SUBPLEBBIT_STOP_WITHOUT_UPDATE", { address: this.address });
+        if (this.state !== "updating") throw new PlebbitError("ERR_CALLED_COMMUNITY_STOP_WITHOUT_UPDATE", { address: this.address });
 
         const log = Logger("pkc-js:remote-community:stop");
         this._abortStopOperations(`Aborting subplebbit operations for ${this.address} because subplebbit.stop() was called`);

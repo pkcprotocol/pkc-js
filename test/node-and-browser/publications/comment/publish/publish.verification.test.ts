@@ -65,7 +65,7 @@ describe.sequential(`Client side verification`, async () => {
             expect.fail("should fail");
         } catch (e) {
             expect((e as PlebbitError).code).to.equal(
-                "ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID",
+                "ERR_COMMUNITY_SIGNATURE_IS_INVALID",
                 "Got a different error than expected: " + JSON.stringify(e)
             );
         }
@@ -98,7 +98,7 @@ describe.concurrent("Subplebbit rejection of incorrect values of fields", async 
         await publishWithExpectedResult({
             publication: comment,
             expectedChallengeSuccess: false,
-            expectedReason: messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_SUB
+            expectedReason: messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_COMMUNITY
         });
     });
 
@@ -112,7 +112,7 @@ describe.concurrent("Subplebbit rejection of incorrect values of fields", async 
         await publishWithExpectedResult({
             publication: reply,
             expectedChallengeSuccess: false,
-            expectedReason: messages.ERR_SUB_COMMENT_TIMESTAMP_IS_EARLIER_THAN_PARENT
+            expectedReason: messages.ERR_COMMUNITY_COMMENT_TIMESTAMP_IS_EARLIER_THAN_PARENT
         });
     });
 

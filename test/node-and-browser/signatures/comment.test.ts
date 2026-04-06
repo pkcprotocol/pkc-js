@@ -578,7 +578,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
             validatePages: true,
             validateUpdateSignature: true
         });
-        expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_UPDATE_IS_NOT_SIGNED_BY_SUBPLEBBIT });
+        expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_UPDATE_IS_NOT_SIGNED_BY_COMMUNITY });
     });
 
     it(`A commentUpdate with an edit signed by other than original author will be rejected`, async () => {

@@ -125,7 +125,7 @@ export class FailedToFetchSubplebbitFromGatewaysError extends PlebbitError {
     override details: { ipnsName: string; gatewayToError: Record<string, PlebbitError> } & { [key: string]: any }; // gatewayToError is a mapping of gateway url to its error
 
     constructor(details: FailedToFetchSubplebbitFromGatewaysError["details"]) {
-        super("ERR_FAILED_TO_FETCH_SUBPLEBBIT_FROM_GATEWAYS", details);
+        super("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS", details);
         this.details = details;
     }
 }

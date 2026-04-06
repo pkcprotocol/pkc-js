@@ -207,7 +207,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 } catch (e) {
                     const error = e as PlebbitError;
                     expect(error.code).to.equal("ERR_POSTS_PAGE_IS_INVALID");
-                    expect(error.details.signatureValidity.reason).to.equal(messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_SUB);
+                    expect(error.details.signatureValidity.reason).to.equal(messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY);
                 }
             });
 

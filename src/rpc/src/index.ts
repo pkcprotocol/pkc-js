@@ -567,7 +567,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
 
         const localSubs = plebbit.subplebbits;
         if (!localSubs.includes(address))
-            throw new PlebbitError("ERR_RPC_CLIENT_ATTEMPTING_TO_START_A_REMOTE_SUB", { subplebbitAddress: address });
+            throw new PlebbitError("ERR_RPC_CLIENT_ATTEMPTING_TO_START_A_REMOTE_COMMUNITY", { subplebbitAddress: address });
 
         const subscriptionId = generateSubscriptionId();
 
@@ -624,9 +624,10 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
 
         const localSubs = plebbit.subplebbits;
         if (!localSubs.includes(address))
-            throw new PlebbitError("ERR_RPC_CLIENT_TRYING_TO_STOP_REMOTE_SUB", { subplebbitAddress: address });
+            throw new PlebbitError("ERR_RPC_CLIENT_TRYING_TO_STOP_REMOTE_COMMUNITY", { subplebbitAddress: address });
         const isSubStarted = address in this._startedSubplebbits;
-        if (!isSubStarted) throw new PlebbitError("ERR_RPC_CLIENT_TRYING_TO_STOP_SUB_THAT_IS_NOT_RUNNING", { subplebbitAddress: address });
+        if (!isSubStarted)
+            throw new PlebbitError("ERR_RPC_CLIENT_TRYING_TO_STOP_COMMUNITY_THAT_IS_NOT_RUNNING", { subplebbitAddress: address });
         const startedSubplebbit = await this.getStartedSubplebbit(address);
         await startedSubplebbit.stop();
         // emit last updates so subscribed instances can set their state to stopped
@@ -663,7 +664,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
 
         const localSubs = plebbit.subplebbits;
         if (!localSubs.includes(address))
-            throw new PlebbitError("ERR_RPC_CLIENT_TRYING_TO_EDIT_REMOTE_SUB", { subplebbitAddress: address });
+            throw new PlebbitError("ERR_RPC_CLIENT_TRYING_TO_EDIT_REMOTE_COMMUNITY", { subplebbitAddress: address });
         let subplebbit: LocalSubplebbit;
         if (this._startedSubplebbits[address] instanceof LocalSubplebbit) subplebbit = <LocalSubplebbit>this._startedSubplebbits[address];
         else {
@@ -698,7 +699,7 @@ class PlebbitWsServer extends TypedEmitter<PlebbitRpcServerEvents> {
 
         const addresses = plebbit.subplebbits;
         if (!addresses.includes(address))
-            throw new PlebbitError("ERR_RPC_CLIENT_TRYING_TO_DELETE_REMOTE_SUB", { subplebbitAddress: address });
+            throw new PlebbitError("ERR_RPC_CLIENT_TRYING_TO_DELETE_REMOTE_COMMUNITY", { subplebbitAddress: address });
 
         const isSubStarted = address in this._startedSubplebbits;
         const subplebbit = isSubStarted

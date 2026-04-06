@@ -299,7 +299,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             } catch (e) {
                 expect((e as PlebbitError).code).to.be.oneOf([
                     "ERR_IPNS_RESOLUTION_P2P_TIMEOUT", // for kubo-rpc-client
-                    "ERR_FAILED_TO_FETCH_SUBPLEBBIT_FROM_GATEWAYS", // for ipfs gateways
+                    "ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS", // for ipfs gateways
                     "ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED", // for kubo-rpc-client
                     "ERR_FAILED_TO_RESOLVE_IPNS_VIA_IPFS_P2P" // for libp2p/helia
                 ]);

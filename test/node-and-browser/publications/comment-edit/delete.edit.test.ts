@@ -125,7 +125,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({
                 publication: voteUnderDeletedPost,
                 expectedChallengeSuccess: false,
-                expectedReason: messages.ERR_SUB_PUBLICATION_PARENT_HAS_BEEN_DELETED
+                expectedReason: messages.ERR_COMMUNITY_PUBLICATION_PARENT_HAS_BEEN_DELETED
             });
         });
 
@@ -136,7 +136,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({
                 publication: replyUnderDeletedPost,
                 expectedChallengeSuccess: false,
-                expectedReason: messages.ERR_SUB_PUBLICATION_PARENT_HAS_BEEN_DELETED
+                expectedReason: messages.ERR_COMMUNITY_PUBLICATION_PARENT_HAS_BEEN_DELETED
             });
         });
 
@@ -147,7 +147,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({
                 publication: reply,
                 expectedChallengeSuccess: false,
-                expectedReason: messages.ERR_SUB_PUBLICATION_POST_HAS_BEEN_DELETED
+                expectedReason: messages.ERR_COMMUNITY_PUBLICATION_POST_HAS_BEEN_DELETED
             });
         });
 
@@ -156,7 +156,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({
                 publication: vote,
                 expectedChallengeSuccess: false,
-                expectedReason: messages.ERR_SUB_PUBLICATION_POST_HAS_BEEN_DELETED
+                expectedReason: messages.ERR_COMMUNITY_PUBLICATION_POST_HAS_BEEN_DELETED
             });
         });
         it.sequential(`Mod can delete their own post`, async () => {
@@ -192,7 +192,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({
                 publication: undeleteEdit,
                 expectedChallengeSuccess: false,
-                expectedReason: messages.ERR_SUB_PUBLICATION_PARENT_HAS_BEEN_DELETED
+                expectedReason: messages.ERR_COMMUNITY_PUBLICATION_PARENT_HAS_BEEN_DELETED
             });
         });
 
@@ -207,7 +207,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({
                 publication: undeleteEdit,
                 expectedChallengeSuccess: false,
-                expectedReason: messages.ERR_SUB_PUBLICATION_PARENT_HAS_BEEN_DELETED
+                expectedReason: messages.ERR_COMMUNITY_PUBLICATION_PARENT_HAS_BEEN_DELETED
             });
         });
     });

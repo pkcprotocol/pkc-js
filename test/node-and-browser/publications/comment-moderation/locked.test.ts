@@ -87,7 +87,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({
                 publication: lockedEdit,
                 expectedChallengeSuccess: false,
-                expectedReason: messages.ERR_SUB_COMMENT_MOD_CAN_NOT_LOCK_REPLY
+                expectedReason: messages.ERR_COMMUNITY_COMMENT_MOD_CAN_NOT_LOCK_REPLY
             });
         });
 
@@ -187,7 +187,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({
                 publication: comment,
                 expectedChallengeSuccess: false,
-                expectedReason: messages.ERR_SUB_PUBLICATION_POST_IS_LOCKED
+                expectedReason: messages.ERR_COMMUNITY_PUBLICATION_POST_IS_LOCKED
             });
         });
 
@@ -196,7 +196,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({
                 publication: vote,
                 expectedChallengeSuccess: false,
-                expectedReason: messages.ERR_SUB_PUBLICATION_POST_IS_LOCKED
+                expectedReason: messages.ERR_COMMUNITY_PUBLICATION_POST_IS_LOCKED
             });
         });
 
@@ -205,7 +205,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({
                 publication: vote,
                 expectedChallengeSuccess: false,
-                expectedReason: messages.ERR_SUB_PUBLICATION_POST_IS_LOCKED
+                expectedReason: messages.ERR_COMMUNITY_PUBLICATION_POST_IS_LOCKED
             });
         });
 
@@ -214,7 +214,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({
                 publication: reply,
                 expectedChallengeSuccess: false,
-                expectedReason: messages.ERR_SUB_PUBLICATION_POST_IS_LOCKED
+                expectedReason: messages.ERR_COMMUNITY_PUBLICATION_POST_IS_LOCKED
             });
         });
 

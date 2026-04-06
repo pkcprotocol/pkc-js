@@ -660,7 +660,7 @@ describe(`Edit misc`, async () => {
             await anotherSub.edit({ address: newSub.address });
             expect.fail("Should fail");
         } catch (e) {
-            expect((e as { code: string }).code).to.equal("ERR_SUB_OWNER_ATTEMPTED_EDIT_NEW_ADDRESS_THAT_ALREADY_EXISTS");
+            expect((e as { code: string }).code).to.equal("ERR_COMMUNITY_OWNER_ATTEMPTED_EDIT_NEW_ADDRESS_THAT_ALREADY_EXISTS");
         }
         await customPlebbit.destroy();
     });
@@ -928,7 +928,7 @@ describeSkipIfRpc(`.eth <-> .bso alias address transitions`, async () => {
             await sub2.edit({ address: `${domain}.bso` });
             expect.fail("Should fail");
         } catch (e) {
-            expect((e as { code: string }).code).to.equal("ERR_SUB_OWNER_ATTEMPTED_EDIT_NEW_ADDRESS_THAT_ALREADY_EXISTS");
+            expect((e as { code: string }).code).to.equal("ERR_COMMUNITY_OWNER_ATTEMPTED_EDIT_NEW_ADDRESS_THAT_ALREADY_EXISTS");
         }
         await customPlebbit.destroy();
     });

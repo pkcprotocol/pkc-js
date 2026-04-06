@@ -91,18 +91,18 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const error = await errorPromise;
 
             if (isPlebbitFetchingUsingGateways(remotePlebbit)) {
-                expect(error.code).to.equal("ERR_FAILED_TO_FETCH_SUBPLEBBIT_FROM_GATEWAYS");
+                expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
                 const gatewayError = error.details.gatewayToError[remotePlebbit.ipfsGatewayUrls[0]] as PlebbitError;
-                expect(gatewayError.code).to.equal("ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID");
+                expect(gatewayError.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
                 expect(gatewayError.details.signatureValidity.valid).to.be.false;
                 expect(gatewayError.details.signatureValidity.reason).to.equal(
-                    messages.ERR_SUBPLEBBIT_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES
+                    messages.ERR_COMMUNITY_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES
                 );
             } else {
-                expect(error.code).to.equal("ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID");
+                expect(error.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
                 expect(error.details.signatureValidity.valid).to.be.false;
                 expect(error.details.signatureValidity.reason).to.equal(
-                    messages.ERR_SUBPLEBBIT_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES
+                    messages.ERR_COMMUNITY_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES
                 );
             }
 
@@ -306,13 +306,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             const error = await errorPromise;
 
             if (isPlebbitFetchingUsingGateways(remotePlebbit)) {
-                expect(error.code).to.equal("ERR_FAILED_TO_FETCH_SUBPLEBBIT_FROM_GATEWAYS");
+                expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
                 const gatewayError = Object.values(error.details.gatewayToError)[0] as PlebbitError;
-                expect(gatewayError.code).to.equal("ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID");
-                expect(gatewayError.details.signatureValidity.reason).to.equal(messages.ERR_SUBPLEBBIT_RECORD_INCLUDES_RESERVED_FIELD);
+                expect(gatewayError.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
+                expect(gatewayError.details.signatureValidity.reason).to.equal(messages.ERR_COMMUNITY_RECORD_INCLUDES_RESERVED_FIELD);
             } else {
-                expect(error.code).to.equal("ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID");
-                expect(error.details.signatureValidity.reason).to.equal(messages.ERR_SUBPLEBBIT_RECORD_INCLUDES_RESERVED_FIELD);
+                expect(error.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
+                expect(error.details.signatureValidity.reason).to.equal(messages.ERR_COMMUNITY_RECORD_INCLUDES_RESERVED_FIELD);
             }
 
             expect(sub.updatedAt).to.be.undefined;
@@ -329,13 +329,13 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             } catch (e) {
                 const error = e as PlebbitError;
                 if (isPlebbitFetchingUsingGateways(remotePlebbit)) {
-                    expect(error.code).to.equal("ERR_FAILED_TO_FETCH_SUBPLEBBIT_FROM_GATEWAYS");
+                    expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
                     const gatewayError = Object.values(error.details.gatewayToError)[0] as PlebbitError;
-                    expect(gatewayError.code).to.equal("ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID");
-                    expect(gatewayError.details.signatureValidity.reason).to.equal(messages.ERR_SUBPLEBBIT_RECORD_INCLUDES_RESERVED_FIELD);
+                    expect(gatewayError.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
+                    expect(gatewayError.details.signatureValidity.reason).to.equal(messages.ERR_COMMUNITY_RECORD_INCLUDES_RESERVED_FIELD);
                 } else {
-                    expect(error.code).to.equal("ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID");
-                    expect(error.details.signatureValidity.reason).to.equal(messages.ERR_SUBPLEBBIT_RECORD_INCLUDES_RESERVED_FIELD);
+                    expect(error.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
+                    expect(error.details.signatureValidity.reason).to.equal(messages.ERR_COMMUNITY_RECORD_INCLUDES_RESERVED_FIELD);
                 }
             }
 

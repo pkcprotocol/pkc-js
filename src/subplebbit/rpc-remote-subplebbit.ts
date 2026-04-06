@@ -189,7 +189,7 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
         const error: SubplebbitRpcErrorToTransmit = args.params.result;
         if (error.details?.newUpdatingState) this._setUpdatingStateNoEmission(error.details.newUpdatingState);
         if (error.details?.newStartedState) this._setStartedStateNoEmission(error.details.newStartedState);
-        if ("code" in error && error.code === "ERR_SUBPLEBBIT_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY" && error.details?.newPublicKey) {
+        if ("code" in error && error.code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY" && error.details?.newPublicKey) {
             this._clearDataForKeyMigration(error.details.newPublicKey);
             this.nameResolved = true;
             this.emit("update", this);
@@ -242,7 +242,7 @@ export class RpcRemoteSubplebbit extends RemoteSubplebbit {
     override async update() {
         const log = Logger("pkc-js:rpc-remote-community:update");
 
-        if (this.state === "started") throw new PlebbitError("ERR_SUB_ALREADY_STARTED", { address: this.address });
+        if (this.state === "started") throw new PlebbitError("ERR_COMMUNITY_ALREADY_STARTED", { address: this.address });
         if (this.state !== "stopped") return; // No need to do anything if subplebbit is already updating
         this._setState("updating");
         try {

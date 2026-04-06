@@ -287,7 +287,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             try {
                 await sub2.stop();
             } catch (e) {
-                expect((e as PlebbitError).code).to.equal("ERR_CALLED_SUBPLEBBIT_STOP_WITHOUT_UPDATE");
+                expect((e as PlebbitError).code).to.equal("ERR_CALLED_COMMUNITY_STOP_WITHOUT_UPDATE");
             }
             expect(plebbit._updatingSubplebbits[subplebbitAddress]).to.exist;
 

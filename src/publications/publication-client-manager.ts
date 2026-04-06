@@ -356,7 +356,7 @@ export class PublicationClientsManager extends PlebbitClientsManager {
         }
 
         if (!subIpfs)
-            throw new PlebbitError("ERR_GET_SUBPLEBBIT_TIMED_OUT", {
+            throw new PlebbitError("ERR_GET_COMMUNITY_TIMED_OUT", {
                 subplebbitAddress: updatingSubInstance.subplebbit.address,
                 timeoutMs: this._plebbit._timeouts["subplebbit-ipns"]
             });

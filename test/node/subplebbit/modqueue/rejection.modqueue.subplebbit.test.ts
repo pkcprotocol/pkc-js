@@ -371,7 +371,7 @@ for (const commentMod of commentModProps) {
                                         expect((errors[0] as Error & { code: string }).code).to.be.oneOf([
                                             "ERR_FAILED_TO_FETCH_COMMENT_UPDATE_FROM_ALL_POST_UPDATES_RANGES",
                                             "ERR_FAILED_TO_FIND_REPLY_COMMENT_UPDATE_WITHIN_PARENT_COMMENT_PAGE_CIDS",
-                                            "ERR_SUBPLEBBIT_HAS_NO_POST_UPDATES"
+                                            "ERR_COMMUNITY_HAS_NO_POST_UPDATES"
                                         ]);
                                     await newComment.stop();
                                 } finally {
@@ -537,9 +537,9 @@ for (const commentMod of commentModProps) {
 
                 it(`Can't vote on rejected comment`, async () => {
                     const expectedMessage = commentMod.removed
-                        ? messages.ERR_SUB_PUBLICATION_PARENT_HAS_BEEN_REMOVED
+                        ? messages.ERR_COMMUNITY_PUBLICATION_PARENT_HAS_BEEN_REMOVED
                         : shouldCommentBePurged
-                          ? messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_SUB
+                          ? messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_COMMUNITY
                           : messages.ERR_USER_PUBLISHED_UNDER_DISAPPROVED_COMMENT;
                     const vote = await generateMockVote(commentToBeRejected as CommentIpfsWithCidDefined, 1, plebbit, modSigner); // need to publish under mod otherwise we're gonna get captcha challenge
                     await publishWithExpectedResult({
@@ -551,9 +551,9 @@ for (const commentMod of commentModProps) {
 
                 it(`Can't publish a reply under a rejected comment`, async () => {
                     const expectedMessage = commentMod.removed
-                        ? messages.ERR_SUB_PUBLICATION_PARENT_HAS_BEEN_REMOVED
+                        ? messages.ERR_COMMUNITY_PUBLICATION_PARENT_HAS_BEEN_REMOVED
                         : shouldCommentBePurged
-                          ? messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_SUB
+                          ? messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_COMMUNITY
                           : messages.ERR_USER_PUBLISHED_UNDER_DISAPPROVED_COMMENT;
                     const reply = await generateMockComment(commentToBeRejected as CommentIpfsWithCidDefined, plebbit, false);
                     await publishWithExpectedResult({
@@ -565,9 +565,9 @@ for (const commentMod of commentModProps) {
 
                 it(`Can't publish an edit under a rejected comment`, async () => {
                     const expectedMessage = commentMod.removed
-                        ? messages.ERR_SUB_PUBLICATION_PARENT_HAS_BEEN_REMOVED
+                        ? messages.ERR_COMMUNITY_PUBLICATION_PARENT_HAS_BEEN_REMOVED
                         : shouldCommentBePurged
-                          ? messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_SUB
+                          ? messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_COMMUNITY
                           : messages.ERR_USER_PUBLISHED_UNDER_DISAPPROVED_COMMENT;
                     const edit = await plebbit.createCommentEdit({
                         communityAddress: commentToBeRejected.communityAddress,
@@ -607,7 +607,7 @@ for (const commentMod of commentModProps) {
 
                 it(`Sub should reject CommentModeration if a mod published disapproval for a comment that already got disapproved`, async () => {
                     const expectedMessage = shouldCommentBePurged
-                        ? messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_SUB
+                        ? messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_COMMUNITY
                         : messages.ERR_MOD_ATTEMPTING_TO_APPROVE_OR_DISAPPROVE_COMMENT_THAT_IS_NOT_PENDING;
                     const commentModerationDisapproval = await plebbit.createCommentModeration({
                         communityAddress: subplebbit.address,

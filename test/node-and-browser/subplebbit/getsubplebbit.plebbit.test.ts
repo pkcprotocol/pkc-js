@@ -116,7 +116,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 await plebbit.getSubplebbit({ address: "testSub.bso" });
                 expect.fail("Should have thrown");
             } catch (e) {
-                expect((e as { code: string }).code).to.equal("ERR_DOMAIN_ADDRESS_HAS_CAPITAL_LETTER");
+                expect((e as { code: string }).code).to.equal("ERR_COMMUNITY_NAME_HAS_CAPITAL_LETTER");
             }
         });
 
@@ -141,7 +141,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             } catch (e) {
                 const plebbitErr = e as PlebbitError;
                 if (isPlebbitFetchingUsingGateways(plebbit)) {
-                    expect(plebbitErr.code).to.equal("ERR_FAILED_TO_FETCH_SUBPLEBBIT_FROM_GATEWAYS");
+                    expect(plebbitErr.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
                     const gatewayError = plebbitErr.details.gatewayToError[
                         Object.keys(plebbitErr.details.gatewayToError)[0]
                     ] as PlebbitError;
@@ -162,8 +162,8 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 expect.fail("should not succeed");
             } catch (e) {
                 expect([
-                    "ERR_FAILED_TO_FETCH_SUBPLEBBIT_FROM_GATEWAYS",
-                    "ERR_THE_SUBPLEBBIT_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED"
+                    "ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS",
+                    "ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED"
                 ]).to.include((e as { code: string }).code);
             } finally {
                 await ipnsObj.plebbit.destroy();
@@ -180,11 +180,11 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
                 expect.fail("should not succeed");
             } catch (e) {
                 expect([
-                    "ERR_FAILED_TO_FETCH_SUBPLEBBIT_FROM_GATEWAYS",
+                    "ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS",
                     "ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED",
                     "ERR_FAILED_TO_RESOLVE_IPNS_VIA_IPFS_P2P",
                     "ERR_IPNS_RESOLUTION_P2P_TIMEOUT",
-                    "ERR_GET_SUBPLEBBIT_TIMED_OUT"
+                    "ERR_GET_COMMUNITY_TIMED_OUT"
                 ]).to.include((e as { code: string }).code, "Error is not as expected:" + JSON.stringify(e));
             } finally {
                 await customPlebbit.destroy();

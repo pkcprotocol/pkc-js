@@ -328,7 +328,7 @@ export class CommentClientsManager extends PublicationClientsManager {
     async useSubplebbitPostUpdatesToFetchCommentUpdateForPost(subIpfs: SubplebbitIpfsType) {
         const log = Logger("pkc-js:comment:useSubplebbitPostUpdatesToFetchCommentUpdate");
         if (!subIpfs.postUpdates) {
-            throw new PlebbitError("ERR_SUBPLEBBIT_HAS_NO_POST_UPDATES", { subIpfs, postCid: this._comment.cid });
+            throw new PlebbitError("ERR_COMMUNITY_HAS_NO_POST_UPDATES", { subIpfs, postCid: this._comment.cid });
         }
 
         const postCid = this._comment.postCid;

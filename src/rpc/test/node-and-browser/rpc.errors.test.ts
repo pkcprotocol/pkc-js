@@ -83,8 +83,8 @@ describe("RPC error (de)serialization helpers", () => {
         it("strips stack traces for error notifications without mutating the original payload", () => {
             const errorPayload = {
                 name: "PlebbitError",
-                code: "ERR_SUB_ALREADY_STARTED",
-                message: messages.ERR_SUB_ALREADY_STARTED,
+                code: "ERR_COMMUNITY_ALREADY_STARTED",
+                message: messages.ERR_COMMUNITY_ALREADY_STARTED,
                 stack: "top-level stack",
                 details: {
                     newStartedState: "failed",

@@ -873,8 +873,8 @@ async function _publishWithExpectedResultOnce({
 
 const retriableSubLoadingCodes = new Set([
     "ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P",
-    "ERR_GET_SUBPLEBBIT_TIMED_OUT",
-    "ERR_FAILED_TO_FETCH_SUBPLEBBIT_FROM_GATEWAYS"
+    "ERR_GET_COMMUNITY_TIMED_OUT",
+    "ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS"
 ]);
 
 export async function publishWithExpectedResult({

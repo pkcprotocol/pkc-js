@@ -240,7 +240,7 @@ describe.concurrent(`plebbit.createSubplebbit (local)`, async () => {
             await plebbit.createSubplebbit({ address: "testBso.bso" });
             expect.fail("Should have thrown");
         } catch (e) {
-            expect((e as { code: string }).code).to.equal("ERR_DOMAIN_ADDRESS_HAS_CAPITAL_LETTER");
+            expect((e as { code: string }).code).to.equal("ERR_COMMUNITY_NAME_HAS_CAPITAL_LETTER");
         }
     });
 
@@ -252,8 +252,8 @@ describe.concurrent(`plebbit.createSubplebbit (local)`, async () => {
             expect.fail("Should have thrown");
         } catch (e) {
             expect((e as { code: string }).code).to.be.oneOf([
-                "ERR_INVALID_CREATE_REMOTE_SUBPLEBBIT_ARGS_SCHEMA",
-                "ERR_INVALID_CREATE_SUBPLEBBIT_WITH_RPC_ARGS_SCHEMA"
+                "ERR_INVALID_CREATE_REMOTE_COMMUNITY_ARGS_SCHEMA",
+                "ERR_INVALID_CREATE_COMMUNITY_WITH_RPC_ARGS_SCHEMA"
             ]);
         }
     });

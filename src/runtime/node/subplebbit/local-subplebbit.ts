@@ -434,7 +434,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
 
                 const subDbExists = this._dbHandler.subDbExists();
                 if (!subDbExists)
-                    throw new PlebbitError("CAN_NOT_LOAD_LOCAL_SUBPLEBBIT_IF_DB_DOES_NOT_EXIST", {
+                    throw new PlebbitError("CAN_NOT_LOAD_LOCAL_COMMUNITY_IF_DB_DOES_NOT_EXIST", {
                         address: this.address,
                         dataPath: this._plebbit.dataPath
                     });
@@ -443,7 +443,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
                 await this._dbHandler.initDbIfNeeded(dbConfig);
 
                 await this._updateInstanceStateWithDbState(); // Load InternalSubplebbit from DB here
-                if (!this.signer) throw new PlebbitError("ERR_LOCAL_SUB_HAS_NO_SIGNER_IN_INTERNAL_STATE", { address: this.address });
+                if (!this.signer) throw new PlebbitError("ERR_LOCAL_COMMUNITY_HAS_NO_SIGNER_IN_INTERNAL_STATE", { address: this.address });
 
                 await this._updateStartedValue();
                 log("Loaded local subplebbit", this.address, "from db");
@@ -516,7 +516,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     ): Promise<InternalSubplebbitRecordAfterFirstUpdateType | InternalSubplebbitRecordBeforeFirstUpdateType> {
         const log = Logger("pkc-js:local-community:_getDbInternalState");
         if (!this._dbHandler.keyvHas(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_SUBPLEBBIT]))
-            throw new PlebbitError("ERR_SUB_HAS_NO_INTERNAL_STATE", { address: this.address, dataPath: this._plebbit.dataPath });
+            throw new PlebbitError("ERR_COMMUNITY_HAS_NO_INTERNAL_STATE", { address: this.address, dataPath: this._plebbit.dataPath });
         let lockedIt = false;
         try {
             if (lock) {
@@ -525,7 +525,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             }
             const internalState = await this._dbHandler.keyvGet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_SUBPLEBBIT]);
             if (!internalState)
-                throw new PlebbitError("ERR_SUB_HAS_NO_INTERNAL_STATE", { address: this.address, dataPath: this._plebbit.dataPath });
+                throw new PlebbitError("ERR_COMMUNITY_HAS_NO_INTERNAL_STATE", { address: this.address, dataPath: this._plebbit.dataPath });
             return internalState as InternalSubplebbitRecordAfterFirstUpdateType | InternalSubplebbitRecordBeforeFirstUpdateType;
         } catch (e) {
             log.error("Failed to get sub", this.address, "internal state from db", e);
@@ -802,7 +802,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
                 `Content length: ${contentToPublish.length}`
         );
         if (file.size > MAX_FILE_SIZE_BYTES_FOR_SUBPLEBBIT_IPFS) {
-            throw new PlebbitError("ERR_LOCAL_SUBPLEBBIT_RECORD_TOO_LARGE", {
+            throw new PlebbitError("ERR_LOCAL_COMMUNITY_RECORD_TOO_LARGE", {
                 calculatedSizeOfNewSubplebbitRecord: file.size,
                 maxSize: MAX_FILE_SIZE_BYTES_FOR_SUBPLEBBIT_IPFS,
                 newSubplebbitRecord,
@@ -902,7 +902,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
 
         // Check if the subplebbit record size is less than 1MB
         if (calculatedSizeOfNewSubplebbitRecord > MAX_FILE_SIZE_BYTES_FOR_SUBPLEBBIT_IPFS) {
-            const error = new PlebbitError("ERR_LOCAL_SUBPLEBBIT_RECORD_TOO_LARGE", {
+            const error = new PlebbitError("ERR_LOCAL_COMMUNITY_RECORD_TOO_LARGE", {
                 calculatedSizeOfNewSubplebbitRecord,
                 maxSize: MAX_FILE_SIZE_BYTES_FOR_SUBPLEBBIT_IPFS,
                 recordToPublishRaw,
@@ -917,7 +917,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
 
         const parseRes = SubplebbitIpfsSchema.safeParse(recordToPublishRaw);
         if (!parseRes.success) {
-            const error = new PlebbitError("ERR_LOCAL_SUBPLEBIT_PRODUCED_INVALID_SCHEMA", {
+            const error = new PlebbitError("ERR_LOCAL_COMMUNITY_PRODUCED_INVALID_SCHEMA", {
                 invalidRecord: recordToPublishRaw,
                 err: parseRes.error
             });
@@ -936,7 +936,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         try {
             const validation = await verifySubplebbit(verificationOpts);
             if (!validation.valid) {
-                throw new PlebbitError("ERR_LOCAL_SUBPLEBBIT_PRODUCED_INVALID_SIGNATURE", {
+                throw new PlebbitError("ERR_LOCAL_COMMUNITY_PRODUCED_INVALID_SIGNATURE", {
                     validation,
                     verificationOpts
                 });
@@ -950,7 +950,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         try {
             const validation = await verifySubplebbit(verificationOpts);
             if (!validation.valid) {
-                throw new PlebbitError("ERR_LOCAL_SUBPLEBBIT_PRODUCED_INVALID_SIGNATURE", {
+                throw new PlebbitError("ERR_LOCAL_COMMUNITY_PRODUCED_INVALID_SIGNATURE", {
                     validation,
                     verificationOpts
                 });
@@ -1456,7 +1456,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         } catch (e) {
             log.error(`Failed to decrypt request (${request.challengeRequestId.toString()}) due to error`, e);
             await this._publishFailedChallengeVerification(
-                { reason: messages.ERR_SUB_FAILED_TO_DECRYPT_PUBSUB_MSG },
+                { reason: messages.ERR_COMMUNITY_FAILED_TO_DECRYPT_PUBSUB_MSG },
                 request.challengeRequestId
             );
 
@@ -1847,34 +1847,36 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             //@ts-expect-error
             const parentCid: string | undefined = publication.parentCid || publication.commentCid;
 
-            if (typeof parentCid !== "string") return messages.ERR_SUB_PUBLICATION_PARENT_CID_NOT_DEFINED;
+            if (typeof parentCid !== "string") return messages.ERR_COMMUNITY_PUBLICATION_PARENT_CID_NOT_DEFINED;
 
             const parent = this._dbHandler.queryComment(parentCid);
-            if (!parent) return messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_SUB;
+            if (!parent) return messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_COMMUNITY;
 
             const parentFlags = this._dbHandler.queryCommentFlagsSetByMod(parentCid);
 
             if (parentFlags.removed && !request.commentModeration)
                 // not allowed to vote or reply under removed comments
-                return messages.ERR_SUB_PUBLICATION_PARENT_HAS_BEEN_REMOVED;
+                return messages.ERR_COMMUNITY_PUBLICATION_PARENT_HAS_BEEN_REMOVED;
 
             const isParentDeletedQueryRes = this._dbHandler.queryAuthorEditDeleted(parentCid);
 
-            if (isParentDeletedQueryRes?.deleted && !request.commentModeration) return messages.ERR_SUB_PUBLICATION_PARENT_HAS_BEEN_DELETED; // not allowed to vote or reply under deleted comments
+            if (isParentDeletedQueryRes?.deleted && !request.commentModeration)
+                return messages.ERR_COMMUNITY_PUBLICATION_PARENT_HAS_BEEN_DELETED; // not allowed to vote or reply under deleted comments
 
             const postFlags = this._dbHandler.queryCommentFlagsSetByMod(parent.postCid);
 
-            if (postFlags.removed && !request.commentModeration) return messages.ERR_SUB_PUBLICATION_POST_HAS_BEEN_REMOVED;
+            if (postFlags.removed && !request.commentModeration) return messages.ERR_COMMUNITY_PUBLICATION_POST_HAS_BEEN_REMOVED;
 
             const isPostDeletedQueryRes = this._dbHandler.queryAuthorEditDeleted(parent.postCid);
 
-            if (isPostDeletedQueryRes?.deleted && !request.commentModeration) return messages.ERR_SUB_PUBLICATION_POST_HAS_BEEN_DELETED;
+            if (isPostDeletedQueryRes?.deleted && !request.commentModeration)
+                return messages.ERR_COMMUNITY_PUBLICATION_POST_HAS_BEEN_DELETED;
 
-            if (postFlags.locked && !request.commentModeration) return messages.ERR_SUB_PUBLICATION_POST_IS_LOCKED;
+            if (postFlags.locked && !request.commentModeration) return messages.ERR_COMMUNITY_PUBLICATION_POST_IS_LOCKED;
 
-            if (postFlags.archived && !request.commentModeration) return messages.ERR_SUB_PUBLICATION_POST_IS_ARCHIVED;
+            if (postFlags.archived && !request.commentModeration) return messages.ERR_COMMUNITY_PUBLICATION_POST_IS_ARCHIVED;
 
-            if (parent.timestamp > publication.timestamp) return messages.ERR_SUB_COMMENT_TIMESTAMP_IS_EARLIER_THAN_PARENT;
+            if (parent.timestamp > publication.timestamp) return messages.ERR_COMMUNITY_COMMENT_TIMESTAMP_IS_EARLIER_THAN_PARENT;
 
             // if user publishes vote/reply/commentEdit under pending comment, it should fail
             if (parent.pendingApproval && !("commentModeration" in request) && !(request.commentEdit?.deleted === true))
@@ -2107,9 +2109,9 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             if (!commentToBeEdited) return messages.ERR_COMMENT_MODERATION_NO_COMMENT_TO_EDIT;
 
             if (isAuthorMod && commentModerationPublication.commentModeration.locked && commentToBeEdited.depth !== 0)
-                return messages.ERR_SUB_COMMENT_MOD_CAN_NOT_LOCK_REPLY;
+                return messages.ERR_COMMUNITY_COMMENT_MOD_CAN_NOT_LOCK_REPLY;
             if (isAuthorMod && commentModerationPublication.commentModeration.archived && commentToBeEdited.depth !== 0)
-                return messages.ERR_SUB_COMMENT_MOD_CAN_NOT_ARCHIVE_REPLY;
+                return messages.ERR_COMMUNITY_COMMENT_MOD_CAN_NOT_ARCHIVE_REPLY;
             const commentModInDb = this._dbHandler.hasCommentModerationWithSignatureEncoded(
                 commentModerationPublication.signature.signature
             );
@@ -2119,23 +2121,23 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         } else if (request.subplebbitEdit) {
             const subplebbitEdit = request.subplebbitEdit;
             if (remeda.intersection(SubplebbitEditPublicationPubsubReservedFields, remeda.keys.strict(subplebbitEdit)).length > 0)
-                return messages.ERR_SUBPLEBBIT_EDIT_HAS_RESERVED_FIELD;
+                return messages.ERR_COMMUNITY_EDIT_HAS_RESERVED_FIELD;
 
             if (subplebbitEdit.subplebbitEdit.roles || subplebbitEdit.subplebbitEdit.address) {
                 const isAuthorOwner = await this._isPublicationAuthorPartOfRoles(subplebbitEdit, ["owner"]);
-                if (!isAuthorOwner) return messages.ERR_SUBPLEBBIT_EDIT_ATTEMPTED_TO_MODIFY_OWNER_EXCLUSIVE_PROPS;
+                if (!isAuthorOwner) return messages.ERR_COMMUNITY_EDIT_ATTEMPTED_TO_MODIFY_OWNER_EXCLUSIVE_PROPS;
             }
 
             const isAuthorOwnerOrAdmin = await this._isPublicationAuthorPartOfRoles(subplebbitEdit, ["owner", "admin"]);
             if (!isAuthorOwnerOrAdmin) {
-                return messages.ERR_SUBPLEBBIT_EDIT_ATTEMPTED_TO_MODIFY_SUB_WITHOUT_BEING_OWNER_OR_ADMIN;
+                return messages.ERR_COMMUNITY_EDIT_ATTEMPTED_TO_MODIFY_COMMUNITY_WITHOUT_BEING_OWNER_OR_ADMIN;
             }
 
             const allowedSubplebbitEditKeys = [...remeda.keys.strict(SubplebbitIpfsSchema.shape), "address"] as string[];
             if (remeda.difference(remeda.keys.strict(subplebbitEdit.subplebbitEdit), allowedSubplebbitEditKeys).length > 0) {
                 // should only be allowed to modify public props from SubplebbitIpfs
                 // shouldn't be able to modify settings for example
-                return messages.ERR_SUBPLEBBIT_EDIT_ATTEMPTED_TO_NON_PUBLIC_PROPS;
+                return messages.ERR_COMMUNITY_EDIT_ATTEMPTED_TO_NON_PUBLIC_PROPS;
             }
         } else if (request.commentEdit) {
             const commentEditPublication = request.commentEdit;
@@ -3116,7 +3118,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
                 communityAddress: newAddressAsDomain
             });
             if (resolvedIpnsFromNewDomain !== this.signer.address)
-                throw new PlebbitError("ERR_DOMAIN_SUB_ADDRESS_TXT_RECORD_POINT_TO_DIFFERENT_ADDRESS", {
+                throw new PlebbitError("ERR_DOMAIN_COMMUNITY_ADDRESS_TXT_RECORD_POINT_TO_DIFFERENT_ADDRESS", {
                     currentSubplebbitAddress: this.address,
                     newAddressAsDomain,
                     resolvedIpnsFromNewDomain,
@@ -3175,7 +3177,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
 
     private async _initBeforeStarting() {
         this.protocolVersion = env.PROTOCOL_VERSION;
-        if (!this.signer?.address) throw new PlebbitError("ERR_SUB_SIGNER_NOT_DEFINED");
+        if (!this.signer?.address) throw new PlebbitError("ERR_COMMUNITY_SIGNER_NOT_DEFINED");
         if (!this._challengeAnswerPromises)
             this._challengeAnswerPromises = new LRUCache<string, Promise<DecryptedChallengeAnswer["challengeAnswers"]>>({
                 max: 1000,
@@ -3233,7 +3235,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
 
     async _validateNewAddressBeforeEditing(newAddress: string, log: Logger) {
         if (doesDomainAddressHaveCapitalLetter(newAddress))
-            throw new PlebbitError("ERR_DOMAIN_ADDRESS_HAS_CAPITAL_LETTER", { subplebbitAddress: newAddress });
+            throw new PlebbitError("ERR_COMMUNITY_NAME_HAS_CAPITAL_LETTER", { subplebbitAddress: newAddress });
         // Check if any existing sub (other than this one) already has an equivalent address
         // This handles both exact matches and .eth/.bso alias equivalence
         const existingEquivalent = this._plebbit.subplebbits.find(
@@ -3241,7 +3243,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
                 areEquivalentSubplebbitAddresses(existing, newAddress) && !areEquivalentSubplebbitAddresses(existing, this.address)
         );
         if (existingEquivalent)
-            throw new PlebbitError("ERR_SUB_OWNER_ATTEMPTED_EDIT_NEW_ADDRESS_THAT_ALREADY_EXISTS", {
+            throw new PlebbitError("ERR_COMMUNITY_OWNER_ATTEMPTED_EDIT_NEW_ADDRESS_THAT_ALREADY_EXISTS", {
                 currentSubplebbitAddress: this.address,
                 newSubplebbitAddress: newAddress,
                 currentSubs: this._plebbit.subplebbits
@@ -3351,7 +3353,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
         if (this.started && this.state !== "started") {
             // sceneario 2
             this._dbHandler.destoryConnection();
-            throw new PlebbitError("ERR_CAN_NOT_EDIT_A_LOCAL_SUBPLEBBIT_THAT_IS_ALREADY_STARTED_IN_ANOTHER_PROCESS", {
+            throw new PlebbitError("ERR_CAN_NOT_EDIT_A_LOCAL_COMMUNITY_THAT_IS_ALREADY_STARTED_IN_ANOTHER_PROCESS", {
                 address: this.address,
                 dataPath: this._plebbit.dataPath
             });
@@ -3391,7 +3393,8 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
 
     override async start() {
         const log = Logger("pkc-js:local-community:start");
-        if (this.state === "updating") throw new PlebbitError("ERR_NEED_TO_STOP_UPDATING_SUB_BEFORE_STARTING", { address: this.address });
+        if (this.state === "updating")
+            throw new PlebbitError("ERR_NEED_TO_STOP_UPDATING_COMMUNITY_BEFORE_STARTING", { address: this.address });
         this._stopHasBeenCalled = false;
         this._firstUpdateAfterStart = true;
         if (!this._clientsManager.getDefaultKuboRpcClientOrHelia())
@@ -3403,7 +3406,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
             findStartedSubplebbit(this._plebbit, { address: this.address }) ||
             findSubplebbitInRegistry(processStartedSubplebbits, { address: this.address })
         )
-            throw new PlebbitError("ERR_SUB_ALREADY_STARTED", { address: this.address });
+            throw new PlebbitError("ERR_COMMUNITY_ALREADY_STARTED", { address: this.address });
         try {
             await this._initBeforeStarting();
             // update started value twice because it could be started prior lockSubStart
@@ -3626,7 +3629,7 @@ export class LocalSubplebbit extends RpcLocalSubplebbit implements CreateNewLoca
     }
 
     override async update() {
-        if (this.state === "started") throw new PlebbitError("ERR_SUB_ALREADY_STARTED", { address: this.address });
+        if (this.state === "started") throw new PlebbitError("ERR_COMMUNITY_ALREADY_STARTED", { address: this.address });
         if (this.state === "updating") return;
         this._stopHasBeenCalled = false;
         this._setState("updating");

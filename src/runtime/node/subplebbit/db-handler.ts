@@ -2665,7 +2665,7 @@ export class DbHandler {
             log(`Locked the start of subplebbit (${subAddress}) successfully`);
         } catch (e: unknown) {
             if (e instanceof Error && e.message === "Lock file is already being held")
-                throw new PlebbitError("ERR_SUB_ALREADY_STARTED", { subplebbitAddress: subAddress, error: e });
+                throw new PlebbitError("ERR_COMMUNITY_ALREADY_STARTED", { subplebbitAddress: subAddress, error: e });
             else {
                 log(`Error while trying to lock start of sub (${subAddress}): ${e}`);
                 throw e;
@@ -2712,7 +2712,7 @@ export class DbHandler {
         } catch (e: unknown) {
             log.error(`Error when attempting to lock sub state`, this._subplebbit.address, e);
             if (e instanceof Error && e.message === "Lock file is already being held")
-                throw new PlebbitError("ERR_SUB_STATE_LOCKED", { subplebbitAddress: this._subplebbit.address, error: e });
+                throw new PlebbitError("ERR_COMMUNITY_STATE_LOCKED", { subplebbitAddress: this._subplebbit.address, error: e });
             // Not sure, do we need to throw error here
         }
     }

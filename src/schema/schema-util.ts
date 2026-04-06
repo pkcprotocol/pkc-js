@@ -81,7 +81,7 @@ export function parseSubplebbitIpfsSchemaPassthroughWithPlebbitErrorIfItFails(
 ): SubplebbitIpfsType {
     const parseRes = SubplebbitIpfsSchema.loose().safeParse(subIpfs);
     if (!parseRes.success)
-        throw new PlebbitError("ERR_INVALID_SUBPLEBBIT_IPFS_SCHEMA", {
+        throw new PlebbitError("ERR_INVALID_COMMUNITY_IPFS_SCHEMA", {
             zodError: parseRes.error,
             subAddress: (subIpfs as Record<string, unknown>)?.address,
             subJson: subIpfs
@@ -142,7 +142,7 @@ export function parseRpcRemoteSubplebbitUpdateEventWithPlebbitErrorIfItFails(
 ) {
     const parseRes = RpcRemoteSubplebbitUpdateEventResultSchema.strip().safeParse(rpcRemoteSubplebbit);
     if (!parseRes.success)
-        throw new PlebbitError("ERR_INVALID_RPC_REMOTE_SUBPLEBBIT_SCHEMA", {
+        throw new PlebbitError("ERR_INVALID_RPC_REMOTE_COMMUNITY_SCHEMA", {
             zodError: parseRes.error,
             rpcRemoteSubplebbit
         });
@@ -187,7 +187,7 @@ export function parseRpcCommentEventWithPlebbitErrorIfItFails(
 export function parseSubplebbitEditPubsubMessagePublicationSchemaWithPlebbitErrorIfItFails(args: SubplebbitEditPubsubMessagePublication) {
     const parseRes = SubplebbitEditPubsubMessagePublicationSchema.safeParse(args);
     if (!parseRes.success)
-        throw new PlebbitError("ERR_INVALID_CREATE_SUBPLEBBIT_EDIT_ARGS_SCHEMA", {
+        throw new PlebbitError("ERR_INVALID_CREATE_COMMUNITY_EDIT_ARGS_SCHEMA", {
             zodError: parseRes.error,
             args,
             type: "SubplebbitEditPubsubMessagePublication"
@@ -198,7 +198,7 @@ export function parseSubplebbitEditPubsubMessagePublicationSchemaWithPlebbitErro
 export function parseCreateSubplebbitEditPublicationOptionsSchemaWithPlebbitErrorIfItFails(args: CreateSubplebbitEditPublicationOptions) {
     const parseRes = CreateSubplebbitEditPublicationOptionsSchema.safeParse(args);
     if (!parseRes.success)
-        throw new PlebbitError("ERR_INVALID_CREATE_SUBPLEBBIT_EDIT_ARGS_SCHEMA", {
+        throw new PlebbitError("ERR_INVALID_CREATE_COMMUNITY_EDIT_ARGS_SCHEMA", {
             zodError: parseRes.error,
             args,
             type: "CreateSubplebbitEditPublicationOptions"
@@ -222,7 +222,7 @@ export function parseCreatePlebbitWsServerOptionsSchemaWithPlebbitErrorIfItFails
 ): CreatePlebbitWsServerOptions {
     const parseRes = CreatePlebbitWsServerOptionsSchema.safeParse(options);
     if (!parseRes.success)
-        throw new PlebbitError("ERR_INVALID_CREATE_PLEBBIT_WS_SERVER_OPTIONS_SCHEMA", {
+        throw new PlebbitError("ERR_INVALID_CREATE_PKC_WS_SERVER_OPTIONS_SCHEMA", {
             zodError: parseRes.error,
             challengeAnswers: options
         });
@@ -246,7 +246,7 @@ export function parseSubplebbitEditChallengeRequestToEncryptSchemaWithPlebbitErr
 ): SubplebbitEditChallengeRequestToEncryptType {
     const parseRes = SubplebbitEditPublicationChallengeRequestToEncryptSchema.safeParse(toEncrypt);
     if (!parseRes.success)
-        throw new PlebbitError("ERR_INVALID_SUBPLEBBIT_EDIT_CHALLENGE_REQUEST_TO_ENCRYPT_SCHEMA", {
+        throw new PlebbitError("ERR_INVALID_COMMUNITY_EDIT_CHALLENGE_REQUEST_TO_ENCRYPT_SCHEMA", {
             zodError: parseRes.error,
             toEncrypt
         });
@@ -258,7 +258,7 @@ export function parseSubplebbitEditOptionsSchemaWithPlebbitErrorIfItFails(
 ): SubplebbitEditOptions {
     const parseRes = SubplebbitEditOptionsSchema.safeParse(editOptions);
     if (!parseRes.success)
-        throw new PlebbitError("ERR_SUBPLEBBIT_EDIT_OPTIONS_SCHEMA", {
+        throw new PlebbitError("ERR_COMMUNITY_EDIT_OPTIONS_SCHEMA", {
             zodError: parseRes.error,
             editOptions
         });
@@ -306,7 +306,7 @@ export function parseCreateNewLocalSubplebbitUserOptionsSchemaWithPlebbitErrorIf
 ): CreateNewLocalSubplebbitUserOptions {
     const parseRes = CreateNewLocalSubplebbitUserOptionsSchema.safeParse(options);
     if (!parseRes.success)
-        throw new PlebbitError("ERR_INVALID_CREATE_NEW_LOCAL_SUB_USER_OPTIONS", {
+        throw new PlebbitError("ERR_INVALID_CREATE_NEW_LOCAL_COMMUNITY_USER_OPTIONS", {
             zodError: parseRes.error,
             options
         });
@@ -356,7 +356,7 @@ export function parseCreateRemoteSubplebbitFunctionArgumentSchemaWithPlebbitErro
 ): z.infer<typeof CreateRemoteSubplebbitFunctionArgumentSchema> {
     const parseRes = CreateRemoteSubplebbitFunctionArgumentSchema.safeParse(args);
     if (!parseRes.success)
-        throw new PlebbitError("ERR_INVALID_CREATE_REMOTE_SUBPLEBBIT_ARGS_SCHEMA", {
+        throw new PlebbitError("ERR_INVALID_CREATE_REMOTE_COMMUNITY_ARGS_SCHEMA", {
             zodError: parseRes.error,
             args
         });
@@ -414,7 +414,7 @@ export function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitErrorIfIt
 ) {
     const parseRes = CreateSubplebbitFunctionArgumentsSchema.safeParse(args);
     if (!parseRes.success)
-        throw new PlebbitError("ERR_INVALID_CREATE_SUBPLEBBIT_ARGS_SCHEMA", {
+        throw new PlebbitError("ERR_INVALID_CREATE_COMMUNITY_ARGS_SCHEMA", {
             zodError: parseRes.error,
             args
         });
@@ -425,7 +425,7 @@ export function parsePlebbitUserOptionsSchemaWithPlebbitErrorIfItFails(args: any
     // normally we don't change args, but here we should use parseRes.data because PlebbitUserOptionsSchema sets a lot of defaults
     const parseRes = PlebbitUserOptionsSchema.safeParse(args);
     if (!parseRes.success)
-        throw new PlebbitError("ERR_INVALID_CREATE_PLEBBIT_ARGS_SCHEMA", {
+        throw new PlebbitError("ERR_INVALID_CREATE_PKC_ARGS_SCHEMA", {
             zodError: parseRes.error,
             args
         });
@@ -437,7 +437,7 @@ export function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbitErrorIf
 ) {
     const parseRes = CreateRpcSubplebbitFunctionArgumentSchema.safeParse(args);
     if (!parseRes.success)
-        throw new PlebbitError("ERR_INVALID_CREATE_SUBPLEBBIT_WITH_RPC_ARGS_SCHEMA", {
+        throw new PlebbitError("ERR_INVALID_CREATE_COMMUNITY_WITH_RPC_ARGS_SCHEMA", {
             zodError: parseRes.error,
             args
         });
@@ -469,7 +469,7 @@ export function parseCreateCommentOptionsSchemaWithPlebbitErrorIfItFails(args: z
 export function parseSubplebbitAddressWithPlebbitErrorIfItFails(args: z.infer<typeof CreateCommentOptionsSchema.shape.communityAddress>) {
     const parseRes = CreateCommentOptionsSchema.shape.communityAddress.safeParse(args);
     if (!parseRes.success)
-        throw new PlebbitError("ERR_INVALID_SUBPLEBBIT_ADDRESS_SCHEMA", {
+        throw new PlebbitError("ERR_INVALID_COMMUNITY_ADDRESS_SCHEMA", {
             zodError: parseRes.error,
             args
         });

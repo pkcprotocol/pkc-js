@@ -61,7 +61,7 @@ describe(`subplebbit.state`, async () => {
             await startedSubplebbit.update();
             expect.fail("Should have thrown");
         } catch (e) {
-            expect((e as PlebbitError).code).to.equal("ERR_SUB_ALREADY_STARTED");
+            expect((e as PlebbitError).code).to.equal("ERR_COMMUNITY_ALREADY_STARTED");
         }
         await startedSubplebbit.delete();
     });

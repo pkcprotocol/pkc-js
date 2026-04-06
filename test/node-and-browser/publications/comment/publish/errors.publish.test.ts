@@ -39,7 +39,7 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
             expect.fail("should not resolve");
         } catch (e) {
             const err = e as PlebbitError;
-            expect(err.code, messages.ERR_FAILED_TO_FETCH_SUBPLEBBIT_FROM_GATEWAYS);
+            expect(err.code, messages.ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS);
             expect(err.details.gatewayToError[error429Gateway].details.status).to.equal(
                 429,
                 "expected gateway error details" + JSON.stringify(err.details.gatewayToError[error429Gateway].details)

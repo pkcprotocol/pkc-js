@@ -164,7 +164,7 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-r
                 const createErrorPromise = () =>
                     new Promise<void>((resolve) =>
                         createdPost.once("error", (err) => {
-                            if ((err as PlebbitError).code === "ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID") resolve();
+                            if ((err as PlebbitError).code === "ERR_COMMUNITY_SIGNATURE_IS_INVALID") resolve();
                         })
                     );
 
@@ -300,8 +300,8 @@ getAvailablePlebbitConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-g
                 expect(createdPost.raw.commentUpdate).to.be.undefined;
 
                 for (const err of errors) {
-                    expect(err.code).to.equal("ERR_FAILED_TO_FETCH_SUBPLEBBIT_FROM_GATEWAYS");
-                    expect(err.details.gatewayToError["http://localhost:18080"].code).to.equal("ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID");
+                    expect(err.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
+                    expect(err.details.gatewayToError["http://localhost:18080"].code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
                 }
 
                 const expectedUpdateStates = [

@@ -350,7 +350,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                     // Most likely: cached publicKey is stale after community key migration.
                     log("Key migration detected for", name, "old:", this._subplebbit.publicKey, "new:", resolved);
                     const previousPublicKey = this._subplebbit.publicKey;
-                    const error = new PlebbitError("ERR_SUBPLEBBIT_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY", {
+                    const error = new PlebbitError("ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY", {
                         communityName: name,
                         previousPublicKey,
                         newPublicKey: resolved
@@ -602,7 +602,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                 const calculatedSubCidFromBody = await this.calculateIpfsCid(gatewayRes.resText); // cid v0
 
                 if (this._updateCidsAlreadyLoaded.has(calculatedSubCidFromBody))
-                    throw new PlebbitError("ERR_GATEWAY_ABORTING_LOADING_SUB_BECAUSE_WE_ALREADY_LOADED_THIS_RECORD", {
+                    throw new PlebbitError("ERR_GATEWAY_ABORTING_LOADING_COMMUNITY_BECAUSE_WE_ALREADY_LOADED_THIS_RECORD", {
                         calculatedSubCidFromBody,
                         ipnsName,
                         ipnsPubsubTopic: this._subplebbit.ipnsPubsubTopic,
@@ -630,7 +630,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                 const errorWithinRecord = await this._findErrorInSubplebbitRecord(subIpfs, ipnsName, calculatedSubCidFromBody);
                 if (errorWithinRecord) {
                     delete errorWithinRecord["stack"];
-                    if (errorWithinRecord.code === "ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID") {
+                    if (errorWithinRecord.code === "ERR_COMMUNITY_SIGNATURE_IS_INVALID") {
                         const log = Logger("pkc-js:community-client-manager:throwIfGatewayRespondsWithInvalidSubplebbit");
                         const etag = gatewayRes?.res?.headers?.get("etag");
                         log.error(
@@ -674,7 +674,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                 }
                 if (this._updateCidsAlreadyLoaded.has(parsedCid)) {
                     abortController.abort("Aborting subplebbit IPNS request because we already loaded this record");
-                    return new PlebbitError("ERR_GATEWAY_ABORTING_LOADING_SUB_BECAUSE_WE_ALREADY_LOADED_THIS_RECORD", {
+                    return new PlebbitError("ERR_GATEWAY_ABORTING_LOADING_COMMUNITY_BECAUSE_WE_ALREADY_LOADED_THIS_RECORD", {
                         cidOfIpnsFromEtagHeader,
                         ipnsName,
                         gatewayRes,
@@ -791,7 +791,8 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
                 .map((gatewayUrl) => gatewayFetches[gatewayUrl].error!)
                 .some(
                     (err) =>
-                        err.details?.status === 304 || err.code === "ERR_GATEWAY_ABORTING_LOADING_SUB_BECAUSE_WE_ALREADY_LOADED_THIS_RECORD"
+                        err.details?.status === 304 ||
+                        err.code === "ERR_GATEWAY_ABORTING_LOADING_COMMUNITY_BECAUSE_WE_ALREADY_LOADED_THIS_RECORD"
                 );
             if (hasGatewayConfirmingCurrentRecord) return undefined; // any gateway confirmed we already have the latest consumed record
 
@@ -834,7 +835,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
         if (!addressMatchesInstance && !addressMatchesPublicKey && !signatureKeyMatchesIpnsName) {
             // Did the gateway supply us with a different subplebbit's ipns
 
-            const error = new PlebbitError("ERR_THE_SUBPLEBBIT_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED", {
+            const error = new PlebbitError("ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED", {
                 addressFromSubplebbitInstance: subInstanceAddress,
                 ipnsName: ipnsNameOfSub,
                 addressFromGateway: recordAddress,
@@ -855,7 +856,7 @@ export class SubplebbitClientsManager extends PlebbitClientsManager {
         };
         const updateValidity = await verifySubplebbit(verificationOpts);
         if (!updateValidity.valid) {
-            const error = new PlebbitError("ERR_SUBPLEBBIT_SIGNATURE_IS_INVALID", {
+            const error = new PlebbitError("ERR_COMMUNITY_SIGNATURE_IS_INVALID", {
                 signatureValidity: updateValidity,
                 ipnsPubsubTopic: this._subplebbit.ipnsPubsubTopic,
                 ipnsPubsubTopicRoutingCid: this._subplebbit.ipnsPubsubTopicRoutingCid,

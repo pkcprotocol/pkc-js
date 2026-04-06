@@ -696,7 +696,8 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         log.trace("Received subplebbit options to create a local subplebbit instance:", options);
 
         const canCreateLocalSub = this._canCreateNewLocalSub();
-        if (!canCreateLocalSub) throw new PlebbitError("ERR_CAN_NOT_CREATE_A_LOCAL_SUB", { plebbitOptions: this._userPlebbitOptions });
+        if (!canCreateLocalSub)
+            throw new PlebbitError("ERR_CAN_NOT_CREATE_A_LOCAL_COMMUNITY", { plebbitOptions: this._userPlebbitOptions });
 
         const localSubs = await nodeListSubplebbits(this);
         const isLocalSub = localSubs.includes(options.address); // Sub exists already, only pass address so we don't override other props
@@ -749,7 +750,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
             ((parsedOptions as Record<string, unknown>).publicKey as string | undefined);
 
         if (effectiveAddress && doesDomainAddressHaveCapitalLetter(effectiveAddress))
-            throw new PlebbitError("ERR_DOMAIN_ADDRESS_HAS_CAPITAL_LETTER", { ...parsedOptions });
+            throw new PlebbitError("ERR_COMMUNITY_NAME_HAS_CAPITAL_LETTER", { ...parsedOptions });
 
         // Creating a subplebbit when we're connected to RPC will be handled in plebbit-with-rpc-client
         // Code below is for NodeJS and browser using IPFS-P2P/gateway
@@ -757,7 +758,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
         const canCreateLocalSub = this._canCreateNewLocalSub(); // this is true if we're on NodeJS and have a dataPath
 
         if (hasSigner && !canCreateLocalSub)
-            throw new PlebbitError("ERR_CAN_NOT_CREATE_A_LOCAL_SUB", {
+            throw new PlebbitError("ERR_CAN_NOT_CREATE_A_LOCAL_COMMUNITY", {
                 plebbitOptions: this._userPlebbitOptions,
                 isEnvNode: Boolean(process),
                 hasDataPath: Boolean(this.dataPath)
@@ -797,7 +798,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
             return this._createLocalSub(localOptions);
         } else if (hasIdentifier && hasSigner)
             return this._createLocalSub(parsedOptions as unknown as CreateNewLocalSubplebbitParsedOptions);
-        else throw new PlebbitError("ERR_CAN_NOT_CREATE_A_LOCAL_SUB", { parsedOptions });
+        else throw new PlebbitError("ERR_CAN_NOT_CREATE_A_LOCAL_COMMUNITY", { parsedOptions });
     }
 
     async _createVoteInstanceFromJsonfiedVote(jsonfied: VoteJson) {
@@ -1121,7 +1122,7 @@ export class Plebbit extends PlebbitTypedEmitter<PlebbitEvents> implements Parse
             .filter((prop) => typeof (this as any)[prop] === "function")
             .forEach((method) => {
                 (this as any)[method] = () => {
-                    throw new PlebbitError("ERR_PLEBBIT_IS_DESTROYED");
+                    throw new PlebbitError("ERR_PKC_IS_DESTROYED");
                 };
             });
         log("Destroyed plebbit instance");

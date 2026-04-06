@@ -531,7 +531,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             expect(post.updatingState).to.equal("stopped");
 
             expect(errors.length).to.equal(1);
-            expect(errors[0].code).to.equal("ERR_SUBPLEBBIT_HAS_NO_POST_UPDATES");
+            expect(errors[0].code).to.equal("ERR_COMMUNITY_HAS_NO_POST_UPDATES");
         });
     });
 });

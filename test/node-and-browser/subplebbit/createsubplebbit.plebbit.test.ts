@@ -311,7 +311,7 @@ describe.concurrent(`plebbit.createSubplebbit - (remote) - errors`, async () => 
             await plebbit.createSubplebbit({ address: "testSub.bso" });
             expect.fail("Should have thrown");
         } catch (e) {
-            expect((e as { code: string }).code).to.equal("ERR_DOMAIN_ADDRESS_HAS_CAPITAL_LETTER");
+            expect((e as { code: string }).code).to.equal("ERR_COMMUNITY_NAME_HAS_CAPITAL_LETTER");
         }
     });
 
@@ -321,7 +321,7 @@ describe.concurrent(`plebbit.createSubplebbit - (remote) - errors`, async () => 
             await plebbit.createSubplebbit({ address: invalidAddress });
             expect.fail("Should have thrown");
         } catch (e) {
-            expect((e as { code: string }).code).to.equal("ERR_INVALID_SUBPLEBBIT_ADDRESS_SCHEMA");
+            expect((e as { code: string }).code).to.equal("ERR_INVALID_COMMUNITY_ADDRESS_SCHEMA");
         }
     });
     if (!isRpcFlagOn() && isRunningInBrowser())
@@ -330,7 +330,7 @@ describe.concurrent(`plebbit.createSubplebbit - (remote) - errors`, async () => 
                 await plebbit.createSubplebbit({});
                 expect.fail("should fail");
             } catch (e) {
-                expect((e as { code: string }).code).to.equal("ERR_INVALID_CREATE_REMOTE_SUBPLEBBIT_ARGS_SCHEMA");
+                expect((e as { code: string }).code).to.equal("ERR_INVALID_CREATE_REMOTE_COMMUNITY_ARGS_SCHEMA");
             }
         });
 });

@@ -92,7 +92,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({
                 publication: vote,
                 expectedChallengeSuccess: false,
-                expectedReason: messages.ERR_SUB_PUBLICATION_PARENT_HAS_BEEN_REMOVED
+                expectedReason: messages.ERR_COMMUNITY_PUBLICATION_PARENT_HAS_BEEN_REMOVED
             });
         });
 
@@ -103,7 +103,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({
                 publication: reply,
                 expectedChallengeSuccess: false,
-                expectedReason: messages.ERR_SUB_PUBLICATION_PARENT_HAS_BEEN_REMOVED
+                expectedReason: messages.ERR_COMMUNITY_PUBLICATION_PARENT_HAS_BEEN_REMOVED
             });
         });
 
@@ -112,7 +112,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({
                 publication: vote,
                 expectedChallengeSuccess: false,
-                expectedReason: messages.ERR_SUB_PUBLICATION_POST_HAS_BEEN_REMOVED
+                expectedReason: messages.ERR_COMMUNITY_PUBLICATION_POST_HAS_BEEN_REMOVED
             });
         });
 
@@ -123,7 +123,7 @@ getAvailablePlebbitConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({
                 publication: reply,
                 expectedChallengeSuccess: false,
-                expectedReason: messages.ERR_SUB_PUBLICATION_POST_HAS_BEEN_REMOVED
+                expectedReason: messages.ERR_COMMUNITY_PUBLICATION_POST_HAS_BEEN_REMOVED
             });
         });
 
