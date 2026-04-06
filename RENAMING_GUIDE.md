@@ -190,17 +190,17 @@ After removing `captcha-canvas-v3`, `mintpass`, `voucher`, and extracting `evm-c
 - [x] Add `name` to `SubplebbitEditOptionsSchema` so owners can set it via `sub.edit({ name: "memes.bso" })`
 - [x] Make `address` instance-only on `RemoteSubplebbit`, computed as `name || publicKey`
 - [x] Make `publicKey` instance-only on `RemoteSubplebbit`, derived from `signature.publicKey`
-- [ ] Make `nameResolved` instance-only on `RemoteSubplebbit` (`boolean | undefined`) — property declared, but domain resolution verification not yet wired up
+- [x] Make `nameResolved` instance-only on `RemoteSubplebbit` (`boolean | undefined`) — now a strictly runtime-only reserved field, rejected if signed in wire format across all publication types and SubplebbitIpfs. Non-blocking background resolution populates it. Propagated via RPC "runtimeupdate" event
 - [x] `address` and `publicKey` appear in `JSON.stringify()` (enumerable own properties)
 - [x] Create helper functions following the `publication-author.ts` pattern: `buildRuntimeSubplebbit()`, `cleanWireSubplebbit()`, `omitRuntimeSubplebbitFields()` — in `src/subplebbit/subplebbit-wire.ts`
 - [x] `_toJSONIpfsBaseNoPosts()` automatically follows schema shape, so published format excludes `address` and includes `name`
 - [x] Update signature verification (`verifySubplebbit` in `src/signer/signatures.ts`) — derives address from wire record for page verification; self-describing `signedPropertyNames` handles old records automatically
-- [ ] Add domain resolution verification for `subplebbit.name` (same pattern as `_verifyAuthorDomainResolvesToSignatureAddress`) — not yet implemented
+- [x] Add domain resolution verification for `subplebbit.name` — implemented via key migration: when domain resolves to a different public key, emit error, clear data, re-fetch with new key. Background resolution populates `nameResolved` for subplebbits loaded by IPNS key. Migration handling for name resolution changes during updates also added
 - [x] `CreateRemoteSubplebbitOptionsSchema`: `address` now optional, added `publicKey` (B58 IPNS name), refinement requires at least one of `address`/`name`/`publicKey`
 - [x] `createSubplebbit()` accepts `{name}`, `{publicKey}`, `{address}`, or combinations; `instance.address` always defined
 - [x] Tests: old records with `address` in `signedPropertyNames` still verify; new records with `name`; `address` computed correctly; flexible `createSubplebbit` input (21 new tests in `test/node-and-browser/subplebbit/wire-format-migration.test.ts` and `test/node-and-browser/signatures/subplebbit.test.ts`)
-- [ ] `sub.edit({ name })` flow — edit handler not yet updated in `LocalSubplebbit`
-- [ ] `nameResolved` verification — not yet implemented
+- [x] `sub.edit({ name })` flow — `SubplebbitEditOptionsSchema` picks `name` from `SubplebbitIpfsSchema`. LocalSubplebbit's edit flow converts `address` → `name` when address is a domain. RPC edit path tested
+- [x] `nameResolved` verification — covered by non-blocking background resolution pattern (author.name resolution moved from verification to background task) and key migration for subplebbit name resolution
 
 ### Step 2: Publications — add `communityPublicKey`/`communityName`, make `subplebbitAddress` instance-only
 
@@ -807,14 +807,10 @@ State strings emitted via `statechange` and `publishingstatechange` events:
 - [ ] `plebbitJsChallenges` export → `pkcJsChallenges`
 
 ### 10.4 Logger Prefixes
-Replace all logger prefixes:
-- [ ] `Logger("plebbit-js:...")` → `Logger("pkc-js:...")` (48+ prefixes across src/)
-- [ ] `Logger("plebbit-js-rpc:...")` → `Logger("pkc-js-rpc:...")` (RPC server uses a different prefix than the main codebase)
-- [ ] Examples:
-  - `"plebbit-js:PlebbitRpcClient"` → `"pkc-js:PKCRpcClient"`
-  - `"plebbit-js:plebbit:client-manager"` → `"pkc-js:pkc:client-manager"`
-  - `"plebbit-js:listSubplebbitsSync"` → `"pkc-js:listCommunitiesSync"`
-  - `"plebbit-js-rpc:plebbit-ws-server"` → `"pkc-js-rpc:pkc-ws-server"`
+~~Replace all logger prefixes:~~
+- [x] `Logger("plebbit-js:...")` → `Logger("pkc-js:...")` (48+ prefixes across src/) — Done via centralized `Logger()` function in `src/logger.ts` that maps namespaces at runtime (plebbit→pkc, subplebbit→community, Subplebbit→Community, etc.). All logger instantiations across src/ now use this function.
+- [x] `Logger("plebbit-js-rpc:...")` → `Logger("pkc-js-rpc:...")` — Covered by the same runtime namespace normalization
+- [x] CI workflows and VSCode debug configurations updated for new namespace scheme (`DEBUG` filters now use `pkc-js*` and `pkc-js-rpc*`)
 
 ---
 
@@ -938,12 +934,17 @@ Rename all test files with "subplebbit" or "plebbit" in the name. Files without 
 - [ ] `plebbit-settings-challenges-rpc.test.ts` → `pkc-settings-challenges-rpc.test.ts`
 - [ ] `hanging.plebbit.test.ts` → `hanging.pkc.test.ts`
 - [ ] `plebbit-settings-nameresolvers-rpc.test.ts` → `pkc-settings-nameresolvers-rpc.test.ts`
+- [ ] `getsubplebbit.publickey-fallback-rpc.test.ts` → `getcommunity.publickey-fallback-rpc.test.ts`
+
+**test/node/** (root-level test files)
+- [ ] `logger.namespace.test.ts` (content updates only)
 
 **test/node/pages/**
 - [ ] `author-subplebbit-in-pages.test.ts` → `author-community-in-pages.test.ts`
 
-**test/node-and-browser/subplebbit/** (13 files — directory moves to test/node-and-browser/community/)
+**test/node-and-browser/subplebbit/** (15 files — directory moves to test/node-and-browser/community/)
 - [ ] `state.subplebbit.test.ts` → `state.community.test.ts`
+- [ ] `getsubplebbit.publickey-fallback.test.ts` → `getcommunity.publickey-fallback.test.ts`
 - [ ] `backward.compatibility.subplebbit.test.ts` → `backward.compatibility.community.test.ts`
 - [ ] `updateCid.subplebbit.test.ts` → `updateCid.community.test.ts`
 - [ ] `getsubplebbit.plebbit.test.ts` → `getcommunity.pkc.test.ts`
@@ -978,6 +979,7 @@ Rename all test files with "subplebbit" or "plebbit" in the name. Files without 
 - [ ] `_updatingComments.plebbit.test.ts` → `_updatingComments.pkc.test.ts`
 - [ ] `fetchCid.plebbit.test.ts` → `fetchCid.pkc.test.ts`
 - [ ] `test.configs.plebbit.test.ts` → `test.configs.pkc.test.ts`
+- [ ] `tracked-instance-registry.test.ts` (content updates only)
 
 **test/node-and-browser/signatures/**
 - [ ] `subplebbit.test.ts` → `community.test.ts`
@@ -993,6 +995,7 @@ Rename all test files with "subplebbit" or "plebbit" in the name. Files without 
 **test/node-and-browser/publications/**
 - [ ] `author-address-domain-normalization.test.ts` (content updates only)
 - [ ] `runtime-author-fields-serialization.test.ts` (content updates only)
+- [ ] `community-publickey-fallback.publish.test.ts` (content updates only — already uses new naming convention)
 
 **test/node-and-browser/publications/comment/**
 - [ ] `getcomment.plebbit.test.ts` → `getcomment.pkc.test.ts`
@@ -1192,8 +1195,8 @@ Use this section to track overall progress:
 
 | Phase | Status | Notes |
 |-------|--------|-------|
-| Phase 1: Web3 Modularization | [~] In Progress | Name resolver done; challenge cleanup done; `resolveAuthorName` renamed; exported challenge types done; runtime author computation and `author.nameResolved` follow-up done; `nameResolved` tests added; RPC challenge verification wrapper refactored |
-| Phase 1B Step 1: SubplebbitIpfs wire format | [ ] Not Started | Add `name`, make `address`/`publicKey`/`nameResolved` instance-only |
+| Phase 1: Web3 Modularization | [~] In Progress | Name resolver done; challenge cleanup done; `resolveAuthorName` renamed; exported challenge types done; runtime author computation and `author.nameResolved` follow-up done; `nameResolved` reserved field fully implemented across all types; non-blocking author resolution; author.name validation moved to subplebbit; logger normalization complete; RPC challenge verification wrapper refactored |
+| Phase 1B Step 1: SubplebbitIpfs wire format | [x] Done | `name` field added, `address`/`publicKey`/`nameResolved` instance-only, domain verification via key migration, `sub.edit({name})` works, publicKey fallback loading, RPC support for all scenarios |
 | Phase 1B Step 2: Publication wire format | [ ] Not Started | Add `communityPublicKey`/`communityName`, make `subplebbitAddress` instance-only |
 | Phase 1B Step 3: DB migration | [ ] Not Started | New columns, version bump, backfill |
 | Phase 2: Package Config | [ ] Not Started | |
@@ -1204,7 +1207,7 @@ Use this section to track overall progress:
 | Phase 7: Schemas | [ ] Not Started | |
 | Phase 8: API Methods | [ ] Not Started | |
 | Phase 9: RPC Methods | [ ] Not Started | |
-| Phase 10: Errors & Logging | [ ] Not Started | |
+| Phase 10: Errors & Logging | [~] Partially Done | Logger namespace normalization complete (`src/logger.ts` runtime mapping); error codes not yet renamed |
 | Phase 11: Signer Functions | [ ] Not Started | |
 | Phase 12: Test Files | [ ] Not Started | |
 | Phase 13: DNS & Protocol | [~] Partially Done | DNS TXT lookups + cache logic removed from core; migration docs not done |
