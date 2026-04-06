@@ -66,7 +66,7 @@ const waitForSubscriptionEvent = (
     });
 
 // TODO here add an after statement to reset rpc settings
-getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbit-rpc"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] }).map((config) => {
     describe.concurrent(`RPC comment moderation regression - removing post (${config.name})`, () => {
         let plebbit: PKC;
         let postToRemove: Comment;

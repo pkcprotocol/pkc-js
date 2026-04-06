@@ -13,7 +13,7 @@ import { sha256 } from "js-sha256";
 
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 
 function createAbortError(message: string) {
     const error = new Error(message);
@@ -71,20 +71,20 @@ function createBlockedNameResolver(key: string, onlyForName?: string) {
 
 getAvailablePKCConfigsToTestAgainst().map((config) =>
     describe(`comment.stop() timing - ${config.name}`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`comment.stop() after update() should complete within 10s`, async () => {
-            const post = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+            const post = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
 
-            const recreatedPost = await plebbit.createComment({ cid: post.cid });
+            const recreatedPost = await pkc.createComment({ cid: post.cid });
             await recreatedPost.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: recreatedPost,
@@ -113,7 +113,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
                 try {
                     const publishedComment = await publishRandomPost({
-                        communityAddress: subplebbitAddress,
+                        communityAddress: communityAddress,
                         plebbit: publisher,
                         postProps: {
                             author: { name: "plebbit.bso" },
@@ -157,7 +157,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
                 try {
                     const publishedComment = await publishRandomPost({
-                        communityAddress: subplebbitAddress,
+                        communityAddress: communityAddress,
                         plebbit: publisher,
                         postProps: {
                             author: { name: "plebbit.bso" },
@@ -200,7 +200,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
                 try {
                     const publishedComment = await publishRandomPost({
-                        communityAddress: subplebbitAddress,
+                        communityAddress: communityAddress,
                         plebbit: publisher,
                         postProps: {
                             author: { name: "plebbit.bso" },
@@ -259,7 +259,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 describeSkipIfRpc(`comment.stop() aborts in-flight gateway fetches`, async () => {
     it(`comment.stop() aborts gateway fetch of commentIpfs`, async () => {
         // Use a non-routable IP that will hang forever
-        const plebbit = await mockGatewayPKC({
+        const pkc = await mockGatewayPKC({
             plebbitOptions: {
                 ipfsGatewayUrls: ["http://192.0.2.1:1"]
             }
@@ -267,10 +267,10 @@ describeSkipIfRpc(`comment.stop() aborts in-flight gateway fetches`, async () =>
 
         try {
             const publisher = await mockRemotePKC();
-            const post = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: publisher });
+            const post = await publishRandomPost({ communityAddress: communityAddress, plebbit: publisher });
             await publisher.destroy();
 
-            const comment = await plebbit.createComment({ cid: post.cid });
+            const comment = await pkc.createComment({ cid: post.cid });
             await comment.update();
 
             // Wait until the gateway client is actively fetching
@@ -288,22 +288,22 @@ describeSkipIfRpc(`comment.stop() aborts in-flight gateway fetches`, async () =>
             expect(comment.clients.ipfsGateways["http://192.0.2.1:1"].state).to.equal("stopped");
             expect(elapsed).to.be.lessThan(2000);
         } finally {
-            await plebbit.destroy();
+            await pkc.destroy();
         }
     });
 
     it(`comment.stop() aborts P2P fetch of commentIpfs via kubo`, async () => {
         // Use kubo with a CID that doesn't exist in the network (will hang during fetch)
-        const plebbit = await mockPKCNoDataPathWithOnlyKuboClient();
+        const pkc = await mockPKCNoDataPathWithOnlyKuboClient();
 
         try {
             // Use a valid but non-existent CID that kubo will try to find in the network
             const nonExistentCid = "QmYHNYAaYK5hm3ZhZFx5W9H6xydKDGimjdgJMrMSdnctEn"; // random valid CID
-            const comment = await plebbit.createComment({ cid: nonExistentCid });
+            const comment = await pkc.createComment({ cid: nonExistentCid });
             await comment.update();
 
             // Wait until kubo is actively fetching
-            const kuboUrl = Object.keys(plebbit.clients.kuboRpcClients)[0];
+            const kuboUrl = Object.keys(pkc.clients.kuboRpcClients)[0];
             await resolveWhenConditionIsTrue({
                 toUpdate: comment,
                 predicate: async () => comment.clients.kuboRpcClients[kuboUrl]?.state === "fetching-ipfs"
@@ -317,7 +317,7 @@ describeSkipIfRpc(`comment.stop() aborts in-flight gateway fetches`, async () =>
             expect(comment.updatingState).to.equal("stopped");
             expect(elapsed).to.be.lessThan(5000);
         } finally {
-            await plebbit.destroy();
+            await pkc.destroy();
         }
     });
 });

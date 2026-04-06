@@ -23,18 +23,18 @@ import type { PKCError } from "../../../dist/node/pkc-error.js";
 const nameCommunitySigner = signers[3];
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
-    describe.concurrent("subplebbit.update (remote) - " + config.name, async () => {
-        let plebbit: PKCType;
+    describe.concurrent("community.update (remote) - " + config.name, async () => {
+        let pkc: PKCType;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         // Cannot run under RPC: test spies on name.resolve/fetch which happen server-side, not observable from the client
-        itSkipIfRpc("calling update() on many instances of the same subplebbit resolves IPNS only once", async () => {
+        itSkipIfRpc("calling update() on many instances of the same community resolves IPNS only once", async () => {
             const localPKC = await config.plebbitInstancePromise();
             const randomSub = await createMockedCommunityIpns({});
             let fetchSpy: ReturnType<typeof vi.spyOn> | undefined;
@@ -87,7 +87,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
                 expect(resolveCallsCount).to.equal(
                     1,
-                    "Updating many subplebbit instances with the same address should only resolve IPNS once"
+                    "Updating many community instances with the same address should only resolve IPNS once"
                 );
             } finally {
                 if (nameResolveSpy) nameResolveSpy.mockRestore();
@@ -96,22 +96,22 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             }
         });
 
-        it(`subplebbit.update() works correctly with subplebbit.address as domain`, async () => {
-            const subplebbit = await plebbit.getCommunity({ address: "plebbit.bso" }); // 'plebbit.eth' is part of test-server.js
-            expect(subplebbit.address).to.equal("plebbit.bso");
-            const oldUpdatedAt = remeda.clone(subplebbit.updatedAt);
-            await subplebbit.update();
-            await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit }); // Invoke an update
-            await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => oldUpdatedAt !== subplebbit.updatedAt });
-            expect(oldUpdatedAt).to.not.equal(subplebbit.updatedAt);
-            expect(subplebbit.address).to.equal("plebbit.bso");
-            await subplebbit.stop();
+        it(`community.update() works correctly with community.address as domain`, async () => {
+            const community = await pkc.getCommunity({ address: "plebbit.bso" }); // 'plebbit.eth' is part of test-server.js
+            expect(community.address).to.equal("plebbit.bso");
+            const oldUpdatedAt = remeda.clone(community.updatedAt);
+            await community.update();
+            await publishRandomPost({ communityAddress: community.address, plebbit: pkc }); // Invoke an update
+            await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => oldUpdatedAt !== community.updatedAt });
+            expect(oldUpdatedAt).to.not.equal(community.updatedAt);
+            expect(community.address).to.equal("plebbit.bso");
+            await community.stop();
         });
 
         // Scenario B: {address: "12D3Koo..."} loads record with name field — accept it, set name from record, keep address as IPNS key
         // On subsequent update loops, the record's name is resolved in background to verify the domain claim
-        it(`subplebbit.update() accepts record and sets name when loaded by raw IPNS key, then resolves name in background`, async () => {
-            const loadedCommunity = await plebbit.createCommunity({ address: nameCommunitySigner.address });
+        it(`community.update() accepts record and sets name when loaded by raw IPNS key, then resolves name in background`, async () => {
+            const loadedCommunity = await pkc.createCommunity({ address: nameCommunitySigner.address });
             await loadedCommunity.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: loadedCommunity,
@@ -137,7 +137,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         // Scenario B + name resolves to different key: triggers key migration
-        it(`subplebbit loaded by raw IPNS key triggers key migration when record's name resolves to different key`, async () => {
+        it(`community loaded by raw IPNS key triggers key migration when record's name resolves to different key`, async () => {
             // "migration-test.bso" is in defaultMockResolverRecords → signers[0].address,
             // which differs from the mocked record's signer → triggers key migration
             const { communityAddress: ipnsKey } = await createMockedCommunityIpns({ name: "migration-test.bso" });
@@ -191,7 +191,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         // Scenario B + name fails to resolve: nameResolved becomes false
-        it(`subplebbit loaded by raw IPNS key sets nameResolved=false when record's name cannot be resolved`, async () => {
+        it(`community loaded by raw IPNS key sets nameResolved=false when record's name cannot be resolved`, async () => {
             const { communityAddress: ipnsKey } = await createMockedCommunityIpns({ name: "unresolvable-name.bso" });
 
             const testPKC = await config.plebbitInstancePromise({
@@ -244,7 +244,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             }
         });
 
-        it.sequential(`subplebbit.update emits error if signature of subplebbit is invalid`, async () => {
+        it.sequential(`community.update emits error if signature of community is invalid`, async () => {
             // should emit an error and keep retrying
 
             // Publish a valid record signed with ipnsObj.signer first, then corrupt a signed field.
@@ -253,14 +253,14 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const { subplebbitRecord, ipnsObj } = await publishCommunityRecordWithExtraProp();
             (subplebbitRecord as Record<string, unknown>).updatedAt = (subplebbitRecord.updatedAt || 0) + 9999; // corrupt a signed field
             await ipnsObj.publishToIpns(JSON.stringify(subplebbitRecord));
-            const tempCommunity = await plebbit.createCommunity({ address: ipnsObj.signer.address });
+            const tempCommunity = await pkc.createCommunity({ address: ipnsObj.signer.address });
 
             const errorPromise = new Promise<void>((resolve) => {
                 tempCommunity.once("error", (err: PKCError | Error) => {
                     const pErr = err as PKCError;
-                    if (isPKCFetchingUsingGateways(plebbit)) {
+                    if (isPKCFetchingUsingGateways(pkc)) {
                         expect(pErr.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
-                        for (const gatewayUrl of Object.keys(plebbit.clients.ipfsGateways))
+                        for (const gatewayUrl of Object.keys(pkc.clients.ipfsGateways))
                             expect((pErr.details.gatewayToError[gatewayUrl] as PKCError).code).to.equal(
                                 "ERR_COMMUNITY_SIGNATURE_IS_INVALID"
                             );
@@ -277,19 +277,19 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await ipnsObj.plebbit.destroy();
         });
 
-        it(`subplebbit.update emits error if schema of subplebbit is invalid `, async () => {
-            const rawCommunityJson = (await plebbit.getCommunity({ address: signers[0].address })).raw.subplebbitIpfs!;
+        it(`community.update emits error if schema of community is invalid `, async () => {
+            const rawCommunityJson = (await pkc.getCommunity({ address: signers[0].address })).raw.subplebbitIpfs!;
             (rawCommunityJson as Record<string, unknown>).lastPostCid = 12345; // This will make schema invalid
 
             const ipnsObj = await createNewIpns();
             await ipnsObj.publishToIpns(JSON.stringify(rawCommunityJson));
-            const tempCommunity = await plebbit.createCommunity({ address: ipnsObj.signer.address });
+            const tempCommunity = await pkc.createCommunity({ address: ipnsObj.signer.address });
             const errorPromise = new Promise<void>((resolve) => {
                 tempCommunity.once("error", (err: PKCError | Error) => {
                     const pErr = err as PKCError;
-                    if (isPKCFetchingUsingGateways(plebbit)) {
+                    if (isPKCFetchingUsingGateways(pkc)) {
                         expect(pErr.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
-                        for (const gatewayUrl of Object.keys(plebbit.clients.ipfsGateways))
+                        for (const gatewayUrl of Object.keys(pkc.clients.ipfsGateways))
                             expect((pErr.details.gatewayToError[gatewayUrl] as PKCError).code).to.equal(
                                 "ERR_INVALID_COMMUNITY_IPFS_SCHEMA"
                             );
@@ -307,15 +307,15 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await ipnsObj.plebbit.destroy();
         });
 
-        it(`subplebbit.update emits error if subplebbit record is invalid json`, async () => {
+        it(`community.update emits error if community record is invalid json`, async () => {
             const ipnsObj = await createNewIpns();
             await ipnsObj.publishToIpns("<html>"); // invalid json
-            const tempCommunity = await plebbit.createCommunity({ address: ipnsObj.signer.address });
+            const tempCommunity = await pkc.createCommunity({ address: ipnsObj.signer.address });
 
             const errorPromise = new Promise<void>((resolve) => {
                 tempCommunity.once("error", (err: PKCError | Error) => {
                     const pErr = err as PKCError;
-                    if (isPKCFetchingUsingGateways(plebbit)) {
+                    if (isPKCFetchingUsingGateways(pkc)) {
                         // we're using gateways to fetch
                         expect(pErr.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
                         for (const gatewayUrl of Object.keys(tempCommunity.clients.ipfsGateways)) {
@@ -334,8 +334,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await ipnsObj.plebbit.destroy();
         });
 
-        it(`subplebbit.update emits error and keeps retrying if address is name and name address has no subplebbit-address text record`, async () => {
-            const sub = await plebbit.createCommunity({ address: "this-sub-does-not-exist.bso" });
+        it(`community.update emits error and keeps retrying if address is name and name address has no community-address text record`, async () => {
+            const sub = await pkc.createCommunity({ address: "this-sub-does-not-exist.bso" });
             // Should emit an error and keep on retrying in the next update loop
             let errorCount = 0;
             let resolveErrorPromise: () => void;
@@ -355,20 +355,20 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             sub.removeListener("error", errorListener);
         });
 
-        it(`subplebbit.stop() stops subplebbit updates`, async () => {
+        it(`community.stop() stops community updates`, async () => {
             const remotePKC = await config.plebbitInstancePromise();
-            const subplebbit = await remotePKC.createCommunity({ address: "plebbit.bso" }); // 'plebbit.eth' is part of test-server.js
-            await subplebbit.update();
-            await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
-            await subplebbit.stop();
+            const community = await remotePKC.createCommunity({ address: "plebbit.bso" }); // 'plebbit.eth' is part of test-server.js
+            await community.update();
+            await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+            await community.stop();
             let updatedHasBeenCalled = false;
 
-            subplebbit.on("update", () => {
+            community.on("update", () => {
                 updatedHasBeenCalled = true;
             });
 
-            (subplebbit as unknown as Record<string, Function>).updateOnce = (
-                subplebbit as unknown as Record<string, Function>
+            (community as unknown as Record<string, Function>).updateOnce = (
+                community as unknown as Record<string, Function>
             )._setUpdatingState = async () => {
                 updatedHasBeenCalled = true;
             };
@@ -377,23 +377,23 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await remotePKC.destroy();
         });
 
-        it(`subplebbit.update() is working as expected after calling subplebbit.stop()`, async () => {
-            const subplebbit = await plebbit.createCommunity({ address: signers[0].address });
+        it(`community.update() is working as expected after calling community.stop()`, async () => {
+            const community = await pkc.createCommunity({ address: signers[0].address });
 
-            await subplebbit.update();
-            await new Promise((resolve) => subplebbit.once("update", resolve));
+            await community.update();
+            await new Promise((resolve) => community.once("update", resolve));
 
-            await subplebbit.stop();
+            await community.stop();
 
-            await subplebbit.update();
+            await community.update();
 
-            await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
-            await new Promise((resolve) => subplebbit.once("update", resolve));
-            await subplebbit.stop();
+            await publishRandomPost({ communityAddress: community.address, plebbit: pkc });
+            await new Promise((resolve) => community.once("update", resolve));
+            await community.stop();
         });
 
         // Scenario A: {address: domain, publicKey: pkA} where domain resolves to pkB (key migration)
-        it(`subplebbit.update() performs key migration when name resolves to different public key`, async () => {
+        it(`community.update() performs key migration when name resolves to different public key`, async () => {
             // "migrating.bso" is in defaultMockResolverRecords → signers[0].address,
             // which differs from the mocked record's signer → triggers key migration
             const { communityAddress: oldPublicKey } = await createMockedCommunityIpns({});
@@ -462,7 +462,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         // Scenario C: {address: domain} where record has name: "other.eth" (different name)
-        it(`subplebbit.update() rejects record when record name differs from loaded domain address`, async () => {
+        it(`community.update() rejects record when record name differs from loaded domain address`, async () => {
             // "wrong-name.bso" is in defaultMockResolverRecords → signers[3].address
             // signers[3]'s record has name: "plebbit.bso", so "wrong-name.bso" ≠ "plebbit.bso" → rejection
             const testPKC = await config.plebbitInstancePromise();
@@ -494,7 +494,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             }
         });
 
-        it(`subplebbit.update() falls back to publicKey when name resolution fails and sets nameResolved=false`, async () => {
+        it(`community.update() falls back to publicKey when name resolution fails and sets nameResolved=false`, async () => {
             // Default mock resolver can't resolve "unresolvable.bso" (not in default records) → falls back to publicKey
             const { communityAddress: publicKey } = await createMockedCommunityIpns({});
 
@@ -539,7 +539,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         // _clearDataForKeyMigration unit test
         itSkipIfRpc(`_clearDataForKeyMigration clears all data fields and updates key`, async () => {
             // Cannot run in RPC because we access internal methods directly
-            const sub = await plebbit.createCommunity({ address: signers[0].address });
+            const sub = await pkc.createCommunity({ address: signers[0].address });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -591,22 +591,22 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(sub.publicKey).to.equal(newKey);
         });
 
-        it(`subplebbit.update() emits an error if subplebbit record is over 1mb`, async () => {
-            // plebbit-js will emit an error once, mark the invalid cid, and never retry
+        it(`community.update() emits an error if community record is over 1mb`, async () => {
+            // pkc-js will emit an error once, mark the invalid cid, and never retry
             const twoMbObject = { testString: "x".repeat(2 * 1024 * 1024) }; //2mb
 
             const ipnsObj = await createNewIpns();
 
             await ipnsObj.publishToIpns(JSON.stringify(twoMbObject));
 
-            const tempCommunity = await plebbit.createCommunity({ address: ipnsObj.signer.address });
+            const tempCommunity = await pkc.createCommunity({ address: ipnsObj.signer.address });
 
             const errorPromise = new Promise<PKCError>((resolve) => tempCommunity.once("error", resolve as (err: Error) => void));
             await tempCommunity.update();
             const err = await errorPromise;
             await tempCommunity.stop();
 
-            if (isPKCFetchingUsingGateways(plebbit)) {
+            if (isPKCFetchingUsingGateways(pkc)) {
                 // we're using gateways to fetch
                 expect(err.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
                 for (const gatewayUrl of Object.keys(tempCommunity.clients.ipfsGateways))
@@ -617,7 +617,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         // Verify that background name resolution emits "update" independently of subplebbitIpfs changes
         it(`background name resolution emits update with nameResolved=true without a new subplebbitIpfs record`, async () => {
-            const sub = await plebbit.createCommunity({ address: nameCommunitySigner.address });
+            const sub = await pkc.createCommunity({ address: nameCommunitySigner.address });
             await sub.update();
             // Wait for the initial record to load
             await resolveWhenConditionIsTrue({
@@ -684,16 +684,16 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             }
         });
 
-        it(`page comment author background resolution does not emit spurious update on subplebbit`, async () => {
-            // Load a subplebbit that has pages with domain-author comments
-            const sub = await plebbit.createCommunity({ address: signers[0].address });
+        it(`page comment author background resolution does not emit spurious update on community`, async () => {
+            // Load a community that has pages with domain-author comments
+            const sub = await pkc.createCommunity({ address: signers[0].address });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
                 predicate: async () => Boolean(sub.posts?.pages?.hot?.comments?.length)
             });
 
-            // Track whether nameResolved ever gets set on the subplebbit itself
+            // Track whether nameResolved ever gets set on the community itself
             // (it shouldn't — signers[0].address is a B58 key, not a domain)
             let nameResolvedEverChanged = false;
             const onUpdate = () => {
@@ -709,7 +709,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             sub.removeListener("update", onUpdate);
             await sub.stop();
 
-            // subplebbit.nameResolved should remain undefined (no community domain to resolve)
+            // community.nameResolved should remain undefined (no community domain to resolve)
             expect(sub.nameResolved).to.be.undefined;
             expect(nameResolvedEverChanged).to.be.false;
         });

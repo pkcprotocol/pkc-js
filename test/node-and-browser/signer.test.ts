@@ -10,17 +10,17 @@ import type { SignerType } from "../../dist/node/signer/types.js";
 const authorSignerFixture = fixtureSigners[1];
 
 describe("signer (node and browser)", async () => {
-    let plebbit: PKC;
+    let pkc: PKC;
     let authorSigner: SignerType;
     let randomSigner: SignerType;
     beforeAll(async () => {
-        plebbit = await mockPKCNoDataPathWithOnlyKuboClient();
-        authorSigner = await plebbit.createSigner({ privateKey: authorSignerFixture.privateKey, type: "ed25519" });
-        randomSigner = await plebbit.createSigner();
+        pkc = await mockPKCNoDataPathWithOnlyKuboClient();
+        authorSigner = await pkc.createSigner({ privateKey: authorSignerFixture.privateKey, type: "ed25519" });
+        randomSigner = await pkc.createSigner();
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     describe("signBufferEd25519 and verifyBufferEd25519", () => {

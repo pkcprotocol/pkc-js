@@ -17,7 +17,7 @@ import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 
-const subplebbitAddress = signers[7].address; // this sub is dedicated for removing
+const communityAddress = signers[7].address; // this sub is dedicated for removing
 const roles = [
     { role: "owner", signer: signers[1] },
     { role: "admin", signer: signers[2] },
@@ -26,18 +26,18 @@ const roles = [
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Removing post - ${config.name}`, async () => {
-        let plebbit: PKC, postToRemove: Comment, postReply: Comment;
+        let pkc: PKC, postToRemove: Comment, postReply: Comment;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
             postToRemove = await publishRandomPost({
-                communityAddress: subplebbitAddress,
-                plebbit: plebbit,
+                communityAddress: communityAddress,
+                plebbit: pkc,
                 postProps: { content: "Post to be removed" }
             });
             postToRemove.on("updatingstatechange", console.log);
             postReply = await publishRandomReply({
                 parentComment: postToRemove as CommentIpfsWithCidDefined,
-                plebbit: plebbit,
+                plebbit: pkc,
                 commentProps: {
                     content: "reply under removed post"
                 }
@@ -45,11 +45,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await postToRemove.update();
         });
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it.sequential(`Mod can mark an author post as removed`, async () => {
-            const removeEdit = await plebbit.createCommentModeration({
+            const removeEdit = await pkc.createCommentModeration({
                 communityAddress: postToRemove.communityAddress,
                 commentCid: postToRemove.cid,
                 commentModeration: { reason: "To remove a post", removed: true },
@@ -66,8 +66,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(postToRemove.raw.commentUpdate.reason).to.equal("To remove a post");
             expect(postToRemove.raw.commentUpdate.edit).to.be.undefined;
         });
-        it(`Removed post don't show in subplebbit.posts`, async () => {
-            const sub = await plebbit.createCommunity({ address: subplebbitAddress });
+        it(`Removed post don't show in community.posts`, async () => {
+            const sub = await pkc.createCommunity({ address: communityAddress });
             await sub.update();
 
             await resolveWhenConditionIsTrue({
@@ -88,7 +88,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Sub rejects votes on removed post`, async () => {
-            const vote = await generateMockVote(postToRemove as CommentIpfsWithCidDefined, 1, plebbit, remeda.sample(signers, 1)[0]);
+            const vote = await generateMockVote(postToRemove as CommentIpfsWithCidDefined, 1, pkc, remeda.sample(signers, 1)[0]);
             await publishWithExpectedResult({
                 publication: vote,
                 expectedChallengeSuccess: false,
@@ -97,7 +97,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Sub rejects replies on removed post`, async () => {
-            const reply = await generateMockComment(postToRemove as CommentIpfsWithCidDefined, plebbit, false, {
+            const reply = await generateMockComment(postToRemove as CommentIpfsWithCidDefined, pkc, false, {
                 signer: remeda.sample(signers, 1)[0]
             });
             await publishWithExpectedResult({
@@ -108,7 +108,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Sub rejects votes on a reply of a removed post`, async () => {
-            const vote = await generateMockVote(postReply as CommentIpfsWithCidDefined, 1, plebbit, remeda.sample(signers, 1)[0]);
+            const vote = await generateMockVote(postReply as CommentIpfsWithCidDefined, 1, pkc, remeda.sample(signers, 1)[0]);
             await publishWithExpectedResult({
                 publication: vote,
                 expectedChallengeSuccess: false,
@@ -117,7 +117,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Sub rejects replies on a reply of a removed post`, async () => {
-            const reply = await generateMockComment(postReply as CommentIpfsWithCidDefined, plebbit, false, {
+            const reply = await generateMockComment(postReply as CommentIpfsWithCidDefined, pkc, false, {
                 signer: remeda.sample(signers, 1)[0]
             });
             await publishWithExpectedResult({
@@ -128,8 +128,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Author of post can't remove it`, async () => {
-            const postToBeRemoved = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
-            const removeEdit = await plebbit.createCommentModeration({
+            const postToBeRemoved = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            const removeEdit = await pkc.createCommentModeration({
                 communityAddress: postToBeRemoved.communityAddress,
                 commentCid: postToBeRemoved.cid,
                 commentModeration: { reason: "To remove a post" + Date.now(), removed: true },
@@ -143,7 +143,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`Mod can unremove a post`, async () => {
-            const unremoveEdit = await plebbit.createCommentModeration({
+            const unremoveEdit = await pkc.createCommentModeration({
                 communityAddress: postToRemove.communityAddress,
                 commentCid: postToRemove.cid,
                 commentModeration: { reason: "To unremove a post", removed: false },
@@ -161,8 +161,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(postToRemove.raw.commentUpdate.edit).to.be.undefined;
         });
 
-        it(`Unremoved post is included in subplebbit.posts with removed=false`, async () => {
-            const sub = await plebbit.createCommunity({ address: subplebbitAddress });
+        it(`Unremoved post is included in community.posts with removed=false`, async () => {
+            const sub = await pkc.createCommunity({ address: communityAddress });
             await sub.update();
 
             await resolveWhenConditionIsTrue({
@@ -185,13 +185,13 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     });
 
     describe.concurrent(`Mods removing their own posts - ${config.name}`, async () => {
-        let plebbit: PKC, modPost: Comment;
+        let pkc: PKC, modPost: Comment;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
             modPost = await publishRandomPost({
-                communityAddress: subplebbitAddress,
-                plebbit: plebbit,
+                communityAddress: communityAddress,
+                plebbit: pkc,
                 postProps: {
                     signer: roles[2].signer,
                     content: "mod removing their own post"
@@ -201,11 +201,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it.sequential(`Mods can remove their own posts`, async () => {
-            const removeEdit = await plebbit.createCommentModeration({
+            const removeEdit = await pkc.createCommentModeration({
                 communityAddress: modPost.communityAddress,
                 commentCid: modPost.cid,
                 commentModeration: { reason: "For mods to remove their own post", removed: true },
@@ -225,22 +225,22 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     });
 
     describe.concurrent(`Removing reply`, async () => {
-        let plebbit: PKC, post: Comment, replyToBeRemoved: Comment, replyUnderRemovedReply: Comment;
+        let pkc: PKC, post: Comment, replyToBeRemoved: Comment, replyUnderRemovedReply: Comment;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
             post = await publishRandomPost({
-                communityAddress: subplebbitAddress,
-                plebbit: plebbit,
+                communityAddress: communityAddress,
+                plebbit: pkc,
                 postProps: { content: "Post with removed reply under it" }
             });
             replyToBeRemoved = await publishRandomReply({
                 parentComment: post as CommentIpfsWithCidDefined,
-                plebbit: plebbit,
+                plebbit: pkc,
                 commentProps: { content: "reply to be removed" }
             });
             replyUnderRemovedReply = await publishRandomReply({
                 parentComment: replyToBeRemoved as CommentIpfsWithCidDefined,
-                plebbit: plebbit,
+                plebbit: pkc,
                 commentProps: {
                     content: "reply under removed reply"
                 }
@@ -253,11 +253,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it.sequential(`Mod can remove a reply`, async () => {
-            const removeEdit = await plebbit.createCommentModeration({
+            const removeEdit = await pkc.createCommentModeration({
                 communityAddress: replyToBeRemoved.communityAddress,
                 commentCid: replyToBeRemoved.cid,
                 commentModeration: { reason: "To remove a reply", removed: true },
@@ -275,7 +275,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(replyToBeRemoved.raw.commentUpdate.reason).to.equal("To remove a reply");
         });
         it(`Removed replies show in parent comment pages with 'removed' = true`, async () => {
-            const recreatedPost = await plebbit.createComment({ cid: post.cid });
+            const recreatedPost = await pkc.createComment({ cid: post.cid });
 
             await recreatedPost.update();
 
@@ -305,16 +305,16 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             //     -- replyUnderRemovedReply (removed = false)
             // We're testing publishing under replyUnderRemovedReply
             const [reply, vote] = [
-                await generateMockComment(replyUnderRemovedReply as CommentIpfsWithCidDefined, plebbit, false, {
+                await generateMockComment(replyUnderRemovedReply as CommentIpfsWithCidDefined, pkc, false, {
                     signer: remeda.sample(signers, 1)[0]
                 }),
-                await generateMockVote(replyUnderRemovedReply as CommentIpfsWithCidDefined, 1, plebbit, remeda.sample(signers, 1)[0])
+                await generateMockVote(replyUnderRemovedReply as CommentIpfsWithCidDefined, 1, pkc, remeda.sample(signers, 1)[0])
             ];
             await Promise.all([reply, vote].map((pub) => publishWithExpectedResult({ publication: pub, expectedChallengeSuccess: true })));
         });
 
         it(`Author can't unremove a reply`, async () => {
-            const unremoveEdit = await plebbit.createCommentModeration({
+            const unremoveEdit = await pkc.createCommentModeration({
                 communityAddress: replyToBeRemoved.communityAddress,
                 commentCid: replyToBeRemoved.cid,
                 commentModeration: { reason: "To unremove a reply by author" + Date.now(), removed: false },
@@ -327,7 +327,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
         });
         it.sequential("Mod can unremove a reply", async () => {
-            const unremoveEdit = await plebbit.createCommentModeration({
+            const unremoveEdit = await pkc.createCommentModeration({
                 communityAddress: replyToBeRemoved.communityAddress,
                 commentCid: replyToBeRemoved.cid,
                 commentModeration: { reason: "To unremove a reply", removed: false },

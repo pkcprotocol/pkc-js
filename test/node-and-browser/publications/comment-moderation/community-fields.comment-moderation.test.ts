@@ -15,19 +15,19 @@ const MOD_FIELDS = {
 };
 
 describe("CommentModeration - community fields", () => {
-    let plebbit: PKC;
+    let pkc: PKC;
 
     beforeAll(async () => {
-        plebbit = await mockRemotePKC();
+        pkc = await mockRemotePKC();
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it("unsigned creation with domain communityAddress only: communityName derived, communityPublicKey undefined", async () => {
-        const signer = await plebbit.createSigner();
-        const mod = await plebbit.createCommentModeration({
+        const signer = await pkc.createSigner();
+        const mod = await pkc.createCommentModeration({
             communityAddress: "test.eth",
             commentCid: DUMMY_COMMENT_CID,
             commentModeration: { reason: "test" },
@@ -40,8 +40,8 @@ describe("CommentModeration - community fields", () => {
     });
 
     it("domain communityAddress + communityPublicKey eagerly signs and derives communityName", async () => {
-        const signer = await plebbit.createSigner();
-        const mod = await plebbit.createCommentModeration({
+        const signer = await pkc.createSigner();
+        const mod = await pkc.createCommentModeration({
             communityAddress: "myforum.eth",
             communityPublicKey: signers[0].address,
             commentCid: DUMMY_COMMENT_CID,
@@ -60,8 +60,8 @@ describe("CommentModeration - community fields", () => {
     });
 
     it("non-domain communityAddress eagerly signs with derived communityPublicKey", async () => {
-        const signer = await plebbit.createSigner();
-        const mod = await plebbit.createCommentModeration({
+        const signer = await pkc.createSigner();
+        const mod = await pkc.createCommentModeration({
             communityAddress: signers[0].address,
             commentCid: DUMMY_COMMENT_CID,
             commentModeration: { reason: "test" },
@@ -85,33 +85,33 @@ describe("CommentModeration - community fields", () => {
             ...MOD_FIELDS
         });
 
-        const mod = await plebbit.createCommentModeration(signedMsg as any);
+        const mod = await pkc.createCommentModeration(signedMsg as any);
         expect(mod.communityAddress).to.equal("test.eth");
         expect(mod.communityPublicKey).to.equal(signers[0].address);
         expect(mod.communityName).to.equal("test.eth");
     });
 
-    it("backward compat: signed PubsubMessage with old subplebbitAddress (domain) sets communityName", async () => {
+    it("backward compat: signed PubsubMessage with old communityAddress (domain) sets communityName", async () => {
         const signedMsg = await buildSignedPubsubMessage({
             signer: signers[0],
             subplebbitAddress: "test.eth",
             ...MOD_FIELDS
         });
 
-        const mod = await plebbit.createCommentModeration(signedMsg as any);
+        const mod = await pkc.createCommentModeration(signedMsg as any);
         expect(mod.communityAddress).to.equal("test.eth");
         expect(mod.communityName).to.equal("test.eth");
         expect(mod.communityPublicKey).to.be.undefined;
     });
 
-    it("backward compat: signed PubsubMessage with old subplebbitAddress (IPNS key) sets communityPublicKey", async () => {
+    it("backward compat: signed PubsubMessage with old communityAddress (IPNS key) sets communityPublicKey", async () => {
         const signedMsg = await buildSignedPubsubMessage({
             signer: signers[0],
             subplebbitAddress: signers[0].address,
             ...MOD_FIELDS
         });
 
-        const mod = await plebbit.createCommentModeration(signedMsg as any);
+        const mod = await pkc.createCommentModeration(signedMsg as any);
         expect(mod.communityAddress).to.equal(signers[0].address);
         expect(mod.communityPublicKey).to.equal(signers[0].address);
         expect(mod.communityName).to.be.undefined;

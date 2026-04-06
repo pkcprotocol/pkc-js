@@ -9,10 +9,10 @@ import {
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
-    describe(`subplebbit.clients.ipfsGateways - ${config.name}`, async () => {
+    describe(`community.clients.ipfsGateways - ${config.name}`, async () => {
         // All tests below use PKC instance that doesn't have clients.kuboRpcClients
         let gatewayPKC: PKCType;
 
@@ -24,13 +24,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             await gatewayPKC.destroy();
         });
 
-        it(`subplebbit.clients.ipfsGateways[url] is stopped by default`, async () => {
-            const mockSub = await gatewayPKC.getCommunity({ address: subplebbitAddress });
+        it(`community.clients.ipfsGateways[url] is stopped by default`, async () => {
+            const mockSub = await gatewayPKC.getCommunity({ address: communityAddress });
             expect(Object.keys(mockSub.clients.ipfsGateways).length).to.equal(1);
             expect(Object.values(mockSub.clients.ipfsGateways)[0].state).to.equal("stopped");
         });
 
-        it(`Correct order of ipfsGateways state when updating a subplebbit that was created with plebbit.createCommunity({address})`, async () => {
+        it(`Correct order of ipfsGateways state when updating a community that was created with pkc.createCommunity({address})`, async () => {
             const sub = await gatewayPKC.createCommunity({ address: signers[0].address });
 
             const expectedStates = ["fetching-ipns", "stopped"];
@@ -48,7 +48,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             expect(actualStates).to.deep.equal(expectedStates);
         });
 
-        it(`Correct order of ipfsGateways state when updating a subplebbit that was created with plebbit.getCommunity({address: address})`, async () => {
+        it(`Correct order of ipfsGateways state when updating a community that was created with pkc.getCommunity({address: address})`, async () => {
             const sub = await gatewayPKC.getCommunity({ address: signers[0].address });
             await publishRandomPost({ communityAddress: sub.address, plebbit: gatewayPKC });
 
@@ -68,11 +68,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             expect(actualStates).to.deep.equal(expectedStates);
         });
 
-        it(`Correct order of ipfs gateway state when we update a subplebbit and it's not publishing new subplebbit records`, async () => {
-            const { commentCid, communityAddress: subplebbitAddress } = await createStaticCommunityRecordForComment();
+        it(`Correct order of ipfs gateway state when we update a community and it's not publishing new community records`, async () => {
+            const { commentCid, communityAddress: communityAddress } = await createStaticCommunityRecordForComment();
             // subAddress is static and won't be publishing new updates
 
-            const sub = await gatewayPKC.createCommunity({ address: subplebbitAddress });
+            const sub = await gatewayPKC.createCommunity({ address: communityAddress });
             expect(sub.updatedAt).to.be.undefined; // should not get an update yet
 
             let updateCount = 0;
@@ -109,13 +109,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             }
         });
 
-        it(`Correct order of ipfs gateway states when we update a subplebbit with record whose signature is invalid`, async () => {
-            const { commentCid, communityAddress: subplebbitAddress } = await createStaticCommunityRecordForComment({
+        it(`Correct order of ipfs gateway states when we update a community with record whose signature is invalid`, async () => {
+            const { commentCid, communityAddress: communityAddress } = await createStaticCommunityRecordForComment({
                 invalidateCommunitySignature: true
             });
             // subAddress is static and is already published an invalid record
 
-            const sub = await gatewayPKC.createCommunity({ address: subplebbitAddress });
+            const sub = await gatewayPKC.createCommunity({ address: communityAddress });
             expect(sub.updatedAt).to.be.undefined;
 
             let updateCount = 0;

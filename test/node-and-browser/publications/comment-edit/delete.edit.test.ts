@@ -17,7 +17,7 @@ import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 
-const subplebbitAddress = signers[8].address;
+const communityAddress = signers[8].address;
 const roles = [
     { role: "owner", signer: signers[1] },
     { role: "admin", signer: signers[2] },
@@ -26,29 +26,29 @@ const roles = [
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent("Deleting a post - " + config.name, async () => {
-        let plebbit: PKC, postToDelete: Comment, modPostToDelete: Comment, postReply: Comment;
+        let pkc: PKC, postToDelete: Comment, modPostToDelete: Comment, postReply: Comment;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
             [postToDelete, modPostToDelete] = await Promise.all([
-                publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit }),
-                publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit, postProps: { signer: roles[2].signer } })
+                publishRandomPost({ communityAddress: communityAddress, plebbit: pkc }),
+                publishRandomPost({ communityAddress: communityAddress, plebbit: pkc, postProps: { signer: roles[2].signer } })
             ]);
-            postReply = await publishRandomReply({ parentComment: postToDelete as CommentIpfsWithCidDefined, plebbit: plebbit });
+            postReply = await publishRandomReply({ parentComment: postToDelete as CommentIpfsWithCidDefined, plebbit: pkc });
             await postToDelete.update();
             await modPostToDelete.update();
             await postReply.update();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
         it(`Regular author can't mark a post that is not theirs as deleted`, async () => {
-            const deleteEdit = await plebbit.createCommentEdit({
+            const deleteEdit = await pkc.createCommentEdit({
                 communityAddress: postToDelete.communityAddress,
                 commentCid: postToDelete.cid,
                 deleted: true,
-                signer: await plebbit.createSigner()
+                signer: await pkc.createSigner()
             });
             await publishWithExpectedResult({
                 publication: deleteEdit,
@@ -58,7 +58,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Mod can't delete a post that is not theirs`, async () => {
-            const deleteEdit = await plebbit.createCommentEdit({
+            const deleteEdit = await pkc.createCommentEdit({
                 communityAddress: postToDelete.communityAddress,
                 commentCid: postToDelete.cid,
                 deleted: true,
@@ -72,7 +72,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`Author of post can delete their own post`, async () => {
-            const deleteEdit = await plebbit.createCommentEdit({
+            const deleteEdit = await pkc.createCommentEdit({
                 communityAddress: postToDelete.communityAddress,
                 commentCid: postToDelete.cid,
                 deleted: true,
@@ -93,8 +93,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(postToDelete.raw.commentUpdate.reason).to.be.undefined;
         });
 
-        it(`Deleted post is omitted from subplebbit.posts`, async () => {
-            const sub = await plebbit.createCommunity({ address: postToDelete.communityAddress });
+        it(`Deleted post is omitted from community.posts`, async () => {
+            const sub = await pkc.createCommunity({ address: postToDelete.communityAddress });
             await sub.update();
 
             await resolveWhenConditionIsTrue({
@@ -119,7 +119,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const voteUnderDeletedPost = await generateMockVote(
                 postToDelete as CommentIpfsWithCidDefined,
                 1,
-                plebbit,
+                pkc,
                 remeda.sample(signers, 1)[0]
             );
             await publishWithExpectedResult({
@@ -130,7 +130,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can't publish reply under deleted post`, async () => {
-            const replyUnderDeletedPost = await generateMockComment(postToDelete as CommentIpfsWithCidDefined, plebbit, false, {
+            const replyUnderDeletedPost = await generateMockComment(postToDelete as CommentIpfsWithCidDefined, pkc, false, {
                 signer: remeda.sample(signers, 1)[0]
             });
             await publishWithExpectedResult({
@@ -141,7 +141,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can't publish a reply under a reply of a deleted post`, async () => {
-            const reply = await generateMockComment(postReply as CommentIpfsWithCidDefined, plebbit, false, {
+            const reply = await generateMockComment(postReply as CommentIpfsWithCidDefined, pkc, false, {
                 signer: remeda.sample(signers, 1)[0]
             });
             await publishWithExpectedResult({
@@ -152,7 +152,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can't publish a vote under a reply of a deleted post`, async () => {
-            const vote = await generateMockVote(postReply as CommentIpfsWithCidDefined, 1, plebbit, remeda.sample(signers, 1)[0]);
+            const vote = await generateMockVote(postReply as CommentIpfsWithCidDefined, 1, pkc, remeda.sample(signers, 1)[0]);
             await publishWithExpectedResult({
                 publication: vote,
                 expectedChallengeSuccess: false,
@@ -160,7 +160,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
         });
         it.sequential(`Mod can delete their own post`, async () => {
-            const deleteEdit = await plebbit.createCommentEdit({
+            const deleteEdit = await pkc.createCommentEdit({
                 communityAddress: modPostToDelete.communityAddress,
                 commentCid: modPostToDelete.cid,
                 deleted: true,
@@ -182,7 +182,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Author can not undelete their own post`, async () => {
-            const undeleteEdit = await plebbit.createCommentEdit({
+            const undeleteEdit = await pkc.createCommentEdit({
                 communityAddress: postToDelete.communityAddress,
                 commentCid: postToDelete.cid,
                 deleted: false,
@@ -197,7 +197,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Mod can not undelete their own post`, async () => {
-            const undeleteEdit = await plebbit.createCommentEdit({
+            const undeleteEdit = await pkc.createCommentEdit({
                 communityAddress: modPostToDelete.communityAddress,
                 commentCid: modPostToDelete.cid,
                 deleted: false,
@@ -213,26 +213,26 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     });
 
     describe.concurrent("Deleting a reply - " + config.name, async () => {
-        let plebbit: PKC, replyToDelete: Comment, post: Comment, replyUnderDeletedReply: Comment;
+        let pkc: PKC, replyToDelete: Comment, post: Comment, replyUnderDeletedReply: Comment;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
-            post = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
-            replyToDelete = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
+            pkc = await config.plebbitInstancePromise();
+            post = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            replyToDelete = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc });
             replyUnderDeletedReply = await publishRandomReply({
                 parentComment: replyToDelete as CommentIpfsWithCidDefined,
-                plebbit: plebbit
+                plebbit: pkc
             });
             await Promise.all([replyToDelete.update(), post.update()]);
         });
         afterAll(async () => {
             await post.stop();
             await replyToDelete.stop();
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it.sequential(`Author can delete their own reply`, async () => {
-            const deleteEdit = await plebbit.createCommentEdit({
+            const deleteEdit = await pkc.createCommentEdit({
                 communityAddress: replyToDelete.communityAddress,
                 commentCid: replyToDelete.cid,
                 deleted: true,
@@ -246,7 +246,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(replyToDelete.reason).to.be.undefined;
         });
         it(`Deleted replies show in parent comment pages with 'deleted' = true`, async () => {
-            const parentComment = await plebbit.createComment({ cid: replyToDelete.parentCid });
+            const parentComment = await pkc.createComment({ cid: replyToDelete.parentCid });
             await parentComment.update();
 
             await resolveWhenConditionIsTrue({
@@ -276,8 +276,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             //     -- replyUnderDeletedReply (deleted = false)
             // We're testing publishing under replyUnderDeletedReply
             const [reply, vote] = [
-                await generateMockComment(replyUnderDeletedReply as CommentIpfsWithCidDefined, plebbit),
-                await generateMockVote(replyUnderDeletedReply as CommentIpfsWithCidDefined, 1, plebbit)
+                await generateMockComment(replyUnderDeletedReply as CommentIpfsWithCidDefined, pkc),
+                await generateMockVote(replyUnderDeletedReply as CommentIpfsWithCidDefined, 1, pkc)
             ];
             await Promise.all([reply, vote].map((pub) => publishWithExpectedResult({ publication: pub, expectedChallengeSuccess: true })));
         });

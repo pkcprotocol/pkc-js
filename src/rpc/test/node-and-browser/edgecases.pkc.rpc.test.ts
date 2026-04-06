@@ -8,7 +8,7 @@ import {
 
 const depthsToTest = [0, 1, 2, 3, 10, 15];
 const subplebbitAddress = signers[0].address;
-getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbit-rpc"] }).map((config) => {
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] }).map((config) => {
     depthsToTest.forEach((depthToTest) => {
         describe.concurrent("publish then update with plebbit rpc client and depth=" + depthToTest + " - " + config.name, async () => {
             it("Should be able to fetch updates after publishing", async () => {

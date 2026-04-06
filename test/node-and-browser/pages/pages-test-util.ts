@@ -117,17 +117,17 @@ export const testCommentFieldsInModQueuePageJson = (comment: Record<string, any>
     expect(comment.pendingApproval).to.be.true;
 };
 
-const activeScore = async (comment: CommentWithinRepliesPostsPageJson, plebbit: PKC): Promise<number> => {
+const activeScore = async (comment: CommentWithinRepliesPostsPageJson, pkc: PKC): Promise<number> => {
     if (!comment.replies) return comment.timestamp;
     let maxTimestamp = comment.timestamp;
 
-    const commentInstance = await plebbit.createComment(comment);
+    const commentInstance = await pkc.createComment(comment);
     const updateMaxTimestamp = async (localComments: CommentWithinRepliesPostsPageJson[]) => {
         for (const localComment of localComments) {
             if (localComment.deleted || localComment.removed) continue; // shouldn't count
             if (localComment.timestamp > maxTimestamp) maxTimestamp = localComment.timestamp;
             if (localComment.replies) {
-                const localCommentInstance = await plebbit.createComment(localComment);
+                const localCommentInstance = await pkc.createComment(localComment);
                 const childrenComments = await loadAllUniqueCommentsUnderCommentInstance(localCommentInstance);
                 await updateMaxTimestamp(childrenComments);
             }
@@ -144,34 +144,34 @@ const activeScore = async (comment: CommentWithinRepliesPostsPageJson, plebbit: 
 export const testPageCommentsIfSortedCorrectly = async (
     sortedComments: CommentWithinRepliesPostsPageJson[],
     sortName: string,
-    subplebbit: RemoteCommunity
+    community: RemoteCommunity
 ) => {
     const currentTimeframe = Object.keys(TIMEFRAMES_TO_SECONDS).filter((timeframe: string) =>
         sortName.toLowerCase().includes(timeframe.toLowerCase())
     )[0];
-    const expectedCommunityAddress = subplebbit?.address || defaultCommunityAddress;
+    const expectedCommunityAddress = community?.address || defaultCommunityAddress;
 
     for (let j = 0; j < sortedComments.length - 1; j++) {
-        // Check if timestamp is within [timestamp() - timeframe, subplebbit.updatedAt]
+        // Check if timestamp is within [timestamp() - timeframe, community.updatedAt]
         testCommentFieldsInPageJson(sortedComments[j], expectedCommunityAddress);
         if (currentTimeframe && !sortedComments[j].pinned && currentTimeframe !== "ALL") {
             const syncIntervalSeconds = 5 * 60;
 
             const sortStart =
-                subplebbit.updatedAt! - TIMEFRAMES_TO_SECONDS[currentTimeframe as keyof typeof TIMEFRAMES_TO_SECONDS] - syncIntervalSeconds; // Should probably add extra buffer here
+                community.updatedAt! - TIMEFRAMES_TO_SECONDS[currentTimeframe as keyof typeof TIMEFRAMES_TO_SECONDS] - syncIntervalSeconds; // Should probably add extra buffer here
             const errMsg = `${sortName} sort includes posts from different timeframes`;
             expect(sortedComments[j].timestamp).to.be.greaterThanOrEqual(sortStart, errMsg);
-            expect(sortedComments[j].timestamp).to.be.lessThanOrEqual(subplebbit.updatedAt!, errMsg);
+            expect(sortedComments[j].timestamp).to.be.lessThanOrEqual(community.updatedAt!, errMsg);
             expect(sortedComments[j + 1].timestamp).to.be.greaterThanOrEqual(sortStart, errMsg);
-            expect(sortedComments[j + 1].timestamp).to.be.lessThanOrEqual(subplebbit.updatedAt!, errMsg);
+            expect(sortedComments[j + 1].timestamp).to.be.lessThanOrEqual(community.updatedAt!, errMsg);
         }
         if (sortedComments[j].pinned || sortedComments[j + 1].pinned) continue; // Ignore pinned posts as they don't follow regular sorting
 
         const sort = { ...POSTS_SORT_TYPES, ...POST_REPLIES_SORT_TYPES }[sortName];
         let scoreA: number, scoreB: number;
         if (sortName === "active") {
-            scoreA = await activeScore(sortedComments[j], (subplebbit as any)._plebbit);
-            scoreB = await activeScore(sortedComments[j + 1], (subplebbit as any)._plebbit);
+            scoreA = await activeScore(sortedComments[j], (community as any)._plebbit);
+            scoreB = await activeScore(sortedComments[j + 1], (community as any)._plebbit);
         } else {
             scoreA = sort.score(sortedComments[j].raw);
             scoreB = sort.score(sortedComments[j + 1].raw);

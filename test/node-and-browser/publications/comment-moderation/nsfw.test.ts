@@ -10,7 +10,7 @@ import { describe, it, beforeAll, afterAll } from "vitest";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 const roles = [
     { role: "owner", signer: signers[1] },
     { role: "admin", signer: signers[2] },
@@ -19,20 +19,20 @@ const roles = [
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe(`Mods marking an author comment as nsfw - ${config.name}`, async () => {
-        let plebbit: PKC, randomPost: Comment;
+        let pkc: PKC, randomPost: Comment;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
-            randomPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+            pkc = await config.plebbitInstancePromise();
+            randomPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
             await randomPost.update();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`Mod can mark an author comment as nsfw`, async () => {
-            const modnsfwEdit = await plebbit.createCommentModeration({
+            const modnsfwEdit = await pkc.createCommentModeration({
                 communityAddress: randomPost.communityAddress,
                 commentCid: randomPost.cid,
                 commentModeration: { nsfw: true, reason: "Mod marking an author comment as nsfw" },
@@ -52,7 +52,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`nsfw=true appears in pages of subplebibt`, async () => {
-            const sub = await plebbit.createCommunity({ address: randomPost.communityAddress });
+            const sub = await pkc.createCommunity({ address: randomPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -64,7 +64,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Mod can mark unnsfw author comment `, async () => {
-            const unnsfwEdit = await plebbit.createCommentModeration({
+            const unnsfwEdit = await pkc.createCommentModeration({
                 communityAddress: randomPost.communityAddress,
                 commentCid: randomPost.cid,
                 commentModeration: { nsfw: false, reason: "Mod unnsfwing an author comment" },
@@ -83,8 +83,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(randomPost.nsfw).to.be.false;
         });
 
-        it(`nsfw=false appears in pages of subplebbit`, async () => {
-            const sub = await plebbit.createCommunity({ address: randomPost.communityAddress });
+        it(`nsfw=false appears in pages of community`, async () => {
+            const sub = await pkc.createCommunity({ address: randomPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,

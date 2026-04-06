@@ -67,48 +67,48 @@ function createCommentToSign(opts: {
 }
 
 describe("sign comment", async () => {
-    let plebbit: PKCType;
+    let pkc: PKCType;
     let signedCommentClone: CommentPubsubMessagePublication;
     beforeAll(async () => {
-        plebbit = await mockRemotePKC();
+        pkc = await mockRemotePKC();
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it("Can sign a comment with randomly generated key", async () => {
-        const signer = await plebbit.createSigner();
+        const signer = await pkc.createSigner();
 
         const comment = createCommentToSign({
             communityAddress: signers[0].address,
             signer
         });
-        const signature = await signComment({ comment, plebbit });
+        const signature = await signComment({ comment, plebbit: pkc });
         expect(signature.publicKey).to.equal(signer.publicKey);
         const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer", "communityAddress"]) };
         const verificaiton = await verifyCommentPubsubMessage({
             comment: signedComment,
-            resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager
         });
         expect(verificaiton).to.deep.equal({ valid: true });
         signedCommentClone = remeda.clone(signedComment);
     });
 
     it("Can sign a comment with an imported key", async () => {
-        const signer = await plebbit.createSigner({ privateKey: signers[1].privateKey, type: "ed25519" });
+        const signer = await pkc.createSigner({ privateKey: signers[1].privateKey, type: "ed25519" });
         const comment = createCommentToSign({
             communityAddress: signers[0].address,
             signer
         });
-        const signature = await signComment({ comment, plebbit });
+        const signature = await signComment({ comment, plebbit: pkc });
         const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer", "communityAddress"]) };
         expect(signedComment.signature.publicKey).to.be.equal(signers[1].publicKey, "Generated public key should be same as provided");
         const verificaiton = await verifyCommentPubsubMessage({
             comment: signedComment,
-            resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager
         });
         expect(verificaiton).to.deep.equal({ valid: true });
     });
@@ -117,14 +117,14 @@ describe("sign comment", async () => {
         // Note: fixtureComment doesn't have protocolVersion, and communityAddress is now
         // omitted from signedPropertyNames. We verify determinism (signing twice produces same result)
         const commentToSign = { ...fixtureComment, signer: signers[1] } as unknown as CommentOptionsToSign;
-        const authorSignature = await signComment({ comment: commentToSign, plebbit });
+        const authorSignature = await signComment({ comment: commentToSign, plebbit: pkc });
         expect(authorSignature).to.exist;
         expect(authorSignature.publicKey).to.equal(signers[1].publicKey);
         expect(authorSignature.type).to.equal("ed25519");
         // communityAddress should NOT be in signedPropertyNames
         expect(authorSignature.signedPropertyNames).to.not.include("communityAddress");
         // Verify determinism: signing same input again produces same signature
-        const authorSignature2 = await signComment({ comment: commentToSign, plebbit });
+        const authorSignature2 = await signComment({ comment: commentToSign, plebbit: pkc });
         expect(authorSignature2.signature).to.equal(authorSignature.signature);
         expect(authorSignature2.signedPropertyNames.sort()).to.deep.equal(authorSignature.signedPropertyNames.sort());
     });
@@ -140,7 +140,7 @@ describe("sign comment", async () => {
                 signer: signers[7],
                 communityAddress: signers[7].address
             };
-            await signComment({ comment: commentToSign, plebbit });
+            await signComment({ comment: commentToSign, plebbit: pkc });
             expect.fail("Should have thrown");
         } catch (e) {
             expect((e as { code: string }).code).to.equal("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58");
@@ -154,12 +154,12 @@ describe("sign comment", async () => {
             title: "comment title",
             content: "comment content"
         });
-        const signature = await signComment({ comment, plebbit });
+        const signature = await signComment({ comment, plebbit: pkc });
         const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer", "communityAddress"]) };
         const res = await verifyCommentPubsubMessage({
             comment: signedComment,
-            resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager
         });
         expect(res).to.deep.equal({ valid: true });
     });
@@ -173,12 +173,12 @@ describe("sign comment", async () => {
             title: "comment title",
             content: "comment content"
         });
-        const signature = await signComment({ comment, plebbit });
+        const signature = await signComment({ comment, plebbit: pkc });
         const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer", "communityAddress"]) };
         const res = await verifyCommentPubsubMessage({
             comment: signedComment,
             resolveAuthorNames: false,
-            clientsManager: plebbit._clientsManager
+            clientsManager: pkc._clientsManager
         });
         expect(res).to.deep.equal({ valid: true });
     });
@@ -193,12 +193,12 @@ describe("sign comment", async () => {
         });
         // Override timestamp for deterministic test
         (comment as { timestamp: number }).timestamp = 12345678;
-        const signature = await signComment({ comment, plebbit });
+        const signature = await signComment({ comment, plebbit: pkc });
         const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer", "communityAddress"]) };
         const res = await verifyCommentPubsubMessage({
             comment: signedComment,
-            resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager
         });
         expect(res).to.deep.equal({ valid: true });
     });
@@ -206,27 +206,27 @@ describe("sign comment", async () => {
 
 // Clients of RPC will trust the response of RPC and won't validate
 describeSkipIfRpc("verify Comment", async () => {
-    let plebbit: PKCType;
+    let pkc: PKCType;
     beforeAll(async () => {
-        plebbit = await mockRemotePKC();
+        pkc = await mockRemotePKC();
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`Valid signature fixture is validated correctly`, async () => {
         // Sign the fixture comment with the current signing logic and verify
         const commentToSign = { ...fixtureComment, signer: signers[1] } as unknown as CommentOptionsToSign;
-        const freshSignature = await signComment({ comment: commentToSign, plebbit });
+        const freshSignature = await signComment({ comment: commentToSign, plebbit: pkc });
         const fixtureWithSignature = {
             ...remeda.omit(commentToSign, ["signer", "communityAddress"]),
             signature: freshSignature
         } as unknown as CommentPubsubMessagePublication;
         const verification = await verifyCommentPubsubMessage({
             comment: fixtureWithSignature,
-            resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager
         });
         expect(verification).to.deep.equal({ valid: true });
     });
@@ -239,8 +239,8 @@ describeSkipIfRpc("verify Comment", async () => {
         const wronglySignedPublication = { ...fixtureComment, signature: invalidSignature } as unknown as CommentPubsubMessagePublication;
         const verification = await verifyCommentPubsubMessage({
             comment: wronglySignedPublication,
-            resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
@@ -250,7 +250,7 @@ describeSkipIfRpc("verify Comment", async () => {
 
         const verification = await verifyCommentIpfs({
             comment,
-            clientsManager: plebbit._clientsManager,
+            clientsManager: pkc._clientsManager,
             resolveAuthorNames: false,
             calculatedCommentCid: "QmTest"
         });
@@ -261,7 +261,7 @@ describeSkipIfRpc("verify Comment", async () => {
         const comment = remeda.clone(validCommentAvatarFixture) as CommentIpfsType;
         const verification = await verifyCommentIpfs({
             comment,
-            clientsManager: plebbit._clientsManager,
+            clientsManager: pkc._clientsManager,
             resolveAuthorNames: true,
             calculatedCommentCid: "QmTest"
         });
@@ -273,14 +273,14 @@ describeSkipIfRpc("verify Comment", async () => {
         comment.author.name = "gibbresish";
         const verification = await verifyCommentPubsubMessage({
             comment: comment as unknown as CommentPubsubMessagePublication,
-            resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager
         });
         // Modifying author.name without re-signing invalidates the signature
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
     it("verifyCommentPubsubMessage validates a comment without author", async () => {
-        const signer = await plebbit.createSigner();
+        const signer = await pkc.createSigner();
         const commentToSign = createCommentToSign({
             communityAddress: signers[0].address,
             signer,
@@ -289,18 +289,18 @@ describeSkipIfRpc("verify Comment", async () => {
         });
         const comment: CommentPubsubMessagePublication = {
             ...remeda.omit(commentToSign, ["signer", "communityAddress"]),
-            signature: await signComment({ comment: commentToSign, plebbit })
+            signature: await signComment({ comment: commentToSign, plebbit: pkc })
         };
         const verification = await verifyCommentPubsubMessage({
             comment,
-            resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager
         });
         expect(verification).to.deep.equal({ valid: true });
     });
 
     it(`Can sign and verify a comment with flairs`, async () => {
-        const signer = await plebbit.createSigner();
+        const signer = await pkc.createSigner();
         const commentToSign: CommentOptionsToSign = {
             communityAddress: signers[0].address,
             timestamp: timestamp(),
@@ -310,19 +310,19 @@ describeSkipIfRpc("verify Comment", async () => {
             flairs: [{ text: "Discussion" }, { text: "Verified", backgroundColor: "#00ff00" }],
             signer
         };
-        const signature = await signComment({ comment: commentToSign, plebbit });
+        const signature = await signComment({ comment: commentToSign, plebbit: pkc });
         const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(commentToSign, ["signer", "communityAddress"]) };
         const verification = await verifyCommentPubsubMessage({
             comment: signedComment,
-            resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager
         });
         expect(verification).to.deep.equal({ valid: true });
         expect(signedComment.signature.signedPropertyNames).to.include("flairs");
     });
 
     it(`Can verify a comment whose author.flairs have been changed`, async () => {
-        const signer = await plebbit.createSigner();
+        const signer = await pkc.createSigner();
         const commentToSign: CommentOptionsToSign = {
             communityAddress: signers[0].address,
             author: { flairs: [{ text: "Original" }] },
@@ -332,22 +332,22 @@ describeSkipIfRpc("verify Comment", async () => {
             content: "Testing author flairs",
             signer
         };
-        const signature = await signComment({ comment: commentToSign, plebbit });
+        const signature = await signComment({ comment: commentToSign, plebbit: pkc });
         const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(commentToSign, ["signer", "communityAddress"]) };
 
         // Tamper with author.flairs
         signedComment.author.flairs = [{ text: "Tampered" }];
         const verification = await verifyCommentPubsubMessage({
             comment: signedComment,
-            resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
 
     it(`can verify a comment whose flairs have been changed by mod`, async () => {
         // Signing a comment with flairs, then modifying the flairs should invalidate the signature
-        const signer = await plebbit.createSigner();
+        const signer = await pkc.createSigner();
         const commentToSign: CommentOptionsToSign = {
             communityAddress: signers[0].address,
             timestamp: timestamp(),
@@ -357,15 +357,15 @@ describeSkipIfRpc("verify Comment", async () => {
             flairs: [{ text: "Original" }],
             signer
         };
-        const signature = await signComment({ comment: commentToSign, plebbit });
+        const signature = await signComment({ comment: commentToSign, plebbit: pkc });
         const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(commentToSign, ["signer", "communityAddress"]) };
 
         // Tamper with flairs as if a mod changed them
         signedComment.flairs = [{ text: "Mod Changed" }];
         const verification = await verifyCommentPubsubMessage({
             comment: signedComment,
-            resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
@@ -377,7 +377,7 @@ describeSkipIfRpc("verify Comment", async () => {
         // First call: valid signature, populates the cache
         const validVerification = await verifyCommentIpfs({
             comment: validComment,
-            clientsManager: plebbit._clientsManager,
+            clientsManager: pkc._clientsManager,
             resolveAuthorNames: false,
             calculatedCommentCid
         });
@@ -388,7 +388,7 @@ describeSkipIfRpc("verify Comment", async () => {
         tamperedComment.signature.signature += "invalid";
         const tamperedVerification = await verifyCommentIpfs({
             comment: tamperedComment,
-            clientsManager: plebbit._clientsManager,
+            clientsManager: pkc._clientsManager,
             resolveAuthorNames: false,
             calculatedCommentCid
         });
@@ -398,14 +398,14 @@ describeSkipIfRpc("verify Comment", async () => {
     it(`verifyCommentIpfs passes when communityPublicKey differs from sub but communityName matches (key rotation)`, async () => {
         const comment = remeda.clone(validCommentFixture) as CommentIpfsType;
         // Simulate key rotation: comment was published under old key, sub now has new key.
-        // Add new-format fields; old subplebbitAddress stays for signature validity since it's in signedPropertyNames.
+        // Add new-format fields; old communityAddress stays for signature validity since it's in signedPropertyNames.
         // getCommunityAddressFromRecord returns communityName first, so the address check uses the domain, not the key.
         (comment as Record<string, unknown>).communityName = "example.eth";
         (comment as Record<string, unknown>).communityPublicKey = signers[6].address; // "old" key, differs from sub's current
 
         const verification = await verifyCommentIpfs({
             comment,
-            clientsManager: plebbit._clientsManager,
+            clientsManager: pkc._clientsManager,
             resolveAuthorNames: false,
             calculatedCommentCid: "QmKeyRotationTest",
             communityAddressFromInstance: "example.eth" // matches communityName
@@ -476,19 +476,19 @@ describeSkipIfRpc(`Comment with author.name as domain`, async () => {
 
 // Clients of RPC will trust the response of RPC and won't validate
 describeSkipIfRpc(`commentupdate`, async () => {
-    let plebbit: PKCType;
-    let subplebbit: RemoteCommunity;
+    let pkc: PKCType;
+    let community: RemoteCommunity;
     beforeAll(async () => {
-        plebbit = await mockRemotePKC();
-        subplebbit = await plebbit.getCommunity({ address: signers[0].address });
+        pkc = await mockRemotePKC();
+        community = await pkc.getCommunity({ address: signers[0].address });
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`Can validate live CommentUpdate`, async () => {
-        const comment = await plebbit.getComment({ cid: subplebbit.lastPostCid! });
+        const comment = await pkc.getComment({ cid: community.lastPostCid! });
         await comment.update();
         await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });
         await comment.stop();
@@ -506,7 +506,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
                 update: commentUpdateRecord,
                 resolveAuthorNames: true,
                 clientsManager: comment._clientsManager,
-                subplebbit: subplebbit,
+                subplebbit: community,
                 comment: commentForVerify,
                 validatePages: true,
                 validateUpdateSignature: true
@@ -514,7 +514,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
         ).to.deep.equal({ valid: true });
     });
 
-    it(`Fixture CommentUpdate can be signed by subplebbit and validated correctly`, async () => {
+    it(`Fixture CommentUpdate can be signed by community and validated correctly`, async () => {
         const update = remeda.clone(validCommentUpdateFixture) as CommentUpdateType;
         const commentForVerify: Pick<CommentIpfsWithCidPostCidDefined, "signature" | "postCid" | "depth" | "cid"> = {
             cid: update.cid,
@@ -525,9 +525,9 @@ describeSkipIfRpc(`commentupdate`, async () => {
         update.signature = await signCommentUpdate({ update, signer: signers[0] }); // Same signer as the subplebbit that signed the CommentUpdate
         const verification = await verifyCommentUpdate({
             update,
-            resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: subplebbit._clientsManager,
-            subplebbit: subplebbit,
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: community._clientsManager,
+            subplebbit: community,
             comment: commentForVerify,
             validatePages: true,
             validateUpdateSignature: true
@@ -545,9 +545,9 @@ describeSkipIfRpc(`commentupdate`, async () => {
         };
         const verification = await verifyCommentUpdate({
             update,
-            resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: subplebbit._clientsManager,
-            subplebbit: subplebbit,
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: community._clientsManager,
+            subplebbit: community,
             comment: commentForVerify,
             validatePages: true,
             validateUpdateSignature: true
@@ -555,7 +555,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
         expect(verification).to.deep.equal({ valid: true });
     });
 
-    it(`verifyCommentUpdate invalidate commentUpdate if it was signed by other than subplebbit key`, async () => {
+    it(`verifyCommentUpdate invalidate commentUpdate if it was signed by other than community key`, async () => {
         const update = remeda.clone(validCommentUpdateFixture) as CommentUpdateType;
         const commentForVerify: Pick<CommentIpfsWithCidPostCidDefined, "signature" | "postCid" | "depth" | "cid"> = {
             cid: update.cid,
@@ -566,9 +566,9 @@ describeSkipIfRpc(`commentupdate`, async () => {
         update.signature = await signCommentUpdate({ update, signer: signers[6] }); // A different signer than subplebbit
         const verification = await verifyCommentUpdate({
             update,
-            resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: subplebbit._clientsManager,
-            subplebbit: subplebbit,
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: community._clientsManager,
+            subplebbit: community,
             comment: commentForVerify,
             validatePages: true,
             validateUpdateSignature: true
@@ -589,9 +589,9 @@ describeSkipIfRpc(`commentupdate`, async () => {
         expect(
             await verifyCommentUpdate({
                 update: update as CommentUpdateType,
-                resolveAuthorNames: plebbit.resolveAuthorNames,
-                clientsManager: subplebbit._clientsManager,
-                subplebbit: subplebbit,
+                resolveAuthorNames: pkc.resolveAuthorNames,
+                clientsManager: community._clientsManager,
+                subplebbit: community,
                 comment: commentForVerify,
                 validatePages: false,
                 validateUpdateSignature: true
@@ -604,13 +604,13 @@ describeSkipIfRpc(`commentupdate`, async () => {
                 signer: signers[7],
                 communityAddress: (update.edit as Record<string, unknown>).subplebbitAddress as string
             } as Parameters<typeof signCommentEdit>[0]["edit"],
-            plebbit
+            plebbit: pkc
         });
         const verification = await verifyCommentUpdate({
             update: update as CommentUpdateType,
-            resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: subplebbit._clientsManager,
-            subplebbit: subplebbit,
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: community._clientsManager,
+            subplebbit: community,
             comment: commentForVerify,
             validatePages: true,
             validateUpdateSignature: true
@@ -629,9 +629,9 @@ describeSkipIfRpc(`commentupdate`, async () => {
         expect(
             await verifyCommentUpdate({
                 update: update as CommentUpdateType,
-                resolveAuthorNames: plebbit.resolveAuthorNames,
-                clientsManager: subplebbit._clientsManager,
-                subplebbit: subplebbit,
+                resolveAuthorNames: pkc.resolveAuthorNames,
+                clientsManager: community._clientsManager,
+                subplebbit: community,
                 comment: commentForVerify,
                 validatePages: true,
                 validateUpdateSignature: true
@@ -642,9 +642,9 @@ describeSkipIfRpc(`commentupdate`, async () => {
 
         const verification = await verifyCommentUpdate({
             update: update as CommentUpdateType,
-            resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: subplebbit._clientsManager,
-            subplebbit: subplebbit,
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: community._clientsManager,
+            subplebbit: community,
             comment: commentForVerify,
             validatePages: true,
             validateUpdateSignature: true

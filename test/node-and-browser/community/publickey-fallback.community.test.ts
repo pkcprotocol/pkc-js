@@ -12,30 +12,30 @@ import type { PKCError } from "../../../dist/node/pkc-error.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 
 describe(`publicKey fallback - createCommunity stores publicKey from explicit option`, () => {
-    let plebbit: PKC;
+    let pkc: PKC;
 
     beforeAll(async () => {
-        plebbit = await mockRemotePKC();
+        pkc = await mockRemotePKC();
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`createCommunity({ name, publicKey }) sets publicKey on instance`, async () => {
-        const sub = await plebbit.createCommunity({ name: "test.sol", publicKey: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR" });
+        const sub = await pkc.createCommunity({ name: "test.sol", publicKey: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR" });
         expect(sub.publicKey).to.equal("12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR");
         expect(sub.address).to.equal("test.sol");
     });
 
     it(`createCommunity({ publicKey }) without name sets publicKey as address`, async () => {
-        const sub = await plebbit.createCommunity({ publicKey: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR" });
+        const sub = await pkc.createCommunity({ publicKey: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR" });
         expect(sub.publicKey).to.equal("12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR");
         expect(sub.address).to.equal("12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR");
     });
 
     it(`createCommunity({ name, publicKey }) keeps name as address even when publicKey differs`, async () => {
-        const sub = await plebbit.createCommunity({
+        const sub = await pkc.createCommunity({
             name: "myforum.eth",
             publicKey: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR"
         });
@@ -48,14 +48,14 @@ describe(`publicKey fallback - createCommunity stores publicKey from explicit op
 // Tests that require a real IPNS record to fetch against
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe(`publicKey fallback - community loading - ${config.name}`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`update() populates name from IPNS record when loaded with only publicKey`, async () => {
@@ -63,7 +63,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             // The domain "myforum.eth" is only inside the IPNS record's wire format
             const { communityAddress: communityPublicKey } = await createMockedCommunityIpns({ name: "myforum.eth" });
 
-            const sub = await plebbit.createCommunity({ publicKey: communityPublicKey });
+            const sub = await pkc.createCommunity({ publicKey: communityPublicKey });
             expect(sub.publicKey).to.equal(communityPublicKey);
             expect(sub.address).to.equal(communityPublicKey);
             expect(sub.name).to.be.undefined;
@@ -86,9 +86,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`update() succeeds via publicKey when no resolver handles .sol`, async () => {
             // Create a real IPNS record
-            const { communityAddress: subplebbitAddress } = await createMockedCommunityIpns({});
+            const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
 
-            // Create plebbit with resolver that only handles .eth/.bso (not .sol)
+            // Create pkc with resolver that only handles .eth/.bso (not .sol)
             const testPKC = await config.plebbitInstancePromise({
                 mockResolve: false,
                 plebbitOptions: {
@@ -101,8 +101,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             // Create sub with .sol name but real publicKey
-            const sub = await testPKC.createCommunity({ name: "test.sol", publicKey: subplebbitAddress });
-            expect(sub.publicKey).to.equal(subplebbitAddress);
+            const sub = await testPKC.createCommunity({ name: "test.sol", publicKey: communityAddress });
+            expect(sub.publicKey).to.equal(communityAddress);
             expect(sub.address).to.equal("test.sol");
 
             await sub.update();
@@ -120,9 +120,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`update() succeeds via publicKey when resolver returns null for name`, async () => {
-            const { communityAddress: subplebbitAddress } = await createMockedCommunityIpns({});
+            const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
 
-            // Create plebbit with resolver that returns null for our domain
+            // Create pkc with resolver that returns null for our domain
             const testPKC = await config.plebbitInstancePromise({
                 mockResolve: false,
                 plebbitOptions: {
@@ -134,7 +134,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 }
             });
 
-            const sub = await testPKC.createCommunity({ name: "unresolvable.eth", publicKey: subplebbitAddress });
+            const sub = await testPKC.createCommunity({ name: "unresolvable.eth", publicKey: communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -151,7 +151,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`update() succeeds via publicKey and nameResolved=true when name resolves correctly`, async () => {
             // Use "plebbit.bso" from defaultMockResolverRecords so both RPC server and client resolve it
-            const subplebbitAddress = signers[3].address; // plebbit.bso resolves to signers[3]
+            const communityAddress = signers[3].address; // plebbit.bso resolves to signers[3]
 
             const testPKC = await config.plebbitInstancePromise({
                 plebbitOptions: {
@@ -159,7 +159,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 }
             });
 
-            const sub = await testPKC.createCommunity({ name: "plebbit.bso", publicKey: subplebbitAddress });
+            const sub = await testPKC.createCommunity({ name: "plebbit.bso", publicKey: communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -252,14 +252,14 @@ describe(`publicKey fallback - failure cases without publicKey`, () => {
 describe(`publicKey fallback - .sol community loading`, () => {
     getAvailablePKCConfigsToTestAgainst().map((config) => {
         describe(`loading community with .sol - ${config.name}`, () => {
-            let plebbit: PKC;
+            let pkc: PKC;
 
             beforeAll(async () => {
-                plebbit = await config.plebbitInstancePromise();
+                pkc = await config.plebbitInstancePromise();
             });
 
             afterAll(async () => {
-                await plebbit.destroy();
+                await pkc.destroy();
             });
 
             it(`createCommunity({ address: "mycommunity.sol" }).update() fails (no resolver for .sol)`, async () => {
@@ -296,7 +296,7 @@ describe(`publicKey fallback - .sol community loading`, () => {
             });
 
             it(`createCommunity({ name: "mycommunity.sol", publicKey }) succeeds via publicKey fallback`, async () => {
-                const { communityAddress: subplebbitAddress } = await createMockedCommunityIpns({});
+                const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
 
                 const testPKC = await config.plebbitInstancePromise({
                     mockResolve: false,
@@ -309,7 +309,7 @@ describe(`publicKey fallback - .sol community loading`, () => {
                     }
                 });
 
-                const sub = await testPKC.createCommunity({ name: "mycommunity.sol", publicKey: subplebbitAddress });
+                const sub = await testPKC.createCommunity({ name: "mycommunity.sol", publicKey: communityAddress });
                 await sub.update();
                 await resolveWhenConditionIsTrue({
                     toUpdate: sub,

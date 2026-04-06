@@ -21,17 +21,17 @@ import type { CommunityIpfsType } from "../../../dist/node/community/types.js";
 const log = Logger("pkc-js:test:signatures:community");
 
 // Clients of RPC will trust the response of RPC and won't validate
-describeSkipIfRpc.concurrent("Sign subplebbit", async () => {
-    let plebbit: PKCType;
+describeSkipIfRpc.concurrent("Sign community", async () => {
+    let pkc: PKCType;
     beforeAll(async () => {
-        plebbit = await mockRemotePKC();
+        pkc = await mockRemotePKC();
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
-    it(`Can sign and validate fixture subplebbit correctly`, async () => {
+    it(`Can sign and validate fixture community correctly`, async () => {
         const subFixture = remeda.clone(validCommunityFixture) as CommunityIpfsType;
         const subFixtureClone = remeda.clone(subFixture) as Record<string, unknown>;
         delete subFixtureClone["signature"];
@@ -47,9 +47,9 @@ describeSkipIfRpc.concurrent("Sign subplebbit", async () => {
         expect(signature.signedPropertyNames).to.not.include("address");
         expect(subFixture.signature.signedPropertyNames).to.include("address");
     });
-    it(`Can sign and validate live subplebbit correctly`, async () => {
-        const subplebbit = await plebbit.getCommunity({ address: signers[0].address });
-        const subjsonIpfs = subplebbit.raw.subplebbitIpfs!;
+    it(`Can sign and validate live community correctly`, async () => {
+        const community = await pkc.getCommunity({ address: signers[0].address });
+        const subjsonIpfs = community.raw.subplebbitIpfs!;
         const subplebbitToSign: Record<string, unknown> = {
             ...cleanUpBeforePublishing(subjsonIpfs),
             posts: removeUndefinedValuesRecursively(subjsonIpfs.posts)
@@ -59,13 +59,13 @@ describeSkipIfRpc.concurrent("Sign subplebbit", async () => {
             subplebbit: subplebbitToSign as Omit<CommunityIpfsType, "signature">,
             signer: signers[0]
         });
-        expect(subplebbitToSign.signature).to.deep.equal(subplebbit.signature);
+        expect(subplebbitToSign.signature).to.deep.equal(community.signature);
 
         const verification = await verifyCommunity({
             subplebbit: subplebbitToSign as CommunityIpfsType,
             subplebbitIpnsName: signers[0].address,
-            resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager,
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager,
             validatePages: true,
             cacheIfValid: false
         });
@@ -99,19 +99,19 @@ describeSkipIfRpc.concurrent("Sign subplebbit", async () => {
 });
 
 // Clients of RPC will trust the response of RPC and won't validate
-describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
-    let plebbit: PKCType;
+describeSkipIfRpc.concurrent("Verify community", async () => {
+    let pkc: PKCType;
 
     beforeAll(async () => {
-        plebbit = await mockRemotePKC();
+        pkc = await mockRemotePKC();
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
-    it(`Can validate live subplebbit`, async () => {
-        const loadedCommunity = await plebbit.createCommunity({ address: signers[0].address });
+    it(`Can validate live community`, async () => {
+        const loadedCommunity = await pkc.createCommunity({ address: signers[0].address });
         await loadedCommunity.update();
         await resolveWhenConditionIsTrue({
             toUpdate: loadedCommunity,
@@ -122,21 +122,21 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
             await verifyCommunity({
                 subplebbit: loadedCommunity.raw.subplebbitIpfs!,
                 subplebbitIpnsName: signers[0].address,
-                resolveAuthorNames: plebbit.resolveAuthorNames,
-                clientsManager: plebbit._clientsManager,
+                resolveAuthorNames: pkc.resolveAuthorNames,
+                clientsManager: pkc._clientsManager,
                 validatePages: true,
                 cacheIfValid: false
             })
         ).to.deep.equal({ valid: true });
     });
-    it(`Valid subplebbit fixture is validated correctly`, async () => {
+    it(`Valid community fixture is validated correctly`, async () => {
         const sub = remeda.clone(validCommunityFixture) as CommunityIpfsType;
         expect(
             await verifyCommunity({
                 subplebbit: sub,
                 subplebbitIpnsName: signers[0].address,
-                resolveAuthorNames: plebbit.resolveAuthorNames,
-                clientsManager: plebbit._clientsManager,
+                resolveAuthorNames: pkc.resolveAuthorNames,
+                clientsManager: pkc._clientsManager,
                 validatePages: true,
                 cacheIfValid: false
             })
@@ -150,8 +150,8 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
             await verifyCommunity({
                 subplebbit: sub,
                 subplebbitIpnsName: signers[0].address,
-                resolveAuthorNames: plebbit.resolveAuthorNames,
-                clientsManager: plebbit._clientsManager,
+                resolveAuthorNames: pkc.resolveAuthorNames,
+                clientsManager: pkc._clientsManager,
                 validatePages: true,
                 cacheIfValid: false
             })
@@ -166,8 +166,8 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
             await verifyCommunity({
                 subplebbit: sub,
                 subplebbitIpnsName: signers[0].address,
-                resolveAuthorNames: plebbit.resolveAuthorNames,
-                clientsManager: plebbit._clientsManager,
+                resolveAuthorNames: pkc.resolveAuthorNames,
+                clientsManager: pkc._clientsManager,
                 validatePages: false,
                 cacheIfValid: false
             })
@@ -183,8 +183,8 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
             await verifyCommunity({
                 subplebbit: sub,
                 subplebbitIpnsName: signers[0].address,
-                resolveAuthorNames: plebbit.resolveAuthorNames,
-                clientsManager: plebbit._clientsManager,
+                resolveAuthorNames: pkc.resolveAuthorNames,
+                clientsManager: pkc._clientsManager,
                 validatePages: false,
                 cacheIfValid: false
             })
@@ -200,7 +200,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
                 nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: { "plebbit.eth": signers[4].address } })]
             }
         });
-        const sub = await plebbit.createCommunity({ address: "plebbit.bso" });
+        const sub = await pkc.createCommunity({ address: "plebbit.bso" });
         await sub.update();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
         const verification = await verifyCommunity({
@@ -216,8 +216,8 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
         await tempPKC.destroy();
     });
 
-    it(`subplebbit signature is invalid if subplebbit.posts has an invalid comment signature `, async () => {
-        const loadedCommunity = await plebbit.createCommunity({ address: signers[0].address });
+    it(`community signature is invalid if community.posts has an invalid comment signature `, async () => {
+        const loadedCommunity = await pkc.createCommunity({ address: signers[0].address });
         await loadedCommunity.update();
         await resolveWhenConditionIsTrue({
             toUpdate: loadedCommunity,
@@ -230,8 +230,8 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
             await verifyCommunity({
                 subplebbit: subJson,
                 subplebbitIpnsName: signers[0].address,
-                resolveAuthorNames: plebbit.resolveAuthorNames,
-                clientsManager: plebbit._clientsManager,
+                resolveAuthorNames: pkc.resolveAuthorNames,
+                clientsManager: pkc._clientsManager,
                 validatePages: false
             })
         ).to.deep.equal({
@@ -243,8 +243,8 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
             await verifyCommunity({
                 subplebbit: subJson,
                 subplebbitIpnsName: signers[0].address,
-                resolveAuthorNames: plebbit.resolveAuthorNames,
-                clientsManager: plebbit._clientsManager,
+                resolveAuthorNames: pkc.resolveAuthorNames,
+                clientsManager: pkc._clientsManager,
                 validatePages: false
             })
         ).to.deep.equal({
@@ -253,7 +253,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
         });
     });
 
-    it(`subplebbit signature is valid if subplebbit.posts has a comment.author.address who resolves to an invalid address`, async () => {
+    it(`community signature is valid if community.posts has a comment.author.address who resolves to an invalid address`, async () => {
         // Publish a comment with ENS domain here
 
         const subIpfs = remeda.clone(validCommunityFixture) as CommunityIpfsType; // This json has only one comment with plebbit.eth
@@ -294,7 +294,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
         await tempPKC.destroy();
     });
 
-    it(`A subplebbit record is rejected if it includes a field not in signature.signedPropertyNames`, async () => {
+    it(`A community record is rejected if it includes a field not in signature.signedPropertyNames`, async () => {
         const tempPKC: PKCType = await mockRemotePKC();
 
         // Use new-format fixture (no address) to avoid signature mismatch due to format change
@@ -325,7 +325,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
         await tempPKC.destroy();
     });
 
-    it(`A subplebbit record is accepted if it includes an extra prop as long as it's in signature.signedPropertyNames`, async () => {
+    it(`A community record is accepted if it includes an extra prop as long as it's in signature.signedPropertyNames`, async () => {
         const tempPKC: PKCType = await mockRemotePKC();
 
         const subFixture = remeda.clone(validCommunityFixture) as CommunityIpfsType;
@@ -349,7 +349,7 @@ describeSkipIfRpc.concurrent("Verify subplebbit", async () => {
         await tempPKC.destroy();
     });
 
-    it(`A subplebbit record is rejected if it includes runtime-only nameResolved even when signed`, async () => {
+    it(`A community record is rejected if it includes runtime-only nameResolved even when signed`, async () => {
         const tempPKC: PKCType = await mockRemotePKC();
 
         const subFixture = remeda.clone(newFormatFixture) as CommunityIpfsType;

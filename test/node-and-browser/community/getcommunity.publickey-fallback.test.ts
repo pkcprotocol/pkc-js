@@ -6,7 +6,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
-    describe(`plebbit.getCommunity publicKey fallback - ${config.name}`, () => {
+    describe(`pkc.getCommunity publicKey fallback - ${config.name}`, () => {
         it(`getCommunity({ publicKey }) populates name from IPNS record`, async () => {
             // communityAddress is the B58 IPNS key, not the domain
             const { communityAddress: communityPublicKey } = await createMockedCommunityIpns({ name: "myforum.eth" });
@@ -27,7 +27,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`loads via publicKey when no resolver handles .sol`, async () => {
-            const { communityAddress: subplebbitAddress } = await createMockedCommunityIpns({});
+            const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
 
             const testPKC = await config.plebbitInstancePromise({
                 mockResolve: false,
@@ -41,10 +41,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             try {
-                const sub = await testPKC.getCommunity({ name: "test.sol", publicKey: subplebbitAddress });
+                const sub = await testPKC.getCommunity({ name: "test.sol", publicKey: communityAddress });
 
                 expect(sub.address).to.equal("test.sol");
-                expect(sub.publicKey).to.equal(subplebbitAddress);
+                expect(sub.publicKey).to.equal(communityAddress);
                 expect(sub.updatedAt).to.be.a("number");
                 expect(sub.state).to.equal("stopped");
             } finally {

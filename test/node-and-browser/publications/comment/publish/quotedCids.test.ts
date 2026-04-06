@@ -15,7 +15,7 @@ import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
 
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 const modCommunityAddress = signers[7].address; // this sub has mod roles configured
 
 // A valid CID format that won't exist in the database
@@ -23,29 +23,29 @@ const nonExistentCid = "QmYjtig7VJQ6XsnUjqqJvj7QaMcCAwtrgNdahSiFofrE7o";
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`quotedCids validation - ${config.name}`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
         let post: Comment;
         let reply1: Comment;
         let post2: Comment; // a different post for cross-thread testing
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
             // Create a post
-            post = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+            post = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
             // Create a reply under the post
-            reply1 = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
+            reply1 = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc });
             // Create another post for cross-thread testing
-            post2 = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+            post2 = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         describe("Valid quotedCids scenarios", () => {
             it("Reply with single valid quotedCid succeeds", async () => {
                 const quotedCids = [post.cid!];
-                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, plebbit, false, {
+                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, pkc, false, {
                     signer: signers[1],
                     quotedCids
                 });
@@ -58,13 +58,13 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 // Verify quotedCids exists in CommentIpfs after publishing
                 expect(reply.raw.comment?.quotedCids).to.deep.equal(quotedCids);
                 // Fetch the comment from IPFS and verify quotedCids
-                const fetchedComment = JSON.parse(await plebbit.fetchCid({ cid: reply.cid! }));
+                const fetchedComment = JSON.parse(await pkc.fetchCid({ cid: reply.cid! }));
                 expect(fetchedComment.quotedCids).to.deep.equal(quotedCids);
             });
 
             it("Reply with multiple valid quotedCids succeeds", async () => {
                 const quotedCids = [post.cid!, reply1.cid!];
-                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, plebbit, false, {
+                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, pkc, false, {
                     signer: signers[2],
                     quotedCids
                 });
@@ -76,13 +76,13 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 // Verify quotedCids exists in CommentIpfs after publishing
                 expect(reply.raw.comment?.quotedCids).to.deep.equal(quotedCids);
                 // Fetch the comment from IPFS and verify quotedCids
-                const fetchedComment = JSON.parse(await plebbit.fetchCid({ cid: reply.cid! }));
+                const fetchedComment = JSON.parse(await pkc.fetchCid({ cid: reply.cid! }));
                 expect(fetchedComment.quotedCids).to.deep.equal(quotedCids);
             });
 
             it("Reply quoting the post itself succeeds", async () => {
                 const quotedCids = [post.cid!];
-                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, plebbit, false, {
+                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, pkc, false, {
                     signer: signers[3],
                     quotedCids
                 });
@@ -91,12 +91,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 // Verify quotedCids exists in CommentIpfs after publishing
                 expect(reply.raw.comment?.quotedCids).to.deep.equal(quotedCids);
                 // Fetch the comment from IPFS and verify quotedCids
-                const fetchedComment = JSON.parse(await plebbit.fetchCid({ cid: reply.cid! }));
+                const fetchedComment = JSON.parse(await pkc.fetchCid({ cid: reply.cid! }));
                 expect(fetchedComment.quotedCids).to.deep.equal(quotedCids);
             });
 
             it("Reply without quotedCids succeeds", async () => {
-                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, plebbit, false, {
+                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, pkc, false, {
                     signer: signers[4]
                 });
                 expect(reply.quotedCids).to.be.undefined;
@@ -107,12 +107,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 // Verify quotedCids is undefined in CommentIpfs after publishing
                 expect(reply.raw.comment?.quotedCids).to.be.undefined;
                 // Fetch the comment from IPFS and verify quotedCids is undefined
-                const fetchedComment = JSON.parse(await plebbit.fetchCid({ cid: reply.cid! }));
+                const fetchedComment = JSON.parse(await pkc.fetchCid({ cid: reply.cid! }));
                 expect(fetchedComment.quotedCids).to.be.undefined;
             });
 
             it("Reply with empty quotedCids array succeeds", async () => {
-                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, plebbit, false, {
+                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, pkc, false, {
                     signer: signers[5],
                     quotedCids: []
                 });
@@ -121,7 +121,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 // Empty array should be stored as empty array in CommentIpfs
                 expect(reply.raw.comment?.quotedCids).to.deep.equal([]);
                 // Fetch the comment from IPFS and verify quotedCids is empty array
-                const fetchedComment = JSON.parse(await plebbit.fetchCid({ cid: reply.cid! }));
+                const fetchedComment = JSON.parse(await pkc.fetchCid({ cid: reply.cid! }));
                 expect(fetchedComment.quotedCids).to.deep.equal([]);
             });
         });
@@ -129,8 +129,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         describe("Invalid quotedCids scenarios", () => {
             it("Post with quotedCids is rejected", async () => {
                 const newPost = await generateMockPost({
-                    communityAddress: subplebbitAddress,
-                    plebbit: plebbit,
+                    communityAddress: communityAddress,
+                    plebbit: pkc,
                     postProps: {
                         signer: signers[1]
                     }
@@ -144,7 +144,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it("Reply with non-existent quotedCid is rejected", async () => {
-                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, plebbit, false, {
+                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, pkc, false, {
                     signer: signers[1],
                     quotedCids: [nonExistentCid]
                 });
@@ -157,7 +157,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             it("Reply quoting comment from different post is rejected", async () => {
                 // Try to quote post2 from a reply under post1
-                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, plebbit, false, {
+                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, pkc, false, {
                     signer: signers[1],
                     quotedCids: [post2.cid!]
                 });
@@ -169,7 +169,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it("Reply with duplicate quotedCids is accepted", async () => {
-                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, plebbit, false, {
+                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, pkc, false, {
                     signer: signers[1],
                     quotedCids: [post.cid!, post.cid!]
                 });
@@ -177,7 +177,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it("Reply with one valid and one non-existent quotedCid is rejected", async () => {
-                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, plebbit, false, {
+                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, pkc, false, {
                     signer: signers[1],
                     quotedCids: [post.cid!, nonExistentCid]
                 });
@@ -190,7 +190,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             it("Reply with one valid and one from different post is rejected", async () => {
                 // post.cid is valid (under this post), post2.cid exists but is under a different post
-                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, plebbit, false, {
+                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, pkc, false, {
                     signer: signers[1],
                     quotedCids: [post.cid!, post2.cid!]
                 });
@@ -205,11 +205,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         describe("Edge case quotedCids scenarios", () => {
             it("Reply quoting a sibling reply (same parent) succeeds", async () => {
                 // Create two sibling replies under the same post, then a third that quotes both
-                const sibling1 = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
-                const sibling2 = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
+                const sibling1 = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc });
+                const sibling2 = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc });
 
                 const quotedCids = [sibling1.cid!, sibling2.cid!];
-                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, plebbit, false, {
+                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, pkc, false, {
                     signer: signers[6],
                     quotedCids
                 });
@@ -217,16 +217,16 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 await publishWithExpectedResult({ publication: reply, expectedChallengeSuccess: true });
                 expect(reply.raw.comment?.quotedCids).to.deep.equal(quotedCids);
 
-                const fetchedComment = JSON.parse(await plebbit.fetchCid({ cid: reply.cid! }));
+                const fetchedComment = JSON.parse(await pkc.fetchCid({ cid: reply.cid! }));
                 expect(fetchedComment.quotedCids).to.deep.equal(quotedCids);
             });
 
             it("Reply quoting a deeply nested comment chain succeeds", async () => {
                 // Create a chain: reply1 → reply2 (quotes reply1) → reply3 (quotes both reply1 and reply2)
-                const deepReply1 = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
+                const deepReply1 = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc });
 
                 // reply2 quotes reply1
-                const deepReply2 = await generateMockComment(post as CommentIpfsWithCidDefined, plebbit, false, {
+                const deepReply2 = await generateMockComment(post as CommentIpfsWithCidDefined, pkc, false, {
                     signer: signers[7],
                     quotedCids: [deepReply1.cid!]
                 });
@@ -235,14 +235,14 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
                 // reply3 quotes both reply1 and reply2
                 const quotedCids = [deepReply1.cid!, deepReply2.cid!];
-                const deepReply3 = await generateMockComment(post as CommentIpfsWithCidDefined, plebbit, false, {
+                const deepReply3 = await generateMockComment(post as CommentIpfsWithCidDefined, pkc, false, {
                     signer: signers[8],
                     quotedCids
                 });
                 await publishWithExpectedResult({ publication: deepReply3, expectedChallengeSuccess: true });
                 expect(deepReply3.raw.comment?.quotedCids).to.deep.equal(quotedCids);
 
-                const fetchedComment = JSON.parse(await plebbit.fetchCid({ cid: deepReply3.cid! }));
+                const fetchedComment = JSON.parse(await pkc.fetchCid({ cid: deepReply3.cid! }));
                 expect(fetchedComment.quotedCids).to.deep.equal(quotedCids);
             });
 
@@ -250,12 +250,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 // Create multiple replies and quote all of them
                 const replyPromises = [];
                 for (let i = 0; i < 10; i++) {
-                    replyPromises.push(publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit }));
+                    replyPromises.push(publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc }));
                 }
                 const replies = await Promise.all(replyPromises);
 
                 const quotedCids = replies.map((r) => r.cid!);
-                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, plebbit, false, {
+                const reply = await generateMockComment(post as CommentIpfsWithCidDefined, pkc, false, {
                     signer: signers[9],
                     quotedCids
                 });
@@ -263,7 +263,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 await publishWithExpectedResult({ publication: reply, expectedChallengeSuccess: true });
                 expect(reply.raw.comment?.quotedCids).to.deep.equal(quotedCids);
 
-                const fetchedComment = JSON.parse(await plebbit.fetchCid({ cid: reply.cid! }));
+                const fetchedComment = JSON.parse(await pkc.fetchCid({ cid: reply.cid! }));
                 expect(fetchedComment.quotedCids).to.deep.equal(quotedCids);
             });
         });
@@ -273,21 +273,21 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 // Separate test suite for removed/deleted comment quoting (uses modCommunityAddress which has roles)
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`quotedCids with removed/deleted comments - ${config.name}`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
         let post: Comment;
         let replyToRemove: Comment;
         let replyToDelete: Comment;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
             // Create a post
-            post = await publishRandomPost({ communityAddress: modCommunityAddress, plebbit: plebbit });
+            post = await publishRandomPost({ communityAddress: modCommunityAddress, plebbit: pkc });
             // Create replies that will be removed/deleted
-            replyToRemove = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
-            replyToDelete = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
+            replyToRemove = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc });
+            replyToDelete = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc });
 
             // Remove the first reply (mod action)
-            const removeModeration = await plebbit.createCommentModeration({
+            const removeModeration = await pkc.createCommentModeration({
                 communityAddress: modCommunityAddress,
                 commentCid: replyToRemove.cid,
                 commentModeration: { removed: true, reason: "For quotedCids test" },
@@ -296,7 +296,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({ publication: removeModeration, expectedChallengeSuccess: true });
 
             // Delete the second reply (author action)
-            const deleteEdit = await plebbit.createCommentEdit({
+            const deleteEdit = await pkc.createCommentEdit({
                 communityAddress: modCommunityAddress,
                 commentCid: replyToDelete.cid,
                 deleted: true,
@@ -321,13 +321,13 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         afterAll(async () => {
             await replyToRemove.stop();
             await replyToDelete.stop();
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it("Reply quoting a removed comment succeeds", async () => {
             expect(replyToRemove.removed).to.be.true;
             const quotedCids = [replyToRemove.cid!];
-            const reply = await generateMockComment(post as CommentIpfsWithCidDefined, plebbit, false, {
+            const reply = await generateMockComment(post as CommentIpfsWithCidDefined, pkc, false, {
                 signer: signers[1],
                 quotedCids
             });
@@ -339,7 +339,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it("Reply quoting a deleted comment succeeds", async () => {
             expect(replyToDelete.deleted).to.be.true;
             const quotedCids = [replyToDelete.cid!];
-            const reply = await generateMockComment(post as CommentIpfsWithCidDefined, plebbit, false, {
+            const reply = await generateMockComment(post as CommentIpfsWithCidDefined, pkc, false, {
                 signer: signers[2],
                 quotedCids
             });
@@ -352,7 +352,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(replyToRemove.removed).to.be.true;
             expect(replyToDelete.deleted).to.be.true;
             const quotedCids = [replyToRemove.cid!, replyToDelete.cid!];
-            const reply = await generateMockComment(post as CommentIpfsWithCidDefined, plebbit, false, {
+            const reply = await generateMockComment(post as CommentIpfsWithCidDefined, pkc, false, {
                 signer: signers[4],
                 quotedCids
             });

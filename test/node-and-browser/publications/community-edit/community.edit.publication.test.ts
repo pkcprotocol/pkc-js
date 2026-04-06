@@ -9,56 +9,54 @@ import * as remeda from "remeda";
 import { describe, it, beforeAll, afterAll } from "vitest";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 
-// Type for challenge request event with subplebbit edit
+// Type for challenge request event with community edit
 type ChallengeRequestWithCommunityEdit = {
     subplebbitEdit: Record<string, unknown>;
 };
 
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 const roles = [
     { role: "owner", signer: signers[1] },
     { role: "admin", signer: signers[2] },
     { role: "mod", signer: signers[3] }
 ];
 getAvailablePKCConfigsToTestAgainst().map((config) => {
-    describe(`plebbit.createCommunityEdit - ${config.name}`, async () => {
-        let plebbit: PKC;
+    describe(`pkc.createCommunityEdit - ${config.name}`, async () => {
+        let pkc: PKC;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
-        it(`Can parse edit args with no problems in plebbit.createCommunityEdit`, async () => {
+        it(`Can parse edit args with no problems in pkc.createCommunityEdit`, async () => {
             const description = "New description" + Math.random();
-            const signer = await plebbit.createSigner();
-            const subplebbitEdit = await plebbit.createCommunityEdit({
+            const signer = await pkc.createSigner();
+            const subplebbitEdit = await pkc.createCommunityEdit({
                 subplebbitEdit: { description },
-                communityAddress: subplebbitAddress,
+                communityAddress: communityAddress,
                 signer
             });
 
             expect(subplebbitEdit.subplebbitEdit.description).to.equal(description);
-            expect(subplebbitEdit.communityAddress).to.equal(subplebbitAddress);
+            expect(subplebbitEdit.communityAddress).to.equal(communityAddress);
             expect(subplebbitEdit.author.address).to.equal(signer.address);
             expect(subplebbitEdit.raw.pubsubMessageToPublish).to.exist;
             expect(subplebbitEdit.toJSONPubsubRequestToEncrypt().subplebbitEdit).to.deep.equal(subplebbitEdit.raw.pubsubMessageToPublish);
         });
 
-        it(`(subplebbitEdit: CommunityEdit) === plebbit.createCommunityEdit(JSON.parse(JSON.stringify(subplebbitEdit)))`, async () => {
+        it(`(subplebbitEdit: CommunityEdit) === pkc.createCommunityEdit(JSON.parse(JSON.stringify(subplebbitEdit)))`, async () => {
             const description = "New description" + Math.random();
-            const signer = await plebbit.createSigner();
-            const subplebbitEdit = await plebbit.createCommunityEdit({
+            const signer = await pkc.createSigner();
+            const subplebbitEdit = await pkc.createCommunityEdit({
                 subplebbitEdit: { description },
-                communityAddress: subplebbitAddress,
+                communityAddress: communityAddress,
                 signer
             });
-            const subplebbitEditFromStringifiedCommunityEdit = await plebbit.createCommunityEdit(
-                JSON.parse(JSON.stringify(subplebbitEdit))
-            );
+            const subplebbitEditFromStringifiedCommunityEdit = await pkc.createCommunityEdit(JSON.parse(JSON.stringify(subplebbitEdit)));
             const jsonPropsToOmit = ["clients"];
 
             const subplebbitEditJson = remeda.omit(JSON.parse(JSON.stringify(subplebbitEdit)), jsonPropsToOmit) as Record<string, unknown>;
@@ -72,15 +70,13 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`Can publish a CommunityEdit that was created from jsonfied CommunityEdit instance`, async () => {
             const description = "New description" + Math.random();
-            const ownerSigner = await plebbit.createSigner(roles[0].signer);
-            const subplebbitEdit = await plebbit.createCommunityEdit({
+            const ownerSigner = await pkc.createSigner(roles[0].signer);
+            const subplebbitEdit = await pkc.createCommunityEdit({
                 subplebbitEdit: { description },
-                communityAddress: subplebbitAddress,
+                communityAddress: communityAddress,
                 signer: ownerSigner
             });
-            const subplebbitEditFromStringifiedCommunityEdit = await plebbit.createCommunityEdit(
-                JSON.parse(JSON.stringify(subplebbitEdit))
-            );
+            const subplebbitEditFromStringifiedCommunityEdit = await pkc.createCommunityEdit(JSON.parse(JSON.stringify(subplebbitEdit)));
             expect(subplebbitEdit.signer.address).to.equal(subplebbitEditFromStringifiedCommunityEdit.signer.address);
             const challengeRequestPromise = new Promise<ChallengeRequestWithCommunityEdit>((resolve) =>
                 subplebbitEditFromStringifiedCommunityEdit.once("challengerequest", resolve as (req: unknown) => void)
@@ -93,22 +89,22 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
     });
 
-    describe(`Editing a subplebbit remotely as a non admin/owner - ${config.name}`, async () => {
-        let plebbit: PKC;
+    describe(`Editing a community remotely as a non admin/owner - ${config.name}`, async () => {
+        let pkc: PKC;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`A moderator publishing a CommunityEdit should fail`, async () => {
-            const signer = await plebbit.createSigner(roles[2].signer);
-            const subplebbitEdit = await plebbit.createCommunityEdit({
+            const signer = await pkc.createSigner(roles[2].signer);
+            const subplebbitEdit = await pkc.createCommunityEdit({
                 subplebbitEdit: { description: "Test desc from " + Math.random() },
-                communityAddress: subplebbitAddress,
+                communityAddress: communityAddress,
                 signer
             });
             await publishWithExpectedResult({
@@ -119,10 +115,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`A random author publishing a CommunityEdit should fail`, async () => {
-            const signer = await plebbit.createSigner();
-            const subplebbitEdit = await plebbit.createCommunityEdit({
+            const signer = await pkc.createSigner();
+            const subplebbitEdit = await pkc.createCommunityEdit({
                 subplebbitEdit: { description: "Test 12" + Math.random() },
-                communityAddress: subplebbitAddress,
+                communityAddress: communityAddress,
                 signer
             });
             await publishWithExpectedResult({
@@ -134,25 +130,25 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     });
 
     describe(`Editing a sub remotely as a admin - ${config.name}`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
 
         let editProps: Record<string, unknown>;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`Admin should not be able to publish CommunityEdit with edit.roles`, async () => {
-            const adminSigner = await plebbit.createSigner(roles[1].signer);
-            const authorAddress = (await plebbit.createSigner()).address;
+            const adminSigner = await pkc.createSigner(roles[1].signer);
+            const authorAddress = (await pkc.createSigner()).address;
             editProps = { description: "Test" + Math.random(), roles: { [authorAddress]: { role: "admin" } } };
-            const subplebbitEdit = await plebbit.createCommunityEdit({
+            const subplebbitEdit = await pkc.createCommunityEdit({
                 subplebbitEdit: editProps,
-                communityAddress: subplebbitAddress,
+                communityAddress: communityAddress,
                 signer: adminSigner
             });
             await publishWithExpectedResult({
@@ -163,11 +159,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Admin should not be able to publish CommunityEdit with edit.address`, async () => {
-            const adminSigner = await plebbit.createSigner(roles[1].signer);
+            const adminSigner = await pkc.createSigner(roles[1].signer);
             editProps = { description: "Test" + Math.random(), address: "newaddress.eth" };
-            const subplebbitEdit = await plebbit.createCommunityEdit({
+            const subplebbitEdit = await pkc.createCommunityEdit({
                 subplebbitEdit: editProps,
-                communityAddress: subplebbitAddress,
+                communityAddress: communityAddress,
                 signer: adminSigner
             });
             await publishWithExpectedResult({
@@ -178,11 +174,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Admin should not be able to modify settings`, async () => {
-            const adminSigner = await plebbit.createSigner(roles[1].signer);
+            const adminSigner = await pkc.createSigner(roles[1].signer);
             const editProps = { description: "Test" + Math.random(), settings: { fetchThumbnailUrls: true } };
-            const subplebbitEdit = await plebbit.createCommunityEdit({
+            const subplebbitEdit = await pkc.createCommunityEdit({
                 subplebbitEdit: editProps,
-                communityAddress: subplebbitAddress,
+                communityAddress: communityAddress,
                 signer: adminSigner
             });
             await publishWithExpectedResult({
@@ -192,19 +188,19 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
         });
 
-        it(`Admin should be able to modify subplebbit props via CommunityEdit`, async () => {
-            const adminSigner = await plebbit.createSigner(roles[1].signer);
+        it(`Admin should be able to modify community props via CommunityEdit`, async () => {
+            const adminSigner = await pkc.createSigner(roles[1].signer);
             editProps = { description: "Test" + Math.random() };
-            const subplebbitEdit = await plebbit.createCommunityEdit({
+            const subplebbitEdit = await pkc.createCommunityEdit({
                 subplebbitEdit: editProps,
-                communityAddress: subplebbitAddress,
+                communityAddress: communityAddress,
                 signer: adminSigner
             });
             await publishWithExpectedResult({ publication: subplebbitEdit, expectedChallengeSuccess: true });
         });
 
         it(`Community should publish an update after the admin edits one of its props`, async () => {
-            const sub = await plebbit.createCommunity({ address: subplebbitAddress });
+            const sub = await pkc.createCommunity({ address: communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => sub.description === editProps.description });
             await sub.stop();
@@ -215,47 +211,47 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     });
 
     describe(`Editing a sub remotely as an owner - ${config.name}`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
 
         let newRoleAddress: string;
         let editProps: Record<string, unknown> = {};
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`sub owner should be able to modify address`, async () => {
-            const ownerSigner = await plebbit.createSigner(roles[0].signer);
-            const sub = await plebbit.getCommunity({ address: subplebbitAddress });
-            const subplebbitEdit = await plebbit.createCommunityEdit({
+            const ownerSigner = await pkc.createSigner(roles[0].signer);
+            const sub = await pkc.getCommunity({ address: communityAddress });
+            const subplebbitEdit = await pkc.createCommunityEdit({
                 subplebbitEdit: { address: sub.address }, // we're not changing the address because it's a sub used by other tests as well. But if the test pass it means {address} was passed over to sub.edit which is enough for our testing
-                communityAddress: subplebbitAddress,
+                communityAddress: communityAddress,
                 signer: ownerSigner
             });
             await publishWithExpectedResult({ publication: subplebbitEdit, expectedChallengeSuccess: true });
         });
         it(`Sub owner should be able to modify roles`, async () => {
-            const ownerSigner = await plebbit.createSigner(roles[0].signer);
-            newRoleAddress = (await plebbit.createSigner()).address;
+            const ownerSigner = await pkc.createSigner(roles[0].signer);
+            newRoleAddress = (await pkc.createSigner()).address;
             editProps = { ...editProps, description: "Test" + Math.random(), roles: { [newRoleAddress]: { role: "admin" } } };
-            const subplebbitEdit = await plebbit.createCommunityEdit({
+            const subplebbitEdit = await pkc.createCommunityEdit({
                 subplebbitEdit: editProps,
-                communityAddress: subplebbitAddress,
+                communityAddress: communityAddress,
                 signer: ownerSigner
             });
             await publishWithExpectedResult({ publication: subplebbitEdit, expectedChallengeSuccess: true });
         });
 
         it(`Owner should not be able to modify settings`, async () => {
-            const modSigner = await plebbit.createSigner(roles[0].signer);
+            const modSigner = await pkc.createSigner(roles[0].signer);
             const editProps = { description: "Test" + Math.random(), settings: { fetchThumbnailUrls: true } };
-            const subplebbitEdit = await plebbit.createCommunityEdit({
+            const subplebbitEdit = await pkc.createCommunityEdit({
                 subplebbitEdit: editProps,
-                communityAddress: subplebbitAddress,
+                communityAddress: communityAddress,
                 signer: modSigner
             });
             await publishWithExpectedResult({
@@ -266,7 +262,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Community should publish an update after the owner edits one of its props`, async () => {
-            const sub = await plebbit.createCommunity({ address: subplebbitAddress });
+            const sub = await pkc.createCommunity({ address: communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => sub.description === editProps.description });
             await sub.stop();

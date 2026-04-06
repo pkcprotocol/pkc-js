@@ -254,7 +254,7 @@ if (!plebbitConfigs && !isNodeEnvironment) {
 
 if (plebbitConfigs) {
     env.PLEBBIT_CONFIGS = plebbitConfigs;
-    if (plebbitConfigs.includes("remote-plebbit-rpc")) {
+    if (plebbitConfigs.includes("remote-pkc-rpc")) {
         env.USE_RPC = "1";
     }
 } else {

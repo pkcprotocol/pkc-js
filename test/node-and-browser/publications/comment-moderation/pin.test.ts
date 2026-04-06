@@ -19,21 +19,21 @@ import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { RemoteCommunity } from "../../../../dist/node/community/remote-community.js";
 
-const subplebbitAddress = "plebbit.bso";
+const communityAddress = "plebbit.bso";
 const roles = [
     { role: "owner", signer: signers[1] },
     { role: "admin", signer: signers[2] },
     { role: "mod", signer: signers[3] }
 ];
 
-const removeAllPins = async (allComments: CommentWithinRepliesPostsPageJson[], plebbit: PKC) => {
+const removeAllPins = async (allComments: CommentWithinRepliesPostsPageJson[], pkc: PKC) => {
     // We need to remove all pins from previous tests session so it wouldn't interfere with the results of this test
     await Promise.all(
         allComments
             .filter((comment: CommentWithinRepliesPostsPageJson) => comment.pinned)
             .map(async (comment: CommentWithinRepliesPostsPageJson) =>
                 publishWithExpectedResult({
-                    publication: await plebbit.createCommentModeration({
+                    publication: await pkc.createCommentModeration({
                         communityAddress: comment.communityAddress,
                         commentCid: comment.cid,
                         commentModeration: { pinned: false },
@@ -47,36 +47,36 @@ const removeAllPins = async (allComments: CommentWithinRepliesPostsPageJson[], p
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.sequential(`Pinning posts - ${config.name}`, async () => {
-        let plebbit: PKC, postToPin: Comment, secondPostToPin: Comment, sub: RemoteCommunity;
+        let pkc: PKC, postToPin: Comment, secondPostToPin: Comment, sub: RemoteCommunity;
 
-        const populateSub = async (subplebbit: RemoteCommunity) => {
-            const subplebbitPage = subplebbit.posts.pageCids.new
-                ? await subplebbit.posts.getPage({ cid: subplebbit.posts.pageCids.new })
-                : subplebbit.posts.pages.hot;
-            if (!subplebbitPage || subplebbitPage.comments.length < 10) {
+        const populateSub = async (community: RemoteCommunity) => {
+            const communityPage = community.posts.pageCids.new
+                ? await community.posts.getPage({ cid: community.posts.pageCids.new })
+                : community.posts.pages.hot;
+            if (!communityPage || communityPage.comments.length < 10) {
                 await Promise.all(
                     new Array(5).fill(null).map(async (_x) => {
-                        const post = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
-                        await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, subplebbit);
+                        const post = await publishRandomPost({ communityAddress: community.address, plebbit: pkc });
+                        await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, community);
                         return post;
                     })
                 );
             }
         };
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
-            sub = await plebbit.getCommunity({ address: subplebbitAddress });
+            pkc = await config.plebbitInstancePromise();
+            sub = await pkc.getCommunity({ address: communityAddress });
             await populateSub(sub);
             await sub.update();
 
             postToPin = await publishRandomPost({
-                communityAddress: subplebbitAddress,
-                plebbit: plebbit,
+                communityAddress: communityAddress,
+                plebbit: pkc,
                 postProps: { timestamp: Math.round(Date.now() / 1000) - 110 }
             });
             secondPostToPin = await publishRandomPost({
-                communityAddress: subplebbitAddress,
-                plebbit: plebbit,
+                communityAddress: communityAddress,
+                plebbit: pkc,
                 postProps: { timestamp: Math.round(Date.now() / 1000) - 100 }
             });
 
@@ -85,7 +85,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await waitTillPostInCommunityInstancePages(secondPostToPin as Comment & { cid: string }, sub);
             const firstPage = sub.posts.pageCids.new ? await sub.posts.getPage({ cid: sub.posts.pageCids.new }) : sub.posts.pages.hot;
             const posts = firstPage.comments;
-            await removeAllPins(posts, plebbit);
+            await removeAllPins(posts, pkc);
             // wait until all posts are unpinned
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -100,11 +100,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`Author can't pin their own post`, async () => {
-            const pinEdit = await plebbit.createCommentModeration({
+            const pinEdit = await pkc.createCommentModeration({
                 communityAddress: postToPin.communityAddress,
                 commentCid: postToPin.cid,
                 commentModeration: { reason: "To pin a post", pinned: true },
@@ -117,11 +117,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
         });
         it(`Regular author can't pin another author comment`, async () => {
-            const pinEdit = await plebbit.createCommentModeration({
+            const pinEdit = await pkc.createCommentModeration({
                 communityAddress: postToPin.communityAddress,
                 commentCid: postToPin.cid,
                 commentModeration: { reason: "To pin a post", pinned: true },
-                signer: await plebbit.createSigner()
+                signer: await pkc.createSigner()
             });
             await publishWithExpectedResult({
                 publication: pinEdit,
@@ -131,7 +131,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Mod can pin a post`, async () => {
-            const pinEdit = await plebbit.createCommentModeration({
+            const pinEdit = await pkc.createCommentModeration({
                 communityAddress: postToPin.communityAddress,
                 commentCid: postToPin.cid,
                 commentModeration: { reason: "To pin a post", pinned: true },
@@ -148,8 +148,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(postToPin.raw.commentUpdate.reason).to.equal("To pin a post");
         });
 
-        it.sequential(`pinned=true appears in pages of subplebbit`, async () => {
-            const sub = await plebbit.createCommunity({ address: postToPin.communityAddress });
+        it.sequential(`pinned=true appears in pages of community`, async () => {
+            const sub = await pkc.createCommunity({ address: postToPin.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -162,8 +162,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(commentInPage.pinned).to.be.true;
             await sub.stop();
         });
-        it(`A pinned post is on the top of every page in subplebbit.posts`, async () => {
-            const sub = await plebbit.createCommunity({ address: subplebbitAddress });
+        it(`A pinned post is on the top of every page in community.posts`, async () => {
+            const sub = await pkc.createCommunity({ address: communityAddress });
             await sub.update();
 
             await resolveWhenConditionIsTrue({
@@ -188,7 +188,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Mod can pin another post`, async () => {
-            const pinEdit = await plebbit.createCommentModeration({
+            const pinEdit = await pkc.createCommentModeration({
                 communityAddress: secondPostToPin.communityAddress,
                 commentCid: secondPostToPin.cid,
                 commentModeration: { reason: "To pin the second post", pinned: true },
@@ -199,7 +199,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it(`Pinned posts are sorted according to the page sort they're in`, async () => {
             // We're gonna test whether posts.new has pinned posts on top
             // 'postToPin' should be the first on the list, since it's pinned and has a higher timestamp
-            const sub = await plebbit.createCommunity({ address: subplebbitAddress });
+            const sub = await pkc.createCommunity({ address: communityAddress });
             await sub.update();
 
             await resolveWhenConditionIsTrue({
@@ -236,7 +236,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Mod can unpin a post`, async () => {
-            const pinEdit = await plebbit.createCommentModeration({
+            const pinEdit = await pkc.createCommentModeration({
                 communityAddress: secondPostToPin.communityAddress,
                 commentCid: secondPostToPin.cid,
                 commentModeration: { reason: "To unpin the second post", pinned: false },
@@ -253,8 +253,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(secondPostToPin.raw.commentUpdate.reason).to.equal("To unpin the second post");
         });
 
-        it.sequential(`pinned=true appears in pages of subplebbit`, async () => {
-            const sub = await plebbit.createCommunity({ address: secondPostToPin.communityAddress });
+        it.sequential(`pinned=true appears in pages of community`, async () => {
+            const sub = await pkc.createCommunity({ address: secondPostToPin.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -268,7 +268,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await sub.stop();
         });
         it(`Unpinned posts is sorted like regular posts`, async () => {
-            const sub = await plebbit.createCommunity({ address: subplebbitAddress });
+            const sub = await pkc.createCommunity({ address: communityAddress });
             await sub.update();
 
             await resolveWhenConditionIsTrue({
@@ -315,40 +315,40 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     });
 
     describe(`Pinning replies - ${config.name}`, async () => {
-        let plebbit: PKC, post: Comment, replyToPin: Comment, sub: RemoteCommunity;
+        let pkc: PKC, post: Comment, replyToPin: Comment, sub: RemoteCommunity;
 
         const populatePost = async () => {
             if (post.replyCount < 5) {
                 await Promise.all(
                     new Array(10)
                         .fill(null)
-                        .map((_x) => publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit }))
+                        .map((_x) => publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc }))
                 );
                 await resolveWhenConditionIsTrue({ toUpdate: post, predicate: async () => post.replyCount > 5 });
             }
         };
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
-            sub = await plebbit.getCommunity({ address: subplebbitAddress });
+            pkc = await config.plebbitInstancePromise();
+            sub = await pkc.getCommunity({ address: communityAddress });
 
             const allPosts = sub.posts.pageCids.new ? await loadAllPages(sub.posts.pageCids.new, sub.posts) : sub.posts.pages.hot.comments;
-            post = await plebbit.createComment(remeda.maxBy(allPosts, (c) => c.replyCount));
+            post = await pkc.createComment(remeda.maxBy(allPosts, (c) => c.replyCount));
             await post.update();
             await populatePost();
             expect(post.replyCount).to.be.greaterThan(5); // Arbitary number
-            replyToPin = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
+            replyToPin = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc });
             await removeAllPins(
                 post.replies.pageCids.best
                     ? await loadAllPages(post.replies.pageCids.best, post.replies)
                     : post.replies.pages.best.comments,
-                plebbit
+                pkc
             );
         });
 
-        afterAll(async () => await plebbit.destroy());
+        afterAll(async () => await pkc.destroy());
 
         it(`Mod can pin reply`, async () => {
-            const pinEdit = await plebbit.createCommentModeration({
+            const pinEdit = await pkc.createCommentModeration({
                 communityAddress: replyToPin.communityAddress,
                 commentCid: replyToPin.cid,
                 commentModeration: { reason: "To pin the reply", pinned: true },
@@ -359,7 +359,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`A pinned reply is on the top of every page in parentComment.replies`, async () => {
             // Seems like all pages don't get updated at the same time, so will wait until all pages include the pinned post
-            const postToRecreate = await plebbit.createComment({ cid: post.cid });
+            const postToRecreate = await pkc.createComment({ cid: post.cid });
 
             await postToRecreate.update();
 

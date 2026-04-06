@@ -16,12 +16,12 @@ type CommentClientsManagerWithInternals = {
     _parentFirstPageCidsAlreadyLoaded: Set<string>;
 };
 
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 
 // Helper function to clean up state arrays by removing:
 // 1. All "waiting-retry" entries
-// 2. Adjacent duplicate entries (e.g., ["fetching-subplebbit-ipns", "fetching-subplebbit-ipns"] -> ["fetching-subplebbit-ipns"])
-// 3. Repeating pairs of ["fetching-subplebbit-ipns", "fetching-subplebbit-ipfs"]
+// 2. Adjacent duplicate entries (e.g., ["fetching-community-ipns", "fetching-community-ipns"] -> ["fetching-community-ipns"])
+// 3. Repeating pairs of ["fetching-community-ipns", "fetching-community-ipfs"]
 const cleanupStateArray = (states: string[]): string[] => {
     const filteredStates = [...states];
 
@@ -41,9 +41,9 @@ const cleanupStateArray = (states: string[]): string[] => {
         }
     }
 
-    // Remove repeating ["fetching-subplebbit-ipns", "fetching-subplebbit-ipfs"] pairs
-    const patternA = "fetching-subplebbit-ipns";
-    const patternB = "fetching-subplebbit-ipfs";
+    // Remove repeating ["fetching-community-ipns", "fetching-community-ipfs"] pairs
+    const patternA = "fetching-community-ipns";
+    const patternB = "fetching-community-ipfs";
     for (let i = 0; i <= filteredStates.length - 4; i++) {
         if (
             filteredStates[i] === patternA &&
@@ -56,7 +56,7 @@ const cleanupStateArray = (states: string[]): string[] => {
         }
     }
 
-    // Remove repeating ["fetching-subplebbit-ipns", "fetching-subplebbit-ipfs", "fetching-update-ipfs", "succeeded"] sequences
+    // Remove repeating ["fetching-community-ipns", "fetching-community-ipfs", "fetching-update-ipfs", "succeeded"] sequences
     const patternC = "fetching-update-ipfs";
     const patternD = "succeeded";
     for (let i = 0; i <= filteredStates.length - 8; i++) {
@@ -76,7 +76,7 @@ const cleanupStateArray = (states: string[]): string[] => {
         }
     }
 
-    // Remove ["fetching-subplebbit-ipns", "fetching-subplebbit-ipfs", "fetching-update-ipfs", "failed"] pattern
+    // Remove ["fetching-community-ipns", "fetching-community-ipfs", "fetching-update-ipfs", "failed"] pattern
     const patternE = "failed";
     for (let i = 0; i <= filteredStates.length - 4; i++) {
         if (
@@ -98,7 +98,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         let replyCid: string;
         beforeAll(async () => {
             const tempPKC = await config.plebbitInstancePromise();
-            const sub = await tempPKC.getCommunity({ address: subplebbitAddress });
+            const sub = await tempPKC.getCommunity({ address: communityAddress });
             const post = await publishRandomPost({ communityAddress: sub.address, plebbit: tempPKC });
             const reply = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: tempPKC });
             replyCid = reply.cid;
@@ -106,9 +106,9 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it.sequential(`Updating states is in correct upon updating a reply that's included in preloaded pages of its parent`, async () => {
-            const plebbit = await config.plebbitInstancePromise();
+            const pkc = await config.plebbitInstancePromise();
             try {
-                const sub = await plebbit.getCommunity({ address: subplebbitAddress });
+                const sub = await pkc.getCommunity({ address: communityAddress });
                 // we don't want domain name in author addrses so its resolving doesn't get included in expected states
                 const postWithMostReplies = sub.posts.pages.hot.comments.reduce((current, post) => {
                     if (!post.replies) {
@@ -123,12 +123,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     (reply) => !reply.author.address.includes(".")
                 )?.cid;
                 expect(preloadedReplyCid).to.be.a("string");
-                const mockReply = await plebbit.createComment({ cid: preloadedReplyCid });
+                const mockReply = await pkc.createComment({ cid: preloadedReplyCid });
                 const expectedStates = [
                     "fetching-ipfs", // fetching comment ipfs of reply
                     "succeeded", // succeeded loading comment ipfs of reply
-                    "fetching-subplebbit-ipns",
-                    "fetching-subplebbit-ipfs", // found CommentUpdate of reply here
+                    "fetching-community-ipns",
+                    "fetching-community-ipfs", // found CommentUpdate of reply here
                     "succeeded",
                     "stopped"
                 ];
@@ -138,7 +138,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 await mockReply.update();
 
                 await resolveWhenConditionIsTrue({ toUpdate: mockReply, predicate: async () => typeof mockReply.updatedAt === "number" });
-                const updatingMockReply = plebbit._updatingComments[mockReply.cid];
+                const updatingMockReply = pkc._updatingComments[mockReply.cid];
                 const clientsManager = updatingMockReply._clientsManager as unknown as CommentClientsManagerWithInternals;
                 expect(clientsManager._parentFirstPageCidsAlreadyLoaded.size).to.equal(0);
                 await mockReply.stop();
@@ -151,17 +151,17 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     "recorded states: " + recordedStates.join(", ") + "Author is " + JSON.stringify(mockReply.author)
                 );
             } finally {
-                await plebbit.destroy();
+                await pkc.destroy();
             }
         });
         it(`updating state of reply is set to failed if sub has an invalid Community record`, async () => {
-            const plebbit = await config.plebbitInstancePromise();
+            const pkc = await config.plebbitInstancePromise();
             try {
                 const { commentCid: mockedReplyCid, communityAddress: subAddress } = await createStaticCommunityRecordForComment({
                     invalidateCommunitySignature: true
                 });
 
-                const mockReply = await plebbit.createComment({ cid: mockedReplyCid, communityAddress: subAddress });
+                const mockReply = await pkc.createComment({ cid: mockedReplyCid, communityAddress: subAddress });
 
                 const recordedStates: string[] = [];
                 mockReply.on("updatingstatechange", () => recordedStates.push(mockReply.updatingState));
@@ -181,8 +181,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 const expectedUpdateStates = [
                     "fetching-ipfs", // fetching comment ipfs of reply
                     "succeeded", // succeeded loading comment ipfs of reply
-                    "fetching-subplebbit-ipns", // fetching subplebbit ipns
-                    "fetching-subplebbit-ipfs", // fetching subplebbit ipfs
+                    "fetching-community-ipns", // fetching subplebbit ipns
+                    "fetching-community-ipfs", // fetching subplebbit ipfs
                     "failed", // subplebbit ipfs record is invalid
                     "stopped" // called post.stop()
                 ];
@@ -190,7 +190,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 const filteredRecordedStates = cleanupStateArray(recordedStates);
                 expect(filteredRecordedStates).to.deep.equal(filteredExpectedStates);
             } finally {
-                await plebbit.destroy();
+                await pkc.destroy();
             }
         });
     });
@@ -199,17 +199,17 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
     describe.concurrent(`reply.updatingState - ${config.name}`, async () => {
         it(`updating state of reply is in correct order upon updating a reply that's included in preloaded pages of its parent`, async () => {
-            const plebbit = await config.plebbitInstancePromise();
+            const pkc = await config.plebbitInstancePromise();
             try {
-                const sub = await plebbit.getCommunity({ address: subplebbitAddress });
+                const sub = await pkc.getCommunity({ address: communityAddress });
                 // we don't want domain name in author addrses so its resolving doesn't get included in expected states
                 const replyCid = sub.posts.pages.hot.comments.find((post) => post.replies && !post.author.address.includes(".")).replies
                     .pages.best.comments[0].cid;
-                const mockReply = await plebbit.createComment({ cid: replyCid });
+                const mockReply = await pkc.createComment({ cid: replyCid });
                 const expectedStates = [
                     "fetching-ipfs", // fetching comment ipfs of reply
                     "succeeded", // succeeded loading comment ipfs of reply
-                    "fetching-subplebbit-ipns", // found CommentUpdate of reply here
+                    "fetching-community-ipns", // found CommentUpdate of reply here
                     "succeeded",
                     "stopped"
                 ];
@@ -226,22 +226,22 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 const filteredRecordedStates = cleanupStateArray(recordedStates);
                 expect(filteredRecordedStates).to.deep.equal(filteredExpectedStates);
             } finally {
-                await plebbit.destroy();
+                await pkc.destroy();
             }
         });
 
         it(`updating state of reply is set to failed if sub has an invalid Community record`, async () => {
-            const plebbit = await config.plebbitInstancePromise();
+            const pkc = await config.plebbitInstancePromise();
             try {
                 const { commentCid: mockedReplyCid, communityAddress: subAddress } = await createStaticCommunityRecordForComment({
-                    plebbit,
+                    plebbit: pkc,
                     invalidateCommunitySignature: true,
                     commentOptions: {
                         content: `Mock reply content - ${Date.now()}`
                     }
                 });
 
-                const mockReply = await plebbit.createComment({ cid: mockedReplyCid, communityAddress: subAddress });
+                const mockReply = await pkc.createComment({ cid: mockedReplyCid, communityAddress: subAddress });
                 const recordedStates: string[] = [];
                 mockReply.on("updatingstatechange", () => recordedStates.push(mockReply.updatingState));
 
@@ -265,7 +265,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 const expectedUpdateStates = [
                     "fetching-ipfs", // fetching comment ipfs of reply
                     "succeeded", // succeeded loading comment ipfs of reply
-                    "fetching-subplebbit-ipns", // fetching subplebbit ipns from gateway
+                    "fetching-community-ipns", // fetching subplebbit ipns from gateway
                     "failed", // subplebbit ipfs record is invalid
                     "stopped" // called post.stop()
                 ];
@@ -273,7 +273,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 const filteredRecordedStates = cleanupStateArray(recordedStates);
                 expect(filteredRecordedStates).to.deep.equal(filteredExpectedStates);
             } finally {
-                await plebbit.destroy();
+                await pkc.destroy();
             }
         });
     });
@@ -281,20 +281,20 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describeSkipIfRpc.concurrent(`reply.updatingState - ${config.name}`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`the order of state-event-statechange is correct when we get a new update from reply`, async () => {
-            const sub = await plebbit.getCommunity({ address: subplebbitAddress });
+            const sub = await pkc.getCommunity({ address: communityAddress });
             const replyCid = sub.posts.pages.hot.comments.find((post: { replies?: unknown }) => post.replies).replies.pages.best.comments[0]
                 .cid;
-            const mockReply = await plebbit.createComment({ cid: replyCid });
+            const mockReply = await pkc.createComment({ cid: replyCid });
             expect(mockReply.updatedAt).to.be.undefined;
             const recordedStates: string[] = [];
             mockReply.on("updatingstatechange", (newState: string) => recordedStates.push(newState));

@@ -11,7 +11,7 @@ import {
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 
 const clientsFieldName: Record<string, string> = {
     "remote-kubo-rpc": "kuboRpcClients",
@@ -20,26 +20,26 @@ const clientsFieldName: Record<string, string> = {
 
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
     const clientFieldName = clientsFieldName[config.testConfigCode];
-    describe(`subplebbit.clients.${clientFieldName} - ${config.name}`, async () => {
-        let plebbit: PKCType;
+    describe(`community.clients.${clientFieldName} - ${config.name}`, async () => {
+        let pkc: PKCType;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
-        it(`subplebbit.clients.${clientFieldName} is undefined for gateway plebbit`, async () => {
+        it(`community.clients.${clientFieldName} is undefined for gateway pkc`, async () => {
             const gatewayPKC = await mockGatewayPKC();
-            const mockSub = await gatewayPKC.getCommunity({ address: subplebbitAddress });
+            const mockSub = await gatewayPKC.getCommunity({ address: communityAddress });
             expect((mockSub.clients as unknown as Record<string, Record<string, unknown>>)[clientFieldName]).to.be.undefined;
             await gatewayPKC.destroy();
         });
 
-        it(`subplebbit.clients.${clientFieldName}[url] is stopped by default`, async () => {
-            const mockSub = await plebbit.getCommunity({ address: subplebbitAddress });
+        it(`community.clients.${clientFieldName}[url] is stopped by default`, async () => {
+            const mockSub = await pkc.getCommunity({ address: communityAddress });
             expect(Object.keys((mockSub.clients as unknown as Record<string, Record<string, unknown>>)[clientFieldName]).length).to.equal(
                 1
             );
@@ -52,8 +52,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             ).to.equal("stopped");
         });
 
-        it(`Correct order of ${clientFieldName} state when updating a sub that was created with plebbit.createCommunity({address})`, async () => {
-            const sub = await plebbit.createCommunity({ address: signers[0].address });
+        it(`Correct order of ${clientFieldName} state when updating a sub that was created with pkc.createCommunity({address})`, async () => {
+            const sub = await pkc.createCommunity({ address: signers[0].address });
 
             const expectedStates = ["fetching-ipns", "fetching-ipfs", "stopped"];
 
@@ -74,8 +74,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             expect(actualStates).to.deep.equal(expectedStates);
         });
 
-        it(`Correct order of ${clientFieldName} state when updating a subplebbit that was created with plebbit.getCommunity({address: address})`, async () => {
-            const sub = await plebbit.getCommunity({ address: signers[0].address });
+        it(`Correct order of ${clientFieldName} state when updating a community that was created with pkc.getCommunity({address: address})`, async () => {
+            const sub = await pkc.getCommunity({ address: signers[0].address });
             delete sub.raw.subplebbitIpfs;
             delete sub.updateCid;
             const expectedStates = ["fetching-ipns", "fetching-ipfs", "stopped"];
@@ -91,17 +91,17 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
             const updatePromise = new Promise((resolve) => sub.once("update", resolve));
             await sub.update();
-            await publishRandomPost({ communityAddress: sub.address, plebbit: plebbit }); // force an update
+            await publishRandomPost({ communityAddress: sub.address, plebbit: pkc }); // force an update
             await updatePromise;
             await sub.stop();
 
             expect(actualStates.slice(0, expectedStates.length)).to.deep.equal(expectedStates);
         });
 
-        it(`Correct order of ${clientFieldName} state when we update a subplebbit and it's not publishing new subplebbit records`, async () => {
+        it(`Correct order of ${clientFieldName} state when we update a community and it's not publishing new community records`, async () => {
             const subRecord = await createMockedCommunityIpns({}); // only published once, a static record
 
-            const sub = await plebbit.createCommunity({ address: subRecord.communityAddress });
+            const sub = await pkc.createCommunity({ address: subRecord.communityAddress });
 
             const recordedStates: string[] = [];
             const clientUrl = Object.keys((sub.clients as unknown as Record<string, Record<string, { on: Function }>>)[clientFieldName])[0];
@@ -110,13 +110,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 (newState: string) => recordedStates.push(newState)
             );
 
-            // now plebbit._updatingCommunitys will be defined
+            // now pkc._updatingCommunitys will be defined
 
             const updatePromise = new Promise((resolve) => sub.once("update", resolve));
             await sub.update();
             await updatePromise;
 
-            await new Promise((resolve) => setTimeout(resolve, plebbit.updateInterval * 4));
+            await new Promise((resolve) => setTimeout(resolve, pkc.updateInterval * 4));
 
             await sub.stop();
 
@@ -133,13 +133,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             }
         });
 
-        it(`Correct order of ${clientFieldName} client states when we attempt to update a subplebbit with invalid record`, async () => {
-            const { commentCid, communityAddress: subplebbitAddress } = await createStaticCommunityRecordForComment({
+        it(`Correct order of ${clientFieldName} client states when we attempt to update a community with invalid record`, async () => {
+            const { commentCid, communityAddress: communityAddress } = await createStaticCommunityRecordForComment({
                 invalidateCommunitySignature: true
             });
 
-            // Create a static subplebbit record with invalid signature
-            const sub = await plebbit.createCommunity({ address: subplebbitAddress });
+            // Create a static community record with invalid signature
+            const sub = await pkc.createCommunity({ address: communityAddress });
 
             const recordedStates: string[] = [];
             const clientUrl = Object.keys((sub.clients as unknown as Record<string, Record<string, { on: Function }>>)[clientFieldName])[0];
@@ -152,7 +152,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
             await sub.update();
             const err = await errorPromise;
-            await new Promise((resolve) => setTimeout(resolve, plebbit.updateInterval * 4));
+            await new Promise((resolve) => setTimeout(resolve, pkc.updateInterval * 4));
 
             await sub.stop();
             expect(sub.updatedAt).to.be.undefined;

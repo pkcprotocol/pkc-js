@@ -20,21 +20,21 @@ import type { DecryptedChallengeRequestMessageType } from "../../../../dist/node
 // Type for challenge request event with vote
 type ChallengeRequestWithVote = DecryptedChallengeRequestMessageType & NonNullable<Pick<DecryptedChallengeRequestMessageType, "vote">>;
 
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     const previousVotes: Vote[] = [];
 
     describe.concurrent(`Test upvote - ${config.name}`, async () => {
-        let plebbit: PKC, postToVote: Comment, replyToVote: Comment, signer: SignerWithPublicKeyAddress;
+        let pkc: PKC, postToVote: Comment, replyToVote: Comment, signer: SignerWithPublicKeyAddress;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: false } });
-            signer = await plebbit.createSigner();
-            postToVote = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit, postProps: { signer } });
+            pkc = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: false } });
+            signer = await pkc.createSigner();
+            postToVote = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc, postProps: { signer } });
             replyToVote = await publishRandomReply({
                 parentComment: postToVote as CommentIpfsWithCidDefined,
-                plebbit: plebbit,
+                plebbit: pkc,
                 commentProps: { signer }
             });
             await postToVote.update();
@@ -44,17 +44,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
-        it(`(vote: Vote) === plebbit.createVote(JSON.parse(JSON.stringify(vote)))`, async () => {
-            const vote = await generateMockVote(
-                postToVote as unknown as CommentIpfsWithCidDefined,
-                1,
-                plebbit,
-                remeda.sample(signers, 1)[0]
-            );
-            const voteFromStringifiedVote = await plebbit.createVote(JSON.parse(JSON.stringify(vote)));
+        it(`(vote: Vote) === pkc.createVote(JSON.parse(JSON.stringify(vote)))`, async () => {
+            const vote = await generateMockVote(postToVote as unknown as CommentIpfsWithCidDefined, 1, pkc, remeda.sample(signers, 1)[0]);
+            const voteFromStringifiedVote = await pkc.createVote(JSON.parse(JSON.stringify(vote)));
             const jsonPropsToOmit = ["clients"];
 
             const voteJson = remeda.omit(JSON.parse(JSON.stringify(vote)), jsonPropsToOmit) as Record<string, unknown>;
@@ -68,7 +63,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it.sequential("Can upvote a post", async () => {
             const originalUpvote = remeda.clone(postToVote.upvoteCount);
-            const vote = await generateMockVote(postToVote as unknown as CommentIpfsWithCidDefined, 1, plebbit);
+            const vote = await generateMockVote(postToVote as unknown as CommentIpfsWithCidDefined, 1, pkc);
             await publishWithExpectedResult({ publication: vote, expectedChallengeSuccess: true });
             await resolveWhenConditionIsTrue({
                 toUpdate: postToVote,
@@ -84,7 +79,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`Can upvote a reply`, async () => {
             const originalUpvote = remeda.clone(replyToVote.upvoteCount);
-            const vote = await generateMockVote(replyToVote as unknown as CommentIpfsWithCidDefined, 1, plebbit);
+            const vote = await generateMockVote(replyToVote as unknown as CommentIpfsWithCidDefined, 1, pkc);
             await publishWithExpectedResult({ publication: vote, expectedChallengeSuccess: true });
             await resolveWhenConditionIsTrue({
                 toUpdate: replyToVote,
@@ -102,7 +97,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it.sequential("Can change post upvote to downvote", async () => {
             const originalUpvote = remeda.clone(postToVote.upvoteCount);
             const originalDownvote = remeda.clone(postToVote.downvoteCount);
-            const vote = await plebbit.createVote({
+            const vote = await pkc.createVote({
                 commentCid: previousVotes[0].commentCid,
                 signer: previousVotes[0].signer,
                 communityAddress: previousVotes[0].communityAddress,
@@ -124,7 +119,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it.sequential("Can change reply upvote to downvote", async () => {
             const originalUpvote = remeda.clone(replyToVote.upvoteCount);
             const originalDownvote = remeda.clone(replyToVote.downvoteCount);
-            const vote = await plebbit.createVote({
+            const vote = await pkc.createVote({
                 commentCid: previousVotes[1].commentCid,
                 signer: previousVotes[1].signer,
                 communityAddress: previousVotes[1].communityAddress,
@@ -144,7 +139,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential("Does not throw an error when vote is duplicated", async () => {
-            const vote = await plebbit.createVote({
+            const vote = await pkc.createVote({
                 commentCid: previousVotes[0].commentCid,
                 signer: previousVotes[0].signer,
                 communityAddress: previousVotes[0].communityAddress,
@@ -154,13 +149,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can publish a vote that was created from jsonfied vote instance`, async () => {
-            const vote = await generateMockVote(
-                postToVote as unknown as CommentIpfsWithCidDefined,
-                1,
-                plebbit,
-                remeda.sample(signers, 1)[0]
-            );
-            const voteFromStringifiedVote = await plebbit.createVote(JSON.parse(JSON.stringify(vote)));
+            const vote = await generateMockVote(postToVote as unknown as CommentIpfsWithCidDefined, 1, pkc, remeda.sample(signers, 1)[0]);
+            const voteFromStringifiedVote = await pkc.createVote(JSON.parse(JSON.stringify(vote)));
             const challengeRequestPromise = new Promise<ChallengeRequestWithVote>((resolve) =>
                 voteFromStringifiedVote.once("challengerequest", resolve)
             );
@@ -173,7 +163,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`A vote=0 is rejected if the author never published a vote on the comment before`, async () => {
-            const vote = await generateMockVote(postToVote as CommentIpfsWithCidDefined, 0, plebbit); // will generate random signer
+            const vote = await generateMockVote(postToVote as CommentIpfsWithCidDefined, 0, pkc); // will generate random signer
 
             await publishWithExpectedResult({
                 publication: vote,

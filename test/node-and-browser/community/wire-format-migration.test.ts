@@ -18,45 +18,45 @@ import type { CommunityIpfsType } from "../../../dist/node/community/types.js";
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Wire format migration — runtime field computation - ${config.name}`, async () => {
-        let plebbit: PKCType;
+        let pkc: PKCType;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`address stays immutable when loading new-format record with name`, async () => {
-            const sub = await plebbit.createCommunity({ address: signers[0].address });
+            const sub = await pkc.createCommunity({ address: signers[0].address });
             sub.initCommunityIpfsPropsNoMerge(remeda.clone(newFormatWithNameFixture) as CommunityIpfsType);
             expect(sub.name).to.equal("test-sub.eth");
             expect(sub.address).to.equal(signers[0].address); // address is immutable
         });
 
         it(`address falls back to publicKey when no name is present`, async () => {
-            const sub = await plebbit.createCommunity({ address: signers[0].address });
+            const sub = await pkc.createCommunity({ address: signers[0].address });
             sub.initCommunityIpfsPropsNoMerge(remeda.clone(newFormatFixture) as CommunityIpfsType);
             // No name, so address should be the IPNS key derived from signature.publicKey
             expect(sub.address).to.equal(signers[0].address);
         });
 
         it(`address is computed correctly when loading old-format record with IPNS address`, async () => {
-            const sub = await plebbit.createCommunity({ address: signers[0].address });
+            const sub = await pkc.createCommunity({ address: signers[0].address });
             // Old fixture has address = signers[0].address (IPNS key)
             sub.initCommunityIpfsPropsNoMerge(remeda.clone(validCommunityFixture) as CommunityIpfsType);
             expect(sub.address).to.equal(signers[0].address);
         });
 
         it(`publicKey is derived from signature.publicKey`, async () => {
-            const sub = await plebbit.createCommunity({ address: signers[0].address });
+            const sub = await pkc.createCommunity({ address: signers[0].address });
             sub.initCommunityIpfsPropsNoMerge(remeda.clone(newFormatFixture) as CommunityIpfsType);
             expect(sub.publicKey).to.equal(signers[0].address);
         });
 
         it(`address and publicKey appear in JSON.stringify output`, async () => {
-            const sub = await plebbit.createCommunity({ address: signers[0].address });
+            const sub = await pkc.createCommunity({ address: signers[0].address });
             sub.initCommunityIpfsPropsNoMerge(remeda.clone(newFormatFixture) as CommunityIpfsType);
             const json = JSON.parse(JSON.stringify(sub));
             expect(json.address).to.be.a("string");
@@ -123,52 +123,52 @@ describe.concurrent("Wire format migration — helper functions", async () => {
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Wire format migration — flexible createCommunity input - ${config.name}`, async () => {
-        let plebbit: PKCType;
+        let pkc: PKCType;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`createCommunity({ address }) still works (backward compat)`, async () => {
-            const sub = await plebbit.createCommunity({ address: signers[0].address });
+            const sub = await pkc.createCommunity({ address: signers[0].address });
             expect(sub.address).to.equal(signers[0].address);
             expect(sub.address).to.be.a("string").that.is.not.empty;
         });
 
         it(`createCommunity({ name }) creates instance with address = name`, async () => {
-            const sub = await plebbit.createCommunity({ name: "memes.eth" });
+            const sub = await pkc.createCommunity({ name: "memes.eth" });
             expect(sub.address).to.equal("memes.eth");
             expect(sub.name).to.equal("memes.eth");
             expect(sub.address).to.be.a("string").that.is.not.empty;
         });
 
         it(`createCommunity({ publicKey }) creates instance with address = publicKey`, async () => {
-            const sub = await plebbit.createCommunity({ publicKey: signers[0].address });
+            const sub = await pkc.createCommunity({ publicKey: signers[0].address });
             expect(sub.address).to.equal(signers[0].address);
             expect(sub.address).to.be.a("string").that.is.not.empty;
         });
 
         it(`createCommunity({ name, publicKey }) creates instance with address = name (name takes priority)`, async () => {
-            const sub = await plebbit.createCommunity({ name: "memes.eth", publicKey: signers[0].address });
+            const sub = await pkc.createCommunity({ name: "memes.eth", publicKey: signers[0].address });
             expect(sub.address).to.equal("memes.eth");
             expect(sub.name).to.equal("memes.eth");
             expect(sub.address).to.be.a("string").that.is.not.empty;
         });
 
         it(`createCommunity({ name, publicKey, address }) works with all three`, async () => {
-            const sub = await plebbit.createCommunity({ name: "memes.eth", publicKey: signers[0].address, address: "memes.eth" });
+            const sub = await pkc.createCommunity({ name: "memes.eth", publicKey: signers[0].address, address: "memes.eth" });
             expect(sub.address).to.equal("memes.eth");
             expect(sub.address).to.be.a("string").that.is.not.empty;
         });
 
         it(`instance.address is always defined after creation`, async () => {
-            const sub1 = await plebbit.createCommunity({ address: signers[0].address });
-            const sub2 = await plebbit.createCommunity({ name: "test.eth" });
-            const sub3 = await plebbit.createCommunity({ publicKey: signers[1].address });
+            const sub1 = await pkc.createCommunity({ address: signers[0].address });
+            const sub2 = await pkc.createCommunity({ name: "test.eth" });
+            const sub3 = await pkc.createCommunity({ publicKey: signers[1].address });
 
             expect(sub1.address).to.be.a("string").that.is.not.empty;
             expect(sub2.address).to.be.a("string").that.is.not.empty;

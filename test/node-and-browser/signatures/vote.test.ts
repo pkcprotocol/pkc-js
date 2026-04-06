@@ -12,34 +12,34 @@ import type { RemoteCommunity } from "../../../dist/node/community/remote-commun
 import type { VoteOptionsToSign, VoteSignature, VotePubsubMessagePublication } from "../../../dist/node/publications/vote/types.js";
 
 describe.concurrent("Sign Vote", async () => {
-    let plebbit: PKCType;
-    let subplebbit: RemoteCommunity;
+    let pkc: PKCType;
+    let community: RemoteCommunity;
     let voteProps: Omit<VoteOptionsToSign, "signer">;
     let voteSignature: VoteSignature;
     beforeAll(async () => {
-        plebbit = await mockPKCNoDataPathWithOnlyKuboClient();
-        subplebbit = await plebbit.getCommunity({ address: signers[0].address });
+        pkc = await mockPKCNoDataPathWithOnlyKuboClient();
+        community = await pkc.getCommunity({ address: signers[0].address });
 
         voteProps = {
             author: { displayName: "Voter" },
-            communityAddress: subplebbit.address,
-            commentCid: subplebbit.lastPostCid!,
+            communityAddress: community.address,
+            commentCid: community.lastPostCid!,
             timestamp: timestamp(),
             vote: 1,
             protocolVersion: "1.0.0"
         };
-        voteSignature = await signVote({ vote: { ...voteProps, signer: signers[7] }, plebbit });
+        voteSignature = await signVote({ vote: { ...voteProps, signer: signers[7] }, plebbit: pkc });
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`Can sign and validate Vote correctly`, async () => {
         const verification = await verifyVote({
             vote: { ...remeda.omit(voteProps, ["communityAddress"]), signature: voteSignature } as VotePubsubMessagePublication,
-            resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager
         });
         expect(verification).to.deep.equal({ valid: true });
     });
@@ -48,7 +48,7 @@ describe.concurrent("Sign Vote", async () => {
         const cloneVote = remeda.clone(voteProps);
         cloneVote.author = { name: "gibbreish" };
         try {
-            await signVote({ vote: { ...cloneVote, signer: signers[7] }, plebbit });
+            await signVote({ vote: { ...cloneVote, signer: signers[7] }, plebbit: pkc });
             expect.fail("Should have thrown");
         } catch (e) {
             expect((e as { code: string }).code).to.equal("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58");
@@ -57,7 +57,7 @@ describe.concurrent("Sign Vote", async () => {
     it(`signVote allows author to be omitted`, async () => {
         const signature = await signVote({
             vote: { ...remeda.omit(voteProps, ["author"]), signer: signers[7] } as VoteOptionsToSign,
-            plebbit
+            plebbit: pkc
         });
         expect(signature.publicKey).to.equal(signers[7].publicKey);
     });
@@ -65,21 +65,21 @@ describe.concurrent("Sign Vote", async () => {
 
 // Clients of RPC will trust the response of RPC and won't validate
 describeSkipIfRpc.concurrent("Verify vote", async () => {
-    let plebbit: PKCType;
+    let pkc: PKCType;
     beforeAll(async () => {
-        plebbit = await mockPKCNoDataPathWithOnlyKuboClient();
+        pkc = await mockPKCNoDataPathWithOnlyKuboClient();
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`Valid vote signature fixture is validated correctly`, async () => {
         const vote = remeda.clone(validVoteFixture) as unknown as VotePubsubMessagePublication;
         const verification = await verifyVote({
             vote,
-            resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager
         });
         expect(verification).to.deep.equal({ valid: true });
     });
@@ -89,8 +89,8 @@ describeSkipIfRpc.concurrent("Verify vote", async () => {
         vote.commentCid += "1234"; // Should invalidate signature
         const verification = await verifyVote({
             vote,
-            resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
@@ -100,8 +100,8 @@ describeSkipIfRpc.concurrent("Verify vote", async () => {
         vote.author = { ...(vote.author || {}), name: "gibbresish" };
         const verification = await verifyVote({
             vote,
-            resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager
         });
         // Modifying author.name without re-signing invalidates the signature
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
@@ -118,12 +118,12 @@ describeSkipIfRpc.concurrent("Verify vote", async () => {
         };
         const vote: VotePubsubMessagePublication = {
             ...remeda.omit(voteToSign, ["signer", "communityAddress"]),
-            signature: await signVote({ vote: voteToSign, plebbit })
+            signature: await signVote({ vote: voteToSign, plebbit: pkc })
         };
         const verification = await verifyVote({
             vote,
-            resolveAuthorNames: plebbit.resolveAuthorNames,
-            clientsManager: plebbit._clientsManager
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager
         });
         expect(verification).to.deep.equal({ valid: true });
     });

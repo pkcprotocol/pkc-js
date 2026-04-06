@@ -60,8 +60,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                     throw new Error(`Mock pubsub server is not reachable: ${error?.message || error}`);
                 });
 
-                const plebbit = await config.plebbitInstancePromise(); // this is using mocked pubsub/ipfs client to publish
-                plebbit.on("error", console.error);
+                const pkc = await config.plebbitInstancePromise(); // this is using mocked pubsub/ipfs client to publish
+                pkc.on("error", console.error);
 
                 const stressPublishCount = 100;
                 const offlineCommunity = await createMockedCommunityIpns({});
@@ -95,11 +95,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 try {
                     const comments = await Promise.all(
                         new Array(stressPublishCount).fill(null).map(async (_, index) => {
-                            const comment = await plebbit.createComment({
+                            const comment = await pkc.createComment({
                                 communityAddress: offlineSubAddress,
                                 title: `parallel publish stress ${index}`,
                                 content: `parallel publish stress content ${index}`,
-                                signer: await plebbit.createSigner()
+                                signer: await pkc.createSigner()
                             });
                             comment.on("challengerequest", (request) => {
                                 challengeRequestIds.add(toBase64(request.challengeRequestId));
@@ -141,11 +141,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                     await Promise.all(comments.map((comment) => comment.stop()));
                 } finally {
                     externalPeer.disconnect();
-                    await plebbit.destroy();
+                    await pkc.destroy();
                 }
             });
 
-            it("resolves the subplebbit IPNS record only once when multiple publishes start in parallel", async () => {
+            it("resolves the community IPNS record only once when multiple publishes start in parallel", async () => {
                 const localPKC = await config.plebbitInstancePromise({});
                 localPKC.on("error", console.error);
                 const stressPublishCount = typeof globalThis.window !== "undefined" ? 20 : 350;

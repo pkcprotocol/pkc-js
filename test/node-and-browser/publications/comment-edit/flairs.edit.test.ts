@@ -11,14 +11,14 @@ import { describe, it, beforeAll, afterAll } from "vitest";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.sequential(`Authors can set flairs on their own comment - ${config.name}`, async () => {
-        let plebbit: PKC, authorPost: Comment;
+        let pkc: PKC, authorPost: Comment;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
-            authorPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+            pkc = await config.plebbitInstancePromise();
+            authorPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
             expect(authorPost.flairs).to.be.undefined;
             await authorPost.update();
             await resolveWhenConditionIsTrue({ toUpdate: authorPost, predicate: async () => typeof authorPost.updatedAt === "number" });
@@ -27,15 +27,15 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         afterAll(async () => {
             await authorPost?.stop();
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`Regular author can't set flairs on another author's comment`, async () => {
-            const flairsEdit = await plebbit.createCommentEdit({
+            const flairsEdit = await pkc.createCommentEdit({
                 communityAddress: authorPost.communityAddress,
                 commentCid: authorPost.cid,
                 flairs: [{ text: "Hacked" }],
-                signer: await plebbit.createSigner()
+                signer: await pkc.createSigner()
             });
             await publishWithExpectedResult({
                 publication: flairsEdit,
@@ -45,7 +45,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Author can't set flairs not in the allowed list`, async () => {
-            const flairsEdit = await plebbit.createCommentEdit({
+            const flairsEdit = await pkc.createCommentEdit({
                 communityAddress: authorPost.communityAddress,
                 commentCid: authorPost.cid,
                 flairs: [{ text: "NotAllowed" }],
@@ -61,7 +61,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it.sequential(`Author can set flairs on their own comment`, async () => {
             expect(authorPost.flairs).to.be.undefined;
 
-            const flairsEdit = await plebbit.createCommentEdit({
+            const flairsEdit = await pkc.createCommentEdit({
                 communityAddress: authorPost.communityAddress,
                 commentCid: authorPost.cid,
                 flairs: [{ text: "Discussion" }],
@@ -83,8 +83,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(authorPost.flairs).to.deep.equal([{ text: "Discussion" }]);
         });
 
-        it(`flairs appear in pages of subplebbit`, async () => {
-            const sub = await plebbit.createCommunity({ address: authorPost.communityAddress });
+        it(`flairs appear in pages of community`, async () => {
+            const sub = await pkc.createCommunity({ address: authorPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -98,7 +98,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`Author can update flairs with multiple entries`, async () => {
-            const flairsEdit = await plebbit.createCommentEdit({
+            const flairsEdit = await pkc.createCommentEdit({
                 communityAddress: authorPost.communityAddress,
                 commentCid: authorPost.cid,
                 flairs: [{ text: "Updated" }, { text: "Important", backgroundColor: "#ff0000" }],

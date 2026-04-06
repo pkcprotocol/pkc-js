@@ -12,19 +12,19 @@ import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 const VOTE_FIELDS = { extraSignedPropertyNames: ["commentCid", "vote"], extraFields: { commentCid: DUMMY_COMMENT_CID, vote: 1 } };
 
 describe("Vote - community fields", () => {
-    let plebbit: PKC;
+    let pkc: PKC;
 
     beforeAll(async () => {
-        plebbit = await mockRemotePKC();
+        pkc = await mockRemotePKC();
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it("unsigned creation with domain communityAddress only: communityName derived, communityPublicKey undefined", async () => {
-        const signer = await plebbit.createSigner();
-        const vote = await plebbit.createVote({
+        const signer = await pkc.createSigner();
+        const vote = await pkc.createVote({
             communityAddress: "test.eth",
             commentCid: DUMMY_COMMENT_CID,
             vote: 1,
@@ -37,8 +37,8 @@ describe("Vote - community fields", () => {
     });
 
     it("domain communityAddress + communityPublicKey eagerly signs and derives communityName", async () => {
-        const signer = await plebbit.createSigner();
-        const vote = await plebbit.createVote({
+        const signer = await pkc.createSigner();
+        const vote = await pkc.createVote({
             communityAddress: "myforum.eth",
             communityPublicKey: signers[0].address,
             commentCid: DUMMY_COMMENT_CID,
@@ -57,8 +57,8 @@ describe("Vote - community fields", () => {
     });
 
     it("non-domain communityAddress eagerly signs with derived communityPublicKey", async () => {
-        const signer = await plebbit.createSigner();
-        const vote = await plebbit.createVote({
+        const signer = await pkc.createSigner();
+        const vote = await pkc.createVote({
             communityAddress: signers[0].address,
             commentCid: DUMMY_COMMENT_CID,
             vote: 1,
@@ -82,33 +82,33 @@ describe("Vote - community fields", () => {
             ...VOTE_FIELDS
         });
 
-        const vote = await plebbit.createVote(signedMsg as any);
+        const vote = await pkc.createVote(signedMsg as any);
         expect(vote.communityAddress).to.equal("test.eth");
         expect(vote.communityPublicKey).to.equal(signers[0].address);
         expect(vote.communityName).to.equal("test.eth");
     });
 
-    it("backward compat: signed PubsubMessage with old subplebbitAddress (domain) sets communityName", async () => {
+    it("backward compat: signed PubsubMessage with old communityAddress (domain) sets communityName", async () => {
         const signedMsg = await buildSignedPubsubMessage({
             signer: signers[0],
             subplebbitAddress: "test.eth",
             ...VOTE_FIELDS
         });
 
-        const vote = await plebbit.createVote(signedMsg as any);
+        const vote = await pkc.createVote(signedMsg as any);
         expect(vote.communityAddress).to.equal("test.eth");
         expect(vote.communityName).to.equal("test.eth");
         expect(vote.communityPublicKey).to.be.undefined;
     });
 
-    it("backward compat: signed PubsubMessage with old subplebbitAddress (IPNS key) sets communityPublicKey", async () => {
+    it("backward compat: signed PubsubMessage with old communityAddress (IPNS key) sets communityPublicKey", async () => {
         const signedMsg = await buildSignedPubsubMessage({
             signer: signers[0],
             subplebbitAddress: signers[0].address,
             ...VOTE_FIELDS
         });
 
-        const vote = await plebbit.createVote(signedMsg as any);
+        const vote = await pkc.createVote(signedMsg as any);
         expect(vote.communityAddress).to.equal(signers[0].address);
         expect(vote.communityPublicKey).to.equal(signers[0].address);
         expect(vote.communityName).to.be.undefined;

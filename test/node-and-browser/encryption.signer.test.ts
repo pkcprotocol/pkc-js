@@ -4,7 +4,7 @@ import type { SignerType, Encrypted } from "../../dist/node/signer/types.js";
 import type { PKC } from "../../dist/node/pkc/pkc.js";
 
 const authorSignerFixture = fixtureSigners[1];
-const subplebbitSignerFixture = fixtureSigners[2];
+const communitySignerFixture = fixtureSigners[2];
 import { comment as fixtureComment } from "../fixtures/publications.js";
 import { encryptEd25519AesGcm, decryptEd25519AesGcm, encryptStringAesGcm, decryptStringAesGcm } from "../../dist/node/signer/encryption.js";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
@@ -13,16 +13,16 @@ import { mockRemotePKC } from "../../dist/node/test/test-util.js";
 import * as ed from "@noble/ed25519";
 
 describe("encryption", () => {
-    let plebbit: PKC;
+    let pkc: PKC;
     let authorSigner: SignerType;
 
     beforeAll(async function () {
-        plebbit = await mockRemotePKC();
-        authorSigner = await plebbit.createSigner({ privateKey: authorSignerFixture.privateKey, type: "ed25519" });
+        pkc = await mockRemotePKC();
+        authorSigner = await pkc.createSigner({ privateKey: authorSignerFixture.privateKey, type: "ed25519" });
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     describe("encrypt and decrypt string with aes-gcm", async () => {
@@ -143,7 +143,7 @@ describe("encryption", () => {
             encryptedPublication = await encryptEd25519AesGcm(
                 JSON.stringify(fixtureComment),
                 authorSignerFixture.privateKey,
-                subplebbitSignerFixture.publicKey
+                communitySignerFixture.publicKey
             );
         });
 
@@ -161,7 +161,7 @@ describe("encryption", () => {
         it("encrypted publication can be decrypted", async () => {
             const decryptedPublicationString = await decryptEd25519AesGcm(
                 encryptedPublication,
-                subplebbitSignerFixture.privateKey,
+                communitySignerFixture.privateKey,
                 authorSignerFixture.publicKey
             );
             let decryptedPublication: typeof fixtureComment;

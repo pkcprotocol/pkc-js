@@ -57,13 +57,13 @@ const parsePubsubMsgFixture = <T extends Record<string, unknown>>(json: T): T =>
 
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).forEach((config) => {
     describe.concurrent("challengerequest - " + config.name, async () => {
-        let plebbit: PKCType;
+        let pkc: PKCType;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`valid challengerequest fixture from previous version can be validated`, async () => {
@@ -82,7 +82,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         it(`challenge request with outdated timestamp is invalidated`, async () => {
             const comment = await generateMockPost({
                 communityAddress: signers[0].address,
-                plebbit: plebbit,
+                plebbit: pkc,
                 postProps: { signer: signers[5] }
             });
             const challengeRequestPromise = new Promise<DecryptedChallengeRequestMessageType>((resolve) =>
@@ -105,7 +105,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         it(`Valid live ChallengeRequest gets validated correctly`, async () => {
             const comment = await generateMockPost({
                 communityAddress: signers[0].address,
-                plebbit: plebbit,
+                plebbit: pkc,
                 postProps: { signer: signers[5] }
             });
             const challengeRequestPromise = new Promise<DecryptedChallengeRequestMessageType>((resolve) =>
@@ -122,7 +122,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         it(`Sub responds with error to a challenge request whose comment can't be decrypted`, async () => {
             const comment = await generateMockPost({
                 communityAddress: signers[0].address,
-                plebbit: plebbit,
+                plebbit: pkc,
                 postProps: { content: "Test content" }
             });
             const originalPublish = comment._clientsManager.pubsubPublishOnProvider.bind(comment._clientsManager);
@@ -166,7 +166,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`Sub responds with error to a challenge request with invalid pubsubMessage.encrypted.comment.signature`, async () => {
-            const comment = await generateMockPost({ communityAddress: signers[0].address, plebbit: plebbit });
+            const comment = await generateMockPost({ communityAddress: signers[0].address, plebbit: pkc });
             const originalPublish = comment._clientsManager.pubsubPublishOnProvider.bind(comment._clientsManager);
             comment._clientsManager.pubsubPublishOnProvider = (async () => {}) as typeof comment._clientsManager.pubsubPublishOnProvider;
 
@@ -186,7 +186,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             expect(
                 await verifyCommentPubsubMessage({
                     comment: commentObjToEncrypt.comment,
-                    resolveAuthorNames: plebbit.resolveAuthorNames,
+                    resolveAuthorNames: pkc.resolveAuthorNames,
                     clientsManager: comment._clientsManager
                 })
             ).to.deep.equal({
@@ -231,7 +231,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             // This test case also includes challengeRequestId not being derived from signer since it's caught by verifyChallengeRequest
             const comment = await generateMockPost({
                 communityAddress: signers[0].address,
-                plebbit: plebbit,
+                plebbit: pkc,
                 postProps: { signer: signers[6] }
             });
             const challengeRequestPromise = new Promise<DecryptedChallengeRequestMessageType>((resolve) =>
@@ -250,7 +250,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             const verificaiton = await verifyChallengeRequest({ request: requestWithInvalidSignature, validateTimestampRange: false });
             expect(verificaiton).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
 
-            await plebbit._clientsManager.pubsubPublish(comment._community!.pubsubTopic!, requestWithInvalidSignature);
+            await pkc._clientsManager.pubsubPublish(comment._community!.pubsubTopic!, requestWithInvalidSignature);
 
             await new Promise<void>(async (resolve) => {
                 const subMethod: PubsubSubscriptionHandler = (pubsubMsg) => {
@@ -262,7 +262,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                         expect.fail("Community should not respond to a challenge request with invalid signature");
                     }
                 };
-                await plebbit._clientsManager.pubsubSubscribe(comment._community!.pubsubTopic!, subMethod);
+                await pkc._clientsManager.pubsubSubscribe(comment._community!.pubsubTopic!, subMethod);
                 await new Promise<void>((resolve) => setTimeout(resolve, 5000)); // Wait 5s for sub response, if we didn't get a response then the request has been ignored
                 resolve();
             });
@@ -271,13 +271,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
     // Clients of RPC will trust the response of RPC and won't validate
     describe.concurrent(`challengemessage - ` + config.name, async () => {
-        let plebbit: PKCType;
+        let pkc: PKCType;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`valid challengemessage fixture from previous version can be validated`, async () => {
@@ -301,11 +301,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             expect(verificaiton).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
 
-        it(`challenge message signed by other than subplebbit.pubsubTopic is invalidated`, async () => {
+        it(`challenge message signed by other than community.pubsubTopic is invalidated`, async () => {
             const challenge = parsePubsubMsgFixture(remeda.clone(validChallengeFixture)) as unknown as ChallengeMessageType;
             const verificaiton = await verifyChallengeMessage({
                 challenge,
-                pubsubTopic: (await plebbit.createSigner()).address,
+                pubsubTopic: (await pkc.createSigner()).address,
                 validateTimestampRange: false
             }); // Random pubsub topic
             expect(verificaiton).to.deep.equal({ valid: false, reason: messages.ERR_CHALLENGE_MSG_SIGNER_IS_NOT_COMMUNITY });
@@ -313,7 +313,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         it(`Valid live challengemessage gets validated correctly`, async () => {
             const comment = await generateMockPost({
                 communityAddress: mathCliCommunityAddress,
-                plebbit: plebbit,
+                plebbit: pkc,
                 postProps: { signer: signers[6] }
             });
             comment.removeAllListeners();
@@ -335,13 +335,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
     // Clients of RPC will trust the response of RPC and won't validate
     describe.concurrent("challengeanswer - " + config.name, async () => {
-        let plebbit: PKCType;
+        let pkc: PKCType;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`valid challengeanswer fixture from previous version can be validated`, async () => {
@@ -360,7 +360,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         it(`Valid live ChallengeAnswer gets validated correctly`, async () => {
             const comment = await generateMockPost({
                 communityAddress: mathCliCommunityAddress,
-                plebbit: plebbit,
+                plebbit: pkc,
                 postProps: { signer: signers[5] }
             });
             comment.removeAllListeners();
@@ -383,7 +383,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             // Test includes cases where challengeRequestId is not derived from the signer of the message because verifyChallengeAnswer checks for that too
             const comment = await generateMockPost({
                 communityAddress: mathCliCommunityAddress,
-                plebbit: plebbit,
+                plebbit: pkc,
                 postProps: { signer: signers[6] }
             });
 
@@ -425,7 +425,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 reason: messages.ERR_SIGNATURE_IS_INVALID
             });
 
-            await plebbit._clientsManager.pubsubPublish(comment._community!.pubsubTopic!, challengeAnswer);
+            await pkc._clientsManager.pubsubPublish(comment._community!.pubsubTopic!, challengeAnswer);
 
             const subMethod: PubsubSubscriptionHandler = (pubsubMsg) => {
                 const msgParsed = cborgDecode(pubsubMsg.data) as ChallengeVerificationMessageType;
@@ -434,7 +434,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 }
             };
 
-            await plebbit._clientsManager.pubsubSubscribe(comment._community!.pubsubTopic!, subMethod);
+            await pkc._clientsManager.pubsubSubscribe(comment._community!.pubsubTopic!, subMethod);
             await new Promise<void>((resolve) => setTimeout(resolve, 5000)); // Wait 5s for sub response, if we didn't get a response then the answer has been ignored
         });
 
@@ -485,7 +485,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         it(`Sub responds with error to challenge answer whose id not registered (no challenge request with same id)`, async () => {
             const comment = await generateMockPost({
                 communityAddress: mathCliCommunityAddress,
-                plebbit: plebbit,
+                plebbit: pkc,
                 postProps: { signer: signers[6] }
             });
 
@@ -498,7 +498,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 comment._community!.pubsubTopic!,
                 (comment as unknown as PublicationWithPrivateHandler)._handleChallengeExchange
             );
-            const pubsubSigner = await plebbit.createSigner();
+            const pubsubSigner = await pkc.createSigner();
             const differentChallengeRequestId = await getBufferedPKCAddressFromPublicKey(pubsubSigner.publicKey);
             const encrypted = await encryptEd25519AesGcm(
                 JSON.stringify({ challengeAnswers: ["2"] }),
@@ -519,10 +519,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             } as unknown as ChallengeAnswerMessageType;
             expect(await verifyChallengeAnswer({ answer: challengeAnswer, validateTimestampRange: false })).to.deep.equal({ valid: true });
 
-            await plebbit._clientsManager.pubsubPublish(comment._community!.pubsubTopic!, challengeAnswer);
+            await pkc._clientsManager.pubsubPublish(comment._community!.pubsubTopic!, challengeAnswer);
 
             const challengeVerification = await new Promise<ChallengeVerificationMessageType>((resolve) =>
-                plebbit._clientsManager.pubsubSubscribe(comment._community!.pubsubTopic!, ((pubsubMsg: { data: Uint8Array }) => {
+                pkc._clientsManager.pubsubSubscribe(comment._community!.pubsubTopic!, ((pubsubMsg: { data: Uint8Array }) => {
                     const msgParsed = cborgDecode(pubsubMsg.data) as ChallengeVerificationMessageType;
                     if (
                         msgParsed.type === "CHALLENGEVERIFICATION" &&
@@ -538,19 +538,19 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             expect("comment" in challengeVerification).to.be.false;
             expect("commentUpdate" in challengeVerification).to.be.false;
             expect(challengeVerification.encrypted).to.be.undefined;
-            plebbit._clientsManager.pubsubUnsubscribe(comment._community!.pubsubTopic!);
+            pkc._clientsManager.pubsubUnsubscribe(comment._community!.pubsubTopic!);
         });
     });
 
     // Clients of RPC will trust the response of RPC and won't validate
     describe.concurrent("challengeverification - " + config.name, async () => {
-        let plebbit: PKCType;
+        let pkc: PKCType;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`valid challengeverification fixture from previous version can be validated`, async () => {
@@ -567,7 +567,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         it(`Valid live challengeverification gets validated correctly`, async () => {
             const comment = await generateMockPost({
                 communityAddress: signers[0].address,
-                plebbit: plebbit,
+                plebbit: pkc,
                 postProps: { signer: signers[6] }
             });
             await comment.publish();

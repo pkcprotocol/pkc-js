@@ -31,14 +31,14 @@ const roles = [
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Backward compatibility for CommentEdit - ${config.name}`, async () => {
-        // A subplebbit should accept a CommentEdit with unknown props
+        // A community should accept a CommentEdit with unknown props
         // However, it should not process the unknown props, it should strip them out after validation
 
-        let plebbit: PKC;
+        let pkc: PKC;
         let commentToEdit: Comment;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
-            commentToEdit = await publishRandomPost({ communityAddress: signers[0].address, plebbit: plebbit });
+            pkc = await config.plebbitInstancePromise();
+            commentToEdit = await publishRandomPost({ communityAddress: signers[0].address, plebbit: pkc });
             await commentToEdit.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: commentToEdit,
@@ -47,12 +47,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`Publishing commentEdit.extraProp should fail if it's not included in commentEdit.signature.signedPropertyNames`, async () => {
             // Skipped for rpc because it will generate an invalid signature, which will be thrown in rpc server
-            const commentEdit = await plebbit.createCommentEdit({
+            const commentEdit = await pkc.createCommentEdit({
                 commentCid: commentToEdit.cid,
                 communityAddress: commentToEdit.communityAddress,
                 content: "Radn" + Math.random(),
@@ -75,7 +75,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it.sequential(
             `publishing commentEdit.extraProp should succeed as an author edit if it's included in commentEdit.signature.signedPropertyNames`,
             async () => {
-                const commentEdit = await plebbit.createCommentEdit({
+                const commentEdit = await pkc.createCommentEdit({
                     commentCid: commentToEdit.cid,
                     communityAddress: commentToEdit.communityAddress,
                     content: "Radn" + Math.random(),
@@ -95,12 +95,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect((commentToEdit as Comment & Record<string, unknown>).extraProp).to.be.undefined;
                 const challengeRequest = await challengeRequestPromise;
                 expect(challengeRequest.commentEdit.extraProp).to.equal("1234");
-                await plebbit.createCommentEdit(JSON.parse(JSON.stringify(commentEdit))); // Just to test if create will throw because of extra prop
+                await pkc.createCommentEdit(JSON.parse(JSON.stringify(commentEdit))); // Just to test if create will throw because of extra prop
             }
         );
 
         it(`Publishing commentEdit.reservedField should be rejected`, async () => {
-            const commentEdit = await plebbit.createCommentEdit({
+            const commentEdit = await pkc.createCommentEdit({
                 commentCid: commentToEdit.cid,
                 communityAddress: commentToEdit.communityAddress,
                 content: "Radn" + Math.random(),
@@ -122,7 +122,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         describe.concurrent(`Publishing CommentEdit with extra props in author field - ${config.name}`, async () => {
             it(`Publishing with extra prop for author should fail if it's a reserved field`, async () => {
-                const commentEdit = await plebbit.createCommentEdit({
+                const commentEdit = await pkc.createCommentEdit({
                     commentCid: commentToEdit.cid,
                     communityAddress: commentToEdit.communityAddress,
                     deleted: true,
@@ -154,7 +154,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(challengerequest.commentEdit.author.subplebbit).to.equal("random");
             });
             it.sequential(`Publishing with extra prop for author should succeed`, async () => {
-                const commentEdit = await plebbit.createCommentEdit({
+                const commentEdit = await pkc.createCommentEdit({
                     commentCid: commentToEdit.cid,
                     communityAddress: commentToEdit.communityAddress,
                     spoiler: true,
@@ -173,7 +173,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     true
                 );
 
-                await plebbit.createCommentEdit(JSON.parse(JSON.stringify(commentEdit))); // Just to test if create will throw because of extra prop
+                await pkc.createCommentEdit(JSON.parse(JSON.stringify(commentEdit))); // Just to test if create will throw because of extra prop
 
                 const challengeRequestPromise = new Promise<ChallengeRequestWithEdit>((resolve) =>
                     commentEdit.once("challengerequest", resolve as (req: unknown) => void)

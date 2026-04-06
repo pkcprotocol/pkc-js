@@ -55,7 +55,7 @@ export async function buildNewFormatCommentIpfs(opts: { communityPublicKey: stri
 }
 
 /**
- * Build an old-format CommentIpfs record with subplebbitAddress.
+ * Build an old-format CommentIpfs record with communityAddress.
  */
 export async function buildOldFormatCommentIpfs(opts: { subplebbitAddress: string; signer: SignerType }) {
     const base = { ...validCommentIpfsFixture } as Record<string, unknown>;

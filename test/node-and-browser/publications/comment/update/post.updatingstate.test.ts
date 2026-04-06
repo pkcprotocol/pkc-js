@@ -15,12 +15,12 @@ import type { PKCError } from "../../../../../dist/node/pkc-error.js";
 import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
 import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
 
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 
 // Helper function to clean up state arrays by removing:
 // 1. All "waiting-retry" entries
-// 2. Adjacent duplicate entries (e.g., ["fetching-subplebbit-ipns", "fetching-subplebbit-ipns"] -> ["fetching-subplebbit-ipns"])
-// 3. Repeating pairs of ["fetching-subplebbit-ipns", "fetching-subplebbit-ipfs"]
+// 2. Adjacent duplicate entries (e.g., ["fetching-community-ipns", "fetching-community-ipns"] -> ["fetching-community-ipns"])
+// 3. Repeating pairs of ["fetching-community-ipns", "fetching-community-ipfs"]
 const cleanupStateArray = (states: string[]): string[] => {
     const filteredStates = [...states];
 
@@ -40,9 +40,9 @@ const cleanupStateArray = (states: string[]): string[] => {
         }
     }
 
-    // Remove repeating ["fetching-subplebbit-ipns", "fetching-subplebbit-ipfs"] pairs
-    const patternA = "fetching-subplebbit-ipns";
-    const patternB = "fetching-subplebbit-ipfs";
+    // Remove repeating ["fetching-community-ipns", "fetching-community-ipfs"] pairs
+    const patternA = "fetching-community-ipns";
+    const patternB = "fetching-community-ipfs";
     for (let i = 0; i <= filteredStates.length - 4; i++) {
         if (
             filteredStates[i] === patternA &&
@@ -55,7 +55,7 @@ const cleanupStateArray = (states: string[]): string[] => {
         }
     }
 
-    // Remove repeating ["fetching-subplebbit-ipns", "fetching-subplebbit-ipfs", "fetching-update-ipfs", "succeeded"] sequences
+    // Remove repeating ["fetching-community-ipns", "fetching-community-ipfs", "fetching-update-ipfs", "succeeded"] sequences
     const patternC = "fetching-update-ipfs";
     const patternD = "succeeded";
     for (let i = 0; i <= filteredStates.length - 8; i++) {
@@ -80,21 +80,21 @@ const cleanupStateArray = (states: string[]): string[] => {
 
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
     describeSkipIfRpc.concurrent(`post.updatingState - ${config.name}`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
-        it.sequential(`Updating states is in correct upon updating a post that's included in preloaded pages of subplebbit`, async () => {
-            const sub = await plebbit.getCommunity({ address: subplebbitAddress });
+        it.sequential(`Updating states is in correct upon updating a post that's included in preloaded pages of community`, async () => {
+            const sub = await pkc.getCommunity({ address: communityAddress });
             const postCid = sub.posts.pages.hot.comments.find(
                 (comment: { author: { address: string } }) => !comment.author.address.includes(".")
             ).cid;
-            const mockPost = await plebbit.createComment({ cid: postCid });
+            const mockPost = await pkc.createComment({ cid: postCid });
             const recordedStates: string[] = [];
             mockPost.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
 
@@ -102,8 +102,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             const expectedStates = [
                 "fetching-ipfs",
                 "succeeded",
-                "fetching-subplebbit-ipns",
-                "fetching-subplebbit-ipfs", // found CommentUpdate of post here
+                "fetching-community-ipns",
+                "fetching-community-ipfs", // found CommentUpdate of post here
                 "succeeded",
                 "stopped"
             ];
@@ -119,12 +119,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         it(`updating states is in correct order upon updating a post with IPFS client using postUpdates`, async () => {
             const dedicatedPKC = await config.plebbitInstancePromise();
             try {
-                const sub = await dedicatedPKC.getCommunity({ address: subplebbitAddress });
+                const sub = await dedicatedPKC.getCommunity({ address: communityAddress });
                 const postCid = sub.posts.pages.hot.comments[0].cid;
                 const mockPost = await dedicatedPKC.createComment({ cid: postCid });
                 const expectedStates = [
-                    "fetching-subplebbit-ipns",
-                    "fetching-subplebbit-ipfs",
+                    "fetching-community-ipns",
+                    "fetching-community-ipfs",
                     "fetching-update-ipfs",
                     "succeeded",
                     "stopped"
@@ -145,14 +145,14 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`updating state of post is set to failed if sub has an invalid Community record`, async () => {
-            const plebbit = await config.plebbitInstancePromise({ plebbitOptions: { resolveAuthorNames: false } }); // set resolve to false so it wouldn't show up in states
+            const pkc = await config.plebbitInstancePromise({ plebbitOptions: { resolveAuthorNames: false } }); // set resolve to false so it wouldn't show up in states
             try {
                 const { commentCid, communityAddress: subAddress } = await createStaticCommunityRecordForComment({
-                    plebbit,
+                    plebbit: pkc,
                     invalidateCommunitySignature: true
                 });
 
-                const createdPost = await plebbit.createComment({
+                const createdPost = await pkc.createComment({
                     cid: commentCid
                 });
                 expect(createdPost.content).to.be.undefined;
@@ -178,21 +178,21 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 const expectedUpdateStates = [
                     "fetching-ipfs", // fetching comment ipfs of post
                     "succeeded", // succeeded loading comment ipfs of post
-                    "fetching-subplebbit-ipns", // fetching subplebbit ipns
-                    "fetching-subplebbit-ipfs", // fetching subplebbit ipfs
+                    "fetching-community-ipns", // fetching subplebbit ipns
+                    "fetching-community-ipfs", // fetching subplebbit ipfs
                     "failed", // subplebbit ipfs record is invalid
                     "stopped" // called post.stop()
                 ];
                 expect(updatingStates).to.deep.equal(expectedUpdateStates);
             } finally {
-                await plebbit.destroy();
+                await pkc.destroy();
             }
         });
 
         it(`updating state is set to failed if we load an invalid CommentUpdate record from postUpdates`, async () => {
             const dedicatedPKC = await config.plebbitInstancePromise();
             try {
-                const sub = await dedicatedPKC.getCommunity({ address: subplebbitAddress });
+                const sub = await dedicatedPKC.getCommunity({ address: communityAddress });
                 const commentUpdateWithInvalidSignatureJson = await createCommentUpdateWithInvalidSignature(
                     sub.posts.pages.hot.comments[0].cid
                 );
@@ -217,7 +217,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     eventName: "error"
                 });
 
-                await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: dedicatedPKC }); // force subplebbit to publish a new update which will increase loading attempts
+                await publishRandomPost({ communityAddress: communityAddress, plebbit: dedicatedPKC }); // force subplebbit to publish a new update which will increase loading attempts
                 await resolveWhenConditionIsTrue({
                     toUpdate: createdComment,
                     predicate: async () => errors.length >= 2,
@@ -237,8 +237,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 const expectedUpdateStates = [
                     "fetching-ipfs",
                     "succeeded",
-                    "fetching-subplebbit-ipns",
-                    "fetching-subplebbit-ipfs",
+                    "fetching-community-ipns",
+                    "fetching-community-ipfs",
                     "fetching-update-ipfs",
                     "failed"
                 ];
@@ -247,8 +247,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 const restOfUpdatingStates = updatingStates.slice(expectedUpdateStates.length, updatingStates.length);
                 for (let i = 0; i < restOfUpdatingStates.length; i += 2) {
                     if (
-                        restOfUpdatingStates[i] === "fetching-subplebbit-ipns" &&
-                        restOfUpdatingStates[i + 1] === "fetching-subplebbit-ipfs"
+                        restOfUpdatingStates[i] === "fetching-community-ipns" &&
+                        restOfUpdatingStates[i + 1] === "fetching-community-ipfs"
                     ) {
                         expect(restOfUpdatingStates[i + 2]).to.equal("fetching-update-ipfs"); // second attempt to load invalid CommentUpdate
                         expect(restOfUpdatingStates[i + 3]).to.equal("failed");
@@ -264,13 +264,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
     describeSkipIfRpc.concurrent(`post.updatingState - ${config.name}`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`updating state of post is set to failed if sub has an invalid Community record`, async () => {
@@ -307,7 +307,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 const expectedUpdateStates = [
                     "fetching-ipfs", // fetching comment ipfs of post
                     "succeeded", // succeeded loading comment ipfs of post
-                    "fetching-subplebbit-ipns", // fetching subplebbit ipnsa from gateway
+                    "fetching-community-ipns", // fetching subplebbit ipnsa from gateway
                     "failed", // subplebbit ipfs record is invalid
                     "stopped" // called post.stop()
                 ];
@@ -320,7 +320,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         it(`updating state is set to failed if we load an invalid CommentUpdate record from postUpdates`, async () => {
             const dedicatedPKC = await config.plebbitInstancePromise();
             try {
-                const sub = await dedicatedPKC.getCommunity({ address: subplebbitAddress });
+                const sub = await dedicatedPKC.getCommunity({ address: communityAddress });
                 const commentUpdateWithInvalidSignatureJson = await createCommentUpdateWithInvalidSignature(
                     sub.posts.pages.hot.comments[0].cid
                 );
@@ -348,21 +348,21 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
 
                 await createErrorPromise();
 
-                await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: dedicatedPKC }); // force subplebbit to publish a new update which will increase loading attempts
+                await publishRandomPost({ communityAddress: communityAddress, plebbit: dedicatedPKC }); // force subplebbit to publish a new update which will increase loading attempts
                 await createErrorPromise();
 
                 await createdComment.stop();
 
                 expect(createdComment.updatedAt).to.be.undefined; // should not accept the comment update
 
-                const expectedUpdateStates = ["fetching-ipfs", "succeeded", "fetching-subplebbit-ipns", "fetching-update-ipfs", "failed"];
+                const expectedUpdateStates = ["fetching-ipfs", "succeeded", "fetching-community-ipns", "fetching-update-ipfs", "failed"];
                 expect(recordedStates.slice(0, expectedUpdateStates.length)).to.deep.equal(expectedUpdateStates);
 
                 const restOfUpdatingStates = recordedStates.slice(expectedUpdateStates.length, recordedStates.length);
                 for (let i = 0; i < restOfUpdatingStates.length; i += 2) {
                     if (
-                        restOfUpdatingStates[i] === "fetching-subplebbit-ipns" &&
-                        restOfUpdatingStates[i + 1] === "fetching-subplebbit-ipfs"
+                        restOfUpdatingStates[i] === "fetching-community-ipns" &&
+                        restOfUpdatingStates[i + 1] === "fetching-community-ipfs"
                     ) {
                         expect(restOfUpdatingStates[i + 2]).to.equal("fetching-update-ipfs"); // second attempt to load invalid CommentUpdate
                         expect(restOfUpdatingStates[i + 3]).to.equal("failed");
@@ -373,10 +373,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 await dedicatedPKC.destroy();
             }
         });
-        it(`Updating states is in correct upon updating a post that's included in preloaded pages of subplebbit`, async () => {
-            const sub = await plebbit.getCommunity({ address: subplebbitAddress });
+        it(`Updating states is in correct upon updating a post that's included in preloaded pages of community`, async () => {
+            const sub = await pkc.getCommunity({ address: communityAddress });
             const postCid = sub.posts.pages.hot.comments[0].cid;
-            const mockPost = await plebbit.createComment({ cid: postCid });
+            const mockPost = await pkc.createComment({ cid: postCid });
             const recordedStates: string[] = [];
             mockPost.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
 
@@ -384,7 +384,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             const expectedStates = [
                 "fetching-ipfs",
                 "succeeded",
-                "fetching-subplebbit-ipns", // found CommentUpdate of post here
+                "fetching-community-ipns", // found CommentUpdate of post here
                 "succeeded",
                 "stopped"
             ];
@@ -400,13 +400,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         it(`updating states is in correct order upon updating a post with gateway using postUpdates`, async () => {
             const dedicatedPKC = await config.plebbitInstancePromise();
             try {
-                const subplebbit = await dedicatedPKC.getCommunity({ address: subplebbitAddress });
-                const postCid = subplebbit.posts.pages.hot.comments[0].cid;
+                const community = await dedicatedPKC.getCommunity({ address: communityAddress });
+                const postCid = community.posts.pages.hot.comments[0].cid;
                 const mockPost = await dedicatedPKC.createComment({ cid: postCid });
                 const expectedStates = [
                     "fetching-ipfs",
                     "succeeded",
-                    "fetching-subplebbit-ipns",
+                    "fetching-community-ipns",
                     "fetching-update-ipfs",
                     "succeeded",
                     "stopped"
@@ -434,27 +434,27 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describeSkipIfRpc.concurrent(`post.updatingState - ${config.name}`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
-        it(`post.updatingState defaults to stopped after plebbit.createComment()`, async () => {
-            const comment = await plebbit.createComment({ cid: "QmUrxBiaphUt3K6qDs2JspQJAgm34sKQaa5YaRmyAWXN4D" });
+        it(`post.updatingState defaults to stopped after pkc.createComment()`, async () => {
+            const comment = await pkc.createComment({ cid: "QmUrxBiaphUt3K6qDs2JspQJAgm34sKQaa5YaRmyAWXN4D" });
             expect(comment.updatingState).to.equal("stopped");
         });
 
         it(`does not recurse when the post instance is already tracked as the updating instance`, async () => {
             const postCid = "QmUrxBiaphUt3K6qDs2JspQJAgm34sKQaa5YaRmyAWXN4D";
-            const post = await plebbit.createComment({ cid: postCid });
-            const previousUpdatingEntry = plebbit._updatingComments[postCid];
+            const post = await pkc.createComment({ cid: postCid });
+            const previousUpdatingEntry = pkc._updatingComments[postCid];
 
             // Mirror the bug scenario: the same instance is placed in _updatingComments before update()
-            plebbit._updatingComments[postCid] = post;
+            pkc._updatingComments[postCid] = post;
 
             try {
                 await post.update(); // _updatingCommentInstance points to itself after this call
@@ -468,9 +468,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`the order of state-event-statechange is correct when we get a new update from post`, async () => {
-            const sub = await plebbit.getCommunity({ address: subplebbitAddress });
+            const sub = await pkc.getCommunity({ address: communityAddress });
             const postCid = sub.posts.pages.hot.comments[0].cid;
-            const mockPost = await plebbit.createComment({ cid: postCid });
+            const mockPost = await pkc.createComment({ cid: postCid });
             expect(mockPost.raw.comment).to.be.undefined;
             expect(mockPost.raw.commentUpdate).to.be.undefined;
             expect(mockPost.updatedAt).to.be.undefined;
@@ -505,7 +505,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it.sequential(`the order of state-event-statechange is correct when we get an unretriable error from post`, async () => {
             const cidOfInvalidJson = await addStringToIpfs("<html>something");
-            const createdComment = await plebbit.createComment({ cid: cidOfInvalidJson });
+            const createdComment = await pkc.createComment({ cid: cidOfInvalidJson });
 
             const updatingStates: string[] = [];
             createdComment.on("updatingstatechange", () => updatingStates.push(createdComment.updatingState));
@@ -535,7 +535,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 });
 
 describe("comment.updatingState", async () => {
-    // We're using Math CLI subplebbit because the default subplebbit may contain comments with ENS for author address
+    // We're using Math CLI community because the default community may contain comments with ENS for author address
     // Which will change the expected states
     // We should probably add a test for state when a comment with ENS for author address is in pages
 

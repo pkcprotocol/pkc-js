@@ -19,25 +19,25 @@ import type { PKCError } from "../../../../../dist/node/pkc-error.js";
 import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 
 describe.sequential(`Client side verification`, async () => {
-    let plebbit: PKC;
+    let pkc: PKC;
     beforeAll(async () => {
-        plebbit = await mockRemotePKC();
+        pkc = await mockRemotePKC();
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(".publish() throws if publication has invalid signature", async () => {
         const mockComment = await generateMockPost({
-            communityAddress: subplebbitAddress,
-            plebbit: plebbit,
+            communityAddress: communityAddress,
+            plebbit: pkc,
             postProps: { signer: signers[0] }
         });
-        const community = await plebbit.getCommunity({ address: subplebbitAddress });
+        const community = await pkc.getCommunity({ address: communityAddress });
         if (!mockComment.raw.pubsubMessageToPublish)
             await ensurePublicationIsSigned(mockComment, community as Parameters<typeof ensurePublicationIsSigned>[1]);
         const pubsubPublication = JSON.parse(JSON.stringify(mockComment.raw.pubsubMessageToPublish!));
@@ -52,12 +52,12 @@ describe.sequential(`Client side verification`, async () => {
         }
     });
 
-    itSkipIfRpc.sequential(`.publish() throws if fetched subplebbit has an invalid signature`, async () => {
+    itSkipIfRpc.sequential(`.publish() throws if fetched community has an invalid signature`, async () => {
         // this test is flaky in CI for some reason
-        const { commentCid, communityAddress: subplebbitAddress } = await createStaticCommunityRecordForComment({
+        const { commentCid, communityAddress: communityAddress } = await createStaticCommunityRecordForComment({
             invalidateCommunitySignature: true
         });
-        const mockPost = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+        const mockPost = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
         mockPost._getCommunityCache = (): ReturnType<Comment["_getCommunityCache"]> => undefined;
 
         try {
@@ -73,27 +73,27 @@ describe.sequential(`Client side verification`, async () => {
 });
 
 describe.concurrent("Community rejection of incorrect values of fields", async () => {
-    let plebbit: PKC, post: Comment;
+    let pkc: PKC, post: Comment;
     beforeAll(async () => {
-        plebbit = await mockRemotePKC();
-        post = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+        pkc = await mockRemotePKC();
+        post = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
-    it(`Community reject a comment with subplebbitAddress that is not equal to its subplebbit.address`);
+    it(`Community reject a comment with communityAddress that is not equal to its community.address`);
     it(`Community reject publish a comment without author.address`);
     it(`Community reject publish a comment with non valid signature.signedPropertyNames`);
 
     it("Community reject a comment under a non existent parent", async () => {
-        const comment = await plebbit.createComment({
+        const comment = await pkc.createComment({
             parentCid: "QmV8Q8tWqbLTPYdrvSXHjXgrgWUR1fZ9Ctj56ETPi58FDY", // random cid that's not related to this sub,
             postCid: "QmV8Q8tWqbLTPYdrvSXHjXgrgWUR1fZ9Ctj56ETPi58FDY",
             signer: remeda.sample(signers, 1)[0],
             content: `Random Content` + Date.now(),
-            communityAddress: subplebbitAddress
+            communityAddress: communityAddress
         });
         await publishWithExpectedResult({
             publication: comment,
@@ -104,7 +104,7 @@ describe.concurrent("Community rejection of incorrect values of fields", async (
 
     it(`A reply with timestamp earlier than its parent is rejected`, async () => {
         expect(post.timestamp).to.be.a("number");
-        const reply = await generateMockComment(post as CommentIpfsWithCidDefined, plebbit, false, {
+        const reply = await generateMockComment(post as CommentIpfsWithCidDefined, pkc, false, {
             signer: signers[0],
             timestamp: post.timestamp - 1
         });
@@ -117,13 +117,13 @@ describe.concurrent("Community rejection of incorrect values of fields", async (
     });
 
     // Removed: "Throws an error when publishing a duplicate post" — idempotent duplicate handling is now
-    // tested in test/node/subplebbit/unique.publishing.subplebbit.test.ts
+    // tested in test/node/community/unique.publishing.community.test.ts
 
     it(`Throws an error when comment is over size`, async () => {
         const veryLongString = "Hello".repeat(10000);
         const mockPost = await generateMockPost({
             communityAddress: signers[0].address,
-            plebbit: plebbit,
+            plebbit: pkc,
             postProps: { content: veryLongString }
         });
         // Size of post should be ~50kb now
@@ -136,11 +136,11 @@ describe.concurrent("Community rejection of incorrect values of fields", async (
     });
 
     itSkipIfRpc(`Throws an error when a comment has no title, link or content`, async () => {
-        // should fail both locally in plebbit.createComment, and when we publish to the sub
+        // should fail both locally in pkc.createComment, and when we publish to the sub
         try {
             await generateMockPost({
-                communityAddress: subplebbitAddress,
-                plebbit: plebbit,
+                communityAddress: communityAddress,
+                plebbit: pkc,
                 postProps: {
                     link: undefined,
                     content: undefined,
@@ -153,7 +153,7 @@ describe.concurrent("Community rejection of incorrect values of fields", async (
             expect((e as PKCError).details.zodError.issues[0].message).to.equal(messages.ERR_COMMENT_HAS_NO_CONTENT_LINK_TITLE);
         }
 
-        const mockPost = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit }); // regular post with everything defined
+        const mockPost = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc }); // regular post with everything defined
         // @ts-expect-error - intentionally testing invalid props to verify error handling
         await overrideCommentInstancePropsAndSign(mockPost, {
             link: undefined,
@@ -181,15 +181,15 @@ describe.concurrent("Community rejection of incorrect values of fields", async (
             }
         };
         const mockPost = await generateMockPost({
-            communityAddress: subplebbitAddress,
-            plebbit: plebbit,
+            communityAddress: communityAddress,
+            plebbit: pkc,
             postProps: { author: { avatar: test } }
         });
         await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: false, expectedReason: "zxc" });
     });
 
     itSkipIfRpc(`Subs respond with error if an author submits an encrypted field with invalid json`, async () => {
-        const post = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+        const post = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
         // @ts-expect-error - intentionally returning invalid type to test error handling
         post.toJSONPubsubRequestToEncrypt = () => "<html>dwad"; // Publication will encrypt this invalid json
         disableValidationOfSignatureBeforePublishing(post);
@@ -202,13 +202,13 @@ describe.concurrent("Community rejection of incorrect values of fields", async (
 
     it(`Subs respond with error if you attempt to publish a reply without postCid defined`, async () => {
         try {
-            await generateMockComment(post as CommentIpfsWithCidDefined, plebbit, false, { postCid: undefined });
+            await generateMockComment(post as CommentIpfsWithCidDefined, pkc, false, { postCid: undefined });
             expect.fail("Should fail to create a reply without postCid defined");
         } catch (e) {
             expect((e as PKCError).code).to.equal("ERR_INVALID_CREATE_COMMENT_ARGS_SCHEMA");
             expect((e as PKCError).details.zodError.issues[0].message).to.equal(messages.ERR_REPLY_HAS_NOT_DEFINED_POST_CID);
         }
-        const reply = await generateMockComment(post as CommentIpfsWithCidDefined, plebbit, false);
+        const reply = await generateMockComment(post as CommentIpfsWithCidDefined, pkc, false);
         await setExtraPropOnCommentAndSign(reply, { postCid: undefined }, true);
         expect(reply.postCid).to.be.undefined;
         const challengerequestPromise = new Promise<{ comment?: { postCid?: string } }>((resolve) =>
@@ -225,17 +225,17 @@ describe.concurrent("Community rejection of incorrect values of fields", async (
 });
 
 describe.concurrent(`Posts with forbidden fields are rejected during challenge exchange`, async () => {
-    let plebbit: PKC;
+    let pkc: PKC;
     beforeAll(async () => {
-        plebbit = await mockRemotePKC();
+        pkc = await mockRemotePKC();
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`Can't publish a post to sub with signer being part of CommentPubsubMessage`, async () => {
-        const post = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+        const post = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
         await setExtraPropOnCommentAndSign(post, { signer: { privateKey: post.signer.privateKey } }, true);
         await publishWithExpectedResult({
             publication: post,
@@ -264,7 +264,7 @@ describe.concurrent(`Posts with forbidden fields are rejected during challenge e
     ];
     forbiddenFieldsWithValue.map((forbiddenType) =>
         itSkipIfRpc(`comment.${Object.keys(forbiddenType)[0]} is rejected by sub`, async () => {
-            const post = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+            const post = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
             await setExtraPropOnCommentAndSign(post, forbiddenType, true);
             await publishWithExpectedResult({
                 publication: post,
@@ -276,13 +276,13 @@ describe.concurrent(`Posts with forbidden fields are rejected during challenge e
 });
 
 describe("Posts with forbidden author fields are rejected", async () => {
-    let plebbit: PKC;
+    let pkc: PKC;
     beforeAll(async () => {
-        plebbit = await mockRemotePKC();
+        pkc = await mockRemotePKC();
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     const forbiddenFieldsWithValue: Record<string, unknown> = {
@@ -292,9 +292,9 @@ describe("Posts with forbidden author fields are rejected", async () => {
     };
     Object.keys(forbiddenFieldsWithValue).map((forbiddenFieldName) =>
         it(`publication.author.${forbiddenFieldName} is rejected by sub`, async () => {
-            const signer = await plebbit.createSigner();
-            const post = await plebbit.createComment({
-                communityAddress: subplebbitAddress,
+            const signer = await pkc.createSigner();
+            const post = await pkc.createComment({
+                communityAddress: communityAddress,
                 title: "Nonsense" + Date.now(),
                 signer: signer
             });

@@ -28,36 +28,36 @@ type CommentWithExtraProp = Comment & { extraPropUpdate?: string };
 type AuthorWithExtraProp = { extraPropUpdate?: string };
 type ChallengeVerificationWithExtraProp = { commentUpdate?: { extraProp?: number; author?: { extraProp?: number } } };
 
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 
 const subWithNoResponseSigner = signers[4]; // this sub will never respond via pubsub
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe(`Loading CommentUpdate with extra prop - ${config.name}`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
         let post: Comment;
-        let subplebbit: RemoteCommunity;
+        let community: RemoteCommunity;
         const extraProps = { extraPropUpdate: "1234" };
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
-            subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
+            pkc = await config.plebbitInstancePromise();
+            community = await pkc.getCommunity({ address: communityAddress });
 
-            post = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
+            post = await publishRandomPost({ communityAddress: community.address, plebbit: pkc });
             await post.update();
             await resolveWhenConditionIsTrue({ toUpdate: post, predicate: async () => typeof post.updatedAt === "number" });
             await post.stop();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         itSkipIfRpc(`Loading CommentUpdate whose extra props are not in signedPropertyNames should throw`, async () => {
             const invalidCommentUpdate = remeda.clone(post.raw.commentUpdate);
             Object.assign(invalidCommentUpdate, extraProps);
 
-            const postToUpdate = await plebbit.getComment({ cid: post.cid });
+            const postToUpdate = await pkc.getComment({ cid: post.cid });
             let updateEmitted = false;
             const errorPromise = new Promise((resolve) => postToUpdate.once("error", resolve));
 
@@ -75,7 +75,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             expect(postToUpdate.updatedAt).to.be.undefined; // should not accept the comment update
 
-            if (!isPKCFetchingUsingGateways(plebbit)) {
+            if (!isPKCFetchingUsingGateways(pkc)) {
                 expect(error.code).to.equal("ERR_COMMENT_UPDATE_SIGNATURE_IS_INVALID");
                 expect(error.details.signatureValidity).to.deep.equal({
                     valid: false,
@@ -106,7 +106,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 log
             );
 
-            const postToUpdate = await plebbit.getComment({ cid: post.cid });
+            const postToUpdate = await pkc.getComment({ cid: post.cid });
 
             await postToUpdate.update();
             mockPostToReturnSpecificCommentUpdate(postToUpdate, JSON.stringify(commentUpdateWithExtraProps));
@@ -122,8 +122,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const shapes = [
                 postToUpdate,
                 postToUpdate.raw.commentUpdate,
-                await plebbit.createComment(postToUpdate),
-                await plebbit.createComment(JSON.parse(JSON.stringify(postToUpdate)))
+                await pkc.createComment(postToUpdate),
+                await pkc.createComment(JSON.parse(JSON.stringify(postToUpdate)))
             ];
 
             for (const shape of shapes) expect((shape as CommentWithExtraProp).extraPropUpdate).to.equal(extraProps.extraPropUpdate);
@@ -140,7 +140,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 log
             );
 
-            const postToUpdate = await plebbit.getComment({ cid: post.cid });
+            const postToUpdate = await pkc.getComment({ cid: post.cid });
 
             await postToUpdate.update();
             mockPostToReturnSpecificCommentUpdate(postToUpdate, JSON.stringify(commentUpdateWithExtraProps));
@@ -154,8 +154,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const shapes = [
                 postToUpdate,
                 postToUpdate.raw.commentUpdate,
-                await plebbit.createComment(postToUpdate),
-                await plebbit.createComment(JSON.parse(JSON.stringify(postToUpdate)))
+                await pkc.createComment(postToUpdate),
+                await pkc.createComment(JSON.parse(JSON.stringify(postToUpdate)))
             ];
 
             for (const commentShape of shapes)
@@ -173,7 +173,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 log
             );
 
-            const pageIpfs = subplebbit.raw.subplebbitIpfs.posts.pages.hot;
+            const pageIpfs = community.raw.subplebbitIpfs.posts.pages.hot;
 
             pageIpfs.comments.push({
                 comment: post.raw.comment,
@@ -182,17 +182,17 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             const pageIpfsCid = await addStringToIpfs(JSON.stringify(pageIpfs));
 
-            subplebbit.posts.pageCids.new = pageIpfsCid; // just so that it wouldn't throw
+            community.posts.pageCids.new = pageIpfsCid; // just so that it wouldn't throw
 
-            const fetchedPage = await subplebbit.posts.getPage({ cid: pageIpfsCid }); // If this succeeds, it means signature has been verified and everything
+            const fetchedPage = await community.posts.getPage({ cid: pageIpfsCid }); // If this succeeds, it means signature has been verified and everything
 
             const commentInPageJson = fetchedPage.comments[fetchedPage.comments.length - 1];
 
             const shapes = [
                 commentInPageJson,
                 JSON.parse(JSON.stringify(commentInPageJson)),
-                await plebbit.createComment(commentInPageJson),
-                await plebbit.createComment(await plebbit.createComment(commentInPageJson))
+                await pkc.createComment(commentInPageJson),
+                await pkc.createComment(await pkc.createComment(commentInPageJson))
             ];
             for (const shape of shapes) expect((shape as CommentWithExtraProp).extraPropUpdate).to.equal(extraProps.extraPropUpdate);
         });
@@ -208,7 +208,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 log
             );
 
-            const pageIpfs = JSON.parse(await plebbit.fetchCid({ cid: subplebbit.posts.pageCids.new }));
+            const pageIpfs = JSON.parse(await pkc.fetchCid({ cid: community.posts.pageCids.new }));
 
             pageIpfs.comments.push({
                 comment: post.raw.comment,
@@ -216,34 +216,34 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             const pageIpfsCid = await addStringToIpfs(JSON.stringify(pageIpfs));
-            subplebbit.posts.pageCids.new = pageIpfsCid; // just so that it wouldn't throw
+            community.posts.pageCids.new = pageIpfsCid; // just so that it wouldn't throw
 
-            const fetchedPage = await subplebbit.posts.getPage({ cid: pageIpfsCid }); // If this succeeds, it means signature has been verified and everything
+            const fetchedPage = await community.posts.getPage({ cid: pageIpfsCid }); // If this succeeds, it means signature has been verified and everything
 
             const commentInPageJson = fetchedPage.comments[fetchedPage.comments.length - 1];
 
             const shapes = [
                 commentInPageJson,
                 JSON.parse(JSON.stringify(commentInPageJson)),
-                await plebbit.createComment(commentInPageJson),
-                await plebbit.createComment(await plebbit.createComment(commentInPageJson))
+                await pkc.createComment(commentInPageJson),
+                await pkc.createComment(await pkc.createComment(commentInPageJson))
             ];
             for (const shape of shapes) expect((shape.author as AuthorWithExtraProp).extraPropUpdate).to.equal(extraProps.extraPropUpdate);
         });
     });
 
     describe.concurrent(`Extra props in decryptedChallengeVerification.commentUpdate - ${config.name}`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`Extra props in decryptedVerification.commentUpdate should fail if they're not part of commentUpdate.signature.signedPropertyNames`, async () => {
-            const post = await generateMockPost({ communityAddress: subWithNoResponseSigner.address, plebbit: plebbit });
+            const post = await generateMockPost({ communityAddress: subWithNoResponseSigner.address, plebbit: pkc });
 
             const commentUpdate = JSON.parse(JSON.stringify(validCommentUpdateFixture));
             const extraProps = { extraProp: 1234 };
@@ -268,7 +268,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await post.stop();
         });
         it(`Extra props in decryptedVerification.commentUpdate should be accepted if they're part of commentUpdate.signature.signedPropertyNames`, async () => {
-            const post = await generateMockPost({ communityAddress: subWithNoResponseSigner.address, plebbit: plebbit });
+            const post = await generateMockPost({ communityAddress: subWithNoResponseSigner.address, plebbit: pkc });
 
             const challengeRequestPromise = new Promise((resolve) => post.once("challengerequest", resolve));
             await post.publish();
@@ -305,7 +305,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Extra props in decryptedVerification.commentUpdate.author should be accepted`, async () => {
-            const post = await generateMockPost({ communityAddress: subWithNoResponseSigner.address, plebbit: plebbit });
+            const post = await generateMockPost({ communityAddress: subWithNoResponseSigner.address, plebbit: pkc });
 
             const challengeRequestPromise = new Promise((resolve) => post.once("challengerequest", resolve));
             await post.publish();

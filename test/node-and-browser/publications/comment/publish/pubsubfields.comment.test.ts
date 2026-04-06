@@ -23,25 +23,25 @@ type ChallengeRequestEvent = {
     challengeCommentCids?: string[];
 };
 getAvailablePKCConfigsToTestAgainst().map((config) => {
-    describe.concurrent(`Pubsub request fields in plebbit.createComment - ${config.name}`, async () => {
-        let plebbit: PKC;
+    describe.concurrent(`Pubsub request fields in pkc.createComment - ${config.name}`, async () => {
+        let pkc: PKC;
         let community: CommunityForSigning;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
-            const sub = await plebbit.getCommunity({ address: signers[0].address });
+            pkc = await config.plebbitInstancePromise();
+            const sub = await pkc.getCommunity({ address: signers[0].address });
             community = sub as CommunityForSigning;
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
-        it(`plebbit.createComment({challengeRequest: challengeAnswers}) includes challengeAnswers in request pubsub message`, async () => {
+        it(`pkc.createComment({challengeRequest: challengeAnswers}) includes challengeAnswers in request pubsub message`, async () => {
             const challengeRequestFields = { challengeAnswers: ["12345"] };
             const comment = await generateMockPost({
                 communityAddress: signers[0].address,
-                plebbit: plebbit,
+                plebbit: pkc,
                 postProps: { challengeRequest: challengeRequestFields }
             });
             expect(comment.challengeRequest).to.deep.equal(challengeRequestFields);
@@ -56,11 +56,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             for (const challengerequest of [challengeRequestFromEvent])
                 expect(challengerequest.challengeAnswers).to.deep.equal(challengeRequestFields.challengeAnswers);
         });
-        it(`plebbit.createComment({challengeRequest: challengeCommentCids}) includes challengeCommentCids in request pubsub message`, async () => {
+        it(`pkc.createComment({challengeRequest: challengeCommentCids}) includes challengeCommentCids in request pubsub message`, async () => {
             const challengeRequestFields = { challengeCommentCids: ["QmXsYKgNH7XoZXdLko5uDvtWSRNE2AXuQ4u8KxVpCacrZx"] }; // random cid
             const comment = await generateMockPost({
                 communityAddress: signers[0].address,
-                plebbit: plebbit,
+                plebbit: pkc,
                 postProps: { challengeRequest: challengeRequestFields }
             });
 
@@ -82,10 +82,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             }; // random cid
             const comment = await generateMockPost({
                 communityAddress: signers[0].address,
-                plebbit: plebbit,
+                plebbit: pkc,
                 postProps: { challengeRequest: challengeRequestFields }
             });
-            const recreatedComment = await plebbit.createComment(JSON.parse(JSON.stringify(comment)));
+            const recreatedComment = await pkc.createComment(JSON.parse(JSON.stringify(comment)));
             expect(recreatedComment.challengeRequest).to.deep.equal(comment.challengeRequest);
 
             if (!recreatedComment.raw.pubsubMessageToPublish) await ensurePublicationIsSigned(recreatedComment, community);

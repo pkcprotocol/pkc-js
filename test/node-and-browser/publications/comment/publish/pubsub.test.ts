@@ -32,8 +32,8 @@ type PKCWithInternals = PKC & {
     _clientsManager: PKCClientManager;
 };
 
-const subplebbitWithNoChallenge = signers[0].address;
-const subplebbitWithMathCliChallenge = signers[1].address;
+const communityWithNoChallenge = signers[0].address;
+const communityWithMathCliChallenge = signers[1].address;
 
 const notRespondingPubsubUrl = "http://localhost:15005/api/v0"; // Takes msgs but doesn't respond
 const workingPubsubUrl = "http://localhost:15002/api/v0"; // kubo node with working pubsub
@@ -76,7 +76,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"]
                     remotePKC: true
                 });
 
-                const mockPost = await generateMockPost({ communityAddress: subplebbitWithMathCliChallenge, plebbit: testPKC });
+                const mockPost = await generateMockPost({ communityAddress: communityWithMathCliChallenge, plebbit: testPKC });
                 (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 2; // Speed up test
                 (mockPost as unknown as CommentWithInternals)._setProviderFailureThresholdSeconds = 5; // Speed up test
 
@@ -116,7 +116,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"]
                 remotePKC: true
             });
 
-            const mockPost = await generateMockPost({ communityAddress: subplebbitWithNoChallenge, plebbit: testPKC });
+            const mockPost = await generateMockPost({ communityAddress: communityWithNoChallenge, plebbit: testPKC });
             (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 2; // Speed up test
             (mockPost as unknown as CommentWithInternals)._setProviderFailureThresholdSeconds = 5; // Speed up test
 
@@ -165,7 +165,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"]
                     remotePKC: true
                 });
 
-                const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: subplebbitWithMathCliChallenge }, testPKC);
+                const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: communityWithMathCliChallenge }, testPKC);
                 (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 5; // Very fast timeout
 
                 const challengesReceived = [];
@@ -191,7 +191,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"]
                     remotePKC: true
                 });
 
-                const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: subplebbitWithMathCliChallenge }, testPKC);
+                const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: communityWithMathCliChallenge }, testPKC);
                 (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 1; // Very fast timeout
 
                 let challengeRequestCount = 0;
@@ -241,7 +241,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"]
                     remotePKC: true
                 });
 
-                const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: subplebbitWithMathCliChallenge }, testPKC);
+                const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: communityWithMathCliChallenge }, testPKC);
                 (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 2;
 
                 const providerAttempts: string[] = [];
@@ -276,7 +276,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"]
                         remotePKC: true
                     });
 
-                    const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: subplebbitWithMathCliChallenge }, testPKC);
+                    const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: communityWithMathCliChallenge }, testPKC);
 
                     let publishCount = 0;
                     const originalPublishOnProvider = (testPKC as PKCWithInternals)._clientsManager.pubsubPublishOnProvider.bind(
@@ -322,7 +322,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"]
                     plebbitOptions: { pubsubKuboRpcClientsOptions: [offlinePubsubUrl] }
                 });
 
-                const mockPost = await generateMockPost({ communityAddress: subplebbitWithNoChallenge, plebbit: testPKC });
+                const mockPost = await generateMockPost({ communityAddress: communityWithNoChallenge, plebbit: testPKC });
 
                 // Track subscription state
                 const numOfPubsubProvidersBefore = Object.keys(
@@ -381,7 +381,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"]
                     plebbitOptions: { pubsubKuboRpcClientsOptions: [pubsubMockedWithError] }
                 });
 
-                const mockPost = await generateMockPost({ communityAddress: subplebbitWithNoChallenge, plebbit: testPKC });
+                const mockPost = await generateMockPost({ communityAddress: communityWithNoChallenge, plebbit: testPKC });
 
                 const errors = [];
 

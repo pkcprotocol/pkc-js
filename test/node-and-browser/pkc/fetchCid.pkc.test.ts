@@ -13,41 +13,41 @@ import type { PKCError } from "../../../dist/node/pkc-error.js";
 const fixtureSigner = signers[0];
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
-    describe.concurrent(`plebbit.fetchCid - ${config.name}`, async () => {
-        let plebbit: PKCType;
+    describe.concurrent(`pkc.fetchCid - ${config.name}`, async () => {
+        let pkc: PKCType;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`Can fetch a cid correctly`, async () => {
             const fileString = "Hello plebs";
             const cid = await addStringToIpfs(fileString);
             expect(cid).to.equal("QmbWqTYuyfcpDyn6gawRf5eSFVtYnGDAKttjESXjjbAHbr");
-            const contentFromFetchCid = await plebbit.fetchCid({ cid: cid });
+            const contentFromFetchCid = await pkc.fetchCid({ cid: cid });
             expect(contentFromFetchCid).to.equal(fileString);
         });
 
-        it(`Throws an error if malicious RPC modifies content of file in plebbit.fetchCid`);
+        it(`Throws an error if malicious RPC modifies content of file in pkc.fetchCid`);
 
-        it("plebbit.fetchCid({cid: ) throws if provided with invalid cid", async () => {
+        it("pkc.fetchCid({cid: ) throws if provided with invalid cid", async () => {
             const gibberishCid = "12345";
 
             try {
-                await plebbit.fetchCid({ cid: gibberishCid });
+                await pkc.fetchCid({ cid: gibberishCid });
                 expect.fail("Should have thrown");
             } catch (e) {
                 expect((e as Error).name).to.equal("ZodError");
             }
         });
-        it.sequential("plebbit.fetchCid({cid: ) loads an ipfs file under 1mb as JSON correctly", async () => {
+        it.sequential("pkc.fetchCid({cid: ) loads an ipfs file under 1mb as JSON correctly", async () => {
             const jsonFileTest = { 123: "123" };
             const cid = await addStringToIpfs(JSON.stringify(jsonFileTest));
             expect(cid).to.equal("QmaZN2117dty2gHUDx2kHM61Vz9UcVDHFCx9PQt2bP2CEo");
-            expect(JSON.parse(await plebbit.fetchCid({ cid: cid }))).to.deep.equal(jsonFileTest);
+            expect(JSON.parse(await pkc.fetchCid({ cid: cid }))).to.deep.equal(jsonFileTest);
         });
 
         it("Throws an error when file to download is over 1mb", async () => {
@@ -57,11 +57,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(cid).to.equal("QmQZDGmHHPetkjoMKP9sjnV5HaCVubJLnNUzQeCtzxLDX4");
 
             try {
-                await plebbit.fetchCid({ cid: cid });
+                await pkc.fetchCid({ cid: cid });
                 expect.fail("should not succeed");
             } catch (e) {
                 const error = e as PKCError;
-                if (isPKCFetchingUsingGateways(plebbit)) {
+                if (isPKCFetchingUsingGateways(pkc)) {
                     expect(error.code).to.equal("ERR_FAILED_TO_FETCH_GENERIC_IPFS_FROM_GATEWAYS");
                     expect(
                         (error.details.gatewayToError as Record<string, PKCError>)[
@@ -78,7 +78,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 });
 
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
-    describe.concurrent("plebbit.fetchCid - " + config.name, () => {
+    describe.concurrent("pkc.fetchCid - " + config.name, () => {
         it(`Throws an error if malicious gateway modifies content of file`, async () => {
             // RPC exception
             const [fileString1, fileString2] = ["Hello plebs", "Hello plebs 2"];
@@ -111,7 +111,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             await plebbitWithMaliciousGateway.destroy();
         });
 
-        it(`plebbit.fetchCid({cid}) resolves with the first gateway response`, async () => {
+        it(`pkc.fetchCid({cid}) resolves with the first gateway response`, async () => {
             // Have two gateways, the first is a gateway that takes 10s to respond, and the second should be near instant
             // RPC exception
             const multipleGatewayPKC = await PKC({

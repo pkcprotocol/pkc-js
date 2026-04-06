@@ -13,11 +13,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             `comment.update() emits error and changes updatingState to waiting-retry and keeps retrying if CommentIpfs loading times out`,
             async () => {
                 // Create a comment with a CID that doesn't exist or will time out
-                const plebbit = await config.plebbitInstancePromise();
+                const pkc = await config.plebbitInstancePromise();
                 const nonExistentCid = "QmbSiusGgY4Uk5LdAe91bzLkBzidyKyKHRKwhXPDz7gGzx"; // Random CID that doesn't exist
-                const createdComment = await plebbit.createComment({ cid: nonExistentCid });
+                const createdComment = await pkc.createComment({ cid: nonExistentCid });
 
-                plebbit._timeouts["comment-ipfs"] = 100; // reduce timeout to 100ms
+                pkc._timeouts["comment-ipfs"] = 100; // reduce timeout to 100ms
 
                 let updateHasBeenEmitted = false;
                 createdComment.once("update", () => (updateHasBeenEmitted = true));
@@ -36,9 +36,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
                 await createdComment.stop();
                 for (const waitingRetryErr of waitingRetries) {
-                    if (isPKCFetchingUsingGateways(plebbit)) {
+                    if (isPKCFetchingUsingGateways(pkc)) {
                         expect(waitingRetryErr.code).to.equal("ERR_FAILED_TO_FETCH_COMMENT_IPFS_FROM_GATEWAYS");
-                        for (const gatewayUrl of Object.keys(plebbit.clients.ipfsGateways))
+                        for (const gatewayUrl of Object.keys(pkc.clients.ipfsGateways))
                             expect(waitingRetryErr.details.gatewayToError[gatewayUrl].code).to.equal("ERR_GATEWAY_TIMED_OUT_OR_ABORTED");
                     } else {
                         expect(waitingRetryErr.code).to.equal("ERR_FETCH_CID_P2P_TIMEOUT");
@@ -49,7 +49,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(createdComment.state).to.equal("stopped");
                 expect(createdComment.updatedAt).to.be.undefined;
                 expect(updateHasBeenEmitted).to.be.false;
-                await plebbit.destroy();
+                await pkc.destroy();
             }
         );
     });

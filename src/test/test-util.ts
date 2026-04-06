@@ -1536,7 +1536,7 @@ export async function mockPKCWithHeliaConfig(opts?: MockPKCOptions) {
     return heliaPKC;
 }
 
-type PKCTestConfigCode = "remote-kubo-rpc" | "remote-ipfs-gateway" | "remote-plebbit-rpc" | "local-kubo-rpc" | "remote-libp2pjs";
+type PKCTestConfigCode = "remote-kubo-rpc" | "remote-ipfs-gateway" | "remote-pkc-rpc" | "local-kubo-rpc" | "remote-libp2pjs";
 
 type PKCConfigWithName = {
     name: string;
@@ -1555,10 +1555,10 @@ const testConfigCodeToPKCInstanceWithHumanName: Record<PKCTestConfigCode, PKCCon
         name: "IPFS Gateway",
         testConfigCode: "remote-ipfs-gateway"
     },
-    "remote-plebbit-rpc": {
+    "remote-pkc-rpc": {
         plebbitInstancePromise: (args?: MockPKCOptions) => mockRpcRemotePKC(args),
         name: "PKC RPC Remote",
-        testConfigCode: "remote-plebbit-rpc"
+        testConfigCode: "remote-pkc-rpc"
     },
     "local-kubo-rpc": {
         plebbitInstancePromise: (args?: MockPKCOptions) =>
@@ -1619,14 +1619,14 @@ export function getAvailablePKCConfigsToTestAgainst(opts?: {
     includeAllPossibleConfigOnEnv?: boolean;
 }): PKCConfigWithName[] {
     if (opts?.includeAllPossibleConfigOnEnv) {
-        // if node, ["local-kubo-rpc", "remote-kubo-rpc", "remote-ipfs-gateway"], also 'remote-plebbit-rpc' if isRpcFlagOn()
+        // if node, ["local-kubo-rpc", "remote-kubo-rpc", "remote-ipfs-gateway"], also 'remote-pkc-rpc' if isRpcFlagOn()
         // if browser, ["remote-kubo-rpc", "remote-ipfs-gateway"]
         // NOTE: "remote-libp2pjs" is temporarily disabled due to stability issues
         const isBrowser = isRunningInBrowser();
         const plebbitConfigCodes: PKCTestConfigCode[] = isBrowser
             ? ["remote-kubo-rpc", "remote-ipfs-gateway"]
             : ["local-kubo-rpc", "remote-kubo-rpc", "remote-ipfs-gateway"];
-        if (!isBrowser && isRpcFlagOn()) plebbitConfigCodes.push("remote-plebbit-rpc");
+        if (!isBrowser && isRpcFlagOn()) plebbitConfigCodes.push("remote-pkc-rpc");
         const availableConfigs = remeda.pick(testConfigCodeToPKCInstanceWithHumanName, plebbitConfigCodes);
         if (opts.includeOnlyTheseTests?.length) {
             return Object.values(remeda.pick(availableConfigs, opts.includeOnlyTheseTests));

@@ -9,7 +9,7 @@ import type { PKCError } from "../../../dist/node/pkc-error.js";
 
 import validPageFixture from "../../fixtures/valid_page.json" with { type: "json" };
 
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 
 // Helper to create a mock page with specific size
 async function createMockPageOfSize(baseSize: number, nextCid: string | null = null): Promise<PageIpfs> {
@@ -69,21 +69,21 @@ async function createMockPageOfSize(baseSize: number, nextCid: string | null = n
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Page size loading tests - ${config.name}`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
         let mockCommunity: RemoteCommunity;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         beforeEach(async () => {
-            // Create a fresh mock subplebbit for each test
-            mockCommunity = await plebbit.createCommunity({
-                address: subplebbitAddress
+            // Create a fresh mock community for each test
+            mockCommunity = await pkc.createCommunity({
+                address: communityAddress
             });
         });
 
@@ -103,7 +103,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const firstPage = await createMockPageOfSize(firstPageSize, secondPageCid);
             const firstPageCid = await addStringToIpfs(JSON.stringify(firstPage));
 
-            // Set up the subplebbit's posts to point to our first page
+            // Set up the community's posts to point to our first page
             mockCommunity.posts.pageCids = { ...mockCommunity.posts.pageCids, hot: firstPageCid };
 
             // Load the first page
@@ -146,7 +146,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             firstPage.nextCid = oversizedSecondPageCid;
             const updatedFirstPageCid = await addStringToIpfs(JSON.stringify(firstPage));
 
-            // Set up the subplebbit's posts to point to our first page
+            // Set up the community's posts to point to our first page
             mockCommunity.posts.pageCids = { ...mockCommunity.posts.pageCids, hot: updatedFirstPageCid };
 
             // Load the first page to establish size expectations
@@ -164,7 +164,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect.fail("Should have thrown an error for oversized page");
             } catch (e) {
                 const error = e as PKCError;
-                if (isPKCFetchingUsingGateways(plebbit)) {
+                if (isPKCFetchingUsingGateways(pkc)) {
                     expect(error.code).to.equal("ERR_FAILED_TO_FETCH_PAGE_IPFS_FROM_GATEWAYS");
                     expect((error.details.gatewayToError as Record<string, PKCError>)["http://localhost:18080"].code).to.equal(
                         "ERR_OVER_DOWNLOAD_LIMIT"
@@ -181,7 +181,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const oversizedFirstPage = await createMockPageOfSize(2 * 1024 * 1024);
             const oversizedFirstPageCid = await addStringToIpfs(JSON.stringify(oversizedFirstPage));
 
-            // Set up the subplebbit's posts to point to our oversized first page
+            // Set up the community's posts to point to our oversized first page
             mockCommunity.posts.pageCids = { ...mockCommunity.posts.pageCids, hot: oversizedFirstPageCid };
 
             // Attempt to load the oversized first page - should throw an error
@@ -190,7 +190,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect.fail("Should have thrown an error for oversized first page");
             } catch (e) {
                 const error = e as PKCError;
-                if (isPKCFetchingUsingGateways(plebbit)) {
+                if (isPKCFetchingUsingGateways(pkc)) {
                     expect(error.code).to.equal("ERR_FAILED_TO_FETCH_PAGE_IPFS_FROM_GATEWAYS");
                     expect((error.details.gatewayToError as Record<string, PKCError>)["http://localhost:18080"].code).to.equal(
                         "ERR_OVER_DOWNLOAD_LIMIT"

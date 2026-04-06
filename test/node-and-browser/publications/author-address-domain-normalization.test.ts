@@ -9,26 +9,26 @@ function getWireAuthor(pub: { raw: object }): Record<string, unknown> | undefine
     return (raw.pubsubMessageToPublish?.author ?? raw.unsignedPublicationOptions?.author) as Record<string, unknown> | undefined;
 }
 
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 const domainAddress = "plebbit.bso";
 // Use a fake CID for publications that require commentCid (not publishing, just creating locally)
 const fakeCid = "QmYHzA8euDgUpNy3fh7JGFnCEKVjjHGPMNUCbgnmc3cGRv";
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe(`author.address domain normalization - ${config.name}`, () => {
-        let plebbit: PKC;
+        let pkc: PKC;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit?.destroy();
+            await pkc?.destroy();
         });
 
         it("createComment copies author.address domain to author.name and excludes address from wire", async () => {
-            const comment = await plebbit.createComment({
-                communityAddress: subplebbitAddress,
+            const comment = await pkc.createComment({
+                communityAddress: communityAddress,
                 content: "test",
                 title: "test",
                 author: { address: domainAddress },
@@ -43,8 +43,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it("createVote copies author.address domain to author.name and excludes address from wire", async () => {
-            const vote = await plebbit.createVote({
-                communityAddress: subplebbitAddress,
+            const vote = await pkc.createVote({
+                communityAddress: communityAddress,
                 commentCid: fakeCid,
                 vote: 1,
                 author: { address: domainAddress },
@@ -59,8 +59,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it("createCommentEdit copies author.address domain to author.name and excludes address from wire", async () => {
-            const edit = await plebbit.createCommentEdit({
-                communityAddress: subplebbitAddress,
+            const edit = await pkc.createCommentEdit({
+                communityAddress: communityAddress,
                 commentCid: fakeCid,
                 content: "edited",
                 author: { address: domainAddress },
@@ -75,8 +75,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it("createCommentModeration copies author.address domain to author.name and excludes address from wire", async () => {
-            const mod = await plebbit.createCommentModeration({
-                communityAddress: subplebbitAddress,
+            const mod = await pkc.createCommentModeration({
+                communityAddress: communityAddress,
                 commentCid: fakeCid,
                 commentModeration: { removed: true },
                 author: { address: domainAddress },
@@ -91,8 +91,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it("createCommunityEdit copies author.address domain to author.name and excludes address from wire", async () => {
-            const subEdit = await plebbit.createCommunityEdit({
-                communityAddress: subplebbitAddress,
+            const subEdit = await pkc.createCommunityEdit({
+                communityAddress: communityAddress,
                 subplebbitEdit: { title: "new title" },
                 author: { address: domainAddress },
                 signer: signers[3]
@@ -106,8 +106,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it("createComment ignores non-domain author.address and derives address from signer", async () => {
-            const comment = await plebbit.createComment({
-                communityAddress: subplebbitAddress,
+            const comment = await pkc.createComment({
+                communityAddress: communityAddress,
                 content: "test",
                 title: "test",
                 author: { address: "bogusAddress123" },
@@ -122,8 +122,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it("createVote ignores non-domain author.address and derives address from signer", async () => {
-            const vote = await plebbit.createVote({
-                communityAddress: subplebbitAddress,
+            const vote = await pkc.createVote({
+                communityAddress: communityAddress,
                 commentCid: fakeCid,
                 vote: 1,
                 author: { address: "bogusAddress123" },
@@ -138,8 +138,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it("createCommentEdit ignores non-domain author.address and derives address from signer", async () => {
-            const edit = await plebbit.createCommentEdit({
-                communityAddress: subplebbitAddress,
+            const edit = await pkc.createCommentEdit({
+                communityAddress: communityAddress,
                 commentCid: fakeCid,
                 content: "edited",
                 author: { address: "bogusAddress123" },
@@ -154,8 +154,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it("createCommentModeration ignores non-domain author.address and derives address from signer", async () => {
-            const mod = await plebbit.createCommentModeration({
-                communityAddress: subplebbitAddress,
+            const mod = await pkc.createCommentModeration({
+                communityAddress: communityAddress,
                 commentCid: fakeCid,
                 commentModeration: { removed: true },
                 author: { address: "bogusAddress123" },
@@ -170,8 +170,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it("createCommunityEdit ignores non-domain author.address and derives address from signer", async () => {
-            const subEdit = await plebbit.createCommunityEdit({
-                communityAddress: subplebbitAddress,
+            const subEdit = await pkc.createCommunityEdit({
+                communityAddress: communityAddress,
                 subplebbitEdit: { title: "new title" },
                 author: { address: "bogusAddress123" },
                 signer: signers[3]
@@ -185,8 +185,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it("createComment preserves existing author.name when author.address is also a domain", async () => {
-            const comment = await plebbit.createComment({
-                communityAddress: subplebbitAddress,
+            const comment = await pkc.createComment({
+                communityAddress: communityAddress,
                 content: "test",
                 title: "test",
                 author: { address: domainAddress, name: "custom.eth" },

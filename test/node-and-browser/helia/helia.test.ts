@@ -20,39 +20,39 @@ const mathCliNoMockedPubsubCommunityAddress = signers[5].address; // this sub is
 // for(let i =0;i <50; i++)
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"] }).map((config) => {
     describe(`Test publishing pubsub in real environment - ${config.name}`, { retry: 2 }, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
         let publishedPost: Comment;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise({ forceMockPubsub: false });
+            pkc = await config.plebbitInstancePromise({ forceMockPubsub: false });
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
-        it(`Can fetch subplebbit`, async () => {
-            const sub = await plebbit.getCommunity({ address: mathCliNoMockedPubsubCommunityAddress });
+        it(`Can fetch community`, async () => {
+            const sub = await pkc.getCommunity({ address: mathCliNoMockedPubsubCommunityAddress });
             expect(sub.updatedAt).to.be.a("number");
             expect(sub.settings).to.be.undefined; // make sure it's not loading local subplebbit
         });
 
         it("can post after answering correctly", async function () {
-            publishedPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliNoMockedPubsubCommunityAddress }, plebbit);
+            publishedPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliNoMockedPubsubCommunityAddress }, pkc);
             await publishWithExpectedResult({ publication: publishedPost, expectedChallengeSuccess: true });
         });
 
         it(`Can fetch Comment IPFS`, async () => {
             const commentCid = publishedPost.cid;
             expect(commentCid).to.be.a("string");
-            const comment = await plebbit.getComment({ cid: commentCid! });
+            const comment = await pkc.getComment({ cid: commentCid! });
             expect(comment.signature).to.be.a("object");
         });
 
         it(`Can fetch comment update`, async () => {
             const commentCid = publishedPost.cid;
             expect(commentCid).to.be.a("string");
-            const comment = await plebbit.getComment({ cid: commentCid! });
+            const comment = await pkc.getComment({ cid: commentCid! });
             expect(comment.signature).to.be.a("object");
 
             await comment.update();

@@ -21,7 +21,7 @@ import type { CommentWithinRepliesPostsPageJson, CommentIpfsWithCidDefined } fro
 import type { CreateCommentModerationOptions } from "../../../../dist/node/publications/comment-moderation/types.js";
 
 const remotePKCConfigs = getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).filter(
-    (config) => config.testConfigCode !== "remote-plebbit-rpc" // we're filtering RPC out because we can't reduce its timeout so tests take forever
+    (config) => config.testConfigCode !== "remote-pkc-rpc" // we're filtering RPC out because we can't reduce its timeout so tests take forever
 );
 
 const depthsToTest = [0, 1, 2, 15];
@@ -261,7 +261,7 @@ for (const commentMod of commentModProps) {
 
                 remotePKCConfigs.forEach((remotePKCConfig) => {
                     const itSequentialIfRpc =
-                        remotePKCConfig.testConfigCode === "remote-plebbit-rpc" ||
+                        remotePKCConfig.testConfigCode === "remote-pkc-rpc" ||
                         remotePKCConfig.testConfigCode === "local-kubo-rpc" ||
                         remotePKCConfig.testConfigCode === "remote-kubo-rpc"
                             ? it.sequential

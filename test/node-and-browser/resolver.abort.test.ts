@@ -14,7 +14,7 @@ describeSkipIfRpc(`nameResolver abortSignal support`, async () => {
             resolverCalled = resolve;
         });
 
-        const plebbit = await mockPKCV2({
+        const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
@@ -51,7 +51,7 @@ describeSkipIfRpc(`nameResolver abortSignal support`, async () => {
 
         try {
             const abortController = new AbortController();
-            const resolutionPromise = plebbit._clientsManager.resolveCommunityNameIfNeeded({
+            const resolutionPromise = pkc._clientsManager.resolveCommunityNameIfNeeded({
                 communityAddress: "test.bso",
                 abortSignal: abortController.signal
             });
@@ -59,14 +59,14 @@ describeSkipIfRpc(`nameResolver abortSignal support`, async () => {
             await waitUntilResolverCalled;
 
             expect(receivedSignal).to.equal(abortController.signal);
-            expect(plebbit._clientsManager.clients.nameResolvers["signal-resolver"].state).to.equal("resolving-community-name");
+            expect(pkc._clientsManager.clients.nameResolvers["signal-resolver"].state).to.equal("resolving-community-name");
 
             abortController.abort(createAbortError("Resolver aborted"));
 
             await expect(resolutionPromise).rejects.toMatchObject({ name: "AbortError", message: "Resolver aborted" });
-            expect(plebbit._clientsManager.clients.nameResolvers["signal-resolver"].state).to.equal("stopped");
+            expect(pkc._clientsManager.clients.nameResolvers["signal-resolver"].state).to.equal("stopped");
         } finally {
-            await plebbit.destroy();
+            await pkc.destroy();
         }
     });
 });

@@ -19,23 +19,23 @@ type CommentWithInternals = {
     _setProviderFailureThresholdSeconds: number;
     _challengeExchanges: Record<string, unknown>;
 };
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 const mathCliCommunityAddress = signers[1].address;
 
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
     describe(`comment.publishingState - ${config.name}`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
         it(`comment.publishingState stays as stopped after calling comment.update() - IPFS client`, async () => {
-            const sub = await plebbit.getCommunity({ address: subplebbitAddress });
+            const sub = await pkc.getCommunity({ address: communityAddress });
             const commentCid = sub.posts.pages.hot.comments[0].cid;
-            const comment = await plebbit.createComment({ cid: commentCid });
+            const comment = await pkc.createComment({ cid: commentCid });
             expect(comment.publishingState).to.equal("stopped");
             comment.on("publishingstatechange", (newState: string) => {
                 if (newState !== "stopped") expect.fail("Should not change publishing state");
@@ -48,8 +48,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
         it(`publishing states is in correct order upon publishing a comment with IPFS client (uncached)`, async () => {
             const expectedStates = [
-                "fetching-subplebbit-ipns",
-                "fetching-subplebbit-ipfs",
+                "fetching-community-ipns",
+                "fetching-community-ipfs",
                 "publishing-challenge-request",
                 "waiting-challenge",
                 "waiting-challenge-answers",
@@ -58,7 +58,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 "succeeded"
             ];
             const recordedStates: string[] = [];
-            const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, plebbit);
+            const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, pkc);
             mockPost._getCommunityCache = (): ReturnType<typeof mockPost._getCommunityCache> => undefined;
 
             mockPost.on("publishingstatechange", (newState: string) => recordedStates.push(newState));
@@ -79,8 +79,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             ];
             const recordedStates: string[] = [];
             const mathCliCommunityAddress = signers[1].address;
-            await plebbit.getCommunity({ address: mathCliCommunityAddress }); // address of math cli, we fetch it here to make sure it's cached
-            const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, plebbit);
+            await pkc.getCommunity({ address: mathCliCommunityAddress }); // address of math cli, we fetch it here to make sure it's cached
+            const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, pkc);
 
             mockPost.on("publishingstatechange", (newState: string) => recordedStates.push(newState));
 
@@ -92,14 +92,14 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         it(`publishing states is in correct order upon publishing a comment to plebbit.bso with IPFS client (uncached)`, async () => {
             const expectedStates = [
                 "resolving-community-name",
-                "fetching-subplebbit-ipns",
-                "fetching-subplebbit-ipfs",
+                "fetching-community-ipns",
+                "fetching-community-ipfs",
                 "publishing-challenge-request",
                 "waiting-challenge",
                 "succeeded"
             ];
             const recordedStates: string[] = [];
-            const mockPost = await generateMockPost({ communityAddress: "plebbit.bso", plebbit: plebbit });
+            const mockPost = await generateMockPost({ communityAddress: "plebbit.bso", plebbit: pkc });
             mockPost._getCommunityCache = (): ReturnType<typeof mockPost._getCommunityCache> => undefined;
 
             mockPost.on("publishingstatechange", (newState: string) => recordedStates.push(newState));
@@ -113,13 +113,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"] }).map((config) => {
     describe.concurrent(`comment.publishingState - ${config.name}`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`comment.publishingState = 'failed' if pubsub provider is down`, async () => {
@@ -146,19 +146,19 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"]
 
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
     describe(`comment.publishingState - ${config.name}`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`comment.publishingState stays as stopped after calling comment.update() - IPFS Gateway`, async () => {
-            const sub = await plebbit.getCommunity({ address: subplebbitAddress });
+            const sub = await pkc.getCommunity({ address: communityAddress });
             const commentCid = sub.posts.pages.hot.comments[0].cid;
-            const comment = await plebbit.createComment({ cid: commentCid });
+            const comment = await pkc.createComment({ cid: commentCid });
             expect(comment.publishingState).to.equal("stopped");
             comment.on("publishingstatechange", (newState: string) => {
                 if (newState !== "stopped") expect.fail("Should not change publishing state");
@@ -179,8 +179,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 "succeeded"
             ];
             const recordedStates: string[] = [];
-            await plebbit.getCommunity({ address: mathCliCommunityAddress }); // Make sure it's cached
-            const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, plebbit);
+            await pkc.getCommunity({ address: mathCliCommunityAddress }); // Make sure it's cached
+            const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, pkc);
 
             mockPost.on("publishingstatechange", (newState: string) => recordedStates.push(newState));
 
@@ -191,7 +191,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
 
         it(`publishing states is in correct order upon publishing a comment with gateway (uncached)`, async () => {
             const expectedStates = [
-                "fetching-subplebbit-ipns",
+                "fetching-community-ipns",
                 "publishing-challenge-request",
                 "waiting-challenge",
                 "waiting-challenge-answers",
@@ -200,7 +200,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 "succeeded"
             ];
             const recordedStates: string[] = [];
-            const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, plebbit);
+            const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, pkc);
             mockPost._getCommunityCache = (): ReturnType<typeof mockPost._getCommunityCache> => undefined;
 
             mockPost.on("publishingstatechange", (newState: string) => recordedStates.push(newState));
@@ -214,22 +214,22 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`comment.publishingState - ${config.name}`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`publishingState is stopped by default`, async () => {
-            const comment = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+            const comment = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
             expect(comment.publishingState).to.equal("stopped");
         });
 
         it(`comment.publishingState = 'failed' if user provide incorrect answer`, async () => {
-            const mockPost = await generateMockPost({ communityAddress: mathCliCommunityAddress, plebbit: plebbit });
+            const mockPost = await generateMockPost({ communityAddress: mathCliCommunityAddress, plebbit: pkc });
             mockPost.removeAllListeners("challenge");
 
             mockPost.once("challenge", async (challengeMsg) => {
@@ -248,7 +248,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             await ipnsObj.publishToIpns("<html></html>");
 
-            const mockPost = await generateMockPost({ communityAddress: ipnsObj.signer.address, plebbit: plebbit });
+            const mockPost = await generateMockPost({ communityAddress: ipnsObj.signer.address, plebbit: pkc });
 
             const recordedPublishingStates: string[] = [];
 
@@ -261,9 +261,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(mockPost.publishingState).to.equal("failed");
             }
 
-            if (!isPKCFetchingUsingGateways(plebbit))
-                expect(recordedPublishingStates).to.deep.equal(["fetching-subplebbit-ipns", "fetching-subplebbit-ipfs", "failed"]);
-            else expect(recordedPublishingStates).to.deep.equal(["fetching-subplebbit-ipns", "failed"]);
+            if (!isPKCFetchingUsingGateways(pkc))
+                expect(recordedPublishingStates).to.deep.equal(["fetching-community-ipns", "fetching-community-ipfs", "failed"]);
+            else expect(recordedPublishingStates).to.deep.equal(["fetching-community-ipns", "failed"]);
 
             await ipnsObj.plebbit.destroy();
 
@@ -276,7 +276,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             const mockedSub = await publishCommunityRecordWithExtraProp();
 
-            const mockPost = await generateMockPost({ communityAddress: mockedSub.ipnsObj.signer.address, plebbit: plebbit });
+            const mockPost = await generateMockPost({ communityAddress: mockedSub.ipnsObj.signer.address, plebbit: pkc });
             (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 1;
             (mockPost as unknown as CommentWithInternals)._setProviderFailureThresholdSeconds = 2;
 
@@ -303,8 +303,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             expect(mockPost.publishingState).to.equal("failed");
-            const expectedPublishingState = ["fetching-subplebbit-ipns"].concat(
-                ...(isPKCFetchingUsingGateways(plebbit) ? [] : ["fetching-subplebbit-ipfs"]),
+            const expectedPublishingState = ["fetching-community-ipns"].concat(
+                ...(isPKCFetchingUsingGateways(pkc) ? [] : ["fetching-community-ipfs"]),
                 ...new Array(Object.keys((mockPost as unknown as CommentWithInternals)._challengeExchanges).length).fill([
                     "publishing-challenge-request",
                     "waiting-challenge"

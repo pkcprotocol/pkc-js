@@ -20,23 +20,23 @@ import { describe, it, beforeAll, afterAll } from "vitest";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 const namedCommunityAddress = "plebbit.bso";
 
 getAvailablePKCConfigsToTestAgainst().map((config) =>
-    describe.concurrent(`plebbit.createCommunity - Remote (${config.name})`, async () => {
-        let plebbit: PKCType;
+    describe.concurrent(`pkc.createCommunity - Remote (${config.name})`, async () => {
+        let pkc: PKCType;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
-        it(`subplebbit = await createCommunity(await getCommunity(address))`, async () => {
-            const loadedCommunity = await plebbit.createCommunity({ address: subplebbitAddress });
+        it(`community = await createCommunity(await getCommunity(address))`, async () => {
+            const loadedCommunity = await pkc.createCommunity({ address: communityAddress });
             await loadedCommunity.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: loadedCommunity,
@@ -44,15 +44,15 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
             });
             await loadedCommunity.stop();
 
-            const createdCommunity = await plebbit.createCommunity(loadedCommunity);
+            const createdCommunity = await pkc.createCommunity(loadedCommunity);
             const createdCommunityJson = jsonifyCommunityAndRemoveInternalProps(createdCommunity);
             const loadedCommunityJson = jsonifyCommunityAndRemoveInternalProps(loadedCommunity);
 
             expect(loadedCommunityJson).to.deep.equal(createdCommunityJson);
         });
 
-        it(`subplebbit = await createCommunity({...await getCommunity()})`, async () => {
-            const loadedCommunity = await plebbit.createCommunity({ address: subplebbitAddress });
+        it(`community = await createCommunity({...await getCommunity()})`, async () => {
+            const loadedCommunity = await pkc.createCommunity({ address: communityAddress });
             await loadedCommunity.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: loadedCommunity,
@@ -61,7 +61,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
             await loadedCommunity.stop();
 
             const spread = { ...loadedCommunity };
-            const createdFromSpreadCommunity = await plebbit.createCommunity(spread);
+            const createdFromSpreadCommunity = await pkc.createCommunity(spread);
             for (const key of Object.keys(loadedCommunity)) {
                 expect(deterministicStringify((loadedCommunity as unknown as Record<string, unknown>)[key])).to.equal(
                     deterministicStringify((createdFromSpreadCommunity as unknown as Record<string, unknown>)[key]),
@@ -77,8 +77,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
             }
         });
 
-        it(`subplebbit = await createCommunity(JSON.parse(JSON.stringify(await getCommunity())))`, async () => {
-            const loadedCommunity = await plebbit.createCommunity({ address: subplebbitAddress });
+        it(`community = await createCommunity(JSON.parse(JSON.stringify(await getCommunity())))`, async () => {
+            const loadedCommunity = await pkc.createCommunity({ address: communityAddress });
             await loadedCommunity.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: loadedCommunity,
@@ -86,7 +86,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
             });
             await loadedCommunity.stop();
 
-            const createdCommunity = await plebbit.createCommunity(JSON.parse(JSON.stringify(loadedCommunity)));
+            const createdCommunity = await pkc.createCommunity(JSON.parse(JSON.stringify(loadedCommunity)));
             const loadedSubJson = JSON.parse(JSON.stringify(loadedCommunity));
             const createdSubJson = JSON.parse(JSON.stringify(createdCommunity));
             expect(deterministicStringify(loadedSubJson)).to.equal(deterministicStringify(createdSubJson));
@@ -106,7 +106,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
             return loadedCommunity;
         };
 
-        it.sequential("createCommunity from a spread subplebbit does not restore top-level runtime-only nameResolved", async () => {
+        it.sequential("createCommunity from a spread community does not restore top-level runtime-only nameResolved", async () => {
             const testPKC = await config.plebbitInstancePromise();
             try {
                 const loadedCommunity = await loadCommunityWithResolvedName(testPKC);
@@ -126,7 +126,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
         });
 
         it.sequential(
-            "createCommunity from a JSON-stringified subplebbit does not restore top-level runtime-only nameResolved",
+            "createCommunity from a JSON-stringified community does not restore top-level runtime-only nameResolved",
             async () => {
                 const testPKC = await config.plebbitInstancePromise();
                 try {
@@ -156,7 +156,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
             expect(sourceComment.author).to.have.property("nameResolved", true);
             expect(sourceRawComment.comment.author).to.not.have.property("nameResolved");
 
-            const recreatedSub = await plebbit.createCommunity(subJson);
+            const recreatedSub = await pkc.createCommunity(subJson);
             const recreatedComment = recreatedSub.posts.pages.hot.comments.find((comment) => comment.cid === sourceComment.cid);
 
             expect(recreatedComment, `Fixture comment ${sourceComment.cid} should exist after createCommunity rehydration`).to.exist;
@@ -176,7 +176,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
             expect(sourceComment.author).to.have.property("nameResolved", true);
             expect(sourceRawComment.comment.author).to.not.have.property("nameResolved");
 
-            const recreatedSub = await plebbit.createCommunity(subJson);
+            const recreatedSub = await pkc.createCommunity(subJson);
             const recreatedComment = recreatedSub.posts.pages.hot.comments.find((c) => c.cid === sourceComment.cid);
 
             expect(recreatedComment, `Fixture comment ${sourceComment.cid} should exist after createCommunity rehydration`).to.exist;
@@ -187,9 +187,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
             );
         });
 
-        it(`Sub JSON props does not change by creating a Community object via plebbit.createCommunity`, async () => {
+        it(`Sub JSON props does not change by creating a Community object via pkc.createCommunity`, async () => {
             const subJson = remeda.clone(validCommunityJsonfiedFixture);
-            const subObj = await plebbit.createCommunity(remeda.clone(validCommunityJsonfiedFixture));
+            const subObj = await pkc.createCommunity(remeda.clone(validCommunityJsonfiedFixture));
             expect(subJson.lastPostCid).to.equal(subObj.lastPostCid).and.to.be.a("string");
             expect(subJson.pubsubTopic).to.equal(subObj.pubsubTopic).and.to.be.a("string");
             expect(subJson.address).to.equal(subObj.address).and.to.be.a("string");
@@ -216,7 +216,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
 
         it("createCommunity with old-wire-format fixture correctly derives communityAddress in pages", async () => {
             const subJson = remeda.clone(validCommunityJsonfiedOldWireFormatFixture);
-            const subObj = await plebbit.createCommunity(remeda.clone(validCommunityJsonfiedOldWireFormatFixture));
+            const subObj = await pkc.createCommunity(remeda.clone(validCommunityJsonfiedOldWireFormatFixture));
 
             // Top-level fields unaffected by wire format change
             expect(subJson.lastPostCid).to.equal(subObj.lastPostCid).and.to.be.a("string");
@@ -231,17 +231,17 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
         });
 
         it("createCommunity does not throw when posts has empty pages/pageCids and no updatedAt", async () => {
-            const sub = await plebbit.createCommunity({
-                address: subplebbitAddress,
+            const sub = await pkc.createCommunity({
+                address: communityAddress,
                 posts: { pages: {}, pageCids: {} }
             });
-            expect(sub.address).to.equal(subplebbitAddress);
+            expect(sub.address).to.equal(communityAddress);
         });
 
         it("createCommunity does not throw when JSON.stringify'd sub has empty posts and no updatedAt", async () => {
             // This is the actual plebones scenario: cached sub with clients key, empty posts, no updatedAt
             const cachedSub = {
-                address: subplebbitAddress,
+                address: communityAddress,
                 clients: {},
                 posts: { pages: {}, pageCids: {} },
                 modQueue: { pageCids: {} },
@@ -249,34 +249,34 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
                 state: "stopped",
                 updatingState: "stopped"
             };
-            const sub = await plebbit.createCommunity(cachedSub as any);
-            expect(sub.address).to.equal(subplebbitAddress);
+            const sub = await pkc.createCommunity(cachedSub as any);
+            expect(sub.address).to.equal(communityAddress);
         });
 
         it("createCommunity does not throw when modQueue has empty pageCids and no updatedAt", async () => {
-            const sub = await plebbit.createCommunity({
-                address: subplebbitAddress,
+            const sub = await pkc.createCommunity({
+                address: communityAddress,
                 modQueue: { pageCids: {} }
             });
-            expect(sub.address).to.equal(subplebbitAddress);
+            expect(sub.address).to.equal(communityAddress);
         });
 
         it("comment._updateRepliesPostsInstance with empty replies pages/pageCids does not throw", async () => {
-            const loadedSub = await plebbit.createCommunity({ address: subplebbitAddress });
+            const loadedSub = await pkc.createCommunity({ address: communityAddress });
             await loadedSub.update();
             await resolveWhenConditionIsTrue({ toUpdate: loadedSub, predicate: async () => typeof loadedSub.updatedAt === "number" });
             await loadedSub.stop();
 
             const post = loadedSub.posts.pages.hot!.comments[0];
-            const comment = await plebbit.createComment({ cid: post.cid, communityAddress: subplebbitAddress });
+            const comment = await pkc.createComment({ cid: post.cid, communityAddress: communityAddress });
             // updatedAt must be defined for _updateRepliesPostsInstance not to throw
             comment.updatedAt = Math.floor(Date.now() / 1000);
             // Should not throw with empty pages and pageCids
             comment._updateRepliesPostsInstance({ pages: {}, pageCids: {} } as any);
         });
 
-        it("Remote subplebbit instance created with only address prop can call getPage", async () => {
-            const actualSub = await plebbit.createCommunity({ address: subplebbitAddress });
+        it("Remote community instance created with only address prop can call getPage", async () => {
+            const actualSub = await pkc.createCommunity({ address: communityAddress });
             await actualSub.update();
             await resolveWhenConditionIsTrue({ toUpdate: actualSub, predicate: async () => typeof actualSub.updatedAt === "number" });
             await actualSub.stop();
@@ -286,7 +286,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
             expect(actualSub.posts.pages.hot).to.be.a("object");
             const pageCid = await addStringToIpfs(JSON.stringify({ comments: [actualSub.posts.pages.hot.comments[0].raw] })); // get it somehow
             expect(pageCid).to.be.a("string");
-            const newCommunity = await plebbit.createCommunity({ address: actualSub.address });
+            const newCommunity = await pkc.createCommunity({ address: actualSub.address });
             expect(newCommunity.createdAt).to.be.undefined;
 
             const page = await newCommunity.posts.getPage({ cid: pageCid });
@@ -295,39 +295,39 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
     })
 );
 
-describe.concurrent(`plebbit.createCommunity - (remote) - errors`, async () => {
-    let plebbit: PKCType;
+describe.concurrent(`pkc.createCommunity - (remote) - errors`, async () => {
+    let pkc: PKCType;
 
     beforeAll(async () => {
-        plebbit = await mockPKCV2({ remotePKC: true });
+        pkc = await mockPKCV2({ remotePKC: true });
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
-    it(`plebbit.createCommunity({address}) throws if address if ENS and has a capital letter`, async () => {
+    it(`pkc.createCommunity({address}) throws if address if ENS and has a capital letter`, async () => {
         try {
-            await plebbit.createCommunity({ address: "testSub.bso" });
+            await pkc.createCommunity({ address: "testSub.bso" });
             expect.fail("Should have thrown");
         } catch (e) {
             expect((e as { code: string }).code).to.equal("ERR_COMMUNITY_NAME_HAS_CAPITAL_LETTER");
         }
     });
 
-    it("plebbit.createCommunity({address}) throws if subplebbit address isn't an ipns or domain", async () => {
+    it("pkc.createCommunity({address}) throws if community address isn't an ipns or domain", async () => {
         const invalidAddress = "0xdeadbeef";
         try {
-            await plebbit.createCommunity({ address: invalidAddress });
+            await pkc.createCommunity({ address: invalidAddress });
             expect.fail("Should have thrown");
         } catch (e) {
             expect((e as { code: string }).code).to.equal("ERR_INVALID_COMMUNITY_ADDRESS_SCHEMA");
         }
     });
     if (!isRpcFlagOn() && isRunningInBrowser())
-        it(`plebbit.createCommunity({}) should throw if no rpc and on browser`, async () => {
+        it(`pkc.createCommunity({}) should throw if no rpc and on browser`, async () => {
             try {
-                await plebbit.createCommunity({});
+                await pkc.createCommunity({});
                 expect.fail("should fail");
             } catch (e) {
                 expect((e as { code: string }).code).to.equal("ERR_INVALID_CREATE_REMOTE_COMMUNITY_ARGS_SCHEMA");

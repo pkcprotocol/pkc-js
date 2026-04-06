@@ -17,25 +17,25 @@ import type { Comment } from "../../dist/node/publications/comment/comment.js";
 import { NameResolverSchema } from "../../dist/node/schema.js";
 
 describe("Comments with Authors as domains", async () => {
-    let plebbit: PKC;
+    let pkc: PKC;
     beforeAll(async () => {
-        plebbit = await mockRemotePKC();
+        pkc = await mockRemotePKC();
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`Sub accepts posts with author.name as a domain that resolves to comment signer `, async () => {
         // mockRemotePKC resolves plebbit.bso to signers[3]
-        const mockPost = await plebbit.createComment({
+        const mockPost = await pkc.createComment({
             author: { displayName: `Mock Author - ${Date.now()}`, name: "plebbit.bso" },
             signer: signers[3],
             content: `Mock post - ${Date.now()}`,
             title: "Mock post title",
             communityAddress: signers[0].address
         });
-        const resolvedAuthorAddress = await plebbit.resolveAuthorName({ address: mockPost.author.address });
+        const resolvedAuthorAddress = await pkc.resolveAuthorName({ address: mockPost.author.address });
         expect(resolvedAuthorAddress).to.equal(signers[3].address);
 
         expect(mockPost.author.address).to.equal("plebbit.bso");
@@ -82,17 +82,17 @@ describe("Comments with Authors as domains", async () => {
 });
 
 describe(`Vote with authors as domains`, async () => {
-    let plebbit: PKC;
-    let subplebbit: RemoteCommunity;
+    let pkc: PKC;
+    let community: RemoteCommunity;
     let comment: Comment;
     beforeAll(async () => {
-        plebbit = await mockRemotePKC();
-        subplebbit = await plebbit.getCommunity({ address: signers[0].address });
-        comment = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
+        pkc = await mockRemotePKC();
+        community = await pkc.getCommunity({ address: signers[0].address });
+        comment = await publishRandomPost({ communityAddress: community.address, plebbit: pkc });
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     itSkipIfRpc(`Community rejects a Vote with author.name (domain) that resolves to a different signer`, async () => {
@@ -111,7 +111,7 @@ describe(`Vote with authors as domains`, async () => {
             signer: signers[6],
             commentCid: comment.cid!,
             vote: -1,
-            communityAddress: subplebbit.address
+            communityAddress: community.address
         });
         expect(vote.author.address).to.equal("testgibbreish.bso");
 
@@ -127,7 +127,7 @@ describe(`Vote with authors as domains`, async () => {
 
 describeSkipIfRpc(`nameResolver resolution`, async () => {
     it(`nameResolver receives the original address (no normalization)`, async () => {
-        const plebbit = await mockPKCV2({
+        const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false
         });
@@ -136,22 +136,22 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
         let receivedName: string | undefined;
 
         mockNameResolvers({
-            plebbit,
+            plebbit: pkc,
             resolveFunction: async ({ name }: { name: string; provider: string }) => {
                 receivedName = name;
                 return { publicKey: expectedIpns };
             }
         });
 
-        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "plebbit.bso" });
+        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "plebbit.bso" });
         expect(resolved).to.equal(expectedIpns);
         // The resolver receives the original address as-is
         expect(receivedName).to.equal("plebbit.bso");
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`nameResolver resolves plebbit-author-address correctly`, async () => {
-        const plebbit = await mockPKCV2({
+        const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false
         });
@@ -159,20 +159,20 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
         const expectedAuthorAddress = "12D3KooWJJcSwMHrFvsFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
 
         mockNameResolvers({
-            plebbit,
+            plebbit: pkc,
             resolveFunction: async ({ name }: { name: string; provider: string }) => {
                 if (name === "testauthor.bso") return { publicKey: expectedAuthorAddress };
                 return undefined;
             }
         });
 
-        const resolved = await plebbit.resolveAuthorName({ address: "testauthor.bso" });
+        const resolved = await pkc.resolveAuthorName({ address: "testauthor.bso" });
         expect(resolved).to.equal(expectedAuthorAddress);
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`Serial resolution: first resolver that returns a value wins`, async () => {
-        const plebbit = await mockPKCV2({
+        const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false
         });
@@ -180,7 +180,7 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
         const expectedIpns = "12D3KooWJJcSwxH2F3sFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
         const resolverCalls: string[] = [];
 
-        plebbit.nameResolvers = [
+        pkc.nameResolvers = [
             {
                 key: "resolver-1",
                 canResolve: () => true,
@@ -201,21 +201,21 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
             }
         ];
 
-        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
+        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
         expect(resolved).to.equal(expectedIpns);
         expect(resolverCalls).to.deep.equal(["resolver-1", "resolver-2"]);
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`Failing resolver is skipped, next resolver is tried`, async () => {
-        const plebbit = await mockPKCV2({
+        const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false
         });
 
         const expectedIpns = "12D3KooWJJcSwxH2F3sFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
 
-        plebbit.nameResolvers = [
+        pkc.nameResolvers = [
             {
                 key: "failing-resolver",
                 canResolve: () => true,
@@ -232,16 +232,16 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
             }
         ];
 
-        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
+        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
         expect(resolved).to.equal(expectedIpns);
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 });
 
 describe("Comments with Authors as .bso domains", async () => {
-    let plebbit: PKC;
+    let pkc: PKC;
     beforeAll(async () => {
-        plebbit = await mockPKCV2({
+        pkc = await mockPKCV2({
             stubStorage: false,
             remotePKC: true,
             mockResolve: false,
@@ -252,11 +252,11 @@ describe("Comments with Authors as .bso domains", async () => {
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     itSkipIfRpc(`Sub accepts posts with author.name as .bso domain that resolves to comment signer`, async () => {
-        const mockPost = await plebbit.createComment({
+        const mockPost = await pkc.createComment({
             author: { displayName: `Mock Author - ${Date.now()}`, name: "plebbit.bso" },
             signer: signers[3],
             content: `Mock post - ${Date.now()}`,
@@ -275,7 +275,7 @@ describeSkipIfRpc(`nameResolver canResolve filtering`, async () => {
         const expectedIpns = "12D3KooWJJcSwxH2F3sFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
         const resolverCalls: string[] = [];
 
-        const plebbit = await mockPKCV2({
+        const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
@@ -302,10 +302,10 @@ describeSkipIfRpc(`nameResolver canResolve filtering`, async () => {
             }
         });
 
-        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
+        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
         expect(resolved).to.equal(expectedIpns);
         expect(resolverCalls).to.deep.equal(["active-resolver"]);
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`TLD-based routing: each resolver handles its own TLD`, async () => {
@@ -313,7 +313,7 @@ describeSkipIfRpc(`nameResolver canResolve filtering`, async () => {
         const tonIpns = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
         const resolverCalls: string[] = [];
 
-        const plebbit = await mockPKCV2({
+        const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
@@ -340,19 +340,19 @@ describeSkipIfRpc(`nameResolver canResolve filtering`, async () => {
             }
         });
 
-        const resolvedEth = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.eth" });
+        const resolvedEth = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.eth" });
         expect(resolvedEth).to.equal(ethIpns);
         expect(resolverCalls).to.deep.equal(["eth-resolver"]);
 
         resolverCalls.length = 0;
-        const resolvedTon = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.ton" });
+        const resolvedTon = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.ton" });
         expect(resolvedTon).to.equal(tonIpns);
         expect(resolverCalls).to.deep.equal(["ton-resolver"]);
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`Throws ERR_NO_RESOLVER_FOR_NAME when all canResolve return false`, async () => {
-        const plebbit = await mockPKCV2({
+        const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
@@ -368,46 +368,46 @@ describeSkipIfRpc(`nameResolver canResolve filtering`, async () => {
         });
 
         try {
-            await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.ton" });
+            await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.ton" });
             expect.fail("Should have thrown");
         } catch (e: any) {
             expect(e.code).to.equal("ERR_NO_RESOLVER_FOR_NAME");
         }
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 });
 
 describeSkipIfRpc(`nameResolver error edge cases`, async () => {
     it(`Throws ERR_NO_RESOLVER_FOR_NAME when nameResolvers is an empty array`, async () => {
-        const plebbit = await mockPKCV2({
+        const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
             plebbitOptions: { nameResolvers: [] }
         });
 
         try {
-            await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
+            await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
             expect.fail("Should have thrown");
         } catch (e: any) {
             expect(e.code).to.equal("ERR_NO_RESOLVER_FOR_NAME");
         }
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`Throws ERR_NO_RESOLVER_FOR_NAME when nameResolvers is undefined`, async () => {
-        const plebbit = await mockPKCV2({ remotePKC: true, mockResolve: false });
+        const pkc = await mockPKCV2({ remotePKC: true, mockResolve: false });
 
         try {
-            await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
+            await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
             expect.fail("Should have thrown");
         } catch (e: any) {
             expect(e.code).to.equal("ERR_NO_RESOLVER_FOR_NAME");
         }
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`Throws ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS when resolve returns a non-IPNS publicKey`, async () => {
-        const plebbit = await mockPKCV2({
+        const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
@@ -423,16 +423,16 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
         });
 
         try {
-            await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
+            await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
             expect.fail("Should have thrown");
         } catch (e: any) {
             expect(e.code).to.equal("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS");
         }
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`Returns null when all resolvers throw errors`, async () => {
-        const plebbit = await mockPKCV2({
+        const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
@@ -457,13 +457,13 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
             }
         });
 
-        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
+        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
         expect(resolved).to.be.null;
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`Returns null when all resolvers return undefined`, async () => {
-        const plebbit = await mockPKCV2({
+        const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
@@ -484,9 +484,9 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
             }
         });
 
-        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
+        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
         expect(resolved).to.be.null;
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 });
 
@@ -495,7 +495,7 @@ describeSkipIfRpc(`nameResolver provider argument passthrough`, async () => {
         const expectedIpns = "12D3KooWJJcSwxH2F3sFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
         let receivedProvider: string | undefined;
 
-        const plebbit = await mockPKCV2({
+        const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
@@ -513,9 +513,9 @@ describeSkipIfRpc(`nameResolver provider argument passthrough`, async () => {
             }
         });
 
-        await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
+        await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
         expect(receivedProvider).to.equal("my-custom-provider-url");
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 });
 
@@ -523,7 +523,7 @@ describeSkipIfRpc(`nameResolver abortSignal support`, async () => {
     it(`Resolver can use abortSignal to cancel resolution`, async () => {
         let receivedSignal: AbortSignal | undefined;
 
-        const plebbit = await mockPKCV2({
+        const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
@@ -541,11 +541,11 @@ describeSkipIfRpc(`nameResolver abortSignal support`, async () => {
             }
         });
 
-        await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
+        await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
         // The resolver should have been called (signal may or may not be passed depending on call site)
         // The important thing is that the resolver type accepts abortSignal and doesn't break
         expect(receivedSignal === undefined || receivedSignal instanceof AbortSignal).to.be.true;
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 });
 
@@ -553,7 +553,7 @@ describeSkipIfRpc(`nameResolver resolution behavior`, async () => {
     it(`resolveCommunityNameIfNeeded returns IPNS address as-is without calling resolvers`, async () => {
         let resolverCalled = false;
 
-        const plebbit = await mockPKCV2({
+        const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
@@ -572,14 +572,14 @@ describeSkipIfRpc(`nameResolver resolution behavior`, async () => {
         });
 
         const ipnsAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
-        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: ipnsAddress });
+        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: ipnsAddress });
         expect(resolved).to.equal(ipnsAddress);
         expect(resolverCalled).to.be.false;
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`resolveAuthorNameIfNeeded throws ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58 for non-domain address`, async () => {
-        const plebbit = await mockPKCV2({
+        const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
@@ -596,14 +596,14 @@ describeSkipIfRpc(`nameResolver resolution behavior`, async () => {
 
         try {
             // An IPNS address is not a domain, so resolveAuthorNameIfNeeded should throw
-            await plebbit._clientsManager.resolveAuthorNameIfNeeded({
+            await pkc._clientsManager.resolveAuthorNameIfNeeded({
                 authorAddress: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR"
             });
             expect.fail("Should have thrown");
         } catch (e: any) {
             expect(e.code).to.equal("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58");
         }
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`resolveCommunityNameIfNeeded re-resolves on each call`, async () => {
@@ -611,7 +611,7 @@ describeSkipIfRpc(`nameResolver resolution behavior`, async () => {
         const secondIpns = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
         let callCount = 0;
 
-        const plebbit = await mockPKCV2({
+        const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
             stubStorage: false,
@@ -630,14 +630,14 @@ describeSkipIfRpc(`nameResolver resolution behavior`, async () => {
             }
         });
 
-        const resolved1 = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "cached.bso" });
+        const resolved1 = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "cached.bso" });
         expect(resolved1).to.equal(firstIpns);
         expect(callCount).to.equal(1);
 
-        const resolved2 = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "cached.bso" });
+        const resolved2 = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "cached.bso" });
         expect(resolved2).to.equal(secondIpns);
         expect(callCount).to.equal(2);
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 });
 
@@ -702,21 +702,21 @@ describeSkipIfRpc(`nameResolver schema validation`, async () => {
     });
 });
 
-describeSkipIfRpc(`plebbit._clientsManager.clients.nameResolvers initialization`, async () => {
+describeSkipIfRpc(`pkc._clientsManager.clients.nameResolvers initialization`, async () => {
     it(`Creates NameResolverClient instances for each resolver key`, async () => {
-        const plebbit = await mockPKCV2({ remotePKC: true, mockResolve: true });
-        const keys = Object.keys(plebbit._clientsManager.clients.nameResolvers);
+        const pkc = await mockPKCV2({ remotePKC: true, mockResolve: true });
+        const keys = Object.keys(pkc._clientsManager.clients.nameResolvers);
         expect(keys.length).to.be.greaterThanOrEqual(1);
         expect(keys).to.include("mock-resolver");
-        expect(plebbit._clientsManager.clients.nameResolvers["mock-resolver"].state).to.equal("stopped");
-        await plebbit.destroy();
+        expect(pkc._clientsManager.clients.nameResolvers["mock-resolver"].state).to.equal("stopped");
+        await pkc.destroy();
     });
 
     it(`No NameResolverClient instances when nameResolvers is undefined`, async () => {
-        const plebbit = await mockPKCV2({ remotePKC: true, mockResolve: false });
-        const keys = Object.keys(plebbit._clientsManager.clients.nameResolvers);
+        const pkc = await mockPKCV2({ remotePKC: true, mockResolve: false });
+        const keys = Object.keys(pkc._clientsManager.clients.nameResolvers);
         expect(keys.length).to.equal(0);
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 });
 
@@ -724,7 +724,7 @@ describeSkipIfRpc(`nameResolver returning extra properties`, async () => {
     it(`Extra properties in resolve return value do not cause errors`, async () => {
         const expectedIpns = "12D3KooWJJcSwxH2F3sFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
 
-        const plebbit = await mockPKCV2({
+        const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
@@ -744,18 +744,18 @@ describeSkipIfRpc(`nameResolver returning extra properties`, async () => {
             }
         });
 
-        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
+        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
         expect(resolved).to.equal(expectedIpns);
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 });
 
 describeSkipIfRpc(`nameResolver runtime modification`, async () => {
-    it(`Changing plebbit.nameResolvers at runtime uses new resolvers`, async () => {
+    it(`Changing pkc.nameResolvers at runtime uses new resolvers`, async () => {
         const firstIpns = "12D3KooWJJcSwxH2F3sFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
         const secondIpns = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
 
-        const plebbit = await mockPKCV2({
+        const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
             stubStorage: false,
@@ -771,11 +771,11 @@ describeSkipIfRpc(`nameResolver runtime modification`, async () => {
             }
         });
 
-        const resolved1 = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "runtime.bso" });
+        const resolved1 = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "runtime.bso" });
         expect(resolved1).to.equal(firstIpns);
 
         // Swap resolvers at runtime
-        plebbit.nameResolvers = [
+        pkc.nameResolvers = [
             {
                 key: "new-resolver",
                 canResolve: () => true,
@@ -784,16 +784,16 @@ describeSkipIfRpc(`nameResolver runtime modification`, async () => {
             }
         ];
 
-        const resolved2 = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "runtime.bso" });
+        const resolved2 = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "runtime.bso" });
         expect(resolved2).to.equal(secondIpns);
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`Adding a resolver at runtime allows resolving previously unhandled TLDs`, async () => {
         const ethIpns = "12D3KooWJJcSwxH2F3sFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
         const tonIpns = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
 
-        const plebbit = await mockPKCV2({
+        const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
             plebbitOptions: {
@@ -810,15 +810,15 @@ describeSkipIfRpc(`nameResolver runtime modification`, async () => {
 
         // .ton should fail since no resolver handles it
         try {
-            await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.ton" });
+            await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.ton" });
             expect.fail("Should have thrown");
         } catch (e: any) {
             expect(e.code).to.equal("ERR_NO_RESOLVER_FOR_NAME");
         }
 
         // Add a .ton resolver at runtime
-        plebbit.nameResolvers = [
-            ...plebbit.nameResolvers!,
+        pkc.nameResolvers = [
+            ...pkc.nameResolvers!,
             {
                 key: "ton-resolver",
                 canResolve: ({ name }: { name: string }) => name.endsWith(".ton"),
@@ -827,22 +827,22 @@ describeSkipIfRpc(`nameResolver runtime modification`, async () => {
             }
         ];
 
-        const resolved = await plebbit._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.ton" });
+        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.ton" });
         expect(resolved).to.equal(tonIpns);
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 });
 
 describeSkipIfRpc(`CommentEdit with author as domain`, async () => {
-    let plebbit: PKC;
+    let pkc: PKC;
     let postToEdit: Comment;
 
     beforeAll(async () => {
-        plebbit = await mockRemotePKC();
+        pkc = await mockRemotePKC();
         // Publish a post with author.name as domain
         postToEdit = await publishRandomPost({
             communityAddress: signers[0].address,
-            plebbit: plebbit,
+            plebbit: pkc,
             postProps: {
                 author: { name: "plebbit.bso" },
                 signer: signers[3]
@@ -851,11 +851,11 @@ describeSkipIfRpc(`CommentEdit with author as domain`, async () => {
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`Sub accepts CommentEdit from author with domain name`, async () => {
-        const commentEdit = await plebbit.createCommentEdit({
+        const commentEdit = await pkc.createCommentEdit({
             communityAddress: postToEdit.communityAddress,
             commentCid: postToEdit.cid!,
             content: "edited content via domain author " + Date.now(),

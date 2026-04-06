@@ -10,7 +10,7 @@ import { describe, it, beforeAll, afterAll } from "vitest";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 const roles = [
     { role: "owner", signer: signers[1] },
     { role: "admin", signer: signers[2] },
@@ -19,21 +19,21 @@ const roles = [
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Mods setting flairs on a comment - ${config.name}`, async () => {
-        let plebbit: PKC, randomPost: Comment;
+        let pkc: PKC, randomPost: Comment;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
-            randomPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+            pkc = await config.plebbitInstancePromise();
+            randomPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
             await randomPost.update();
         });
 
         afterAll(async () => {
             await randomPost?.stop();
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it.sequential(`Mod can set flairs on a comment`, async () => {
-            const modFlairs = await plebbit.createCommentModeration({
+            const modFlairs = await pkc.createCommentModeration({
                 communityAddress: randomPost.communityAddress,
                 commentCid: randomPost.cid,
                 commentModeration: {
@@ -58,8 +58,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(randomPost.reason).to.equal("Mod adding flairs");
         });
 
-        it(`mod flairs appear in pages of subplebbit`, async () => {
-            const sub = await plebbit.createCommunity({ address: randomPost.communityAddress });
+        it(`mod flairs appear in pages of community`, async () => {
+            const sub = await pkc.createCommunity({ address: randomPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -72,21 +72,21 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     });
 
     describe.concurrent(`Mods setting flairs on an author - ${config.name}`, async () => {
-        let plebbit: PKC, randomPost: Comment;
+        let pkc: PKC, randomPost: Comment;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
-            randomPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+            pkc = await config.plebbitInstancePromise();
+            randomPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
             await randomPost.update();
         });
 
         afterAll(async () => {
             await randomPost?.stop();
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it.sequential(`Mod can set flairs on an author`, async () => {
-            const modAuthorFlairs = await plebbit.createCommentModeration({
+            const modAuthorFlairs = await pkc.createCommentModeration({
                 communityAddress: randomPost.communityAddress,
                 commentCid: randomPost.cid,
                 commentModeration: {
@@ -106,8 +106,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(randomPost.author.flairs).to.deep.equal([{ text: "Trusted", textColor: "#fff", backgroundColor: "#00ff00" }]);
         });
 
-        it(`author flairs appear in pages of subplebbit`, async () => {
-            const sub = await plebbit.createCommunity({ address: randomPost.communityAddress });
+        it(`author flairs appear in pages of community`, async () => {
+            const sub = await pkc.createCommunity({ address: randomPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -120,14 +120,14 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     });
 
     describe.concurrent(`Mod flairs override author flairs - ${config.name}`, async () => {
-        let plebbit: PKC, authorPost: Comment;
+        let pkc: PKC, authorPost: Comment;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
             // Author publishes post with flairs
             authorPost = await publishRandomPost({
-                communityAddress: subplebbitAddress,
-                plebbit: plebbit,
+                communityAddress: communityAddress,
+                plebbit: pkc,
                 postProps: {
                     flairs: [{ text: "Author Flair" }]
                 }
@@ -137,7 +137,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         afterAll(async () => {
             await authorPost?.stop();
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it.sequential(`Author publishes a post with flairs`, async () => {
@@ -149,7 +149,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`Mod overrides flairs on the comment`, async () => {
-            const modFlairs = await plebbit.createCommentModeration({
+            const modFlairs = await pkc.createCommentModeration({
                 communityAddress: authorPost.communityAddress,
                 commentCid: authorPost.cid,
                 commentModeration: {

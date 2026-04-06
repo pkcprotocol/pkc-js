@@ -14,19 +14,19 @@ const SUB_EDIT_FIELDS = {
 };
 
 describe("CommunityEdit - community fields", () => {
-    let plebbit: PKC;
+    let pkc: PKC;
 
     beforeAll(async () => {
-        plebbit = await mockRemotePKC();
+        pkc = await mockRemotePKC();
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it("unsigned creation with domain communityAddress only: communityName derived, communityPublicKey undefined", async () => {
-        const signer = await plebbit.createSigner();
-        const subEdit = await plebbit.createCommunityEdit({
+        const signer = await pkc.createSigner();
+        const subEdit = await pkc.createCommunityEdit({
             communityAddress: "test.eth",
             subplebbitEdit: { description: "test" },
             signer
@@ -38,8 +38,8 @@ describe("CommunityEdit - community fields", () => {
     });
 
     it("domain communityAddress + communityPublicKey eagerly signs and derives communityName", async () => {
-        const signer = await plebbit.createSigner();
-        const subEdit = await plebbit.createCommunityEdit({
+        const signer = await pkc.createSigner();
+        const subEdit = await pkc.createCommunityEdit({
             communityAddress: "myforum.eth",
             communityPublicKey: signers[0].address,
             subplebbitEdit: { description: "test" },
@@ -57,8 +57,8 @@ describe("CommunityEdit - community fields", () => {
     });
 
     it("non-domain communityAddress eagerly signs with derived communityPublicKey", async () => {
-        const signer = await plebbit.createSigner();
-        const subEdit = await plebbit.createCommunityEdit({
+        const signer = await pkc.createSigner();
+        const subEdit = await pkc.createCommunityEdit({
             communityAddress: signers[0].address,
             subplebbitEdit: { description: "test" },
             signer
@@ -81,14 +81,14 @@ describe("CommunityEdit - community fields", () => {
             ...SUB_EDIT_FIELDS
         });
 
-        const subEdit = await plebbit.createCommunityEdit(signedMsg as any);
+        const subEdit = await pkc.createCommunityEdit(signedMsg as any);
         expect(subEdit.communityAddress).to.equal("test.eth");
         expect(subEdit.communityPublicKey).to.equal(signers[0].address);
         expect(subEdit.communityName).to.equal("test.eth");
     });
 
     // No backward compat tests for CommunityEdit: its schema is strict and rejects
-    // the old subplebbitAddress field (CommunityEditPubsubMessagePublicationSchema.safeParse
+    // the old communityAddress field (CommunityEditPubsubMessagePublicationSchema.safeParse
     // without .loose()). This is correct because CommunityEdit is a write-only pubsub message,
     // not a historical record that might be stored in the old format.
 });

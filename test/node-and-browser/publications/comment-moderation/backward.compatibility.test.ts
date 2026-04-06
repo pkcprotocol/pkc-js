@@ -32,25 +32,25 @@ const roles = [
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Backward compatibility for CommentModeration - ${config.name}`, async () => {
-        // A subplebbit should accept a CommentModeration with unknown props
+        // A community should accept a CommentModeration with unknown props
         // However, it should not process the unknown props, it should strip them out after validation
 
-        let plebbit: PKC;
+        let pkc: PKC;
         let commentToMod: Comment;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
-            commentToMod = await publishRandomPost({ communityAddress: signers[0].address, plebbit: plebbit });
+            pkc = await config.plebbitInstancePromise();
+            commentToMod = await publishRandomPost({ communityAddress: signers[0].address, plebbit: pkc });
             await commentToMod.update();
             await resolveWhenConditionIsTrue({ toUpdate: commentToMod, predicate: async () => typeof commentToMod.updatedAt === "number" });
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`Publishing commentModeration.extraProp should fail if it's not included in commentModeration.signature.signedPropertyNames`, async () => {
             // Skipped for rpc because it will generate an invalid signature, which will be thrown in rpc server
-            const commentModeration = await plebbit.createCommentModeration({
+            const commentModeration = await pkc.createCommentModeration({
                 commentCid: commentToMod.cid,
                 communityAddress: commentToMod.communityAddress,
                 commentModeration: { removed: true },
@@ -71,7 +71,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`publishing commentModerationPublication.extraProp should succeed with {removed:true}  if it's included in commentModeration.signature.signedPropertyNames, but it shouldn't include it in CommentUpdate`, async () => {
-            const commentModeration = await plebbit.createCommentModeration({
+            const commentModeration = await pkc.createCommentModeration({
                 commentCid: commentToMod.cid,
                 communityAddress: commentToMod.communityAddress,
                 commentModeration: { removed: true },
@@ -90,7 +90,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect((commentToMod as any).extraProp).to.be.undefined;
             const challengeRequest = await challengeRequestPromise;
             expect(challengeRequest.commentModeration.extraProp).to.equal("1234");
-            await plebbit.createCommentModeration(JSON.parse(JSON.stringify(commentModeration))); // Just to test if create will throw because of extra prop
+            await pkc.createCommentModeration(JSON.parse(JSON.stringify(commentModeration))); // Just to test if create will throw because of extra prop
 
             await resolveWhenConditionIsTrue({ toUpdate: commentToMod, predicate: async () => commentToMod.removed });
             expect(commentToMod.removed).to.be.true; // should process only locked since it's the known field to the sub
@@ -98,7 +98,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`publishing commentModerationPublication.commentModeration.extraProp should succeed, but it shouldn't include it in CommentUpdate`, async () => {
-            const commentModeration = await plebbit.createCommentModeration({
+            const commentModeration = await pkc.createCommentModeration({
                 commentCid: commentToMod.cid,
                 communityAddress: commentToMod.communityAddress,
                 commentModeration: { locked: true },
@@ -121,11 +121,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(commentToMod.locked).to.be.true; // should process only locked since it's the known field to the sub
             expect((commentToMod as any).extraProp).to.be.undefined;
 
-            await plebbit.createCommentModeration(JSON.parse(JSON.stringify(commentModeration))); // Just to test if create will throw because of extra prop
+            await pkc.createCommentModeration(JSON.parse(JSON.stringify(commentModeration))); // Just to test if create will throw because of extra prop
         });
 
         it(`Publishing commentModeration.reservedField should be rejected`, async () => {
-            const commentModeration = await plebbit.createCommentModeration({
+            const commentModeration = await pkc.createCommentModeration({
                 commentCid: commentToMod.cid,
                 communityAddress: commentToMod.communityAddress,
                 commentModeration: { locked: true },
@@ -149,7 +149,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             `Publishing CommentModeration with extra props in commentModerationPublication.author field - ${config.name}`,
             async () => {
                 it(`Publishing commentModeration.author.extraProp should succeed`, async () => {
-                    const commentModeration = await plebbit.createCommentModeration({
+                    const commentModeration = await pkc.createCommentModeration({
                         commentCid: commentToMod.cid,
                         communityAddress: commentToMod.communityAddress,
                         commentModeration: { removed: true },
@@ -159,7 +159,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     const extraProps = { extraProp: "1234" };
                     await setExtraPropOnCommentModerationAndSign(commentModeration, { author: extraProps }, true);
 
-                    await plebbit.createCommentModeration(JSON.parse(JSON.stringify(commentModeration))); // Just to test if create will throw because of extra prop
+                    await pkc.createCommentModeration(JSON.parse(JSON.stringify(commentModeration))); // Just to test if create will throw because of extra prop
 
                     const challengeRequestPromise = new Promise<ChallengeRequestWithCommentModeration>((resolve) =>
                         commentModeration.once("challengerequest", resolve as (req: unknown) => void)
@@ -177,9 +177,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 it(`Publishing commentModerationPublication.commentModeration.author.extraProp`, async () => {
                     const commentToModWithAuthor = await publishRandomPost({
                         communityAddress: commentToMod.communityAddress,
-                        plebbit: plebbit
+                        plebbit: pkc
                     });
-                    const commentModeration = await plebbit.createCommentModeration({
+                    const commentModeration = await pkc.createCommentModeration({
                         commentCid: commentToModWithAuthor.cid,
                         communityAddress: commentToModWithAuthor.communityAddress,
                         commentModeration: { removed: true },
@@ -188,7 +188,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     const extraProps = { extraProp: "1234" };
                     await setExtraPropOnCommentModerationAndSign(commentModeration, { author: extraProps }, true);
 
-                    await plebbit.createCommentModeration(JSON.parse(JSON.stringify(commentModeration))); // Just to test if create will throw because of extra prop
+                    await pkc.createCommentModeration(JSON.parse(JSON.stringify(commentModeration))); // Just to test if create will throw because of extra prop
 
                     const challengeRequestPromise = new Promise<ChallengeRequestWithCommentModeration>((resolve) =>
                         commentModeration.once("challengerequest", resolve as (req: unknown) => void)

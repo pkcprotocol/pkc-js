@@ -13,7 +13,7 @@ import { describe, it, beforeAll, afterAll } from "vitest";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 const roles = [
     { role: "owner", signer: signers[1] },
     { role: "admin", signer: signers[2] },
@@ -22,22 +22,22 @@ const roles = [
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Banning authors`, async () => {
-        let plebbit: PKC, commentToBeBanned: Comment, authorBanExpiresAt: number, reasonOfBan: string;
+        let pkc: PKC, commentToBeBanned: Comment, authorBanExpiresAt: number, reasonOfBan: string;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
-            commentToBeBanned = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+            pkc = await config.plebbitInstancePromise();
+            commentToBeBanned = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
             await commentToBeBanned.update();
             authorBanExpiresAt = timestamp() + 10; // Ban stays for 10 seconds
             reasonOfBan = "Just so " + Date.now();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it.sequential(`Mod can ban an author for a comment`, async () => {
-            const banCommentMod = await plebbit.createCommentModeration({
+            const banCommentMod = await pkc.createCommentModeration({
                 communityAddress: commentToBeBanned.communityAddress,
                 commentCid: commentToBeBanned.cid,
                 commentModeration: {
@@ -53,7 +53,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it(`Banned author can't publish`, async () => {
             const newCommentByBannedAuthor = await generateMockPost({
                 communityAddress: commentToBeBanned.communityAddress,
-                plebbit: plebbit,
+                plebbit: pkc,
                 postProps: {
                     signer: commentToBeBanned.signer
                 }
@@ -74,8 +74,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(commentToBeBanned.reason).to.equal(reasonOfBan);
         });
 
-        it(`author.banExpires is included in pages of subplebbit`, async () => {
-            const sub = await plebbit.createCommunity({ address: commentToBeBanned.communityAddress });
+        it(`author.banExpires is included in pages of community`, async () => {
+            const sub = await pkc.createCommunity({ address: commentToBeBanned.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -87,13 +87,13 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Regular author can't ban another author`, async () => {
-            const tryToBanComment = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+            const tryToBanComment = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
 
-            const banCommentEdit = await plebbit.createCommentModeration({
+            const banCommentEdit = await pkc.createCommentModeration({
                 communityAddress: tryToBanComment.communityAddress,
                 commentCid: tryToBanComment.cid,
                 commentModeration: { author: { banExpiresAt: authorBanExpiresAt + 1000 } },
-                signer: await plebbit.createSigner()
+                signer: await pkc.createSigner()
             });
             await publishWithExpectedResult({
                 publication: banCommentEdit,
@@ -107,7 +107,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(timestamp()).to.be.greaterThan(authorBanExpiresAt);
             const newCommentByBannedAuthor = await generateMockPost({
                 communityAddress: commentToBeBanned.communityAddress,
-                plebbit: plebbit,
+                plebbit: pkc,
                 postProps: {
                     signer: commentToBeBanned.signer
                 }

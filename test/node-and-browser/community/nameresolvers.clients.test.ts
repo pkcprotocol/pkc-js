@@ -6,7 +6,7 @@ import { it } from "vitest";
 import { describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
 import type { InputPKCOptions } from "../../../dist/node/types.js";
 
-const subplebbitAddress = signers[9].address;
+const communityAddress = signers[9].address;
 
 // Domain authors for the fixture: 3 domain comments + 1 non-domain
 const domainAuthors = [
@@ -39,7 +39,7 @@ function createTrackingResolver() {
 
 function createRemotePKCWithTrackingResolver({ stubStorage = true }: { stubStorage?: boolean } = {}) {
     const { resolver, resolvedDomains } = createTrackingResolver();
-    const plebbitPromise = mockPKCV2({
+    const pkcPromise = mockPKCV2({
         stubStorage,
         remotePKC: true,
         mockResolve: false,
@@ -48,7 +48,7 @@ function createRemotePKCWithTrackingResolver({ stubStorage = true }: { stubStora
             nameResolvers: [resolver]
         }
     });
-    return { plebbitPromise, resolvedDomains };
+    return { pkcPromise, resolvedDomains };
 }
 
 async function createRemotePKCWithMockResolver({
@@ -62,7 +62,7 @@ async function createRemotePKCWithMockResolver({
     validatePages?: boolean;
     nameResolvers?: InputPKCOptions["nameResolvers"];
 } = {}) {
-    const plebbit = await mockPKCV2({
+    const pkc = await mockPKCV2({
         stubStorage,
         remotePKC: true,
         mockResolve: false,
@@ -72,7 +72,7 @@ async function createRemotePKCWithMockResolver({
         }
     });
 
-    return { plebbit, records };
+    return { pkc, records };
 }
 
 // Build a minimal CommentIpfs-like object that passes CommentIpfsSchema.loose() parsing in pages.
@@ -80,13 +80,13 @@ async function createRemotePKCWithMockResolver({
 function buildPageComment({
     authorName,
     signerPublicKey,
-    subplebbitAddress: subAddr,
+    communityAddress: subAddr,
     cid,
     depth = 0
 }: {
     authorName?: string;
     signerPublicKey: string;
-    subplebbitAddress: string;
+    communityAddress: string;
     cid: string;
     depth?: number;
 }) {
@@ -96,7 +96,7 @@ function buildPageComment({
             ...(authorName ? { author: { name: authorName } } : {}),
             content: `Fixture comment by ${authorName || "anon"} - ${cid}`,
             depth,
-            subplebbitAddress: subAddr,
+            communityAddress: subAddr,
             timestamp: now,
             protocolVersion: "1.0.0",
             signature: {
@@ -152,14 +152,14 @@ async function createCommunityFixtureWithDomainAuthors() {
             buildPageComment({
                 authorName: da.name,
                 signerPublicKey: signers[da.signerIndex].publicKey,
-                subplebbitAddress: communityAddress,
+                communityAddress: communityAddress,
                 cid: fakeCids[i]
             })
         ),
         // 1 non-domain comment (no author.name)
         buildPageComment({
             signerPublicKey: signers[1].publicKey,
-            subplebbitAddress: communityAddress,
+            communityAddress: communityAddress,
             cid: fakeCids[3]
         })
     ];
@@ -182,28 +182,28 @@ async function createCommunityFixtureWithDomainAuthors() {
 }
 
 // RPC clients don't have nameResolvers clients — name resolution happens server-side, so resolver state is not exposed to the client
-describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
-    it(`subplebbit.clients.nameResolvers[resolverKey].state is stopped by default`, async () => {
-        const { plebbit } = await createRemotePKCWithMockResolver();
-        const mockSub = await plebbit.getCommunity({ address: subplebbitAddress });
+describeSkipIfRpc(`community.clients.nameResolvers`, async () => {
+    it(`community.clients.nameResolvers[resolverKey].state is stopped by default`, async () => {
+        const { pkc } = await createRemotePKCWithMockResolver();
+        const mockSub = await pkc.getCommunity({ address: communityAddress });
         expect(Object.keys(mockSub.clients.nameResolvers).length).to.be.greaterThanOrEqual(1);
         for (const resolverKey of Object.keys(mockSub.clients.nameResolvers))
             expect(mockSub.clients.nameResolvers[resolverKey].state).to.equal("stopped");
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`Correct order of nameResolvers state when sub pages has comments with author.address as domain - uncached`, async () => {
         // These tests can't work with RPC clients because:
-        // - RPC clients have empty clients.nameResolvers (nameResolvers contain functions that can't be serialized over RPC, see plebbit.ts)
+        // - RPC clients have empty clients.nameResolvers (nameResolvers contain functions that can't be serialized over RPC, see pkc.ts)
         // - The RPC server resolves names server-side and doesn't transmit resolver state changes to the client
         // - Until the RPC protocol is extended to relay nameResolver state changes, these tests only exercise the non-RPC path
 
-        // Create a static subplebbit with a known set of 3 domain-author + 1 non-domain comments
+        // Create a static community with a known set of 3 domain-author + 1 non-domain comments
         const { communityAddress } = await createCommunityFixtureWithDomainAuthors();
 
-        const { plebbitPromise, resolvedDomains } = createRemotePKCWithTrackingResolver({ stubStorage: true });
-        const plebbit = await plebbitPromise;
-        const sub = await plebbit.createCommunity({ address: communityAddress });
+        const { pkcPromise, resolvedDomains } = createRemotePKCWithTrackingResolver({ stubStorage: true });
+        const pkc = await pkcPromise;
+        const sub = await pkc.createCommunity({ address: communityAddress });
 
         const recordedStates: string[] = [];
         const resolverKey = Object.keys(sub.clients.nameResolvers)[0];
@@ -246,11 +246,11 @@ describeSkipIfRpc(`subplebbit.clients.nameResolvers`, async () => {
         expect(recordedStates).to.include("stopped");
         expect(recordedStates[recordedStates.length - 1]).to.equal("stopped");
 
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
-    it(`Correct order of nameResolvers state when updating a subplebbit that was created with plebbit.createCommunity({address}) - uncached`, async () => {
-        const { plebbit: remotePKC } = await createRemotePKCWithMockResolver({
+    it(`Correct order of nameResolvers state when updating a community that was created with pkc.createCommunity({address}) - uncached`, async () => {
+        const { pkc: remotePKC } = await createRemotePKCWithMockResolver({
             stubStorage: true
         });
         const sub = await remotePKC.createCommunity({ address: "plebbit.bso" });

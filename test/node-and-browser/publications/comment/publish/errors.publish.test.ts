@@ -19,7 +19,7 @@ type CommentWithInternals = {
     _setProviderFailureThresholdSeconds: number;
 };
 
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 
 describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and pubsub providers`, async () => {
     it(`comment.publish() can be caught if one of the gateways threw 429 status code and other not responding`, async () => {
@@ -67,13 +67,13 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
             "http://127.0.0.1:18083",
             "http://127.0.0.1:18080"
         ]);
-        const post = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: gatewayPKC });
+        const post = await generateMockPost({ communityAddress: communityAddress, plebbit: gatewayPKC });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
         await gatewayPKC.destroy();
     });
     it(`Can publish a comment when all pubsub providers are down except one`, async () => {
         const tempPKC = await mockRemotePKC();
-        // We're gonna modify this plebbit instance to throw errors when pubsub publish/subscribe is called for two of its pubsub providers (it uses three)
+        // We're gonna modify this pkc instance to throw errors when pubsub publish/subscribe is called for two of its pubsub providers (it uses three)
         const pubsubProviders = Object.keys(tempPKC.clients.pubsubKuboRpcClients);
         expect(pubsubProviders.length).to.equal(3);
 
@@ -92,7 +92,7 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
         };
         // Only pubsubProviders [2] is able to publish/subscribe
 
-        const post = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: tempPKC });
+        const post = await generateMockPost({ communityAddress: communityAddress, plebbit: tempPKC });
         // Pre-set _subplebbit to skip the network IPNS fetch in _initCommunity(),
         // which is flaky in CI. This isolates the test to only exercise the pubsub failure path.
         (post as any)._subplebbit = {
@@ -106,17 +106,17 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
     it(`comment.publish succeeds if provider 1 is not responding and 2 is responding`, async () => {
         const notRespondingPubsubUrl = "http://localhost:15005/api/v0"; // Should take msgs but not respond, never throws errors
         const upPubsubUrl = "http://localhost:15002/api/v0";
-        const plebbit = await mockPKCV2({
+        const pkc = await mockPKCV2({
             plebbitOptions: { pubsubKuboRpcClientsOptions: [notRespondingPubsubUrl, upPubsubUrl] },
             forceMockPubsub: true,
             remotePKC: true
         });
 
         // make the pubsub provider unresponsive
-        plebbit.clients.pubsubKuboRpcClients[notRespondingPubsubUrl]._client.pubsub.publish = async () => {};
-        plebbit.clients.pubsubKuboRpcClients[notRespondingPubsubUrl]._client.pubsub.subscribe = async () => {};
+        pkc.clients.pubsubKuboRpcClients[notRespondingPubsubUrl]._client.pubsub.publish = async () => {};
+        pkc.clients.pubsubKuboRpcClients[notRespondingPubsubUrl]._client.pubsub.subscribe = async () => {};
 
-        const mockPost = await generateMockPost({ communityAddress: signers[0].address, plebbit: plebbit });
+        const mockPost = await generateMockPost({ communityAddress: signers[0].address, plebbit: pkc });
         // Pre-set _subplebbit to skip the network IPNS fetch in _initCommunity(),
         // which is flaky in CI. This isolates the test to only exercise the pubsub failure path.
         (mockPost as any)._subplebbit = {
@@ -143,7 +143,7 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
             expect(actualStates).to.deep.equal(expectedStates);
         } finally {
             await mockPost.stop();
-            await plebbit.destroy();
+            await pkc.destroy();
         }
     });
     it(`comment emits and throws errors if all providers fail to publish`, async () => {

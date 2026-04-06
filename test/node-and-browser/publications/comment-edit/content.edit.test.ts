@@ -13,7 +13,7 @@ import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentWithinRepliesPostsPageJson } from "../../../../dist/node/publications/comment/types.js";
 
-const subplebbitAddress = signers[10].address;
+const communityAddress = signers[10].address;
 const roles = [
     { role: "owner", signer: signers[1] },
     { role: "admin", signer: signers[2] },
@@ -22,13 +22,13 @@ const roles = [
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent("Editing comment.content - " + config.name, async () => {
-        let plebbit: PKC, commentToBeEdited: Comment, originalContent: string;
+        let pkc: PKC, commentToBeEdited: Comment, originalContent: string;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
             commentToBeEdited = await publishRandomPost({
-                communityAddress: subplebbitAddress,
-                plebbit: plebbit,
+                communityAddress: communityAddress,
+                plebbit: pkc,
                 postProps: { content: "original content" }
             });
             originalContent = remeda.clone(commentToBeEdited.content);
@@ -36,13 +36,13 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it("Fails to edit content if not original author", async function () {
             const editedText = "This should fail" + Date.now();
             const editReason = "To test whether editing a comment fails" + Date.now();
-            const commentEdit = await plebbit.createCommentEdit({
+            const commentEdit = await pkc.createCommentEdit({
                 communityAddress: commentToBeEdited.communityAddress,
                 commentCid: commentToBeEdited.cid,
                 reason: editReason,
@@ -60,7 +60,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const editedText = "edit test" + Date.now();
             const editReason = "To test editing content" + Date.now();
 
-            const commentEdit = await plebbit.createCommentEdit({
+            const commentEdit = await pkc.createCommentEdit({
                 communityAddress: commentToBeEdited.communityAddress,
                 commentCid: commentToBeEdited.cid,
                 reason: editReason,
@@ -87,7 +87,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`The new content is reflected correctly in JSON.parse(JSON.stringif(comment))`, async () => {
-            const recreatedComment = await plebbit.getComment({ cid: commentToBeEdited.cid });
+            const recreatedComment = await pkc.getComment({ cid: commentToBeEdited.cid });
             await recreatedComment.update();
 
             await resolveWhenConditionIsTrue({
@@ -112,26 +112,23 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             }
         });
 
-        it(`The new content should be reflected in subplebbit.posts.getPage`, async () => {
-            const subplebbit1 = await plebbit.createCommunity({ address: commentToBeEdited.communityAddress });
-            await subplebbit1.update();
+        it(`The new content should be reflected in community.posts.getPage`, async () => {
+            const community1 = await pkc.createCommunity({ address: commentToBeEdited.communityAddress });
+            await community1.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: subplebbit1,
+                toUpdate: community1,
                 predicate: async () => {
                     const editedCommentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
                         commentToBeEdited.cid,
-                        subplebbit1.posts
+                        community1.posts
                     );
                     return Boolean(editedCommentInPage?.edit?.reason?.startsWith("To test editing content"));
                 }
             });
-            const subplebbit2 = await plebbit.createCommunity(subplebbit1); // we're testing if posts from subplebbit are parsed correctly
-            const subplebbit3 = await plebbit.createCommunity(JSON.parse(JSON.stringify(subplebbit1)));
-            for (const subplebbit of [subplebbit1, subplebbit2, subplebbit3]) {
-                const editedCommentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
-                    commentToBeEdited.cid,
-                    subplebbit.posts
-                );
+            const community2 = await pkc.createCommunity(community1); // we're testing if posts from subplebbit are parsed correctly
+            const community3 = await pkc.createCommunity(JSON.parse(JSON.stringify(community1)));
+            for (const sub of [community1, community2, community3]) {
+                const editedCommentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(commentToBeEdited.cid, sub.posts);
                 expect(editedCommentInPage).to.be.a("object");
                 // Should reflect the new content, and also have original.content
                 expect(editedCommentInPage.content.startsWith("edit test")).to.be.true;
@@ -140,11 +137,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(editedCommentInPage.reason).to.be.undefined;
                 expect(editedCommentInPage.edit.reason.startsWith("To test editing content")).to.be.true;
             }
-            await subplebbit1.stop();
+            await community1.stop();
         });
 
-        it(`The new content should be reflected in JSON.parse(JSON.stringify(subplebbit)).posts.pages`, async () => {
-            const sub1 = await plebbit.createCommunity({ address: commentToBeEdited.communityAddress });
+        it(`The new content should be reflected in JSON.parse(JSON.stringify(community)).posts.pages`, async () => {
+            const sub1 = await pkc.createCommunity({ address: commentToBeEdited.communityAddress });
             await sub1.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub1,
@@ -156,8 +153,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     return Boolean(editedCommentInPage?.edit?.reason?.startsWith("To test editing content"));
                 }
             });
-            const sub2 = await plebbit.createCommunity(sub1); // we're testing if posts from subplebbit are parsed correctly
-            const sub3 = await plebbit.createCommunity(JSON.parse(JSON.stringify(sub1)));
+            const sub2 = await pkc.createCommunity(sub1); // we're testing if posts from subplebbit are parsed correctly
+            const sub3 = await pkc.createCommunity(JSON.parse(JSON.stringify(sub1)));
 
             for (const subJson of [
                 sub1,
@@ -187,7 +184,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const editedText = "Double edit test";
             const editReason = "To test double editing a comment";
             const originalContent = (commentToBeEdited.raw.comment ?? commentToBeEdited.raw.pubsubMessageToPublish)?.content;
-            const commentEdit = await plebbit.createCommentEdit({
+            const commentEdit = await pkc.createCommentEdit({
                 communityAddress: commentToBeEdited.communityAddress,
                 commentCid: commentToBeEdited.cid,
                 reason: editReason,
@@ -211,15 +208,15 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         roles.map((roleTest) =>
             it(`${roleTest.role} role Can modify their own comment content`, async () => {
                 const commentToEdit = await publishRandomPost({
-                    communityAddress: subplebbitAddress,
-                    plebbit: plebbit,
+                    communityAddress: communityAddress,
+                    plebbit: pkc,
                     postProps: { signer: roleTest.signer }
                 });
                 const originalContent = remeda.clone(commentToEdit.content);
                 await commentToEdit.update();
                 const editedText = `${roleTest.role} role testing CommentEdit`;
                 const editReason = `For ${roleTest.role} role to test editing a comment`;
-                const commentEdit = await plebbit.createCommentEdit({
+                const commentEdit = await pkc.createCommentEdit({
                     communityAddress: commentToEdit.communityAddress,
                     commentCid: commentToEdit.cid,
                     reason: editReason,
@@ -243,7 +240,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             it(`${roleTest.role} role can't edit another author comment.content`, async () => {
                 const editedText = `${roleTest.role} role testing CommentEdit`;
                 const editReason = `For ${roleTest.role} role to test editing a comment`;
-                const commentEdit = await plebbit.createCommentEdit({
+                const commentEdit = await pkc.createCommentEdit({
                     communityAddress: commentToBeEdited.communityAddress,
                     commentCid: commentToBeEdited.cid,
                     reason: editReason,

@@ -116,7 +116,7 @@
             "type": "node",
             "env": {
                 "DEBUG": "pkc-js*,pkc-react-hooks*",
-                "PLEBBIT_CONFIGS": "remote-plebbit-rpc",
+                "PLEBBIT_CONFIGS": "remote-pkc-rpc",
                 "USE_RPC": "1"
             }
         },

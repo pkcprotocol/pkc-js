@@ -6,28 +6,28 @@ import { signCommunity } from "../../../dist/node/signer/signatures.js";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 
-getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbit-rpc"] }).map((config) => {
-    describe(`subplebbit.clients.plebbitRpcClients (remote sub)`, async () => {
-        let plebbit: PKCType;
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] }).map((config) => {
+    describe(`community.clients.plebbitRpcClients (remote sub)`, async () => {
+        let pkc: PKCType;
 
         beforeEach(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterEach(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
-        it(`subplebbit.clients.plebbitRpcClients[rpcUrl] is stopped by default`, async () => {
-            const sub = await plebbit.createCommunity({ address: signers[0].address });
-            const rpcUrl = Object.keys(plebbit.clients.plebbitRpcClients)[0];
+        it(`community.clients.plebbitRpcClients[rpcUrl] is stopped by default`, async () => {
+            const sub = await pkc.createCommunity({ address: signers[0].address });
+            const rpcUrl = Object.keys(pkc.clients.plebbitRpcClients)[0];
             expect(sub.clients.plebbitRpcClients[rpcUrl].state).to.equal("stopped");
             expect(sub.updatingState).to.equal("stopped");
         });
 
-        it(`subplebbit.clients.plebbitRpcClients states are correct if fetching a sub with IPNS address`, async () => {
+        it(`community.clients.plebbitRpcClients states are correct if fetching a sub with IPNS address`, async () => {
             const newIpns = await createNewIpns();
-            const actualSub = await plebbit.getCommunity({ address: signers[0].address });
+            const actualSub = await pkc.getCommunity({ address: signers[0].address });
 
             const record: Record<string, unknown> = JSON.parse(JSON.stringify(actualSub.raw.subplebbitIpfs));
             delete record["posts"];
@@ -38,8 +38,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbit-rp
 
             await newIpns.publishToIpns(JSON.stringify(record));
 
-            const sub = await plebbit.createCommunity({ address: newIpns.signer.address });
-            const rpcUrl = Object.keys(plebbit.clients.plebbitRpcClients)[0];
+            const sub = await pkc.createCommunity({ address: newIpns.signer.address });
+            const rpcUrl = Object.keys(pkc.clients.plebbitRpcClients)[0];
             const recordedStates: string[] = [];
             const expectedStates = ["fetching-ipns", "fetching-ipfs", "stopped"];
 
@@ -56,9 +56,9 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbit-rp
             expect(sub.updatingState).to.equal("stopped");
         });
 
-        it(`subplebbit.clients.plebbitRpcClients states are correct if fetching a sub with ENS address`, async () => {
-            const sub = await plebbit.createCommunity({ address: "plebbit.bso" });
-            const rpcUrl = Object.keys(plebbit.clients.plebbitRpcClients)[0];
+        it(`community.clients.plebbitRpcClients states are correct if fetching a sub with ENS address`, async () => {
+            const sub = await pkc.createCommunity({ address: "plebbit.bso" });
+            const rpcUrl = Object.keys(pkc.clients.plebbitRpcClients)[0];
             const recordedStates: string[] = [];
             const expectedStates = ["resolving-community-name", "fetching-ipns", "fetching-ipfs", "stopped"];
 

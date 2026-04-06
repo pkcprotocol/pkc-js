@@ -17,47 +17,47 @@ const expectedIpnsPubsubTopic = "/record/L2lwbnMvACQIARIgtkPPciAVI7kfzmSHjazd0ek
 const expectedIpnsPubsubTopicRoutingCid = "bafkreiftvi7wgbdhbxnenslhu5sytlid73siolkd2syhdnjhnvn3mksggi";
 const expectedPubsubTopicRoutingCid = "bafkreidwoelrflsx5dgll7s6jfkhsj6ffkfplde2j5dyino6t7m4ijutem";
 
-function setMockResolverRecords(plebbit: PKCType, records: Map<string, string | undefined>) {
-    plebbit.nameResolvers = [createMockNameResolver({ includeDefaultRecords: true, records })];
+function setMockResolverRecords(pkc: PKCType, records: Map<string, string | undefined>) {
+    pkc.nameResolvers = [createMockNameResolver({ includeDefaultRecords: true, records })];
 }
 
 // Test for domain address that resolves to b58 IPNS but fails to load IPNS record
 // The ipnsPubsubTopic and ipnsPubsubTopicRoutingCid should still be set
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describeSkipIfRpc(
-        `subplebbit.{ipnsName, ipnsPubsubTopic, ipnsPubsubTopicRoutingCid} with domain that fails IPNS loading - ${config.name}`,
+        `community.{ipnsName, ipnsPubsubTopic, ipnsPubsubTopicRoutingCid} with domain that fails IPNS loading - ${config.name}`,
         async () => {
             it(`Domain resolves to b58 IPNS but IPNS record doesn't exist - should still set ipnsPubsubTopic and ipnsPubsubTopicRoutingCid`, async () => {
-                const plebbit = await config.plebbitInstancePromise({ stubStorage: false });
+                const pkc = await config.plebbitInstancePromise({ stubStorage: false });
                 const testDomain = "test-domain-no-ipns-record.eth";
-                const nonExistantIpnsAddress = (await plebbit.createSigner()).address; // a random b58 address that's not loadable
+                const nonExistantIpnsAddress = (await pkc.createSigner()).address; // a random b58 address that's not loadable
                 const expectedIpnsPubsubTopicForNonExistent = ipnsNameToIpnsOverPubsubTopic(nonExistantIpnsAddress);
                 const expectedIpnsPubsubTopicRoutingCidForNonExistent = pubsubTopicToDhtKey(expectedIpnsPubsubTopicForNonExistent);
-                plebbit._timeouts["subplebbit-ipns"] = 1000;
+                pkc._timeouts["subplebbit-ipns"] = 1000;
 
-                setMockResolverRecords(plebbit, new Map([[testDomain, nonExistantIpnsAddress]]));
+                setMockResolverRecords(pkc, new Map([[testDomain, nonExistantIpnsAddress]]));
 
                 const errors: PKCError[] = [];
 
-                const subplebbit = await plebbit.createCommunity({ address: testDomain });
+                const community = await pkc.createCommunity({ address: testDomain });
 
-                subplebbit.on("error", (err: PKCError | Error) => {
+                community.on("error", (err: PKCError | Error) => {
                     errors.push(err as PKCError);
                 });
 
                 // At this point, the domain hasn't been resolved yet
                 // For a domain address, ipnsName, ipnsPubsubTopic and ipnsPubsubTopicRoutingCid are not set initially
-                expect(subplebbit.ipnsName).to.be.undefined;
-                expect(subplebbit.ipnsPubsubTopic).to.be.undefined;
-                expect(subplebbit.ipnsPubsubTopicRoutingCid).to.be.undefined;
+                expect(community.ipnsName).to.be.undefined;
+                expect(community.ipnsPubsubTopic).to.be.undefined;
+                expect(community.ipnsPubsubTopicRoutingCid).to.be.undefined;
 
                 // Now trigger update which will resolve the domain and try to load IPNS
                 // This will fail because the IPNS record doesn't exist, but we should still have the pubsub props set
-                await subplebbit.update();
+                await community.update();
 
                 // Wait for the domain to be resolved and errors to be emitted
                 await resolveWhenConditionIsTrue({
-                    toUpdate: subplebbit,
+                    toUpdate: community,
                     predicate: async () => errors.length > 0,
                     eventName: "error"
                 });
@@ -65,9 +65,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 // After domain resolution, even if IPNS loading fails, we should have:
                 // - ipnsName set to the resolved IPNS address
                 // - ipnsPubsubTopic and ipnsPubsubTopicRoutingCid set based on the resolved IPNS
-                expect(subplebbit.ipnsName).to.equal(nonExistantIpnsAddress);
-                expect(subplebbit.ipnsPubsubTopic).to.equal(expectedIpnsPubsubTopicForNonExistent);
-                expect(subplebbit.ipnsPubsubTopicRoutingCid).to.equal(expectedIpnsPubsubTopicRoutingCidForNonExistent);
+                expect(community.ipnsName).to.equal(nonExistantIpnsAddress);
+                expect(community.ipnsPubsubTopic).to.equal(expectedIpnsPubsubTopicForNonExistent);
+                expect(community.ipnsPubsubTopicRoutingCid).to.equal(expectedIpnsPubsubTopicRoutingCidForNonExistent);
 
                 const error = errors[0];
                 if (config.testConfigCode === "remote-ipfs-gateway") {
@@ -76,169 +76,169 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     expect(error.code).to.be.oneOf(["ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED", "ERR_IPNS_RESOLUTION_P2P_TIMEOUT"]);
                 }
 
-                await subplebbit.stop();
-                await plebbit.destroy();
+                await community.stop();
+                await pkc.destroy();
             });
         }
     );
 });
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
-    describeSkipIfRpc(`subplebbit.ipns accessors persist after first resolve - ${config.name}`, async () => {
+    describeSkipIfRpc(`community.ipns accessors persist after first resolve - ${config.name}`, async () => {
         it(`keeps ipns accessors defined after stop`, async () => {
-            const plebbit = await config.plebbitInstancePromise({ stubStorage: false });
+            const pkc = await config.plebbitInstancePromise({ stubStorage: false });
             const testDomain = `test-domain-ipns-accessors-${config.testConfigCode}.eth`;
-            const nonExistantIpnsAddress = (await plebbit.createSigner()).address; // a random b58 address that's not loadable
+            const nonExistantIpnsAddress = (await pkc.createSigner()).address; // a random b58 address that's not loadable
             const expectedIpnsPubsubTopicForNonExistent = ipnsNameToIpnsOverPubsubTopic(nonExistantIpnsAddress);
             const expectedIpnsPubsubTopicRoutingCidForNonExistent = pubsubTopicToDhtKey(expectedIpnsPubsubTopicForNonExistent);
-            plebbit._timeouts["subplebbit-ipns"] = 1000;
+            pkc._timeouts["subplebbit-ipns"] = 1000;
 
-            setMockResolverRecords(plebbit, new Map([[testDomain, nonExistantIpnsAddress]]));
+            setMockResolverRecords(pkc, new Map([[testDomain, nonExistantIpnsAddress]]));
 
-            const subplebbit = await plebbit.createCommunity({ address: testDomain });
+            const community = await pkc.createCommunity({ address: testDomain });
             const errors: PKCError[] = [];
-            subplebbit.on("error", (err: PKCError | Error) => {
+            community.on("error", (err: PKCError | Error) => {
                 errors.push(err as PKCError);
             });
 
-            await subplebbit.update();
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: subplebbit,
+                toUpdate: community,
                 predicate: async () => errors.length > 0,
                 eventName: "error"
             });
 
-            expect(subplebbit.ipnsName).to.equal(nonExistantIpnsAddress);
-            expect(subplebbit.ipnsPubsubTopic).to.equal(expectedIpnsPubsubTopicForNonExistent);
-            expect(subplebbit.ipnsPubsubTopicRoutingCid).to.equal(expectedIpnsPubsubTopicRoutingCidForNonExistent);
+            expect(community.ipnsName).to.equal(nonExistantIpnsAddress);
+            expect(community.ipnsPubsubTopic).to.equal(expectedIpnsPubsubTopicForNonExistent);
+            expect(community.ipnsPubsubTopicRoutingCid).to.equal(expectedIpnsPubsubTopicRoutingCidForNonExistent);
 
-            await subplebbit.stop();
+            await community.stop();
 
-            expect(subplebbit.ipnsName).to.equal(nonExistantIpnsAddress);
-            expect(subplebbit.ipnsPubsubTopic).to.equal(expectedIpnsPubsubTopicForNonExistent);
-            expect(subplebbit.ipnsPubsubTopicRoutingCid).to.equal(expectedIpnsPubsubTopicRoutingCidForNonExistent);
+            expect(community.ipnsName).to.equal(nonExistantIpnsAddress);
+            expect(community.ipnsPubsubTopic).to.equal(expectedIpnsPubsubTopicForNonExistent);
+            expect(community.ipnsPubsubTopicRoutingCid).to.equal(expectedIpnsPubsubTopicRoutingCidForNonExistent);
 
-            await plebbit.destroy();
+            await pkc.destroy();
         });
     });
 });
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
-    describeSkipIfRpc(`subplebbit.ipns accessors mirror updating subplebbit - ${config.name}`, async () => {
+    describeSkipIfRpc(`community.ipns accessors mirror updating community - ${config.name}`, async () => {
         it(`mirrors ipns accessors when update fails before record is loaded`, async () => {
-            const plebbit = await config.plebbitInstancePromise({ stubStorage: false });
+            const pkc = await config.plebbitInstancePromise({ stubStorage: false });
             const testDomain = `test-domain-ipns-mirror-${config.testConfigCode}.eth`;
-            const nonExistantIpnsAddress = (await plebbit.createSigner()).address; // a random b58 address that's not loadable
+            const nonExistantIpnsAddress = (await pkc.createSigner()).address; // a random b58 address that's not loadable
             const expectedIpnsPubsubTopicForNonExistent = ipnsNameToIpnsOverPubsubTopic(nonExistantIpnsAddress);
             const expectedIpnsPubsubTopicRoutingCidForNonExistent = pubsubTopicToDhtKey(expectedIpnsPubsubTopicForNonExistent);
-            plebbit._timeouts["subplebbit-ipns"] = 1000;
+            pkc._timeouts["subplebbit-ipns"] = 1000;
 
-            setMockResolverRecords(plebbit, new Map([[testDomain, nonExistantIpnsAddress]]));
+            setMockResolverRecords(pkc, new Map([[testDomain, nonExistantIpnsAddress]]));
 
-            const subplebbitA = await plebbit.createCommunity({ address: testDomain });
+            const communityA = await pkc.createCommunity({ address: testDomain });
             const errorsA: PKCError[] = [];
-            subplebbitA.on("error", (err: PKCError | Error) => {
+            communityA.on("error", (err: PKCError | Error) => {
                 errorsA.push(err as PKCError);
             });
 
-            await subplebbitA.update();
+            await communityA.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: subplebbitA,
+                toUpdate: communityA,
                 predicate: async () => errorsA.length > 0,
                 eventName: "error"
             });
 
-            const subplebbitB = await plebbit.createCommunity({ address: testDomain });
-            await subplebbitB.update();
+            const communityB = await pkc.createCommunity({ address: testDomain });
+            await communityB.update();
 
-            expect(subplebbitA.ipnsName).to.equal(nonExistantIpnsAddress);
-            expect(subplebbitA.ipnsPubsubTopic).to.equal(expectedIpnsPubsubTopicForNonExistent);
-            expect(subplebbitA.ipnsPubsubTopicRoutingCid).to.equal(expectedIpnsPubsubTopicRoutingCidForNonExistent);
+            expect(communityA.ipnsName).to.equal(nonExistantIpnsAddress);
+            expect(communityA.ipnsPubsubTopic).to.equal(expectedIpnsPubsubTopicForNonExistent);
+            expect(communityA.ipnsPubsubTopicRoutingCid).to.equal(expectedIpnsPubsubTopicRoutingCidForNonExistent);
 
-            expect(subplebbitB.ipnsName).to.equal(nonExistantIpnsAddress);
-            expect(subplebbitB.ipnsPubsubTopic).to.equal(expectedIpnsPubsubTopicForNonExistent);
-            expect(subplebbitB.ipnsPubsubTopicRoutingCid).to.equal(expectedIpnsPubsubTopicRoutingCidForNonExistent);
+            expect(communityB.ipnsName).to.equal(nonExistantIpnsAddress);
+            expect(communityB.ipnsPubsubTopic).to.equal(expectedIpnsPubsubTopicForNonExistent);
+            expect(communityB.ipnsPubsubTopicRoutingCid).to.equal(expectedIpnsPubsubTopicRoutingCidForNonExistent);
 
-            await subplebbitB.stop();
-            await subplebbitA.stop();
-            await plebbit.destroy();
+            await communityB.stop();
+            await communityA.stop();
+            await pkc.destroy();
         });
     });
 });
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
-    describe(`subplebbit.ipns accessors persist after successful update - ${config.name}`, async () => {
+    describe(`community.ipns accessors persist after successful update - ${config.name}`, async () => {
         it(`keeps ipns accessors defined after stop`, async () => {
-            const plebbit = await config.plebbitInstancePromise();
-            const subplebbit = await plebbit.createCommunity({ address: ipnsB58 });
+            const pkc = await config.plebbitInstancePromise();
+            const community = await pkc.createCommunity({ address: ipnsB58 });
 
-            expect(subplebbit.ipnsName).to.equal(ipnsB58);
-            expect(subplebbit.ipnsPubsubTopic).to.equal(expectedIpnsPubsubTopic);
-            expect(subplebbit.ipnsPubsubTopicRoutingCid).to.equal(expectedIpnsPubsubTopicRoutingCid);
+            expect(community.ipnsName).to.equal(ipnsB58);
+            expect(community.ipnsPubsubTopic).to.equal(expectedIpnsPubsubTopic);
+            expect(community.ipnsPubsubTopicRoutingCid).to.equal(expectedIpnsPubsubTopicRoutingCid);
 
-            await subplebbit.update();
-            await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
-            await subplebbit.stop();
+            await community.update();
+            await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+            await community.stop();
 
-            expect(subplebbit.ipnsName).to.equal(ipnsB58);
-            expect(subplebbit.ipnsPubsubTopic).to.equal(expectedIpnsPubsubTopic);
-            expect(subplebbit.ipnsPubsubTopicRoutingCid).to.equal(expectedIpnsPubsubTopicRoutingCid);
+            expect(community.ipnsName).to.equal(ipnsB58);
+            expect(community.ipnsPubsubTopic).to.equal(expectedIpnsPubsubTopic);
+            expect(community.ipnsPubsubTopicRoutingCid).to.equal(expectedIpnsPubsubTopicRoutingCid);
 
-            await plebbit.destroy();
+            await pkc.destroy();
         });
     });
 });
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
-    describe(`subplebbit.{ipnsName, ipnsPubsubTopic, ipnsPubsubTopicRoutingCid, pubsubTopicRoutingCid} on create`, async () => {
-        let plebbit: PKCType;
-        let subplebbit: RemoteCommunity;
+    describe(`community.{ipnsName, ipnsPubsubTopic, ipnsPubsubTopicRoutingCid, pubsubTopicRoutingCid} on create`, async () => {
+        let pkc: PKCType;
+        let community: RemoteCommunity;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
-            subplebbit = await plebbit.createCommunity({ address: ipnsB58 });
-            expect(subplebbit.updatedAt).to.be.undefined;
+            pkc = await config.plebbitInstancePromise();
+            community = await pkc.createCommunity({ address: ipnsB58 });
+            expect(community.updatedAt).to.be.undefined;
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it("creates ipns fields from ipns b58 without update", async () => {
-            expect(subplebbit.ipnsName).to.equal(ipnsB58);
-            expect(subplebbit.ipnsPubsubTopic).to.equal(expectedIpnsPubsubTopic);
-            expect(subplebbit.ipnsPubsubTopicRoutingCid).to.equal(expectedIpnsPubsubTopicRoutingCid);
+            expect(community.ipnsName).to.equal(ipnsB58);
+            expect(community.ipnsPubsubTopic).to.equal(expectedIpnsPubsubTopic);
+            expect(community.ipnsPubsubTopicRoutingCid).to.equal(expectedIpnsPubsubTopicRoutingCid);
         });
     });
 
-    describe(`subplebbit.{ipnsName, ipnsPubsubTopic, ipnsPubsubTopicRoutingCid, pubsubTopicRoutingCid}`, async () => {
-        let plebbit: PKCType;
-        let subplebbit: RemoteCommunity;
+    describe(`community.{ipnsName, ipnsPubsubTopic, ipnsPubsubTopicRoutingCid, pubsubTopicRoutingCid}`, async () => {
+        let pkc: PKCType;
+        let community: RemoteCommunity;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
-            subplebbit = await plebbit.createCommunity({ address: ipnsB58 });
+            pkc = await config.plebbitInstancePromise();
+            community = await pkc.createCommunity({ address: ipnsB58 });
 
-            await subplebbit.update();
-            await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+            await community.update();
+            await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
-        it("subplebbit.ipnsName should be a valid IPNS name", async () => {
-            expect(subplebbit.ipnsName).equal(ipnsB58);
+        it("community.ipnsName should be a valid IPNS name", async () => {
+            expect(community.ipnsName).equal(ipnsB58);
         });
 
-        it("subplebbit.ipnsPubsubTopic should be a valid pubsub topic", async () => {
-            expect(subplebbit.ipnsPubsubTopic).equal(expectedIpnsPubsubTopic);
+        it("community.ipnsPubsubTopic should be a valid pubsub topic", async () => {
+            expect(community.ipnsPubsubTopic).equal(expectedIpnsPubsubTopic);
         });
 
-        it("subplebbit.ipnsPubsubTopicRoutingCid should be a valid DHT key", async () => {
-            expect(subplebbit.ipnsPubsubTopicRoutingCid).equal(expectedIpnsPubsubTopicRoutingCid);
+        it("community.ipnsPubsubTopicRoutingCid should be a valid DHT key", async () => {
+            expect(community.ipnsPubsubTopicRoutingCid).equal(expectedIpnsPubsubTopicRoutingCid);
         });
 
-        it("subplebbit.pubsubTopicRoutingCid should be a valid CID", async () => {
-            expect(subplebbit.pubsubTopicRoutingCid).equal(expectedPubsubTopicRoutingCid);
+        it("community.pubsubTopicRoutingCid should be a valid CID", async () => {
+            expect(community.pubsubTopicRoutingCid).equal(expectedPubsubTopicRoutingCid);
         });
     });
 });

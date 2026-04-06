@@ -23,13 +23,13 @@ type SpyWithCalls = {
 type WirePublication = Record<string, unknown> & {
     communityName?: string;
     communityPublicKey?: string;
-    subplebbitAddress?: string;
+    communityAddress?: string;
 };
 
-function expectCreateCommunityFallbackArgs(plebbitSpy: SpyWithCalls) {
-    expect(plebbitSpy.mock.calls.length).to.be.greaterThan(0);
+function expectCreateCommunityFallbackArgs(pkcSpy: SpyWithCalls) {
+    expect(pkcSpy.mock.calls.length).to.be.greaterThan(0);
 
-    for (const call of plebbitSpy.mock.calls) {
+    for (const call of pkcSpy.mock.calls) {
         expect(call[0]).to.include({
             name: communityName,
             publicKey: communityPublicKey
@@ -77,9 +77,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it("Comment publish succeeds with community publicKey fallback", async () => {
-            // Create plebbit with resolver that only handles .eth (not .bso)
+            // Create pkc with resolver that only handles .eth (not .bso)
             // For RPC, resolver options are stripped but the server still resolves .bso normally
-            const plebbit = await config.plebbitInstancePromise({
+            const pkc = await config.plebbitInstancePromise({
                 mockResolve: false,
                 plebbitOptions: {
                     nameResolvers: [
@@ -90,32 +90,32 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     ]
                 }
             });
-            const publication = await plebbit.createComment({
+            const publication = await pkc.createComment({
                 communityAddress: communityName,
                 communityPublicKey,
-                signer: await plebbit.createSigner(),
+                signer: await pkc.createSigner(),
                 title: `Comment fallback publish ${Date.now()}`,
                 content: `Comment fallback content ${Date.now()}`
             });
-            const createCommunitySpy = vi.spyOn(plebbit, "createCommunity");
+            const createCommunitySpy = vi.spyOn(pkc, "createCommunity");
 
             try {
                 await publishWithExpectedResult({ publication, expectedChallengeSuccess: true });
                 // Spy and wire format assertions only work for non-RPC
                 // (RPC delegates createCommunity to server, and raw.pubsubMessageToPublish may not be populated)
-                if (config.testConfigCode !== "remote-plebbit-rpc") {
+                if (config.testConfigCode !== "remote-pkc-rpc") {
                     expectCreateCommunityFallbackArgs(createCommunitySpy);
                     expectWireCommunityFields(publication);
                 }
             } finally {
                 createCommunitySpy.mockRestore();
                 await publication.stop();
-                await plebbit.destroy();
+                await pkc.destroy();
             }
         });
 
         it("Vote publish succeeds with community publicKey fallback", async () => {
-            const plebbit = await config.plebbitInstancePromise({
+            const pkc = await config.plebbitInstancePromise({
                 mockResolve: false,
                 plebbitOptions: {
                     nameResolvers: [
@@ -126,30 +126,30 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     ]
                 }
             });
-            const publication = await plebbit.createVote({
+            const publication = await pkc.createVote({
                 communityAddress: communityName,
                 communityPublicKey,
                 commentCid: fixturePost.cid!,
                 vote: 1,
-                signer: await plebbit.createSigner()
+                signer: await pkc.createSigner()
             });
-            const createCommunitySpy = vi.spyOn(plebbit, "createCommunity");
+            const createCommunitySpy = vi.spyOn(pkc, "createCommunity");
 
             try {
                 await publishWithExpectedResult({ publication, expectedChallengeSuccess: true });
-                if (config.testConfigCode !== "remote-plebbit-rpc") {
+                if (config.testConfigCode !== "remote-pkc-rpc") {
                     expectCreateCommunityFallbackArgs(createCommunitySpy);
                     expectWireCommunityFields(publication);
                 }
             } finally {
                 createCommunitySpy.mockRestore();
                 await publication.stop();
-                await plebbit.destroy();
+                await pkc.destroy();
             }
         });
 
         it("CommentEdit publish succeeds with community publicKey fallback", async () => {
-            const plebbit = await config.plebbitInstancePromise({
+            const pkc = await config.plebbitInstancePromise({
                 mockResolve: false,
                 plebbitOptions: {
                     nameResolvers: [
@@ -160,30 +160,30 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     ]
                 }
             });
-            const publication = await plebbit.createCommentEdit({
+            const publication = await pkc.createCommentEdit({
                 communityAddress: communityName,
                 communityPublicKey,
                 commentCid: fixturePost.cid!,
                 content: `Comment edit fallback ${Date.now()}`,
                 signer: fixturePost.signer!
             });
-            const createCommunitySpy = vi.spyOn(plebbit, "createCommunity");
+            const createCommunitySpy = vi.spyOn(pkc, "createCommunity");
 
             try {
                 await publishWithExpectedResult({ publication, expectedChallengeSuccess: true });
-                if (config.testConfigCode !== "remote-plebbit-rpc") {
+                if (config.testConfigCode !== "remote-pkc-rpc") {
                     expectCreateCommunityFallbackArgs(createCommunitySpy);
                     expectWireCommunityFields(publication);
                 }
             } finally {
                 createCommunitySpy.mockRestore();
                 await publication.stop();
-                await plebbit.destroy();
+                await pkc.destroy();
             }
         });
 
         it("CommentModeration publish succeeds with community publicKey fallback", async () => {
-            const plebbit = await config.plebbitInstancePromise({
+            const pkc = await config.plebbitInstancePromise({
                 mockResolve: false,
                 plebbitOptions: {
                     nameResolvers: [
@@ -194,7 +194,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     ]
                 }
             });
-            const publication = await plebbit.createCommentModeration({
+            const publication = await pkc.createCommentModeration({
                 communityAddress: communityName,
                 communityPublicKey,
                 commentCid: fixturePost.cid!,
@@ -202,25 +202,25 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     spoiler: true,
                     reason: `Comment moderation fallback ${Date.now()}`
                 },
-                signer: await plebbit.createSigner(signers[3])
+                signer: await pkc.createSigner(signers[3])
             });
-            const createCommunitySpy = vi.spyOn(plebbit, "createCommunity");
+            const createCommunitySpy = vi.spyOn(pkc, "createCommunity");
 
             try {
                 await publishWithExpectedResult({ publication, expectedChallengeSuccess: true });
-                if (config.testConfigCode !== "remote-plebbit-rpc") {
+                if (config.testConfigCode !== "remote-pkc-rpc") {
                     expectCreateCommunityFallbackArgs(createCommunitySpy);
                     expectWireCommunityFields(publication);
                 }
             } finally {
                 createCommunitySpy.mockRestore();
                 await publication.stop();
-                await plebbit.destroy();
+                await pkc.destroy();
             }
         });
 
         it("CommunityEdit publish succeeds with community publicKey fallback", async () => {
-            const plebbit = await config.plebbitInstancePromise({
+            const pkc = await config.plebbitInstancePromise({
                 mockResolve: false,
                 plebbitOptions: {
                     nameResolvers: [
@@ -231,26 +231,26 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     ]
                 }
             });
-            const publication = await plebbit.createCommunityEdit({
+            const publication = await pkc.createCommunityEdit({
                 communityAddress: communityName,
                 communityPublicKey,
                 subplebbitEdit: {
                     description: `Community edit fallback ${Date.now()}`
                 },
-                signer: await plebbit.createSigner(signers[1])
+                signer: await pkc.createSigner(signers[1])
             });
-            const createCommunitySpy = vi.spyOn(plebbit, "createCommunity");
+            const createCommunitySpy = vi.spyOn(pkc, "createCommunity");
 
             try {
                 await publishWithExpectedResult({ publication, expectedChallengeSuccess: true });
-                if (config.testConfigCode !== "remote-plebbit-rpc") {
+                if (config.testConfigCode !== "remote-pkc-rpc") {
                     expectCreateCommunityFallbackArgs(createCommunitySpy);
                     expectWireCommunityFields(publication);
                 }
             } finally {
                 createCommunitySpy.mockRestore();
                 await publication.stop();
-                await plebbit.destroy();
+                await pkc.destroy();
             }
         });
     });

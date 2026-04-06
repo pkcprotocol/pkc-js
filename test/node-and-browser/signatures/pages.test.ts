@@ -15,7 +15,7 @@ import type { PageIpfs } from "../../../dist/node/pages/types.js";
 
 const subAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
 
-// When parentCid is undefined, it means we're verifying a subplebbit posts page (depth -1)
+// When parentCid is undefined, it means we're verifying a community posts page (depth -1)
 const getParentComment = (parentCid: string | undefined) => {
     if (parentCid === undefined) {
         return { cid: undefined as undefined, depth: -1 as const, postCid: undefined as undefined };
@@ -26,8 +26,8 @@ const getParentComment = (parentCid: string | undefined) => {
 
 const verifyPageJsonAlongWithObject = async (
     pageJson: PageIpfs,
-    plebbit: PKCType,
-    subplebbit: RemoteCommunity,
+    pkc: PKCType,
+    community: RemoteCommunity,
     parentCid: string | undefined
 ) => {
     // randomize pageCid so that we don't rely on cache
@@ -36,9 +36,9 @@ const verifyPageJsonAlongWithObject = async (
         pageCid: uuidV4(),
         pageSortName: "hot",
         page: JSON.parse(JSON.stringify(pageJson)),
-        resolveAuthorNames: plebbit.resolveAuthorNames,
-        clientsManager: plebbit._clientsManager,
-        subplebbit: subplebbit,
+        resolveAuthorNames: pkc.resolveAuthorNames,
+        clientsManager: pkc._clientsManager,
+        subplebbit: community,
         parentComment,
         validatePages: true,
         validateUpdateSignature: true
@@ -47,9 +47,9 @@ const verifyPageJsonAlongWithObject = async (
         pageCid: uuidV4(),
         pageSortName: "hot",
         page: pageJson,
-        resolveAuthorNames: plebbit.resolveAuthorNames,
-        clientsManager: plebbit._clientsManager,
-        subplebbit: subplebbit,
+        resolveAuthorNames: pkc.resolveAuthorNames,
+        clientsManager: pkc._clientsManager,
+        subplebbit: community,
         parentComment,
         validatePages: true,
         validateUpdateSignature: true
@@ -61,26 +61,26 @@ const verifyPageJsonAlongWithObject = async (
 // RPC tests don't need to run this because clients of RPC trust RPC response and won't validate
 
 describeSkipIfRpc(`verify pages`, async () => {
-    let plebbit: PKCType;
-    let subplebbit: RemoteCommunity;
+    let pkc: PKCType;
+    let community: RemoteCommunity;
     beforeAll(async () => {
-        plebbit = await mockRemotePKC();
-        subplebbit = await plebbit.getCommunity({ address: subAddress });
+        pkc = await mockRemotePKC();
+        community = await pkc.getCommunity({ address: subAddress });
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
-    it(`Can validate page from live subplebbit`, async () => {
-        const page = subplebbit.raw.subplebbitIpfs.posts.pages.hot;
-        const pageVerification = await verifyPageJsonAlongWithObject(page, plebbit, subplebbit, undefined);
+    it(`Can validate page from live community`, async () => {
+        const page = community.raw.subplebbitIpfs.posts.pages.hot;
+        const pageVerification = await verifyPageJsonAlongWithObject(page, pkc, community, undefined);
         expect(pageVerification).to.deep.equal({ valid: true });
     });
 
     it(`Page from previous plebbit-js versions can be validated`, async () => {
         const page = remeda.clone(legacyPageIpfsFixture) as PageIpfs;
-        const verification = await verifyPageJsonAlongWithObject(page, plebbit, subplebbit, undefined);
+        const verification = await verifyPageJsonAlongWithObject(page, pkc, community, undefined);
         expect(verification).to.deep.equal({ valid: true });
     });
 
@@ -106,7 +106,7 @@ describeSkipIfRpc(`verify pages`, async () => {
             }
         });
 
-        const verification = await verifyPageJsonAlongWithObject(invalidPage, tempPKC, subplebbit, undefined);
+        const verification = await verifyPageJsonAlongWithObject(invalidPage, tempPKC, community, undefined);
         expect(verification).to.deep.equal({ valid: true });
         expect(invalidPage.comments[commentWithDomainIndex].comment.author!.name).to.equal(domainName);
         await tempPKC.destroy();
@@ -115,7 +115,7 @@ describeSkipIfRpc(`verify pages`, async () => {
     describe(`A sub owner changing any of comment fields in page will invalidate`, async () => {
         beforeAll(async () => {
             const page = remeda.clone(validPageIpfsFixture) as PageIpfs;
-            const verificaiton = await verifyPageJsonAlongWithObject(page, plebbit, subplebbit, undefined);
+            const verificaiton = await verifyPageJsonAlongWithObject(page, pkc, community, undefined);
             expect(verificaiton).to.deep.equal({ valid: true });
         });
 
@@ -124,14 +124,14 @@ describeSkipIfRpc(`verify pages`, async () => {
             // Add flairs to a comment that had none — changing the comment object changes its CID hash,
             // so the commentUpdate.cid no longer matches
             invalidPage.comments[0].comment.flairs = [{ text: "Injected Flair" }];
-            const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
+            const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_UPDATE_DIFFERENT_CID_THAN_COMMENT });
         });
         it("comment.content (author has never modified comment.content before))", async () => {
             const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
             const commentWithNoEditIndex = invalidPage.comments.findIndex((pageComment) => !pageComment.commentUpdate.edit?.content);
             invalidPage.comments[commentWithNoEditIndex].comment.content = "Content modified by sub illegally";
-            const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
+            const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
 
@@ -141,7 +141,7 @@ describeSkipIfRpc(`verify pages`, async () => {
             const commentWithEditIndex = invalidPage.comments.findIndex((pageComment) => pageComment.commentUpdate.edit?.content);
             expect(commentWithEditIndex).to.be.greaterThanOrEqual(0);
             invalidPage.comments[commentWithEditIndex].comment.content = "Content modified by sub illegally";
-            const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
+            const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
 
@@ -150,7 +150,7 @@ describeSkipIfRpc(`verify pages`, async () => {
             const invalidPage = remeda.clone(legacyPageIpfsFixture) as PageIpfs;
             const commentWithEditIndex = invalidPage.comments.findIndex((pageComment) => pageComment.commentUpdate.edit?.content);
             invalidPage.comments[commentWithEditIndex].commentUpdate.edit!.content = "Content modified by sub illegally";
-            const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
+            const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
 
@@ -161,7 +161,7 @@ describeSkipIfRpc(`verify pages`, async () => {
             expect(commentWithSpoilerIndex).to.be.greaterThanOrEqual(0);
             invalidPage.comments[commentWithSpoilerIndex].commentUpdate.edit!.spoiler =
                 !invalidPage.comments[commentWithSpoilerIndex].commentUpdate.edit!.spoiler;
-            const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
+            const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
 
@@ -173,7 +173,7 @@ describeSkipIfRpc(`verify pages`, async () => {
             invalidPage.comments[commentWithDeletedIndex].commentUpdate.edit!.deleted = !Boolean(
                 invalidPage.comments[commentWithDeletedIndex].commentUpdate.edit!.deleted
             );
-            const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
+            const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
 
@@ -182,7 +182,7 @@ describeSkipIfRpc(`verify pages`, async () => {
             const commentWithLinkIndex = invalidPage.comments.findIndex((pageComment) => pageComment.comment.link);
             expect(commentWithLinkIndex).to.be.greaterThanOrEqual(0);
             invalidPage.comments[commentWithLinkIndex].comment.link = "https://differentLinkzz.com";
-            const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
+            const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
         it(`comment.parentCid`, async () => {
@@ -195,44 +195,44 @@ describeSkipIfRpc(`verify pages`, async () => {
             (
                 invalidPage.comments[commentWithRepliesIndex].commentUpdate.replies!.pages[preloadedPageSortName] as PageIpfs
             ).comments[0].comment.parentCid += "123"; // Should invalidate page
-            const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
+            const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
         it(`comment.communityPublicKey`, async () => {
             const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
             (invalidPage.comments[0].comment as Record<string, unknown>).communityPublicKey += "1234";
-            const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
+            const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY });
         });
         it(`comment.communityName`, async () => {
             const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
             (invalidPage.comments[0].comment as Record<string, unknown>).communityName = "fake.eth";
-            const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
+            const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY });
         });
         it("comment.timestamp", async () => {
             const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
             invalidPage.comments[0].comment.timestamp += 1;
-            const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
+            const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
         it(`comment.author.address (ed25519)`, async () => {
             const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
             (invalidPage.comments[0].comment.author as { address: string }).address =
                 "12D3KooWJJcSwMHrFvsFL7YCNDLD93kBczEfkHpPNdxcjZwR2X2Y"; // Random address
-            const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
+            const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
         it(`comment.author.previousCommentCid`, async () => {
             const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
             invalidPage.comments[0].comment.author.previousCommentCid! += "1";
-            const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
+            const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
         it(`comment.author.displayName`, async () => {
             const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
             invalidPage.comments[0].comment.author.displayName! += "1";
-            const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
+            const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
         it("comment.author.wallets", async () => {
@@ -242,7 +242,7 @@ describeSkipIfRpc(`verify pages`, async () => {
             // Corrupt the wallets by converting to string (this is intentional to test signature validation)
             (invalidPage.comments[commentWithWalletsIndex].comment.author as { wallets: unknown }).wallets =
                 String(invalidPage.comments[commentWithWalletsIndex].comment.author.wallets) + "12234";
-            const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
+            const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
         it("comment.author.avatar", async () => {
@@ -250,7 +250,7 @@ describeSkipIfRpc(`verify pages`, async () => {
             const commentWithAvatarIndex = invalidPage.comments.findIndex((comment) => comment.comment.author.avatar);
             expect(commentWithAvatarIndex).to.be.greaterThanOrEqual(0);
             invalidPage.comments[commentWithAvatarIndex].comment.author.avatar!.id += "12234";
-            const verification = await verifyPageJsonAlongWithObject(invalidPage, plebbit, subplebbit, undefined);
+            const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
     });

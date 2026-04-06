@@ -16,7 +16,7 @@ import type { Comment } from "../../../../../dist/node/publications/comment/comm
 // Helper type for accessing private properties on Comment
 type CommentWithInternals = { _publishToDifferentProviderThresholdSeconds: number };
 
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 const mathCliCommunityAddress = signers[1].address;
 
 type ClientsRecord = Record<string, Record<string, { on: (event: string, handler: (state: string) => void) => void; state: string }>>;
@@ -29,24 +29,24 @@ const clientsFieldName: Record<string, string> = {
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
     const clientFieldName = clientsFieldName[config.testConfigCode];
     describe(`comment.clients.${clientFieldName} - ${config.name}`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`comment.clients.${clientFieldName}[url].state is stopped by default`, async () => {
-            const mockPost = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+            const mockPost = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
             for (const client of Object.values(mockPost.clients[clientFieldName as keyof typeof mockPost.clients]))
                 expect((client as { state: string }).state).to.equal("stopped");
         });
 
         it(`correct order of ${clientFieldName} state when publishing a comment with a sub that skips challenge`, async () => {
-            const mockPost = await generateMockPost({ communityAddress: signers[0].address, plebbit: plebbit });
+            const mockPost = await generateMockPost({ communityAddress: signers[0].address, plebbit: pkc });
 
-            const pubsubUrls = Object.keys((plebbit.clients as Record<string, Record<string, unknown>>)[clientFieldName]);
+            const pubsubUrls = Object.keys((pkc.clients as Record<string, Record<string, unknown>>)[clientFieldName]);
             // Only first pubsub url is used for subscription. For publishing we use all providers
 
             const expectedStates: Record<string, string[]> = Object.assign(
@@ -73,13 +73,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     actualStates[pubsubUrl].push(newState)
                 );
 
-            const subplebbit = await plebbit.getCommunity({ address: signers[0].address });
+            const community = await pkc.getCommunity({ address: signers[0].address });
             mockPost._getCommunityCache = (): ReturnType<Comment["_getCommunityCache"]> => {
-                const ipfs = subplebbit.raw.subplebbitIpfs;
+                const ipfs = community.raw.subplebbitIpfs;
                 if (!ipfs) return undefined;
                 return {
-                    address: subplebbit.address,
-                    publicKey: subplebbit.publicKey!,
+                    address: community.address,
+                    publicKey: community.publicKey!,
                     encryption: ipfs.encryption,
                     pubsubTopic: ipfs.pubsubTopic
                 };
@@ -90,7 +90,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`correct order of ${clientFieldName} state when publishing a comment with a sub that requires challenge`, async () => {
-            const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, plebbit);
+            const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, pkc);
 
             const pubsubUrls = Object.keys((mockPost.clients as Record<string, Record<string, unknown>>)[clientFieldName]);
             // Only first pubsub url is used for subscription. For publishing we use all providers
@@ -104,7 +104,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 )
             );
             expectedStates[pubsubUrls[0]] = [
-                ...(config.testConfigCode === "remote-libp2pjs" ? ["fetching-subplebbit-ipns", "fetching-subplebbit-ipfs", "stopped"] : []),
+                ...(config.testConfigCode === "remote-libp2pjs" ? ["fetching-community-ipns", "fetching-community-ipfs", "stopped"] : []),
                 "subscribing-pubsub",
                 "publishing-challenge-request",
                 "waiting-challenge",
@@ -172,9 +172,9 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     plebbitOptions: { pubsubKuboRpcClientsOptions: [offlinePubsubUrl, upPubsubUrl] }
                 });
 
-                plebbit.clients.pubsubKuboRpcClients[upPubsubUrl]._client = createMockPubsubClient(); // Use mock pubsub to be on the same pubsub as the sub
+                pkc.clients.pubsubKuboRpcClients[upPubsubUrl]._client = createMockPubsubClient(); // Use mock pubsub to be on the same pubsub as the sub
 
-                const mockPost = await generateMockPost({ communityAddress: signers[0].address, plebbit: plebbit });
+                const mockPost = await generateMockPost({ communityAddress: signers[0].address, plebbit: pkc });
 
                 const expectedStates = {
                     [offlinePubsubUrl]: ["subscribing-pubsub", "stopped"],
@@ -205,9 +205,9 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     remotePKC: true
                 });
 
-                plebbit.clients.pubsubKuboRpcClients[upPubsubUrl]._client = createMockPubsubClient(); // Use mock pubsub to be on the same pubsub as the sub
+                pkc.clients.pubsubKuboRpcClients[upPubsubUrl]._client = createMockPubsubClient(); // Use mock pubsub to be on the same pubsub as the sub
 
-                const mockPost = await generateMockPost({ communityAddress: signers[0].address, plebbit: plebbit });
+                const mockPost = await generateMockPost({ communityAddress: signers[0].address, plebbit: pkc });
                 (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 5;
 
                 const expectedStates = {
@@ -217,7 +217,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
                 const actualStates: Record<string, string[]> = { [notRespondingPubsubUrl]: [], [upPubsubUrl]: [] };
 
-                for (const pubsubUrl of Object.keys(plebbit.clients.pubsubKuboRpcClients))
+                for (const pubsubUrl of Object.keys(pkc.clients.pubsubKuboRpcClients))
                     mockPost.clients.pubsubKuboRpcClients[pubsubUrl].on("statechange", (newState: string) =>
                         actualStates[pubsubUrl].push(newState)
                     );
@@ -235,9 +235,9 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     plebbitOptions: { pubsubKuboRpcClientsOptions: [notRespondingPubsubUrl, upPubsubUrl] }
                 });
 
-                plebbit.clients.pubsubKuboRpcClients[upPubsubUrl]._client = createMockPubsubClient(); // Use mock pubsub to be on the same pubsub as the sub
+                pkc.clients.pubsubKuboRpcClients[upPubsubUrl]._client = createMockPubsubClient(); // Use mock pubsub to be on the same pubsub as the sub
 
-                const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, plebbit);
+                const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, pkc);
                 (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 5;
 
                 const expectedStates = {

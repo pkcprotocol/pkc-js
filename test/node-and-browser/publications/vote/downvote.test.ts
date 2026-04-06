@@ -15,20 +15,20 @@ import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publicatio
 import type { SignerWithPublicKeyAddress } from "../../../../dist/node/signer/index.js";
 import type Vote from "../../../../dist/node/publications/vote/vote.js";
 
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Test Downvote - ${config.name}`, async () => {
         const previousVotes: Vote[] = [];
 
-        let plebbit: PKC, postToVote: Comment, replyToVote: Comment, signer: SignerWithPublicKeyAddress;
+        let pkc: PKC, postToVote: Comment, replyToVote: Comment, signer: SignerWithPublicKeyAddress;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
-            signer = await plebbit.createSigner();
-            postToVote = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit, postProps: { signer } });
+            pkc = await config.plebbitInstancePromise();
+            signer = await pkc.createSigner();
+            postToVote = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc, postProps: { signer } });
             replyToVote = await publishRandomReply({
                 parentComment: postToVote as unknown as CommentIpfsWithCidDefined,
-                plebbit: plebbit,
+                plebbit: pkc,
                 commentProps: { signer }
             });
             await Promise.all([postToVote.update(), replyToVote.update()]);
@@ -36,12 +36,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await resolveWhenConditionIsTrue({ toUpdate: replyToVote, predicate: async () => typeof replyToVote.updatedAt === "number" });
         });
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it.sequential("Can downvote a post", async () => {
             const originalDownvote = remeda.clone(postToVote.downvoteCount);
-            const vote = await generateMockVote(postToVote as unknown as CommentIpfsWithCidDefined, -1, plebbit);
+            const vote = await generateMockVote(postToVote as unknown as CommentIpfsWithCidDefined, -1, pkc);
             await publishWithExpectedResult({ publication: vote, expectedChallengeSuccess: true });
 
             await resolveWhenConditionIsTrue({
@@ -59,7 +59,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it.sequential(`Can downvote a reply`, async () => {
             const originalDownvote = remeda.clone(replyToVote.downvoteCount);
-            const vote = await generateMockVote(replyToVote as unknown as CommentIpfsWithCidDefined, -1, plebbit);
+            const vote = await generateMockVote(replyToVote as unknown as CommentIpfsWithCidDefined, -1, pkc);
             await publishWithExpectedResult({ publication: vote, expectedChallengeSuccess: true });
 
             await resolveWhenConditionIsTrue({
@@ -79,7 +79,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it.sequential("Can change post downvote to upvote", async () => {
             const originalUpvote = remeda.clone(postToVote.upvoteCount);
             const originalDownvote = remeda.clone(postToVote.downvoteCount);
-            const vote = await plebbit.createVote({
+            const vote = await pkc.createVote({
                 commentCid: previousVotes[0].commentCid,
                 communityAddress: previousVotes[0].communityAddress,
                 signer: previousVotes[0].signer,
@@ -102,7 +102,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it.sequential("Can change reply downvote to upvote", async () => {
             const originalUpvote = remeda.clone(replyToVote.upvoteCount);
             const originalDownvote = remeda.clone(replyToVote.downvoteCount);
-            const vote = await plebbit.createVote({
+            const vote = await pkc.createVote({
                 commentCid: previousVotes[1].commentCid,
                 communityAddress: previousVotes[1].communityAddress,
                 signer: previousVotes[1].signer,
@@ -124,7 +124,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it("plebbit.createVote fails when commentCid is invalid ", async () => {
             try {
-                await plebbit.createVote({
+                await pkc.createVote({
                     vote: previousVotes[1].vote,
                     communityAddress: previousVotes[1].communityAddress,
                     signer: previousVotes[1].signer,

@@ -5,30 +5,30 @@ import validModQueuePage from "../../../fixtures/valid_modqueue_page.json" with 
 
 import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 const cloneModQueuePage = () => JSON.parse(JSON.stringify(validModQueuePage));
 
-getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-plebbit-rpc"] }).map((config) => {
-    describe(`subplebbit.modQueue.clients.plebbitRpcClients - ${config.name}`, async () => {
-        let plebbit: PKCType;
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] }).map((config) => {
+    describe(`community.modQueue.clients.plebbitRpcClients - ${config.name}`, async () => {
+        let pkc: PKCType;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
-        it(`subplebbit.modQueue.clients.plebbitRpcClients[sortType][url] is stopped by default`, async () => {
-            const sub = await plebbit.getCommunity({ address: subplebbitAddress });
+        it(`community.modQueue.clients.plebbitRpcClients[sortType][url] is stopped by default`, async () => {
+            const sub = await pkc.getCommunity({ address: communityAddress });
             const rpcUrl = Object.keys(sub.clients.plebbitRpcClients)[0];
             expect(Object.keys(sub.modQueue.clients.plebbitRpcClients.pendingApproval).length).to.equal(1);
             expect(sub.modQueue.clients.plebbitRpcClients.pendingApproval[rpcUrl].state).to.equal("stopped");
         });
 
-        it(`Correct state of 'pendingApproval' sort is updated after fetching from subplebbit.modQueue.pageCids.pendingApproval`, async () => {
-            const sub = await plebbit.getCommunity({ address: subplebbitAddress });
+        it(`Correct state of 'pendingApproval' sort is updated after fetching from community.modQueue.pageCids.pendingApproval`, async () => {
+            const sub = await pkc.getCommunity({ address: communityAddress });
             const page = cloneModQueuePage();
             const pageCid = await addStringToIpfs(JSON.stringify(page));
             sub.modQueue.pageCids.pendingApproval = pageCid;

@@ -14,7 +14,7 @@ import {
 import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
 import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
 
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 
 // Helper type for required fields for test utilities
 type CommentWithRequiredFields = Required<Pick<CommentIpfsWithCidDefined, "cid" | "parentCid"> & { communityAddress: string }>;
@@ -32,7 +32,7 @@ async function createPKCWithMockResolver({
     forceMockPubsub?: boolean;
     plebbitOptions?: Parameters<typeof mockPKCV2>[0]["plebbitOptions"];
 } = {}) {
-    const plebbit = await mockPKCV2({
+    const pkc = await mockPKCV2({
         remotePKC,
         stubStorage,
         forceMockPubsub,
@@ -43,31 +43,31 @@ async function createPKCWithMockResolver({
         }
     });
 
-    return { plebbit, records };
+    return { plebbit: pkc, records };
 }
 
 // RPC clients don't have nameResolvers clients — name resolution happens server-side, so resolver state is not exposed to the client
 describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
-    let plebbit: PKC;
+    let pkc: PKC;
     beforeAll(async () => {
-        ({ plebbit } = await createPKCWithMockResolver({
+        ({ plebbit: pkc } = await createPKCWithMockResolver({
             plebbitOptions: { dataPath: undefined },
             forceMockPubsub: false,
             stubStorage: false
         }));
     });
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
     it(`comment.clients.nameResolvers[resolverKey].state is stopped by default`, async () => {
-        const mockPost = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+        const mockPost = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
         expect(Object.keys(mockPost.clients.nameResolvers).length).to.be.greaterThanOrEqual(1);
         for (const resolverKey of Object.keys(mockPost.clients.nameResolvers))
             expect(mockPost.clients.nameResolvers[resolverKey].state).to.equal("stopped");
     });
 
     it(`Correct order of nameResolvers state when updating a comment whose sub is a domain - uncached`, async () => {
-        const mockPost = await publishRandomPost({ communityAddress: "plebbit.bso", plebbit: plebbit });
+        const mockPost = await publishRandomPost({ communityAddress: "plebbit.bso", plebbit: pkc });
 
         await mockPost.stop();
 
@@ -98,20 +98,20 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
 
     it(`Correct order of nameResolvers state when updating a comment whose author address is a domain - uncached`, async () => {
         // Create a post with a domain as author address, signed with the correct signer
-        const { plebbit } = await createPKCWithMockResolver({
+        const { plebbit: pkc } = await createPKCWithMockResolver({
             remotePKC: true,
             stubStorage: false
         });
         const mockPost = await publishRandomPost({
-            communityAddress: subplebbitAddress,
-            plebbit: plebbit,
+            communityAddress: communityAddress,
+            plebbit: pkc,
             postProps: {
                 author: { address: "plebbit.eth" },
                 signer: signers[3]
             }
         });
 
-        // Create a new plebbit instance to avoid caching
+        // Create a new pkc instance to avoid caching
         const { plebbit: differentPKC } = await createPKCWithMockResolver({
             remotePKC: true,
             stubStorage: false
@@ -140,15 +140,15 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
     it(`Correct order of nameResolvers state when updating a comment whose author address is a domain`, async () => {
         // Create a post with a domain as author address, signed with the correct signer
         const mockPost = await publishRandomPost({
-            communityAddress: subplebbitAddress,
-            plebbit: plebbit,
+            communityAddress: communityAddress,
+            plebbit: pkc,
             postProps: {
                 author: { address: "plebbit.eth" },
                 signer: signers[3]
             }
         });
 
-        // Create a new plebbit instance
+        // Create a new pkc instance
         const { plebbit: differentPKC } = await createPKCWithMockResolver({
             remotePKC: true,
             stubStorage: false
@@ -175,11 +175,11 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
     });
 
     it(`correct order of nameResolvers state when publishing a comment to a sub with a domain address - uncached`, async () => {
-        const { plebbit } = await createPKCWithMockResolver({
+        const { plebbit: pkc } = await createPKCWithMockResolver({
             remotePKC: true,
             stubStorage: false
         }); // need to use different plebbit so it won't use the memory cache of subplebbit for publishing
-        const mockPost = await generateMockPost({ communityAddress: "plebbit.bso", plebbit: plebbit });
+        const mockPost = await generateMockPost({ communityAddress: "plebbit.bso", plebbit: pkc });
         const expectedStates = ["resolving-community-name", "stopped"];
 
         const actualStates: string[] = [];
@@ -191,13 +191,13 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
         await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });
 
         expect(actualStates).to.deep.equal(expectedStates);
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`correct order of nameResolvers state when publishing a comment to a sub with a domain address - cached`, async () => {
         const { plebbit: localPKC } = await createPKCWithMockResolver({ stubStorage: false });
 
-        // Pre-cache the subplebbit so _updatingCommunitys has an entry
+        // Pre-cache the community so _updatingCommunitys has an entry
         await localPKC.getCommunity({ address: "plebbit.bso" });
 
         const mockPost = await generateMockPost({ communityAddress: "plebbit.bso", plebbit: localPKC });
@@ -216,16 +216,16 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
     });
 
     it(`nameResolvers state does not show resolving-author-name for reply page authors`, async () => {
-        const mockPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+        const mockPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
         const reply = await publishRandomReply({
             parentComment: mockPost as CommentIpfsWithCidDefined,
-            plebbit: plebbit,
+            plebbit: pkc,
             commentProps: {
                 author: { address: "plebbit.eth" },
                 signer: signers[3]
             }
         });
-        await waitTillReplyInParentPages(reply as CommentWithRequiredFields, plebbit); // make sure until reply is in mockPost.replies
+        await waitTillReplyInParentPages(reply as CommentWithRequiredFields, pkc); // make sure until reply is in mockPost.replies
 
         const { plebbit: differentPKC } = await createPKCWithMockResolver({
             remotePKC: true,

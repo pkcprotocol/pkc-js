@@ -9,7 +9,7 @@ import {
 import { describe, it, beforeAll, afterAll } from "vitest";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 const roles = [
     { role: "owner", signer: signers[1] },
     { role: "admin", signer: signers[2] },
@@ -18,20 +18,20 @@ const roles = [
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe(`Mods marking an author comment as spoiler - ${config.name}`, async () => {
-        let plebbit: PKC, randomPost: Comment;
+        let pkc: PKC, randomPost: Comment;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
-            randomPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+            pkc = await config.plebbitInstancePromise();
+            randomPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
             await randomPost.update();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`Mod can mark an author comment as spoiler`, async () => {
-            const modSpoilerEdit = await plebbit.createCommentModeration({
+            const modSpoilerEdit = await pkc.createCommentModeration({
                 communityAddress: randomPost.communityAddress,
                 commentCid: randomPost.cid,
                 commentModeration: { spoiler: true, reason: "Mod marking an author comment as spoiler" },
@@ -50,8 +50,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(randomPost.spoiler).to.be.true;
         });
 
-        it(`spoiler=true appears in pages of subplebbit`, async () => {
-            const sub = await plebbit.createCommunity({ address: randomPost.communityAddress });
+        it(`spoiler=true appears in pages of community`, async () => {
+            const sub = await pkc.createCommunity({ address: randomPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -63,7 +63,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Mod can mark unspoiler author comment `, async () => {
-            const unspoilerEdit = await plebbit.createCommentModeration({
+            const unspoilerEdit = await pkc.createCommentModeration({
                 communityAddress: randomPost.communityAddress,
                 commentCid: randomPost.cid,
                 commentModeration: { spoiler: false, reason: "Mod unspoilering an author comment" },
@@ -82,8 +82,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(randomPost.spoiler).to.be.false;
         });
 
-        it(`spoiler=false appears in pages of subplebbit`, async () => {
-            const sub = await plebbit.createCommunity({ address: randomPost.communityAddress });
+        it(`spoiler=false appears in pages of community`, async () => {
+            const sub = await pkc.createCommunity({ address: randomPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,

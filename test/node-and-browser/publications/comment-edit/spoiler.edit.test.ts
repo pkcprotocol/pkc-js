@@ -13,7 +13,7 @@ import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidPostCidDefined } from "../../../../dist/node/publications/comment/types.js";
 
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 const roles = [
     { role: "owner", signer: signers[1] },
     { role: "admin", signer: signers[2] },
@@ -22,10 +22,10 @@ const roles = [
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe(`Authors can mark their own comment as spoiler - ${config.name}`, async () => {
-        let plebbit: PKC, authorPost: Comment;
+        let pkc: PKC, authorPost: Comment;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
-            authorPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+            pkc = await config.plebbitInstancePromise();
+            authorPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
             await authorPost.update();
         });
 
@@ -34,11 +34,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Regular author can't mark another author comment as spoiler`, async () => {
-            const spoilerEdit = await plebbit.createCommentEdit({
+            const spoilerEdit = await pkc.createCommentEdit({
                 communityAddress: authorPost.communityAddress,
                 commentCid: authorPost.cid,
                 spoiler: true,
-                signer: await plebbit.createSigner()
+                signer: await pkc.createSigner()
             });
             await publishWithExpectedResult({
                 publication: spoilerEdit,
@@ -50,7 +50,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it(`Author can mark their own comment as spoiler`, async () => {
             expect([false, undefined]).to.include(authorPost.spoiler);
 
-            const spoilerEdit = await plebbit.createCommentEdit({
+            const spoilerEdit = await pkc.createCommentEdit({
                 communityAddress: authorPost.communityAddress,
                 commentCid: authorPost.cid,
                 spoiler: true,
@@ -74,8 +74,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(authorPost.spoiler).to.be.true;
         });
 
-        it(`spoiler=true appears in pages of subplebbit`, async () => {
-            const sub = await plebbit.createCommunity({ address: authorPost.communityAddress });
+        it(`spoiler=true appears in pages of community`, async () => {
+            const sub = await pkc.createCommunity({ address: authorPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -90,7 +90,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`The new Comment with spoiler=true has valid signature`, async () => {
-            const recreatedPost = await plebbit.createComment({ cid: authorPost.cid });
+            const recreatedPost = await pkc.createComment({ cid: authorPost.cid });
             await recreatedPost.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: recreatedPost,
@@ -121,7 +121,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Author can unspoiler their own comment`, async () => {
-            const unspoilerEdit = await plebbit.createCommentEdit({
+            const unspoilerEdit = await pkc.createCommentEdit({
                 communityAddress: authorPost.communityAddress,
                 commentCid: authorPost.cid,
                 spoiler: false,
@@ -145,8 +145,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(authorPost.spoiler).to.be.false;
         });
 
-        it(`spoiler=false appears pages of subplebbit`, async () => {
-            const sub = await plebbit.createCommunity({ address: authorPost.communityAddress });
+        it(`spoiler=false appears pages of community`, async () => {
+            const sub = await pkc.createCommunity({ address: authorPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -162,13 +162,13 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     });
 
     describe(`Mods marking their own comment as spoiler - ${config.name}`, async () => {
-        let plebbit: PKC, modPost: Comment;
+        let pkc: PKC, modPost: Comment;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
             modPost = await publishRandomPost({
-                communityAddress: subplebbitAddress,
-                plebbit: plebbit,
+                communityAddress: communityAddress,
+                plebbit: pkc,
                 postProps: { signer: roles[2].signer }
             });
             await modPost.update();
@@ -176,11 +176,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         afterAll(async () => {
             await modPost.stop();
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`Mod can mark their own comment as spoiler`, async () => {
-            const spoilerEdit = await plebbit.createCommentEdit({
+            const spoilerEdit = await pkc.createCommentEdit({
                 communityAddress: modPost.communityAddress,
                 commentCid: modPost.cid,
                 spoiler: true,
@@ -204,8 +204,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(modPost.spoiler).to.be.true;
         });
 
-        it(`spoiler=true appears in pages of subplebbit`, async () => {
-            const sub = await plebbit.createCommunity({ address: modPost.communityAddress });
+        it(`spoiler=true appears in pages of community`, async () => {
+            const sub = await pkc.createCommunity({ address: modPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -220,7 +220,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Mod can unspoiler their own comment`, async () => {
-            const unspoilerEdit = await plebbit.createCommentEdit({
+            const unspoilerEdit = await pkc.createCommentEdit({
                 communityAddress: modPost.communityAddress,
                 commentCid: modPost.cid,
                 spoiler: false,
@@ -244,8 +244,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(modPost.spoiler).to.be.false;
         });
 
-        it.sequential(`spoiler=false appears pages of subplebbit`, async () => {
-            const sub = await plebbit.createCommunity({ address: modPost.communityAddress });
+        it.sequential(`spoiler=false appears pages of community`, async () => {
+            const sub = await pkc.createCommunity({ address: modPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,

@@ -16,8 +16,8 @@ import type { CommunityIpfsType } from "../../../dist/node/community/types.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
-    describe.concurrent(`plebbit.createCommunity - Backward Compatiblity - ${config.name}`, async () => {
-        it(`Can create a subplebbit instance with subplebbit record with extra props`, async () => {
+    describe.concurrent(`pkc.createCommunity - Backward Compatiblity - ${config.name}`, async () => {
+        it(`Can create a community instance with community record with extra props`, async () => {
             const opts = { includeExtraPropInSignedPropertyNames: true, extraProps: { extraProp: "1234" } };
             const publishedSub = await publishCommunityRecordWithExtraProp(opts);
 
@@ -46,8 +46,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
     });
 
-    describe.concurrent(`subplebbit.update() and backward compatibility - ${config.name}`, async () => {
-        it(`subplebbit.update() should have no problem with extra props, as long as they're in subplebbit.signature.signedPropertyNames`, async () => {
+    describe.concurrent(`community.update() and backward compatibility - ${config.name}`, async () => {
+        it(`community.update() should have no problem with extra props, as long as they're in community.signature.signedPropertyNames`, async () => {
             const opts = { includeExtraPropInSignedPropertyNames: true, extraProps: { extraProp: "1234" } };
             const publishedSub = await publishCommunityRecordWithExtraProp(opts);
 
@@ -61,9 +61,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             expect((sub.raw.subplebbitIpfs! as Record<string, unknown>).extraProp).to.equal(opts.extraProps.extraProp);
 
-            // Verify subplebbitIpfs does not contain address or subplebbitAddress (those are runtime-only)
+            // Verify subplebbitIpfs does not contain address or communityAddress (those are runtime-only)
             expect((sub.raw.subplebbitIpfs! as Record<string, unknown>).address).to.be.undefined;
-            expect((sub.raw.subplebbitIpfs! as Record<string, unknown>).subplebbitAddress).to.be.undefined;
+            expect((sub.raw.subplebbitIpfs! as Record<string, unknown>).communityAddress).to.be.undefined;
 
             expect(sub.raw.subplebbitIpfs!).to.deep.equal(publishedSub.subplebbitRecord);
 
@@ -75,7 +75,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await remotePKC.destroy();
         });
 
-        it(`subplebbit.update() emit an error if there are unknown props not included in signature.signedPropertyNames`, async () => {
+        it(`community.update() emit an error if there are unknown props not included in signature.signedPropertyNames`, async () => {
             const opts = { includeExtraPropInSignedPropertyNames: false, extraProps: { extraProp: "1234" } };
 
             const publishedSub = await publishCommunityRecordWithExtraProp(opts);
@@ -114,7 +114,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     });
 
     describe.concurrent(`Community with extra props in nested objects - ${config.name}`, async () => {
-        // Type for subplebbit with unknown nested props
+        // Type for community with unknown nested props
         type CommunityWithNestedExtraProps = CommunityIpfsType & {
             features?: CommunityIpfsType["features"] & { extraFeature?: boolean };
             suggested?: CommunityIpfsType["suggested"] & { extraSuggested?: string };
@@ -124,7 +124,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`features.extraProp is preserved through createCommunity and update()`, async () => {
             const extraFeatures = { noVideos: true, extraFeature: true };
-            const { subplebbitRecord, communityAddress: subplebbitAddress } = await createMockedCommunityIpns({
+            const { subplebbitRecord, communityAddress: communityAddress } = await createMockedCommunityIpns({
                 features: extraFeatures
             });
 
@@ -147,7 +147,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(recreatedFromJsonJson.features?.extraFeature).to.equal(true);
 
             // Test update() flow
-            const subToUpdate = await remotePKC.createCommunity({ address: subplebbitAddress });
+            const subToUpdate = await remotePKC.createCommunity({ address: communityAddress });
             await subToUpdate.update();
             await resolveWhenConditionIsTrue({ toUpdate: subToUpdate, predicate: async () => typeof subToUpdate.updatedAt === "number" });
 
@@ -161,7 +161,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`suggested.extraProp is preserved through createCommunity and update()`, async () => {
             const extraSuggested = { primaryColor: "#ff0000", extraSuggested: "customValue" };
-            const { subplebbitRecord, communityAddress: subplebbitAddress } = await createMockedCommunityIpns({
+            const { subplebbitRecord, communityAddress: communityAddress } = await createMockedCommunityIpns({
                 suggested: extraSuggested
             });
 
@@ -174,7 +174,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(subJson.suggested?.primaryColor).to.equal("#ff0000");
 
             // Test update() flow
-            const subToUpdate = await remotePKC.createCommunity({ address: subplebbitAddress });
+            const subToUpdate = await remotePKC.createCommunity({ address: communityAddress });
             await subToUpdate.update();
             await resolveWhenConditionIsTrue({ toUpdate: subToUpdate, predicate: async () => typeof subToUpdate.updatedAt === "number" });
 
@@ -216,7 +216,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const rolesWithExtra = {
                 [testAddress]: { role: "moderator", extraRoleProp: "customRoleData" }
             };
-            const { subplebbitRecord, communityAddress: subplebbitAddress } = await createMockedCommunityIpns({
+            const { subplebbitRecord, communityAddress: communityAddress } = await createMockedCommunityIpns({
                 roles: rolesWithExtra
             });
 
@@ -229,7 +229,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(subJson.roles?.[testAddress]?.role).to.equal("moderator");
 
             // Test update() flow
-            const subToUpdate = await remotePKC.createCommunity({ address: subplebbitAddress });
+            const subToUpdate = await remotePKC.createCommunity({ address: communityAddress });
             await subToUpdate.update();
             await resolveWhenConditionIsTrue({ toUpdate: subToUpdate, predicate: async () => typeof subToUpdate.updatedAt === "number" });
 
@@ -243,7 +243,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`Multiple nested objects with extra props are all preserved`, async () => {
             const testAddress = "12D3KooWTestAddress1234567890abcdefghij";
-            const { subplebbitRecord, communityAddress: subplebbitAddress } = await createMockedCommunityIpns({
+            const { subplebbitRecord, communityAddress: communityAddress } = await createMockedCommunityIpns({
                 features: { noVideos: true, extraFeature: true },
                 suggested: { primaryColor: "#00ff00", extraSuggested: "suggestedValue" },
                 roles: { [testAddress]: { role: "admin", extraRoleProp: "roleValue" } }
@@ -260,7 +260,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(subJson.roles?.[testAddress]?.extraRoleProp).to.equal("roleValue");
 
             // Test update() flow
-            const subToUpdate = await remotePKC.createCommunity({ address: subplebbitAddress });
+            const subToUpdate = await remotePKC.createCommunity({ address: communityAddress });
             await subToUpdate.update();
             await resolveWhenConditionIsTrue({ toUpdate: subToUpdate, predicate: async () => typeof subToUpdate.updatedAt === "number" });
 
@@ -278,7 +278,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let publishedSub: Awaited<ReturnType<typeof publishCommunityRecordWithExtraProp>>;
 
         beforeAll(async () => {
-            // Create a valid subplebbit record, then re-publish with nameResolved injected
+            // Create a valid community record, then re-publish with nameResolved injected
             publishedSub = await publishCommunityRecordWithExtraProp();
             const record = JSON.parse(JSON.stringify(publishedSub.subplebbitRecord));
             record.nameResolved = true;
@@ -296,7 +296,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await publishedSub.ipnsObj.plebbit.destroy();
         });
 
-        it(`subplebbit.update() rejects CommunityIpfs with nameResolved reserved field`, async () => {
+        it(`community.update() rejects CommunityIpfs with nameResolved reserved field`, async () => {
             const remotePKC = await config.plebbitInstancePromise();
 
             const sub = await remotePKC.createCommunity({ address: publishedSub.ipnsObj.signer.address });

@@ -18,7 +18,7 @@ import type { Comment } from "../../../../dist/node/publications/comment/comment
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 import type { RemoteCommunity } from "../../../../dist/node/community/remote-community.js";
 
-const subplebbitAddress = signers[11].address;
+const communityAddress = signers[11].address;
 const roles = [
     { role: "owner", signer: signers[1] },
     { role: "admin", signer: signers[2] },
@@ -27,30 +27,30 @@ const roles = [
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Locking posts - ${config.name}`, async () => {
-        let plebbit: PKC, postToBeLocked: Comment, replyUnderPostToBeLocked: Comment, modPost: Comment, sub: RemoteCommunity;
+        let pkc: PKC, postToBeLocked: Comment, replyUnderPostToBeLocked: Comment, modPost: Comment, sub: RemoteCommunity;
         beforeAll(async () => {
-            plebbit = await mockRemotePKC();
-            sub = await plebbit.getCommunity({ address: subplebbitAddress });
+            pkc = await mockRemotePKC();
+            sub = await pkc.getCommunity({ address: communityAddress });
             await sub.update();
-            postToBeLocked = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+            postToBeLocked = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
             modPost = await publishRandomPost({
-                communityAddress: subplebbitAddress,
-                plebbit: plebbit,
+                communityAddress: communityAddress,
+                plebbit: pkc,
                 postProps: { signer: roles[2].signer }
             });
 
             await postToBeLocked.update();
             replyUnderPostToBeLocked = await publishRandomReply({
                 parentComment: postToBeLocked as CommentIpfsWithCidDefined,
-                plebbit: plebbit
+                plebbit: pkc
             });
             await modPost.update();
         });
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
         it(`Author can't lock their own post`, async () => {
-            const lockedEdit = await plebbit.createCommentModeration({
+            const lockedEdit = await pkc.createCommentModeration({
                 communityAddress: postToBeLocked.communityAddress,
                 commentCid: postToBeLocked.cid,
                 commentModeration: { locked: true },
@@ -63,11 +63,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
         });
         it(`Regular author can't lock another author comment`, async () => {
-            const lockedEdit = await plebbit.createCommentModeration({
+            const lockedEdit = await pkc.createCommentModeration({
                 communityAddress: postToBeLocked.communityAddress,
                 commentCid: postToBeLocked.cid,
                 commentModeration: { locked: true },
-                signer: await plebbit.createSigner()
+                signer: await pkc.createSigner()
             });
             await publishWithExpectedResult({
                 publication: lockedEdit,
@@ -78,7 +78,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`Mod Can't lock a reply`, async () => {
             // This is prior to locking the post
-            const lockedEdit = await plebbit.createCommentModeration({
+            const lockedEdit = await pkc.createCommentModeration({
                 communityAddress: replyUnderPostToBeLocked.communityAddress,
                 commentCid: replyUnderPostToBeLocked.cid,
                 commentModeration: { locked: true },
@@ -92,7 +92,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`Mod can lock an author post`, async () => {
-            const lockedEdit = await plebbit.createCommentModeration({
+            const lockedEdit = await pkc.createCommentModeration({
                 communityAddress: postToBeLocked.communityAddress,
                 commentCid: postToBeLocked.cid,
                 commentModeration: { locked: true, reason: "To lock an author post" },
@@ -110,8 +110,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(postToBeLocked.raw.commentUpdate.edit).to.be.undefined;
         });
 
-        it(`subplebbit.posts includes locked post with locked=true`, async () => {
-            const sub = await plebbit.createCommunity({ address: postToBeLocked.communityAddress });
+        it(`community.posts includes locked post with locked=true`, async () => {
+            const sub = await pkc.createCommunity({ address: postToBeLocked.communityAddress });
 
             await sub.update();
 
@@ -132,8 +132,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             }
         });
 
-        it(`locked=true for author post when it's locked by mod in pages of subplebbit`, async () => {
-            const sub = await plebbit.createCommunity({ address: postToBeLocked.communityAddress });
+        it(`locked=true for author post when it's locked by mod in pages of community`, async () => {
+            const sub = await pkc.createCommunity({ address: postToBeLocked.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -149,7 +149,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`Mod can lock their own post`, async () => {
-            const lockedEdit = await plebbit.createCommentModeration({
+            const lockedEdit = await pkc.createCommentModeration({
                 communityAddress: modPost.communityAddress,
                 commentCid: modPost.cid,
                 commentModeration: { locked: true, reason: "To lock a mod post" },
@@ -167,8 +167,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(postToBeLocked.raw.commentUpdate.edit).to.be.undefined;
         });
 
-        it(`locked=true for mod post when it's locked by mod in getPage of subplebbit`, async () => {
-            const sub = await plebbit.createCommunity({ address: modPost.communityAddress });
+        it(`locked=true for mod post when it's locked by mod in getPage of community`, async () => {
+            const sub = await pkc.createCommunity({ address: modPost.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -183,7 +183,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can't publish a reply on a locked post`, async () => {
-            const comment = await generateMockComment(postToBeLocked as CommentIpfsWithCidDefined, plebbit, false);
+            const comment = await generateMockComment(postToBeLocked as CommentIpfsWithCidDefined, pkc, false);
             await publishWithExpectedResult({
                 publication: comment,
                 expectedChallengeSuccess: false,
@@ -192,7 +192,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can't vote on a locked post`, async () => {
-            const vote = await generateMockVote(postToBeLocked as CommentIpfsWithCidDefined, 1, plebbit);
+            const vote = await generateMockVote(postToBeLocked as CommentIpfsWithCidDefined, 1, pkc);
             await publishWithExpectedResult({
                 publication: vote,
                 expectedChallengeSuccess: false,
@@ -201,7 +201,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can't vote on a reply of a locked post`, async () => {
-            const vote = await generateMockVote(replyUnderPostToBeLocked as CommentIpfsWithCidDefined, 1, plebbit);
+            const vote = await generateMockVote(replyUnderPostToBeLocked as CommentIpfsWithCidDefined, 1, pkc);
             await publishWithExpectedResult({
                 publication: vote,
                 expectedChallengeSuccess: false,
@@ -210,7 +210,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can't reply on a reply of a locked post`, async () => {
-            const reply = await generateMockComment(replyUnderPostToBeLocked as CommentIpfsWithCidDefined, plebbit);
+            const reply = await generateMockComment(replyUnderPostToBeLocked as CommentIpfsWithCidDefined, pkc);
             await publishWithExpectedResult({
                 publication: reply,
                 expectedChallengeSuccess: false,
@@ -219,7 +219,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`Mod can unlock a post`, async () => {
-            const unlockEdit = await plebbit.createCommentModeration({
+            const unlockEdit = await pkc.createCommentModeration({
                 communityAddress: postToBeLocked.communityAddress,
                 commentCid: postToBeLocked.cid,
                 commentModeration: { locked: false, reason: "To unlock an author post" },
@@ -237,8 +237,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(postToBeLocked.raw.commentUpdate.edit).to.be.undefined;
         });
 
-        it(`locked=false in getPage of subplebbit after the mod unlocks it`, async () => {
-            const sub = await plebbit.createCommunity({ address: postToBeLocked.communityAddress });
+        it(`locked=false in getPage of community after the mod unlocks it`, async () => {
+            const sub = await pkc.createCommunity({ address: postToBeLocked.communityAddress });
             await sub.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: sub,
@@ -253,11 +253,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Unlocked post can receive replies`, async () => {
-            const reply = await generateMockComment(replyUnderPostToBeLocked as CommentIpfsWithCidDefined, plebbit);
+            const reply = await generateMockComment(replyUnderPostToBeLocked as CommentIpfsWithCidDefined, pkc);
             await publishWithExpectedResult({ publication: reply, expectedChallengeSuccess: true });
         });
         it(`Unlocked post can receive votes `, async () => {
-            const vote = await generateMockVote(replyUnderPostToBeLocked as CommentIpfsWithCidDefined, 1, plebbit);
+            const vote = await generateMockVote(replyUnderPostToBeLocked as CommentIpfsWithCidDefined, 1, pkc);
             await publishWithExpectedResult({ publication: vote, expectedChallengeSuccess: true });
         });
     });

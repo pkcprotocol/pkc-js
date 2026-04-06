@@ -15,7 +15,7 @@ type ChallengeRequestWithCommentModeration = {
     commentModeration: Record<string, unknown>;
 };
 
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 
 const roles = [
     { role: "owner", signer: signers[1] },
@@ -24,28 +24,28 @@ const roles = [
 ];
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
-    describe.sequential("plebbit.createCommentModeration misc - " + config.name, async () => {
-        let plebbit: PKC;
+    describe.sequential("pkc.createCommentModeration misc - " + config.name, async () => {
+        let pkc: PKC;
         let commentToMod: Comment;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
-            commentToMod = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+            pkc = await config.plebbitInstancePromise();
+            commentToMod = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
-        it(`(commentMod: CommentModeration) === plebbit.createCommentModeration(JSON.parse(JSON.stringify(commentMod)))`, async () => {
+        it(`(commentMod: CommentModeration) === pkc.createCommentModeration(JSON.parse(JSON.stringify(commentMod)))`, async () => {
             const modProps = {
-                communityAddress: subplebbitAddress,
+                communityAddress: communityAddress,
                 commentCid: commentToMod.cid,
                 commentModeration: { removed: true, reason: "mod Reason" + Date.now() },
                 signer: signers[7] // Create a new signer, different than the signer of the original comment
             };
-            const commentMod = await plebbit.createCommentModeration(modProps);
-            const modFromStringifiedMod = await plebbit.createCommentModeration(JSON.parse(JSON.stringify(commentMod)));
+            const commentMod = await pkc.createCommentModeration(modProps);
+            const modFromStringifiedMod = await pkc.createCommentModeration(JSON.parse(JSON.stringify(commentMod)));
             for (const curMod of [commentMod, modFromStringifiedMod]) {
                 expect(curMod.communityAddress).to.equal(modProps.communityAddress);
                 expect(curMod.commentModeration).to.deep.equal(modProps.commentModeration);
@@ -58,19 +58,19 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(deterministicStringify(commentMod)).to.equal(deterministicStringify(modFromStringifiedMod));
         });
 
-        it(`(commentMod: CommentModeration) === await plebbit.createCommentModeration(commentMod)`, async () => {
+        it(`(commentMod: CommentModeration) === await pkc.createCommentModeration(commentMod)`, async () => {
             const props = {
                 challengeRequest: {
                     challengeCommentCids: ["QmVZR5Ts9MhRc66hr6TsYnX1A2oPhJ2H1fRJknxgjLLwrh"],
                     challengeAnswers: ["test123"]
                 },
-                communityAddress: subplebbitAddress,
+                communityAddress: communityAddress,
                 commentCid: commentToMod.cid,
                 commentModeration: { locked: true, reason: "editReason" + Date.now() },
                 signer: signers[7] // Create a new signer, different than the signer of the original comment
             };
-            const localMod = await plebbit.createCommentModeration(props);
-            const recreatedLocalMod = await plebbit.createCommentModeration(JSON.parse(JSON.stringify(localMod)));
+            const localMod = await pkc.createCommentModeration(props);
+            const recreatedLocalMod = await pkc.createCommentModeration(JSON.parse(JSON.stringify(localMod)));
             [localMod, recreatedLocalMod].forEach((curMod) => {
                 expect(curMod.communityAddress).to.equal(props.communityAddress);
                 expect(curMod.commentCid).to.equal(props.commentCid);
@@ -97,13 +97,13 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it.sequential(`Can publish a CommentModeration that was created from jsonfied CommentModeration instance`, async () => {
             const modProps = {
-                communityAddress: subplebbitAddress,
+                communityAddress: communityAddress,
                 commentCid: commentToMod.cid,
                 commentModeration: { removed: true, reason: "mod Reason" + Date.now() },
                 signer: roles[0].signer // mod signer
             };
-            const commentMod = await plebbit.createCommentModeration(modProps);
-            const modFromStringifiedMod = await plebbit.createCommentModeration(JSON.parse(JSON.stringify(commentMod)));
+            const commentMod = await pkc.createCommentModeration(modProps);
+            const modFromStringifiedMod = await pkc.createCommentModeration(JSON.parse(JSON.stringify(commentMod)));
 
             const challengeRequestPromise = new Promise<ChallengeRequestWithCommentModeration>((resolve) =>
                 modFromStringifiedMod.once("challengerequest", resolve as (req: unknown) => void)
@@ -118,20 +118,20 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     });
 
     describe.concurrent(`Changing multiple fields simultaneously in one CommentModeration - ${config.name}`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`A mod publishing multiple mod edit fields and they all should appear on the comment`, async () => {
             const modPost = await publishRandomPost({
-                communityAddress: subplebbitAddress,
-                plebbit: plebbit,
+                communityAddress: communityAddress,
+                plebbit: pkc,
                 postProps: { signer: roles[2].signer }
             });
             const fieldsToChange = {
@@ -143,11 +143,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 reason: "Testing as a mod" + Date.now()
             };
 
-            const commentMod = await plebbit.createCommentModeration({
+            const commentMod = await pkc.createCommentModeration({
                 commentModeration: fieldsToChange,
                 commentCid: modPost.cid,
                 signer: roles[2].signer,
-                communityAddress: subplebbitAddress
+                communityAddress: communityAddress
             });
             await publishWithExpectedResult({ publication: commentMod, expectedChallengeSuccess: true });
             await modPost.update();
@@ -175,20 +175,20 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     });
 
     describe.concurrent(`Changing multiple fields in separate comment moderations`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`As a mod`, async () => {
             const modPost = await publishRandomPost({
-                communityAddress: subplebbitAddress,
-                plebbit: plebbit,
+                communityAddress: communityAddress,
+                plebbit: pkc,
                 postProps: { signer: roles[2].signer }
             });
             const fieldsToChange = {
@@ -200,22 +200,22 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 nsfw: true
             };
 
-            const commentModeration1 = await plebbit.createCommentModeration({
+            const commentModeration1 = await pkc.createCommentModeration({
                 commentModeration: fieldsToChange,
                 commentCid: modPost.cid,
                 signer: modPost.signer,
-                communityAddress: subplebbitAddress
+                communityAddress: communityAddress
             });
             await publishWithExpectedResult({ publication: commentModeration1, expectedChallengeSuccess: true });
 
             fieldsToChange.removed = false;
             fieldsToChange.reason = "Testing unremoving" + Date.now();
             fieldsToChange.locked = false;
-            const commentModeration2 = await plebbit.createCommentModeration({
+            const commentModeration2 = await pkc.createCommentModeration({
                 commentModeration: fieldsToChange,
                 commentCid: modPost.cid,
                 signer: modPost.signer,
-                communityAddress: subplebbitAddress
+                communityAddress: communityAddress
             });
 
             await publishWithExpectedResult({ publication: commentModeration2, expectedChallengeSuccess: true });
@@ -253,13 +253,13 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 reason: "Test as an author" + Date.now()
             };
 
-            const authorPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit }); // generate random signer
+            const authorPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc }); // generate random signer
 
-            const authorEdit = await plebbit.createCommentEdit({
+            const authorEdit = await pkc.createCommentEdit({
                 ...authorFieldsToChange,
                 commentCid: authorPost.cid,
                 signer: authorPost.signer,
-                communityAddress: subplebbitAddress
+                communityAddress: communityAddress
             });
             await publishWithExpectedResult({ publication: authorEdit, expectedChallengeSuccess: true });
 
@@ -270,11 +270,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 nsfw: false,
                 pinned: true
             };
-            const modEdit = await plebbit.createCommentModeration({
+            const modEdit = await pkc.createCommentModeration({
                 commentModeration: modFieldsToChange,
                 commentCid: authorPost.cid,
                 signer: roles[2].signer,
-                communityAddress: subplebbitAddress
+                communityAddress: communityAddress
             });
 
             await publishWithExpectedResult({ publication: modEdit, expectedChallengeSuccess: true });
@@ -320,7 +320,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Correct value of CommentUpdate after mod edit, then author edit`, async () => {
-            const authorPost = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit }); // generate random signer
+            const authorPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc }); // generate random signer
 
             const modFieldsToChange = {
                 reason: "Test setting spoiler as mod",
@@ -328,11 +328,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 nsfw: true,
                 pinned: true
             };
-            const modEdit = await plebbit.createCommentModeration({
+            const modEdit = await pkc.createCommentModeration({
                 commentModeration: modFieldsToChange,
                 commentCid: authorPost.cid,
                 signer: roles[2].signer,
-                communityAddress: subplebbitAddress
+                communityAddress: communityAddress
             });
 
             await publishWithExpectedResult({ publication: modEdit, expectedChallengeSuccess: true });
@@ -343,11 +343,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 content: "Test new content as author" + Date.now(),
                 reason: "Test as an author" + Date.now()
             };
-            const authorEdit = await plebbit.createCommentEdit({
+            const authorEdit = await pkc.createCommentEdit({
                 ...authorFieldsToChange,
                 commentCid: authorPost.cid,
                 signer: authorPost.signer,
-                communityAddress: subplebbitAddress
+                communityAddress: communityAddress
             });
             await publishWithExpectedResult({ publication: authorEdit, expectedChallengeSuccess: true });
 

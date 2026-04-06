@@ -23,21 +23,21 @@ import type { PKCError } from "../../../../dist/node/pkc-error.js";
 type CommentWithExtraProp = Comment & { extraProp?: string };
 type AuthorWithExtraProp = { extraProp?: string };
 
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.sequential(`Comments with extra props - ${config.name}`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         describe(`Comments with extra props in challengeRequest.encrypted - ${config.name}`, async () => {
             it(`An extra prop in challengeRequest.encrypted should be accepted by the sub`, async () => {
-                const comment = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+                const comment = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
                 (comment as Comment & { challengeRequest: { extraProp: string } }).challengeRequest = { extraProp: "1234" };
                 const challengeRequestPromise = new Promise((resolve) => comment.once("challengerequest", resolve));
 
@@ -50,7 +50,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         describe.sequential(`Publishing comments with extra props - ${config.name}`, async () => {
             it(`A CommentPubsub with a field not included in signature.signedPropertyNames will be rejected`, async () => {
                 // Skip for rpc because it's gonna throw due to invalid signature
-                const post = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+                const post = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
                 const extraProps = { extraProp: "1234" };
                 await setExtraPropOnCommentAndSign(post, extraProps, false);
 
@@ -65,7 +65,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it(`A CommentPubsub with an extra field as a reserved field name will be rejected`, async () => {
-                const post = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+                const post = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
                 const extraProps = { cid: "1234" };
                 await setExtraPropOnCommentAndSign(post, extraProps, true);
 
@@ -81,7 +81,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it(`A CommentPubsub with an extra field included in signature.signedPropertyNames will be accepted`, async () => {
-                const post = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+                const post = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
                 const extraProps = { extraProp: "1234" };
                 await setExtraPropOnCommentAndSign(post, extraProps, true);
 
@@ -103,36 +103,36 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             let extraProps: { extraProp: string };
 
             beforeAll(async () => {
-                commentWithExtraProps = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+                commentWithExtraProps = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
                 extraProps = { extraProp: "1234" };
                 await setExtraPropOnCommentAndSign(commentWithExtraProps, extraProps, true);
                 await publishWithExpectedResult({ publication: commentWithExtraProps, expectedChallengeSuccess: true });
-                await waitTillPostInCommunityPages(commentWithExtraProps as Parameters<typeof waitTillPostInCommunityPages>[0], plebbit);
+                await waitTillPostInCommunityPages(commentWithExtraProps as Parameters<typeof waitTillPostInCommunityPages>[0], pkc);
             });
             it(`Can load CommentIpfs with extra props`, async () => {
-                const loadedCommentWithExtraProps = await plebbit.getComment({ cid: commentWithExtraProps.cid });
+                const loadedCommentWithExtraProps = await pkc.getComment({ cid: commentWithExtraProps.cid });
 
                 // we wanna make sure the extra prop exists on all shapes
                 const shapes = [
                     loadedCommentWithExtraProps.raw.comment,
                     loadedCommentWithExtraProps,
                     JSON.parse(JSON.stringify(loadedCommentWithExtraProps)),
-                    await plebbit.createComment(loadedCommentWithExtraProps),
-                    await plebbit.createComment(JSON.parse(JSON.stringify(loadedCommentWithExtraProps)))
+                    await pkc.createComment(loadedCommentWithExtraProps),
+                    await pkc.createComment(JSON.parse(JSON.stringify(loadedCommentWithExtraProps)))
                 ];
 
                 for (const shape of shapes) expect((shape as CommentWithExtraProp).extraProp).to.equal(extraProps.extraProp);
             });
 
             it(`Can load pages with comments that has extra props in them`, async () => {
-                const subplebbit = await plebbit.createCommunity({ address: commentWithExtraProps.communityAddress });
-                await subplebbit.update();
+                const community = await pkc.createCommunity({ address: commentWithExtraProps.communityAddress });
+                await community.update();
                 await resolveWhenConditionIsTrue({
-                    toUpdate: subplebbit,
+                    toUpdate: community,
                     predicate: async () => {
                         const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
                             commentWithExtraProps.cid!,
-                            subplebbit.posts
+                            community.posts
                         );
                         return (commentInPage as CommentWithExtraProp | undefined)?.extraProp === extraProps.extraProp;
                     }
@@ -140,32 +140,32 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
                 const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
                     commentWithExtraProps.cid!,
-                    subplebbit.posts
+                    community.posts
                 );
 
                 const shapes = [
                     JSON.parse(JSON.stringify(commentInPage)),
-                    await plebbit.createComment(commentInPage!),
-                    await plebbit.createComment(await plebbit.createComment(commentInPage!))
+                    await pkc.createComment(commentInPage!),
+                    await pkc.createComment(await pkc.createComment(commentInPage!))
                 ];
 
                 for (const shape of shapes) expect((shape as CommentWithExtraProp).extraProp).to.equal(extraProps.extraProp);
-                await subplebbit.stop();
+                await community.stop();
             });
         });
     });
 
     describe.sequential(`Comments with extra props in author`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
         describe.sequential(`Publishing comment with extra props in author field - ${config.name}`, async () => {
             it(`Publishing with extra prop for author should fail if it's a reserved field`, async () => {
-                const post = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+                const post = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
                 await setExtraPropOnCommentAndSign(
                     post,
                     {
@@ -188,7 +188,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(challengeRequest.comment?.author?.subplebbit).to.equal("random");
             });
             it(`Publishing with extra prop for author should succeed`, async () => {
-                const post = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+                const post = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
                 const extraProps = { extraProp: "1234" };
                 await setExtraPropOnCommentAndSign(
                     post,
@@ -215,7 +215,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const extraProps = { extraProp: "1234" };
 
             beforeAll(async () => {
-                postWithExtraAuthorProp = await generateMockPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+                postWithExtraAuthorProp = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
                 await setExtraPropOnCommentAndSign(
                     postWithExtraAuthorProp,
                     {
@@ -231,9 +231,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 await publishWithExpectedResult({ publication: postWithExtraAuthorProp, expectedChallengeSuccess: true });
             });
             it.sequential(`Can load a CommentIpfs with author.extraProp`, async () => {
-                const loadedPost = await plebbit.getComment({ cid: postWithExtraAuthorProp.cid });
+                const loadedPost = await pkc.getComment({ cid: postWithExtraAuthorProp.cid });
 
-                const loadedPostFromCreate = await plebbit.createComment({ cid: postWithExtraAuthorProp.cid });
+                const loadedPostFromCreate = await pkc.createComment({ cid: postWithExtraAuthorProp.cid });
                 await loadedPostFromCreate.update();
                 await resolveWhenConditionIsTrue({
                     toUpdate: loadedPostFromCreate,
@@ -244,60 +244,60 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 const shapes = [
                     loadedPost,
                     JSON.parse(JSON.stringify(loadedPost)),
-                    await plebbit.createComment(loadedPost),
-                    await plebbit.createComment(JSON.parse(JSON.stringify(loadedPost))),
+                    await pkc.createComment(loadedPost),
+                    await pkc.createComment(JSON.parse(JSON.stringify(loadedPost))),
                     loadedPostFromCreate,
                     JSON.parse(JSON.stringify(loadedPostFromCreate)),
-                    await plebbit.createComment(loadedPostFromCreate),
-                    await plebbit.createComment(JSON.parse(JSON.stringify(loadedPostFromCreate)))
+                    await pkc.createComment(loadedPostFromCreate),
+                    await pkc.createComment(JSON.parse(JSON.stringify(loadedPostFromCreate)))
                 ];
 
                 for (const shape of shapes) expect((shape.author as AuthorWithExtraProp).extraProp).to.equal(extraProps.extraProp);
             });
             it(`Can load a page with comment.author.extraProp`, async () => {
-                await waitTillPostInCommunityPages(postWithExtraAuthorProp as Parameters<typeof waitTillPostInCommunityPages>[0], plebbit);
+                await waitTillPostInCommunityPages(postWithExtraAuthorProp as Parameters<typeof waitTillPostInCommunityPages>[0], pkc);
 
-                const subplebbit = await plebbit.createCommunity({ address: postWithExtraAuthorProp.communityAddress });
-                await subplebbit.update();
+                const community = await pkc.createCommunity({ address: postWithExtraAuthorProp.communityAddress });
+                await community.update();
                 await resolveWhenConditionIsTrue({
-                    toUpdate: subplebbit,
+                    toUpdate: community,
                     predicate: async () => {
                         const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
                             postWithExtraAuthorProp.cid!,
-                            subplebbit.posts
+                            community.posts
                         );
                         return (postInPage?.author as AuthorWithExtraProp | undefined)?.extraProp === extraProps.extraProp;
                     }
                 });
                 const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
                     postWithExtraAuthorProp.cid!,
-                    subplebbit.posts
+                    community.posts
                 );
                 // postInPage is the json representation of page.comments
 
-                const shapes = [postInPage, await plebbit.createComment(postInPage!)];
+                const shapes = [postInPage, await pkc.createComment(postInPage!)];
 
                 for (const shape of shapes) expect((shape!.author as AuthorWithExtraProp).extraProp).to.equal(extraProps.extraProp);
-                await subplebbit.stop();
+                await community.stop();
             });
         });
     });
 
     describe.sequential(`Loading legacy pages with old author.address wire field - ${config.name}`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`loads a page and correctly derives runtime author fields from wire format`, async () => {
             const pageCid = await addStringToIpfs(JSON.stringify(validPageIpfsFixture));
-            const subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
-            const loadedPage = await subplebbit.posts.getPage({ cid: pageCid });
+            const community = await pkc.getCommunity({ address: communityAddress });
+            const loadedPage = await community.posts.getPage({ cid: pageCid });
 
             // Find a domain author comment (author.name on wire)
             const domainComment = loadedPage.comments.find((comment) => typeof comment.raw.comment.author?.name === "string") as
@@ -326,22 +326,22 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     });
 
     describe.sequential(`Loading CommentIpfs with reserved fields is rejected - ${config.name}`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
         let validCommentIpfsRaw: Record<string, unknown>;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.plebbitInstancePromise();
 
             // Publish a normal comment to get a valid CommentIpfs
-            const post = await generateMockPost({ communityAddress: subplebbitAddress, plebbit });
+            const post = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
             await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
 
-            const loadedComment = await plebbit.getComment({ cid: post.cid });
+            const loadedComment = await pkc.getComment({ cid: post.cid });
             validCommentIpfsRaw = JSON.parse(JSON.stringify(loadedComment.raw.comment));
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`getComment() throws when CommentIpfs has top-level nameResolved`, async () => {
@@ -349,7 +349,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const maliciousCid = await addStringToIpfs(JSON.stringify(maliciousRecord));
 
             try {
-                await plebbit.getComment({ cid: maliciousCid });
+                await pkc.getComment({ cid: maliciousCid });
                 expect.fail("Should have thrown");
             } catch (e) {
                 const error = e as PKCError;
@@ -366,7 +366,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const maliciousCid = await addStringToIpfs(JSON.stringify(maliciousRecord));
 
             try {
-                await plebbit.getComment({ cid: maliciousCid });
+                await pkc.getComment({ cid: maliciousCid });
                 expect.fail("Should have thrown");
             } catch (e) {
                 const error = e as PKCError;
@@ -379,7 +379,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const maliciousRecord = { ...validCommentIpfsRaw, nameResolved: true };
             const maliciousCid = await addStringToIpfs(JSON.stringify(maliciousRecord));
 
-            const comment = await plebbit.createComment({ cid: maliciousCid });
+            const comment = await pkc.createComment({ cid: maliciousCid });
             const errorPromise = new Promise<PKCError>((resolve) => comment.once("error", resolve as (err: Error) => void));
 
             await comment.update();
@@ -399,7 +399,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             };
             const maliciousCid = await addStringToIpfs(JSON.stringify(maliciousRecord));
 
-            const comment = await plebbit.createComment({ cid: maliciousCid });
+            const comment = await pkc.createComment({ cid: maliciousCid });
             const errorPromise = new Promise<PKCError>((resolve) => comment.once("error", resolve as (err: Error) => void));
 
             await comment.update();

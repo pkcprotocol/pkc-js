@@ -17,21 +17,21 @@ import { describe, it } from "vitest";
 import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 import type { PKCError } from "../../../../dist/node/pkc-error.js";
 
-const subplebbitAddressOfFixture = validModQueuePage.comments[0].comment.subplebbitAddress;
+const communityAddressOfFixture = validModQueuePage.comments[0].comment.subplebbitAddress;
 
-// need to test if comments with approved=false appear in any flattened pages, comment.replies, post.replies, subplebbit.posts
+// need to test if comments with approved=false appear in any flattened pages, comment.replies, post.replies, community.posts
 // same thing for pending comments
 
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
     describe(`modQueue.getPage - ${config.name}`, async () => {
         it(`modQueue.getPage will throw if retrieved page is not equivalent to its CID - IPFS Gateway`, async () => {
             const gatewayUrl = "http://localhost:13415"; // a gateway that's gonna respond with invalid content
-            const plebbit: PKCType = await mockGatewayPKC({
+            const pkc: PKCType = await mockGatewayPKC({
                 plebbitOptions: { ipfsGatewayUrls: [gatewayUrl], validatePages: true }
             });
 
             try {
-                const sub = await plebbit.createCommunity({ address: subplebbitAddressOfFixture });
+                const sub = await pkc.createCommunity({ address: communityAddressOfFixture });
 
                 const invalidPageCid = "QmUFu8fzuT1th3jJYgR4oRgGpw3sgRALr4nbenA4pyoCav"; // Gateway will respond with content that is not mapped to this cid
                 sub.modQueue.pageCids.pendingApproval = invalidPageCid; // need to hardcode it here so we can calculate max size
@@ -42,7 +42,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 expect(error.code).to.equal("ERR_FAILED_TO_FETCH_PAGE_IPFS_FROM_GATEWAYS");
                 expect((error.details.gatewayToError[gatewayUrl] as PKCError).code).to.equal("ERR_CALCULATED_CID_DOES_NOT_MATCH");
             } finally {
-                await plebbit.destroy();
+                await pkc.destroy();
             }
         });
     });
@@ -50,11 +50,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent("modQueue.getPage - " + config.name, () => {
-        itSkipIfRpc(`subplebbit.modQueue.getPage will throw if retrieved page has a comment with an signature `, async () => {
-            const plebbit: PKCType = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: true } });
+        itSkipIfRpc(`community.modQueue.getPage will throw if retrieved page has a comment with an signature `, async () => {
+            const pkc: PKCType = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: true } });
 
             try {
-                const sub = await plebbit.createCommunity({ address: subplebbitAddressOfFixture });
+                const sub = await pkc.createCommunity({ address: communityAddressOfFixture });
 
                 const fixtureToInvalidate = JSON.parse(JSON.stringify(validModQueuePage));
 
@@ -70,17 +70,17 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(error.code).to.equal("ERR_MOD_QUEUE_PAGE_IS_INVALID");
                 expect(error.details.signatureValidity.reason).to.equal(messages.ERR_SIGNATURE_IS_INVALID);
             } finally {
-                await plebbit.destroy();
+                await pkc.destroy();
             }
         });
 
         itSkipIfRpc("Should fail getPage if a modqueue comment belongs to a different sub", async () => {
             // TODO: Ensure cross-sub comments cannot appear under another sub's modqueue
             // and that the operation fails or rejects with an appropriate error
-            const plebbit: PKCType = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: true } });
+            const pkc: PKCType = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: true } });
 
             try {
-                const sub = await plebbit.createCommunity({ address: subplebbitAddressOfFixture });
+                const sub = await pkc.createCommunity({ address: communityAddressOfFixture });
 
                 const invalidPage = JSON.parse(JSON.stringify(validModQueuePage));
                 invalidPage.comments[0].comment.subplebbitAddress = "different-address";
@@ -95,15 +95,15 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(error.code).to.equal("ERR_MOD_QUEUE_PAGE_IS_INVALID");
                 expect(error.details.signatureValidity.reason).to.equal(messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY);
             } finally {
-                await plebbit.destroy();
+                await pkc.destroy();
             }
         });
 
         itSkipIfRpc("fails validation when calculated CID of CommentIpfs doesn't match commentUpdate.cid", async () => {
-            const plebbit: PKCType = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: true } });
+            const pkc: PKCType = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: true } });
 
             try {
-                const sub = await plebbit.createCommunity({ address: subplebbitAddressOfFixture });
+                const sub = await pkc.createCommunity({ address: communityAddressOfFixture });
 
                 const invalidPage = JSON.parse(JSON.stringify(validModQueuePage));
                 // Modify the comment but keep the same commentUpdate.cid
@@ -118,17 +118,17 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(error.code).to.equal("ERR_MOD_QUEUE_PAGE_IS_INVALID");
                 expect(error.details.signatureValidity.reason).to.equal(messages.ERR_COMMENT_UPDATE_DIFFERENT_CID_THAN_COMMENT);
             } finally {
-                await plebbit.destroy();
+                await pkc.destroy();
             }
         });
 
         itSkipIfRpc("fails validation when a post has parentCid defined", async () => {
-            const plebbit: PKCType = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: true } });
+            const pkc: PKCType = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: true } });
 
             try {
                 const invalidPage = JSON.parse(JSON.stringify(validModQueuePage));
 
-                const sub = await plebbit.createCommunity({ address: subplebbitAddressOfFixture });
+                const sub = await pkc.createCommunity({ address: communityAddressOfFixture });
 
                 invalidPage.comments.find(
                     (comment: Record<string, Record<string, unknown>>) => comment.comment.depth === 0
@@ -153,17 +153,17 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(error.code).to.equal("ERR_MOD_QUEUE_PAGE_IS_INVALID");
                 expect(error.details.signatureValidity.reason).to.equal(messages.ERR_COMMENT_UPDATE_DIFFERENT_CID_THAN_COMMENT);
             } finally {
-                await plebbit.destroy();
+                await pkc.destroy();
             }
         });
 
         itSkipIfRpc(`Fails validation when pending posts have postCid defined`, async () => {
-            const plebbit: PKCType = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: true } });
+            const pkc: PKCType = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: true } });
 
             try {
                 const invalidPage = JSON.parse(JSON.stringify(validModQueuePage));
 
-                const sub = await plebbit.createCommunity({ address: subplebbitAddressOfFixture });
+                const sub = await pkc.createCommunity({ address: communityAddressOfFixture });
 
                 const indexOfPost = invalidPage.comments.findIndex(
                     (comment: Record<string, Record<string, unknown>>) => comment.comment.depth === 0
@@ -185,15 +185,15 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(error.code).to.equal("ERR_MOD_QUEUE_PAGE_IS_INVALID");
                 expect(error.details.signatureValidity.reason).to.equal(messages.ERR_PAGE_COMMENT_POST_HAS_POST_CID_DEFINED_WITH_DEPTH_0);
             } finally {
-                await plebbit.destroy();
+                await pkc.destroy();
             }
         });
 
         itSkipIfRpc(`modQueue.getPage will throw if the first page is over 1mb`, async () => {
-            const plebbit: PKCType = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: true } });
+            const pkc: PKCType = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: true } });
 
             try {
-                const subplebbit = await plebbit.createCommunity({ address: subplebbitAddressOfFixture });
+                const community = await pkc.createCommunity({ address: communityAddressOfFixture });
                 const page = JSON.parse(JSON.stringify(validModQueuePage));
 
                 // Make sure the page is over 1MB
@@ -208,33 +208,33 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(pageSizeInMB).to.be.greaterThan(1, "Page should be larger than 1MB for this test");
                 const pageCid = await addStringToIpfs(JSON.stringify(page));
 
-                subplebbit.modQueue.pageCids.pendingApproval = pageCid;
+                community.modQueue.pageCids.pendingApproval = pageCid;
 
-                await subplebbit.modQueue.getPage({ cid: pageCid });
+                await community.modQueue.getPage({ cid: pageCid });
                 expect.fail("Should have thrown");
             } catch (e) {
                 const error = e as PKCError;
-                if (isPKCFetchingUsingGateways(plebbit)) {
+                if (isPKCFetchingUsingGateways(pkc)) {
                     expect(error.code).to.equal("ERR_FAILED_TO_FETCH_PAGE_IPFS_FROM_GATEWAYS");
-                    for (const gatewayUrl of Object.keys(plebbit.clients.ipfsGateways))
+                    for (const gatewayUrl of Object.keys(pkc.clients.ipfsGateways))
                         expect((error.details.gatewayToError[gatewayUrl] as PKCError).code).to.equal("ERR_OVER_DOWNLOAD_LIMIT");
                 } else expect(error.code).to.equal("ERR_OVER_DOWNLOAD_LIMIT");
             } finally {
-                await plebbit.destroy();
+                await pkc.destroy();
             }
         });
 
         itSkipIfRpc("modQueue.getPage will throw a timeout error when request times out", async () => {
-            // Create a plebbit instance with a very short timeout for page-ipfs
-            const plebbit: PKCType = await config.plebbitInstancePromise();
+            // Create a pkc instance with a very short timeout for page-ipfs
+            const pkc: PKCType = await config.plebbitInstancePromise();
 
             try {
-                plebbit._timeouts["page-ipfs"] = 100;
+                pkc._timeouts["page-ipfs"] = 100;
 
                 // Create a comment with a CID that doesn't exist or will time out
                 const nonExistentCid = "QmbSiusGgY4Uk5LdAe91bzLkBzidyKyKHRKwhXPDz7gGzx"; // Random CID that doesn't exist
 
-                const sub = await plebbit.createCommunity({ address: subplebbitAddressOfFixture });
+                const sub = await pkc.createCommunity({ address: communityAddressOfFixture });
 
                 // Override the pageCid to use our non-existent CID
                 sub.modQueue.pageCids.pendingApproval = nonExistentCid;
@@ -243,15 +243,15 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect.fail("Should have timed out");
             } catch (e) {
                 const error = e as PKCError;
-                if (isPKCFetchingUsingGateways(plebbit)) {
+                if (isPKCFetchingUsingGateways(pkc)) {
                     expect(error.code).to.equal("ERR_FAILED_TO_FETCH_PAGE_IPFS_FROM_GATEWAYS");
-                    for (const gatewayUrl of Object.keys(plebbit.clients.ipfsGateways))
+                    for (const gatewayUrl of Object.keys(pkc.clients.ipfsGateways))
                         expect((error.details.gatewayToError[gatewayUrl] as PKCError).code).to.equal("ERR_GATEWAY_TIMED_OUT_OR_ABORTED");
                 } else {
                     expect(error.code).to.equal("ERR_FETCH_CID_P2P_TIMEOUT");
                 }
             } finally {
-                await plebbit.destroy();
+                await pkc.destroy();
             }
         });
     });

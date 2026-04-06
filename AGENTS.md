@@ -38,7 +38,7 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 
 ### Testing
 
-- Run every automated test suite through `node test/run-test-config.js --plebbit-config ${plebbit-config} ${testPath}` so our Vitest setup enforces bail/allowOnly/timeouts automatically. Choose plebbit-config based on test location: `test/node` → `"local-kubo-rpc,remote-plebbit-rpc"`, `test/node-and-browser` → `"remote-kubo-rpc,remote-plebbit-rpc"`.
+- Run every automated test suite through `node test/run-test-config.js --plebbit-config ${plebbit-config} ${testPath}` so our Vitest setup enforces bail/allowOnly/timeouts automatically. Choose plebbit-config based on test location: `test/node` → `"local-kubo-rpc,remote-pkc-rpc"`, `test/node-and-browser` → `"remote-kubo-rpc,remote-pkc-rpc"`.
 - Test files MUST be written in TypeScript (`.test.ts`). The test runner will type-check all TypeScript test files before running them.
 - Tests that use `LocalSubplebbit` or other Node-only types MUST be placed under `test/node/`, not `test/node-and-browser/`.
 - Do not include `this.timeout` in tests — it is not supported by vitest.

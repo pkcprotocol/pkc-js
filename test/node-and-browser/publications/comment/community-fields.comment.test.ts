@@ -13,21 +13,21 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 
 describe("Comment - community fields", () => {
-    let plebbit: PKC;
+    let pkc: PKC;
 
     beforeAll(async () => {
-        plebbit = await mockRemotePKC();
+        pkc = await mockRemotePKC();
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     // ─── Minimal CID path (Path 6) ───
 
     describe("minimal CID path", () => {
         it("sets communityPublicKey when provided alongside domain communityAddress", async () => {
-            const comment = await plebbit.createComment({
+            const comment = await pkc.createComment({
                 cid: DUMMY_CID,
                 communityAddress: "x.sol",
                 communityPublicKey: signers[0].address
@@ -38,7 +38,7 @@ describe("Comment - community fields", () => {
         });
 
         it("domain communityAddress without communityPublicKey: communityName derived", async () => {
-            const comment = await plebbit.createComment({
+            const comment = await pkc.createComment({
                 cid: DUMMY_CID,
                 communityAddress: "x.sol"
             });
@@ -48,7 +48,7 @@ describe("Comment - community fields", () => {
         });
 
         it("sets both communityPublicKey and communityName when both provided", async () => {
-            const comment = await plebbit.createComment({
+            const comment = await pkc.createComment({
                 cid: DUMMY_CID,
                 communityAddress: "myforum.eth",
                 communityPublicKey: signers[0].address,
@@ -64,8 +64,8 @@ describe("Comment - community fields", () => {
 
     describe("unsigned creation", () => {
         it("domain communityAddress only: communityName derived, communityPublicKey undefined", async () => {
-            const signer = await plebbit.createSigner();
-            const comment = await plebbit.createComment({
+            const signer = await pkc.createSigner();
+            const comment = await pkc.createComment({
                 communityAddress: "test.eth",
                 content: "test",
                 title: "test",
@@ -78,8 +78,8 @@ describe("Comment - community fields", () => {
         });
 
         it("domain communityAddress + communityPublicKey eagerly signs and derives communityName", async () => {
-            const signer = await plebbit.createSigner();
-            const comment = await plebbit.createComment({
+            const signer = await pkc.createSigner();
+            const comment = await pkc.createComment({
                 communityAddress: "myforum.eth",
                 communityPublicKey: signers[0].address,
                 content: "test",
@@ -98,8 +98,8 @@ describe("Comment - community fields", () => {
         });
 
         it("non-domain communityAddress eagerly signs with derived communityPublicKey", async () => {
-            const signer = await plebbit.createSigner();
-            const comment = await plebbit.createComment({
+            const signer = await pkc.createSigner();
+            const comment = await pkc.createComment({
                 communityAddress: signers[0].address,
                 content: "test",
                 title: "test",
@@ -126,7 +126,7 @@ describe("Comment - community fields", () => {
                 signer: signers[0]
             });
 
-            const comment = await plebbit.createComment({ ...commentIpfs, cid: DUMMY_CID } as any);
+            const comment = await pkc.createComment({ ...commentIpfs, cid: DUMMY_CID } as any);
             expect(comment.communityAddress).to.equal("test.eth");
             expect(comment.communityPublicKey).to.equal(signers[0].address);
             expect(comment.communityName).to.equal("test.eth");
@@ -138,26 +138,26 @@ describe("Comment - community fields", () => {
                 signer: signers[0]
             });
 
-            const comment = await plebbit.createComment({ ...commentIpfs, cid: DUMMY_CID } as any);
+            const comment = await pkc.createComment({ ...commentIpfs, cid: DUMMY_CID } as any);
             expect(comment.communityAddress).to.equal(signers[0].address);
             expect(comment.communityPublicKey).to.equal(signers[0].address);
             expect(comment.communityName).to.be.undefined;
         });
 
-        it("backward compat: old subplebbitAddress (domain) sets communityName, communityPublicKey undefined", async () => {
+        it("backward compat: old communityAddress (domain) sets communityName, communityPublicKey undefined", async () => {
             const commentIpfs = await buildOldFormatCommentIpfs({
                 subplebbitAddress: "test.eth",
                 signer: signers[0]
             });
 
-            const comment = await plebbit.createComment({ ...commentIpfs, cid: DUMMY_CID } as any);
+            const comment = await pkc.createComment({ ...commentIpfs, cid: DUMMY_CID } as any);
             expect(comment.communityAddress).to.equal("test.eth");
             expect(comment.communityName).to.equal("test.eth");
             expect(comment.communityPublicKey).to.be.undefined;
         });
 
-        it("backward compat: old subplebbitAddress (IPNS key) sets communityPublicKey, communityName undefined", async () => {
-            const comment = await plebbit.createComment({ ...validCommentIpfsFixture, cid: DUMMY_CID } as any);
+        it("backward compat: old communityAddress (IPNS key) sets communityPublicKey, communityName undefined", async () => {
+            const comment = await pkc.createComment({ ...validCommentIpfsFixture, cid: DUMMY_CID } as any);
             expect(comment.communityAddress).to.equal(signers[0].address);
             expect(comment.communityPublicKey).to.equal(signers[0].address);
             expect(comment.communityName).to.be.undefined;
@@ -174,7 +174,7 @@ describe("Comment - community fields", () => {
                 signer: signers[0]
             });
 
-            const comment = await plebbit.createComment(pubsubMsg as any);
+            const comment = await pkc.createComment(pubsubMsg as any);
             expect(comment.communityAddress).to.equal("test.eth");
             expect(comment.communityPublicKey).to.equal(signers[0].address);
             expect(comment.communityName).to.equal("test.eth");
@@ -186,7 +186,7 @@ describe("Comment - community fields", () => {
                 signer: signers[0]
             });
 
-            const comment = await plebbit.createComment(pubsubMsg as any);
+            const comment = await pkc.createComment(pubsubMsg as any);
             expect(comment.communityAddress).to.equal(signers[0].address);
             expect(comment.communityPublicKey).to.equal(signers[0].address);
             expect(comment.communityName).to.be.undefined;
@@ -202,10 +202,10 @@ describe("Comment - community fields", () => {
                 communityName: "test.eth",
                 signer: signers[0]
             });
-            const originalComment = await plebbit.createComment({ ...commentIpfs, cid: DUMMY_CID } as any);
+            const originalComment = await pkc.createComment({ ...commentIpfs, cid: DUMMY_CID } as any);
 
             const json = JSON.parse(JSON.stringify(originalComment));
-            const copiedComment = await plebbit.createComment(json);
+            const copiedComment = await pkc.createComment(json);
 
             expect(copiedComment.communityAddress).to.equal("test.eth");
             expect(copiedComment.communityPublicKey).to.equal(signers[0].address);

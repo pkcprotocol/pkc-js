@@ -18,7 +18,7 @@ import type { Comment } from "../../../../dist/node/publications/comment/comment
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 import type { RemoteCommunity } from "../../../../dist/node/community/remote-community.js";
 
-const subplebbitAddress = signers[11].address;
+const communityAddress = signers[11].address;
 const roles = [
     { role: "owner", signer: signers[1] },
     { role: "admin", signer: signers[2] },
@@ -27,24 +27,24 @@ const roles = [
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Archiving posts - ${config.name}`, async () => {
-        let plebbit: PKC, postToBeArchived: Comment, replyUnderPostToBeArchived: Comment, sub: RemoteCommunity;
+        let pkc: PKC, postToBeArchived: Comment, replyUnderPostToBeArchived: Comment, sub: RemoteCommunity;
         beforeAll(async () => {
-            plebbit = await mockRemotePKC();
-            sub = await plebbit.getCommunity({ address: subplebbitAddress });
+            pkc = await mockRemotePKC();
+            sub = await pkc.getCommunity({ address: communityAddress });
             await sub.update();
-            postToBeArchived = await publishRandomPost({ communityAddress: subplebbitAddress, plebbit: plebbit });
+            postToBeArchived = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
 
             await postToBeArchived.update();
             replyUnderPostToBeArchived = await publishRandomReply({
                 parentComment: postToBeArchived as CommentIpfsWithCidDefined,
-                plebbit: plebbit
+                plebbit: pkc
             });
         });
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
         it(`Author can't archive their own post`, async () => {
-            const archivedEdit = await plebbit.createCommentModeration({
+            const archivedEdit = await pkc.createCommentModeration({
                 communityAddress: postToBeArchived.communityAddress,
                 commentCid: postToBeArchived.cid,
                 commentModeration: { archived: true },
@@ -57,11 +57,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
         });
         it(`Regular author can't archive another author comment`, async () => {
-            const archivedEdit = await plebbit.createCommentModeration({
+            const archivedEdit = await pkc.createCommentModeration({
                 communityAddress: postToBeArchived.communityAddress,
                 commentCid: postToBeArchived.cid,
                 commentModeration: { archived: true },
-                signer: await plebbit.createSigner()
+                signer: await pkc.createSigner()
             });
             await publishWithExpectedResult({
                 publication: archivedEdit,
@@ -71,7 +71,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Mod Can't archive a reply`, async () => {
-            const archivedEdit = await plebbit.createCommentModeration({
+            const archivedEdit = await pkc.createCommentModeration({
                 communityAddress: replyUnderPostToBeArchived.communityAddress,
                 commentCid: replyUnderPostToBeArchived.cid,
                 commentModeration: { archived: true },
@@ -85,7 +85,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`Mod can archive an author post`, async () => {
-            const archivedEdit = await plebbit.createCommentModeration({
+            const archivedEdit = await pkc.createCommentModeration({
                 communityAddress: postToBeArchived.communityAddress,
                 commentCid: postToBeArchived.cid,
                 commentModeration: { archived: true, reason: "To archive an author post" },
@@ -103,8 +103,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(postToBeArchived.raw.commentUpdate.edit).to.be.undefined;
         });
 
-        it(`subplebbit.posts includes archived post with archived=true`, async () => {
-            const sub = await plebbit.createCommunity({ address: postToBeArchived.communityAddress });
+        it(`community.posts includes archived post with archived=true`, async () => {
+            const sub = await pkc.createCommunity({ address: postToBeArchived.communityAddress });
 
             await sub.update();
 
@@ -126,7 +126,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can't publish a reply on an archived post`, async () => {
-            const comment = await generateMockComment(postToBeArchived as CommentIpfsWithCidDefined, plebbit, false);
+            const comment = await generateMockComment(postToBeArchived as CommentIpfsWithCidDefined, pkc, false);
             await publishWithExpectedResult({
                 publication: comment,
                 expectedChallengeSuccess: false,
@@ -135,7 +135,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can't vote on an archived post`, async () => {
-            const vote = await generateMockVote(postToBeArchived as CommentIpfsWithCidDefined, 1, plebbit);
+            const vote = await generateMockVote(postToBeArchived as CommentIpfsWithCidDefined, 1, pkc);
             await publishWithExpectedResult({
                 publication: vote,
                 expectedChallengeSuccess: false,
@@ -144,7 +144,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can't vote on a reply of an archived post`, async () => {
-            const vote = await generateMockVote(replyUnderPostToBeArchived as CommentIpfsWithCidDefined, 1, plebbit);
+            const vote = await generateMockVote(replyUnderPostToBeArchived as CommentIpfsWithCidDefined, 1, pkc);
             await publishWithExpectedResult({
                 publication: vote,
                 expectedChallengeSuccess: false,
@@ -153,7 +153,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can't reply on a reply of an archived post`, async () => {
-            const reply = await generateMockComment(replyUnderPostToBeArchived as CommentIpfsWithCidDefined, plebbit);
+            const reply = await generateMockComment(replyUnderPostToBeArchived as CommentIpfsWithCidDefined, pkc);
             await publishWithExpectedResult({
                 publication: reply,
                 expectedChallengeSuccess: false,
@@ -162,7 +162,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`Mod can unarchive a post`, async () => {
-            const unarchiveEdit = await plebbit.createCommentModeration({
+            const unarchiveEdit = await pkc.createCommentModeration({
                 communityAddress: postToBeArchived.communityAddress,
                 commentCid: postToBeArchived.cid,
                 commentModeration: { archived: false, reason: "To unarchive an author post" },
@@ -181,11 +181,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Unarchived post can receive replies`, async () => {
-            const reply = await generateMockComment(replyUnderPostToBeArchived as CommentIpfsWithCidDefined, plebbit);
+            const reply = await generateMockComment(replyUnderPostToBeArchived as CommentIpfsWithCidDefined, pkc);
             await publishWithExpectedResult({ publication: reply, expectedChallengeSuccess: true });
         });
         it(`Unarchived post can receive votes`, async () => {
-            const vote = await generateMockVote(replyUnderPostToBeArchived as CommentIpfsWithCidDefined, 1, plebbit);
+            const vote = await generateMockVote(replyUnderPostToBeArchived as CommentIpfsWithCidDefined, 1, pkc);
             await publishWithExpectedResult({ publication: vote, expectedChallengeSuccess: true });
         });
     });

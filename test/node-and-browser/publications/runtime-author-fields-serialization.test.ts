@@ -5,7 +5,7 @@ import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { SignerWithPublicKeyAddress } from "../../../dist/node/signer/index.js";
 import type { PageTypeJson } from "../../../dist/node/pages/types.js";
 
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 const fakeCid = "QmYHzA8euDgUpNy3fh7JRwpPwt6jCgF35YTutYkyGGyr8f";
 
 function assertRuntimeAuthorFields(author: Record<string, unknown>, label: string) {
@@ -32,22 +32,22 @@ function assertRuntimeAuthorFieldsSurviveStringify(instance: { author: Record<st
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Runtime author fields in spread and JSON.stringify - ${config.name}`, () => {
-        let plebbit: PKC;
+        let pkc: PKC;
         let signer: SignerWithPublicKeyAddress;
 
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
-            signer = await plebbit.createSigner();
+            pkc = await config.plebbitInstancePromise();
+            signer = await pkc.createSigner();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         describe("Comment", () => {
             it("has runtime author fields", async () => {
-                const comment = await plebbit.createComment({
-                    communityAddress: subplebbitAddress,
+                const comment = await pkc.createComment({
+                    communityAddress: communityAddress,
                     signer,
                     content: "test content",
                     title: "test title"
@@ -56,8 +56,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it("runtime author fields survive spread", async () => {
-                const comment = await plebbit.createComment({
-                    communityAddress: subplebbitAddress,
+                const comment = await pkc.createComment({
+                    communityAddress: communityAddress,
                     signer,
                     content: "test content",
                     title: "test title"
@@ -66,8 +66,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it("runtime author fields survive JSON.stringify", async () => {
-                const comment = await plebbit.createComment({
-                    communityAddress: subplebbitAddress,
+                const comment = await pkc.createComment({
+                    communityAddress: communityAddress,
                     signer,
                     content: "test content",
                     title: "test title"
@@ -78,8 +78,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         describe("Vote", () => {
             it("has runtime author fields", async () => {
-                const vote = await plebbit.createVote({
-                    communityAddress: subplebbitAddress,
+                const vote = await pkc.createVote({
+                    communityAddress: communityAddress,
                     signer,
                     commentCid: fakeCid,
                     vote: 1
@@ -88,8 +88,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it("runtime author fields survive spread", async () => {
-                const vote = await plebbit.createVote({
-                    communityAddress: subplebbitAddress,
+                const vote = await pkc.createVote({
+                    communityAddress: communityAddress,
                     signer,
                     commentCid: fakeCid,
                     vote: 1
@@ -98,8 +98,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it("runtime author fields survive JSON.stringify", async () => {
-                const vote = await plebbit.createVote({
-                    communityAddress: subplebbitAddress,
+                const vote = await pkc.createVote({
+                    communityAddress: communityAddress,
                     signer,
                     commentCid: fakeCid,
                     vote: 1
@@ -110,8 +110,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         describe("CommentEdit", () => {
             it("has runtime author fields", async () => {
-                const edit = await plebbit.createCommentEdit({
-                    communityAddress: subplebbitAddress,
+                const edit = await pkc.createCommentEdit({
+                    communityAddress: communityAddress,
                     signer,
                     commentCid: fakeCid,
                     content: "edited content"
@@ -120,8 +120,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it("runtime author fields survive spread", async () => {
-                const edit = await plebbit.createCommentEdit({
-                    communityAddress: subplebbitAddress,
+                const edit = await pkc.createCommentEdit({
+                    communityAddress: communityAddress,
                     signer,
                     commentCid: fakeCid,
                     content: "edited content"
@@ -130,8 +130,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it("runtime author fields survive JSON.stringify", async () => {
-                const edit = await plebbit.createCommentEdit({
-                    communityAddress: subplebbitAddress,
+                const edit = await pkc.createCommentEdit({
+                    communityAddress: communityAddress,
                     signer,
                     commentCid: fakeCid,
                     content: "edited content"
@@ -142,8 +142,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         describe("CommentModeration", () => {
             it("has runtime author fields", async () => {
-                const moderation = await plebbit.createCommentModeration({
-                    communityAddress: subplebbitAddress,
+                const moderation = await pkc.createCommentModeration({
+                    communityAddress: communityAddress,
                     signer,
                     commentCid: fakeCid,
                     commentModeration: { removed: true }
@@ -152,8 +152,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it("runtime author fields survive spread", async () => {
-                const moderation = await plebbit.createCommentModeration({
-                    communityAddress: subplebbitAddress,
+                const moderation = await pkc.createCommentModeration({
+                    communityAddress: communityAddress,
                     signer,
                     commentCid: fakeCid,
                     commentModeration: { removed: true }
@@ -162,8 +162,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it("runtime author fields survive JSON.stringify", async () => {
-                const moderation = await plebbit.createCommentModeration({
-                    communityAddress: subplebbitAddress,
+                const moderation = await pkc.createCommentModeration({
+                    communityAddress: communityAddress,
                     signer,
                     commentCid: fakeCid,
                     commentModeration: { removed: true }
@@ -174,8 +174,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         describe("CommunityEdit", () => {
             it("has runtime author fields", async () => {
-                const subEdit = await plebbit.createCommunityEdit({
-                    communityAddress: subplebbitAddress,
+                const subEdit = await pkc.createCommunityEdit({
+                    communityAddress: communityAddress,
                     signer,
                     subplebbitEdit: { description: "new description" }
                 });
@@ -183,8 +183,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it("runtime author fields survive spread", async () => {
-                const subEdit = await plebbit.createCommunityEdit({
-                    communityAddress: subplebbitAddress,
+                const subEdit = await pkc.createCommunityEdit({
+                    communityAddress: communityAddress,
                     signer,
                     subplebbitEdit: { description: "new description" }
                 });
@@ -192,8 +192,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it("runtime author fields survive JSON.stringify", async () => {
-                const subEdit = await plebbit.createCommunityEdit({
-                    communityAddress: subplebbitAddress,
+                const subEdit = await pkc.createCommunityEdit({
+                    communityAddress: communityAddress,
                     signer,
                     subplebbitEdit: { description: "new description" }
                 });
@@ -201,11 +201,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
         });
 
-        describe("subplebbit.posts page comments", () => {
+        describe("community.posts page comments", () => {
             it("page comments have runtime author fields that survive spread and JSON.stringify", async () => {
-                const sub = await plebbit.getCommunity({ address: subplebbitAddress });
+                const sub = await pkc.getCommunity({ address: communityAddress });
                 const pages = sub.posts.pages || {};
-                expect(Object.keys(pages).length, "subplebbit.posts.pages should not be empty").to.be.greaterThan(0);
+                expect(Object.keys(pages).length, "community.posts.pages should not be empty").to.be.greaterThan(0);
 
                 let testedComments = 0;
 
