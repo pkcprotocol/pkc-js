@@ -1,9 +1,9 @@
-import { Plebbit } from "../../plebbit/plebbit.js";
+import { Plebbit } from "../../pkc/pkc.js";
 import type { StorageInterface } from "../../types.js";
 import path from "path";
 import fs from "fs";
 import { hideClassPrivateProps } from "../../util.js";
-import { KeyvBetterSqlite3 } from "./subplebbit/keyv-better-sqlite3.js";
+import { KeyvBetterSqlite3 } from "./community/keyv-better-sqlite3.js";
 import Database from "better-sqlite3";
 
 // Storage is for long term items, no eviction based on ttl or anything like that

@@ -1,4 +1,4 @@
-import type { Plebbit } from "../../../../plebbit/plebbit.js";
+import type { Plebbit } from "../../../../pkc/pkc.js";
 import { getAvailablePlebbitConfigsToTestAgainst } from "../../../test-util.js";
 
 /**

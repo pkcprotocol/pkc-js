@@ -14,13 +14,13 @@ import {
 } from "../../../../../dist/node/test/test-util.js";
 import { signComment } from "../../../../../dist/node/signer/signatures.js";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
-import type { PlebbitError } from "../../../../../dist/node/plebbit-error.js";
+import type { PlebbitError } from "../../../../../dist/node/pkc-error.js";
 import type {
     CommentIpfsWithCidDefined,
     CommentPubsubMessagPublicationSignature
 } from "../../../../../dist/node/publications/comment/types.js";
-import type { Plebbit } from "../../../../../dist/node/plebbit/plebbit.js";
-import type { RemoteSubplebbit } from "../../../../../dist/node/subplebbit/remote-subplebbit.js";
+import type { Plebbit } from "../../../../../dist/node/pkc/pkc.js";
+import type { RemoteSubplebbit } from "../../../../../dist/node/community/remote-community.js";
 import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
 
 // Helper type for replies that requires both cid and parentCid

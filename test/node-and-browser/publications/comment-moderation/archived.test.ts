@@ -13,10 +13,10 @@ import {
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
-import type { RemoteSubplebbit } from "../../../../dist/node/subplebbit/remote-subplebbit.js";
+import type { RemoteSubplebbit } from "../../../../dist/node/community/remote-community.js";
 
 const subplebbitAddress = signers[11].address;
 const roles = [

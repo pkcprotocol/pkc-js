@@ -10,7 +10,7 @@ import {
     parsePageIpfsSchemaWithPlebbitErrorIfItFails
 } from "../schema/schema-util.js";
 import { hideClassPrivateProps } from "../util.js";
-import { Plebbit } from "../plebbit/plebbit.js";
+import { Plebbit } from "../pkc/pkc.js";
 import { sha256 } from "js-sha256";
 import { PagesIpfsGatewayClient, PagesKuboRpcClient, PagesLibp2pJsClient, PagesPlebbitRpcStateClient } from "./pages-clients.js";
 

@@ -1,9 +1,9 @@
 import Publication from "../publication.js";
 import type { PublicationTypeName } from "../../types.js";
-import { Plebbit } from "../../plebbit/plebbit.js";
+import { Plebbit } from "../../pkc/pkc.js";
 import { signVote, verifyVote } from "../../signer/signatures.js";
 import { hideClassPrivateProps } from "../../util.js";
-import { PlebbitError } from "../../plebbit-error.js";
+import { PlebbitError } from "../../pkc-error.js";
 import type { CreateVoteOptions, VoteOptionsToSign, VotePubsubMessagePublication } from "./types.js";
 import * as remeda from "remeda";
 import type { SignerType } from "../../signer/types.js";

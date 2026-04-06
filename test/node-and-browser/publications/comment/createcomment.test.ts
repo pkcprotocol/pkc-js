@@ -15,7 +15,7 @@ import {
 import validCommentWithRepliesFixture from "../../../fixtures/signatures/comment/valid_comment_with_replies_raw.json" with { type: "json" };
 import { describe, it, beforeAll, afterAll } from "vitest";
 import { calculateIpfsCidV0 } from "../../../../dist/node/util.js";
-import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { PageIpfs, PageTypeJson } from "../../../../dist/node/pages/types.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";

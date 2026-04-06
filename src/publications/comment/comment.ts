@@ -14,10 +14,10 @@ import type { AuthorWithOptionalCommentUpdateJson, PublicationTypeName } from ".
 
 import type { RepliesPagesTypeIpfs } from "../../pages/types.js";
 import Logger from "../../logger.js";
-import { Plebbit } from "../../plebbit/plebbit.js";
+import { Plebbit } from "../../pkc/pkc.js";
 import { signComment, verifyCommentIpfs, verifyCommentPubsubMessage, verifyCommentUpdate } from "../../signer/signatures.js";
 import assert from "assert";
-import { FailedToFetchCommentIpfsFromGatewaysError, PlebbitError } from "../../plebbit-error.js";
+import { FailedToFetchCommentIpfsFromGatewaysError, PlebbitError } from "../../pkc-error.js";
 import * as remeda from "remeda";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 
@@ -47,7 +47,7 @@ import {
 import type { SignerType } from "../../signer/types.js";
 import type { CreatePublicationOptions } from "../../types.js";
 import { CommentClientsManager } from "./comment-client-manager.js";
-import type { SubplebbitIpfsType } from "../../subplebbit/types.js";
+import type { SubplebbitIpfsType } from "../../community/types.js";
 import { CID } from "kubo-rpc-client";
 import type { PublicationEventArgs, PublicationEvents } from "../types.js";
 import { getAuthorDomainFromRuntime } from "../publication-author.js";
@@ -62,7 +62,7 @@ import {
     refreshTrackedCommentAliases,
     trackUpdatingComment,
     untrackUpdatingComment
-} from "../../plebbit/tracked-instance-registry-util.js";
+} from "../../pkc/tracked-instance-registry-util.js";
 
 export class Comment
     extends Publication

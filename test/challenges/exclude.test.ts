@@ -3,10 +3,10 @@ import {
     shouldExcludeChallengeCommentCids,
     shouldExcludePublication,
     shouldExcludeChallengeSuccess
-} from "../../dist/node/runtime/node/subplebbit/challenges/exclude/index.js";
-import { addToRateLimiter } from "../../dist/node/runtime/node/subplebbit/challenges/exclude/rate-limiter.js";
+} from "../../dist/node/runtime/node/community/challenges/exclude/index.js";
+import { addToRateLimiter } from "../../dist/node/runtime/node/community/challenges/exclude/rate-limiter.js";
 import type { DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor } from "../../dist/node/pubsub-messages/types.js";
-import type { LocalSubplebbit } from "../../dist/node/runtime/node/subplebbit/local-subplebbit.js";
+import type { LocalSubplebbit } from "../../dist/node/runtime/node/community/local-community.js";
 import * as remeda from "remeda";
 import { Plebbit, authors } from "./fixtures/fixtures.ts";
 import validCommentEditFixture from "../fixtures/signatures/commentEdit/valid_comment_edit.json" with { type: "json" };

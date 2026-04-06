@@ -14,8 +14,8 @@ import * as ed from "@noble/ed25519";
 import PeerId from "peer-id";
 import { areEquivalentSubplebbitAddresses, isStringDomain, removeNullUndefinedEmptyObjectsValuesRecursively, timestamp } from "../util.js";
 import { getCommunityAddressFromRecord } from "../publications/publication-community.js";
-import { PlebbitError } from "../plebbit-error.js";
-import { Plebbit } from "../plebbit/plebbit.js";
+import { PlebbitError } from "../pkc-error.js";
+import { Plebbit } from "../pkc/pkc.js";
 
 import type {
     ChallengeAnswerMessageSignature,
@@ -34,7 +34,7 @@ import Logger from "../logger.js";
 import { messages } from "../errors.js";
 import assert from "assert";
 import { BaseClientsManager } from "../clients/base-client-manager.js";
-import type { SubplebbitIpfsType, SubplebbitSignature } from "../subplebbit/types.js";
+import type { SubplebbitIpfsType, SubplebbitSignature } from "../community/types.js";
 import { sha256 } from "js-sha256";
 import * as remeda from "remeda"; // tree-shaking supported!
 import type { JsonSignature, PlebbitRecordToVerify, PubsubMsgToSign, PubsubSignature, SignerType } from "./types.js";
@@ -66,7 +66,7 @@ import {
     CommentUpdateSignedPropertyNames
 } from "../publications/comment/schema.js";
 import type { ModQueuePageIpfs, PageIpfs } from "../pages/types.js";
-import { SubplebbitIpfsReservedFields, SubplebbitSignedPropertyNames } from "../subplebbit/schema.js";
+import { SubplebbitIpfsReservedFields, SubplebbitSignedPropertyNames } from "../community/schema.js";
 import {
     ChallengeRequestMessageSignedPropertyNames,
     ChallengeMessageSignedPropertyNames,
@@ -83,12 +83,12 @@ import type {
     SubplebbitEditPublicationOptionsToSign,
     SubplebbitEditPublicationSignature,
     SubplebbitEditPubsubMessagePublication
-} from "../publications/subplebbit-edit/types.js";
-import { SubplebbitEditPublicationSignedPropertyNames } from "../publications/subplebbit-edit/schema.js";
+} from "../publications/community-edit/types.js";
+import { SubplebbitEditPublicationSignedPropertyNames } from "../publications/community-edit/schema.js";
 import { AuthorCommentIpfsReservedFields } from "../schema/schema.js";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
-import { RemoteSubplebbit } from "../subplebbit/remote-subplebbit.js";
+import { RemoteSubplebbit } from "../community/remote-community.js";
 import { getAuthorNameFromWire } from "../publications/publication-author.js";
 
 export type ValidationResult = { valid: true } | { valid: false; reason: string };

@@ -2,11 +2,11 @@ import { beforeEach, afterEach } from "vitest";
 import {
     plebbitJsChallenges,
     getPendingChallengesOrChallengeVerification
-} from "../../dist/node/runtime/node/subplebbit/challenges/index.js";
+} from "../../dist/node/runtime/node/community/challenges/index.js";
 import type { DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor } from "../../dist/node/pubsub-messages/types.js";
-import type { LocalSubplebbit } from "../../dist/node/runtime/node/subplebbit/local-subplebbit.js";
+import type { LocalSubplebbit } from "../../dist/node/runtime/node/community/local-community.js";
 import type { ChallengeVerificationMessageType } from "../../dist/node/pubsub-messages/types.js";
-import type { Challenge, ChallengeResult } from "../../dist/node/subplebbit/types.js";
+import type { Challenge, ChallengeResult } from "../../dist/node/community/types.js";
 import * as remeda from "remeda";
 import * as fs from "node:fs";
 import * as path from "node:path";

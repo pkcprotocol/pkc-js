@@ -1,6 +1,6 @@
 import localForage from "localforage";
 import { StorageInterface } from "../../types.js";
-import { Plebbit } from "../../plebbit/plebbit.js";
+import { Plebbit } from "../../pkc/pkc.js";
 import { v4 as uuidV4 } from "uuid";
 import { hideClassPrivateProps } from "../../util.js";
 

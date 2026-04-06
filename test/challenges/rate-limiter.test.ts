@@ -1,6 +1,6 @@
-import { testRateLimit, addToRateLimiter } from "../../dist/node/runtime/node/subplebbit/challenges/exclude/rate-limiter.js";
+import { testRateLimit, addToRateLimiter } from "../../dist/node/runtime/node/community/challenges/exclude/rate-limiter.js";
 import type { DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor } from "../../dist/node/pubsub-messages/types.js";
-import type { Exclude, SubplebbitSettings, ChallengeResult } from "../../dist/node/subplebbit/types.js";
+import type { Exclude, SubplebbitSettings, ChallengeResult } from "../../dist/node/community/types.js";
 
 // Wrapper functions for type assertion boilerplate
 const wrapTestRateLimit = (exclude: Record<string, unknown>, request: Record<string, unknown>): boolean => {

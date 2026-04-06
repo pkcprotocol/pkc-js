@@ -1,4 +1,4 @@
-import { PlebbitTypedEmitter } from "./clients/plebbit-typed-emitter.js";
+import { PlebbitTypedEmitter } from "./clients/pkc-typed-emitter.js";
 import { GenericClientEvents } from "./types.js";
 import { hideClassPrivateProps } from "./util.js";
 

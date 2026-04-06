@@ -1,7 +1,7 @@
 import { create as CreateIpfsClient, Options as IpfsHttpClientOptions } from "kubo-rpc-client";
 import type Publication from "./publications/publication.js";
-import type { PlebbitError } from "./plebbit-error.js";
-import type { Plebbit } from "./plebbit/plebbit.js";
+import type { PlebbitError } from "./pkc-error.js";
+import type { Plebbit } from "./pkc/pkc.js";
 import {
     AuthorAvatarNftSchema,
     AuthorPubsubSchema,
@@ -13,10 +13,10 @@ import { z } from "zod";
 
 import type { DecryptedChallengeRequestPublication } from "./pubsub-messages/types.js";
 import { ChainTickerSchema, NameResolverSchema, PlebbitParsedOptionsSchema, PlebbitUserOptionsSchema } from "./schema.js";
-import PlebbitRpcClient from "./clients/rpc-client/plebbit-rpc-client.js";
+import PlebbitRpcClient from "./clients/rpc-client/pkc-rpc-client.js";
 import type { PlebbitWsServerSettingsSerialized } from "./rpc/src/types.js";
 import { LRUCache } from "lru-cache";
-import type { SubplebbitIpfsType } from "./subplebbit/types.js";
+import type { SubplebbitIpfsType } from "./community/types.js";
 import type { PageIpfs } from "./pages/types.js";
 import type { CommentIpfsType } from "./publications/comment/types.js";
 

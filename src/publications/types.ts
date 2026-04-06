@@ -1,4 +1,4 @@
-import { PlebbitError } from "../plebbit-error.js";
+import { PlebbitError } from "../pkc-error.js";
 import type {
     DecryptedChallengeAnswerMessageType,
     DecryptedChallengeMessageType,

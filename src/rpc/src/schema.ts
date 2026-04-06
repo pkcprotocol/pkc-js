@@ -3,7 +3,7 @@ import { z } from "zod";
 import { NameResolverSerializedSchema, PlebbitParsedOptionsSchema, PlebbitUserOptionBaseSchema } from "../../schema.js";
 import type { Server as HTTPServer } from "http";
 import type { Server as HTTPSServer } from "https";
-import { ChallengeFileSchema } from "../../subplebbit/schema.js";
+import { ChallengeFileSchema } from "../../community/schema.js";
 import type { InputPlebbitOptions } from "../../types.js";
 
 // Setting up WS

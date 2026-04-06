@@ -7,7 +7,7 @@ import type { Fetch } from "@libp2p/fetch";
 import { peerIdFromString } from "@libp2p/peer-id";
 import type { HeliaWithLibp2pPubsub } from "./types.js";
 import { binaryKeyToPubsubTopic, pubsubTopicToDhtKey, pubsubTopicToDhtKeyCid } from "../util.js";
-import { PlebbitError } from "../plebbit-error.js";
+import { PlebbitError } from "../pkc-error.js";
 import { CID } from "kubo-rpc-client";
 
 const log = Logger("pkc-js:helia:ipns:routing:pubsub-with-fetch");

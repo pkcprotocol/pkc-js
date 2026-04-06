@@ -8,8 +8,8 @@ import {
     getAvailablePlebbitConfigsToTestAgainst
 } from "../../../dist/node/test/test-util.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../dist/node/plebbit/plebbit.js";
-import type { RemoteSubplebbit } from "../../../dist/node/subplebbit/remote-subplebbit.js";
+import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
+import type { RemoteSubplebbit } from "../../../dist/node/community/remote-community.js";
 
 const mathCliSubplebbitAddress = signers[1].address;
 

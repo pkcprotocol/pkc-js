@@ -6,8 +6,8 @@ import * as remeda from "remeda";
 import { messages } from "../../../dist/node/errors.js";
 import { verifyCommentEdit, signCommentEdit } from "../../../dist/node/signer/signatures.js";
 import validCommentEditFixture from "../../fixtures/signatures/commentEdit/valid_comment_edit.json" with { type: "json" };
-import type { Plebbit as PlebbitType } from "../../../dist/node/plebbit/plebbit.js";
-import type { RemoteSubplebbit } from "../../../dist/node/subplebbit/remote-subplebbit.js";
+import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
+import type { RemoteSubplebbit } from "../../../dist/node/community/remote-community.js";
 import type { CommentEditOptionsToSign, CommentEditPubsubMessagePublication } from "../../../dist/node/publications/comment-edit/types.js";
 
 describe("Sign commentedit", async () => {

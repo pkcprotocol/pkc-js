@@ -1,7 +1,7 @@
 import { describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
 import signers from "../../fixtures/signers.js";
-import { DbHandler } from "../../../dist/node/runtime/node/subplebbit/db-handler.js";
-import { LocalSubplebbit } from "../../../dist/node/runtime/node/subplebbit/local-subplebbit.js";
+import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
+import { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
 import { createSigner } from "../../../dist/node/signer/index.js";
 import { of as calculateIpfsCidV0Lib } from "typestub-ipfs-only-hash";
 import type {

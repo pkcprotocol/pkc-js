@@ -8,7 +8,7 @@ import {
 } from "../../../dist/node/test/test-util.js";
 import signers from "../../fixtures/signers.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { IpfsHttpClientPubsubMessage } from "../../../dist/node/types.js";
 

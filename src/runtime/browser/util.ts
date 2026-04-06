@@ -2,7 +2,7 @@ import type { KuboRpcClient, NativeFunctions } from "../../types.js";
 import { default as browserNativeFunctions } from "./native-functions.js";
 import Logger from "../../logger.js";
 import { create as CreateKuboRpcClient } from "kubo-rpc-client";
-import { PlebbitError } from "../../plebbit-error.js";
+import { PlebbitError } from "../../pkc-error.js";
 
 // Functions should not be called in browser
 export const getDefaultDataPath = () => undefined;

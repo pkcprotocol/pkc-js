@@ -8,8 +8,8 @@ import {
 } from "../../../../../dist/node/test/test-util.js";
 
 import { describe, it } from "vitest";
-import type { PlebbitError } from "../../../../../dist/node/plebbit-error.js";
-import type { Plebbit } from "../../../../../dist/node/plebbit/plebbit.js";
+import type { PlebbitError } from "../../../../../dist/node/pkc-error.js";
+import type { Plebbit } from "../../../../../dist/node/pkc/pkc.js";
 
 // Helper type for accessing private properties on Comment
 type CommentWithInternals = {

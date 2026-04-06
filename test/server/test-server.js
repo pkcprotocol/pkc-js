@@ -15,7 +15,7 @@ import url from "url";
 import querystring from "querystring";
 
 import fs from "fs";
-import startPlebbitWebSocketServers from "./plebbit-ws-server.js";
+import startPlebbitWebSocketServers from "./pkc-ws-server.js";
 
 process.env["PLEBBIT_CONFIGS"] = process.env["PLEBBIT_CONFIGS"] || "local-kubo-rpc";
 process.env["DEBUG"] = process.env["DEBUG"] || "*";

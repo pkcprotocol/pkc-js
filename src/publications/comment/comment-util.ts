@@ -1,4 +1,4 @@
-import { RemoteSubplebbit } from "../../subplebbit/remote-subplebbit.js";
+import { RemoteSubplebbit } from "../../community/remote-community.js";
 import type { PageIpfs, PageTypeJson } from "../../pages/types.js";
 import type { CommentIpfsWithCidDefined, CommentUpdateType } from "./types.js";
 import Logger from "../../logger.js";

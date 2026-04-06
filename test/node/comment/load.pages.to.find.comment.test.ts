@@ -2,7 +2,7 @@ import { describe, it } from "vitest";
 import { addStringToIpfs, describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
 import { loadAllPagesUnderSubplebbitToFindComment } from "../../../dist/node/publications/comment/comment-util.js";
 import type { PageIpfs } from "../../../dist/node/pages/types.js";
-import type { RemoteSubplebbit } from "../../../dist/node/subplebbit/remote-subplebbit.js";
+import type { RemoteSubplebbit } from "../../../dist/node/community/remote-community.js";
 
 const REPLY_DEPTHS = [1, 2, 3, 5, 10, 15];
 

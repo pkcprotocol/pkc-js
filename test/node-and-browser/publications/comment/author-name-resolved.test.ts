@@ -11,7 +11,7 @@ import {
     createStaticSubplebbitRecordForComment,
     addStringToIpfs
 } from "../../../../dist/node/test/test-util.js";
-import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
 import type { PageIpfs } from "../../../../dist/node/pages/types.js";
 import type Publication from "../../../../dist/node/publications/publication.js";
 

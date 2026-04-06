@@ -2,9 +2,9 @@ import PlebbitIndex from "../index.js";
 import { calculateStringSizeSameAsIpfsAddCidV0, removeUndefinedValuesRecursively, retryKuboIpfsAdd, timestamp } from "../util.js";
 import { getCommunityAddressFromRecord } from "../publications/publication-community.js";
 import { Comment } from "../publications/comment/comment.js";
-import { Plebbit } from "../plebbit/plebbit.js";
+import { Plebbit } from "../pkc/pkc.js";
 import Vote from "../publications/vote/vote.js";
-import { RemoteSubplebbit } from "../subplebbit/remote-subplebbit.js";
+import { RemoteSubplebbit } from "../community/remote-community.js";
 import type { InputPlebbitOptions, NameResolver } from "../types.js";
 import assert from "assert";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
@@ -14,15 +14,15 @@ import { createMockPubsubClient } from "./mock-ipfs-client.js";
 import { EventEmitter } from "events";
 import Logger from "../logger.js";
 import * as remeda from "remeda";
-import { LocalSubplebbit } from "../runtime/node/subplebbit/local-subplebbit.js";
-import { RpcLocalSubplebbit } from "../subplebbit/rpc-local-subplebbit.js";
-import { findUpdatingComment, findUpdatingSubplebbit } from "../plebbit/tracked-instance-registry-util.js";
+import { LocalSubplebbit } from "../runtime/node/community/local-community.js";
+import { RpcLocalSubplebbit } from "../community/rpc-local-community.js";
+import { findUpdatingComment, findUpdatingSubplebbit } from "../pkc/tracked-instance-registry-util.js";
 import type {
     CreateNewLocalSubplebbitUserOptions,
     LocalSubplebbitJson,
     SubplebbitIpfsType,
     SubplebbitChallengeSetting
-} from "../subplebbit/types.js";
+} from "../community/types.js";
 import type { SignerType } from "../signer/types.js";
 import type { CreateVoteOptions } from "../publications/vote/types.js";
 import type {
@@ -76,7 +76,7 @@ import env from "../version.js";
 import type { CommentModerationPubsubMessagePublication } from "../publications/comment-moderation/types.js";
 import { CommentModeration } from "../publications/comment-moderation/comment-moderation.js";
 import type { PageIpfs, PageTypeJson, PostsPagesTypeIpfs, RepliesPagesTypeIpfs } from "../pages/types.js";
-import { PlebbitError } from "../plebbit-error.js";
+import { PlebbitError } from "../pkc-error.js";
 import { messages } from "../errors.js";
 import { MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE } from "../publications/comment/comment-client-manager.js";
 import last from "it-last";

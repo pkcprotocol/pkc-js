@@ -5,10 +5,10 @@ import {
     getChallengeVerification,
     plebbitJsChallenges,
     getSubplebbitChallengeFromSubplebbitChallengeSettings
-} from "../../dist/node/runtime/node/subplebbit/challenges/index.js";
-import type { GetChallengeAnswers } from "../../dist/node/runtime/node/subplebbit/challenges/index.js";
+} from "../../dist/node/runtime/node/community/challenges/index.js";
+import type { GetChallengeAnswers } from "../../dist/node/runtime/node/community/challenges/index.js";
 import type { DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor } from "../../dist/node/pubsub-messages/types.js";
-import type { LocalSubplebbit } from "../../dist/node/runtime/node/subplebbit/local-subplebbit.js";
+import type { LocalSubplebbit } from "../../dist/node/runtime/node/community/local-community.js";
 import * as remeda from "remeda";
 import { Plebbit, subplebbits, authors, subplebbitAuthors, challengeAnswers, challengeCommentCids, results } from "./fixtures/fixtures.ts";
 

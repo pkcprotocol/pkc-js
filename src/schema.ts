@@ -5,7 +5,7 @@ import version from "./version.js";
 import type { libp2pDefaults } from "helia";
 import { createHelia } from "helia";
 import type { KuboRpcClientCreateOption } from "./util.js";
-import type { ChallengeFileFactoryInput } from "./subplebbit/types.js";
+import type { ChallengeFileFactoryInput } from "./community/types.js";
 
 // This file will have misc schemas, as well as Plebbit class schema
 

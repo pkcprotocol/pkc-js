@@ -1,5 +1,5 @@
 import { EventEmitter } from "events";
-import { plebbitJsChallenges } from "../../../dist/node/runtime/node/subplebbit/challenges/index.js";
+import { plebbitJsChallenges } from "../../../dist/node/runtime/node/community/challenges/index.js";
 
 // Define types for mock objects
 interface MockAuthor {

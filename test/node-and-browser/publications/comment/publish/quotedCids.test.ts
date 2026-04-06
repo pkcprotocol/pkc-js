@@ -11,7 +11,7 @@ import {
 } from "../../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../../dist/node/errors.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
-import type { Plebbit } from "../../../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
 

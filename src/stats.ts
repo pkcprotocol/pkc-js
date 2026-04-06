@@ -1,4 +1,4 @@
-import { Plebbit } from "./plebbit/plebbit.js";
+import { Plebbit } from "./pkc/pkc.js";
 import assert from "assert";
 import * as remeda from "remeda";
 

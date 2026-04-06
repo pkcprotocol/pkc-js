@@ -11,9 +11,9 @@ import {
     createStaticSubplebbitRecordForComment
 } from "../../../../../dist/node/test/test-util.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { PlebbitError } from "../../../../../dist/node/plebbit-error.js";
+import type { PlebbitError } from "../../../../../dist/node/pkc-error.js";
 import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
-import type { Plebbit } from "../../../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../../../dist/node/pkc/pkc.js";
 
 const subplebbitAddress = signers[0].address;
 

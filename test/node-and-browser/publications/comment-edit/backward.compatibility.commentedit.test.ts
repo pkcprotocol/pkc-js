@@ -8,7 +8,7 @@ import {
 import { messages } from "../../../../dist/node/errors.js";
 import signers from "../../../fixtures/signers.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 
 // Type for challenge request event

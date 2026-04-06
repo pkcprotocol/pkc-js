@@ -6,10 +6,10 @@ import {
 } from "../../../dist/node/test/test-util.js";
 import signers from "../../fixtures/signers.js";
 import { sha256 } from "js-sha256";
-import type { Plebbit } from "../../../dist/node/plebbit/plebbit.js";
-import type { RemoteSubplebbit } from "../../../dist/node/subplebbit/remote-subplebbit.js";
+import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
+import type { RemoteSubplebbit } from "../../../dist/node/community/remote-community.js";
 import type { PageIpfs } from "../../../dist/node/pages/types.js";
-import type { PlebbitError } from "../../../dist/node/plebbit-error.js";
+import type { PlebbitError } from "../../../dist/node/pkc-error.js";
 
 import validPageFixture from "../../fixtures/valid_page.json" with { type: "json" };
 

@@ -2,8 +2,8 @@ import { beforeAll, afterAll } from "vitest";
 import Plebbit from "../../dist/node/index.js";
 import { createSubWithNoChallenge, describeSkipIfRpc, resolveWhenConditionIsTrue } from "../../dist/node/test/test-util.js";
 import { MockHttpRouter } from "../../dist/node/runtime/node/test/mock-http-router.js";
-import type { Plebbit as PlebbitType } from "../../dist/node/plebbit/plebbit.js";
-import type { LocalSubplebbit } from "../../dist/node/runtime/node/subplebbit/local-subplebbit.js";
+import type { Plebbit as PlebbitType } from "../../dist/node/pkc/pkc.js";
+import type { LocalSubplebbit } from "../../dist/node/runtime/node/community/local-community.js";
 
 import tcpPortUsed from "tcp-port-used";
 

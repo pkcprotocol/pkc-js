@@ -7,11 +7,11 @@ import {
     RepliesPagesClientsManager,
     SubplebbitModQueueClientsManager
 } from "./pages-client-manager.js";
-import { PlebbitError } from "../plebbit-error.js";
+import { PlebbitError } from "../pkc-error.js";
 import { deepMergeRuntimeFields, hideClassPrivateProps } from "../util.js";
 import { Comment } from "../publications/comment/comment.js";
-import { RemoteSubplebbit } from "../subplebbit/remote-subplebbit.js";
-import { Plebbit } from "../plebbit/plebbit.js";
+import { RemoteSubplebbit } from "../community/remote-community.js";
+import { Plebbit } from "../pkc/pkc.js";
 import { parsePageCidParams } from "./schema-util.js";
 import { getAuthorDomainFromRuntime } from "../publications/publication-author.js";
 import { sha256 } from "js-sha256";

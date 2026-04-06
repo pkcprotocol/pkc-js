@@ -2,13 +2,13 @@ import {
     plebbitJsChallenges,
     getSubplebbitChallengeFromSubplebbitChallengeSettings,
     getPendingChallengesOrChallengeVerification
-} from "../../dist/node/runtime/node/subplebbit/challenges/index.js";
+} from "../../dist/node/runtime/node/community/challenges/index.js";
 import type { DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor } from "../../dist/node/pubsub-messages/types.js";
-import type { LocalSubplebbit } from "../../dist/node/runtime/node/subplebbit/local-subplebbit.js";
+import type { LocalSubplebbit } from "../../dist/node/runtime/node/community/local-community.js";
 import * as remeda from "remeda";
 
 import type { ChallengeVerificationMessageType } from "../../dist/node/pubsub-messages/types.js";
-import type { Challenge } from "../../dist/node/subplebbit/types.js";
+import type { Challenge } from "../../dist/node/community/types.js";
 
 // Flattened type for test assertions - allows direct property access
 // This is appropriate for tests where we assert on the presence/value of these properties

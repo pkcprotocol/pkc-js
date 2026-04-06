@@ -7,7 +7,7 @@ import type {
     ChallengeVerificationMessageType,
     PublicationFromDecryptedChallengeRequest
 } from "../pubsub-messages/types.js";
-import type { SubplebbitIpfsType } from "../subplebbit/types.js";
+import type { SubplebbitIpfsType } from "../community/types.js";
 
 import type { CommentUpdateForChallengeVerification, CommentUpdateType } from "../publications/comment/types.js";
 import { EncryptedSchema, PubsubMessageSignatureSchema } from "../pubsub-messages/schema.js";

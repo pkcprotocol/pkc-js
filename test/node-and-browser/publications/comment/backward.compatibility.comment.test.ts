@@ -15,10 +15,10 @@ import { _signJson } from "../../../../dist/node/signer/signatures.js";
 import { getPlebbitAddressFromPublicKeySync } from "../../../../dist/node/signer/util.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
 import validPageIpfsFixture from "../../../fixtures/valid_page.json" with { type: "json" };
-import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentWithinRepliesPostsPageJson } from "../../../../dist/node/publications/comment/types.js";
-import type { PlebbitError } from "../../../../dist/node/plebbit-error.js";
+import type { PlebbitError } from "../../../../dist/node/pkc-error.js";
 
 type CommentWithExtraProp = Comment & { extraProp?: string };
 type AuthorWithExtraProp = { extraProp?: string };

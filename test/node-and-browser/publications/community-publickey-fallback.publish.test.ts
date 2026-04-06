@@ -6,7 +6,7 @@ import {
 } from "../../../dist/node/test/test-util.js";
 import { afterAll, beforeAll, it, vi } from "vitest";
 
-import type { Plebbit } from "../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
 import type Publication from "../../../dist/node/publications/publication.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { SignerType } from "../../../dist/node/signer/types.js";

@@ -1,8 +1,8 @@
 import { loadAllUniqueCommentsUnderCommentInstance } from "../../../dist/node/test/test-util.js";
 import { TIMEFRAMES_TO_SECONDS, POSTS_SORT_TYPES, POST_REPLIES_SORT_TYPES } from "../../../dist/node/pages/util.js";
 import signers from "../../fixtures/signers.js";
-import type { Plebbit } from "../../../dist/node/plebbit/plebbit.js";
-import type { RemoteSubplebbit } from "../../../dist/node/subplebbit/remote-subplebbit.js";
+import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
+import type { RemoteSubplebbit } from "../../../dist/node/community/remote-community.js";
 import type { CommentWithinRepliesPostsPageJson } from "../../../dist/node/publications/comment/types.js";
 
 const defaultSubplebbitAddress = signers[0].address;

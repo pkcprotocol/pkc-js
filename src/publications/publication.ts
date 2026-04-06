@@ -22,7 +22,7 @@ import type {
 import type { AuthorPubsubJsonType, CreatePublicationOptions, IpfsHttpClientPubsubMessage, PublicationTypeName } from "../types.js";
 import Logger from "../logger.js";
 import env from "../version.js";
-import { Plebbit } from "../plebbit/plebbit.js";
+import { Plebbit } from "../pkc/pkc.js";
 import {
     cleanUpBeforePublishing,
     signChallengeAnswer,
@@ -33,12 +33,12 @@ import {
 import { deepMergeRuntimeFields, hideClassPrivateProps, isStringDomain, shortifyAddress, timestamp } from "../util.js";
 import { TypedEmitter } from "tiny-typed-emitter";
 import { Comment } from "./comment/comment.js";
-import { PlebbitError } from "../plebbit-error.js";
+import { PlebbitError } from "../pkc-error.js";
 import { getBufferedPlebbitAddressFromPublicKey } from "../signer/util.js";
 import * as cborg from "cborg";
 import * as remeda from "remeda";
-import type { SubplebbitIpfsType } from "../subplebbit/types.js";
-import { findStartedSubplebbit, findUpdatingSubplebbit } from "../plebbit/tracked-instance-registry-util.js";
+import type { SubplebbitIpfsType } from "../community/types.js";
+import { findStartedSubplebbit, findUpdatingSubplebbit } from "../pkc/tracked-instance-registry-util.js";
 import type { CommentIpfsType } from "./comment/types.js";
 import {
     parseDecryptedChallengeAnswerWithPlebbitErrorIfItFails,
@@ -67,9 +67,9 @@ import type {
     PublicationState
 } from "./types.js";
 import type { SignerType } from "../signer/types.js";
-import PlebbitRpcClient from "../clients/rpc-client/plebbit-rpc-client.js";
+import PlebbitRpcClient from "../clients/rpc-client/pkc-rpc-client.js";
 import { PublicationClientsManager } from "./publication-client-manager.js";
-import { LocalSubplebbit } from "../runtime/node/subplebbit/local-subplebbit.js";
+import { LocalSubplebbit } from "../runtime/node/community/local-community.js";
 import { buildRuntimeAuthor } from "./publication-author.js";
 import { buildRuntimeCommunityFields, normalizeCommunityInputFromSubplebbit } from "./publication-community.js";
 

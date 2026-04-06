@@ -1,6 +1,6 @@
-import { PlebbitClientsManager } from "../plebbit/plebbit-client-manager.js";
-import { PlebbitError } from "../plebbit-error.js";
-import { RemoteSubplebbit } from "../subplebbit/remote-subplebbit.js";
+import { PlebbitClientsManager } from "../pkc/pkc-client-manager.js";
+import { PlebbitError } from "../pkc-error.js";
+import { RemoteSubplebbit } from "../community/remote-community.js";
 import { NameResolverClient } from "../clients/name-resolver-client.js";
 import Publication from "./publication.js";
 import * as remeda from "remeda";
@@ -12,9 +12,9 @@ import {
     PublicationPlebbitRpcStateClient
 } from "./publication-clients.js";
 import { CommentIpfsGatewayClient, CommentKuboRpcClient } from "./comment/comment-clients.js";
-import type { SubplebbitEvents, SubplebbitIpfsType } from "../subplebbit/types.js";
+import type { SubplebbitEvents, SubplebbitIpfsType } from "../community/types.js";
 import { waitForUpdateInSubInstanceWithErrorAndTimeout } from "../util.js";
-import { findStartedSubplebbit, findUpdatingSubplebbit } from "../plebbit/tracked-instance-registry-util.js";
+import { findStartedSubplebbit, findUpdatingSubplebbit } from "../pkc/tracked-instance-registry-util.js";
 
 export class PublicationClientsManager extends PlebbitClientsManager {
     override clients!: {

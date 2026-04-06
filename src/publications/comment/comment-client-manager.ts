@@ -1,6 +1,6 @@
 import { OptionsToLoadFromGateway, PreResolveNameResolverOptions } from "../../clients/base-client-manager.js";
 import type { PageIpfs, PageTypeJson } from "../../pages/types.js";
-import type { SubplebbitIpfsType } from "../../subplebbit/types.js";
+import type { SubplebbitIpfsType } from "../../community/types.js";
 import { NameResolverClient } from "../../clients/name-resolver-client.js";
 import { Comment } from "./comment.js";
 import * as remeda from "remeda";
@@ -10,12 +10,12 @@ import {
     parseCommentUpdateSchemaWithPlebbitErrorIfItFails,
     parseJsonWithPlebbitErrorIfFails
 } from "../../schema/schema-util.js";
-import { FailedToFetchCommentUpdateFromGatewaysError, PlebbitError } from "../../plebbit-error.js";
+import { FailedToFetchCommentUpdateFromGatewaysError, PlebbitError } from "../../pkc-error.js";
 import { verifyCommentIpfs, verifyCommentUpdate } from "../../signer/signatures.js";
 import Logger from "../../logger.js";
 import { getPostUpdateTimestampRange, hideClassPrivateProps, isAbortError, resolveWhenPredicateIsTrue } from "../../util.js";
 import { PublicationClientsManager } from "../publication-client-manager.js";
-import { RemoteSubplebbit } from "../../subplebbit/remote-subplebbit.js";
+import { RemoteSubplebbit } from "../../community/remote-community.js";
 import { findCommentInPageInstance, findCommentInPageInstanceRecursively, findCommentInParsedPages } from "../../pages/util.js";
 import {
     CommentIpfsGatewayClient,
@@ -24,11 +24,11 @@ import {
     CommentLibp2pJsClient,
     CommentPlebbitRpcStateClient
 } from "./comment-clients.js";
-import { Plebbit } from "../../plebbit/plebbit.js";
+import { Plebbit } from "../../pkc/pkc.js";
 import type { PublicationEvents } from "../types.js";
 import { InflightResourceTypes } from "../../util/inflight-fetch-manager.js";
 import { loadAllPagesUnderSubplebbitToFindComment } from "./comment-util.js";
-import { findStartedSubplebbit, findUpdatingComment, findUpdatingSubplebbit } from "../../plebbit/tracked-instance-registry-util.js";
+import { findStartedSubplebbit, findUpdatingComment, findUpdatingSubplebbit } from "../../pkc/tracked-instance-registry-util.js";
 
 const fetchCommentLogger = Logger("pkc-js:comment:client-manager:fetchAndVerifyCommentCid");
 

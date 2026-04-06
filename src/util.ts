@@ -1,6 +1,6 @@
 import { messages } from "./errors.js";
-import { PlebbitError } from "./plebbit-error.js";
-import type { SubplebbitIpfsType } from "./subplebbit/types.js";
+import { PlebbitError } from "./pkc-error.js";
+import type { SubplebbitIpfsType } from "./community/types.js";
 //@ts-expect-error
 import extName from "ext-name";
 import { CID } from "kubo-rpc-client";
@@ -31,20 +31,20 @@ import type {
 } from "./pubsub-messages/types.js";
 import { DecryptedChallengeRequestPublicationSchema } from "./pubsub-messages/schema.js";
 import EventEmitter from "events";
-import { RemoteSubplebbit } from "./subplebbit/remote-subplebbit.js";
+import { RemoteSubplebbit } from "./community/remote-community.js";
 import pTimeout from "p-timeout";
 import { of as calculateIpfsCidV0Lib } from "typestub-ipfs-only-hash";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import { sha256 } from "js-sha256";
 import { base32 } from "multiformats/bases/base32";
-import { Plebbit } from "./plebbit/plebbit.js";
+import { Plebbit } from "./pkc/pkc.js";
 import Logger from "./logger.js";
 import retry from "retry";
 import PeerId from "peer-id";
 import { unmarshalIPNSRecord } from "ipns";
 import { importFile } from "ipfs-unixfs-importer";
 import { MemoryBlockstore } from "blockstore-core";
-import { findUpdatingSubplebbit } from "./plebbit/tracked-instance-registry-util.js";
+import { findUpdatingSubplebbit } from "./pkc/tracked-instance-registry-util.js";
 
 export function timestamp() {
     return Math.round(Date.now() / 1000);

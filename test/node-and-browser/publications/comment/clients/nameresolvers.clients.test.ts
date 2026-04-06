@@ -11,7 +11,7 @@ import {
     waitTillReplyInParentPages,
     describeSkipIfRpc
 } from "../../../../../dist/node/test/test-util.js";
-import type { Plebbit } from "../../../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../../../dist/node/pkc/pkc.js";
 import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
 
 const subplebbitAddress = signers[0].address;

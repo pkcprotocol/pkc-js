@@ -1,7 +1,7 @@
 import signers from "../../fixtures/signers.js";
 import { generatePostToAnswerMathQuestion, getAvailablePlebbitConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
 
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 

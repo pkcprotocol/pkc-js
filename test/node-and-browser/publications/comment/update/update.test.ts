@@ -18,9 +18,9 @@ import {
 } from "../../../../../dist/node/test/test-util.js";
 import { cleanUpBeforePublishing } from "../../../../../dist/node/signer/signatures.js";
 import { messages } from "../../../../../dist/node/errors.js";
-import type { PlebbitError } from "../../../../../dist/node/plebbit-error.js";
+import type { PlebbitError } from "../../../../../dist/node/pkc-error.js";
 import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
-import type { Plebbit } from "../../../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../../../dist/node/pkc/pkc.js";
 
 // Type for replies with required parentCid
 type ReplyWithRequiredFields = Required<Pick<CommentIpfsWithCidDefined, "cid" | "parentCid"> & { communityAddress: string }>;

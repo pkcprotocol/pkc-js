@@ -11,8 +11,8 @@ import {
     mockNameResolvers,
     mockPlebbitV2
 } from "../../dist/node/test/test-util.js";
-import type { Plebbit } from "../../dist/node/plebbit/plebbit.js";
-import type { RemoteSubplebbit } from "../../dist/node/subplebbit/remote-subplebbit.js";
+import type { Plebbit } from "../../dist/node/pkc/pkc.js";
+import type { RemoteSubplebbit } from "../../dist/node/community/remote-community.js";
 import type { Comment } from "../../dist/node/publications/comment/comment.js";
 import { NameResolverSchema } from "../../dist/node/schema.js";
 

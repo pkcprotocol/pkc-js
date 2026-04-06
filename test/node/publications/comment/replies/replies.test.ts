@@ -14,10 +14,10 @@ import { POST_REPLIES_SORT_TYPES, REPLY_REPLIES_SORT_TYPES } from "../../../../.
 import { testCommentFieldsInPageJson, testPageCommentsIfSortedCorrectly } from "../../../../node-and-browser/pages/pages-test-util.js";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit as PlebbitType } from "../../../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit as PlebbitType } from "../../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
-import type { LocalSubplebbit } from "../../../../../dist/node/runtime/node/subplebbit/local-subplebbit.js";
-import type { RpcLocalSubplebbit } from "../../../../../dist/node/subplebbit/rpc-local-subplebbit.js";
+import type { LocalSubplebbit } from "../../../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalSubplebbit } from "../../../../../dist/node/community/rpc-local-community.js";
 import type { CommentWithinRepliesPostsPageJson, CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
 import type { ReplySort } from "../../../../../dist/node/pages/types.js";
 

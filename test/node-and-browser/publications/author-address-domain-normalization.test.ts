@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import signers from "../../fixtures/signers.js";
 import { getAvailablePlebbitConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
-import type { Plebbit } from "../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
 import type Publication from "../../../dist/node/publications/publication.js";
 
 function getWireAuthor(pub: { raw: object }): Record<string, unknown> | undefined {

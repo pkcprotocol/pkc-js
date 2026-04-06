@@ -9,7 +9,7 @@ import {
 import { messages } from "../../../../dist/node/errors.js";
 import * as remeda from "remeda";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentWithinRepliesPostsPageJson } from "../../../../dist/node/publications/comment/types.js";
 

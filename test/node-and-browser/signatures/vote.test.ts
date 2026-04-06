@@ -7,8 +7,8 @@ import * as remeda from "remeda";
 import { timestamp } from "../../../dist/node/util.js";
 import validVoteFixture from "../../fixtures/valid_vote.json" with { type: "json" };
 
-import type { Plebbit as PlebbitType } from "../../../dist/node/plebbit/plebbit.js";
-import type { RemoteSubplebbit } from "../../../dist/node/subplebbit/remote-subplebbit.js";
+import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
+import type { RemoteSubplebbit } from "../../../dist/node/community/remote-community.js";
 import type { VoteOptionsToSign, VoteSignature, VotePubsubMessagePublication } from "../../../dist/node/publications/vote/types.js";
 
 describe.concurrent("Sign Vote", async () => {

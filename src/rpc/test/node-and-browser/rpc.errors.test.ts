@@ -1,6 +1,6 @@
 import { describe, it } from "vitest";
-import PlebbitRpcClient from "../../../../dist/node/clients/rpc-client/plebbit-rpc-client.js";
-import { PlebbitError } from "../../../../dist/node/plebbit-error.js";
+import PlebbitRpcClient from "../../../../dist/node/clients/rpc-client/pkc-rpc-client.js";
+import { PlebbitError } from "../../../../dist/node/pkc-error.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { sanitizeRpcNotificationResult } from "../../../../dist/node/rpc/src/json-rpc-util.js";
 

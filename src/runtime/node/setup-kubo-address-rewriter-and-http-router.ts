@@ -1,8 +1,8 @@
-import { Plebbit } from "../../plebbit/plebbit.js";
+import { Plebbit } from "../../pkc/pkc.js";
 import retry, { RetryOperation } from "retry";
 import { AddressesRewriterProxyServer } from "./addresses-rewriter-proxy-server.js";
 import Logger from "../../logger.js";
-import { PlebbitError } from "../../plebbit-error.js";
+import { PlebbitError } from "../../pkc-error.js";
 import * as remeda from "remeda";
 import tcpPortUsed from "tcp-port-used";
 

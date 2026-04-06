@@ -2,7 +2,7 @@ import { Server as RpcWebsocketsServer } from "rpc-websockets";
 import { mkdirSync } from "fs";
 import path from "path";
 import Database, { type Database as BetterSqlite3Database } from "better-sqlite3";
-import PlebbitJs, { setPlebbitJs } from "./lib/plebbit-js/index.js";
+import PlebbitJs, { setPlebbitJs } from "./lib/pkc-js/index.js";
 import {
     clone,
     encodeChallengeAnswerMessage,
@@ -20,7 +20,7 @@ import type {
     PlebbitRpcServerEvents,
     RpcSubplebbitState
 } from "./types.js";
-import { Plebbit } from "../../plebbit/plebbit.js";
+import { Plebbit } from "../../pkc/pkc.js";
 import type {
     DecryptedChallengeAnswerMessageType,
     DecryptedChallengeMessageType,
@@ -30,9 +30,9 @@ import type {
 } from "../../pubsub-messages/types.js";
 import WebSocket from "ws";
 import Publication from "../../publications/publication.js";
-import { PlebbitError } from "../../plebbit-error.js";
-import { LocalSubplebbit } from "../../runtime/node/subplebbit/local-subplebbit.js";
-import { RemoteSubplebbit } from "../../subplebbit/remote-subplebbit.js";
+import { PlebbitError } from "../../pkc-error.js";
+import { LocalSubplebbit } from "../../runtime/node/community/local-community.js";
+import { RemoteSubplebbit } from "../../community/remote-community.js";
 import { hideClassPrivateProps, replaceXWithY } from "../../util.js";
 import * as remeda from "remeda";
 import type { IncomingMessage } from "http";
@@ -48,7 +48,7 @@ import type {
     RpcRemoteSubplebbitType,
     SubplebbitEvents,
     SubplebbitRpcErrorToTransmit
-} from "../../subplebbit/types.js";
+} from "../../community/types.js";
 import {
     parseCommentChallengeRequestToEncryptSchemaWithPlebbitErrorIfItFails,
     parseCommentEditChallengeRequestToEncryptSchemaWithPlebbitErrorIfItFails,
@@ -66,7 +66,7 @@ import type { VoteChallengeRequestToEncryptType } from "../../publications/vote/
 import type { CommentEditChallengeRequestToEncryptType } from "../../publications/comment-edit/types.js";
 import type { CommentModerationChallengeRequestToEncrypt } from "../../publications/comment-moderation/types.js";
 import type { InputPlebbitOptions } from "../../types.js";
-import type { SubplebbitEditChallengeRequestToEncryptType } from "../../publications/subplebbit-edit/types.js";
+import type { SubplebbitEditChallengeRequestToEncryptType } from "../../publications/community-edit/types.js";
 import { PublicationRpcErrorToTransmit, RpcPublishResult } from "../../publications/types.js";
 import { TypedEmitter } from "tiny-typed-emitter";
 import { sanitizeRpcNotificationResult } from "./json-rpc-util.js";
@@ -84,7 +84,7 @@ import {
     parseRpcUnsubscribeParam
 } from "../../clients/rpc-client/rpc-schema-util.js";
 import { SubplebbitAddressRpcParam, SubplebbitLookupRpcParam } from "../../clients/rpc-client/types.js";
-import { findStartedSubplebbit } from "../../plebbit/tracked-instance-registry-util.js";
+import { findStartedSubplebbit } from "../../pkc/tracked-instance-registry-util.js";
 
 // store started subplebbits  to be able to stop them
 // store as a singleton because not possible to start the same sub twice at the same time

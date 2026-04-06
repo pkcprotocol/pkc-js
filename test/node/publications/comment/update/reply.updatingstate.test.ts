@@ -10,10 +10,10 @@ import {
 } from "../../../../../dist/node/test/test-util.js";
 
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit as PlebbitType } from "../../../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit as PlebbitType } from "../../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
-import type { LocalSubplebbit } from "../../../../../dist/node/runtime/node/subplebbit/local-subplebbit.js";
-import type { RpcLocalSubplebbit } from "../../../../../dist/node/subplebbit/rpc-local-subplebbit.js";
+import type { LocalSubplebbit } from "../../../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalSubplebbit } from "../../../../../dist/node/community/rpc-local-community.js";
 import type { CommentUpdatingState, CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
 
 interface ReplyParentPagesTestContext {

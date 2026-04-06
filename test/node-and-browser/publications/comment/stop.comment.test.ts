@@ -11,7 +11,7 @@ import {
 } from "../../../../dist/node/test/test-util.js";
 import { sha256 } from "js-sha256";
 
-import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
 
 const subplebbitAddress = signers[0].address;
 

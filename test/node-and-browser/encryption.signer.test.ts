@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, describe, it } from "vitest";
 import fixtureSigners from "../fixtures/signers.js";
 import type { SignerType, Encrypted } from "../../dist/node/signer/types.js";
-import type { Plebbit } from "../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../dist/node/pkc/pkc.js";
 
 const authorSignerFixture = fixtureSigners[1];
 const subplebbitSignerFixture = fixtureSigners[2];

@@ -3,7 +3,7 @@ import tempy from "tempy";
 import net from "node:net";
 
 import PlebbitWsServerModule from "../../../../dist/node/rpc/src/index.js";
-import { restorePlebbitJs } from "../../../../dist/node/rpc/src/lib/plebbit-js/index.js";
+import { restorePlebbitJs } from "../../../../dist/node/rpc/src/lib/pkc-js/index.js";
 import {
     describeSkipIfRpc,
     mockRpcServerForTests,
@@ -16,8 +16,8 @@ import {
 import Plebbit from "../../../../dist/node/index.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { createMockPubsubClient } from "../../../../dist/node/test/mock-ipfs-client.js";
-import type { Plebbit as PlebbitType } from "../../../../dist/node/plebbit/plebbit.js";
-import type { RpcLocalSubplebbit } from "../../../../dist/node/subplebbit/rpc-local-subplebbit.js";
+import type { Plebbit as PlebbitType } from "../../../../dist/node/pkc/pkc.js";
+import type { RpcLocalSubplebbit } from "../../../../dist/node/community/rpc-local-community.js";
 import type { SignerType } from "../../../../dist/node/signer/types.js";
 
 const { PlebbitWsServer: createPlebbitWsServer, setPlebbitJs } = PlebbitWsServerModule;

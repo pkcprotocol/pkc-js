@@ -22,7 +22,7 @@ import validChallengeFixture from "../../fixtures/signatures/challenges/valid_ch
 import validChallengeAnswerFixture from "../../fixtures/signatures/challenges/valid_challenge_answer.json" with { type: "json" };
 import validChallengeVerificationFixture from "../../fixtures/signatures/challenges/valid_challenge_verification.json" with { type: "json" };
 
-import type { Plebbit as PlebbitType } from "../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
 import type {
     DecryptedChallengeRequestMessageType,
     DecryptedChallengeMessageType,

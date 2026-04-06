@@ -17,10 +17,10 @@ import * as remeda from "remeda";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { describe, it, beforeAll, afterAll } from "vitest";
 import Logger from "@pkc/pkc-logger";
-import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
-import type { RemoteSubplebbit } from "../../../../dist/node/subplebbit/remote-subplebbit.js";
-import type { PlebbitError } from "../../../../dist/node/plebbit-error.js";
+import type { RemoteSubplebbit } from "../../../../dist/node/community/remote-community.js";
+import type { PlebbitError } from "../../../../dist/node/pkc-error.js";
 
 const log = Logger("pkc-js:test:backward-compatibility-commentupdate");
 

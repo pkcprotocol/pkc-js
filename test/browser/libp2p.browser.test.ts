@@ -8,7 +8,7 @@ import {
     publishWithExpectedResult
 } from "../../dist/node/test/test-util.js";
 
-import type { Plebbit as PlebbitType } from "../../dist/node/plebbit/plebbit.js";
+import type { Plebbit as PlebbitType } from "../../dist/node/pkc/pkc.js";
 
 // example of browser only tests
 

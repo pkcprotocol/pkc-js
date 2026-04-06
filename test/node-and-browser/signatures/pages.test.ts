@@ -9,8 +9,8 @@ import { v4 as uuidV4 } from "uuid";
 import validPageIpfsFixture from "../../fixtures/valid_page.json" with { type: "json" };
 import legacyPageIpfsFixture from "../../fixtures/valid_page_legacy_subplebbitAddress.json" with { type: "json" };
 
-import type { Plebbit as PlebbitType } from "../../../dist/node/plebbit/plebbit.js";
-import type { RemoteSubplebbit } from "../../../dist/node/subplebbit/remote-subplebbit.js";
+import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
+import type { RemoteSubplebbit } from "../../../dist/node/community/remote-community.js";
 import type { PageIpfs } from "../../../dist/node/pages/types.js";
 
 const subAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";

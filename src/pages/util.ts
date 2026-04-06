@@ -17,14 +17,14 @@ import { BasePages, PostsPages, RepliesPages } from "./pages.js";
 import * as remeda from "remeda";
 import type { CommentWithinModQueuePageJson, CommentWithinRepliesPostsPageJson, CommentUpdateType } from "../publications/comment/types.js";
 import { shortifyAddress, shortifyCid } from "../util.js";
-import { RemoteSubplebbit } from "../subplebbit/remote-subplebbit.js";
+import { RemoteSubplebbit } from "../community/remote-community.js";
 import { getAuthorDomainFromWire } from "../publications/publication-author.js";
 import { getCommunityAddressFromRecord } from "../publications/publication-community.js";
 import { sha256 } from "js-sha256";
 import type { LRUCache } from "lru-cache";
 import { BaseClientsManager } from "../clients/base-client-manager.js";
 import { parseJsonWithPlebbitErrorIfFails, parsePageIpfsSchemaWithPlebbitErrorIfItFails } from "../schema/schema-util.js";
-import type { SubplebbitIpfsType } from "../subplebbit/types.js";
+import type { SubplebbitIpfsType } from "../community/types.js";
 import { buildRuntimeAuthor } from "../publications/publication-author.js";
 
 export const TIMEFRAMES_TO_SECONDS: Record<Timeframe, number> = Object.freeze({

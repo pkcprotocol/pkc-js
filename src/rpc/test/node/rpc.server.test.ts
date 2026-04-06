@@ -5,10 +5,10 @@ import tempy from "tempy";
 
 import os from "os";
 import Plebbit from "../../../../dist/node/index.js";
-import type { Plebbit as PlebbitType } from "../../../../dist/node/plebbit/plebbit.js";
-import type { RpcLocalSubplebbit } from "../../../../dist/node/subplebbit/rpc-local-subplebbit.js";
+import type { Plebbit as PlebbitType } from "../../../../dist/node/pkc/pkc.js";
+import type { RpcLocalSubplebbit } from "../../../../dist/node/community/rpc-local-community.js";
 import type { CreatePlebbitWsServerOptions } from "../../../../dist/node/rpc/src/types.js";
-import { PlebbitError } from "../../../../dist/node/plebbit-error.js";
+import { PlebbitError } from "../../../../dist/node/pkc-error.js";
 
 type PlebbitWsServerType = Awaited<ReturnType<typeof PlebbitWsServer.PlebbitWsServer>>;
 

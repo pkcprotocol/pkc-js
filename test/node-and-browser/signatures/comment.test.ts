@@ -24,7 +24,7 @@ import validCommentUpdateFixture from "../../fixtures/signatures/comment/comment
 import validCommentUpdateWithAuthorEditFixture from "../../fixtures/signatures/comment/commentUpdate_authorEdit/valid_comment_update.json" with { type: "json" };
 import validCommentWithAuthorEditFixture from "../../fixtures/signatures/comment/commentUpdate_authorEdit/valid_comment_ipfs.json" with { type: "json" };
 import { comment as fixtureComment } from "../../fixtures/publications.js";
-import type { Plebbit as PlebbitType } from "../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit as PlebbitType } from "../../../dist/node/pkc/pkc.js";
 import type {
     CommentOptionsToSign,
     CommentPubsubMessagePublication,
@@ -32,7 +32,7 @@ import type {
     CommentIpfsWithCidPostCidDefined,
     CommentUpdateType
 } from "../../../dist/node/publications/comment/types.js";
-import type { RemoteSubplebbit } from "../../../dist/node/subplebbit/remote-subplebbit.js";
+import type { RemoteSubplebbit } from "../../../dist/node/community/remote-community.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 
 // Protocol version constant

@@ -11,9 +11,9 @@ import {
 import { messages } from "../../../../dist/node/errors.js";
 import { timestamp } from "../../../../dist/node/util.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
-import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
-import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/subplebbit/local-subplebbit.js";
+import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/community/local-community.js";
 import type { SignerType } from "../../../../dist/node/signer/types.js";
 
 // Tests for domain-based author bans

@@ -4,4 +4,4 @@ export type {
     ChallengeResultInput,
     GetChallengeArgsInput,
     SubplebbitChallengeSetting
-} from "./subplebbit/types.js";
+} from "./community/types.js";

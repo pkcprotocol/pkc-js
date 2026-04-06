@@ -6,7 +6,7 @@ import {
 } from "../../../../../dist/node/test/test-util.js";
 import signers from "../../../../fixtures/signers.js";
 import { describe, beforeAll, afterAll, it } from "vitest";
-import type { Plebbit } from "../../../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../../../dist/node/pkc/pkc.js";
 
 // Type matching ensurePublicationIsSigned's community parameter
 type CommunityForSigning = {

@@ -8,9 +8,9 @@ import {
     createStaticSubplebbitRecordForComment
 } from "../../../../../dist/node/test/test-util.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { PlebbitError } from "../../../../../dist/node/plebbit-error.js";
+import type { PlebbitError } from "../../../../../dist/node/pkc-error.js";
 import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
-import type { Plebbit } from "../../../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../../../dist/node/pkc/pkc.js";
 // Helper type to access private properties for testing
 type CommentClientsManagerWithInternals = {
     _parentFirstPageCidsAlreadyLoaded: Set<string>;

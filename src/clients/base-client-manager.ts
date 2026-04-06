@@ -1,4 +1,4 @@
-import { Plebbit } from "../plebbit/plebbit.js";
+import { Plebbit } from "../pkc/pkc.js";
 import assert from "assert";
 import { calculateIpfsCidV0, hideClassPrivateProps, isAbortError, isIpns, isStringDomain, throwIfAbortSignalAborted } from "../util.js";
 import { sha256 } from "js-sha256";
@@ -12,7 +12,7 @@ import {
     FailedToFetchPageIpfsFromGatewaysError,
     FailedToFetchSubplebbitFromGatewaysError,
     PlebbitError
-} from "../plebbit-error.js";
+} from "../pkc-error.js";
 import Logger from "../logger.js";
 import type { PubsubMessage } from "../pubsub-messages/types.js";
 import type { PubsubSubscriptionHandler, ResultOfFetchingSubplebbit } from "../types.js";

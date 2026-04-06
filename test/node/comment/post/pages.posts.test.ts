@@ -14,10 +14,10 @@ import { testPageCommentsIfSortedCorrectly } from "../../../node-and-browser/pag
 import * as remeda from "remeda";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
-import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/subplebbit/local-subplebbit.js";
+import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
+import type { LocalSubplebbit } from "../../../../dist/node/runtime/node/community/local-community.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
-import type { RemoteSubplebbit } from "../../../../dist/node/subplebbit/remote-subplebbit.js";
+import type { RemoteSubplebbit } from "../../../../dist/node/community/remote-community.js";
 import type { CommentWithinRepliesPostsPageJson } from "../../../../dist/node/publications/comment/types.js";
 import type { PageIpfs } from "../../../../dist/node/pages/types.js";
 

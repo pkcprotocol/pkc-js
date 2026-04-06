@@ -10,7 +10,7 @@ import {
 } from "../community-fields-test-util.js";
 import { mockRemotePlebbit } from "../../../../dist/node/test/test-util.js";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
 
 describe("Comment - community fields", () => {
     let plebbit: Plebbit;

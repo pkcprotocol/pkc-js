@@ -15,11 +15,11 @@ import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { messages } from "../../../../../dist/node/errors.js";
 import { testCommentFieldsInPageJson } from "../../../pages/pages-test-util.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { PlebbitError } from "../../../../../dist/node/plebbit-error.js";
+import type { PlebbitError } from "../../../../../dist/node/pkc-error.js";
 import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
-import type { Plebbit } from "../../../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
-import type { RemoteSubplebbit } from "../../../../../dist/node/subplebbit/remote-subplebbit.js";
+import type { RemoteSubplebbit } from "../../../../../dist/node/community/remote-community.js";
 
 // Helper type for replies that require both cid and parentCid
 type ReplyWithRequiredFields = Required<Pick<CommentIpfsWithCidDefined, "cid" | "parentCid"> & { communityAddress: string }>;

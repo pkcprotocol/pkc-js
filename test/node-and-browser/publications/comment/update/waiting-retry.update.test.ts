@@ -5,7 +5,7 @@ import {
     getAvailablePlebbitConfigsToTestAgainst,
     isPlebbitFetchingUsingGateways
 } from "../../../../../dist/node/test/test-util.js";
-import type { PlebbitError } from "../../../../../dist/node/plebbit-error.js";
+import type { PlebbitError } from "../../../../../dist/node/pkc-error.js";
 
 getAvailablePlebbitConfigsToTestAgainst().map((config) => {
     describe(`comment.update() waiting-retry errors - ${config.name}`, () => {

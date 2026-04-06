@@ -4,7 +4,7 @@ import fixtureSigners from "../fixtures/signers.js";
 import { signBufferEd25519, verifyBufferEd25519 } from "../../dist/node/signer/signatures.js";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import { Buffer } from "buffer";
-import type { Plebbit } from "../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../dist/node/pkc/pkc.js";
 import type { SignerType } from "../../dist/node/signer/types.js";
 
 const authorSignerFixture = fixtureSigners[1];

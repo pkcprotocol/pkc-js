@@ -5,11 +5,11 @@ import path from "path";
 import assert from "assert";
 import scraper from "open-graph-scraper";
 import { HttpProxyAgent, HttpsProxyAgent } from "hpagent";
-import { PlebbitError } from "../../plebbit-error.js";
+import { PlebbitError } from "../../pkc-error.js";
 import probe from "probe-image-size";
-import { Plebbit } from "../../plebbit/plebbit.js";
+import { Plebbit } from "../../pkc/pkc.js";
 import { STORAGE_KEYS } from "../../constants.js";
-import { RemoteSubplebbit } from "../../subplebbit/remote-subplebbit.js";
+import { RemoteSubplebbit } from "../../community/remote-community.js";
 import os from "os";
 import type { OpenGraphScraperOptions } from "open-graph-scraper/types";
 import { Agent as HttpAgent } from "http";
@@ -18,7 +18,7 @@ import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { create as CreateKuboRpcClient } from "kubo-rpc-client";
 import Logger from "../../logger.js";
 import * as remeda from "remeda";
-import type { SubplebbitIpfsType } from "../../subplebbit/types.js";
+import type { SubplebbitIpfsType } from "../../community/types.js";
 import type {
     CommentIpfsType,
     CommentPubsubMessagePublication,
@@ -26,7 +26,7 @@ import type {
     CommentsTableRow,
     CommentUpdateType
 } from "../../publications/comment/types.js";
-import { DbHandler } from "./subplebbit/db-handler.js";
+import { DbHandler } from "./community/db-handler.js";
 import Database from "better-sqlite3";
 import { CommentIpfsSchema } from "../../publications/comment/schema.js";
 import { MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE } from "../../publications/comment/comment-client-manager.js";

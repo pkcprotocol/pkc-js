@@ -15,8 +15,8 @@ import {
 import * as remeda from "remeda";
 import { messages } from "../../../../../dist/node/errors.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { PlebbitError } from "../../../../../dist/node/plebbit-error.js";
-import type { Plebbit } from "../../../../../dist/node/plebbit/plebbit.js";
+import type { PlebbitError } from "../../../../../dist/node/pkc-error.js";
+import type { Plebbit } from "../../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
 const subplebbitAddress = signers[0].address;

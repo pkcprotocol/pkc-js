@@ -13,10 +13,10 @@ import {
     publishRandomReply,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
-import { PlebbitError } from "../../../dist/node/plebbit-error.js";
+import { PlebbitError } from "../../../dist/node/pkc-error.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import type { Plebbit } from "../../../dist/node/plebbit/plebbit.js";
-import type { LocalSubplebbit } from "../../../dist/node/runtime/node/subplebbit/local-subplebbit.js";
+import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
+import type { LocalSubplebbit } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { CommentUpdateType } from "../../../dist/node/publications/comment/types.js";
 

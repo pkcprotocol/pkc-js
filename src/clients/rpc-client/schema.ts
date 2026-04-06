@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { CommentIpfsSchema, CommentUpdateSchema } from "../../publications/comment/schema.js";
 import { AuthorAddressSchema, ChallengeAnswersSchema, CidStringSchema, SubplebbitAddressSchema } from "../../schema/schema.js";
-import { SubplebbitEditOptionsSchema } from "../../subplebbit/schema.js";
+import { SubplebbitEditOptionsSchema } from "../../community/schema.js";
 import type { EncodedDecryptedChallengeVerificationMessageType } from "../../pubsub-messages/types.js";
 export const SubscriptionIdSchema = z.number().positive().int();
 

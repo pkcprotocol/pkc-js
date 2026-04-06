@@ -1,7 +1,7 @@
-import { Plebbit } from "../../plebbit/plebbit.js";
+import { Plebbit } from "../../pkc/pkc.js";
 import Publication from "../publication.js";
 import { hideClassPrivateProps, isIpfsCid } from "../../util.js";
-import { PlebbitError } from "../../plebbit-error.js";
+import { PlebbitError } from "../../pkc-error.js";
 import type { CommentModerationOptionsToSign, CommentModerationPubsubMessagePublication, CreateCommentModerationOptions } from "./types.js";
 import type { PublicationTypeName } from "../../types.js";
 import { signCommentModeration, verifyCommentModeration } from "../../signer/signatures.js";

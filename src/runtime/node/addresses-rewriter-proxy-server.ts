@@ -4,7 +4,7 @@ import path from "node:path";
 import Logger from "../../logger.js";
 import * as remeda from "remeda";
 import retry from "retry";
-import { Plebbit } from "../../plebbit/plebbit.js";
+import { Plebbit } from "../../pkc/pkc.js";
 import { hideClassPrivateProps } from "../../util.js";
 import { RoutingQueryEvent } from "kubo-rpc-client";
 import { AddressRewriterDatabase, RequestLogEntry } from "./address-rewriter-db.js";

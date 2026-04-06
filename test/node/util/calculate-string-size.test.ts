@@ -2,7 +2,7 @@ import { afterAll, beforeAll, it } from "vitest";
 import { randomBytes } from "node:crypto";
 import { describeSkipIfRpc, mockPlebbitNoDataPathWithOnlyKuboClient } from "../../../dist/node/test/test-util.js";
 import { calculateStringSizeSameAsIpfsAddCidV0 } from "../../../dist/node/util.js";
-import type { Plebbit } from "../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
 import type { KuboRpcClient } from "../../../dist/node/types.js";
 
 const UTF8_VARIANTS: string[] = [

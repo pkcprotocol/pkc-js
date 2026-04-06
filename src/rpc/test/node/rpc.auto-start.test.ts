@@ -6,8 +6,8 @@ import path from "path";
 import Database from "better-sqlite3";
 
 import Plebbit from "../../../../dist/node/index.js";
-import type { Plebbit as PlebbitType } from "../../../../dist/node/plebbit/plebbit.js";
-import type { RpcLocalSubplebbit } from "../../../../dist/node/subplebbit/rpc-local-subplebbit.js";
+import type { Plebbit as PlebbitType } from "../../../../dist/node/pkc/pkc.js";
+import type { RpcLocalSubplebbit } from "../../../../dist/node/community/rpc-local-community.js";
 import type { CreatePlebbitWsServerOptions } from "../../../../dist/node/rpc/src/types.js";
 
 type PlebbitWsServerType = Awaited<ReturnType<typeof PlebbitWsServer.PlebbitWsServer>>;

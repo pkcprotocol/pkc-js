@@ -1,5 +1,5 @@
-import type { PlebbitError } from "../../plebbit-error.js";
-import type { Plebbit } from "../../plebbit/plebbit.js";
+import type { PlebbitError } from "../../pkc-error.js";
+import type { Plebbit } from "../../pkc/pkc.js";
 import {
     CreatePlebbitWsServerOptionsSchema,
     SetNewSettingsPlebbitWsServerSchema,

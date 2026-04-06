@@ -15,7 +15,7 @@ import type {
 import type {
     SubplebbitEditPublicationPubsubMessageWithSubplebbitAuthor,
     SubplebbitEditPubsubMessagePublication
-} from "../publications/subplebbit-edit/types.js";
+} from "../publications/community-edit/types.js";
 import type { VotePubsubMessagePublication, VotePubsubMessageWithSubplebbitAuthor } from "../publications/vote/types.js";
 import type { PubsubSignature } from "../signer/types.js";
 import type { RuntimeAuthorWithCommentUpdateType } from "../types.js";

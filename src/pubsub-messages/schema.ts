@@ -13,10 +13,10 @@ import {
     CommentPubsubMessageWithFlexibleAuthorRefinementSchema,
     CommentUpdateForChallengeVerificationSchema
 } from "../publications/comment/schema.js";
-import { ChallengeFileSchema, ChallengeFromGetChallengeSchema } from "../subplebbit/schema.js";
+import { ChallengeFileSchema, ChallengeFromGetChallengeSchema } from "../community/schema.js";
 import * as remeda from "remeda";
 import { CommentModerationPubsubMessagePublicationSchema } from "../publications/comment-moderation/schema.js";
-import { SubplebbitEditPubsubMessagePublicationSchema } from "../publications/subplebbit-edit/schema.js";
+import { SubplebbitEditPubsubMessagePublicationSchema } from "../publications/community-edit/schema.js";
 import { Uint8ArraySchema, nonNegativeIntStringSchema } from "../schema.js";
 
 const AcceptedChallengeTypeSchema = z.string().min(1);

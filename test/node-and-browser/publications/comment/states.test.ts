@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, describe, it } from "vitest";
 import signers from "../../../fixtures/signers.js";
 import { generateMockPost, getAvailablePlebbitConfigsToTestAgainst, publishRandomPost } from "../../../../dist/node/test/test-util.js";
-import type { Plebbit } from "../../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 
 const subplebbitAddress = signers[0].address;

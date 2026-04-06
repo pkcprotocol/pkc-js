@@ -1,6 +1,6 @@
 import { ModQueuePageIpfsSchema, PageIpfsSchema } from "../pages/schema.js";
 import type { PageIpfs } from "../pages/types.js";
-import { PlebbitError } from "../plebbit-error.js";
+import { PlebbitError } from "../pkc-error.js";
 import {
     CommentChallengeRequestToEncryptSchema,
     CommentIpfsSchema,
@@ -24,13 +24,13 @@ import {
     RpcRemoteSubplebbitUpdateEventResultSchema,
     SubplebbitEditOptionsSchema,
     SubplebbitIpfsSchema
-} from "../subplebbit/schema.js";
+} from "../community/schema.js";
 import type {
     CreateNewLocalSubplebbitUserOptions,
     RpcRemoteSubplebbitUpdateEventResultType,
     SubplebbitEditOptions,
     SubplebbitIpfsType
-} from "../subplebbit/types.js";
+} from "../community/types.js";
 import type { DecryptedChallenge, DecryptedChallengeAnswer, DecryptedChallengeVerification } from "../pubsub-messages/types.js";
 import { CidStringSchema } from "./schema.js";
 import { RpcCommentEventResultSchema, RpcCommentUpdateResultSchema } from "../clients/rpc-client/schema.js";
@@ -61,12 +61,12 @@ import type {
     CreateSubplebbitEditPublicationOptions,
     SubplebbitEditChallengeRequestToEncryptType,
     SubplebbitEditPubsubMessagePublication
-} from "../publications/subplebbit-edit/types.js";
+} from "../publications/community-edit/types.js";
 import {
     CreateSubplebbitEditPublicationOptionsSchema,
     SubplebbitEditPublicationChallengeRequestToEncryptSchema,
     SubplebbitEditPubsubMessagePublicationSchema
-} from "../publications/subplebbit-edit/schema.js";
+} from "../publications/community-edit/schema.js";
 
 export function parseJsonWithPlebbitErrorIfFails(x: string): any {
     try {

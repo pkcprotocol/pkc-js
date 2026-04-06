@@ -1,7 +1,7 @@
 import signers from "../../fixtures/signers.js";
 import { getAvailablePlebbitConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
-import type { Plebbit } from "../../../dist/node/plebbit/plebbit.js";
+import type { Plebbit } from "../../../dist/node/pkc/pkc.js";
 import type { SignerWithPublicKeyAddress } from "../../../dist/node/signer/index.js";
 import type { PageTypeJson } from "../../../dist/node/pages/types.js";
 
