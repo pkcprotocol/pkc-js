@@ -18,6 +18,20 @@ plebbitWebSocketServer.on('error', console.log)
 console.log(`test server plebbit wss listening on port ${port}`)
 ```
 
+## Name resolution
+
+Name resolution (`.bso`, `.eth` domains) happens **server-side**. The RPC server must have `nameResolvers` configured in its `plebbitOptions` — for example, by registering `@bitsocial/bso-resolver`. RPC clients do **not** need `nameResolvers`; they pass domain names directly to methods like `subplebbitUpdateSubscribe` and the server resolves them.
+
+```js
+const plebbitOptions = {
+  ipfsHttpClientsOptions: ['http://localhost:5001/api/v0'],
+  nameResolvers: [bsoResolver({provider: 'https://cloudflare-eth.com'})]
+}
+const plebbitWebSocketServer = await PlebbitWsServer({port, plebbitOptions})
+```
+
+If the server has no resolvers configured, requests with domain names will fail with `ERR_NO_RESOLVER_FOR_NAME`.
+
 ## Get started making client requests
 
 ```js

@@ -33,6 +33,16 @@ Domains are resolved via the `nameResolvers` plugin system configured on the Ple
 - `nameResolved: boolean | undefined` — tracks whether domain resolution succeeded. This is a **runtime-only** field.
 - Resolution happens on the RPC server for browser clients — RPC clients don't need `nameResolvers` configured locally.
 
+## RPC-Side Resolution
+
+Name resolution happens on the **RPC server**, not the RPC client. This means:
+
+- **RPC servers** must have `nameResolvers` configured (e.g., `@bitsocial/bso-resolver`) to resolve domain names like `memes.bso`.
+- **RPC clients** do **not** need `nameResolvers` — they pass domain names directly to the server via `subplebbitUpdateSubscribe`, `createSubplebbit`, etc., and the server resolves them using its own resolvers.
+- This keeps browser and mobile clients lightweight — no web3 dependencies needed on the client side.
+
+If an RPC server has no resolvers configured, any request with a domain name will fail with `ERR_NO_RESOLVER_FOR_NAME`.
+
 ## Invariants
 
 - `author.address` and `subplebbit.address` are **immutable** — never override or fall back to a derived address.

@@ -65,7 +65,7 @@ Name resolution must happen on the RPC server side, not the client side. This al
 - [x] Ensure RPC methods resolve names server-side — no standalone `getSubplebbit` RPC method exists; resolution happens server-side via `subplebbitUpdateSubscribe` and `createSubplebbit` which call `plebbit.createSubplebbit(parsedArgs)`, triggering `nameResolvers`
 - [x] RPC client should NOT attempt local resolution before calling RPC — confirmed: `plebbit-rpc-client.ts` passes params directly to WebSocket calls
 - [x] `subplebbitUpdateSubscribe` / `communityUpdateSubscribe` should accept domain names and resolve server-side — RPC server strips client nameResolvers and uses its own
-- [ ] Document that RPC servers need resolvers configured, not RPC clients
+- [x] Document that RPC servers need resolvers configured, not RPC clients — added to `docs/protocol/names-and-addresses.md` and `src/rpc/README.md`
 
 ### 1.2 External Challenge Registration
 
