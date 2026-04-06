@@ -204,26 +204,26 @@ After removing `captcha-canvas-v3`, `mintpass`, `voucher`, and extracting `evm-c
 
 ### Step 2: Publications — add `communityPublicKey`/`communityName`, make `subplebbitAddress` instance-only
 
-- [ ] Add `communityPublicKey: z.string().min(1).optional()` and `communityName: z.string().min(1).optional()` to `CreatePublicationUserOptionsSchema` (`src/schema/schema.ts`)
-- [ ] Keep `subplebbitAddress` in `CreatePublicationUserOptionsSchema` as user-facing input for now (renamed to `communityAddress` in the cosmetic rename phase)
-- [ ] Make publication schemas `.loose()` to accept old records with `subplebbitAddress`
-- [ ] Update `signedPropertyNames` for all publication types: include `communityPublicKey`/`communityName`, exclude `subplebbitAddress`
-- [ ] Make `subplebbitAddress` instance-only on `Publication`, computed as `communityName || communityPublicKey`
-- [ ] Create helper functions: `buildRuntimeCommunityFields()`, `cleanWireCommunityFields()`, `normalizeCommunityInput()`
-- [ ] Resolution flow on creation: user provides `subplebbitAddress` (domain or key) → system resolves → sets `communityPublicKey` + optional `communityName` → strips `subplebbitAddress` before signing
-- [ ] Backward compat when loading old `CommentIpfs` with `subplebbitAddress` but no `communityPublicKey`: if IPNS key → `communityPublicKey = subplebbitAddress`; if domain → fill from community context
-- [ ] Update `LocalSubplebbit` to accept both old and new publication formats via pubsub
-- [ ] Tests: old publications with `subplebbitAddress` still load and verify; new publications with `communityPublicKey`/`communityName`; resolution flow; signature verification both formats
+- [x] Add `communityPublicKey: z.string().min(1).optional()` and `communityName: z.string().min(1).optional()` to `CreatePublicationUserOptionsSchema` (`src/schema/schema.ts`)
+- [x] Keep `subplebbitAddress` in `CreatePublicationUserOptionsSchema` as user-facing input — now renamed to `communityAddress` (instance-only, computed as `communityName || communityPublicKey`)
+- [x] Make publication schemas `.loose()` to accept old records with `subplebbitAddress`
+- [x] Update `signedPropertyNames` for all publication types: include `communityPublicKey`/`communityName`, exclude `subplebbitAddress`
+- [x] Make `subplebbitAddress` instance-only on `Publication` — replaced by `communityAddress` = `communityName || communityPublicKey`
+- [x] Create helper functions in `src/publications/publication-community.ts`: `buildRuntimeCommunityFields()`, `normalizeCommunityInputFromSubplebbit()`, `getCommunityPublicKeyFromWire()`, `getCommunityNameFromWire()`, `getCommunityAddressFromRecord()`, `preprocessCommentIpfsBackwardCompat()`
+- [x] Resolution flow on creation: `publish()` calls `_initCommunity()` → `_signPublicationWithCommunityFields()` → sets `communityPublicKey` + optional `communityName` → strips `subplebbitAddress` before signing
+- [x] Backward compat via `preprocessCommentIpfsBackwardCompat()`: old `CommentIpfs` with `subplebbitAddress` → IPNS key becomes `communityPublicKey`, domain becomes `communityName`
+- [x] `LocalSubplebbit` normalizes old→new format on storage (deletes `subplebbitAddress`, sets community fields)
+- [x] Tests in `community-fields.comment.test.ts` and `pubsubfields.comment.test.ts`: old publications with `subplebbitAddress` still load and verify; new publications with `communityPublicKey`/`communityName`; resolution flow; wire format verification
 
 ### Step 3: DB migration — new columns for publication fields
 
-- [ ] Bump `DB_VERSION` from 36 to 37 (`src/version.ts`)
-- [ ] Add columns to `comments`, `commentEdits`, `commentModerations` tables: `communityPublicKey TEXT`, `communityName TEXT`
-- [ ] Make `subplebbitAddress` nullable (was `TEXT NOT NULL`, now `TEXT`)
-- [ ] Migration logic: backfill `communityPublicKey` from `subplebbitAddress` (IPNS key → direct; domain → local sub's own public key)
-- [ ] Update `CommentsTableRowSchema` with new optional columns
-- [ ] Update `queryComment()` and related methods to return new columns
-- [ ] Tests: DB migration v36→v37; `queryComment` returns proper JSON for new columns; parsing test in `parsing.db.subplebbit.test.ts` per AGENTS.md; old rows with `subplebbitAddress` still work; new rows with `communityPublicKey`/`communityName`
+- [x] Bump `DB_VERSION` to 37 (`src/version.ts`)
+- [x] Add columns to `comments`, `commentEdits`, `commentModerations` tables: `communityPublicKey TEXT`, `communityName TEXT`
+- [x] `subplebbitAddress` completely removed from tables (preserved in `extraProps` for CID reconstruction)
+- [x] Migration logic: backfill `communityPublicKey` from `subplebbitAddress` (IPNS key → `communityPublicKey`; domain → `communityName`); old `subplebbitAddress` stored in `extraProps`
+- [x] `CommentsTableRowSchema` includes new optional columns via `CreatePublicationUserOptionsSchema`
+- [x] `queryComment()` returns new columns via `CommentsTableRow` type
+- [x] Tests in `test/node/subplebbit/v36-to-v37.migration.db.subplebbit.test.ts`: DB version check, column changes, migration logic for IPNS/domain addresses, extraProps preservation/merging, CID reproducibility via `deriveCommentIpfsFromCommentTableRow()`
 
 ---
 
@@ -548,9 +548,9 @@ After renaming directories and files, update ALL import statements across the co
 ### 7.5 Signed Property Names
 
 Update the `signedPropertyNames` arrays to reflect wire format changes:
-- [ ] `SubplebbitSignedPropertyNames`: add `name`, remove `address`
-- [ ] Publication signed property names: add `communityPublicKey` and `communityName`, remove `subplebbitAddress`
-- [ ] Author signed property names: add `name`, remove `address`
+- [x] `SubplebbitSignedPropertyNames`: `name` included, `address` excluded (done in Phase 1B Step 1)
+- [x] Publication signed property names: `communityPublicKey`/`communityName` included, `subplebbitAddress` excluded (done in Phase 1B Step 2)
+- [x] Author signed property names: `name` included, `address` excluded (done in Phase 1 author.address migration)
 
 **Note:** Old records with old `signedPropertyNames` remain valid — self-describing signature verification reads `signedPropertyNames` from each record. No explicit protocol version field is needed for backward compatibility.
 
@@ -1064,12 +1064,13 @@ Domain resolution cache keys are removed from pkc-js core (resolution moves to e
 - [ ] Consider adding temporary support for both old and new record names
 
 ### 14.3 Database Schema Migration
-- [ ] Add `communityPublicKey` and `communityName` columns to publication tables
-- [ ] Keep existing `subplebbitAddress` column **forever** but make it **nullable** (`subplebbitAddress TEXT` instead of `TEXT NOT NULL`). Old rows retain their value; new publications set it to `NULL` and use `communityPublicKey`/`communityName` instead.
-- [ ] Bump DB version, add migration logic (ALTER TABLE to add new columns + make `subplebbitAddress` nullable)
-- [ ] Backfill `communityPublicKey` from `subplebbitAddress` for existing records (IPNS key → `communityPublicKey` directly; domain → from community context)
-- [ ] Add parsing test in `test/node/subplebbit/parsing.db.subplebbit.test.ts` per AGENTS.md
-- [ ] Add integration test for `dbHandler.queryComment` returning proper JSON value (not string) for new columns
+*Completed as Phase 1B Step 3 — see that section for details.*
+- [x] Add `communityPublicKey` and `communityName` columns to publication tables
+- [x] `subplebbitAddress` removed from tables entirely (preserved in `extraProps` for CID reconstruction)
+- [x] DB_VERSION bumped to 37, migration logic added (backfill from `subplebbitAddress`)
+- [x] Backfill `communityPublicKey` from `subplebbitAddress` for existing records (IPNS key → `communityPublicKey`; domain → `communityName`)
+- [x] Migration tests in `test/node/subplebbit/v36-to-v37.migration.db.subplebbit.test.ts`
+- [x] `queryComment()` returns proper values for new columns
 
 ### 14.4 External Applications Migration (IMPORTANT)
 The following applications will need migration code to rename `subplebbits/` → `communities/` directory:
@@ -1197,8 +1198,8 @@ Use this section to track overall progress:
 |-------|--------|-------|
 | Phase 1: Web3 Modularization | [~] In Progress | Name resolver done; challenge cleanup done; `resolveAuthorName` renamed; exported challenge types done; runtime author computation and `author.nameResolved` follow-up done; `nameResolved` reserved field fully implemented across all types; non-blocking author resolution; author.name validation moved to subplebbit; logger normalization complete; RPC challenge verification wrapper refactored |
 | Phase 1B Step 1: SubplebbitIpfs wire format | [x] Done | `name` field added, `address`/`publicKey`/`nameResolved` instance-only, domain verification via key migration, `sub.edit({name})` works, publicKey fallback loading, RPC support for all scenarios |
-| Phase 1B Step 2: Publication wire format | [ ] Not Started | Add `communityPublicKey`/`communityName`, make `subplebbitAddress` instance-only |
-| Phase 1B Step 3: DB migration | [ ] Not Started | New columns, version bump, backfill |
+| Phase 1B Step 2: Publication wire format | [x] Done | `communityPublicKey`/`communityName` wire fields, `communityAddress` instance-only, backward compat via `preprocessCommentIpfsBackwardCompat()`, LocalSubplebbit normalizes old→new format |
+| Phase 1B Step 3: DB migration | [x] Done | DB_VERSION=37, columns added, `subplebbitAddress` removed (in `extraProps` for CID reconstruction), migration tests |
 | Phase 2: Package Config | [ ] Not Started | |
 | Phase 3: Directory Structure | [ ] Not Started | |
 | Phase 4: Source Files | [ ] Not Started | |
@@ -1212,7 +1213,7 @@ Use this section to track overall progress:
 | Phase 12: Test Files | [ ] Not Started | |
 | Phase 13: DNS & Protocol | [~] Partially Done | DNS TXT lookups + cache logic removed from core; migration docs not done |
 | Phase 14: Data Migration | [ ] Not Started | |
-| Phase 14.3: DB Schema Migration | [ ] Not Started | New columns, version bump |
+| Phase 14.3: DB Schema Migration | [x] Done | Completed as Phase 1B Step 3 |
 | Phase 14.4: External Apps | [ ] Not Started | plebbit-cli, desktop apps |
 | Phase 15: Documentation | [ ] Not Started | |
 | Phase 16: GitHub & CI/CD | [ ] Not Started | |
