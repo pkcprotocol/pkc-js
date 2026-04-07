@@ -21,7 +21,7 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 | Comment publishing, CommentIpfs, CommentUpdate | `docs/protocol/comment-lifecycle.md` |
 | Author/subplebbit wire format, `publication-author.ts`, `subplebbit-wire.ts` | `docs/protocol/wire-vs-runtime.md` |
 | Addresses, domains, `.bso`, `.eth`, `nameResolvers`, `nameResolved` | `docs/protocol/names-and-addresses.md` |
-| `src/subplebbit/`, RemoteSubplebbit, LocalSubplebbit, RPC variants | `docs/protocol/subplebbit-architecture.md` |
+| `src/subplebbit/`, RemoteSubplebbit, LocalSubplebbit, RPC variants | `docs/protocol/community-architecture.md` |
 | `src/signer/signatures.ts`, verification, `signedPropertyNames` | `docs/protocol/signing.md` |
 | `src/pages/`, pagination, sort types, `pageCids` | `docs/protocol/pages.md` |
 | Challenge/response, `src/pubsub-messages/`, encryption | `docs/protocol/challenge-flow.md` |
