@@ -1,11 +1,11 @@
 {
-    "name": "@plebbit/plebbit-js-rpc",
+    "name": "@pkc/pkc-js-rpc",
     "type": "module",
     "keywords": [
-        "plebbit",
-        "subplebbit"
+        "pkc",
+        "community"
     ],
-    "repository": "github:plebbit/plebbit-js",
+    "repository": "github:pkcprotocol/pkc-js",
     "license": "GPL-2.0",
     "publishConfig": {
         "access": "public"

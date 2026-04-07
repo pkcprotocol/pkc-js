@@ -1,4 +1,4 @@
-# Agent Instructions for plebbit-js
+# Agent Instructions for pkc-js
 
 Instructions for AI agents working on this codebase. Rules are ranked by priority: **MUST** rules are mandatory and cannot be skipped; **SHOULD** rules are strong defaults that apply in most situations.
 
@@ -19,14 +19,14 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 | Working on | Read first |
 |---|---|
 | Comment publishing, CommentIpfs, CommentUpdate | `docs/protocol/comment-lifecycle.md` |
-| Author/subplebbit wire format, `publication-author.ts`, `subplebbit-wire.ts` | `docs/protocol/wire-vs-runtime.md` |
+| Author/community wire format, `publication-author.ts`, `community-wire.ts` | `docs/protocol/wire-vs-runtime.md` |
 | Addresses, domains, `.bso`, `.eth`, `nameResolvers`, `nameResolved` | `docs/protocol/names-and-addresses.md` |
-| `src/subplebbit/`, RemoteSubplebbit, LocalSubplebbit, RPC variants | `docs/protocol/community-architecture.md` |
+| `src/community/`, RemoteCommunity, LocalCommunity, RPC variants | `docs/protocol/community-architecture.md` |
 | `src/signer/signatures.ts`, verification, `signedPropertyNames` | `docs/protocol/signing.md` |
 | `src/pages/`, pagination, sort types, `pageCids` | `docs/protocol/pages.md` |
 | Challenge/response, `src/pubsub-messages/`, encryption | `docs/protocol/challenge-flow.md` |
 | Data storage, IPFS CIDs, IPNS, mutability questions | `docs/protocol/data-permanence.md` |
-| DB migration, `extraProps`, CID reconstruction, `deriveCommentIpfsFromCommentTableRow` | `docs/protocol/db-subplebbit-address-migration.md` |
+| DB migration, `extraProps`, CID reconstruction, `deriveCommentIpfsFromCommentTableRow` | `docs/protocol/db-community-address-migration.md` |
 
 ## MUST Rules
 
@@ -40,7 +40,7 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 
 - Run every automated test suite through `node test/run-test-config.js --pkc-config ${pkc-config} ${testPath}` so our Vitest setup enforces bail/allowOnly/timeouts automatically. Choose pkc-config based on test location: `test/node` → `"local-kubo-rpc,remote-pkc-rpc"`, `test/node-and-browser` → `"remote-kubo-rpc,remote-pkc-rpc"`.
 - Test files MUST be written in TypeScript (`.test.ts`). The test runner will type-check all TypeScript test files before running them.
-- Tests that use `LocalSubplebbit` or other Node-only types MUST be placed under `test/node/`, not `test/node-and-browser/`.
+- Tests that use `LocalCommunity` or other Node-only types MUST be placed under `test/node/`, not `test/node-and-browser/`.
 - Do not include `this.timeout` in tests — it is not supported by vitest.
 - When you modify a test file, make sure it passes the test build process: `npx tsc --project test/tsconfig.json --noEmit`.
 - When you modify a function in `test/test-util.ts`, search all test files under `test/` that import or call that function (e.g. `grep -r "functionName" test/`), then run those tests and make sure they pass.
@@ -51,7 +51,7 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 ### Code
 
 - Never use `removeAllListeners` — it removes the error listener initialized in the constructor, which may cause the process to crash.
-- `author.address` and `subplebbit.address` are immutable — never override or fall back to a derived address; use `author.nameResolved` to indicate whether a domain resolved correctly.
+- `author.address` and `community.address` are immutable — never override or fall back to a derived address; use `author.nameResolved` to indicate whether a domain resolved correctly.
 - Every time you add a runtime-only field, ask whether it should also be added to the corresponding reserved-field list before you finish the change.
 - A comment's bytes size during publication is limited to 40kb.
 - An author and a community cannot share the same domain name for now.
@@ -67,31 +67,31 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 ### Schema & Database
 
 - If you're editing schema, check for docs relevant to the local zod version by checking `package.json`.
-- When adding a new JSON column to the database, add a test in `test/node/subplebbit/parsing.db.subplebbit.test.ts` for parsing it, and if it's on a comment, add an integration test for `dbHandler.queryComment` returning the proper JSON value (not a string).
+- When adding a new JSON column to the database, add a test in `test/node/community/parsing.db.community.test.ts` for parsing it, and if it's on a comment, add an integration test for `dbHandler.queryComment` returning the proper JSON value (not a string).
 - When adding a new markdown file under `docs/`, add a corresponding entry to `docs/protocol/README.md` (the protocol docs index table).
 
 ### Testing Patterns
 
 - Use vitest utilities for mocking.
 - When mocking a comment, create a fixture that looks like production. For comment (`CommentIpfs`), look at `test/fixtures/signatures/comment/commentUpdate/valid_comment_ipfs.json`; for `commentUpdate`, look at `test/fixtures/signatures/comment/commentUpdate/valid_comment_update.json`.
-- Prefer `createSubplebbit()` + `update()` over `getSubplebbit()`, since `getSubplebbit` does a one-shot fetch that fails randomly in CI.
-- When creating a Plebbit instance pointing at local test Kubo (`http://localhost:15001/api/v0`), always pass `httpRoutersOptions: []` to prevent the Zod default from adding production routers, which triggers a Kubo shutdown/restart and breaks parallel tests with ECONNREFUSED.
+- Prefer `createCommunity()` + `update()` over `getCommunity()`, since `getCommunity` does a one-shot fetch that fails randomly in CI.
+- When creating a PKC instance pointing at local test Kubo (`http://localhost:15001/api/v0`), always pass `httpRoutersOptions: []` to prevent the Zod default from adding production routers, which triggers a Kubo shutdown/restart and breaks parallel tests with ECONNREFUSED.
 - When running RPC tests (e.g. `remove.test.js`), set `USE_RPC=1` in the environment.
 - If RPC tests are failing, consider the RPC server may be outdated and carrying old `dist/`.
-- When writing tests related to loading (e.g., loading a comment, subplebbit, or page), prefer generating a fixture to test against instead of relying on a live subplebbit or community.
+- When writing tests related to loading (e.g., loading a comment, community, or page), prefer generating a fixture to test against instead of relying on a live community.
 
 ### Code Patterns
 
-- When writing new functions, prefer a single object parameter with all args (e.g., `signComment({ comment, plebbit })` instead of `signComment(comment, plebbit)`).
+- When writing new functions, prefer a single object parameter with all args (e.g., `signComment({ comment, pkc })` instead of `signComment(comment, pkc)`).
 - Use `npx ipfs` not the system-wide `ipfs` binary.
 
 ### Debugging Patterns
 
-- When debugging CI failures, check `test_server.log` for subplebbit logs and `test_node_${config}.stdout.log`/`test_node_${config}.stderr.log` artifacts for client logs (where config is e.g. `remote-kubo-rpc`).
+- When debugging CI failures, check `test_server.log` for community logs and `test_node_${config}.stdout.log`/`test_node_${config}.stderr.log` artifacts for client logs (where config is e.g. `remote-kubo-rpc`).
 - To capture stdout/stderr from `run-test-config.js` to log files, use `--stdout-log <path>` and `--stderr-log <path>`, or use `--log-prefix <prefix>` to automatically create `<prefix>.stdout.log` and `<prefix>.stderr.log`. DEBUG output (from the `debug` module) goes to stderr.
 - To troubleshoot or debug anything related to a local community, run sqlite queries against its database at `${dataPath}/communities/${communityAddress}`.
 - When a test times out, capture both stdout and stderr (e.g. `--stdout-log /tmp/out.log --stderr-log /tmp/err.log` or `DEBUG="pkc-js*,pkc-react-hooks*"`) and inspect them — timeouts usually indicate an uncaught error that isn't surfaced in the default output.
-- `FailedToFetchSubplebbitFromGatewaysError: Failed to fetch Subplebbit IPNS record from gateway` is a generic wrapper error — the message alone does not explain the root cause. Always inspect the error's `details` field and any nested/inner errors to find the actual failure reason.
+- `FailedToFetchCommunityFromGatewaysError: Failed to fetch Community IPNS record from gateway` is a generic wrapper error — the message alone does not explain the root cause. Always inspect the error's `details` field and any nested/inner errors to find the actual failure reason.
 
 ## Domain Notes
 

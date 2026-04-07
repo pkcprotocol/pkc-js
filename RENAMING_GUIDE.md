@@ -230,7 +230,7 @@ After removing `captcha-canvas-v3`, `mintpass`, `voucher`, and extracting `evm-c
 ## Phase 2: Package Configuration & Project Files
 
 ### 2.1 Package Identity
-- [ ] **package.json** - Rename package
+- [x] **package.json** - Rename package
   - `"name": "@plebbit/plebbit-js"` → `"name": "@pkc/pkc-js"`
   - Update `"repository"` URL if moving to new GitHub org
   - Update `"bugs"` URL
@@ -238,7 +238,7 @@ After removing `captcha-canvas-v3`, `mintpass`, `voucher`, and extracting `evm-c
   - Update keywords: `"plebbit"`, `"plebbit-js"` → `"pkc"`, `"pkc-js"`
   - Update description
 
-- [ ] **rpc/package.json** - Rename RPC package
+- [x] **rpc/package.json** - Rename RPC package
   - `"name": "@plebbit/plebbit-js-rpc"` → `"name": "@pkc/pkc-js-rpc"`
   - Update repository URLs
 
@@ -248,19 +248,19 @@ The following dependencies are in the @plebbit namespace and need separate repos
 - [x] `@plebbit/proper-lockfile` → `@pkc/proper-lock-file` - Done
 
 ### 2.3 RPC Package Configuration
-- [ ] **rpc/package.json** - Update keywords
+- [x] **rpc/package.json** - Update keywords
   - `"keywords": ["plebbit", "subplebbit"]` → `"keywords": ["pkc", "community"]`
 
 ### 2.4 Root Files
-- [ ] **README.md** - Complete rewrite
+- [x] **README.md** - Complete rewrite
   - Replace all "plebbit" → "pkc" (case-sensitive variations)
   - Replace all "subplebbit" → "community"
   - Replace all "Subplebbit" → "Community"
   - Update GitHub URLs if moving repos
 
-- [ ] **CLAUDE.md** / **AGENTS.md** - Update references
+- [x] **CLAUDE.md** / **AGENTS.md** - Update references
 
-- [ ] **project.json** - Update project metadata
+- [x] **project.json** - Update project metadata
 
 ---
 

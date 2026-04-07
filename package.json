@@ -1,5 +1,5 @@
 {
-    "name": "@plebbit/plebbit-js",
+    "name": "@pkc/pkc-js",
     "version": "0.0.11",
     "type": "module",
     "scripts": {
@@ -159,14 +159,14 @@
         "vitest": "4.0.15",
         "wait-on": "6.0.1"
     },
-    "description": "plebbit.js will be an NPM module to wrap around the IPFS APIs used by Plebbit. It will be used in all clients: CLI, Electron (Desktop GUI) and Web.",
+    "description": "pkc-js is an NPM module to wrap around the IPFS APIs used by PKC. It is used in all clients: CLI, Electron (Desktop GUI) and Web.",
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/plebbit/plebbit-js.git"
+        "url": "git+https://github.com/pkcprotocol/pkc-js.git"
     },
     "keywords": [
-        "plebbit",
-        "plebbit-js",
+        "pkc",
+        "pkc-js",
         "decentralized",
         "p2p",
         "peer-to-peer",
@@ -191,9 +191,9 @@
     "author": "Esteban Abaroa, Rinse",
     "license": "GPL-2.0-only",
     "bugs": {
-        "url": "https://github.com/plebbit/plebbit-js/issues"
+        "url": "https://github.com/pkcprotocol/pkc-js/issues"
     },
-    "homepage": "https://github.com/plebbit/plebbit-js#readme",
+    "homepage": "https://github.com/pkcprotocol/pkc-js#readme",
     "engines": {
         "node": ">=20.18.0"
     },
