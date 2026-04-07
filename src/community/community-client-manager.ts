@@ -632,6 +632,7 @@ export class CommunityClientsManager extends PKCClientsManager {
                         const etag = gatewayRes?.res?.headers?.get("etag");
                         log.error(
                             `Gateway ${gatewayUrl} returned community record with invalid signature. ` +
+                                `Reason: ${errorWithinRecord.details?.signatureValidity?.reason}. ` +
                                 `Client-computed CID: ${calculatedCommunityCidFromBody}. ` +
                                 `Etag header (Kubo CID): ${etag}. ` +
                                 `updatedAt: ${communityIpfs.updatedAt}. ` +
