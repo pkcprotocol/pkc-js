@@ -131,3 +131,9 @@ benchmarking_libp2p/
 
 # Auto-generated version file
 src/generated-version.ts
+.pkc-rpc-settings-challenges-test/storage.db
+.pkc-rpc-settings-challenges-test/communities/deleted/12D3KooWMkwJj9U1zF6Xgz8YsLshar33Afs7Nkk3sygqpmtFbxnK
+.pkc-rpc-settings-challenges-test/rpc-server/rpc-state.db
+.pkc-rpc-settings-nameresolvers-test/storage.db
+.pkc-rpc-settings-nameresolvers-test/rpc-server/rpc-state.db
+.pkc-rpc-settings-challenges-test/communities/deleted/12D3KooWLJoodHv2wCaXeBsWjioHNeLPGA8s1EX1xvNyNvzVdedm
