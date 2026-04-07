@@ -1,4 +1,4 @@
-### Plebbit encryption types:
+### PKC encryption types:
 
 - 'ed25519-aes-gcm':
 

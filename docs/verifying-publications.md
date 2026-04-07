@@ -6,7 +6,7 @@ This function will take a JSON of either `CommentEditPubsubMessage`, `VotePubsub
 -   Resolving and verifying author domain
     -   The following condition will need to be true
         -   `author.address` is a domain
-        -   `plebbit.resolverAuthorAddress` is `true`
+        -   `pkc.resolverAuthorAddress` is `true`
         -   Function parameter `returnDerivedAuthorAddressIfInvalid` is `true`
     -   `verifyAuthor` will then resolve the author domain using `ethers` (assumed to be an ENS domain), and compare the resolved address with the address derived from `signature.publicKey`. If they're not equal then `{valid: true, newAddress: derivedAddress}` is returned, where `newAddress` will be used to override `author.address`, if they're not equivalent
 -   Validating regular CID address (12D...)
@@ -18,7 +18,7 @@ This function will take a JSON of either `CommentEditPubsubMessage`, `VotePubsub
 
 ## verifyPublicationSignature
 
-This function will take a JSON object that has signature field. One of the following types `CommentEditPubsubMessage | VotePubsubMessage | CommentPubsubMessage | CommentUpdate | SubplebbitIpfsType | ChallengeRequestMessageType | ChallengeMessageType | ChallengeAnswerMessageType | ChallengeVerificationMessageType`
+This function will take a JSON object that has signature field. One of the following types `CommentEditPubsubMessage | VotePubsubMessage | CommentPubsubMessage | CommentUpdate | CommunityIpfsType | ChallengeRequestMessageType | ChallengeMessageType | ChallengeAnswerMessageType | ChallengeVerificationMessageType`
 
 -   Create an object the same as the argument, without keys that have null or undefined values.
 -   call `cborg.encode` on the new object
@@ -56,25 +56,25 @@ This function will take a JSON object that has signature field. Could be `VotePu
 -   If it return invalid, then return the same object `verifyPublication` returned
 -   Otherwise check if `verifyPublicationWithAuthor` returns `newAddress`, if so then override `comment.author.address` with `newAddress`
 
-## verifySubplebbit
+## verifyCommunity
 
--   The function will take a `SubplebbitIpfsType` as a parameter.
+-   The function will take a `CommunityIpfsType` as a parameter.
 
--   Verify the posts of the subplebbit by iterating through all of them and calling `verifyPage`
--   Validate signature of subplebbit object with `verifyPublicationSignature`
+-   Verify the posts of the community by iterating through all of them and calling `verifyPage`
+-   Validate signature of community object with `verifyPublicationSignature`
 -   Return result of `verifyPublicationSignature` if invalid
--   If subplebbit address is a domain
-    -   Resolve it to Plebbit address
--   Create a PeerId instance from Plebbit address
+-   If community address is a domain
+    -   Resolve it to PKC address
+-   Create a PeerId instance from PKC address
 -   Compare address PeerId instance with PeerId instance created from public key in signature
 -   If they're not equal, return invalid
 -   Else, return valid
 
 ## verifyPage
 
--   Takes `PageIpfs`, subplebbit address, and the parent cid of page (if subplebbit then undefined, if page was under a comment, then it should be the comment cid) for parameters
+-   Takes `PageIpfs`, community address, and the parent cid of page (if community then undefined, if page was under a comment, then it should be the comment cid) for parameters
 -   (1) Iterate over the comments within page
-    -   If the subplebbit address of comment is not the subplebbit address provided by function argument, `verifyPage` will return invalid
+    -   If the community address of comment is not the community address provided by function argument, `verifyPage` will return invalid
     -   If `comment.parentCid` does not equal parent cid of the page, return invalid
     -   Call `verifyComment` on comment
         -   If invalid, return invalid
@@ -84,11 +84,11 @@ This function will take a JSON object that has signature field. Could be `VotePu
 
 ## verifyCommentUpdate
 
--   Takes `CommentUpdate`, the address of te subplebbit, cid, and signature of the comment as parameters.
+-   Takes `CommentUpdate`, the address of the community, cid, and signature of the comment as parameters.
 
 -   If update has `edit` field, but the `edit.signature` has a different public key than the public key of the signature of comment
     -   return invalid
--   If the signature of the update is produced with keys different than the subplebbit
+-   If the signature of the update is produced with keys different than the community
     -   return invalid
 -   If the `cid` field in `CommentUpdate` is different than cid of the comment
     -   return invalid

@@ -1086,37 +1086,37 @@ The following applications will need migration code to rename `subplebbits/` →
 
 ### 15.1 docs/ Directory
 Update all documentation files:
-- [ ] `docs/addresses.md`
-- [ ] `docs/building.md`
-- [ ] `docs/clients.md`
-- [ ] `docs/cross-platform-native-functions.md`
-- [ ] `docs/encryption.md`
-- [ ] `docs/ens.md`
-- [ ] `docs/nft.md`
-- [ ] `docs/signatures.md`
-- [ ] `docs/testing.md`
-- [ ] `docs/verifying-publications.md`
+- [x] `docs/addresses.md`
+- [x] `docs/building.md`
+- [x] `docs/clients.md`
+- [x] `docs/cross-platform-native-functions.md`
+- [x] `docs/encryption.md` (no changes needed)
+- [x] `docs/ens.md` (no changes needed; migration section kept as-is)
+- [x] `docs/nft.md`
+- [x] `docs/signatures.md` (no changes needed)
+- [x] `docs/testing.md`
+- [x] `docs/verifying-publications.md`
 
 ### 15.2 RPC Documentation
-- [ ] `src/rpc/README.md`
-- [ ] `src/rpc/EXPORT_SUBPLEBBIT_SPEC.md` → `src/rpc/EXPORT_COMMUNITY_SPEC.md`
+- [x] `src/rpc/README.md`
+- [x] `src/rpc/EXPORT_SUBPLEBBIT_SPEC.md` deleted (duplicate of `EXPORT_COMMUNITY_SPEC.md`)
 
 ---
 
 ## Phase 16: GitHub & CI/CD
 
 ### 16.1 GitHub Workflows (.github/workflows/)
-- [ ] `CI.yml` - Update references
-- [ ] `CI-build.yml`
-- [ ] `CI-windows-test.yml`
-- [ ] `CI-alerts.yml`
-- [ ] `CI-plebbit-protocol-test.yml` → `CI-pkc-protocol-test.yml`
-- [ ] `CI-plebbit-react-hooks.yml` → Rename if needed
-- [ ] `CI-plebbit-js-benchmarks.yml` → `CI-pkc-js-benchmarks.yml`
+- [x] `CI.yml` - Updated all job names, env vars, config flags
+- [x] `CI-build.yml` (no changes needed)
+- [x] `CI-windows-test.yml`
+- [x] `CI-alerts.yml`
+- [x] `CI-plebbit-protocol-test.yml` → `CI-pkc-protocol-test.yml`
+- [x] `CI-plebbit-react-hooks.yml` → `CI-pkc-react-hooks.yml`
+- [x] `CI-plebbit-js-benchmarks.yml` → `CI-pkc-js-benchmarks.yml`
 
 ### 16.2 Repository Rename (External)
-- [ ] GitHub repository: `plebbit/plebbit-js` → Consider new org/repo name
-- [ ] Update all workflow URLs
+- [x] GitHub repository: `plebbit/plebbit-js` → `pkcprotocol/pkc-js`
+- [x] Updated workflow URLs (benchmarks clone URL updated; protocol-test and react-hooks repos not yet moved)
 
 ---
 
@@ -1182,12 +1182,13 @@ Full sweep of all remaining `plebbit` and `subplebbit` keywords in `src/` and `t
 
 ### 18.7 Items Intentionally Kept
 - `subplebbitAddress` backward-compat code (publication-community.ts, db-handler.ts, pkc.ts, errors.ts)
-- `@plebbit/plebbit-js` npm package name
 - `plebbit.eth` / `plebbit.bso` test domain names
-- GitHub URLs pointing to `plebbit/plebbit-js` repo
+- External repo URLs not yet moved (`plebbit/plebbit-protocol-test`, `plebbit/plebbit-react-hooks`)
+- `PLEBBIT_JS_BENCHMARKS_DEPLOY_KEY` GitHub secret name (not yet renamed)
 - Logger mapping tuples in `src/logger.ts`
 - JSON fixture file contents (wire-format backward-compat data)
 - Comments documenting backward-compat behavior with old field names
+- Old DNS record names in `docs/ens.md` migration section (`subplebbit-address`, `plebbit-author-address`)
 
 ---
 

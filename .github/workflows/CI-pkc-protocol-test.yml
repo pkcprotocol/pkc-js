@@ -1,6 +1,6 @@
-# test @plebbit/plebbit-protocol-test repo which are independent tests
+# test plebbit-protocol-test repo which are independent tests
 # to make sure the protocol never changes
-name: CI plebbit-protocol-test
+name: CI pkc-protocol-test
 
 on:
   workflow_call:
@@ -16,23 +16,23 @@ jobs:
         with:
           node-version: 20
 
-      # move plebbit-js (working dir) to temp folder
-      - run: cp -r . ../plebbit-js-tmp && rm -fr `ls -A1`
+      # move pkc-js (working dir) to temp folder
+      - run: cp -r . ../pkc-js-tmp && rm -fr `ls -A1`
       # clone plebbit-protocol-test repo to working dir
       - run: git clone https://github.com/plebbit/plebbit-protocol-test.git .
       # log the current commit for debugging
       - run: git log -n 1
-      # move plebbit-js back to working dir in a sub folder
-      - run: mv ../plebbit-js-tmp plebbit-js
-      # build the latest plebbit-js dist folder
-      - run: cd plebbit-js && npm ci
-      - run: cd plebbit-js && npm run build
-      - run: rm -fr plebbit-js/node_modules
+      # move pkc-js back to working dir in a sub folder
+      - run: mv ../pkc-js-tmp pkc-js
+      # build the latest pkc-js dist folder
+      - run: cd pkc-js && npm ci
+      - run: cd pkc-js && npm run build
+      - run: rm -fr pkc-js/node_modules
       # install plebbit-protocol-test
       - run: npm i
-      # install latest plebbit-js using add ./plebbit-js (local folder module)
-      - run: npm remove @plebbit/plebbit-js
-      - run: npm i ./plebbit-js
+      # install latest pkc-js using add ./pkc-js (local folder module)
+      - run: npm remove @pkc/pkc-js
+      - run: npm i ./pkc-js
       # install playwright browsers
       - run: npx playwright install --with-deps chromium firefox
       # disable hosts we shouldn't use

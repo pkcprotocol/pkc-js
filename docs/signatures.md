@@ -1,4 +1,4 @@
-### Plebbit signature types:
+### PKC signature types:
 
 - 'ed25519':
 

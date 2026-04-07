@@ -20,7 +20,7 @@ Comment {
   clients: Clients
 }
 
-Subplebbit {
+Community {
   clients: Clients
 }
 
@@ -43,7 +43,7 @@ IpfsStats {
   succeededIpnsMedianTime: number
 }
 
-IpfsSubplebbitStats {
+IpfsCommunityStats {
   stats: IpfsStats
   sessionStats: IpfsStats // session means in the last 1h
 }
@@ -63,7 +63,7 @@ PubsubStats {
   succeededChallengeAnswerMessageMedianTime: number
 }
 
-PubsubSubplebbitStats {
+PubsubCommunityStats {
   stats: PubsubStats
   sessionStats: PubsubStats // session means in the last 1h
 }
@@ -73,15 +73,15 @@ IpfsClient extends Client {
   getStats(): Promise<{
     stats: IpfsStats
     sessionStats: IpfsStats // session means in the last 1h
-    subplebbitStats: {[subplebbitAddress: string]: IpfsSubplebbitStats}
-  }> 
+    communityStats: {[communityAddress: string]: IpfsCommunityStats}
+  }>
 }
 
 GatewayClient extends Client {
   getStats(): Promise<{
     stats: IpfsStats
     sessionStats: IpfsStats // session means in the last 1h
-    subplebbitStats: {[subplebbitAddress: string]: IpfsSubplebbitStats}
+    communityStats: {[communityAddress: string]: IpfsCommunityStats}
   }>
 }
 
@@ -90,22 +90,22 @@ PubsubClient extends Client {
   getStats(): Promise<{
     stats: PubsubStats
     sessionStats: PubsubStats
-    subplebbitStats: {[subplebbitAddress: string]: PubsubSubplebbitStats}
-  }> 
+    communityStats: {[communityAddress: string]: PubsubCommunityStats}
+  }>
 }
 
 ChainProvider extends Client {
   // No need to implement for now since blockchain providers are usually fast and don't fail
 }
 
-PlebbitClients {
+PKCClients {
   ipfsGateways: {[ipfsGatewayUrl: string]: GatewayClient}
   ipfsClients: {[ipfsClientUrl: string]: IpfsClient}
   pubsubClients: {[pubsubClientUrl: string]: PubsubClient}
   chainProviders: {[chainTicker: string]: {[chainProviderUrl: string]: Client}}
 }
 
-Plebbit {
-  clients: PlebbitClients
+PKC {
+  clients: PKCClients
 }
 ```

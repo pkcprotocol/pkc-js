@@ -13,8 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'failure' }}
     steps:
-    # @plebbitjs telegram chat id is -1001792656766
-    - name: "@plebbitjs telegram alert"
+    # @pkcjs telegram chat id is -1001792656766
+    - name: "@pkcjs telegram alert"
       uses: appleboy/telegram-action@master
       with:
         to: ${{ secrets.TELEGRAM_TO }}

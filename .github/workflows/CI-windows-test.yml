@@ -5,7 +5,7 @@ on:
     workflow_dispatch:
 
 jobs:
-    test-plebbit-node-windows:
+    test-pkc-node-windows:
         runs-on: windows-latest
         timeout-minutes: 20
         defaults:
@@ -18,7 +18,7 @@ jobs:
                   node-version: 20
                   cache: "npm"
 
-            # Setup plebbit-js deps
+            # Setup pkc-js deps
             - run: npm ci
             - run: npm run build
             - run: DEBUG="pkc*" npm run test:server:node & npm run test:server:wait-on

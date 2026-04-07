@@ -1,4 +1,4 @@
-### Plebbit addresses:
+### PKC addresses:
 
 - 'ed25519':
 
@@ -51,12 +51,12 @@ const getPeerIdFromPublicKey = async (publicKeyBase64) => {
   return peerId;
 };
 
-const getPlebbitAddressFromPrivateKey = async (privateKeyBase64) => {
+const getPkcAddressFromPrivateKey = async (privateKeyBase64) => {
   const peerId = await getPeerIdFromPrivateKey(privateKeyBase64);
   return peerId.toB58String().trim();
 };
 
-const getPlebbitAddressFromPublicKey = async (publicKeyBase64) => {
+const getPkcAddressFromPublicKey = async (publicKeyBase64) => {
   const peerId = await getPeerIdFromPublicKey(publicKeyBase64);
   return peerId.toB58String().trim();
 };
@@ -78,13 +78,13 @@ const getPlebbitAddressFromPublicKey = async (publicKeyBase64) => {
   const peerIdFromPrivateKey = await getPeerIdFromPrivateKey(privateKey);
   console.log({ peerIdFromPrivateKey });
 
-  // get plebbit address from public key
-  const plebbitAddressFromPublicKey = await getPlebbitAddressFromPublicKey(publicKey);
-  console.log({ plebbitAddressFromPublicKey });
+  // get pkc address from public key
+  const pkcAddressFromPublicKey = await getPkcAddressFromPublicKey(publicKey);
+  console.log({ pkcAddressFromPublicKey });
 
-  // get plebbit address from private key
-  const plebbitAddressFromPrivateKey = await getPlebbitAddressFromPrivateKey(privateKey);
-  console.log({ plebbitAddressFromPrivateKey });
+  // get pkc address from private key
+  const pkcAddressFromPrivateKey = await getPkcAddressFromPrivateKey(privateKey);
+  console.log({ pkcAddressFromPrivateKey });
 
   // get ipfs key from private key
   const ipfsKey = await getIpfsKeyFromPrivateKey(privateKey);

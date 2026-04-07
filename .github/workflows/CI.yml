@@ -25,7 +25,7 @@ on:
             - "package-lock.json"
 
 jobs:
-    test-plebbit-js-node-local:
+    test-pkc-js-node-local:
         runs-on: ${{ matrix.os }}
         strategy:
             fail-fast: false
@@ -48,7 +48,7 @@ jobs:
               run: npm run test:mocked:challenges
             - name: Run node tests (local config)
               id: run_node_tests_local
-              run: DEBUG="pkc*" PLEBBIT_CONFIGS=local-kubo-rpc node test/run-test-config.js --parallel --environment node --run-timeout-ms 1740000 --log-prefix test_node_local test/node src/rpc/test/node src/rpc/test/node-and-browser
+              run: DEBUG="pkc*" PKC_CONFIGS=local-kubo-rpc node test/run-test-config.js --parallel --environment node --run-timeout-ms 1740000 --log-prefix test_node_local test/node src/rpc/test/node src/rpc/test/node-and-browser
               shell: bash
             - name: Print failed node tests (local)
               if: ${{ failure() && steps.run_node_tests_local.outcome == 'failure' }}
@@ -65,8 +65,8 @@ jobs:
               if: ${{ always() && job.status != 'success' }}
               shell: bash
 
-    test-plebbit-js-node-remote-configs:
-        name: test-plebbit-js-node-${{ matrix.config }}
+    test-pkc-js-node-remote-configs:
+        name: test-pkc-js-node-${{ matrix.config }}
         runs-on: ubuntu-latest
         timeout-minutes: 30
         strategy:
@@ -86,7 +86,7 @@ jobs:
             - run: DEBUG="pkc*" npm run test:server:node 2>&1 | tee test_server.log & npm run test:server:wait-on
             - name: Run tests with config
               id: run_node_tests_remote
-              run: DEBUG="pkc*" node test/run-test-config.js --parallel --plebbit-config ${{ matrix.config }} --environment node --log-prefix test_node_${{ matrix.config }} test/node-and-browser src/rpc/test/node-and-browser
+              run: DEBUG="pkc*" node test/run-test-config.js --parallel --pkc-config ${{ matrix.config }} --environment node --log-prefix test_node_${{ matrix.config }} test/node-and-browser src/rpc/test/node-and-browser
             - name: Print failed node tests
               if: ${{ failure() && steps.run_node_tests_remote.outcome == 'failure' }}
               run: node .github/workflows/print-vitest-failures.cjs
@@ -110,8 +110,8 @@ jobs:
             - run: cat test_server.log
               if: ${{ !cancelled() && failure() }}
 
-    test-plebbit-js-browser-remote-configs:
-        name: test-plebbit-js-${{ matrix.environment }}-${{ matrix.config }}
+    test-pkc-js-browser-remote-configs:
+        name: test-pkc-js-${{ matrix.environment }}-${{ matrix.config }}
         runs-on: ubuntu-latest
         timeout-minutes: 30
         strategy:
@@ -138,7 +138,7 @@ jobs:
             # Run tests based on environment and config
             - name: Run browser tests with config
               id: run_browser_tests
-              run: DEBUG="pkc*" node test/run-test-config.js --parallel --plebbit-config ${{ matrix.config }} --environment ${{ matrix.environment }} test/browser test/node-and-browser
+              run: DEBUG="pkc*" node test/run-test-config.js --parallel --pkc-config ${{ matrix.config }} --environment ${{ matrix.environment }} test/browser test/node-and-browser
 
             - name: Print failed browser tests
               if: ${{ failure() && steps.run_browser_tests.outcome == 'failure' }}
@@ -156,7 +156,7 @@ jobs:
             - run: cat test_server.log
               if: ${{ !cancelled() && failure() }}
 
-    test-plebbit-rpc:
+    test-pkc-rpc:
         runs-on: ubuntu-latest
         timeout-minutes: 20
         steps:
@@ -166,10 +166,10 @@ jobs:
                   node-version: 20
                   cache: "npm"
 
-            # Setup plebbit-js deps
+            # Setup pkc-js deps
             - run: npm ci
             - run: npm run build
-            # Setup tests for plebbit-js using rpc here
+            # Setup tests for pkc-js using rpc here
             - run: DEBUG="pkc*" npm run test:server:node:rpc 2>&1 | tee test_server.log & npm run test:server:wait-on
             - id: run_rpc_tests
               run: DEBUG="pkc*" npm run test:node:parallel:rpc
@@ -189,10 +189,10 @@ jobs:
 
             # Setup tests for rpc directory here (skipped for now)
 
-    # test-plebbit-react-hooks:
-    #     uses: ./.github/workflows/CI-plebbit-react-hooks.yml
+    # test-pkc-react-hooks:
+    #     uses: ./.github/workflows/CI-pkc-react-hooks.yml
     #     secrets: inherit
 
-    test-plebbit-protocol-test:
-        uses: ./.github/workflows/CI-plebbit-protocol-test.yml
+    test-pkc-protocol-test:
+        uses: ./.github/workflows/CI-pkc-protocol-test.yml
         secrets: inherit

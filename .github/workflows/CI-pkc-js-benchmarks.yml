@@ -1,5 +1,5 @@
-# run and save benchmarks for @plebbit/plebbit-js in @plebbit/plebbit-js-benchmarks
-name: CI plebbit-js-benchmarks
+# run and save benchmarks for @pkc/pkc-js in pkcprotocol/pkc-js-benchmarks
+name: CI pkc-js-benchmarks
 
 # only run if the CI passes or if manually dispatched
 on:
@@ -35,46 +35,46 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan github.com >> ~/.ssh/known_hosts
 
-      # clone plebbit-js-benchmarks
-      - run: git clone git@github.com:plebbit/plebbit-js-benchmarks.git ../plebbit-js-benchmarks
+      # clone pkc-js-benchmarks
+      - run: git clone git@github.com:pkcprotocol/pkc-js-benchmarks.git ../pkc-js-benchmarks
       # log the current commit for debugging
       - run: |
           git log -n 1
-        working-directory: ../plebbit-js-benchmarks
+        working-directory: ../pkc-js-benchmarks
 
-      # prepare plebbit-js for installing
+      # prepare pkc-js for installing
       - run: npm ci
       - run: npm run build
 
-      # install latest plebbit-js using add ./plebbit-js (local folder module)
-      - name: install and build plebbit-js-benchmarks
+      # install latest pkc-js using add ./pkc-js (local folder module)
+      - name: install and build pkc-js-benchmarks
         run: |
-          npm uninstall @plebbit/plebbit-js
-          npm install ../plebbit-js
-          rm -rf ../plebbit-js/package-lock.json
+          npm uninstall @pkc/pkc-js
+          npm install ../pkc-js
+          rm -rf ../pkc-js/package-lock.json
           npm install
           npx playwright install chromium
-        working-directory: ../plebbit-js-benchmarks
+        working-directory: ../pkc-js-benchmarks
 
       # benchmark
       - name: run benchmarks
         run: |
           node start
-        working-directory: ../plebbit-js-benchmarks
+        working-directory: ../pkc-js-benchmarks
 
       # print report for debugging
       # save report as <commit-hash>.txt
-      # save report as <commit-hash>.json (with extra prop plebbitJsCommitHash)
+      # save report as <commit-hash>.json (with extra prop pkcJsCommitHash)
       # save all reports as all.json (ordered by timestamp)
       - name: print report
         run: |
           node lib/print-report
           mkdir -p reports
           node lib/print-report > reports/${{github.sha}}.txt
-          jq --arg sha "$SHA" 'map(. + {plebbitJsCommitHash: $sha})' report.json > reports/$SHA.json
+          jq --arg sha "$SHA" 'map(. + {pkcJsCommitHash: $sha})' report.json > reports/$SHA.json
           rm -f reports/all.json
           jq -s -c 'sort_by(.[0].timestamp) | reverse' reports/*.json > reports/all.json
-        working-directory: ../plebbit-js-benchmarks
+        working-directory: ../pkc-js-benchmarks
         env:
           SHA: ${{github.sha}}
 
@@ -86,4 +86,4 @@ jobs:
           git add reports/
           git commit -m "add benchmark report for ${{github.sha}}" || echo "no reports to commit"
           git push
-        working-directory: ../plebbit-js-benchmarks
+        working-directory: ../pkc-js-benchmarks

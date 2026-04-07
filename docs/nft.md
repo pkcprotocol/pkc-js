@@ -4,10 +4,10 @@
 const ethers = require('ethers')
 const fetch = require('isomorphic-fetch')
 
-// this setting can be edited in the account or plebbit-js settings, possible to use a local node
+// this setting can be edited in the account or pkc-js settings, possible to use a local node
 const ipfsGatewayUrl = 'https://ipfs.io'
 
-// the user can edit these blockchains settings in the account or plebbit-js settings
+// the user can edit these blockchains settings in the account or pkc-js settings
 const chainProviders = {
   avax: {
     url: 'https://api.avax.network/ext/bc/C/rpc',
@@ -69,13 +69,13 @@ const getNftImageUrl = async (nft) => {
 const getNftMessageToSign = (authorAddress, timestamp, tokenAddress, tokenId) => {
   // use plain JSON so the user can read what he's signing
   // property names must always be in this order for signature to match so don't use JSON.stringify
-  return `{"domainSeparator":"plebbit-author-avatar","authorAddress":"${authorAddress}","timestamp":${timestamp},"tokenAddress":"${tokenAddress}","tokenId":"${tokenId}"}`
+  return `{"domainSeparator":"pkc-author-avatar","authorAddress":"${authorAddress}","timestamp":${timestamp},"tokenAddress":"${tokenAddress}","tokenId":"${tokenId}"}`
 }
 
 const createNftSignature = async (nft, authorAddress, ethersJsSigner) => {
   // use plain JSON so the user can read what he's signing
   // property names must always be in this order for signature to match so don't use JSON.stringify
-  const messageToSign = `{"domainSeparator":"plebbit-author-avatar","authorAddress":"${authorAddress}","timestamp":${nft.timestamp},"tokenAddress":"${nft.address}","tokenId":"${nft.id}"}`
+  const messageToSign = `{"domainSeparator":"pkc-author-avatar","authorAddress":"${authorAddress}","timestamp":${nft.timestamp},"tokenAddress":"${nft.address}","tokenId":"${nft.id}"}`
 
   // the ethers.js signer is usually gotten from metamask https://docs.ethers.io/v5/api/signer/
   const signature = await ethersJsSigner.signMessage(messageToSign)
@@ -90,7 +90,7 @@ const verifyNftSignature = async (nft, authorAddress) => {
 
   // use plain JSON so the user can read what he's signing
   // property names must always be in this order for signature to match so don't use JSON.stringify
-  const messageThatShouldBeSigned = `{"domainSeparator":"plebbit-author-avatar","authorAddress":"${authorAddress}","timestamp":${nft.timestamp},"tokenAddress":"${nft.address}","tokenId":"${nft.id}"}`
+  const messageThatShouldBeSigned = `{"domainSeparator":"pkc-author-avatar","authorAddress":"${authorAddress}","timestamp":${nft.timestamp},"tokenAddress":"${nft.address}","tokenId":"${nft.id}"}`
 
   const signatureAddress = ethers.utils.verifyMessage(messageThatShouldBeSigned, nft.signature)
   if (currentNftOwnerAddress !== signatureAddress) {

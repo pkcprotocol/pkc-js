@@ -1,7 +1,7 @@
 ## Get started running the PKC JSON-RPC websocket server
 
 ```js
-const {PKCWsServer} = require('@plebbit/plebbit-js/rpc')
+const {PKCWsServer} = require('@pkc/pkc-js/rpc')
 const port = 8080
 const pkcOptions = {ipfsHttpClientsOptions: ['http://localhost:5001/api/v0']}
 const pkcWebSocketServer = await PKCWsServer({port, pkcOptions})
@@ -171,7 +171,7 @@ Subscribe to a comment update to receive notifications when the comment is updat
 
 #### Notification Format:
 
-The notification format is the same as seen in the pkc-js [Comment Events](https://github.com/plebbit/plebbit-js#comment-events)
+The notification format is the same as seen in the pkc-js [Comment Events](https://github.com/pkcprotocol/pkc-js#comment-events)
 
 `update` event:
 
@@ -246,7 +246,7 @@ Subscribe to a community update to receive notifications when the community is u
 
 #### Notification Format:
 
-The notification format is the same as seen in the pkc-js [Community Events](https://github.com/plebbit/plebbit-js#community-events)
+The notification format is the same as seen in the pkc-js [Community Events](https://github.com/pkcprotocol/pkc-js#community-events)
 
 `update` event:
 
@@ -326,7 +326,7 @@ Publish a comment and subscribe to receive notifications of the challenge pubsub
 
 #### Notification Format:
 
-The notification format is the same as seen in the pkc-js [Comment Events](https://github.com/plebbit/plebbit-js#comment-events)
+The notification format is the same as seen in the pkc-js [Comment Events](https://github.com/pkcprotocol/pkc-js#comment-events)
 
 `challenge` event:
 
@@ -412,7 +412,7 @@ Subscribe to the communities list managed by the pkc rpc to receive notification
 
 #### Notification Format:
 
-The notification format is the same as seen in the pkc-js [PKC Events](https://github.com/plebbit/plebbit-js#pkc-events)
+The notification format is the same as seen in the pkc-js [PKC Events](https://github.com/pkcprotocol/pkc-js#pkc-events)
 
 `communitieschange` event:
 
@@ -458,7 +458,7 @@ Subscribe to the pkc rpc settings to receive notifications when they change
 
 #### Notification Format:
 
-The notification format is the same as seen in the pkc-js [PKC Events](https://github.com/plebbit/plebbit-js#pkc-events)
+The notification format is the same as seen in the pkc-js [PKC Events](https://github.com/pkcprotocol/pkc-js#pkc-events)
 
 `settingschange` event:
 

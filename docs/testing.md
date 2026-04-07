@@ -7,7 +7,7 @@
 - Create a `.env` file and add `CHROME_BIN=/usr/bin/chromium` (replace the path with your chrome path)
 - In a new terminal run `npm run build:watch` to compile typescript
 - In a new terminal run `npm run webpack:watch` to compile the browser tests
-- In a new terminal run `npm run test:server` to start an ipfs node and the test subplebbits
+- In a new terminal run `npm run test:server` to start an ipfs node and the test communities
 - (Optional) run all the scripts at the same time with `scripts/build-watch-all`
 
 > Note: tests are written in Javascript (using commonjs `require`, not `import`), to test the Typescript ouput from commonjs.

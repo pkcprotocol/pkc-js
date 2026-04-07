@@ -1,5 +1,5 @@
-# test @plebbit/plebbit-react-hooks repo whichs depends @plebbit/plebbit-js
-name: CI plebbit-react-hooks
+# test plebbit-react-hooks repo which depends on @pkc/pkc-js
+name: CI pkc-react-hooks
 
 on:
   workflow_call:
@@ -21,22 +21,22 @@ jobs:
         with:
           node-version: 22
 
-      # move plebbit-js (working dir) to temp folder
-      - run: cp -r . ../plebbit-js-tmp && rm -fr `ls -A1`
+      # move pkc-js (working dir) to temp folder
+      - run: cp -r . ../pkc-js-tmp && rm -fr `ls -A1`
       # clone plebbit-react-hooks repo to working dir
       - run: git clone https://github.com/plebbit/plebbit-react-hooks.git .
       # log the current commit for debugging
       - run: git log -n 1
-      # move plebbit-js back to working dir in a sub folder
-      - run: mv ../plebbit-js-tmp plebbit-js
-      # build the latest plebbit-js dist folder
-      - run: cd plebbit-js && npm ci
-      - run: cd plebbit-js && npm run build
-      - run: rm -fr plebbit-js/node_modules
-      # install latest plebbit-js using add ./plebbit-js (local folder module)
-      - run: yarn remove @plebbit/plebbit-js
-      - run: yarn add ./plebbit-js
-      - run: rm -rf plebbit-js/yarn.lock
+      # move pkc-js back to working dir in a sub folder
+      - run: mv ../pkc-js-tmp pkc-js
+      # build the latest pkc-js dist folder
+      - run: cd pkc-js && npm ci
+      - run: cd pkc-js && npm run build
+      - run: rm -fr pkc-js/node_modules
+      # install latest pkc-js using add ./pkc-js (local folder module)
+      - run: yarn remove @pkc/pkc-js
+      - run: yarn add ./pkc-js
+      - run: rm -rf pkc-js/yarn.lock
       - run: yarn
       # build
       - run: yarn test --pool=forks
