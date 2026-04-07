@@ -48,7 +48,7 @@ export const EncryptedSchema = z
     })
     .strict();
 
-// publication with subplebbit author that are added by subplebbit when they respond to publication, or emit an event
+// publication with community author that are added by community when they respond to publication, or emit an event
 
 // Challenge Request message
 
@@ -63,7 +63,7 @@ export const DecryptedChallengeRequestPublicationSchema = z.object({
     vote: VotePubsubMessagePublicationSchema.loose().optional(),
     commentEdit: CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema.loose().optional(),
     commentModeration: CommentModerationPubsubMessagePublicationSchema.loose().optional(),
-    subplebbitEdit: CommunityEditPubsubMessagePublicationSchema.loose().optional()
+    communityEdit: CommunityEditPubsubMessagePublicationSchema.loose().optional()
 });
 
 // ChallengeRequestMessage.encrypted.ciphertext decrypts to JSON, with these props
@@ -132,4 +132,4 @@ export const ChallengeVerificationMessageSignedPropertyNames = remeda.keys.stric
     remeda.omit(ChallengeVerificationMessageSchema.shape, ["signature"])
 );
 
-// Handling challenges for subplebbit
+// Handling challenges for community

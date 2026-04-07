@@ -38,16 +38,16 @@ async function run(): Promise<void> {
             throw new Error('hanging-runner: "--scenario <file>" argument is required');
         }
 
-        const configCodesEnv = process.env.PLEBBIT_CONFIGS;
+        const configCodesEnv = process.env.PKC_CONFIGS;
         if (!configCodesEnv) {
-            throw new Error("hanging-runner: PLEBBIT_CONFIGS environment variable is required");
+            throw new Error("hanging-runner: PKC_CONFIGS environment variable is required");
         }
         const [configCode] = configCodesEnv
             .split(",")
             .map((code) => code.trim())
             .filter(Boolean);
         if (!configCode) {
-            throw new Error(`hanging-runner: failed to read config code from PLEBBIT_CONFIGS="${configCodesEnv}"`);
+            throw new Error(`hanging-runner: failed to read config code from PKC_CONFIGS="${configCodesEnv}"`);
         }
 
         const scenarioModuleUrl = new URL(`../../../../test/node/hanging-test/scenarios/${scenarioModuleBaseName}`, import.meta.url);
@@ -161,7 +161,7 @@ function collectActiveResources() {
     });
 
     return {
-        message: "Active resources after plebbit.destroy()",
+        message: "Active resources after pkc.destroy()",
         handles: activeHandlesRaw.map(describeHandle),
         requests: activeRequestsRaw.map(describeRequest),
         remainingHandles: filteredHandles.length,

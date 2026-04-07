@@ -1633,14 +1633,14 @@ export function getAvailablePKCConfigsToTestAgainst(opts?: {
         return Object.values(availableConfigs);
     }
     // Check if configs are passed via environment variable
-    const pkcConfigsFromEnv = process?.env?.PLEBBIT_CONFIGS;
+    const pkcConfigsFromEnv = process?.env?.PKC_CONFIGS;
     if (pkcConfigsFromEnv) {
         const configs = pkcConfigsFromEnv.split(",") as PKCTestConfigCode[];
         // Set the configs if they're coming from the environment variable
         setPKCConfigs(configs);
     }
     //@ts-expect-error
-    const pkcConfigsFromWindow = <string | undefined>globalThis["window"]?.["PLEBBIT_CONFIGS"];
+    const pkcConfigsFromWindow = <string | undefined>globalThis["window"]?.["PKC_CONFIGS"];
     if (pkcConfigsFromWindow) {
         const configs = pkcConfigsFromWindow.split(",") as PKCTestConfigCode[];
         // Set the configs if they're coming from the environment variable

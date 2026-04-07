@@ -852,7 +852,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             vote: this._pkc._pkcRpcClient.publishVote,
             commentEdit: this._pkc._pkcRpcClient.publishCommentEdit,
             commentModeration: this._pkc._pkcRpcClient.publishCommentModeration,
-            subplebbitEdit: this._pkc._pkcRpcClient.publishCommunityEdit
+            communityEdit: this._pkc._pkcRpcClient.publishCommunityEdit
         };
 
         // PKCRpcClient will take care of zod parsing for us

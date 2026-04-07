@@ -78,7 +78,7 @@ describeSkipIfRpc(`verify pages`, async () => {
         expect(pageVerification).to.deep.equal({ valid: true });
     });
 
-    it(`Page from previous plebbit-js versions can be validated`, async () => {
+    it(`Page from previous pkc-js versions can be validated`, async () => {
         const page = remeda.clone(legacyPageIpfsFixture) as PageIpfs;
         const verification = await verifyPageJsonAlongWithObject(page, pkc, community, undefined);
         expect(verification).to.deep.equal({ valid: true });

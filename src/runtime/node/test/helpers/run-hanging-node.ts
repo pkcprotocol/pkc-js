@@ -18,7 +18,7 @@ export async function runHangingScenarioInChildProcess({
         const waitForCleanupMs = Math.max(1000, timeoutMs);
         const env = {
             ...process.env,
-            PLEBBIT_CONFIGS: configCode,
+            PKC_CONFIGS: configCode,
             HANGING_RUNNER_WAIT: String(waitForCleanupMs)
         };
         const child = spawn(process.execPath, [runnerPath, "--scenario", scenarioModuleBaseName], {

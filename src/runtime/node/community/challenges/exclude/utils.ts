@@ -32,7 +32,7 @@ const isReply = (request: DecryptedChallengeRequestMessageTypeWithCommunityAutho
 const isPost = (request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor) => isRequestPubsubPublicationOfPost(request);
 const isCommentEdit = (request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor) => Boolean(request.commentEdit);
 const isCommentModeration = (request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor) => Boolean(request.commentModeration);
-const isCommunityEdit = (request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor) => Boolean(request.subplebbitEdit);
+const isCommunityEdit = (request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor) => Boolean(request.communityEdit);
 
 const testPublicationType = (
     excludePublicationType: Exclude["publicationType"] | undefined,

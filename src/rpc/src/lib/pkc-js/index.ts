@@ -1,6 +1,6 @@
-// NOTE: don't import plebbit-js directly to be able to replace the implementation
+// NOTE: don't import pkc-js directly to be able to replace the implementation
 
-// @plebbit/plebbit-js imported from parent folder
+// @plebbit/pkc-js imported from parent folder
 import PKC from "../../../../index.js";
 
 import assert from "assert";

@@ -50,19 +50,19 @@ describeSkipIfRpc.concurrent("Sign community", async () => {
     it(`Can sign and validate live community correctly`, async () => {
         const community = await pkc.getCommunity({ address: signers[0].address });
         const subjsonIpfs = community.raw.communityIpfs!;
-        const subplebbitToSign: Record<string, unknown> = {
+        const communityToSign: Record<string, unknown> = {
             ...cleanUpBeforePublishing(subjsonIpfs),
             posts: removeUndefinedValuesRecursively(subjsonIpfs.posts)
         };
-        delete subplebbitToSign["signature"];
-        subplebbitToSign.signature = await signCommunity({
-            community: subplebbitToSign as Omit<CommunityIpfsType, "signature">,
+        delete communityToSign["signature"];
+        communityToSign.signature = await signCommunity({
+            community: communityToSign as Omit<CommunityIpfsType, "signature">,
             signer: signers[0]
         });
-        expect(subplebbitToSign.signature).to.deep.equal(community.signature);
+        expect(communityToSign.signature).to.deep.equal(community.signature);
 
         const verification = await verifyCommunity({
-            community: subplebbitToSign as CommunityIpfsType,
+            community: communityToSign as CommunityIpfsType,
             communityIpnsName: signers[0].address,
             resolveAuthorNames: pkc.resolveAuthorNames,
             clientsManager: pkc._clientsManager,

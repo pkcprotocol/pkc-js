@@ -1441,7 +1441,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 ]);
 
             return storedComment;
-        } else if (request.subplebbitEdit) return this.storeCommunityEditPublication(request.subplebbitEdit, request.challengeRequestId);
+        } else if (request.communityEdit) return this.storeCommunityEditPublication(request.communityEdit, request.challengeRequestId);
         else throw Error("Don't know how to store this publication" + request);
     }
 
@@ -1486,9 +1486,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 resolveAuthorNames: this._pkc.resolveAuthorNames,
                 clientsManager: this._clientsManager
             });
-        else if (request.subplebbitEdit)
+        else if (request.communityEdit)
             validity = await verifyCommunityEdit({
-                communityEdit: request.subplebbitEdit,
+                communityEdit: request.communityEdit,
                 resolveAuthorNames: this._pkc.resolveAuthorNames,
                 clientsManager: this._clientsManager
             });
@@ -2114,8 +2114,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             if (commentModInDb) return messages.ERR_DUPLICATE_COMMENT_MODERATION;
             if ("approved" in commentModerationPublication.commentModeration && !commentToBeEdited.pendingApproval)
                 return messages.ERR_MOD_ATTEMPTING_TO_APPROVE_OR_DISAPPROVE_COMMENT_THAT_IS_NOT_PENDING;
-        } else if (request.subplebbitEdit) {
-            const communityEdit = request.subplebbitEdit;
+        } else if (request.communityEdit) {
+            const communityEdit = request.communityEdit;
             if (remeda.intersection(CommunityEditPublicationPubsubReservedFields, remeda.keys.strict(communityEdit)).length > 0)
                 return messages.ERR_COMMUNITY_EDIT_HAS_RESERVED_FIELD;
 
@@ -2281,11 +2281,11 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 publication: request.commentModeration,
                 authorCommunity
             }) as DecryptedChallengeRequestMessageTypeWithCommunityAuthor["commentModeration"];
-        if (request.subplebbitEdit)
-            runtimeRequest.subplebbitEdit = this._buildRuntimeChallengeRequestPublication({
-                publication: request.subplebbitEdit,
+        if (request.communityEdit)
+            runtimeRequest.communityEdit = this._buildRuntimeChallengeRequestPublication({
+                publication: request.communityEdit,
                 authorCommunity
-            }) as DecryptedChallengeRequestMessageTypeWithCommunityAuthor["subplebbitEdit"];
+            }) as DecryptedChallengeRequestMessageTypeWithCommunityAuthor["communityEdit"];
 
         return runtimeRequest;
     }

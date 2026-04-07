@@ -1,8 +1,8 @@
-// use this file to launch an ipfs node and some subplebbits
+// use this file to launch an ipfs node and some communities
 // that can be used during node and browser tests
 import { path as getIpfsPath } from "kubo";
 import { execSync, spawn } from "child_process";
-import { startSubplebbits, mockPlebbitNoDataPathWithOnlyKuboClient } from "../../dist/node/test/test-util.js";
+import { startCommunities, mockPKCNoDataPathWithOnlyKuboClient } from "../../dist/node/test/test-util.js";
 import { cleanUpBeforePublishing, signCommunity } from "../../dist/node/signer/signatures.js";
 import { convertBase32ToBase58btc } from "../../dist/node/signer/util.js";
 
@@ -15,9 +15,9 @@ import url from "url";
 import querystring from "querystring";
 
 import fs from "fs";
-import startPlebbitWebSocketServers from "./pkc-ws-server.js";
+import startPKCWebSocketServers from "./pkc-ws-server.js";
 
-process.env["PLEBBIT_CONFIGS"] = process.env["PLEBBIT_CONFIGS"] || "local-kubo-rpc";
+process.env["PKC_CONFIGS"] = process.env["PKC_CONFIGS"] || "local-kubo-rpc";
 process.env["DEBUG"] = process.env["DEBUG"] || "*";
 
 // 🔧 ENHANCED: Capture test-server.js stdout and stderr
@@ -288,7 +288,7 @@ const startIpfsNodes = async () => {
 const setUpMockGateways = async () => {
     // Create a server that mocks an ipfs gateway
     // Will return valid content for one cid and invalid content for another
-    // The purpose is to test whether plebbit.fetchCid will throw if we retrieved the invalid content
+    // The purpose is to test whether pkc.fetchCid will throw if we retrieved the invalid content
 
     const gatewayPorts = [13415, 13416, 13417, 13418, 14000, 14002, 14003, 14004, 14005, 14006];
 
@@ -304,14 +304,14 @@ const setUpMockGateways = async () => {
         if (req.url === "/ipfs/bafybeigdypsgdcm2ddvyh2y2gnltw3zi5iphzzwdlpie3jfxpmer7frknu")
             res.end("Hello plebs"); // Valid content
         else if (req.url === "/ipfs/bafybeicx52dlvj3dlxtvr2hbr4femfntkeikr4erlmsnxequm2tezud7rm")
-            res.end("This string does not generate the CID in the URL. This should throw an error in plebbit.fetchCid");
+            res.end("This string does not generate the CID in the URL. This should throw an error in pkc.fetchCid");
         else if (req.url.includes("/ipns")) {
             const subAddress = convertBase32ToBase58btc(req.url.split("/")[2]);
-            const sub = await plebbit.getSubplebbit({ address: subAddress });
+            const sub = await pkc.getCommunity({ address: subAddress });
             res.setHeader("x-ipfs-roots", sub.updateCid);
             res.setHeader("etag", sub.updateCid);
-            res.end(JSON.stringify(sub.raw.subplebbitIpfs));
-        } else res.end(await plebbit.fetchCid({ cid: req.url }));
+            res.end(JSON.stringify(sub.raw.communityIpfs));
+        } else res.end(await pkc.fetchCid({ cid: req.url }));
     })
         .listen(13415, hostName)
         .on("error", (err) => {
@@ -351,13 +351,13 @@ const setUpMockGateways = async () => {
             throw err;
         });
 
-    // Set up mock gateways for subplebbit gateway fetching tests
-    const plebbit = await mockPlebbitNoDataPathWithOnlyKuboClient();
-    const fetchLatestSubplebbit = async () => {
+    // Set up mock gateways for community gateway fetching tests
+    const pkc = await mockPKCNoDataPathWithOnlyKuboClient();
+    const fetchLatestCommunity = async () => {
         try {
-            return await plebbit.getSubplebbit({ address: signers[0].address });
+            return await pkc.getCommunity({ address: signers[0].address });
         } catch (e) {
-            console.error("Error fetching latest subplebbit", e, e.details);
+            console.error("Error fetching latest community", e, e.details);
             throw e;
         }
     };
@@ -366,11 +366,11 @@ const setUpMockGateways = async () => {
     http.createServer(async (req, res) => {
         await new Promise((resolve) => setTimeout(resolve, 11000));
         res.setHeader("Access-Control-Allow-Origin", "*");
-        const subRecord = await fetchLatestSubplebbit();
+        const subRecord = await fetchLatestCommunity();
         res.setHeader("x-ipfs-roots", subRecord.updateCid);
         res.setHeader("etag", subRecord.updateCid);
 
-        res.end(JSON.stringify(subRecord.raw.subplebbitIpfs));
+        res.end(JSON.stringify(subRecord.raw.communityIpfs));
     })
         .listen(14000, hostName)
         .on("error", (err) => {
@@ -381,11 +381,11 @@ const setUpMockGateways = async () => {
     http.createServer(async (req, res) => {
         await new Promise((resolve) => setTimeout(resolve, 3000));
         res.setHeader("Access-Control-Allow-Origin", "*");
-        const subRecord = await fetchLatestSubplebbit();
+        const subRecord = await fetchLatestCommunity();
         res.setHeader("x-ipfs-roots", subRecord.updateCid);
         res.setHeader("etag", subRecord.updateCid);
 
-        res.end(JSON.stringify(subRecord.raw.subplebbitIpfs));
+        res.end(JSON.stringify(subRecord.raw.communityIpfs));
     })
         .listen(14002, hostName)
         .on("error", (err) => {
@@ -403,65 +403,65 @@ const setUpMockGateways = async () => {
             throw err;
         });
 
-    // This gateway will respond immedietly with subplebbit IPNS record that is 30 minutes old
+    // This gateway will respond immediately with community IPNS record that is 30 minutes old
     http.createServer(async (req, res) => {
         res.setHeader("Access-Control-Allow-Origin", "*");
 
-        const subplebbitRecordThirtyMinuteOld = await fetchLatestSubplebbit(); // very old Subplebbit ipns record from subplebbitAddress
-        const subplebbitRecordThirtyMinuteOldIpfs = JSON.parse(JSON.stringify(subplebbitRecordThirtyMinuteOld.raw.subplebbitIpfs));
-        subplebbitRecordThirtyMinuteOldIpfs.updatedAt = Math.round(Date.now() / 1000) - 30 * 60; // make sure updatedAt is 30 minutes old
-        subplebbitRecordThirtyMinuteOldIpfs.signature = await signCommunity({
-            subplebbit: subplebbitRecordThirtyMinuteOldIpfs,
+        const communityRecordThirtyMinuteOld = await fetchLatestCommunity(); // very old community ipns record from communityAddress
+        const communityRecordThirtyMinuteOldIpfs = JSON.parse(JSON.stringify(communityRecordThirtyMinuteOld.raw.communityIpfs));
+        communityRecordThirtyMinuteOldIpfs.updatedAt = Math.round(Date.now() / 1000) - 30 * 60; // make sure updatedAt is 30 minutes old
+        communityRecordThirtyMinuteOldIpfs.signature = await signCommunity({
+            community: communityRecordThirtyMinuteOldIpfs,
             signer: signers[0]
         });
-        const updateCid = await calculateIpfsHash(JSON.stringify(subplebbitRecordThirtyMinuteOldIpfs));
+        const updateCid = await calculateIpfsHash(JSON.stringify(communityRecordThirtyMinuteOldIpfs));
         res.setHeader("x-ipfs-roots", updateCid);
         res.setHeader("etag", updateCid);
 
-        res.end(JSON.stringify(subplebbitRecordThirtyMinuteOldIpfs));
+        res.end(JSON.stringify(communityRecordThirtyMinuteOldIpfs));
     })
         .listen(14004, hostName)
         .on("error", (err) => {
             throw err;
         });
 
-    // This gateway will respond immedietly with subplebbit IPNS record that is 60 minutes old
+    // This gateway will respond immediately with community IPNS record that is 60 minutes old
     http.createServer(async (req, res) => {
         res.setHeader("Access-Control-Allow-Origin", "*");
 
-        const latestRecord = await fetchLatestSubplebbit(); // very old Subplebbit ipns record from subplebbitAddress
-        const subplebbitRecordHourOldIpfs = JSON.parse(JSON.stringify(latestRecord.raw.subplebbitIpfs));
+        const latestRecord = await fetchLatestCommunity(); // very old community ipns record from communityAddress
+        const communityRecordHourOldIpfs = JSON.parse(JSON.stringify(latestRecord.raw.communityIpfs));
 
-        subplebbitRecordHourOldIpfs.updatedAt = Math.round(Date.now() / 1000) - 60 * 60; // make sure updatedAt is 30 minutes old
-        subplebbitRecordHourOldIpfs.signature = await signCommunity({ subplebbit: subplebbitRecordHourOldIpfs, signer: signers[0] });
-        const updateCid = await calculateIpfsHash(JSON.stringify(subplebbitRecordHourOldIpfs));
+        communityRecordHourOldIpfs.updatedAt = Math.round(Date.now() / 1000) - 60 * 60; // make sure updatedAt is 60 minutes old
+        communityRecordHourOldIpfs.signature = await signCommunity({ community: communityRecordHourOldIpfs, signer: signers[0] });
+        const updateCid = await calculateIpfsHash(JSON.stringify(communityRecordHourOldIpfs));
         res.setHeader("x-ipfs-roots", updateCid);
         res.setHeader("etag", updateCid);
 
-        res.end(JSON.stringify(subplebbitRecordHourOldIpfs));
+        res.end(JSON.stringify(communityRecordHourOldIpfs));
     })
         .listen(14005, hostName)
         .on("error", (err) => {
             throw err;
         });
 
-    // This gateway will respond immedietly with subplebbit IPNS record that is 120 minutes old
+    // This gateway will respond immediately with community IPNS record that is 120 minutes old
     http.createServer(async (req, res) => {
         res.setHeader("Access-Control-Allow-Origin", "*");
 
-        const subplebbitRecordTwoHoursOld = await fetchLatestSubplebbit(); // very old Subplebbit ipns record from subplebbitAddress
-        const subplebbitRecordTwoHoursOldIpfs = JSON.parse(JSON.stringify(subplebbitRecordTwoHoursOld.raw.subplebbitIpfs));
+        const communityRecordTwoHoursOld = await fetchLatestCommunity(); // very old community ipns record from communityAddress
+        const communityRecordTwoHoursOldIpfs = JSON.parse(JSON.stringify(communityRecordTwoHoursOld.raw.communityIpfs));
 
-        subplebbitRecordTwoHoursOldIpfs.updatedAt = Math.round(Date.now() / 1000) - 2 * 60 * 60; // make sure updatedAt is 30 minutes old
-        subplebbitRecordTwoHoursOldIpfs.signature = await signCommunity({
-            subplebbit: subplebbitRecordTwoHoursOldIpfs,
+        communityRecordTwoHoursOldIpfs.updatedAt = Math.round(Date.now() / 1000) - 2 * 60 * 60; // make sure updatedAt is 120 minutes old
+        communityRecordTwoHoursOldIpfs.signature = await signCommunity({
+            community: communityRecordTwoHoursOldIpfs,
             signer: signers[0]
         });
-        const updateCid = await calculateIpfsHash(JSON.stringify(subplebbitRecordTwoHoursOldIpfs));
+        const updateCid = await calculateIpfsHash(JSON.stringify(communityRecordTwoHoursOldIpfs));
         res.setHeader("x-ipfs-roots", updateCid);
         res.setHeader("etag", updateCid);
 
-        res.end(JSON.stringify(subplebbitRecordTwoHoursOldIpfs));
+        res.end(JSON.stringify(communityRecordTwoHoursOldIpfs));
     })
         .listen(14006, hostName)
         .on("error", (err) => {
@@ -687,13 +687,13 @@ const setUpMockPubsubServer = async () => {
 };
 
 (async () => {
-    // do more stuff here, like start some subplebbits
+    // do more stuff here, like start some communities
 
     const dirsToDelete = [
-        ".plebbit",
-        ".plebbit2",
-        ".plebbit-rpc-server",
-        ".plebbit-rpc-server-remote",
+        ".pkc",
+        ".pkc2",
+        ".pkc-rpc-server",
+        ".pkc-rpc-server-remote",
         "test-server", // Add test-server directory cleanup
         ...ipfsNodesToRun.map((node) => path.basename(node.dir))
     ];
@@ -716,11 +716,11 @@ const setUpMockPubsubServer = async () => {
 
     const shouldStartRpcServer = process.env["START_RPC_SERVER"] === "1" || process.env["start_rpc_server"] === "1";
     if (shouldStartRpcServer) {
-        await startPlebbitWebSocketServers({ rpcPort, rpcAuthKey });
+        await startPKCWebSocketServers({ rpcPort, rpcAuthKey });
     }
 
     if (process.env["NO_SUBPLEBBITS"] !== "1") {
-        const subs = await startSubplebbits({
+        const subs = await startCommunities({
             signers: signers,
             votesPerCommentToPublish: 1,
             numOfPostsToPublish: 1,
@@ -748,8 +748,8 @@ const setUpMockPubsubServer = async () => {
 
             if (pathname === "/running-subs") {
                 if (req.method !== "GET") throw new Error("Method not allowed for /running-subs");
-                const runningSubs = Object.entries(subs).reduce((acc, [key, subInstance]) => {
-                    if (subInstance?.address) acc[key] = subInstance.address;
+                const runningSubs = Object.entries(subs).reduce((acc, [key, communityInstance]) => {
+                    if (communityInstance?.address) acc[key] = communityInstance.address;
                     return acc;
                 }, {});
                 return sendJson(200, runningSubs);
@@ -770,10 +770,10 @@ const setUpMockPubsubServer = async () => {
                 if (!Number.isInteger(commentDepth) || commentDepth < 0) throw new Error("commentDepth must be a non-negative integer");
 
                 const normalizedAddress = subAddressParam.trim();
-                const [, subInstance] = Object.entries(subs).find(([, sub]) => sub?.address === normalizedAddress) || [];
-                if (!subInstance) throw new Error(`Subplebbit ${normalizedAddress} not found`);
+                const [, communityInstance] = Object.entries(subs).find(([, sub]) => sub?.address === normalizedAddress) || [];
+                if (!communityInstance) throw new Error(`Community ${normalizedAddress} not found`);
 
-                const dbHandler = subInstance._dbHandler;
+                const dbHandler = communityInstance._dbHandler;
                 if (!dbHandler) throw new Error(`dbHandler is not ready for ${normalizedAddress}`);
 
                 const comment = dbHandler.queryFirstCommentWithDepth(commentDepth);

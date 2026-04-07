@@ -76,7 +76,7 @@ export function hotScore(comment: CommentToSort) {
     );
 
     let score = comment.commentUpdate.upvoteCount - comment.commentUpdate.downvoteCount;
-    score++; // reddit initial upvotes is 1, plebbit is 0
+    score++; // reddit initial upvotes is 1, pkc is 0
     const order = Math.log10(Math.max(Math.abs(score), 1));
     const sign = score > 0 ? 1 : score < 0 ? -1 : 0;
     const seconds = comment.comment.timestamp - 1134028003;
@@ -87,7 +87,7 @@ export function bestScore(comment: CommentToSort) {
     assert(typeof comment.commentUpdate.downvoteCount === "number" && typeof comment.commentUpdate.upvoteCount === "number");
 
     const originalUpvoteCount = comment.commentUpdate.upvoteCount; // can be 0
-    const upvoteCount = comment.commentUpdate.upvoteCount + 1; // reddit initial upvotes is 1, plebbit is 0
+    const upvoteCount = comment.commentUpdate.upvoteCount + 1; // reddit initial upvotes is 1, pkc is 0
     const downvoteCount = comment.commentUpdate.downvoteCount;
 
     // n is the total number of ratings
@@ -111,7 +111,7 @@ export function bestScore(comment: CommentToSort) {
 export function controversialScore(comment: CommentToSort) {
     assert(typeof comment.commentUpdate.downvoteCount === "number" && typeof comment.commentUpdate.upvoteCount === "number");
 
-    const upvoteCount = comment.commentUpdate.upvoteCount + 1; // reddit initial upvotes is 1, plebbit is 0
+    const upvoteCount = comment.commentUpdate.upvoteCount + 1; // reddit initial upvotes is 1, pkc is 0
     if (comment.commentUpdate.downvoteCount <= 0 || upvoteCount <= 0) return 0;
     const magnitude = upvoteCount + comment.commentUpdate.downvoteCount;
     const balance =

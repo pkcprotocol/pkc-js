@@ -44,7 +44,7 @@ describe.concurrent("getAvailablePKCConfigsToTestAgainst", () => {
                         expect(pkc.ipfsGatewayUrls).to.deep.equal(DEFAULT_IPFS_GATEWAYS);
                         expect(pkc.libp2pJsClientsOptions).to.be.undefined;
                         expect(pkc.dataPath).to.be.a("string");
-                        expect(pkc.dataPath).to.match(/\.plebbit$/);
+                        expect(pkc.dataPath).to.match(/\.pkc$/);
 
                         expect(Object.keys(pkc.clients.pkcRpcClients)).to.deep.equal([]);
                         expect(Object.keys(pkc.clients.kuboRpcClients)).to.deep.equal([DEFAULT_LOCAL_KUBO_RPC_URL]);

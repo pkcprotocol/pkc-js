@@ -28,7 +28,7 @@ import type { LocalCommunity } from "../../../dist/node/runtime/node/community/l
 import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 import type { SignerType } from "../../../dist/node/signer/types.js";
 
-type PublicationKey = "comment" | "vote" | "commentEdit" | "commentModeration" | "subplebbitEdit";
+type PublicationKey = "comment" | "vote" | "commentEdit" | "commentModeration" | "communityEdit";
 
 type PublicationWithSigner = Publication & {
     signer?: SignerType;
@@ -227,7 +227,7 @@ describeSkipIfRpc.sequential("LocalCommunity rejects incoming signed wire author
 
         await assertPublicationRejectsWireAuthorAddress({
             publication: communityEdit,
-            publicationKey: "subplebbitEdit",
+            publicationKey: "communityEdit",
             injectAuthorAddress: async (authorAddress) => {
                 await injectSignedAuthorAddressIntoCommunityEdit(communityEdit, authorAddress);
             }

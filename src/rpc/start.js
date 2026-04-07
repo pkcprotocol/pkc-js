@@ -1,3 +1,3 @@
-import Plebbit from "@plebbit/plebbit-js";
+import PKC from "@plebbit/plebbit-js";
 
-const plebbit = await Plebbit();
+const pkc = await PKC();

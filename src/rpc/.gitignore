@@ -6,9 +6,9 @@ karma-electron-preload.js
 # webpack bundles for karma browser tests
 test-karma-webpack
 
-# plebbit-js database files
-.plebbit
-.plebbit/
+# pkc-js database files
+.pkc
+.pkc/
 
 # build folder 
 dist/

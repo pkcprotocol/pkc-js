@@ -3,12 +3,12 @@
 // const loadingTime = 10;
 // export const simulateLoadingTime = () => new Promise((r) => setTimeout(r, loadingTime));
 
-// // keep a list of created and edited owner subplebbits
-// // to reinitialize them with plebbit.createCommunity()
+// // keep a list of created and edited owner communities
+// // to reinitialize them with pkc.createCommunity()
 // let createdOwnerCommunitys: any = {};
 // let editedOwnerCommunitys: any = {};
 
-// // reset the plebbit-js global state in between tests
+// // reset the pkc-js global state in between tests
 // export const resetPKCJsMock = () => {
 //     createdOwnerCommunitys = {};
 //     editedOwnerCommunitys = {};
@@ -32,13 +32,13 @@
 //             createCommunityOptions = {};
 //         }
 
-//         // no address provided so probably a user creating an owner subplebbit
+//         // no address provided so probably a user creating an owner community
 //         if (!createCommunityOptions.address && !createdOwnerCommunitys[createCommunityOptions.address]) {
-//             createCommunityOptions = { ...createCommunityOptions, address: "created subplebbit address" };
-//             // createdCommunityAddresses.push('created subplebbit address')
+//             createCommunityOptions = { ...createCommunityOptions, address: "created community address" };
+//             // createdCommunityAddresses.push('created community address')
 //             createdOwnerCommunitys[createCommunityOptions.address] = { ...createCommunityOptions };
 //         }
-//         // only address provided, so could be a previously created owner subplebbit
+//         // only address provided, so could be a previously created owner community
 //         // add props from previously created sub
 //         else if (
 //             createdOwnerCommunitys[createCommunityOptions.address] &&
@@ -51,7 +51,7 @@
 //             }
 //         }
 
-//         // add edited props if owner subplebbit was edited in the past
+//         // add edited props if owner community was edited in the past
 //         if (editedOwnerCommunitys[createCommunityOptions.address]) {
 //             for (const prop in editedOwnerCommunitys[createCommunityOptions.address]) {
 //                 if (editedOwnerCommunitys[createCommunityOptions.address][prop]) {
@@ -63,26 +63,26 @@
 //         return new Community(createCommunityOptions);
 //     }
 
-//     async getCommunity({address: subplebbitAddress}: { address: string }) {
+//     async getCommunity({address: communityAddress}: { address: string }) {
 //         await simulateLoadingTime();
 //         const createCommunityOptions = {
-//             address: subplebbitAddress
+//             address: communityAddress
 //         };
-//         const subplebbit: any = new Community(createCommunityOptions);
-//         subplebbit.title = subplebbit.address + " title";
-//         const hotPageCid = subplebbit.address + " page cid hot";
-//         subplebbit.posts.pages.hot = getCommentsPage(hotPageCid, subplebbit);
-//         subplebbit.posts.pageCids = {
+//         const community: any = new Community(createCommunityOptions);
+//         community.title = community.address + " title";
+//         const hotPageCid = community.address + " page cid hot";
+//         community.posts.pages.hot = getCommentsPage(hotPageCid, community);
+//         community.posts.pageCids = {
 //             hot: hotPageCid,
-//             topAll: subplebbit.address + " page cid topAll",
-//             new: subplebbit.address + " page cid new",
-//             active: subplebbit.address + " page cid active"
+//             topAll: community.address + " page cid topAll",
+//             new: community.address + " page cid new",
+//             active: community.address + " page cid active"
 //         };
-//         return subplebbit;
+//         return community;
 //     }
 
 //     async listCommunitys() {
-//         return ["list subplebbit address 1", "list subplebbit address 2", ...Object.keys(createdOwnerCommunitys)];
+//         return ["list community address 1", "list community address 2", ...Object.keys(createdOwnerCommunitys)];
 //     }
 
 //     async createComment(createCommentOptions: any) {
@@ -126,28 +126,28 @@
 //         if (cid?.startsWith("statscid")) {
 //             return JSON.stringify({ hourActiveUserCount: 1 });
 //         }
-//         throw Error(`plebbit.fetchCid not implemented in plebbit-js mock for cid '${cid}'`);
+//         throw Error(`pkc.fetchCid not implemented in pkc-js mock for cid '${cid}'`);
 //     }
 
-//     async pubsubSubscribe(subplebbitAddress: string) {}
-//     async pubsubUnsubscribe(subplebbitAddress: string) {}
+//     async pubsubSubscribe(communityAddress: string) {}
+//     async pubsubUnsubscribe(communityAddress: string) {}
 // }
 
 // export class Pages {
 //     pageCids: any = {};
 //     pages: any = {};
-//     subplebbit: any;
+//     community: any;
 //     comment: any;
 
 //     constructor(pagesOptions?: any) {
-//         Object.defineProperty(this, "subplebbit", { value: pagesOptions?.subplebbit, enumerable: false });
+//         Object.defineProperty(this, "community", { value: pagesOptions?.community, enumerable: false });
 //         Object.defineProperty(this, "comment", { value: pagesOptions?.comment, enumerable: false });
 //     }
 
 //     async getPage({cid: pageCid}: { cid: string }) {
 //         // need to wait twice otherwise react renders too fast and fetches too many pages in advance
 //         await simulateLoadingTime();
-//         return getCommentsPage(pageCid, this.subplebbit);
+//         return getCommentsPage(pageCid, this.community);
 //     }
 
 //     async _fetchAndVerifyPage(pageCid: string) {
@@ -177,9 +177,9 @@
 //         this.state = "stopped";
 //         this.updatingState = "stopped";
 
-//         this.posts = new Pages({ subplebbit: this });
+//         this.posts = new Pages({ community: this });
 
-//         // add subplebbit.posts from createCommunityOptions
+//         // add community.posts from createCommunityOptions
 //         if (createCommunityOptions?.posts?.pages) {
 //             this.posts.pages = createCommunityOptions?.posts?.pages;
 //         }
@@ -212,12 +212,12 @@
 //         this.updateCalledTimes++;
 //         if (this.updateCalledTimes > 1) {
 //             throw Error(
-//                 "with the current hooks, subplebbit.update() should be called maximum 1 times, this number might change if the hooks change and is only there to catch bugs, the real comment.update() can be called infinite times"
+//                 "with the current hooks, community.update() should be called maximum 1 times, this number might change if the hooks change and is only there to catch bugs, the real comment.update() can be called infinite times"
 //             );
 //         }
 //         // is ipnsName is known, look for updates and emit updates immediately after creation
 //         if (!this.address) {
-//             throw Error(`can't update without subplebbit.address`);
+//             throw Error(`can't update without community.address`);
 //         }
 //         // don't update twice
 //         if (this.updating) {
@@ -299,11 +299,11 @@
 
 //     async edit(editCommunityOptions: any) {
 //         if (!this.address || typeof this.address !== "string") {
-//             throw Error(`can't subplebbit.edit with no subplebbit.address`);
+//             throw Error(`can't community.edit with no community.address`);
 //         }
 //         const previousAddress = this.address;
 
-//         // do subplebbit.edit
+//         // do community.edit
 //         for (const prop in editCommunityOptions) {
 //             if (editCommunityOptions[prop]) {
 //                 // @ts-ignore
@@ -311,15 +311,15 @@
 //             }
 //         }
 
-//         // keep a list of edited subplebbits to reinitialize
-//         // them with plebbit.createCommunity()
+//         // keep a list of edited communities to reinitialize
+//         // them with pkc.createCommunity()
 //         editedOwnerCommunitys[this.address] = {
 //             address: this.address,
 //             title: this.title,
 //             description: this.description
 //         };
 
-//         // handle change of subplebbit.address
+//         // handle change of community.address
 //         if (editCommunityOptions.address) {
 //             // apply address change to editedOwnerCommunitys
 //             editedOwnerCommunitys[previousAddress] = {
@@ -341,10 +341,10 @@
 // // make roles enumarable so it acts like a regular prop
 // Object.defineProperty(Community.prototype, "roles", { enumerable: true });
 
-// // define it here because also used it plebbit.getCommunity({address: )
-// const getCommentsPage = (pageCid: string, subplebbit: any}) => {
+// // define it here because also used it pkc.getCommunity({address: )
+// const getCommentsPage = (pageCid: string, community: any}) => {
 //     const page: any = {
-//         nextCid: subplebbit.address + " " + pageCid + " - next page cid",
+//         nextCid: community.address + " " + pageCid + " - next page cid",
 //         comments: []
 //     };
 //     const postCount = 100;
@@ -353,7 +353,7 @@
 //         page.comments.push({
 //             timestamp: index,
 //             cid: pageCid + " comment cid " + index,
-//             subplebbitAddress: subplebbit.address,
+//             communityAddress: community.address,
 //             upvoteCount: index,
 //             downvoteCount: 10,
 //             author: {
@@ -441,7 +441,7 @@
 //     parentCid: string | undefined;
 //     replies: any;
 //     updatedAt: number | undefined;
-//     subplebbitAddress: string | undefined;
+//     communityAddress: string | undefined;
 //     override state: string;
 //     updatingState: string;
 //     override publishingState: string;
@@ -457,7 +457,7 @@
 //         this.timestamp = createCommentOptions?.timestamp;
 //         this.parentCid = createCommentOptions?.parentCid;
 //         this.replies = new Pages({ comment: this });
-//         this.subplebbitAddress = createCommentOptions?.subplebbitAddress;
+//         this.communityAddress = createCommentOptions?.communityAddress;
 //         this.state = "stopped";
 //         this.updatingState = "stopped";
 //         this.publishingState = "stopped";
@@ -473,7 +473,7 @@
 //                 author: this.author,
 //                 timestamp: this.timestamp,
 //                 parentCid: this.parentCid,
-//                 subplebbitAddress: this.subplebbitAddress
+//                 communityAddress: this.communityAddress
 //             }
 //         };
 //     }
@@ -519,14 +519,14 @@
 //     }
 
 //     async simulateFetchCommentIpfsUpdateEvent() {
-//         // use plebbit.getComment({cid: ) so mocking PKC.prototype.getComment works
+//         // use pkc.getComment({cid: ) so mocking PKC.prototype.getComment works
 //         const commentIpfs = await new PKC(}).getComment({cid: this.cid || ""});
 //         this.ipnsName = commentIpfs.ipnsName;
 //         this.content = commentIpfs.content;
 //         this.author = commentIpfs.author;
 //         this.timestamp = commentIpfs.timestamp;
 //         this.parentCid = commentIpfs.parentCid;
-//         this.subplebbitAddress = commentIpfs.subplebbitAddress;
+//         this.communityAddress = commentIpfs.communityAddress;
 
 //         // simulate the ipns update
 //         this.updatingState = "fetching-update-ipns";

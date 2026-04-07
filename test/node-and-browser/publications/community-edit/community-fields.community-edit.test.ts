@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 
 const SUB_EDIT_FIELDS = {
-    extraSignedPropertyNames: ["subplebbitEdit"],
+    extraSignedPropertyNames: ["communityEdit"],
     extraFields: { communityEdit: { description: "test edit" } }
 };
 
@@ -50,7 +50,7 @@ describe("CommunityEdit - community fields", () => {
         expect(subEdit.communityName).to.equal("myforum.eth");
         expectEagerSignedLocalPublication({
             publication: subEdit,
-            type: "subplebbitEdit",
+            type: "communityEdit",
             communityPublicKey: signers[0].address,
             communityName: "myforum.eth"
         });
@@ -68,7 +68,7 @@ describe("CommunityEdit - community fields", () => {
         expect(subEdit.communityName).to.be.undefined;
         expectEagerSignedLocalPublication({
             publication: subEdit,
-            type: "subplebbitEdit",
+            type: "communityEdit",
             communityPublicKey: signers[0].address
         });
     });

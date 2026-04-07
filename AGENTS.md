@@ -8,7 +8,7 @@ Instructions for AI agents working on this codebase. Rules are ranked by priorit
 |---|---|
 | Modifying `src/` | Run `npm run build`, ensure no errors |
 | Modifying `test/` | Run `npx tsc --project test/tsconfig.json --noEmit` |
-| Running tests | Use `node test/run-test-config.js --plebbit-config ${plebbit-config} ${testPath}` |
+| Running tests | Use `node test/run-test-config.js --pkc-config ${pkc-config} ${testPath}` |
 | Bug reported | Reproduce deterministically in a test case first |
 | Debugging CI failures | Check `test_server.log` and `test_node_${config}.stdout.log`/`.stderr.log` artifacts |
 
@@ -38,7 +38,7 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 
 ### Testing
 
-- Run every automated test suite through `node test/run-test-config.js --plebbit-config ${plebbit-config} ${testPath}` so our Vitest setup enforces bail/allowOnly/timeouts automatically. Choose plebbit-config based on test location: `test/node` → `"local-kubo-rpc,remote-pkc-rpc"`, `test/node-and-browser` → `"remote-kubo-rpc,remote-pkc-rpc"`.
+- Run every automated test suite through `node test/run-test-config.js --pkc-config ${pkc-config} ${testPath}` so our Vitest setup enforces bail/allowOnly/timeouts automatically. Choose pkc-config based on test location: `test/node` → `"local-kubo-rpc,remote-pkc-rpc"`, `test/node-and-browser` → `"remote-kubo-rpc,remote-pkc-rpc"`.
 - Test files MUST be written in TypeScript (`.test.ts`). The test runner will type-check all TypeScript test files before running them.
 - Tests that use `LocalSubplebbit` or other Node-only types MUST be placed under `test/node/`, not `test/node-and-browser/`.
 - Do not include `this.timeout` in tests — it is not supported by vitest.

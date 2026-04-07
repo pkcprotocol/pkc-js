@@ -245,7 +245,7 @@ describeSkipIfRpc("verify Comment", async () => {
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
 
-    it(`Valid Comment fixture from previous plebbit-js version is validated correctly`, async () => {
+    it(`Valid Comment fixture from previous pkc-js version is validated correctly`, async () => {
         const comment = remeda.clone(validCommentFixture) as CommentIpfsType;
 
         const verification = await verifyCommentIpfs({
@@ -535,7 +535,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
         expect(verification).to.deep.equal({ valid: true });
     });
 
-    it(`CommentUpdate from previous plebbit-js versions can be verified`, async () => {
+    it(`CommentUpdate from previous pkc-js versions can be verified`, async () => {
         const update = remeda.clone(validCommentUpdateFixture) as CommentUpdateType;
         const commentForVerify: Pick<CommentIpfsWithCidPostCidDefined, "signature" | "postCid" | "depth" | "cid"> = {
             cid: update.cid,

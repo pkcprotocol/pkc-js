@@ -134,7 +134,7 @@ export async function buildSignedPubsubMessage(opts: {
     });
 }
 
-type PublicationTypeKey = "comment" | "vote" | "commentEdit" | "commentModeration" | "subplebbitEdit";
+type PublicationTypeKey = "comment" | "vote" | "commentEdit" | "commentModeration" | "communityEdit";
 
 type LocalPublicationLike = {
     raw: object;

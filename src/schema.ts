@@ -81,7 +81,7 @@ export const PKCUserOptionBaseSchema = z.object({
         .array()
         .max(1, "Only one libp2pJsClientOptions is allowed at the moment")
         .optional(),
-    validatePages: z.boolean(), // if false, plebbit-js will not validate pages in commentUpdate/Community/getPage
+    validatePages: z.boolean(), // if false, pkc-js will not validate pages in commentUpdate/Community/getPage
     userAgent: UserAgentSchema,
     // Options for tests only. Should not be used in production
     publishInterval: z.number().positive(), // in ms, the time to wait for community instances to publish updates. Default is 20s

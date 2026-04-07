@@ -1513,7 +1513,7 @@ const createPKCWsServer = async (options: CreatePKCWsServerOptions) => {
 
 const PKCRpc = {
     PKCWsServer: createPKCWsServer,
-    // for mocking plebbit-js during tests
+    // for mocking pkc-js during tests
     setPKCJs
 };
 

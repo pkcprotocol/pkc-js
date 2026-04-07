@@ -520,6 +520,7 @@ After renaming directories and files, update ALL import statements across the co
 - [x] `ChallengeExcludeSubplebbitSchema` → `ChallengeExcludeCommunitySchema`
 - [x] `ChallengeExcludeSchema` field: `subplebbit` → `community` (the field name referencing `ChallengeExcludeCommunitySchema`)
 - [x] `ChallengeExcludePublicationTypeSchema` field: `subplebbitEdit` → `communityEdit`
+- [x] `DecryptedChallengeRequestPublicationSchema` field: `subplebbitEdit` → `communityEdit` (pubsub wire format — done in Phase 18 cleanup)
 - [x] `RpcRemoteSubplebbitUpdateEventResultSchema` → `RpcRemoteCommunityUpdateEventResultSchema`
 - [x] **Remove** `address` from `SubplebbitIpfsSchema` — instance-only, computed as `name || publicKey` (see [proposal](./NAMES_AND_PUBLIC_KEY_PROPOSAL.md#1-add-name-field-to-subplebbitipfs))
 - [x] Use `.loose()` on `SubplebbitIpfsSchema` to accept old records that include `address` field (do NOT use `.strip()` — stripping can remove fields referenced in `signedPropertyNames` and corrupt signature verification)
@@ -1137,6 +1138,58 @@ Update all documentation files:
 
 ---
 
+## Phase 18: Full plebbit/subplebbit Keyword Cleanup
+
+Full sweep of all remaining `plebbit` and `subplebbit` keywords in `src/` and `test/` that were missed in earlier phases.
+
+### 18.1 Wire Format: `subplebbitEdit` → `communityEdit`
+- [x] `DecryptedChallengeRequestPublicationSchema` field: `subplebbitEdit` → `communityEdit` (src/pubsub-messages/schema.ts)
+- [x] `DecryptedChallengeRequestMessageTypeWithCommunityAuthor` interface: `subplebbitEdit` → `communityEdit` (src/pubsub-messages/types.ts)
+- [x] `CommunityEdit.getType()` return value: `"subplebbitEdit"` → `"communityEdit"` (src/publications/community-edit/community-edit.ts)
+- [x] RPC method mapping key: `subplebbitEdit` → `communityEdit` (src/publications/publication.ts)
+- [x] All `request.subplebbitEdit` → `request.communityEdit` in local-community.ts, rate-limiter.ts, utils.ts
+- [x] All test files updated: type unions, variable names, property accesses
+
+### 18.2 Comments & String Literals in src/
+- [x] `plebbit is 0` → `pkc is 0` in upvote comments (src/pages/util.ts)
+- [x] `subplebbit author` → `community author` in schema comments (src/pubsub-messages/schema.ts)
+- [x] `plebbit-js` → `pkc-js` in code comments (src/schema.ts, src/rpc/src/index.ts, src/rpc/src/lib/pkc-js/index.ts)
+- [x] `plebbit.destroy()` → `pkc.destroy()` in error message (src/runtime/node/test/helpers/hanging-runner.ts)
+
+### 18.3 Dead/Commented-Out Code
+- [x] Updated all `subplebbit`/`plebbit` references in commented-out mock code (src/rpc/src/lib/pkc-js/pkc-js-mock.ts)
+- [x] `import Plebbit` → `import PKC`, `const plebbit` → `const pkc` (src/rpc/start.js)
+- [x] `.plebbit` → `.pkc` in src/rpc/.gitignore
+
+### 18.4 Test Configuration
+- [x] `PLEBBIT_CONFIGS` → `PKC_CONFIGS` env var (test/run-test-config.js, src/test/test-util.ts, src/runtime/node/test/helpers/hanging-runner.ts, src/runtime/node/test/helpers/run-hanging-node.ts)
+- [x] `--plebbit-config` → `--pkc-config` CLI flag (test/run-test-config.js, AGENTS.md)
+- [x] Data dirs: `.plebbit*` → `.pkc*` (test/server/test-server.js, test/server/pkc-ws-server.js)
+
+### 18.5 Test Server Infrastructure
+- [x] Import renames: `startSubplebbits` → `startCommunities`, `mockPlebbitNoDataPathWithOnlyKuboClient` → `mockPKCNoDataPathWithOnlyKuboClient`, `mockRpcServerPlebbit` → `mockRpcServerPKC` (test/server/test-server.js, test/server/pkc-ws-server.js)
+- [x] Variable renames: `plebbit` → `pkc`, `fetchLatestSubplebbit` → `fetchLatestCommunity`, `subplebbitRecord*` → `communityRecord*`, `plebbitWebSocketServer` → `pkcWebSocketServer`, etc.
+- [x] `sub.raw.subplebbitIpfs` → `sub.raw.communityIpfs` (property was already renamed in src/)
+- [x] `plebbit.getSubplebbit()` → `pkc.getCommunity()` (test/server/test-server.js)
+- [x] `startPlebbitWebSocketServers` → `startPKCWebSocketServers` (test/server/pkc-ws-server.js)
+
+### 18.6 Test File Descriptions & Variables
+- [x] `plebbit-js` → `pkc-js` in test descriptions (signatures/pages.test.ts, signatures/comment.test.ts)
+- [x] `subplebbitToSign` → `communityToSign` (signatures/community.test.ts)
+- [x] `\.plebbit` → `\.pkc` regex (test.configs.pkc.test.ts)
+- [x] `subplebbit owner` → `community owner` in challenge fixture comments (erc20-payment/index.js)
+
+### 18.7 Items Intentionally Kept
+- `subplebbitAddress` backward-compat code (publication-community.ts, db-handler.ts, pkc.ts, errors.ts)
+- `@plebbit/plebbit-js` and `@plebbit/proper-lockfile` npm package names
+- `plebbit.eth` / `plebbit.bso` test domain names
+- GitHub URLs pointing to `plebbit/plebbit-js` repo
+- Logger mapping tuples in `src/logger.ts`
+- JSON fixture file contents (wire-format backward-compat data)
+- Comments documenting backward-compat behavior with old field names
+
+---
+
 ## Notes
 
 - Always run `npm run build` after each major phase to catch errors early
@@ -1209,7 +1262,7 @@ Use this section to track overall progress:
 | Phase 9: RPC Methods | [ ] Not Started | |
 | Phase 10: Errors & Logging | [~] Partially Done | Logger namespace normalization complete (`src/logger.ts` runtime mapping); error codes renamed (Phase 10.2 done) |
 | Phase 11: Signer Functions | [~] Partially Done | Phase 11.1 signer function renames done |
-| Phase 12: Test Files | [~] Partially Done | File renames done (as part of Phase 3-5); content updates pending |
+| Phase 12: Test Files | [~] Partially Done | File renames done (as part of Phase 3-5); content updates partially done in Phase 18 |
 | Phase 13: DNS & Protocol | [~] Partially Done | DNS TXT lookups + cache logic removed from core; migration docs not done |
 | Phase 14: Data Migration | [ ] Not Started | |
 | Phase 14.3: DB Schema Migration | [x] Done | Completed as Phase 1B Step 3 |
@@ -1217,6 +1270,7 @@ Use this section to track overall progress:
 | Phase 15: Documentation | [ ] Not Started | |
 | Phase 16: GitHub & CI/CD | [ ] Not Started | |
 | Phase 17: Build & Verify | [ ] Not Started | |
+| Phase 18: Keyword Cleanup | [x] Done | Full sweep of remaining plebbit/subplebbit in src/ and test/; wire format `subplebbitEdit` → `communityEdit`; env var, test infra, comments, dead code |
 
 ---
 

@@ -48,12 +48,12 @@ export type DecryptedChallengeRequest = z.infer<typeof DecryptedChallengeRequest
 export type DecryptedChallengeRequestMessageType = DecryptedChallengeRequest & ChallengeRequestMessageType;
 
 export interface DecryptedChallengeRequestMessageTypeWithCommunityAuthor
-    extends Omit<DecryptedChallengeRequestMessageType, "comment" | "vote" | "commentEdit" | "commentModeration" | "subplebbitEdit"> {
+    extends Omit<DecryptedChallengeRequestMessageType, "comment" | "vote" | "commentEdit" | "commentModeration" | "communityEdit"> {
     vote?: VotePubsubMessageWithCommunityAuthor;
     comment?: CommentPubsubMessageWithCommunityAuthor;
     commentEdit?: CommentEditPubsubMessagePublicationWithCommunityAuthor;
     commentModeration?: CommentModerationPubsubMessagePublicationWithCommunityAuthor;
-    subplebbitEdit?: CommunityEditPublicationPubsubMessageWithCommunityAuthor;
+    communityEdit?: CommunityEditPublicationPubsubMessageWithCommunityAuthor;
 }
 
 export type PublicationFromDecryptedChallengeRequest = NonNullable<

@@ -1,6 +1,6 @@
-// to pass this challenge, the author must send some ERC20 to the subplebbit owner
-// the subplebbit owner must monitor the total sent by each sender to his address
-// when an author publishes a post/reply/vote the subplebbit owner deducts from the
+// to pass this challenge, the author must send some ERC20 to the community owner
+// the community owner must monitor the total sent by each sender to his address
+// when an author publishes a post/reply/vote the community owner deducts from the
 // total sent by the sender and allows the publication
 
 const optionInputs = [

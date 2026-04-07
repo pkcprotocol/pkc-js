@@ -144,7 +144,7 @@ const getRateLimitersToAddTo = (
         if (request.commentModeration) {
             addFilteredRateLimiter(exclude, publication, "commentModeration", challengeSuccess, filteredRateLimiters);
         }
-        if (request.subplebbitEdit) {
+        if (request.communityEdit) {
             addFilteredRateLimiter(exclude, publication, "communityEdit", challengeSuccess, filteredRateLimiters);
         }
     }

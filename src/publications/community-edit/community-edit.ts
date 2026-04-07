@@ -69,7 +69,7 @@ class CommunityEdit extends Publication implements CommunityEditPubsubMessagePub
     }
 
     override getType(): PublicationTypeName {
-        return "subplebbitEdit";
+        return "communityEdit";
     }
 
     protected override async _validateSignatureHook() {

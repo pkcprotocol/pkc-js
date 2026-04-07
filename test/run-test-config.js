@@ -231,43 +231,43 @@ if (!env.GITHUB_ACTIONS && env.DEBUG_COLORS === undefined) {
     env.DEBUG_COLORS = "1";
 }
 
-let plebbitConfigs = getLastOption(options, "plebbit-config");
-if (typeof plebbitConfigs === "string") {
-    plebbitConfigs = plebbitConfigs.trim();
-    if (plebbitConfigs.length === 0) {
-        plebbitConfigs = undefined;
+let pkcConfigs = getLastOption(options, "pkc-config");
+if (typeof pkcConfigs === "string") {
+    pkcConfigs = pkcConfigs.trim();
+    if (pkcConfigs.length === 0) {
+        pkcConfigs = undefined;
     }
 }
 
-if (!plebbitConfigs) {
-    const envConfigs = env.PLEBBIT_CONFIGS ? env.PLEBBIT_CONFIGS.trim() : "";
-    plebbitConfigs = envConfigs.length > 0 ? envConfigs : undefined;
+if (!pkcConfigs) {
+    const envConfigs = env.PKC_CONFIGS ? env.PKC_CONFIGS.trim() : "";
+    pkcConfigs = envConfigs.length > 0 ? envConfigs : undefined;
 }
 
-if (!plebbitConfigs && !isNodeEnvironment) {
+if (!pkcConfigs && !isNodeEnvironment) {
     console.error("========================================");
-    console.error("ERROR: No --plebbit-config argument provided!");
-    console.error("Usage: node test/run-test-config.js --plebbit-config <config1,config2,...> --environment <node|chrome|firefox>");
+    console.error("ERROR: No --pkc-config argument provided!");
+    console.error("Usage: node test/run-test-config.js --pkc-config <config1,config2,...> --environment <node|chrome|firefox>");
     console.error("========================================");
     process.exit(1);
 }
 
-if (plebbitConfigs) {
-    env.PLEBBIT_CONFIGS = plebbitConfigs;
-    if (plebbitConfigs.includes("remote-pkc-rpc")) {
+if (pkcConfigs) {
+    env.PKC_CONFIGS = pkcConfigs;
+    if (pkcConfigs.includes("remote-pkc-rpc")) {
         env.USE_RPC = "1";
     }
 } else {
-    delete env.PLEBBIT_CONFIGS;
+    delete env.PKC_CONFIGS;
 }
 
 // Print the configs before running any tests
 console.log("========================================");
-if (plebbitConfigs) {
-    console.log("PLEBBIT_CONFIGS set to:", plebbitConfigs);
-    console.log("Configs array:", plebbitConfigs.split(","));
+if (pkcConfigs) {
+    console.log("PKC_CONFIGS set to:", pkcConfigs);
+    console.log("Configs array:", pkcConfigs.split(","));
 } else {
-    console.log("PLEBBIT_CONFIGS not provided; continuing without overriding configs.");
+    console.log("PKC_CONFIGS not provided; continuing without overriding configs.");
 }
 console.log("========================================");
 
@@ -534,7 +534,7 @@ const runBrowserTests = () => {
     console.log(`Vitest binary: ${vitestBin}`);
     console.log(`Vitest config: ${vitestConfigPath}`);
     console.log(`Vitest args: ${vitestArgs.join(" ")}`);
-    console.log(`Environment variables: PLEBBIT_CONFIGS=${env.PLEBBIT_CONFIGS}, VITEST_BROWSER=${env.VITEST_BROWSER}`);
+    console.log(`Environment variables: PKC_CONFIGS=${env.PKC_CONFIGS}, VITEST_BROWSER=${env.VITEST_BROWSER}`);
 
     const vitestProcess = spawn(vitestBin, vitestArgs, {
         stdio: "inherit",
