@@ -4,20 +4,20 @@ import PKCWsServer from "../../dist/node/rpc/src/index.js";
 import { mockRpcServerPKC, mockRpcServerForTests } from "../../dist/node/test/test-util.js";
 
 const startPKCWebSocketServers = async ({ rpcPort = 39652, rpcAuthKey = "123456" } = {}) => {
-    const pkcWebSocketServer = await PKCWsServer.PlebbitWsServer({ port: rpcPort, authKey: rpcAuthKey });
+    const pkcWebSocketServer = await PKCWsServer.PKCWsServer({ port: rpcPort, authKey: rpcAuthKey });
 
-    pkcWebSocketServer._initPlebbit(await mockRpcServerPKC({ dataPath: path.join(process.cwd(), ".pkc-rpc-server") }));
-    pkcWebSocketServer._createPlebbitInstanceFromSetSettings = async (newOptions) =>
+    pkcWebSocketServer._initPKC(await mockRpcServerPKC({ dataPath: path.join(process.cwd(), ".pkc-rpc-server") }));
+    pkcWebSocketServer._createPKCInstanceFromSetSettings = async (newOptions) =>
         mockRpcServerPKC({ dataPath: path.join(process.cwd(), ".pkc-rpc-server"), ...newOptions });
     mockRpcServerForTests(pkcWebSocketServer);
 
     const remotePort = rpcPort + 1;
-    const pkcWebSocketRemoteServer = await PKCWsServer.PlebbitWsServer({
+    const pkcWebSocketRemoteServer = await PKCWsServer.PKCWsServer({
         port: remotePort,
         authKey: rpcAuthKey
     });
-    pkcWebSocketRemoteServer._initPlebbit(await mockRpcServerPKC({ dataPath: path.join(process.cwd(), ".pkc-rpc-server-remote") }));
-    pkcWebSocketRemoteServer._createPlebbitInstanceFromSetSettings = async (newOptions) =>
+    pkcWebSocketRemoteServer._initPKC(await mockRpcServerPKC({ dataPath: path.join(process.cwd(), ".pkc-rpc-server-remote") }));
+    pkcWebSocketRemoteServer._createPKCInstanceFromSetSettings = async (newOptions) =>
         mockRpcServerPKC({ dataPath: path.join(process.cwd(), ".pkc-rpc-server"), ...newOptions });
 
     mockRpcServerForTests(pkcWebSocketRemoteServer);
