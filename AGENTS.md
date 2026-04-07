@@ -89,7 +89,7 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 
 - When debugging CI failures, check `test_server.log` for subplebbit logs and `test_node_${config}.stdout.log`/`test_node_${config}.stderr.log` artifacts for client logs (where config is e.g. `remote-kubo-rpc`).
 - To capture stdout/stderr from `run-test-config.js` to log files, use `--stdout-log <path>` and `--stderr-log <path>`, or use `--log-prefix <prefix>` to automatically create `<prefix>.stdout.log` and `<prefix>.stderr.log`. DEBUG output (from the `debug` module) goes to stderr.
-- To troubleshoot or debug anything related to a local subplebbit, run sqlite queries against its database at `${plebbitDataPath}/subplebbits/${subplebbitAddress}`.
+- To troubleshoot or debug anything related to a local community, run sqlite queries against its database at `${dataPath}/communities/${communityAddress}`.
 - When a test times out, capture both stdout and stderr (e.g. `--stdout-log /tmp/out.log --stderr-log /tmp/err.log` or `DEBUG="pkc-js*,pkc-react-hooks*"`) and inspect them — timeouts usually indicate an uncaught error that isn't surfaced in the default output.
 - `FailedToFetchSubplebbitFromGatewaysError: Failed to fetch Subplebbit IPNS record from gateway` is a generic wrapper error — the message alone does not explain the root cause. Always inspect the error's `details` field and any nested/inner errors to find the actual failure reason.
 

@@ -1041,9 +1041,9 @@ Remove hardcoded DNS TXT record lookups from pkc-js core. The `"bitsocial"` TXT 
 Not applicable — the evm-contract-call challenge is being extracted to `@bitsocial/challenge-evm-contract` (see Phase 1). The domain separator rename is that package's responsibility.
 
 ### 13.3 Migration TODO
-- [ ] **IMPORTANT:** Need to migrate existing DNS TXT records from old names (`subplebbit-address`, `plebbit-author-address`) to single `bitsocial` record — this is documented by `@bitsocial/bso-resolver`, not pkc-js
-- [ ] Document migration process for users with existing records
-- [ ] Resolver plugins (e.g., `@bitsocial/bso-resolver`) may choose to support both old and new record names during transition period
+- [x] **IMPORTANT:** Need to migrate existing DNS TXT records from old names (`subplebbit-address`, `plebbit-author-address`) to single `bitsocial` record — this is documented by `@bitsocial/bso-resolver`, not pkc-js
+- [x] Document migration process for users with existing records — documented in `docs/ens.md` (migration section)
+- [x] Resolver plugins (e.g., `@bitsocial/bso-resolver`) may choose to support both old and new record names during transition period — noted in `docs/ens.md`; backward compat is a resolver-level decision
 
 ### 13.4 Storage Cache Keys
 Domain resolution cache keys are removed from pkc-js core (resolution moves to external resolvers):
@@ -1054,15 +1054,15 @@ Domain resolution cache keys are removed from pkc-js core (resolution moves to e
 ## Phase 14: Data Migration Code
 
 ### 14.1 Storage Path Migration
-- [ ] Change default `dataPath` from `~/.plebbit/` to `~/.pkc/` in pkc-js
-- [ ] Document that `subplebbits/` → `communities/` directory rename is needed
-- [ ] Document that `.plebbit/` → `.pkc/` directory rename is needed
-- [ ] Note: Actual migration of existing directories should be implemented in plebbit-cli and desktop apps, NOT in pkc-js
-- [ ] Create migration documentation for downstream applications
+- [x] Change default `dataPath` from `~/.plebbit/` to `~/.pkc/` in pkc-js — `getDefaultDataPath()` in `src/runtime/node/util.ts` returns `.pkc`
+- [x] Document that `subplebbits/` → `communities/` directory rename is needed — documented in `docs/protocol/data-path-migration.md`
+- [x] Document that `.plebbit/` → `.pkc/` directory rename is needed — documented in `docs/protocol/data-path-migration.md`
+- [x] Note: Actual migration of existing directories should be implemented in plebbit-cli and desktop apps, NOT in pkc-js
+- [x] Create migration documentation for downstream applications — `docs/protocol/data-path-migration.md`
 
 ### 14.2 DNS Record Migration
-- [ ] Document process for migrating DNS TXT records
-- [ ] Consider adding temporary support for both old and new record names
+- [x] Document process for migrating DNS TXT records — documented in `docs/ens.md`
+- [x] Consider adding temporary support for both old and new record names — this is a resolver-level concern (noted in `docs/ens.md`); pkc-js core does not perform DNS lookups
 
 ### 14.3 Database Schema Migration
 *Completed as Phase 1B Step 3 — see that section for details.*
@@ -1264,10 +1264,10 @@ Use this section to track overall progress:
 | Phase 10: Errors & Logging | [~] Partially Done | Logger namespace normalization complete (`src/logger.ts` runtime mapping); error codes renamed (Phase 10.2 done) |
 | Phase 11: Signer Functions | [~] Partially Done | Phase 11.1 signer function renames done |
 | Phase 12: Test Files | [~] Partially Done | File renames done (as part of Phase 3-5); content updates partially done in Phase 18 |
-| Phase 13: DNS & Protocol | [~] Partially Done | DNS TXT lookups + cache logic removed from core; migration docs not done |
-| Phase 14: Data Migration | [ ] Not Started | |
+| Phase 13: DNS & Protocol | [x] Done | DNS TXT lookups + cache logic removed from core; migration documented in `docs/ens.md` |
+| Phase 14: Data Migration | [x] Done | 14.1 code done + migration guide in `docs/protocol/data-path-migration.md`; 14.2 documented in `docs/ens.md`; 14.3 done in Phase 1B Step 3; 14.4 out of scope for pkc-js |
 | Phase 14.3: DB Schema Migration | [x] Done | Completed as Phase 1B Step 3 |
-| Phase 14.4: External Apps | [ ] Not Started | plebbit-cli, desktop apps |
+| Phase 14.4: External Apps | [~] Out of Scope | plebbit-cli, desktop apps — see `docs/protocol/data-path-migration.md` |
 | Phase 15: Documentation | [ ] Not Started | |
 | Phase 16: GitHub & CI/CD | [ ] Not Started | |
 | Phase 17: Build & Verify | [ ] Not Started | |

@@ -50,7 +50,7 @@ The `SubplebbitIpfs` record is what gets published to IPNS. It's the community's
 
 ## LocalSubplebbit Internals
 
-- **Database**: SQLite at `${plebbitDataPath}/subplebbits/${address}`
+- **Database**: SQLite at `${dataPath}/communities/${address}`
 - **Tables**: `comments`, `commentUpdates`, `commentEdits`, `posts`, `subplebbits` (internal state)
 - **IPNS Publishing**: Periodically publishes updated `SubplebbitIpfs` to IPNS
 - **Challenge Processing**: Receives encrypted challenge requests from pubsub, processes them
