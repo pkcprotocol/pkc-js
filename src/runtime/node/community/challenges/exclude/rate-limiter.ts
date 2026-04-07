@@ -17,7 +17,7 @@ const { RateLimiter } = limiterCompat as any;
 type RateLimiterInstance = InstanceType<typeof RateLimiter>;
 
 type PublicationType = "post" | "reply" | "vote" | "commentEdit" | "commentModeration" | "communityEdit";
-// each author could have 20+ rate limiters each if the sub has
+// each author could have 20+ rate limiters each if the community has
 // several rate limit rules so keep a large cache
 const rateLimiters = new QuickLRU<string, RateLimiterInstance>({ maxSize: 50000 });
 

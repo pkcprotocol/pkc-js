@@ -43,7 +43,7 @@ const commentModerationPickOptions = <Record<(typeof CommentModerationSignedProp
     remeda.mapToObj([...CommentModerationSignedPropertyNames, "signature"], (x) => [x, true])
 );
 
-// Will be used by the sub when parsing request.publication
+// Will be used by the community when parsing request.publication
 export const CommentModerationPubsubMessagePublicationSchema = CreateCommentModerationOptionsSchema.merge(PublicationBaseBeforeSigning)
     .extend({
         signature: JsonSignatureSchema,

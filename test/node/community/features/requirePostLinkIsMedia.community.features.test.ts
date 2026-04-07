@@ -37,15 +37,15 @@ describe.concurrent(`community.features.requirePostLinkIsMedia (with requirePost
 
         expect(community.features?.requirePostLinkIsMedia).to.be.true;
         expect(community.features?.requirePostLink).to.be.true;
-        const remoteSub = await remotePKC.getCommunity({ address: community.address });
-        await remoteSub.update();
+        const remoteCommunity = await remotePKC.getCommunity({ address: community.address });
+        await remoteCommunity.update();
         await resolveWhenConditionIsTrue({
-            toUpdate: remoteSub,
-            predicate: async () => remoteSub.features?.requirePostLinkIsMedia === true
+            toUpdate: remoteCommunity,
+            predicate: async () => remoteCommunity.features?.requirePostLinkIsMedia === true
         });
-        expect(remoteSub.features?.requirePostLinkIsMedia).to.be.true;
-        expect(remoteSub.features?.requirePostLink).to.be.true;
-        await remoteSub.stop();
+        expect(remoteCommunity.features?.requirePostLinkIsMedia).to.be.true;
+        expect(remoteCommunity.features?.requirePostLink).to.be.true;
+        await remoteCommunity.stop();
     });
 
     it(`Can't publish a post with invalid link`, async () => {

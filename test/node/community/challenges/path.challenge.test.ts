@@ -50,10 +50,10 @@ describeSkipIfRpc.concurrent(`community.settings.challenges with path`, async ()
         await community.start();
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
-        const remoteSub = (await remotePKC.getCommunity({ address: community.address })) as RemoteCommunity;
+        const remoteCommunity = (await remotePKC.getCommunity({ address: community.address })) as RemoteCommunity;
 
-        expect(community.updatedAt).to.equal(remoteSub.updatedAt);
-        for (const _community of [community, remoteSub]) {
+        expect(community.updatedAt).to.equal(remoteCommunity.updatedAt);
+        for (const _community of [community, remoteCommunity]) {
             expect(_community.challenges![0].challenge).to.equal("What is 2+2?");
             expect(_community.challenges![0].description).to.equal("Ask a question, like 'What is the password?'");
             expect(_community.challenges![0].exclude).to.be.undefined;
@@ -143,9 +143,9 @@ describeSkipIfRpc.concurrent(`community.settings.challenges with path`, async ()
         await community.start();
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
-        const remoteSub = (await remotePKC.getCommunity({ address: community.address })) as RemoteCommunity;
+        const remoteCommunity = (await remotePKC.getCommunity({ address: community.address })) as RemoteCommunity;
 
-        for (const _community of [community, remoteSub]) {
+        for (const _community of [community, remoteCommunity]) {
             expect(_community.challenges).to.have.length(2);
             expect(_community.challenges![0].challenge).to.equal("What is 3+3?");
             expect(_community.challenges![1].challenge).to.equal("What is 4+4?");

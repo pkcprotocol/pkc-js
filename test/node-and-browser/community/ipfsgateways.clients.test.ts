@@ -31,73 +31,73 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         });
 
         it(`Correct order of ipfsGateways state when updating a community that was created with pkc.createCommunity({address})`, async () => {
-            const sub = await gatewayPKC.createCommunity({ address: signers[0].address });
+            const community = await gatewayPKC.createCommunity({ address: signers[0].address });
 
             const expectedStates = ["fetching-ipns", "stopped"];
 
             const actualStates: string[] = [];
 
-            const gatewayUrl = Object.keys(sub.clients.ipfsGateways)[0];
+            const gatewayUrl = Object.keys(community.clients.ipfsGateways)[0];
 
-            sub.clients.ipfsGateways[gatewayUrl].on("statechange", (newState: string) => actualStates.push(newState));
+            community.clients.ipfsGateways[gatewayUrl].on("statechange", (newState: string) => actualStates.push(newState));
 
-            await sub.update();
-            await new Promise((resolve) => sub.once("update", resolve));
-            await sub.stop();
+            await community.update();
+            await new Promise((resolve) => community.once("update", resolve));
+            await community.stop();
 
             expect(actualStates).to.deep.equal(expectedStates);
         });
 
         it(`Correct order of ipfsGateways state when updating a community that was created with pkc.getCommunity({address: address})`, async () => {
-            const sub = await gatewayPKC.getCommunity({ address: signers[0].address });
-            await publishRandomPost({ communityAddress: sub.address, pkc: gatewayPKC });
+            const community = await gatewayPKC.getCommunity({ address: signers[0].address });
+            await publishRandomPost({ communityAddress: community.address, pkc: gatewayPKC });
 
             const expectedStates = ["fetching-ipns", "stopped"];
 
             const actualStates: string[] = [];
 
-            const gatewayUrl = Object.keys(sub.clients.ipfsGateways)[0];
+            const gatewayUrl = Object.keys(community.clients.ipfsGateways)[0];
 
-            sub.clients.ipfsGateways[gatewayUrl].on("statechange", (newState: string) => actualStates.push(newState));
+            community.clients.ipfsGateways[gatewayUrl].on("statechange", (newState: string) => actualStates.push(newState));
 
-            const updatePromise = new Promise((resolve) => sub.once("update", resolve));
-            await sub.update();
+            const updatePromise = new Promise((resolve) => community.once("update", resolve));
+            await community.update();
             await updatePromise;
-            await sub.stop();
+            await community.stop();
 
             expect(actualStates).to.deep.equal(expectedStates);
         });
 
         it(`Correct order of ipfs gateway state when we update a community and it's not publishing new community records`, async () => {
             const { commentCid, communityAddress: communityAddress } = await createStaticCommunityRecordForComment();
-            // subAddress is static and won't be publishing new updates
+            // communityAddress is static and won't be publishing new updates
 
-            const sub = await gatewayPKC.createCommunity({ address: communityAddress });
-            expect(sub.updatedAt).to.be.undefined; // should not get an update yet
+            const community = await gatewayPKC.createCommunity({ address: communityAddress });
+            expect(community.updatedAt).to.be.undefined; // should not get an update yet
 
             let updateCount = 0;
-            sub.on("update", () => updateCount++);
+            community.on("update", () => updateCount++);
             let waitingRetryCount = 0;
-            sub.on("updatingstatechange", (newState: string) => newState === "waiting-retry" && waitingRetryCount++);
+            community.on("updatingstatechange", (newState: string) => newState === "waiting-retry" && waitingRetryCount++);
 
             const recordedStates: string[] = [];
-            const gatewayUrl = Object.keys(sub.clients.ipfsGateways)[0];
-            sub.clients.ipfsGateways[gatewayUrl].on("statechange", (newState: string) => recordedStates.push(newState));
+            const gatewayUrl = Object.keys(community.clients.ipfsGateways)[0];
+            community.clients.ipfsGateways[gatewayUrl].on("statechange", (newState: string) => recordedStates.push(newState));
 
             // now gatewayPKC._updatingCommunities will be defined
 
-            const updatePromise = new Promise((resolve) => sub.once("update", resolve));
-            await sub.update();
+            const updatePromise = new Promise((resolve) => community.once("update", resolve));
+            await community.update();
             await updatePromise;
 
             const expectedWaitingRetryCount = 3;
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => waitingRetryCount === expectedWaitingRetryCount,
                 eventName: "updatingstatechange"
             });
 
-            await sub.stop();
+            await community.stop();
 
             expect(updateCount).to.equal(1); // only one update cause we're not publishing anymore
             expect(waitingRetryCount).to.equal(expectedWaitingRetryCount);
@@ -113,37 +113,37 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             const { commentCid, communityAddress: communityAddress } = await createStaticCommunityRecordForComment({
                 invalidateCommunitySignature: true
             });
-            // subAddress is static and is already published an invalid record
+            // communityAddress is static and is already published an invalid record
 
-            const sub = await gatewayPKC.createCommunity({ address: communityAddress });
-            expect(sub.updatedAt).to.be.undefined;
+            const community = await gatewayPKC.createCommunity({ address: communityAddress });
+            expect(community.updatedAt).to.be.undefined;
 
             let updateCount = 0;
-            sub.on("update", () => updateCount++);
+            community.on("update", () => updateCount++);
 
             let waitingRetryCount = 0;
-            sub.on("updatingstatechange", (newState: string) => newState === "waiting-retry" && waitingRetryCount++);
+            community.on("updatingstatechange", (newState: string) => newState === "waiting-retry" && waitingRetryCount++);
 
             const emittedErrors: PKCError[] = [];
-            sub.on("error", (error: PKCError | Error) => {
+            community.on("error", (error: PKCError | Error) => {
                 emittedErrors.push(error as PKCError);
             });
 
             // Record states for verification
             const recordedStates: string[] = [];
-            const gatewayUrl = Object.keys(sub.clients.ipfsGateways)[0];
-            sub.clients.ipfsGateways[gatewayUrl].on("statechange", (newState: string) => recordedStates.push(newState));
+            const gatewayUrl = Object.keys(community.clients.ipfsGateways)[0];
+            community.clients.ipfsGateways[gatewayUrl].on("statechange", (newState: string) => recordedStates.push(newState));
 
-            await sub.update();
+            await community.update();
 
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => waitingRetryCount >= 2,
                 eventName: "updatingstatechange"
             });
 
-            await sub.stop();
-            expect(sub.updatedAt).to.be.undefined; // should not defined since signature is invalid
+            await community.stop();
+            expect(community.updatedAt).to.be.undefined; // should not defined since signature is invalid
 
             // verifying states for the first correct update
             expect(recordedStates.slice(0, 2)).to.deep.equal(["fetching-ipns", "stopped"]);

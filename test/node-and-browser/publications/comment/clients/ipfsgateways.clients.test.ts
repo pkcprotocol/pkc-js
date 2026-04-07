@@ -35,9 +35,9 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         it.sequential(
             `Correct order of ipfsGateways state when updating a comment that was created with pkc.createComment({cid})`,
             async () => {
-                const sub = await pkc.getCommunity({ address: signers[0].address });
+                const community = await pkc.getCommunity({ address: signers[0].address });
 
-                const mockPost = await pkc.createComment({ cid: sub.posts.pages.hot.comments[0].cid });
+                const mockPost = await pkc.createComment({ cid: community.posts.pages.hot.comments[0].cid });
                 const expectedStates = ["fetching-ipfs", "stopped", "fetching-community-ipns", "fetching-update-ipfs", "stopped"];
 
                 const actualStates: string[] = [];
@@ -61,9 +61,9 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         );
 
         it(`Correct order of ipfsGateways state when updating a comment that was created with pkc.getComment({cid: cid})`, async () => {
-            const sub = await pkc.getCommunity({ address: signers[0].address });
+            const community = await pkc.getCommunity({ address: signers[0].address });
 
-            const mockPost = await pkc.getComment({ cid: sub.posts.pages.hot.comments[0].cid });
+            const mockPost = await pkc.getComment({ cid: community.posts.pages.hot.comments[0].cid });
 
             const expectedStates = ["fetching-community-ipns", "fetching-update-ipfs", "stopped"];
 
@@ -155,10 +155,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         it(`Correct order of ipfs gateway states when we update a comment but its commentupdate is an invalid record (bad signature/schema/etc)`, async () => {
             const pkc: PKC = await config.pkcInstancePromise();
 
-            const sub = await pkc.getCommunity({ address: signers[0].address });
+            const community = await pkc.getCommunity({ address: signers[0].address });
 
             const commentUpdateWithInvalidSignatureJson = await createCommentUpdateWithInvalidSignature(
-                sub.posts.pages.hot.comments[0].cid
+                community.posts.pages.hot.comments[0].cid
             );
 
             const createdComment = await pkc.createComment({

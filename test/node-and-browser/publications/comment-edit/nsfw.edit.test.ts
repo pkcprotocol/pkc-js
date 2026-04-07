@@ -75,18 +75,18 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`nsfw=true appears in pages of community`, async () => {
-            const sub = await pkc.createCommunity({ address: authorPost.communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: authorPost.communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, sub.posts);
+                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, community.posts);
                     return commentInPage?.nsfw === true;
                 }
             });
-            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, sub.posts);
+            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, community.posts);
             expect(commentInPage.nsfw).to.be.true;
-            await sub.stop();
+            await community.stop();
         });
 
         it(`The new Comment with nsfw=true has valid signature`, async () => {
@@ -146,18 +146,18 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`nsfw=false appears in pages of community`, async () => {
-            const sub = await pkc.createCommunity({ address: authorPost.communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: authorPost.communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, sub.posts);
+                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, community.posts);
                     return commentInPage?.nsfw === false;
                 }
             });
-            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, sub.posts);
+            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, community.posts);
             expect(commentInPage.nsfw).to.be.false;
-            await sub.stop();
+            await community.stop();
         });
     });
 
@@ -204,18 +204,18 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`nsfw=true appears in getPage of community`, async () => {
-            const sub = await pkc.createCommunity({ address: modPost.communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: modPost.communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, sub.posts);
+                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, community.posts);
                     return commentInPage?.nsfw === true;
                 }
             });
-            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, sub.posts);
+            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, community.posts);
             expect(commentInPage.nsfw).to.be.true;
-            await sub.stop();
+            await community.stop();
         });
 
         it(`Mod can unnsfw their own comment`, async () => {
@@ -244,18 +244,18 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`nsfw=false appears in pages of community`, async () => {
-            const sub = await pkc.createCommunity({ address: modPost.communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: modPost.communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, sub.posts);
+                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, community.posts);
                     return commentInPage?.nsfw === false;
                 }
             });
-            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, sub.posts);
+            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, community.posts);
             expect(commentInPage.nsfw).to.be.false;
-            await sub.stop();
+            await community.stop();
         });
     });
 });

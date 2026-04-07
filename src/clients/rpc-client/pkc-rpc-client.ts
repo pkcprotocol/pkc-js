@@ -339,11 +339,11 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     async createCommunity(
         createCommunityOptions: CreateNewLocalCommunityUserOptions
     ): Promise<RpcInternalCommunityRecordBeforeFirstUpdateType> {
-        // This is gonna create a new local sub. Not an instance of an existing sub
-        const subProps = <RpcInternalCommunityRecordBeforeFirstUpdateType>(
+        // This is gonna create a new local community. Not an instance of an existing community
+        const communityProps = <RpcInternalCommunityRecordBeforeFirstUpdateType>(
             await this._webSocketClient.call("createCommunity", [createCommunityOptions])
         );
-        return subProps;
+        return communityProps;
     }
 
     private _initSubscriptionEvent(subscriptionId: number) {

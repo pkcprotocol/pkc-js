@@ -44,11 +44,14 @@ describe.concurrent(`community.features.noMarkdownVideos`, async () => {
         await community.edit({ features: { ...community.features, noMarkdownVideos: true } });
         expect(community.features?.noMarkdownVideos).to.be.true;
 
-        const remoteSub = await remotePKC.getCommunity({ address: community.address });
-        await remoteSub.update();
-        await resolveWhenConditionIsTrue({ toUpdate: remoteSub, predicate: async () => remoteSub.features?.noMarkdownVideos === true });
-        expect(remoteSub.features?.noMarkdownVideos).to.be.true;
-        await remoteSub.stop();
+        const remoteCommunity = await remotePKC.getCommunity({ address: community.address });
+        await remoteCommunity.update();
+        await resolveWhenConditionIsTrue({
+            toUpdate: remoteCommunity,
+            predicate: async () => remoteCommunity.features?.noMarkdownVideos === true
+        });
+        expect(remoteCommunity.features?.noMarkdownVideos).to.be.true;
+        await remoteCommunity.stop();
     });
 
     it(`Can't publish a post with markdown video syntax (video extension)`, async () => {

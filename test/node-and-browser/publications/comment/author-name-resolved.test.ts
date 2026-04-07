@@ -64,14 +64,14 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             unresolvableDomainCommentCid = unresolvableDomainComment.commentCid;
 
             // Create a manual page from the preloaded hot page for getPage() tests
-            const sub = await pkc.createCommunity({ address: communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => sub.posts?.pages?.hot?.comments?.some((c) => c.cid === domainCommentCid) ?? false
+                toUpdate: community,
+                predicate: async () => community.posts?.pages?.hot?.comments?.some((c) => c.cid === domainCommentCid) ?? false
             });
-            await sub.stop();
-            const rawPage = { comments: sub.posts.pages.hot!.comments.map((c) => c.raw) } as PageIpfs;
+            await community.stop();
+            const rawPage = { comments: community.posts.pages.hot!.comments.map((c) => c.raw) } as PageIpfs;
             manualPageCid = await addStringToIpfs(JSON.stringify(rawPage));
         });
 
@@ -196,18 +196,18 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it("createComment({...pageComment}) does not carry over author.nameResolved from pages", async () => {
-            const sub = await pkc.createCommunity({ address: communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const c = sub.posts?.pages?.hot?.comments?.find((c) => c.cid === domainCommentCid);
+                    const c = community.posts?.pages?.hot?.comments?.find((c) => c.cid === domainCommentCid);
                     return c?.author.nameResolved === true;
                 }
             });
-            await sub.stop();
+            await community.stop();
 
-            const pageComment = sub.posts.pages.hot!.comments.find((c) => c.cid === domainCommentCid)!;
+            const pageComment = community.posts.pages.hot!.comments.find((c) => c.cid === domainCommentCid)!;
             expect(pageComment.author.nameResolved).to.equal(true);
 
             const cloned = await pkc.createComment({ ...pageComment });
@@ -345,52 +345,52 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         // === Page-level nameResolved tests ===
 
         it("nameResolved is true for domain author in community.posts preloaded pages", async () => {
-            const sub = await pkc.createCommunity({ address: communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const domainComment = sub.posts?.pages?.hot?.comments?.find((c) => c.cid === domainCommentCid);
+                    const domainComment = community.posts?.pages?.hot?.comments?.find((c) => c.cid === domainCommentCid);
                     return domainComment?.author.nameResolved === true;
                 }
             });
-            await sub.stop();
+            await community.stop();
 
-            const domainComment = sub.posts.pages.hot!.comments.find((c) => c.cid === domainCommentCid);
+            const domainComment = community.posts.pages.hot!.comments.find((c) => c.cid === domainCommentCid);
             expect(domainComment, "Domain comment should be in preloaded hot page").to.exist;
             expect(domainComment!.author.nameResolved).to.equal(true);
             expect(domainComment!.author.address).to.equal("plebbit.bso");
         });
 
         it("nameResolved is undefined for non-domain author in community.posts preloaded pages", async () => {
-            const sub = await pkc.createCommunity({ address: communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => Boolean(sub.posts?.pages?.hot?.comments?.length)
+                toUpdate: community,
+                predicate: async () => Boolean(community.posts?.pages?.hot?.comments?.length)
             });
-            await sub.stop();
+            await community.stop();
 
-            const noDomainComment = sub.posts.pages.hot!.comments.find((c) => !c.author.address.includes("."));
+            const noDomainComment = community.posts.pages.hot!.comments.find((c) => !c.author.address.includes("."));
             expect(noDomainComment, "Non-domain comment should be in preloaded hot page").to.exist;
             expect(noDomainComment!.author.nameResolved).to.be.undefined;
         });
 
         it("nameResolved is true for domain author in pages fetched via sub.posts.getPage()", async () => {
-            const sub = await pkc.createCommunity({ address: communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: communityAddress });
+            await community.update();
             // Wait for background resolution to populate the cache first
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const c = sub.posts?.pages?.hot?.comments?.find((c) => c.cid === domainCommentCid);
+                    const c = community.posts?.pages?.hot?.comments?.find((c) => c.cid === domainCommentCid);
                     return c?.author.nameResolved === true;
                 }
             });
 
             // Now getPage will find nameResolved in cache
-            const page = await sub.posts.getPage({ cid: manualPageCid });
-            await sub.stop();
+            const page = await community.posts.getPage({ cid: manualPageCid });
+            await community.stop();
 
             const domainComment = page.comments.find((c) => c.cid === domainCommentCid);
             expect(domainComment, "Domain comment should be in fetched page").to.exist;
@@ -399,15 +399,15 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it("nameResolved is undefined for non-domain author in fetched pages", async () => {
-            const sub = await pkc.createCommunity({ address: communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => Boolean(sub.posts?.pages?.hot?.comments?.length)
+                toUpdate: community,
+                predicate: async () => Boolean(community.posts?.pages?.hot?.comments?.length)
             });
 
-            const page = await sub.posts.getPage({ cid: manualPageCid });
-            await sub.stop();
+            const page = await community.posts.getPage({ cid: manualPageCid });
+            await community.stop();
 
             const noDomainComment = page.comments.find((c) => !c.author.address.includes("."));
             expect(noDomainComment, "Non-domain comment should be in fetched page").to.exist;
@@ -415,15 +415,15 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it("nameResolved is false for mismatched domain in community.posts preloaded pages", async () => {
-            const sub = await pkc.createCommunity({ address: communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => Boolean(sub.posts?.pages?.hot?.comments?.length)
+                toUpdate: community,
+                predicate: async () => Boolean(community.posts?.pages?.hot?.comments?.length)
             });
-            await sub.stop();
+            await community.stop();
 
-            const mismatchComment = sub.posts.pages.hot!.comments.find((c) => c.cid === mismatchedDomainCommentCid);
+            const mismatchComment = community.posts.pages.hot!.comments.find((c) => c.cid === mismatchedDomainCommentCid);
             // mismatchedDomainCommentCid is a standalone record, may not be in the hot page
             if (mismatchComment) {
                 expect(mismatchComment.author.nameResolved).to.equal(false);
@@ -432,15 +432,15 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it("nameResolved is false for unresolvable domain in community.posts preloaded pages", async () => {
-            const sub = await pkc.createCommunity({ address: communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => Boolean(sub.posts?.pages?.hot?.comments?.length)
+                toUpdate: community,
+                predicate: async () => Boolean(community.posts?.pages?.hot?.comments?.length)
             });
-            await sub.stop();
+            await community.stop();
 
-            const unresolvableComment = sub.posts.pages.hot!.comments.find((c) => c.cid === unresolvableDomainCommentCid);
+            const unresolvableComment = community.posts.pages.hot!.comments.find((c) => c.cid === unresolvableDomainCommentCid);
             // unresolvableDomainCommentCid is a standalone record, may not be in the hot page
             if (unresolvableComment) {
                 expect(unresolvableComment.author.nameResolved).to.equal(false);
@@ -508,30 +508,30 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it("page with no domain authors has no nameResolved set", async () => {
-            const sub = await pkc.createCommunity({ address: communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => Boolean(sub.posts?.pages?.hot?.comments?.length)
+                toUpdate: community,
+                predicate: async () => Boolean(community.posts?.pages?.hot?.comments?.length)
             });
-            await sub.stop();
+            await community.stop();
 
-            const noDomainComments = sub.posts.pages.hot!.comments.filter((c) => !c.author.address.includes("."));
+            const noDomainComments = community.posts.pages.hot!.comments.filter((c) => !c.author.address.includes("."));
             for (const comment of noDomainComments) {
                 expect(comment.author.nameResolved).to.be.undefined;
             }
         });
 
         it("nameResolved is false for mismatched domain in fetched pages", async () => {
-            const sub = await pkc.createCommunity({ address: communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => Boolean(sub.posts?.pages?.hot?.comments?.length)
+                toUpdate: community,
+                predicate: async () => Boolean(community.posts?.pages?.hot?.comments?.length)
             });
 
-            const page = await sub.posts.getPage({ cid: manualPageCid });
-            await sub.stop();
+            const page = await community.posts.getPage({ cid: manualPageCid });
+            await community.stop();
 
             const mismatchComment = page.comments.find((c) => c.cid === mismatchedDomainCommentCid);
             // mismatchedDomainCommentCid is a standalone record, may not be in the page

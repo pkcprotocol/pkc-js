@@ -44,11 +44,11 @@ describe.concurrent(`community.features.noImages`, async () => {
         await community.edit({ features: { ...community.features, noImages: true } });
         expect(community.features?.noImages).to.be.true;
 
-        const remoteSub = await remotePKC.getCommunity({ address: community.address });
-        await remoteSub.update();
-        await resolveWhenConditionIsTrue({ toUpdate: remoteSub, predicate: async () => remoteSub.features?.noImages === true });
-        expect(remoteSub.features?.noImages).to.be.true;
-        await remoteSub.stop();
+        const remoteCommunity = await remotePKC.getCommunity({ address: community.address });
+        await remoteCommunity.update();
+        await resolveWhenConditionIsTrue({ toUpdate: remoteCommunity, predicate: async () => remoteCommunity.features?.noImages === true });
+        expect(remoteCommunity.features?.noImages).to.be.true;
+        await remoteCommunity.stop();
     });
 
     it(`Can't publish a post with image link`, async () => {

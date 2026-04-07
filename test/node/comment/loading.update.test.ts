@@ -93,7 +93,7 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
             }
         });
 
-        it("loads post updates while the sub keeps running on the same pkc instance", async () => {
+        it("loads post updates while the community keeps running on the same pkc instance", async () => {
             const postComment = await context.pkc.createComment({ cid: context.rootCid });
 
             const subInstance = context.community;
@@ -163,10 +163,13 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
                     let publisherPKC: PKC | undefined;
                     try {
                         publisherPKC = await mockPKC();
-                        const sub = await createSubWithNoChallenge({}, publisherPKC);
-                        await sub.start();
-                        await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
-                        const newPost = await publishRandomPost({ communityAddress: sub.address, pkc: publisherPKC });
+                        const community = await createSubWithNoChallenge({}, publisherPKC);
+                        await community.start();
+                        await resolveWhenConditionIsTrue({
+                            toUpdate: community,
+                            predicate: async () => typeof community.updatedAt === "number"
+                        });
+                        const newPost = await publishRandomPost({ communityAddress: community.address, pkc: publisherPKC });
 
                         remotePKC = await pkcConfig.pkcInstancePromise();
                         await waitTillPostInCommunityPages(newPost as never, remotePKC);
@@ -179,7 +182,7 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
                         makeCommentCidFetchFail(remotePKC, newPost.cid!);
 
                         const errors: Error[] = [];
-                        postComment = await remotePKC.createComment({ cid: newPost.cid, communityAddress: newPost.communityAddress }); // need to include communityAddress or otherwise pkc-js cant load it from sub pages
+                        postComment = await remotePKC.createComment({ cid: newPost.cid, communityAddress: newPost.communityAddress }); // need to include communityAddress or otherwise pkc-js cant load it from community pages
                         postComment.on("error", (err) => errors.push(err));
 
                         await postComment.update();
@@ -205,7 +208,7 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
                     }
                 });
 
-                it("loads post updates while the sub keeps updating", async () => {
+                it("loads post updates while the community keeps updating", async () => {
                     const subInstance = context.community;
                     const remotePKC = await pkcConfig.pkcInstancePromise();
                     try {

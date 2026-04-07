@@ -203,8 +203,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         describe("community.posts page comments", () => {
             it("page comments have runtime author fields that survive spread and JSON.stringify", async () => {
-                const sub = await pkc.getCommunity({ address: communityAddress });
-                const pages = sub.posts.pages || {};
+                const community = await pkc.getCommunity({ address: communityAddress });
+                const pages = community.posts.pages || {};
                 expect(Object.keys(pages).length, "community.posts.pages should not be empty").to.be.greaterThan(0);
 
                 let testedComments = 0;

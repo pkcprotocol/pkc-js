@@ -94,22 +94,22 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Deleted post is omitted from community.posts`, async () => {
-            const sub = await pkc.createCommunity({ address: postToDelete.communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: postToDelete.communityAddress });
+            await community.update();
 
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(postToDelete.cid, sub.posts);
+                    const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(postToDelete.cid, community.posts);
                     return postInPage === undefined;
                 }
             });
 
-            await sub.stop();
+            await community.stop();
 
-            if (Object.keys(sub.posts.pageCids).length > 0)
-                for (const pageCid of Object.values(sub.posts.pageCids) as string[]) {
-                    const postInPage = await iterateThroughPageCidToFindComment(postToDelete.cid, pageCid, sub.posts);
+            if (Object.keys(community.posts.pageCids).length > 0)
+                for (const pageCid of Object.values(community.posts.pageCids) as string[]) {
+                    const postInPage = await iterateThroughPageCidToFindComment(postToDelete.cid, pageCid, community.posts);
 
                     expect(postInPage).to.be.undefined;
                 }

@@ -16,7 +16,7 @@ import type { Comment } from "../../../../../dist/node/publications/comment/comm
 import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
 
 const communityAddress = signers[0].address;
-const modCommunityAddress = signers[7].address; // this sub has mod roles configured
+const modCommunityAddress = signers[7].address; // this community has mod roles configured
 
 // A valid CID format that won't exist in the database
 const nonExistentCid = "QmYjtig7VJQ6XsnUjqqJvj7QaMcCAwtrgNdahSiFofrE7o";

@@ -46,7 +46,7 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
 
     let servers: Server[] = [];
     let testSigner: SignerWithPublicKeyAddress;
-    let subAddress: string;
+    let communityAddress: string;
     let expectedBase36: string;
     let conditional304RecordJson: string;
     let conditional304RecordCid: string;
@@ -84,7 +84,7 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
                 publicKey: testSigner.publicKey,
                 type: "ed25519-aes-gcm"
             },
-            pubsubTopic: subAddress,
+            pubsubTopic: communityAddress,
             statsCid: "QmYHzA8euDgUpNy3fh7JRwpPwt6jCgF35YTutYkyGGyr8f", // Dummy CID
             protocolVersion: "1.0.0"
         };
@@ -107,8 +107,8 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
         // Create a unique signer for this test to ensure complete isolation
         const pkc: PKC = await mockPKC();
         testSigner = await pkc.createSigner();
-        subAddress = testSigner.address;
-        expectedBase36 = convertBase58IpnsNameToBase36Cid(subAddress);
+        communityAddress = testSigner.address;
+        expectedBase36 = convertBase58IpnsNameToBase36Cid(communityAddress);
         const baseRecord = generateFreshRecord();
         baseRecord.updatedAt = Math.round(Date.now() / 1000) - 120;
         conditional304RecordJson = JSON.stringify(await signRecord(baseRecord));
@@ -327,7 +327,7 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
         const customPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [stallingGateway] } });
         customPKC._timeouts["community-ipns"] = 5 * 1000; // change timeout from 5min to 5s
         try {
-            await customPKC.getCommunity({ address: subAddress });
+            await customPKC.getCommunity({ address: communityAddress });
             expect.fail("Should not fulfill");
         } catch (e) {
             expect(
@@ -343,9 +343,9 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
         const customPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [normalGateway, stallingGateway] } });
         customPKC._timeouts["community-ipns"] = 5 * 1000; // change timeout from 5min to 5s
         try {
-            const subFromGateway = await customPKC.getCommunity({ address: subAddress });
+            const subFromGateway = await customPKC.getCommunity({ address: communityAddress });
             // Verify it's our test community with the expected structure
-            expect(subFromGateway.address).to.equal(subAddress);
+            expect(subFromGateway.address).to.equal(communityAddress);
             expect(subFromGateway.updatedAt).to.be.a("number");
             // Verify it's fresh (within the last 10 seconds)
             const now = Math.round(Date.now() / 1000);
@@ -358,9 +358,9 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
     it(`updating a community through working gateway and another gateway that is throwing an error`, async () => {
         const customPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [normalGateway, errorGateway] } });
         try {
-            const sub = await customPKC.getCommunity({ address: subAddress });
-            expect(sub.address).to.equal(subAddress);
-            expect(sub.updatedAt).to.be.a("number");
+            const community = await customPKC.getCommunity({ address: communityAddress });
+            expect(community.address).to.equal(communityAddress);
+            expect(community.updatedAt).to.be.a("number");
         } finally {
             await customPKC.destroy();
         }
@@ -373,7 +373,7 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
         customPKC._timeouts["community-ipns"] = 5 * 1000; // change timeout from 5min to 5s
 
         try {
-            await customPKC.getCommunity({ address: subAddress });
+            await customPKC.getCommunity({ address: communityAddress });
             expect.fail("Should have thrown");
         } catch (e) {
             expect((e as { code: string }).code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
@@ -394,9 +394,9 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
         try {
             const bufferSeconds = 10;
             const timestampHourAgo = Math.round(Date.now() / 1000) - 60 * 60;
-            const sub = await customPKC.getCommunity({ address: subAddress });
+            const community = await customPKC.getCommunity({ address: communityAddress });
             // Algorithm returns the first valid record (hour-old from hourLateGateway)
-            expect(sub.updatedAt)
+            expect(community.updatedAt)
                 .to.greaterThanOrEqual(timestampHourAgo - bufferSeconds)
                 .lessThanOrEqual(timestampHourAgo + bufferSeconds);
         } finally {
@@ -407,25 +407,25 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
     it(`Fetching algo goes with the highest updatedAt of records if all of them are older than 60 min`, async () => {
         const customPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [hourLateGateway, twoHoursLateGateway] } });
         try {
-            const sub = await customPKC.getCommunity({ address: subAddress });
-            await sub.update();
+            const community = await customPKC.getCommunity({ address: communityAddress });
+            await community.update();
 
             // should go with the hour old, not the two hours
             const bufferSeconds = 10;
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
                     const timestampHourAgo = Math.round(Date.now() / 1000) - 60 * 60;
                     return (
-                        typeof sub.updatedAt === "number" &&
-                        sub.updatedAt >= timestampHourAgo - bufferSeconds &&
-                        sub.updatedAt <= timestampHourAgo + bufferSeconds
+                        typeof community.updatedAt === "number" &&
+                        community.updatedAt >= timestampHourAgo - bufferSeconds &&
+                        community.updatedAt <= timestampHourAgo + bufferSeconds
                     );
                 }
             });
             const timestampHourAgo = Math.round(Date.now() / 1000) - 60 * 60;
 
-            expect(sub.updatedAt)
+            expect(community.updatedAt)
                 .to.greaterThanOrEqual(timestampHourAgo - bufferSeconds)
                 .lessThanOrEqual(timestampHourAgo + bufferSeconds);
         } finally {
@@ -442,7 +442,7 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
         customPKC._timeouts["community-ipns"] = 10 * 1000; // change timeout from 5min to 10s
 
         try {
-            const gatewaySub = await customPKC.getCommunity({ address: subAddress });
+            const gatewaySub = await customPKC.getCommunity({ address: communityAddress });
             // Should get the fresh record (within 10 seconds of now)
             const now = Math.round(Date.now() / 1000);
             const diff = now - gatewaySub.updatedAt!;
@@ -456,10 +456,10 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
     it(`returns undefined when one gateway returns 304 and another fails`, async () => {
         const customPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [conditional304Gateway, notFoundGateway] } });
         try {
-            const sub = await customPKC.getCommunity({ address: subAddress });
-            expect(sub.updateCid).to.equal(conditional304RecordCid);
+            const community = await customPKC.getCommunity({ address: communityAddress });
+            expect(community.updateCid).to.equal(conditional304RecordCid);
 
-            const updateRes = await sub._clientsManager.fetchNewUpdateForCommunity(subAddress);
+            const updateRes = await community._clientsManager.fetchNewUpdateForCommunity(communityAddress);
             expect(updateRes).to.equal(undefined);
         } finally {
             await customPKC.destroy();
@@ -469,10 +469,10 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
     it(`updates when one gateway returns 304 and another returns 200 with newer record`, async () => {
         const customPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [conditional304Gateway, newerGateway] } });
         try {
-            const sub = await customPKC.getCommunity({ address: subAddress });
-            expect(sub.updateCid).to.equal(conditional304RecordCid);
+            const community = await customPKC.getCommunity({ address: communityAddress });
+            expect(community.updateCid).to.equal(conditional304RecordCid);
 
-            const updateRes = await sub._clientsManager.fetchNewUpdateForCommunity(subAddress);
+            const updateRes = await community._clientsManager.fetchNewUpdateForCommunity(communityAddress);
             expect(updateRes).to.not.equal(undefined);
             expect(updateRes!.cid).to.equal(newerRecordCid);
         } finally {
@@ -483,10 +483,10 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
     it(`returns undefined when one gateway returns 304 and another returns same already-loaded cid as 200`, async () => {
         const customPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [conditional304Gateway, sameCidGateway] } });
         try {
-            const sub = await customPKC.getCommunity({ address: subAddress });
-            expect(sub.updateCid).to.equal(conditional304RecordCid);
+            const community = await customPKC.getCommunity({ address: communityAddress });
+            expect(community.updateCid).to.equal(conditional304RecordCid);
 
-            const updateRes = await sub._clientsManager.fetchNewUpdateForCommunity(subAddress);
+            const updateRes = await community._clientsManager.fetchNewUpdateForCommunity(communityAddress);
             expect(updateRes).to.equal(undefined);
         } finally {
             await customPKC.destroy();
@@ -497,10 +497,10 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
         const customPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [conditional304Gateway, stallingGateway] } });
         customPKC._timeouts["community-ipns"] = 400;
         try {
-            const sub = await customPKC.getCommunity({ address: subAddress });
-            expect(sub.updateCid).to.equal(conditional304RecordCid);
+            const community = await customPKC.getCommunity({ address: communityAddress });
+            expect(community.updateCid).to.equal(conditional304RecordCid);
 
-            const updateRes = await sub._clientsManager.fetchNewUpdateForCommunity(subAddress);
+            const updateRes = await community._clientsManager.fetchNewUpdateForCommunity(communityAddress);
             expect(updateRes).to.equal(undefined);
         } finally {
             await customPKC.destroy();
@@ -512,10 +512,10 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
             pkcOptions: { ipfsGatewayUrls: [conditional304Gateway, invalidJsonGateway] }
         });
         try {
-            const sub = await customPKC.getCommunity({ address: subAddress });
-            expect(sub.updateCid).to.equal(conditional304RecordCid);
+            const community = await customPKC.getCommunity({ address: communityAddress });
+            expect(community.updateCid).to.equal(conditional304RecordCid);
 
-            const updateRes = await sub._clientsManager.fetchNewUpdateForCommunity(subAddress);
+            const updateRes = await community._clientsManager.fetchNewUpdateForCommunity(communityAddress);
             expect(updateRes).to.equal(undefined);
         } finally {
             await customPKC.destroy();
@@ -527,10 +527,10 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
             pkcOptions: { ipfsGatewayUrls: [conditional304Gateway, delayedNewerGateway] }
         });
         try {
-            const sub = await customPKC.getCommunity({ address: subAddress });
-            expect(sub.updateCid).to.equal(conditional304RecordCid);
+            const community = await customPKC.getCommunity({ address: communityAddress });
+            expect(community.updateCid).to.equal(conditional304RecordCid);
 
-            const updateRes = await sub._clientsManager.fetchNewUpdateForCommunity(subAddress);
+            const updateRes = await community._clientsManager.fetchNewUpdateForCommunity(communityAddress);
             expect(updateRes).to.not.equal(undefined);
             expect(updateRes!.cid).to.equal(newerRecordCid);
         } finally {

@@ -95,62 +95,62 @@ export class PKCWithRpcClient extends PKC {
 
         if (hasIdentifier && effectiveAddress) {
             await this._waitForCommunitiesToBeDefined();
-            const rpcSubs = this.communities; // should probably be replaced with a direct call for subs
-            const isSubRpcLocal = rpcSubs.includes(effectiveAddress);
+            const rpcCommunities = this.communities; // should probably be replaced with a direct call for communities
+            const isCommunityRpcLocal = rpcCommunities.includes(effectiveAddress);
 
-            if ("clients" in options && isSubRpcLocal) {
-                // Jsonified local sub — rehydrate from raw.localCommunity instead of doing a fresh RPC fetch
-                const sub = new RpcLocalCommunity(this);
+            if ("clients" in options && isCommunityRpcLocal) {
+                // Jsonified local community — rehydrate from raw.localCommunity instead of doing a fresh RPC fetch
+                const community = new RpcLocalCommunity(this);
                 const jsonified = parsedRpcOptions as unknown as RpcLocalCommunityJson;
                 const rawRecord = (jsonified.raw as RpcLocalCommunity["raw"] | undefined)?.localCommunity as
                     | RpcLocalCommunityUpdateResultType
                     | undefined;
                 if (rawRecord) {
-                    if ("community" in rawRecord) sub.initRpcInternalCommunityAfterFirstUpdateNoMerge(rawRecord);
-                    else sub.initRpcInternalCommunityBeforeFirstUpdateNoMerge(rawRecord);
+                    if ("community" in rawRecord) community.initRpcInternalCommunityAfterFirstUpdateNoMerge(rawRecord);
+                    else community.initRpcInternalCommunityBeforeFirstUpdateNoMerge(rawRecord);
                 }
-                if (jsonified.raw) Object.assign(sub.raw, jsonified.raw);
-                return sub;
-            } else if (isSubRpcLocal) {
+                if (jsonified.raw) Object.assign(community.raw, jsonified.raw);
+                return community;
+            } else if (isCommunityRpcLocal) {
                 // No jsonified data — do a fresh fetch
-                const sub = new RpcLocalCommunity(this);
-                sub.setAddress(effectiveAddress!);
+                const community = new RpcLocalCommunity(this);
+                community.setAddress(effectiveAddress!);
                 // wait for one update here, and then stop
-                const updatePromise = new Promise((resolve) => sub.once("update", resolve));
+                const updatePromise = new Promise((resolve) => community.once("update", resolve));
                 let error: PKCError | Error | undefined;
-                const errorPromise = new Promise((resolve) => sub.once("error", (err) => resolve((error = err))));
-                await sub._createAndSubscribeToNewUpdatingCommunity(sub);
-                await sub.update();
+                const errorPromise = new Promise((resolve) => community.once("error", (err) => resolve((error = err))));
+                await community._createAndSubscribeToNewUpdatingCommunity(community);
+                await community.update();
                 await Promise.race([updatePromise, errorPromise]);
-                await sub.stop();
+                await community.stop();
                 if (error) throw error;
 
-                return sub;
+                return community;
             } else {
                 log.trace("Creating a remote RPC community instance with address", effectiveAddress);
-                const remoteSub = new RpcRemoteCommunity(this);
-                await this._setCommunityIpfsOnInstanceIfPossible(remoteSub, parsedRpcOptions);
+                const remoteCommunity = new RpcRemoteCommunity(this);
+                await this._setCommunityIpfsOnInstanceIfPossible(remoteCommunity, parsedRpcOptions);
 
-                return remoteSub;
+                return remoteCommunity;
             }
         } else if (!hasIdentifier) {
-            // Check if this looks like a CommunityIpfs record — handle as remote sub init
+            // Check if this looks like a CommunityIpfs record — handle as remote community init
             if ("signature" in parsedRpcOptions) {
-                const remoteSub = new RpcRemoteCommunity(this);
-                await this._setCommunityIpfsOnInstanceIfPossible(remoteSub, parsedRpcOptions);
-                return remoteSub;
+                const remoteCommunity = new RpcRemoteCommunity(this);
+                await this._setCommunityIpfsOnInstanceIfPossible(remoteCommunity, parsedRpcOptions);
+                return remoteCommunity;
             }
-            // We're creating a new local sub
-            const subPropsAfterCreation = await this._pkcRpcClient!.createCommunity(parsedRpcOptions);
+            // We're creating a new local community
+            const communityPropsAfterCreation = await this._pkcRpcClient!.createCommunity(parsedRpcOptions);
             log(
-                `Created new local-RPC community (${subPropsAfterCreation.localCommunity.address}) with props:`,
-                JSON.parse(JSON.stringify(subPropsAfterCreation))
+                `Created new local-RPC community (${communityPropsAfterCreation.localCommunity.address}) with props:`,
+                JSON.parse(JSON.stringify(communityPropsAfterCreation))
             );
-            const sub = new RpcLocalCommunity(this);
-            await sub.initRpcInternalCommunityBeforeFirstUpdateNoMerge(subPropsAfterCreation);
-            sub.emit("update", sub);
-            await this._awaitCommunitiesToIncludeSub(subPropsAfterCreation.localCommunity.address);
-            return sub;
+            const community = new RpcLocalCommunity(this);
+            await community.initRpcInternalCommunityBeforeFirstUpdateNoMerge(communityPropsAfterCreation);
+            community.emit("update", community);
+            await this._awaitCommunitiesToIncludeCommunity(communityPropsAfterCreation.localCommunity.address);
+            return community;
         } else throw Error("Failed to create community rpc instance, are you sure you provided the correct args?");
     }
 }

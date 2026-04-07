@@ -65,7 +65,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
 
                 const stressPublishCount = 100;
                 const offlineCommunity = await createMockedCommunityIpns({});
-                const offlineSubAddress = offlineCommunity.communityAddress; // this sub is not online so can't respond to messages, although the IPNS record is fetchable
+                const offlineSubAddress = offlineCommunity.communityAddress; // this community is not online so can't respond to messages, although the IPNS record is fetchable
 
                 const challengeRequestIds = new Set();
                 const externalPeerChallengeRequests = new Set();
@@ -149,7 +149,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 const localPKC = await config.pkcInstancePromise({});
                 localPKC.on("error", console.error);
                 const stressPublishCount = typeof globalThis.window !== "undefined" ? 20 : 350;
-                const randomSub = await createMockedCommunityIpns({}); // sub has a reachable IPNS but is not online
+                const randomSub = await createMockedCommunityIpns({}); // community has a reachable IPNS but is not online
 
                 const usesGateways = isPKCFetchingUsingGateways(localPKC);
                 const isRemoteIpfsGatewayConfig = isPKCFetchingUsingGateways(localPKC);

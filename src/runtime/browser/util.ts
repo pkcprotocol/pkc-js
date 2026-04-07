@@ -23,8 +23,8 @@ export const monitorCommunitiesDirectory = () => {
     throw Error("monitorCommunitiesDirectory should not be called in browser");
 };
 
-export const trytoDeleteSubsThatFailedToBeDeletedBefore = () => {
-    throw Error("trytoDeleteSubsThatFailedToBeDeletedBefore should not be called in browser");
+export const tryToDeleteCommunitiesThatFailedToBeDeletedBefore = () => {
+    throw Error("tryToDeleteCommunitiesThatFailedToBeDeletedBefore should not be called in browser");
 };
 
 export async function importSignerIntoKuboNode(ipnsKeyName: string, ipfsKey: Uint8Array, ipfsNode: KuboRpcClient["_clientOptions"]) {

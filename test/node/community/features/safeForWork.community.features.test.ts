@@ -33,21 +33,27 @@ describe.concurrent(`community.features.safeForWork`, async () => {
         await community.edit({ features: { ...community.features, safeForWork: true } });
         expect(community.features?.safeForWork).to.be.true;
 
-        const remoteSub = await remotePKC.getCommunity({ address: community.address });
-        await remoteSub.update();
-        await resolveWhenConditionIsTrue({ toUpdate: remoteSub, predicate: async () => remoteSub.features?.safeForWork === true });
-        expect(remoteSub.features?.safeForWork).to.be.true;
-        await remoteSub.stop();
+        const remoteCommunity = await remotePKC.getCommunity({ address: community.address });
+        await remoteCommunity.update();
+        await resolveWhenConditionIsTrue({
+            toUpdate: remoteCommunity,
+            predicate: async () => remoteCommunity.features?.safeForWork === true
+        });
+        expect(remoteCommunity.features?.safeForWork).to.be.true;
+        await remoteCommunity.stop();
     });
 
     it(`Can toggle safeForWork off`, async () => {
         await community.edit({ features: { ...community.features, safeForWork: false } });
         expect(community.features?.safeForWork).to.be.false;
 
-        const remoteSub = await remotePKC.getCommunity({ address: community.address });
-        await remoteSub.update();
-        await resolveWhenConditionIsTrue({ toUpdate: remoteSub, predicate: async () => remoteSub.features?.safeForWork === false });
-        expect(remoteSub.features?.safeForWork).to.be.false;
-        await remoteSub.stop();
+        const remoteCommunity = await remotePKC.getCommunity({ address: community.address });
+        await remoteCommunity.update();
+        await resolveWhenConditionIsTrue({
+            toUpdate: remoteCommunity,
+            predicate: async () => remoteCommunity.features?.safeForWork === false
+        });
+        expect(remoteCommunity.features?.safeForWork).to.be.false;
+        await remoteCommunity.stop();
     });
 });

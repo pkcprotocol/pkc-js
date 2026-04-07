@@ -75,18 +75,18 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`spoiler=true appears in pages of community`, async () => {
-            const sub = await pkc.createCommunity({ address: authorPost.communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: authorPost.communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, sub.posts);
+                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, community.posts);
                     return commentInPage?.spoiler === true;
                 }
             });
-            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, sub.posts);
+            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, community.posts);
             expect(commentInPage.spoiler).to.be.true;
-            await sub.stop();
+            await community.stop();
         });
 
         it(`The new Comment with spoiler=true has valid signature`, async () => {
@@ -146,18 +146,18 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`spoiler=false appears pages of community`, async () => {
-            const sub = await pkc.createCommunity({ address: authorPost.communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: authorPost.communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, sub.posts);
+                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, community.posts);
                     return commentInPage?.spoiler === false;
                 }
             });
-            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, sub.posts);
+            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, community.posts);
             expect(commentInPage.spoiler).to.be.false;
-            await sub.stop();
+            await community.stop();
         });
     });
 
@@ -205,18 +205,18 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`spoiler=true appears in pages of community`, async () => {
-            const sub = await pkc.createCommunity({ address: modPost.communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: modPost.communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, sub.posts);
+                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, community.posts);
                     return commentInPage?.spoiler === true;
                 }
             });
-            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, sub.posts);
+            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, community.posts);
             expect(commentInPage.spoiler).to.be.true;
-            await sub.stop();
+            await community.stop();
         });
 
         it(`Mod can unspoiler their own comment`, async () => {
@@ -245,18 +245,18 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`spoiler=false appears pages of community`, async () => {
-            const sub = await pkc.createCommunity({ address: modPost.communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: modPost.communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, sub.posts);
+                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, community.posts);
                     return commentInPage?.spoiler === false;
                 }
             });
-            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, sub.posts);
+            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, community.posts);
             expect(commentInPage.spoiler).to.be.false;
-            await sub.stop();
+            await community.stop();
         });
     });
 });

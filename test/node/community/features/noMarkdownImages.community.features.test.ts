@@ -44,11 +44,14 @@ describe.concurrent(`community.features.noMarkdownImages`, async () => {
         await community.edit({ features: { ...community.features, noMarkdownImages: true } });
         expect(community.features?.noMarkdownImages).to.be.true;
 
-        const remoteSub = await remotePKC.getCommunity({ address: community.address });
-        await remoteSub.update();
-        await resolveWhenConditionIsTrue({ toUpdate: remoteSub, predicate: async () => remoteSub.features?.noMarkdownImages === true });
-        expect(remoteSub.features?.noMarkdownImages).to.be.true;
-        await remoteSub.stop();
+        const remoteCommunity = await remotePKC.getCommunity({ address: community.address });
+        await remoteCommunity.update();
+        await resolveWhenConditionIsTrue({
+            toUpdate: remoteCommunity,
+            predicate: async () => remoteCommunity.features?.noMarkdownImages === true
+        });
+        expect(remoteCommunity.features?.noMarkdownImages).to.be.true;
+        await remoteCommunity.stop();
     });
 
     it(`Can't publish a post with markdown image syntax`, async () => {

@@ -34,66 +34,75 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
         it(`community.modQueue.clients.${clientFieldName} is undefined for gateway pkc`, async () => {
             const gatewayPKC = await mockGatewayPKC();
-            const sub = await gatewayPKC.getCommunity({ address: communityAddress });
+            const community = await gatewayPKC.getCommunity({ address: communityAddress });
             const sortTypes = Object.keys(
-                (sub.modQueue.clients as unknown as Record<string, Record<string, Record<string, { on: Function; state: string }>>>)[
+                (community.modQueue.clients as unknown as Record<string, Record<string, Record<string, { on: Function; state: string }>>>)[
                     clientFieldName
                 ]
             );
             expect(sortTypes.length).to.be.greaterThan(0);
             for (const sortType of sortTypes)
                 expect(
-                    (sub.modQueue.clients as unknown as Record<string, Record<string, Record<string, { on: Function; state: string }>>>)[
-                        clientFieldName
-                    ][sortType]
+                    (
+                        community.modQueue.clients as unknown as Record<
+                            string,
+                            Record<string, Record<string, { on: Function; state: string }>>
+                        >
+                    )[clientFieldName][sortType]
                 ).to.deep.equal({});
             await gatewayPKC.destroy();
         });
 
         it(`community.modQueue.clients.${clientFieldName}[sortType][url] is stopped by default`, async () => {
-            const sub = await pkc.getCommunity({ address: communityAddress });
-            const key = Object.keys((sub.clients as unknown as Record<string, Record<string, unknown>>)[clientFieldName])[0];
+            const community = await pkc.getCommunity({ address: communityAddress });
+            const key = Object.keys((community.clients as unknown as Record<string, Record<string, unknown>>)[clientFieldName])[0];
             expect(
                 Object.keys(
-                    (sub.modQueue.clients as unknown as Record<string, Record<string, Record<string, { on: Function; state: string }>>>)[
-                        clientFieldName
-                    ].pendingApproval
+                    (
+                        community.modQueue.clients as unknown as Record<
+                            string,
+                            Record<string, Record<string, { on: Function; state: string }>>
+                        >
+                    )[clientFieldName].pendingApproval
                 ).length
             ).to.equal(1);
             expect(
                 (
-                    (sub.modQueue.clients as unknown as Record<string, Record<string, Record<string, { on: Function; state: string }>>>)[
-                        clientFieldName
-                    ].pendingApproval[key] as { state: string }
+                    (
+                        community.modQueue.clients as unknown as Record<
+                            string,
+                            Record<string, Record<string, { on: Function; state: string }>>
+                        >
+                    )[clientFieldName].pendingApproval[key] as { state: string }
                 ).state
             ).to.equal("stopped");
         });
 
         it(`Correct state of 'pendingApproval' sort is updated after fetching from community.modQueue.pageCids.pendingApproval`, async () => {
-            const sub = await pkc.getCommunity({ address: communityAddress });
+            const community = await pkc.getCommunity({ address: communityAddress });
             const firstPage = cloneModQueuePage();
 
             const firstPageCid = await addStringToIpfs(JSON.stringify(firstPage));
 
-            sub.modQueue.pageCids.pendingApproval = firstPageCid;
+            community.modQueue.pageCids.pendingApproval = firstPageCid;
 
-            const clientKey = Object.keys((sub.clients as unknown as Record<string, Record<string, unknown>>)[clientFieldName])[0];
+            const clientKey = Object.keys((community.clients as unknown as Record<string, Record<string, unknown>>)[clientFieldName])[0];
 
             const expectedStates = ["fetching-ipfs", "stopped"];
             const actualStates: string[] = [];
-            (sub.modQueue.clients as unknown as Record<string, Record<string, Record<string, { on: Function; state: string }>>>)[
+            (community.modQueue.clients as unknown as Record<string, Record<string, Record<string, { on: Function; state: string }>>>)[
                 clientFieldName
             ].pendingApproval[clientKey].on("statechange", (newState: string) => {
                 actualStates.push(newState);
             });
 
-            await sub.modQueue.getPage({ cid: sub.modQueue.pageCids.pendingApproval });
+            await community.modQueue.getPage({ cid: community.modQueue.pageCids.pendingApproval });
             expect(actualStates).to.deep.equal(expectedStates);
         });
 
         it("Correct state of 'pendingApproval' sort is updated after fetching second page of 'pendingApproval' pages", async () => {
-            const sub = await pkc.getCommunity({ address: communityAddress });
-            const clientKey = Object.keys((sub.clients as unknown as Record<string, Record<string, unknown>>)[clientFieldName])[0];
+            const community = await pkc.getCommunity({ address: communityAddress });
+            const clientKey = Object.keys((community.clients as unknown as Record<string, Record<string, unknown>>)[clientFieldName])[0];
 
             const secondPage = cloneModQueuePage();
             secondPage.comments = secondPage.comments.slice(1, 5);
@@ -103,26 +112,26 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             firstPage.nextCid = secondPageCid;
             const firstPageCid = await addStringToIpfs(JSON.stringify(firstPage));
 
-            sub.modQueue.pageCids.pendingApproval = firstPageCid;
+            community.modQueue.pageCids.pendingApproval = firstPageCid;
 
             const expectedStates = ["fetching-ipfs", "stopped", "fetching-ipfs", "stopped"];
             const actualStates: string[] = [];
-            (sub.modQueue.clients as unknown as Record<string, Record<string, Record<string, { on: Function; state: string }>>>)[
+            (community.modQueue.clients as unknown as Record<string, Record<string, Record<string, { on: Function; state: string }>>>)[
                 clientFieldName
             ].pendingApproval[clientKey].on("statechange", (newState: string) => {
                 actualStates.push(newState);
             });
 
-            const pendingFirstPage = await sub.modQueue.getPage({ cid: sub.modQueue.pageCids.pendingApproval });
+            const pendingFirstPage = await community.modQueue.getPage({ cid: community.modQueue.pageCids.pendingApproval });
             expect(pendingFirstPage.nextCid).to.be.a("string");
-            await sub.modQueue.getPage({ cid: pendingFirstPage.nextCid });
+            await community.modQueue.getPage({ cid: pendingFirstPage.nextCid });
 
             expect(actualStates).to.deep.equal(expectedStates);
         });
 
         it(`Correct state of 'pendingApproval' sort is updated after fetching with a community created with pkc.createCommunity({address, modQueue})`, async () => {
             const remotePKC: PKCType = await config.pkcInstancePromise();
-            const sub = await remotePKC.getCommunity({ address: communityAddress });
+            const community = await remotePKC.getCommunity({ address: communityAddress });
 
             const firstPage = cloneModQueuePage();
 
@@ -130,7 +139,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
             const fetchSub = await remotePKC.createCommunity({
                 address: communityAddress,
-                modQueue: { pageCids: { ...sub.modQueue.pageCids, pendingApproval: firstPageCid } }
+                modQueue: { pageCids: { ...community.modQueue.pageCids, pendingApproval: firstPageCid } }
             });
             expect(fetchSub.updatedAt).to.be.undefined;
 

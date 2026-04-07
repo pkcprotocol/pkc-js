@@ -36,12 +36,15 @@ describe(`community.features.requirePostLink`, async () => {
         await community.edit({ features: { ...community.features, requirePostLink: true } });
         expect(community.features?.requirePostLink).to.be.true;
 
-        const remoteSub = await remotePKC.getCommunity({ address: community.address });
-        await remoteSub.update();
-        await resolveWhenConditionIsTrue({ toUpdate: remoteSub, predicate: async () => remoteSub.features?.requirePostLink === true });
+        const remoteCommunity = await remotePKC.getCommunity({ address: community.address });
+        await remoteCommunity.update();
+        await resolveWhenConditionIsTrue({
+            toUpdate: remoteCommunity,
+            predicate: async () => remoteCommunity.features?.requirePostLink === true
+        });
 
-        expect(remoteSub.features?.requirePostLink).to.be.true;
-        await remoteSub.stop();
+        expect(remoteCommunity.features?.requirePostLink).to.be.true;
+        await remoteCommunity.stop();
     });
 
     it(`Can't publish a post with invalid link`, async () => {

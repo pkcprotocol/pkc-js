@@ -82,9 +82,9 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
         const rpcUrl = `ws://localhost:${rpcServerPort}`;
         const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-        const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
-        expect(sub.address).to.exist; // should be able to create a sub successfully over RPC
-        expect(clientPKC.communities).to.include(sub.address);
+        const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
+        expect(community.address).to.exist; // should be able to create a community successfully over RPC
+        expect(clientPKC.communities).to.include(community.address);
 
         await clientPKC.destroy();
         await rpcServer.destroy();
@@ -107,9 +107,9 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
         const rpcUrl = `ws://127.0.0.1:${rpcServerPort}`;
         const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-        const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
-        expect(sub.address).to.exist; // should be able to create a sub successfully over RPC
-        expect(clientPKC.communities).to.include(sub.address);
+        const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
+        expect(community.address).to.exist; // should be able to create a community successfully over RPC
+        expect(clientPKC.communities).to.include(community.address);
 
         await clientPKC.destroy();
         await rpcServer.destroy();
@@ -132,9 +132,9 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
         const rpcUrl = `ws://localhost:${rpcServerPort}/${authKey}`;
         const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-        const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
-        expect(sub.address).to.exist; // should be able to create a sub successfully over RPC
-        expect(clientPKC.communities).to.include(sub.address);
+        const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
+        expect(community.address).to.exist; // should be able to create a community successfully over RPC
+        expect(clientPKC.communities).to.include(community.address);
 
         await clientPKC.destroy();
         await rpcServer.destroy();
@@ -157,9 +157,9 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
         const rpcUrl = `ws://127.0.0.1:${rpcServerPort}/${authKey}`;
         const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-        const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
-        expect(sub.address).to.exist; // should be able to create a sub successfully over RPC
-        expect(clientPKC.communities).to.include(sub.address);
+        const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
+        expect(community.address).to.exist; // should be able to create a community successfully over RPC
+        expect(clientPKC.communities).to.include(community.address);
 
         await clientPKC.destroy();
         await rpcServer.destroy();
@@ -250,9 +250,9 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
         const rpcUrl = `ws://${lanAddress}:${rpcServerPort}/${authKey}`;
         const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-        const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
-        expect(sub.address).to.exist; // should be able to create a sub successfully over RPC
-        expect(clientPKC.communities).to.include(sub.address);
+        const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
+        expect(community.address).to.exist; // should be able to create a community successfully over RPC
+        expect(clientPKC.communities).to.include(community.address);
 
         await clientPKC.destroy();
         await rpcServer.destroy();
@@ -275,9 +275,9 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
         const rpcUrl = `ws://${lanAddress}:${rpcServerPort}`;
         const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-        const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
-        expect(sub.address).to.exist; // should be able to create a sub successfully over RPC
-        expect(clientPKC.communities).to.include(sub.address);
+        const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
+        expect(community.address).to.exist; // should be able to create a community successfully over RPC
+        expect(clientPKC.communities).to.include(community.address);
 
         await clientPKC.destroy();
         await rpcServer.destroy();
@@ -300,9 +300,9 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
         const rpcUrl = `ws://${lanAddress}:${rpcServerPort}/${authKey}`;
         const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-        const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
-        expect(sub.address).to.exist; // should be able to create a sub successfully over RPC
-        expect(clientPKC.communities).to.include(sub.address);
+        const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
+        expect(community.address).to.exist; // should be able to create a community successfully over RPC
+        expect(clientPKC.communities).to.include(community.address);
 
         await clientPKC.destroy();
         await rpcServer.destroy();
@@ -329,17 +329,17 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
                 httpRoutersOptions: []
             });
 
-            const rpcSub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
+            const rpcCommunity = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
             const mismatchedDomain = "my-sub.bso";
 
-            await rpcSub.edit({ address: mismatchedDomain });
+            await rpcCommunity.edit({ address: mismatchedDomain });
             await new Promise((resolve) => setTimeout(resolve, 7000));
 
             // should not crash hopefully
 
-            if (rpcSub) {
+            if (rpcCommunity) {
                 try {
-                    await rpcSub.delete();
+                    await rpcCommunity.delete();
                 } catch {}
             }
             if (clientPKC) {

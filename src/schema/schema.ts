@@ -122,7 +122,7 @@ export const PublicationBaseBeforeSigning = z.object({
 // `author.community.banExpiresAt` should be effective in rejecting publication regardless of anon mode (needs to be tested), but in terms of calculating the field value:
 // - `anonMode=per-reply` = it should show `author.community.banExpiresAt` only if the author got banned on that specific comment, but it should not show on their other comments
 // - `anonMode=per-post` = it should show `author.community.banExpiresAt` only on the author's replies and post inside their post
-// - `anonMode=per-author` = it should show `author.community.banExpiresAt` on all the author's comments in the sub
+// - `anonMode=per-author` = it should show `author.community.banExpiresAt` on all the author's comments in the community
 
 // anonMode=per-reply, `author.community.postScore` should be 0
 // anonMode=per-post, `author.community.postScore` should be total post karma (upvotes - downvotes) of the post if it's published by author
@@ -136,7 +136,7 @@ export const PublicationBaseBeforeSigning = z.object({
 // anonMode=per-post, `author.community.firstCommentTimestamp` should be first timestamp of the author's comment inside the post
 // anonMode=per-author, `author.community.firstCommentTimestamp` should use the value of timestamp of the first comment by the author in the community.
 
-// values below are added by the sub, not the author
+// values below are added by the community, not the author
 export const CommunityAuthorSchema = z.looseObject({
     postScore: z.number(), // total post karma in the community
     replyScore: z.number(), // total reply karma in the community

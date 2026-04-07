@@ -14,7 +14,7 @@ import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
 
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
-    describe.concurrent(`community.updatingState (node/browser - remote sub) - ${config.name}`, async () => {
+    describe.concurrent(`community.updatingState (node/browser - remote community) - ${config.name}`, async () => {
         let pkc: PKCType;
         beforeAll(async () => {
             pkc = await config.pkcInstancePromise();
@@ -74,10 +74,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             expect(recordedStates.slice(recordedStates.length - expectedStates.length)).to.deep.equal(expectedStates);
         });
 
-        it("updating states is in correct order upon updating with ipfs p2p, if the sub doesn't publish any updates", async () => {
-            const newSub = await publishCommunityRecordWithExtraProp();
+        it("updating states is in correct order upon updating with ipfs p2p, if the community doesn't publish any updates", async () => {
+            const newCommunity = await publishCommunityRecordWithExtraProp();
 
-            const community = await pkc.createCommunity({ address: newSub.ipnsObj.signer.address });
+            const community = await pkc.createCommunity({ address: newCommunity.ipnsObj.signer.address });
 
             const recordedStates: string[] = [];
             community.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
@@ -168,7 +168,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 });
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
-    describe(`community.updatingState (node/browser - remote sub) - ${config.name}`, async () => {
+    describe(`community.updatingState (node/browser - remote community) - ${config.name}`, async () => {
         let pkc: PKCType;
         beforeAll(async () => {
             pkc = await config.pkcInstancePromise();
@@ -188,9 +188,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`the order of state-event-statechange is correct when we get a new update from the community`, async () => {
-            // this test used to be flaky on rpc I assume because rpc server kept updating the sub with another client, it was tricky to fix
+            // this test used to be flaky on rpc I assume because rpc server kept updating the community with another client, it was tricky to fix
             // easy fix for now is to put an addresso of a less used community
-            const community = await pkc.createCommunity({ address: signers[1].address }); // this sub should get less updates
+            const community = await pkc.createCommunity({ address: signers[1].address }); // this community should get less updates
 
             const recordedStates: string[] = [];
             community.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
@@ -254,7 +254,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 });
 
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
-    describe(`community.updatingState (node/browser - remote sub) - ${config.name}`, async () => {
+    describe(`community.updatingState (node/browser - remote community) - ${config.name}`, async () => {
         let pkc: PKCType;
         beforeAll(async () => {
             pkc = await config.pkcInstancePromise();
@@ -279,10 +279,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             expect(recordedStates.slice(recordedStates.length - expectedStates.length)).to.deep.equal(expectedStates);
         });
 
-        it("updating states is in correct order upon updating with gateway, if the sub doesn't publish any updates", async () => {
-            const newSub = await publishCommunityRecordWithExtraProp();
+        it("updating states is in correct order upon updating with gateway, if the community doesn't publish any updates", async () => {
+            const newCommunity = await publishCommunityRecordWithExtraProp();
 
-            const community = await pkc.createCommunity({ address: newSub.ipnsObj.signer.address });
+            const community = await pkc.createCommunity({ address: newCommunity.ipnsObj.signer.address });
 
             const recordedStates: string[] = [];
             community.on("updatingstatechange", (newState: string) => recordedStates.push(newState));

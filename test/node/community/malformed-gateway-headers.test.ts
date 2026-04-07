@@ -29,7 +29,7 @@ describe("Test gateway response with malformed etag headers", async () => {
 
     let servers: Server[] = [];
     let testSigner: SignerWithPublicKeyAddress;
-    let subAddress: string;
+    let communityAddress: string;
     let expectedBase36: string;
 
     // Create an HTTP server helper
@@ -63,7 +63,7 @@ describe("Test gateway response with malformed etag headers", async () => {
                 publicKey: testSigner.publicKey,
                 type: "ed25519-aes-gcm"
             },
-            pubsubTopic: subAddress,
+            pubsubTopic: communityAddress,
             statsCid: "QmYHzA8euDgUpNy3fh7JRwpPwt6jCgF35YTutYkyGGyr8f", // Dummy CID
             protocolVersion: "1.0.0"
         };
@@ -79,8 +79,8 @@ describe("Test gateway response with malformed etag headers", async () => {
         // Create a unique signer for this test to ensure complete isolation
         const pkc: PKC = await mockPKC();
         testSigner = await pkc.createSigner();
-        subAddress = testSigner.address;
-        expectedBase36 = convertBase58IpnsNameToBase36Cid(subAddress);
+        communityAddress = testSigner.address;
+        expectedBase36 = convertBase58IpnsNameToBase36Cid(communityAddress);
         await pkc.destroy();
 
         // Gateway with malformed etag (invalid CID string)
@@ -170,12 +170,12 @@ describe("Test gateway response with malformed etag headers", async () => {
         // Since etag is optional, malformed etag just skips the optimization
         const customPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [malformedEtagGateway, validGateway] } });
         try {
-            const sub = await customPKC.getCommunity({ address: subAddress });
-            expect(sub.address).to.equal(subAddress);
-            expect(sub.updatedAt).to.be.a("number");
+            const community = await customPKC.getCommunity({ address: communityAddress });
+            expect(community.address).to.equal(communityAddress);
+            expect(community.updatedAt).to.be.a("number");
             // Verify it's fresh (within the last 10 seconds)
             const now = Math.round(Date.now() / 1000);
-            expect(sub.updatedAt).to.be.closeTo(now, 10);
+            expect(community.updatedAt).to.be.closeTo(now, 10);
         } finally {
             await customPKC.destroy();
         }
@@ -185,9 +185,9 @@ describe("Test gateway response with malformed etag headers", async () => {
         // Since etag is optional, malformed CID in etag just skips the optimization
         const customPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [weakMalformedEtagGateway, validGateway] } });
         try {
-            const sub = await customPKC.getCommunity({ address: subAddress });
-            expect(sub.address).to.equal(subAddress);
-            expect(sub.updatedAt).to.be.a("number");
+            const community = await customPKC.getCommunity({ address: communityAddress });
+            expect(community.address).to.equal(communityAddress);
+            expect(community.updatedAt).to.be.a("number");
         } finally {
             await customPKC.destroy();
         }
@@ -199,9 +199,9 @@ describe("Test gateway response with malformed etag headers", async () => {
             pkcOptions: { ipfsGatewayUrls: [malformedEtagGateway, weakMalformedEtagGateway] }
         });
         try {
-            const sub = await customPKC.getCommunity({ address: subAddress });
-            expect(sub.address).to.equal(subAddress);
-            expect(sub.updatedAt).to.be.a("number");
+            const community = await customPKC.getCommunity({ address: communityAddress });
+            expect(community.address).to.equal(communityAddress);
+            expect(community.updatedAt).to.be.a("number");
         } finally {
             await customPKC.destroy();
         }
@@ -211,9 +211,9 @@ describe("Test gateway response with malformed etag headers", async () => {
         // Empty etag is treated as missing, but the body is still fetched and validated
         const customPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [emptyEtagGateway, validGateway] } });
         try {
-            const sub = await customPKC.getCommunity({ address: subAddress });
-            expect(sub.address).to.equal(subAddress);
-            expect(sub.updatedAt).to.be.a("number");
+            const community = await customPKC.getCommunity({ address: communityAddress });
+            expect(community.address).to.equal(communityAddress);
+            expect(community.updatedAt).to.be.a("number");
         } finally {
             await customPKC.destroy();
         }
@@ -223,9 +223,9 @@ describe("Test gateway response with malformed etag headers", async () => {
         // Even with only one gateway that has empty etag, the body is fetched and validated
         const customPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [emptyEtagGateway] } });
         try {
-            const sub = await customPKC.getCommunity({ address: subAddress });
-            expect(sub.address).to.equal(subAddress);
-            expect(sub.updatedAt).to.be.a("number");
+            const community = await customPKC.getCommunity({ address: communityAddress });
+            expect(community.address).to.equal(communityAddress);
+            expect(community.updatedAt).to.be.a("number");
         } finally {
             await customPKC.destroy();
         }
@@ -235,9 +235,9 @@ describe("Test gateway response with malformed etag headers", async () => {
         // etag: "" is treated as malformed, but body is still fetched and validated
         const customPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [quotesOnlyEtagGateway, validGateway] } });
         try {
-            const sub = await customPKC.getCommunity({ address: subAddress });
-            expect(sub.address).to.equal(subAddress);
-            expect(sub.updatedAt).to.be.a("number");
+            const community = await customPKC.getCommunity({ address: communityAddress });
+            expect(community.address).to.equal(communityAddress);
+            expect(community.updatedAt).to.be.a("number");
         } finally {
             await customPKC.destroy();
         }

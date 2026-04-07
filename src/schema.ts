@@ -25,7 +25,7 @@ export const Uint8ArraySchema = z.custom<Uint8Array<ArrayBufferLike>>(
 
 const IpfsGatewayUrlSchema = z.url().startsWith("http", "IPFS gateway URL must start with http:// or https://");
 
-const RpcUrlSchema = z.url().startsWith("ws", "PKC RPC URL must start with ws:// or wss://"); // Optional websocket URLs of PKC RPC servers, required to run a sub from a browser/electron/webview
+const RpcUrlSchema = z.url().startsWith("ws", "PKC RPC URL must start with ws:// or wss://"); // Optional websocket URLs of PKC RPC servers, required to run a community from a browser/electron/webview
 
 const KuboRpcCreateClientOptionSchema = z.custom<KuboRpcClientCreateOption>(); // Kubo-rpc-client library will do the validation for us
 

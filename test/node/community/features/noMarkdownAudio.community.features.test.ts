@@ -44,11 +44,14 @@ describe.concurrent(`community.features.noMarkdownAudio`, async () => {
         await community.edit({ features: { ...community.features, noMarkdownAudio: true } });
         expect(community.features?.noMarkdownAudio).to.be.true;
 
-        const remoteSub = await remotePKC.getCommunity({ address: community.address });
-        await remoteSub.update();
-        await resolveWhenConditionIsTrue({ toUpdate: remoteSub, predicate: async () => remoteSub.features?.noMarkdownAudio === true });
-        expect(remoteSub.features?.noMarkdownAudio).to.be.true;
-        await remoteSub.stop();
+        const remoteCommunity = await remotePKC.getCommunity({ address: community.address });
+        await remoteCommunity.update();
+        await resolveWhenConditionIsTrue({
+            toUpdate: remoteCommunity,
+            predicate: async () => remoteCommunity.features?.noMarkdownAudio === true
+        });
+        expect(remoteCommunity.features?.noMarkdownAudio).to.be.true;
+        await remoteCommunity.stop();
     });
 
     it(`Can't publish a post with markdown audio syntax (.mp3)`, async () => {

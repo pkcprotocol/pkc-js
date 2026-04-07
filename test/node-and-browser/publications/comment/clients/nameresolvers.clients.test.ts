@@ -201,7 +201,7 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
         await localPKC.getCommunity({ address: "plebbit.bso" });
 
         const mockPost = await generateMockPost({ communityAddress: "plebbit.bso", pkc: localPKC });
-        const expectedStates: string[] = []; // empty because sub is cached in _updatingCommunities
+        const expectedStates: string[] = []; // empty because community is cached in _updatingCommunities
 
         const actualStates: string[] = [];
 

@@ -51,15 +51,15 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`spoiler=true appears in pages of community`, async () => {
-            const sub = await pkc.createCommunity({ address: randomPost.communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: randomPost.communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => typeof sub.updatedAt === "number"
+                toUpdate: community,
+                predicate: async () => typeof community.updatedAt === "number"
             });
-            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(randomPost.cid, sub.posts);
+            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(randomPost.cid, community.posts);
             expect(commentInPage.spoiler).to.be.true;
-            await sub.stop();
+            await community.stop();
         });
 
         it(`Mod can mark unspoiler author comment `, async () => {
@@ -83,15 +83,15 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`spoiler=false appears in pages of community`, async () => {
-            const sub = await pkc.createCommunity({ address: randomPost.communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: randomPost.communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => typeof sub.updatedAt === "number"
+                toUpdate: community,
+                predicate: async () => typeof community.updatedAt === "number"
             });
-            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(randomPost.cid, sub.posts);
+            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(randomPost.cid, community.posts);
             expect(commentInPage.spoiler).to.be.false;
-            await sub.stop();
+            await community.stop();
         });
     });
 });

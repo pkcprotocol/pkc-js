@@ -3,13 +3,13 @@ import { mockPKC, describeSkipIfRpc } from "../../../dist/node/test/test-util.js
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 
 describeSkipIfRpc(`mirror() should not crash when client URLs mismatch between community instances`, () => {
-    it(`updating sub with different pubsubKuboRpcClientsOptions should not emit TypeError`, async () => {
-        // PKC A: started sub uses the default mockPKC pubsub URLs
+    it(`updating community with different pubsubKuboRpcClientsOptions should not emit TypeError`, async () => {
+        // PKC A: started community uses the default mockPKC pubsub URLs
         // (http://localhost:15002, http://localhost:42234, http://localhost:42254)
         const pkcA = await mockPKC();
 
-        const startedSub = (await pkcA.createCommunity()) as LocalCommunity;
-        await startedSub.start();
+        const startedCommunity = (await pkcA.createCommunity()) as LocalCommunity;
+        await startedCommunity.start();
 
         try {
             // PKC B: uses a different pubsub URL that doesn't exist on pkcA
@@ -17,15 +17,15 @@ describeSkipIfRpc(`mirror() should not crash when client URLs mismatch between c
                 pubsubKuboRpcClientsOptions: ["http://localhost:15001/api/v0"]
             });
 
-            const updatingSub = (await pkcB.createCommunity({ address: startedSub.address })) as LocalCommunity;
+            const updatingCommunity = (await pkcB.createCommunity({ address: startedCommunity.address })) as LocalCommunity;
 
             // Track any errors emitted during mirroring
             const errors: Error[] = [];
-            updatingSub.on("error", (err) => {
+            updatingCommunity.on("error", (err) => {
                 errors.push(err);
             });
 
-            await updatingSub.update();
+            await updatingCommunity.update();
 
             // Wait a bit for the mirror to complete and any error events to fire
             await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -36,10 +36,10 @@ describeSkipIfRpc(`mirror() should not crash when client URLs mismatch between c
             );
             expect(typeErrors, `mirror() emitted TypeError: ${typeErrors.map((e) => e.message).join(", ")}`).to.have.lengthOf(0);
 
-            await updatingSub.stop();
+            await updatingCommunity.stop();
             await pkcB.destroy();
         } finally {
-            await startedSub.stop();
+            await startedCommunity.stop();
             await pkcA.destroy();
         }
     });

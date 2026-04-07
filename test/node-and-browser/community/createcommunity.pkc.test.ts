@@ -87,9 +87,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
             await loadedCommunity.stop();
 
             const createdCommunity = await pkc.createCommunity(JSON.parse(JSON.stringify(loadedCommunity)));
-            const loadedSubJson = JSON.parse(JSON.stringify(loadedCommunity));
-            const createdSubJson = JSON.parse(JSON.stringify(createdCommunity));
-            expect(deterministicStringify(loadedSubJson)).to.equal(deterministicStringify(createdSubJson));
+            const loadedCommunityJson = JSON.parse(JSON.stringify(loadedCommunity));
+            const createdCommunityJson = JSON.parse(JSON.stringify(createdCommunity));
+            expect(deterministicStringify(loadedCommunityJson)).to.equal(deterministicStringify(createdCommunityJson));
         });
 
         const loadCommunityWithResolvedName = async (testPKC: PKCType) => {
@@ -148,16 +148,16 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
         );
 
         it("createCommunity preserves runtime-only author.nameResolved in preloaded fixture pages", async () => {
-            const subJson = remeda.clone(validCommunityJsonfiedFixture);
-            const sourceComment = subJson.posts.pages.hot.comments[0];
-            const sourceRawComment = subJson.raw.subplebbitIpfs.posts.pages.hot.comments[0];
+            const communityJson = remeda.clone(validCommunityJsonfiedFixture);
+            const sourceComment = communityJson.posts.pages.hot.comments[0];
+            const sourceRawComment = communityJson.raw.subplebbitIpfs.posts.pages.hot.comments[0];
             Object.assign(sourceComment.author, { nameResolved: true });
 
             expect(sourceComment.author).to.have.property("nameResolved", true);
             expect(sourceRawComment.comment.author).to.not.have.property("nameResolved");
 
-            const recreatedSub = await pkc.createCommunity(subJson);
-            const recreatedComment = recreatedSub.posts.pages.hot.comments.find((comment) => comment.cid === sourceComment.cid);
+            const recreatedCommunity = await pkc.createCommunity(communityJson);
+            const recreatedComment = recreatedCommunity.posts.pages.hot.comments.find((comment) => comment.cid === sourceComment.cid);
 
             expect(recreatedComment, `Fixture comment ${sourceComment.cid} should exist after createCommunity rehydration`).to.exist;
             expect(recreatedComment!.author).to.have.property(
@@ -168,16 +168,16 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
         });
 
         it("createCommunity preserves runtime-only author.nameResolved in preloaded OLD-wire-format fixture pages", async () => {
-            const subJson = remeda.clone(validCommunityJsonfiedOldWireFormatFixture);
-            const sourceComment = subJson.posts.pages.hot.comments[0];
-            const sourceRawComment = subJson.raw.subplebbitIpfs.posts.pages.hot.comments[0];
+            const communityJson = remeda.clone(validCommunityJsonfiedOldWireFormatFixture);
+            const sourceComment = communityJson.posts.pages.hot.comments[0];
+            const sourceRawComment = communityJson.raw.subplebbitIpfs.posts.pages.hot.comments[0];
             Object.assign(sourceComment.author, { nameResolved: true });
 
             expect(sourceComment.author).to.have.property("nameResolved", true);
             expect(sourceRawComment.comment.author).to.not.have.property("nameResolved");
 
-            const recreatedSub = await pkc.createCommunity(subJson);
-            const recreatedComment = recreatedSub.posts.pages.hot.comments.find((c) => c.cid === sourceComment.cid);
+            const recreatedCommunity = await pkc.createCommunity(communityJson);
+            const recreatedComment = recreatedCommunity.posts.pages.hot.comments.find((c) => c.cid === sourceComment.cid);
 
             expect(recreatedComment, `Fixture comment ${sourceComment.cid} should exist after createCommunity rehydration`).to.exist;
             expect(recreatedComment!.author).to.have.property(
@@ -187,60 +187,60 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
             );
         });
 
-        it(`Sub JSON props does not change by creating a Community object via pkc.createCommunity`, async () => {
-            const subJson = remeda.clone(validCommunityJsonfiedFixture);
-            const subObj = await pkc.createCommunity(remeda.clone(validCommunityJsonfiedFixture));
-            expect(subJson.lastPostCid).to.equal(subObj.lastPostCid).and.to.be.a("string");
-            expect(subJson.pubsubTopic).to.equal(subObj.pubsubTopic).and.to.be.a("string");
-            expect(subJson.address).to.equal(subObj.address).and.to.be.a("string");
-            expect(subJson.statsCid).to.equal(subObj.statsCid).and.to.be.a("string");
-            expect(subJson.createdAt).to.equal(subObj.createdAt).and.to.be.a("number");
-            expect(subJson.updatedAt).to.equal(subObj.updatedAt).and.to.be.a("number");
-            expect(subJson.encryption).to.deep.equal(subObj.encryption).and.to.be.a("object");
-            expect(subJson.roles).to.deep.equal(subObj.roles).and.to.be.a("object");
-            expect(subJson.signature).to.deep.equal(subObj.signature).and.to.be.a("object");
-            expect(subJson.protocolVersion).to.equal(subObj.protocolVersion).and.to.be.a("string");
+        it(`Community JSON props does not change by creating a Community object via pkc.createCommunity`, async () => {
+            const communityJson = remeda.clone(validCommunityJsonfiedFixture);
+            const communityObj = await pkc.createCommunity(remeda.clone(validCommunityJsonfiedFixture));
+            expect(communityJson.lastPostCid).to.equal(communityObj.lastPostCid).and.to.be.a("string");
+            expect(communityJson.pubsubTopic).to.equal(communityObj.pubsubTopic).and.to.be.a("string");
+            expect(communityJson.address).to.equal(communityObj.address).and.to.be.a("string");
+            expect(communityJson.statsCid).to.equal(communityObj.statsCid).and.to.be.a("string");
+            expect(communityJson.createdAt).to.equal(communityObj.createdAt).and.to.be.a("number");
+            expect(communityJson.updatedAt).to.equal(communityObj.updatedAt).and.to.be.a("number");
+            expect(communityJson.encryption).to.deep.equal(communityObj.encryption).and.to.be.a("object");
+            expect(communityJson.roles).to.deep.equal(communityObj.roles).and.to.be.a("object");
+            expect(communityJson.signature).to.deep.equal(communityObj.signature).and.to.be.a("object");
+            expect(communityJson.protocolVersion).to.equal(communityObj.protocolVersion).and.to.be.a("string");
 
-            expect(subJson.posts.pageCids).to.deep.equal(subObj.posts.pageCids).and.to.be.a("object");
+            expect(communityJson.posts.pageCids).to.deep.equal(communityObj.posts.pageCids).and.to.be.a("object");
 
-            const noInternalPropsSubObj = jsonifyCommunityAndRemoveInternalProps(subObj);
-            const noInternalPropsSubJson = jsonifyCommunityAndRemoveInternalProps(subJson as unknown as RemoteCommunity);
-            for (const key of Object.keys(noInternalPropsSubJson)) {
-                expect(noInternalPropsSubJson[key]).to.deep.equal(noInternalPropsSubObj[key], `Mismatch for key: ${key}`);
+            const noInternalPropsCommunityObj = jsonifyCommunityAndRemoveInternalProps(communityObj);
+            const noInternalPropsCommunityJson = jsonifyCommunityAndRemoveInternalProps(communityJson as unknown as RemoteCommunity);
+            for (const key of Object.keys(noInternalPropsCommunityJson)) {
+                expect(noInternalPropsCommunityJson[key]).to.deep.equal(noInternalPropsCommunityObj[key], `Mismatch for key: ${key}`);
             }
 
-            for (const key of Object.keys(noInternalPropsSubObj)) {
-                expect(noInternalPropsSubJson[key]).to.deep.equal(noInternalPropsSubObj[key], `Mismatch for key: ${key}`);
+            for (const key of Object.keys(noInternalPropsCommunityObj)) {
+                expect(noInternalPropsCommunityJson[key]).to.deep.equal(noInternalPropsCommunityObj[key], `Mismatch for key: ${key}`);
             }
         });
 
         it("createCommunity with old-wire-format fixture correctly derives communityAddress in pages", async () => {
-            const subJson = remeda.clone(validCommunityJsonfiedOldWireFormatFixture);
-            const subObj = await pkc.createCommunity(remeda.clone(validCommunityJsonfiedOldWireFormatFixture));
+            const communityJson = remeda.clone(validCommunityJsonfiedOldWireFormatFixture);
+            const communityObj = await pkc.createCommunity(remeda.clone(validCommunityJsonfiedOldWireFormatFixture));
 
             // Top-level fields unaffected by wire format change
-            expect(subJson.lastPostCid).to.equal(subObj.lastPostCid).and.to.be.a("string");
-            expect(subJson.address).to.equal(subObj.address).and.to.be.a("string");
-            expect(subJson.posts.pageCids).to.deep.equal(subObj.posts.pageCids).and.to.be.a("object");
+            expect(communityJson.lastPostCid).to.equal(communityObj.lastPostCid).and.to.be.a("string");
+            expect(communityJson.address).to.equal(communityObj.address).and.to.be.a("string");
+            expect(communityJson.posts.pageCids).to.deep.equal(communityObj.posts.pageCids).and.to.be.a("object");
 
             // After parsing old-wire-format through parsePagesIpfs, comments must have new-format fields
-            const comment = subObj.posts.pages.hot!.comments[0];
+            const comment = communityObj.posts.pages.hot!.comments[0];
             expect(comment.communityAddress).to.be.a("string");
             expect(comment.shortCommunityAddress).to.be.a("string");
-            expect(comment.communityAddress).to.equal(subJson.address);
+            expect(comment.communityAddress).to.equal(communityJson.address);
         });
 
         it("createCommunity does not throw when posts has empty pages/pageCids and no updatedAt", async () => {
-            const sub = await pkc.createCommunity({
+            const community = await pkc.createCommunity({
                 address: communityAddress,
                 posts: { pages: {}, pageCids: {} }
             });
-            expect(sub.address).to.equal(communityAddress);
+            expect(community.address).to.equal(communityAddress);
         });
 
-        it("createCommunity does not throw when JSON.stringify'd sub has empty posts and no updatedAt", async () => {
-            // This is the actual plebones scenario: cached sub with clients key, empty posts, no updatedAt
-            const cachedSub = {
+        it("createCommunity does not throw when JSON.stringify'd community has empty posts and no updatedAt", async () => {
+            // This is the actual plebones scenario: cached community with clients key, empty posts, no updatedAt
+            const cachedCommunity = {
                 address: communityAddress,
                 clients: {},
                 posts: { pages: {}, pageCids: {} },
@@ -249,25 +249,28 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
                 state: "stopped",
                 updatingState: "stopped"
             };
-            const sub = await pkc.createCommunity(cachedSub as any);
-            expect(sub.address).to.equal(communityAddress);
+            const community = await pkc.createCommunity(cachedCommunity as any);
+            expect(community.address).to.equal(communityAddress);
         });
 
         it("createCommunity does not throw when modQueue has empty pageCids and no updatedAt", async () => {
-            const sub = await pkc.createCommunity({
+            const community = await pkc.createCommunity({
                 address: communityAddress,
                 modQueue: { pageCids: {} }
             });
-            expect(sub.address).to.equal(communityAddress);
+            expect(community.address).to.equal(communityAddress);
         });
 
         it("comment._updateRepliesPostsInstance with empty replies pages/pageCids does not throw", async () => {
-            const loadedSub = await pkc.createCommunity({ address: communityAddress });
-            await loadedSub.update();
-            await resolveWhenConditionIsTrue({ toUpdate: loadedSub, predicate: async () => typeof loadedSub.updatedAt === "number" });
-            await loadedSub.stop();
+            const loadedCommunity = await pkc.createCommunity({ address: communityAddress });
+            await loadedCommunity.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: loadedCommunity,
+                predicate: async () => typeof loadedCommunity.updatedAt === "number"
+            });
+            await loadedCommunity.stop();
 
-            const post = loadedSub.posts.pages.hot!.comments[0];
+            const post = loadedCommunity.posts.pages.hot!.comments[0];
             const comment = await pkc.createComment({ cid: post.cid, communityAddress: communityAddress });
             // updatedAt must be defined for _updateRepliesPostsInstance not to throw
             comment.updatedAt = Math.floor(Date.now() / 1000);
@@ -276,17 +279,20 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
         });
 
         it("Remote community instance created with only address prop can call getPage", async () => {
-            const actualSub = await pkc.createCommunity({ address: communityAddress });
-            await actualSub.update();
-            await resolveWhenConditionIsTrue({ toUpdate: actualSub, predicate: async () => typeof actualSub.updatedAt === "number" });
-            await actualSub.stop();
+            const actualCommunity = await pkc.createCommunity({ address: communityAddress });
+            await actualCommunity.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: actualCommunity,
+                predicate: async () => typeof actualCommunity.updatedAt === "number"
+            });
+            await actualCommunity.stop();
 
-            expect(actualSub.createdAt).to.be.a("number");
+            expect(actualCommunity.createdAt).to.be.a("number");
 
-            expect(actualSub.posts.pages.hot).to.be.a("object");
-            const pageCid = await addStringToIpfs(JSON.stringify({ comments: [actualSub.posts.pages.hot.comments[0].raw] })); // get it somehow
+            expect(actualCommunity.posts.pages.hot).to.be.a("object");
+            const pageCid = await addStringToIpfs(JSON.stringify({ comments: [actualCommunity.posts.pages.hot.comments[0].raw] })); // get it somehow
             expect(pageCid).to.be.a("string");
-            const newCommunity = await pkc.createCommunity({ address: actualSub.address });
+            const newCommunity = await pkc.createCommunity({ address: actualCommunity.address });
             expect(newCommunity.createdAt).to.be.undefined;
 
             const page = await newCommunity.posts.getPage({ cid: pageCid });

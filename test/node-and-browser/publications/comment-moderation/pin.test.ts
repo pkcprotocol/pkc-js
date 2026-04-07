@@ -47,7 +47,7 @@ const removeAllPins = async (allComments: CommentWithinRepliesPostsPageJson[], p
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.sequential(`Pinning posts - ${config.name}`, async () => {
-        let pkc: PKC, postToPin: Comment, secondPostToPin: Comment, sub: RemoteCommunity;
+        let pkc: PKC, postToPin: Comment, secondPostToPin: Comment, community: RemoteCommunity;
 
         const populateSub = async (community: RemoteCommunity) => {
             const communityPage = community.posts.pageCids.new
@@ -65,9 +65,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         };
         beforeAll(async () => {
             pkc = await config.pkcInstancePromise();
-            sub = await pkc.getCommunity({ address: communityAddress });
-            await populateSub(sub);
-            await sub.update();
+            community = await pkc.getCommunity({ address: communityAddress });
+            await populateSub(community);
+            await community.update();
 
             postToPin = await publishRandomPost({
                 communityAddress: communityAddress,
@@ -82,17 +82,19 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             await postToPin.update();
             await secondPostToPin.update();
-            await waitTillPostInCommunityInstancePages(secondPostToPin as Comment & { cid: string }, sub);
-            const firstPage = sub.posts.pageCids.new ? await sub.posts.getPage({ cid: sub.posts.pageCids.new }) : sub.posts.pages.hot;
+            await waitTillPostInCommunityInstancePages(secondPostToPin as Comment & { cid: string }, community);
+            const firstPage = community.posts.pageCids.new
+                ? await community.posts.getPage({ cid: community.posts.pageCids.new })
+                : community.posts.pages.hot;
             const posts = firstPage.comments;
             await removeAllPins(posts, pkc);
             // wait until all posts are unpinned
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const firstPage = sub.posts.pageCids.new
-                        ? await sub.posts.getPage({ cid: sub.posts.pageCids.new })
-                        : sub.posts.pages.hot;
+                    const firstPage = community.posts.pageCids.new
+                        ? await community.posts.getPage({ cid: community.posts.pageCids.new })
+                        : community.posts.pages.hot;
                     const posts = firstPage.comments;
                     return posts.every((comment) => !comment.pinned);
                 }
@@ -149,35 +151,35 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`pinned=true appears in pages of community`, async () => {
-            const sub = await pkc.createCommunity({ address: postToPin.communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: postToPin.communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(postToPin.cid, sub.posts);
+                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(postToPin.cid, community.posts);
                     return commentInPage?.pinned === true;
                 }
             });
-            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(postToPin.cid, sub.posts);
+            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(postToPin.cid, community.posts);
             expect(commentInPage.pinned).to.be.true;
-            await sub.stop();
+            await community.stop();
         });
         it(`A pinned post is on the top of every page in community.posts`, async () => {
-            const sub = await pkc.createCommunity({ address: communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: communityAddress });
+            await community.update();
 
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(postToPin.cid, sub.posts);
+                    const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(postToPin.cid, community.posts);
                     return postInPage?.pinned;
                 }
             });
 
-            expect(Object.keys(sub.posts.pageCids).every((key) => Object.keys(POSTS_SORT_TYPES).includes(key))).to.be.true; // Should include pages with timeframes
-            await sub.stop();
-            for (const [sortName, pageCid] of Object.entries(sub.posts.pageCids) as [string, string][]) {
-                const pageComments = (await sub.posts.getPage({ cid: pageCid })).comments; // Get 50 comments, pinned posts should always be on top
+            expect(Object.keys(community.posts.pageCids).every((key) => Object.keys(POSTS_SORT_TYPES).includes(key))).to.be.true; // Should include pages with timeframes
+            await community.stop();
+            for (const [sortName, pageCid] of Object.entries(community.posts.pageCids) as [string, string][]) {
+                const pageComments = (await community.posts.getPage({ cid: pageCid })).comments; // Get 50 comments, pinned posts should always be on top
                 const postInPage = pageComments.find((comment) => comment.cid === postToPin.cid);
                 expect(postInPage).to.exist;
                 expect(postInPage.pinned).to.be.true;
@@ -199,20 +201,20 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it(`Pinned posts are sorted according to the page sort they're in`, async () => {
             // We're gonna test whether posts.new has pinned posts on top
             // 'postToPin' should be the first on the list, since it's pinned and has a higher timestamp
-            const sub = await pkc.createCommunity({ address: communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: communityAddress });
+            await community.update();
 
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(secondPostToPin.cid, sub.posts);
+                    const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(secondPostToPin.cid, community.posts);
                     return postInPage?.pinned;
                 }
             });
 
-            await sub.stop();
-            for (const [sortName, pageCid] of Object.entries(sub.posts.pageCids) as [string, string][]) {
-                const pageComments = await loadAllPages(pageCid, sub.posts);
+            await community.stop();
+            for (const [sortName, pageCid] of Object.entries(community.posts.pageCids) as [string, string][]) {
+                const pageComments = await loadAllPages(pageCid, community.posts);
                 const pinnedComments = pageComments.filter((comment) => comment.pinned);
                 expect(pinnedComments.length).to.equal(2);
                 const restOfComments = pageComments.filter((comment) => !comment.pinned);
@@ -254,35 +256,35 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`pinned=true appears in pages of community`, async () => {
-            const sub = await pkc.createCommunity({ address: secondPostToPin.communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: secondPostToPin.communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(secondPostToPin.cid, sub.posts);
+                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(secondPostToPin.cid, community.posts);
                     return commentInPage?.pinned === false;
                 }
             });
-            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(secondPostToPin.cid, sub.posts);
+            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(secondPostToPin.cid, community.posts);
             expect(commentInPage.pinned).to.be.false;
-            await sub.stop();
+            await community.stop();
         });
         it(`Unpinned posts is sorted like regular posts`, async () => {
-            const sub = await pkc.createCommunity({ address: communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: communityAddress });
+            await community.update();
 
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(secondPostToPin.cid, sub.posts);
+                    const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(secondPostToPin.cid, community.posts);
                     return !postInPage?.pinned;
                 }
             });
 
-            await sub.stop();
+            await community.stop();
 
-            for (const [sortName, pageCid] of Object.entries(sub.posts.pageCids) as [string, string][]) {
-                const pageComments = await loadAllPages(pageCid, sub.posts);
+            for (const [sortName, pageCid] of Object.entries(community.posts.pageCids) as [string, string][]) {
+                const pageComments = await loadAllPages(pageCid, community.posts);
                 expect(pageComments[0].cid).to.equal(postToPin.cid);
                 expect(pageComments[0].pinned).to.be.true;
                 expect(pageComments[0].reason).to.equal("To pin a post");
@@ -315,7 +317,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     });
 
     describe(`Pinning replies - ${config.name}`, async () => {
-        let pkc: PKC, post: Comment, replyToPin: Comment, sub: RemoteCommunity;
+        let pkc: PKC, post: Comment, replyToPin: Comment, community: RemoteCommunity;
 
         const populatePost = async () => {
             if (post.replyCount < 5) {
@@ -327,9 +329,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         };
         beforeAll(async () => {
             pkc = await config.pkcInstancePromise();
-            sub = await pkc.getCommunity({ address: communityAddress });
+            community = await pkc.getCommunity({ address: communityAddress });
 
-            const allPosts = sub.posts.pageCids.new ? await loadAllPages(sub.posts.pageCids.new, sub.posts) : sub.posts.pages.hot.comments;
+            const allPosts = community.posts.pageCids.new
+                ? await loadAllPages(community.posts.pageCids.new, community.posts)
+                : community.posts.pages.hot.comments;
             post = await pkc.createComment(remeda.maxBy(allPosts, (c) => c.replyCount));
             await post.update();
             await populatePost();

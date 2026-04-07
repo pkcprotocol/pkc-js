@@ -277,12 +277,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`pkc.getComment succeeds when communityPublicKey differs from sub but communityName matches (key rotation)`, async () => {
-            // Simulate a domain-based sub that rotated its key: old comments have communityPublicKey set to the old key,
-            // but communityName matches the sub's domain address. This should NOT be an error because
+            // Simulate a domain-based community that rotated its key: old comments have communityPublicKey set to the old key,
+            // but communityName matches the community's domain address. This should NOT be an error because
             // getCommunityAddressFromRecord returns communityName first, so the address check uses the domain.
             const commentIpfs = JSON.parse(JSON.stringify(validCommentFixture));
             commentIpfs.communityName = "example.eth";
-            commentIpfs.communityPublicKey = signers[6].address; // "old" key, differs from sub's current key
+            commentIpfs.communityPublicKey = signers[6].address; // "old" key, differs from community's current key
             const cid = await addStringToIpfs(JSON.stringify(commentIpfs));
 
             const loadedComment = await pkc.getComment({ cid, communityAddress: "example.eth" });

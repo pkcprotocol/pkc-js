@@ -10,49 +10,49 @@ import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-c
 
 describe(`community.delete`, async () => {
     let pkc: PKCType;
-    let sub: LocalCommunity | RpcLocalCommunity;
+    let community: LocalCommunity | RpcLocalCommunity;
     beforeAll(async () => {
         pkc = await mockPKCV2({ forceMockPubsub: true, stubStorage: false });
 
-        sub = (await pkc.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+        community = (await pkc.createCommunity()) as LocalCommunity | RpcLocalCommunity;
     });
 
     afterAll(async () => {
         await pkc.destroy();
     });
 
-    it(`Deleted sub is not listed in pkc.communities`, async () => {
-        const subs = pkc.communities;
-        expect(subs).to.include(sub.address);
-        const subRecreated = await pkc.createCommunity({ address: sub.address });
-        await subRecreated.delete();
+    it(`Deleted community is not listed in pkc.communities`, async () => {
+        const communities = pkc.communities;
+        expect(communities).to.include(community.address);
+        const recreatedCommunity = await pkc.createCommunity({ address: community.address });
+        await recreatedCommunity.delete();
         await resolveWhenConditionIsTrue({
             toUpdate: pkc,
-            predicate: async () => !pkc.communities.includes(sub.address),
+            predicate: async () => !pkc.communities.includes(community.address),
             eventName: "communitieschange"
         });
-        const subsAfterDeletion = pkc.communities;
-        expect(subsAfterDeletion).to.not.include(sub.address);
+        const communitiesAfterDeletion = pkc.communities;
+        expect(communitiesAfterDeletion).to.not.include(community.address);
     });
 
-    itSkipIfRpc(`Deleted sub ipfs keys are not listed in ipfs node`, async () => {
+    itSkipIfRpc(`Deleted community ipfs keys are not listed in ipfs node`, async () => {
         const ipfsKeys = await pkc._clientsManager.getDefaultKuboRpcClient()!._client.key.list();
-        const localSub = sub as LocalCommunity;
-        const subKeyExists = ipfsKeys.some((key) => key.name === localSub.signer?.ipnsKeyName);
-        expect(subKeyExists).to.be.false;
+        const localCommunity = community as LocalCommunity;
+        const communityKeyExists = ipfsKeys.some((key) => key.name === localCommunity.signer?.ipnsKeyName);
+        expect(communityKeyExists).to.be.false;
     });
 
-    itSkipIfRpc(`Deleted sub db is moved to datapath/communities/deleted`, async () => {
-        const expectedPath = path.join(pkc.dataPath!, "communities", "deleted", sub.address);
+    itSkipIfRpc(`Deleted community db is moved to datapath/communities/deleted`, async () => {
+        const expectedPath = path.join(pkc.dataPath!, "communities", "deleted", community.address);
         expect(fs.existsSync(expectedPath)).to.be.true;
     });
 
-    itSkipIfRpc(`Deleted sub has no locks in communities directory`, async () => {
-        const subFiles = await fs.promises.readdir(path.join(pkc.dataPath!, "communities"));
-        const startLockFilename = `${sub.address}.start.lock`;
-        const stateLockFilename = `${sub.address}.state.lock`;
-        expect(subFiles).to.not.include(startLockFilename);
-        expect(subFiles).to.not.include(stateLockFilename);
+    itSkipIfRpc(`Deleted community has no locks in communities directory`, async () => {
+        const communityFiles = await fs.promises.readdir(path.join(pkc.dataPath!, "communities"));
+        const startLockFilename = `${community.address}.start.lock`;
+        const stateLockFilename = `${community.address}.state.lock`;
+        expect(communityFiles).to.not.include(startLockFilename);
+        expect(communityFiles).to.not.include(stateLockFilename);
     });
 
     it(`Deleting an updating community will stop the community`, async () => {

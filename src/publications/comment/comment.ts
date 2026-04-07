@@ -445,7 +445,7 @@ export class Comment
         const log = Logger("pkc-js:comment:publish:_verifyChallengeVerificationCommentProps");
 
         if (!this.raw.pubsubMessageToPublish) throw Error("comment._pubsubMsgToPublish should be defined at this point");
-        // verify that the sub did not change any props that we published
+        // verify that the community did not change any props that we published
         const keysToCompare = remeda.keys.strict(remeda.omit(this.raw.pubsubMessageToPublish, ["signature", "author"])); // we're omitting these two because that would fail because of anonymity features in community
         const pubsubMsgFromCommentIpfs = remeda.pick(decryptedVerification.comment, keysToCompare);
         const pubsubMsgFromPublishedPubsubMsg = remeda.pick(this.raw.pubsubMessageToPublish, keysToCompare);
@@ -466,7 +466,7 @@ export class Comment
 
         if (!postCid) {
             throw Error(
-                "Unable to calculate postCid after receiving challengeVerification for comment. This is either a critical error in pkc-js or the sub did not include postCid in replies"
+                "Unable to calculate postCid after receiving challengeVerification for comment. This is either a critical error in pkc-js or the community did not include postCid in replies"
             );
         }
 
@@ -737,7 +737,7 @@ export class Comment
         if (this.state === "stopped") return; // we may have called stop() before reaching comment update subscription and after loading commentipfs
         if (this.depth === 0) {
             if (!this._communityForUpdating)
-                this._communityForUpdating = await this._clientsManager._createSubInstanceWithStateTranslation();
+                this._communityForUpdating = await this._clientsManager._createCommunityInstanceWithStateTranslation();
 
             if (this.state !== "updating") return; // there are cases where stop() is called in parallel
             if (this._communityForUpdating.community.state === "stopped") {
@@ -841,7 +841,7 @@ export class Comment
     private _isRetriableLoadingError(err: Error | PKCError) {
         // Critical Errors for now are:
         // Invalid signature of CommentIpfs
-        // CommentUpdate will always be retried when a new sub update is loaded
+        // CommentUpdate will always be retried when a new community update is loaded
         if (this.raw.comment)
             return true; // if we already loaded CommentIpfs, we should always retry loading CommentUpdate
         else return this._isCommentIpfsErrorRetriable(err);
@@ -1168,7 +1168,7 @@ export class Comment
         if (this._communityForUpdating) {
             // this post instance is pkc._updatingComments[cid] and it's updating
 
-            await this._clientsManager.cleanUpUpdatingSubInstance();
+            await this._clientsManager.cleanUpUpdatingCommunityInstance();
             this._communityForUpdating = undefined;
             untrackUpdatingComment(this._pkc, this);
             this._invalidCommentUpdateMfsPaths.clear();

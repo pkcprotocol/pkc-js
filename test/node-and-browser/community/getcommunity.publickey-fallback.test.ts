@@ -14,13 +14,13 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const testPKC = await config.pkcInstancePromise();
 
             try {
-                const sub = await testPKC.getCommunity({ publicKey: communityPublicKey });
+                const community = await testPKC.getCommunity({ publicKey: communityPublicKey });
 
-                expect(sub.name).to.equal("myforum.eth");
-                expect(sub.address).to.equal(communityPublicKey);
-                expect(sub.publicKey).to.equal(communityPublicKey);
-                expect(sub.updatedAt).to.be.a("number");
-                expect(sub.state).to.equal("stopped");
+                expect(community.name).to.equal("myforum.eth");
+                expect(community.address).to.equal(communityPublicKey);
+                expect(community.publicKey).to.equal(communityPublicKey);
+                expect(community.updatedAt).to.be.a("number");
+                expect(community.state).to.equal("stopped");
             } finally {
                 await testPKC.destroy();
             }
@@ -41,12 +41,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             try {
-                const sub = await testPKC.getCommunity({ name: "test.sol", publicKey: communityAddress });
+                const community = await testPKC.getCommunity({ name: "test.sol", publicKey: communityAddress });
 
-                expect(sub.address).to.equal("test.sol");
-                expect(sub.publicKey).to.equal(communityAddress);
-                expect(sub.updatedAt).to.be.a("number");
-                expect(sub.state).to.equal("stopped");
+                expect(community.address).to.equal("test.sol");
+                expect(community.publicKey).to.equal(communityAddress);
+                expect(community.updatedAt).to.be.a("number");
+                expect(community.state).to.equal("stopped");
             } finally {
                 await testPKC.destroy();
             }

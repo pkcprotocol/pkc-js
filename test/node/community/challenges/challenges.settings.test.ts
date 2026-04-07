@@ -54,8 +54,8 @@ describe.concurrent(`community.settings.challenges`, async () => {
 
         await community.start();
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
-        const remoteSub = (await remotePKC.getCommunity({ address: community.address })) as RemoteCommunity;
-        for (const _community of [community, remoteSub]) {
+        const remoteCommunity = (await remotePKC.getCommunity({ address: community.address })) as RemoteCommunity;
+        for (const _community of [community, remoteCommunity]) {
             expect(_community.challenges!.length).to.equal(defaultSettingsChallenges.length);
             _community.challenges!.forEach((challenge, index) => {
                 expect(challenge.type).to.equal(defaultChallengeTypes[index]);
@@ -90,7 +90,7 @@ describe.concurrent(`community.settings.challenges`, async () => {
         await community.delete();
     });
 
-    it(`settings.challenges=[] means sub won't send a challenge`, async () => {
+    it(`settings.challenges=[] means community won't send a challenge`, async () => {
         const community = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
         await community.edit({ settings: { challenges: [] } });
         await community.start();
@@ -130,10 +130,10 @@ describe.concurrent(`community.settings.challenges`, async () => {
         await community.start();
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
-        const remoteSub = (await remotePKC.getCommunity({ address: community.address })) as RemoteCommunity;
+        const remoteCommunity = (await remotePKC.getCommunity({ address: community.address })) as RemoteCommunity;
 
-        expect(community.updatedAt).to.equal(remoteSub.updatedAt);
-        for (const _community of [community, remoteSub]) {
+        expect(community.updatedAt).to.equal(remoteCommunity.updatedAt);
+        for (const _community of [community, remoteCommunity]) {
             expect(_community.challenges![0].challenge).to.equal("1+1=?");
             expect(_community.challenges![0].description).to.equal("Ask a question, like 'What is the password?'");
             expect(_community.challenges![0].exclude).to.be.undefined;
@@ -160,7 +160,7 @@ describe.concurrent(`community.settings.challenges`, async () => {
         await community.delete();
     });
 
-    it(`community.settings.challenges isn't overridden with community.start() if it was edited before starting the sub`, async () => {
+    it(`community.settings.challenges isn't overridden with community.start() if it was edited before starting the community`, async () => {
         const community = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
         await community.edit({ settings: { challenges: [] } });
         expect(community.settings!.challenges).to.deep.equal([]);
@@ -169,8 +169,8 @@ describe.concurrent(`community.settings.challenges`, async () => {
         await community.start();
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
         expect(community.settings!.challenges).to.deep.equal([]);
-        const remoteSub = (await remotePKC.getCommunity({ address: community.address })) as RemoteCommunity;
-        for (const _community of [community, remoteSub]) expect(_community.challenges).to.deep.equal([]);
+        const remoteCommunity = (await remotePKC.getCommunity({ address: community.address })) as RemoteCommunity;
+        for (const _community of [community, remoteCommunity]) expect(_community.challenges).to.deep.equal([]);
 
         await community.delete();
     });

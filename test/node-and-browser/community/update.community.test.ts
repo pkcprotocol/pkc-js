@@ -71,10 +71,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
                 expect(localPKC._updatingCommunities.size()).to.equal(0);
 
-                await Promise.all(subInstances.map((sub) => sub.update()));
+                await Promise.all(subInstances.map((community) => community.update()));
                 await Promise.all(
-                    subInstances.map((sub) =>
-                        resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" })
+                    subInstances.map((community) =>
+                        resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" })
                     )
                 );
 
@@ -146,30 +146,30 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const testPKC = await config.pkcInstancePromise();
 
             try {
-                const sub = await testPKC.createCommunity({ address: ipnsKey });
+                const community = await testPKC.createCommunity({ address: ipnsKey });
                 const errorPromise = new Promise<PKCError>((resolve) => {
-                    sub.on("error", (err) => {
+                    community.on("error", (err) => {
                         if ((err as PKCError).code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY") {
                             resolve(err as PKCError);
                         }
                     });
                 });
                 const clearedUpdatePromise = new Promise<void>((resolve) => {
-                    sub.on("update", () => {
-                        if (sub.publicKey === differentKey && sub.updatedAt === undefined) {
+                    community.on("update", () => {
+                        if (community.publicKey === differentKey && community.updatedAt === undefined) {
                             resolve();
                         }
                     });
                 });
 
-                await sub.update();
+                await community.update();
 
                 // First update: record loaded, name set from record
                 await resolveWhenConditionIsTrue({
-                    toUpdate: sub,
-                    predicate: async () => typeof sub.updatedAt === "number"
+                    toUpdate: community,
+                    predicate: async () => typeof community.updatedAt === "number"
                 });
-                expect(sub.name).to.equal("migration-test.bso");
+                expect(community.name).to.equal("migration-test.bso");
 
                 const error = await errorPromise;
                 expect(error.details.previousPublicKey).to.equal(ipnsKey);
@@ -177,14 +177,14 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
                 await clearedUpdatePromise;
                 // Data should be cleared
-                expect(sub.updatedAt).to.be.undefined;
-                expect(sub.raw.communityIpfs).to.be.undefined;
+                expect(community.updatedAt).to.be.undefined;
+                expect(community.raw.communityIpfs).to.be.undefined;
                 // publicKey updated to new key
-                expect(sub.publicKey).to.equal(differentKey);
+                expect(community.publicKey).to.equal(differentKey);
                 // address stays immutable
-                expect(sub.address).to.equal(ipnsKey);
+                expect(community.address).to.equal(ipnsKey);
 
-                await sub.stop();
+                await community.stop();
             } finally {
                 await testPKC.destroy();
             }
@@ -207,38 +207,38 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             try {
-                const sub = await testPKC.createCommunity({ address: ipnsKey });
+                const community = await testPKC.createCommunity({ address: ipnsKey });
 
                 let keyMigrationErrorEmitted = false;
-                sub.on("error", (err) => {
+                community.on("error", (err) => {
                     if ((err as PKCError).code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY") {
                         keyMigrationErrorEmitted = true;
                     }
                 });
 
-                await sub.update();
+                await community.update();
 
                 // First update: record loaded
                 await resolveWhenConditionIsTrue({
-                    toUpdate: sub,
-                    predicate: async () => typeof sub.updatedAt === "number"
+                    toUpdate: community,
+                    predicate: async () => typeof community.updatedAt === "number"
                 });
-                expect(sub.name).to.equal("unresolvable-name.bso");
+                expect(community.name).to.equal("unresolvable-name.bso");
 
                 // On subsequent update loop, background resolution of "unresolvable-name.bso"
                 // returns null — nameResolved should become false, which emits an "update" event.
                 await resolveWhenConditionIsTrue({
-                    toUpdate: sub,
-                    predicate: async () => sub.nameResolved === false
+                    toUpdate: community,
+                    predicate: async () => community.nameResolved === false
                 });
-                expect(sub.nameResolved).to.equal(false);
+                expect(community.nameResolved).to.equal(false);
                 // No key migration error — just a name that doesn't resolve
                 expect(keyMigrationErrorEmitted).to.be.false;
                 // Data should still be intact
-                expect(sub.updatedAt).to.be.a("number");
-                expect(sub.address).to.equal(ipnsKey);
+                expect(community.updatedAt).to.be.a("number");
+                expect(community.address).to.equal(ipnsKey);
 
-                await sub.stop();
+                await community.stop();
             } finally {
                 await testPKC.destroy();
             }
@@ -335,7 +335,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`community.update emits error and keeps retrying if address is name and name address has no community-address text record`, async () => {
-            const sub = await pkc.createCommunity({ address: "this-sub-does-not-exist.bso" });
+            const community = await pkc.createCommunity({ address: "this-sub-does-not-exist.bso" });
             // Should emit an error and keep on retrying in the next update loop
             let errorCount = 0;
             let resolveErrorPromise: () => void;
@@ -344,15 +344,15 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
             const errorListener = (err: PKCError | Error) => {
                 expect((err as PKCError).code).to.equal("ERR_DOMAIN_TXT_RECORD_NOT_FOUND");
-                expect(sub.updatingState).to.equal("waiting-retry");
+                expect(community.updatingState).to.equal("waiting-retry");
                 errorCount++;
                 if (errorCount === 3) resolveErrorPromise();
             };
-            sub.on("error", errorListener);
-            await sub.update();
+            community.on("error", errorListener);
+            await community.update();
             await errorPromise;
-            await sub.stop();
-            sub.removeListener("error", errorListener);
+            await community.stop();
+            community.removeListener("error", errorListener);
         });
 
         it(`community.stop() stops community updates`, async () => {
@@ -402,12 +402,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const testPKC = await config.pkcInstancePromise();
 
             try {
-                const sub = await testPKC.createCommunity({ address: "migrating.bso", publicKey: oldPublicKey });
-                expect(sub.address).to.equal("migrating.bso");
-                expect(sub.publicKey).to.equal(oldPublicKey);
+                const community = await testPKC.createCommunity({ address: "migrating.bso", publicKey: oldPublicKey });
+                expect(community.address).to.equal("migrating.bso");
+                expect(community.publicKey).to.equal(oldPublicKey);
 
                 const errorPromise = new Promise<PKCError>((resolve) => {
-                    sub.on("error", (err) => {
+                    community.on("error", (err) => {
                         if ((err as PKCError).code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY") {
                             resolve(err as PKCError);
                         }
@@ -416,14 +416,14 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
                 // Wait for an update event where data has been cleared (key migration)
                 const clearedUpdatePromise = new Promise<void>((resolve) => {
-                    sub.on("update", () => {
-                        if (sub.publicKey === newPublicKey && sub.updatedAt === undefined) {
+                    community.on("update", () => {
+                        if (community.publicKey === newPublicKey && community.updatedAt === undefined) {
                             resolve();
                         }
                     });
                 });
 
-                await sub.update();
+                await community.update();
 
                 // Should emit ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY
                 const error = await errorPromise;
@@ -432,30 +432,30 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
                 // Should emit update with cleared data
                 await clearedUpdatePromise;
-                expect(sub.updatedAt).to.be.undefined;
-                expect(sub.title).to.be.undefined;
-                expect(sub.signature).to.be.undefined;
-                expect(sub.raw.communityIpfs).to.be.undefined;
-                expect(sub.updateCid).to.be.undefined;
+                expect(community.updatedAt).to.be.undefined;
+                expect(community.title).to.be.undefined;
+                expect(community.signature).to.be.undefined;
+                expect(community.raw.communityIpfs).to.be.undefined;
+                expect(community.updateCid).to.be.undefined;
 
                 // address stays immutable
-                expect(sub.address).to.equal("migrating.bso");
+                expect(community.address).to.equal("migrating.bso");
                 // publicKey updated to new key
-                expect(sub.publicKey).to.equal(newPublicKey);
+                expect(community.publicKey).to.equal(newPublicKey);
                 // nameResolved is true since domain resolved correctly to the new key
-                expect(sub.nameResolved).to.equal(true);
+                expect(community.nameResolved).to.equal(true);
                 // IPNS routing props updated
-                expect(sub.ipnsName).to.equal(newPublicKey);
+                expect(community.ipnsName).to.equal(newPublicKey);
 
                 // Eventually loads new record from the new public key
                 await resolveWhenConditionIsTrue({
-                    toUpdate: sub,
-                    predicate: async () => typeof sub.updatedAt === "number"
+                    toUpdate: community,
+                    predicate: async () => typeof community.updatedAt === "number"
                 });
-                expect(sub.publicKey).to.equal(newPublicKey);
-                expect(sub.address).to.equal("migrating.bso");
+                expect(community.publicKey).to.equal(newPublicKey);
+                expect(community.address).to.equal("migrating.bso");
 
-                await sub.stop();
+                await community.stop();
             } finally {
                 await testPKC.destroy();
             }
@@ -468,10 +468,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const testPKC = await config.pkcInstancePromise();
 
             try {
-                const sub = await testPKC.createCommunity({ address: "wrong-name.bso" });
-                const errorPromise = new Promise<PKCError>((resolve) => sub.once("error", resolve as (err: Error) => void));
+                const community = await testPKC.createCommunity({ address: "wrong-name.bso" });
+                const errorPromise = new Promise<PKCError>((resolve) => community.once("error", resolve as (err: Error) => void));
 
-                await sub.update();
+                await community.update();
                 const error = await errorPromise;
 
                 if (isPKCFetchingUsingGateways(testPKC)) {
@@ -485,10 +485,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     expect(error.code).to.equal("ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED");
                 }
                 // Record should not be accepted
-                expect(sub.updatedAt).to.be.undefined;
-                expect(sub.address).to.equal("wrong-name.bso");
+                expect(community.updatedAt).to.be.undefined;
+                expect(community.address).to.equal("wrong-name.bso");
 
-                await sub.stop();
+                await community.stop();
             } finally {
                 await testPKC.destroy();
             }
@@ -501,36 +501,36 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const testPKC = await config.pkcInstancePromise();
 
             try {
-                const sub = await testPKC.createCommunity({ address: "unresolvable.bso", publicKey });
+                const community = await testPKC.createCommunity({ address: "unresolvable.bso", publicKey });
 
                 // Should not emit the key migration error
                 let keyMigrationErrorEmitted = false;
-                sub.on("error", (err) => {
+                community.on("error", (err) => {
                     if ((err as PKCError).code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY") {
                         keyMigrationErrorEmitted = true;
                     }
                 });
 
-                await sub.update();
+                await community.update();
                 await resolveWhenConditionIsTrue({
-                    toUpdate: sub,
-                    predicate: async () => typeof sub.updatedAt === "number"
+                    toUpdate: community,
+                    predicate: async () => typeof community.updatedAt === "number"
                 });
 
                 // Record loaded via publicKey fallback
-                expect(sub.updatedAt).to.be.a("number");
-                expect(sub.address).to.equal("unresolvable.bso");
-                expect(sub.publicKey).to.equal(publicKey);
-                // Name could not be resolved (null returned), and sub.name is "unresolvable.bso",
+                expect(community.updatedAt).to.be.a("number");
+                expect(community.address).to.equal("unresolvable.bso");
+                expect(community.publicKey).to.equal(publicKey);
+                // Name could not be resolved (null returned), and community.name is "unresolvable.bso",
                 // so nameResolved should become false — background resolution emits "update"
                 await resolveWhenConditionIsTrue({
-                    toUpdate: sub,
-                    predicate: async () => sub.nameResolved === false
+                    toUpdate: community,
+                    predicate: async () => community.nameResolved === false
                 });
-                expect(sub.nameResolved).to.equal(false);
+                expect(community.nameResolved).to.equal(false);
                 expect(keyMigrationErrorEmitted).to.be.false;
 
-                await sub.stop();
+                await community.stop();
             } finally {
                 await testPKC.destroy();
             }
@@ -539,56 +539,56 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         // _clearDataForKeyMigration unit test
         itSkipIfRpc(`_clearDataForKeyMigration clears all data fields and updates key`, async () => {
             // Cannot run in RPC because we access internal methods directly
-            const sub = await pkc.createCommunity({ address: signers[0].address });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: signers[0].address });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => typeof sub.updatedAt === "number"
+                toUpdate: community,
+                predicate: async () => typeof community.updatedAt === "number"
             });
-            await sub.stop();
+            await community.stop();
 
             // Verify data is populated before clearing
-            expect(sub.updatedAt).to.be.a("number");
-            expect(sub.signature).to.not.be.undefined;
+            expect(community.updatedAt).to.be.a("number");
+            expect(community.signature).to.not.be.undefined;
 
-            const originalAddress = sub.address;
+            const originalAddress = community.address;
             const newKey = signers[1].address;
 
-            sub._clearDataForKeyMigration(newKey);
+            community._clearDataForKeyMigration(newKey);
 
             // All data fields should be cleared
-            expect(sub.updatedAt).to.be.undefined;
-            expect(sub.title).to.be.undefined;
-            expect(sub.description).to.be.undefined;
-            expect(sub.createdAt).to.be.undefined;
-            expect(sub.signature).to.be.undefined;
-            expect(sub.encryption).to.be.undefined;
-            expect(sub.pubsubTopic).to.be.undefined;
-            expect(sub.challenges).to.be.undefined;
-            expect(sub.roles).to.be.undefined;
-            expect(sub.rules).to.be.undefined;
-            expect(sub.features).to.be.undefined;
-            expect(sub.suggested).to.be.undefined;
-            expect(sub.flairs).to.be.undefined;
-            expect(sub.postUpdates).to.be.undefined;
-            expect(sub.statsCid).to.be.undefined;
-            expect(sub.lastPostCid).to.be.undefined;
-            expect(sub.lastCommentCid).to.be.undefined;
-            expect(sub.protocolVersion).to.be.undefined;
-            expect(sub.raw.communityIpfs).to.be.undefined;
-            expect(sub.updateCid).to.be.undefined;
+            expect(community.updatedAt).to.be.undefined;
+            expect(community.title).to.be.undefined;
+            expect(community.description).to.be.undefined;
+            expect(community.createdAt).to.be.undefined;
+            expect(community.signature).to.be.undefined;
+            expect(community.encryption).to.be.undefined;
+            expect(community.pubsubTopic).to.be.undefined;
+            expect(community.challenges).to.be.undefined;
+            expect(community.roles).to.be.undefined;
+            expect(community.rules).to.be.undefined;
+            expect(community.features).to.be.undefined;
+            expect(community.suggested).to.be.undefined;
+            expect(community.flairs).to.be.undefined;
+            expect(community.postUpdates).to.be.undefined;
+            expect(community.statsCid).to.be.undefined;
+            expect(community.lastPostCid).to.be.undefined;
+            expect(community.lastCommentCid).to.be.undefined;
+            expect(community.protocolVersion).to.be.undefined;
+            expect(community.raw.communityIpfs).to.be.undefined;
+            expect(community.updateCid).to.be.undefined;
 
             // Address stays unchanged (immutable)
-            expect(sub.address).to.equal(originalAddress);
+            expect(community.address).to.equal(originalAddress);
 
             // Key updated
-            expect(sub.publicKey).to.equal(newKey);
-            expect(sub.ipnsName).to.equal(newKey);
+            expect(community.publicKey).to.equal(newKey);
+            expect(community.ipnsName).to.equal(newKey);
 
             // Calling twice doesn't crash
-            sub._clearDataForKeyMigration(newKey);
-            expect(sub.address).to.equal(originalAddress);
-            expect(sub.publicKey).to.equal(newKey);
+            community._clearDataForKeyMigration(newKey);
+            expect(community.address).to.equal(originalAddress);
+            expect(community.publicKey).to.equal(newKey);
         });
 
         it(`community.update() emits an error if community record is over 1mb`, async () => {
@@ -617,28 +617,28 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         // Verify that background name resolution emits "update" independently of communityIpfs changes
         it(`background name resolution emits update with nameResolved=true without a new communityIpfs record`, async () => {
-            const sub = await pkc.createCommunity({ address: nameCommunitySigner.address });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: nameCommunitySigner.address });
+            await community.update();
             // Wait for the initial record to load
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => typeof sub.updatedAt === "number"
+                toUpdate: community,
+                predicate: async () => typeof community.updatedAt === "number"
             });
             // Capture the record state — nameResolved may still be undefined (background resolution is async)
-            const updatedAtBeforeNameResolved = sub.updatedAt;
-            const updateCidBeforeNameResolved = sub.updateCid;
+            const updatedAtBeforeNameResolved = community.updatedAt;
+            const updateCidBeforeNameResolved = community.updateCid;
 
             // Wait for background resolution to set nameResolved=true via an "update" event
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => sub.nameResolved === true
+                toUpdate: community,
+                predicate: async () => community.nameResolved === true
             });
             // The communityIpfs record should be unchanged — update was triggered solely by nameResolved
-            expect(sub.updatedAt).to.equal(updatedAtBeforeNameResolved);
-            expect(sub.updateCid).to.equal(updateCidBeforeNameResolved);
-            expect(sub.nameResolved).to.equal(true);
-            expect(sub.address).to.equal(nameCommunitySigner.address);
-            await sub.stop();
+            expect(community.updatedAt).to.equal(updatedAtBeforeNameResolved);
+            expect(community.updateCid).to.equal(updateCidBeforeNameResolved);
+            expect(community.nameResolved).to.equal(true);
+            expect(community.address).to.equal(nameCommunitySigner.address);
+            await community.stop();
         });
 
         it(`background name resolution emits update with nameResolved=false without a new communityIpfs record`, async () => {
@@ -656,29 +656,29 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             try {
-                const sub = await testPKC.createCommunity({ address: ipnsKey });
-                await sub.update();
+                const community = await testPKC.createCommunity({ address: ipnsKey });
+                await community.update();
                 // Wait for the initial record to load
                 await resolveWhenConditionIsTrue({
-                    toUpdate: sub,
-                    predicate: async () => typeof sub.updatedAt === "number"
+                    toUpdate: community,
+                    predicate: async () => typeof community.updatedAt === "number"
                 });
-                expect(sub.name).to.equal("unresolvable-name-independent.bso");
+                expect(community.name).to.equal("unresolvable-name-independent.bso");
                 // Capture the record state
-                const updatedAtBeforeNameResolved = sub.updatedAt;
-                const updateCidBeforeNameResolved = sub.updateCid;
+                const updatedAtBeforeNameResolved = community.updatedAt;
+                const updateCidBeforeNameResolved = community.updateCid;
 
                 // Wait for background resolution to set nameResolved=false via an "update" event
                 await resolveWhenConditionIsTrue({
-                    toUpdate: sub,
-                    predicate: async () => sub.nameResolved === false
+                    toUpdate: community,
+                    predicate: async () => community.nameResolved === false
                 });
                 // The communityIpfs record should be unchanged — update was triggered solely by nameResolved
-                expect(sub.updatedAt).to.equal(updatedAtBeforeNameResolved);
-                expect(sub.updateCid).to.equal(updateCidBeforeNameResolved);
-                expect(sub.nameResolved).to.equal(false);
-                expect(sub.address).to.equal(ipnsKey);
-                await sub.stop();
+                expect(community.updatedAt).to.equal(updatedAtBeforeNameResolved);
+                expect(community.updateCid).to.equal(updateCidBeforeNameResolved);
+                expect(community.nameResolved).to.equal(false);
+                expect(community.address).to.equal(ipnsKey);
+                await community.stop();
             } finally {
                 await testPKC.destroy();
             }
@@ -686,31 +686,31 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`page comment author background resolution does not emit spurious update on community`, async () => {
             // Load a community that has pages with domain-author comments
-            const sub = await pkc.createCommunity({ address: signers[0].address });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: signers[0].address });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => Boolean(sub.posts?.pages?.hot?.comments?.length)
+                toUpdate: community,
+                predicate: async () => Boolean(community.posts?.pages?.hot?.comments?.length)
             });
 
             // Track whether nameResolved ever gets set on the community itself
             // (it shouldn't — signers[0].address is a B58 key, not a domain)
             let nameResolvedEverChanged = false;
             const onUpdate = () => {
-                if (typeof sub.nameResolved === "boolean") {
+                if (typeof community.nameResolved === "boolean") {
                     nameResolvedEverChanged = true;
                 }
             };
-            sub.on("update", onUpdate);
+            community.on("update", onUpdate);
 
             // Wait to let any pending background page author resolution settle
             await new Promise((resolve) => setTimeout(resolve, 2000));
 
-            sub.removeListener("update", onUpdate);
-            await sub.stop();
+            community.removeListener("update", onUpdate);
+            await community.stop();
 
             // community.nameResolved should remain undefined (no community domain to resolve)
-            expect(sub.nameResolved).to.be.undefined;
+            expect(community.nameResolved).to.be.undefined;
             expect(nameResolvedEverChanged).to.be.false;
         });
     });

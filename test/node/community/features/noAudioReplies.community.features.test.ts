@@ -44,11 +44,14 @@ describe.concurrent(`community.features.noAudioReplies`, async () => {
         await community.edit({ features: { ...community.features, noAudioReplies: true } });
         expect(community.features?.noAudioReplies).to.be.true;
 
-        const remoteSub = await remotePKC.getCommunity({ address: community.address });
-        await remoteSub.update();
-        await resolveWhenConditionIsTrue({ toUpdate: remoteSub, predicate: async () => remoteSub.features?.noAudioReplies === true });
-        expect(remoteSub.features?.noAudioReplies).to.be.true;
-        await remoteSub.stop();
+        const remoteCommunity = await remotePKC.getCommunity({ address: community.address });
+        await remoteCommunity.update();
+        await resolveWhenConditionIsTrue({
+            toUpdate: remoteCommunity,
+            predicate: async () => remoteCommunity.features?.noAudioReplies === true
+        });
+        expect(remoteCommunity.features?.noAudioReplies).to.be.true;
+        await remoteCommunity.stop();
     });
 
     it(`Can publish a post with audio link (noAudioReplies only blocks replies)`, async () => {

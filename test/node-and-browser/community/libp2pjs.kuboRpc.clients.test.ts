@@ -52,48 +52,52 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             ).to.equal("stopped");
         });
 
-        it(`Correct order of ${clientFieldName} state when updating a sub that was created with pkc.createCommunity({address})`, async () => {
-            const sub = await pkc.createCommunity({ address: signers[0].address });
+        it(`Correct order of ${clientFieldName} state when updating a community that was created with pkc.createCommunity({address})`, async () => {
+            const community = await pkc.createCommunity({ address: signers[0].address });
 
             const expectedStates = ["fetching-ipns", "fetching-ipfs", "stopped"];
 
             const actualStates: string[] = [];
 
-            const clientUrl = Object.keys((sub.clients as unknown as Record<string, Record<string, { on: Function }>>)[clientFieldName])[0];
+            const clientUrl = Object.keys(
+                (community.clients as unknown as Record<string, Record<string, { on: Function }>>)[clientFieldName]
+            )[0];
 
-            (sub.clients as unknown as Record<string, Record<string, { on: Function }>>)[clientFieldName][clientUrl].on(
+            (community.clients as unknown as Record<string, Record<string, { on: Function }>>)[clientFieldName][clientUrl].on(
                 "statechange",
                 (newState: string) => actualStates.push(newState)
             );
 
-            const updatePromise = new Promise((resolve) => sub.once("update", resolve));
-            await sub.update();
+            const updatePromise = new Promise((resolve) => community.once("update", resolve));
+            await community.update();
             await updatePromise;
-            await sub.stop();
+            await community.stop();
 
             expect(actualStates).to.deep.equal(expectedStates);
         });
 
         it(`Correct order of ${clientFieldName} state when updating a community that was created with pkc.getCommunity({address: address})`, async () => {
-            const sub = await pkc.getCommunity({ address: signers[0].address });
-            delete sub.raw.communityIpfs;
-            delete sub.updateCid;
+            const community = await pkc.getCommunity({ address: signers[0].address });
+            delete community.raw.communityIpfs;
+            delete community.updateCid;
             const expectedStates = ["fetching-ipns", "fetching-ipfs", "stopped"];
 
             const actualStates: string[] = [];
 
-            const clientUrl = Object.keys((sub.clients as unknown as Record<string, Record<string, { on: Function }>>)[clientFieldName])[0];
+            const clientUrl = Object.keys(
+                (community.clients as unknown as Record<string, Record<string, { on: Function }>>)[clientFieldName]
+            )[0];
 
-            (sub.clients as unknown as Record<string, Record<string, { on: Function }>>)[clientFieldName][clientUrl].on(
+            (community.clients as unknown as Record<string, Record<string, { on: Function }>>)[clientFieldName][clientUrl].on(
                 "statechange",
                 (newState: string) => actualStates.push(newState)
             );
 
-            const updatePromise = new Promise((resolve) => sub.once("update", resolve));
-            await sub.update();
-            await publishRandomPost({ communityAddress: sub.address, pkc: pkc }); // force an update
+            const updatePromise = new Promise((resolve) => community.once("update", resolve));
+            await community.update();
+            await publishRandomPost({ communityAddress: community.address, pkc: pkc }); // force an update
             await updatePromise;
-            await sub.stop();
+            await community.stop();
 
             expect(actualStates.slice(0, expectedStates.length)).to.deep.equal(expectedStates);
         });
@@ -101,24 +105,26 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         it(`Correct order of ${clientFieldName} state when we update a community and it's not publishing new community records`, async () => {
             const subRecord = await createMockedCommunityIpns({}); // only published once, a static record
 
-            const sub = await pkc.createCommunity({ address: subRecord.communityAddress });
+            const community = await pkc.createCommunity({ address: subRecord.communityAddress });
 
             const recordedStates: string[] = [];
-            const clientUrl = Object.keys((sub.clients as unknown as Record<string, Record<string, { on: Function }>>)[clientFieldName])[0];
-            (sub.clients as unknown as Record<string, Record<string, { on: Function }>>)[clientFieldName][clientUrl].on(
+            const clientUrl = Object.keys(
+                (community.clients as unknown as Record<string, Record<string, { on: Function }>>)[clientFieldName]
+            )[0];
+            (community.clients as unknown as Record<string, Record<string, { on: Function }>>)[clientFieldName][clientUrl].on(
                 "statechange",
                 (newState: string) => recordedStates.push(newState)
             );
 
             // now pkc._updatingCommunities will be defined
 
-            const updatePromise = new Promise((resolve) => sub.once("update", resolve));
-            await sub.update();
+            const updatePromise = new Promise((resolve) => community.once("update", resolve));
+            await community.update();
             await updatePromise;
 
             await new Promise((resolve) => setTimeout(resolve, pkc.updateInterval * 4));
 
-            await sub.stop();
+            await community.stop();
 
             const expectedFirstStates = ["fetching-ipns", "fetching-ipfs", "stopped"]; // for first update
 
@@ -139,23 +145,25 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             });
 
             // Create a static community record with invalid signature
-            const sub = await pkc.createCommunity({ address: communityAddress });
+            const community = await pkc.createCommunity({ address: communityAddress });
 
             const recordedStates: string[] = [];
-            const clientUrl = Object.keys((sub.clients as unknown as Record<string, Record<string, { on: Function }>>)[clientFieldName])[0];
-            (sub.clients as unknown as Record<string, Record<string, { on: Function }>>)[clientFieldName][clientUrl].on(
+            const clientUrl = Object.keys(
+                (community.clients as unknown as Record<string, Record<string, { on: Function }>>)[clientFieldName]
+            )[0];
+            (community.clients as unknown as Record<string, Record<string, { on: Function }>>)[clientFieldName][clientUrl].on(
                 "statechange",
                 (newState: string) => recordedStates.push(newState)
             );
 
-            const errorPromise = new Promise<PKCError>((resolve) => sub.once("error", resolve as (err: Error) => void));
+            const errorPromise = new Promise<PKCError>((resolve) => community.once("error", resolve as (err: Error) => void));
 
-            await sub.update();
+            await community.update();
             const err = await errorPromise;
             await new Promise((resolve) => setTimeout(resolve, pkc.updateInterval * 4));
 
-            await sub.stop();
-            expect(sub.updatedAt).to.be.undefined;
+            await community.stop();
+            expect(community.updatedAt).to.be.undefined;
             expect(err.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
 
             const expectedFirstStates = ["fetching-ipns", "fetching-ipfs", "stopped"];

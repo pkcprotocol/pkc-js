@@ -16,38 +16,38 @@ describe.concurrent(`Community.updateCid`, async () => {
     });
 
     it(`community.updateCid gets updated when local-community publishes a new record`, async () => {
-        const sub = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
-        expect(sub.updateCid).to.be.undefined;
+        const community = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
+        expect(community.updateCid).to.be.undefined;
 
-        await sub.start();
-        await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" }); // wait until we publish a new record
-        expect(sub.updateCid).to.be.a("string");
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" }); // wait until we publish a new record
+        expect(community.updateCid).to.be.a("string");
 
-        await sub.delete();
+        await community.delete();
     });
     it(`community.updateCid is defined when creating an instance of an existing local community`, async () => {
-        const sub = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
-        expect(sub.updateCid).to.be.undefined;
+        const community = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
+        expect(community.updateCid).to.be.undefined;
 
-        await sub.start();
-        await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" }); // wait until we publish a new record
-        expect(sub.updateCid).to.be.a("string");
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" }); // wait until we publish a new record
+        expect(community.updateCid).to.be.a("string");
 
-        const recreatedSub = (await pkc.createCommunity({ address: sub.address })) as LocalCommunity | RpcLocalCommunity;
-        expect(recreatedSub.updateCid).to.equal(sub.updateCid);
+        const recreatedCommunity = (await pkc.createCommunity({ address: community.address })) as LocalCommunity | RpcLocalCommunity;
+        expect(recreatedCommunity.updateCid).to.equal(community.updateCid);
 
-        await sub.delete();
+        await community.delete();
     });
 
     it(`community.updateCid is part of community.toJSON()`, async () => {
-        const sub = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
-        expect(sub.updateCid).to.be.undefined;
+        const community = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
+        expect(community.updateCid).to.be.undefined;
 
-        await sub.start();
-        await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" }); // wait until we publish a new record
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" }); // wait until we publish a new record
 
-        const subJson = JSON.parse(JSON.stringify(sub));
-        expect(subJson.updateCid).to.be.a("string");
-        await sub.delete();
+        const communityJson = JSON.parse(JSON.stringify(community));
+        expect(communityJson.updateCid).to.be.a("string");
+        await community.delete();
     });
 });

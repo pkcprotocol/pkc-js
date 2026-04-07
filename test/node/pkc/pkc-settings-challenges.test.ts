@@ -136,12 +136,12 @@ describe("pkc.settings.challenges", async () => {
         expect(community.challenges![0].description).to.equal("A custom challenge asking about the sky color.");
         expect(community.challenges![0].challenge).to.equal("What color is the sky?");
 
-        // Verify remote sub also sees the challenge metadata
-        const remoteSub = (await remotePKC.getCommunity({ address: community.address })) as RemoteCommunity;
-        expect(remoteSub.challenges).to.have.length(1);
-        expect(remoteSub.challenges![0].type).to.equal("text/plain");
-        expect(remoteSub.challenges![0].description).to.equal("A custom challenge asking about the sky color.");
-        expect(remoteSub.challenges![0].challenge).to.equal("What color is the sky?");
+        // Verify remote community also sees the challenge metadata
+        const remoteCommunity = (await remotePKC.getCommunity({ address: community.address })) as RemoteCommunity;
+        expect(remoteCommunity.challenges).to.have.length(1);
+        expect(remoteCommunity.challenges![0].type).to.equal("text/plain");
+        expect(remoteCommunity.challenges![0].description).to.equal("A custom challenge asking about the sky color.");
+        expect(remoteCommunity.challenges![0].challenge).to.equal("What color is the sky?");
 
         await community.delete();
     });

@@ -98,8 +98,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         let replyCid: string;
         beforeAll(async () => {
             const tempPKC = await config.pkcInstancePromise();
-            const sub = await tempPKC.getCommunity({ address: communityAddress });
-            const post = await publishRandomPost({ communityAddress: sub.address, pkc: tempPKC });
+            const community = await tempPKC.getCommunity({ address: communityAddress });
+            const post = await publishRandomPost({ communityAddress: community.address, pkc: tempPKC });
             const reply = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, pkc: tempPKC });
             replyCid = reply.cid;
             await tempPKC.destroy();
@@ -108,9 +108,9 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         it.sequential(`Updating states is in correct upon updating a reply that's included in preloaded pages of its parent`, async () => {
             const pkc = await config.pkcInstancePromise();
             try {
-                const sub = await pkc.getCommunity({ address: communityAddress });
+                const community = await pkc.getCommunity({ address: communityAddress });
                 // we don't want domain name in author addrses so its resolving doesn't get included in expected states
-                const postWithMostReplies = sub.posts.pages.hot.comments.reduce((current, post) => {
+                const postWithMostReplies = community.posts.pages.hot.comments.reduce((current, post) => {
                     if (!post.replies) {
                         return current;
                     }
@@ -154,14 +154,14 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 await pkc.destroy();
             }
         });
-        it(`updating state of reply is set to failed if sub has an invalid Community record`, async () => {
+        it(`updating state of reply is set to failed if community has an invalid Community record`, async () => {
             const pkc = await config.pkcInstancePromise();
             try {
-                const { commentCid: mockedReplyCid, communityAddress: subAddress } = await createStaticCommunityRecordForComment({
+                const { commentCid: mockedReplyCid, communityAddress: communityAddress } = await createStaticCommunityRecordForComment({
                     invalidateCommunitySignature: true
                 });
 
-                const mockReply = await pkc.createComment({ cid: mockedReplyCid, communityAddress: subAddress });
+                const mockReply = await pkc.createComment({ cid: mockedReplyCid, communityAddress: communityAddress });
 
                 const recordedStates: string[] = [];
                 mockReply.on("updatingstatechange", () => recordedStates.push(mockReply.updatingState));
@@ -201,10 +201,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         it(`updating state of reply is in correct order upon updating a reply that's included in preloaded pages of its parent`, async () => {
             const pkc = await config.pkcInstancePromise();
             try {
-                const sub = await pkc.getCommunity({ address: communityAddress });
+                const community = await pkc.getCommunity({ address: communityAddress });
                 // we don't want domain name in author addrses so its resolving doesn't get included in expected states
-                const replyCid = sub.posts.pages.hot.comments.find((post) => post.replies && !post.author.address.includes(".")).replies
-                    .pages.best.comments[0].cid;
+                const replyCid = community.posts.pages.hot.comments.find((post) => post.replies && !post.author.address.includes("."))
+                    .replies.pages.best.comments[0].cid;
                 const mockReply = await pkc.createComment({ cid: replyCid });
                 const expectedStates = [
                     "fetching-ipfs", // fetching comment ipfs of reply
@@ -230,10 +230,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             }
         });
 
-        it(`updating state of reply is set to failed if sub has an invalid Community record`, async () => {
+        it(`updating state of reply is set to failed if community has an invalid Community record`, async () => {
             const pkc = await config.pkcInstancePromise();
             try {
-                const { commentCid: mockedReplyCid, communityAddress: subAddress } = await createStaticCommunityRecordForComment({
+                const { commentCid: mockedReplyCid, communityAddress: communityAddress } = await createStaticCommunityRecordForComment({
                     pkc: pkc,
                     invalidateCommunitySignature: true,
                     commentOptions: {
@@ -241,7 +241,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                     }
                 });
 
-                const mockReply = await pkc.createComment({ cid: mockedReplyCid, communityAddress: subAddress });
+                const mockReply = await pkc.createComment({ cid: mockedReplyCid, communityAddress: communityAddress });
                 const recordedStates: string[] = [];
                 mockReply.on("updatingstatechange", () => recordedStates.push(mockReply.updatingState));
 
@@ -291,9 +291,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`the order of state-event-statechange is correct when we get a new update from reply`, async () => {
-            const sub = await pkc.getCommunity({ address: communityAddress });
-            const replyCid = sub.posts.pages.hot.comments.find((post: { replies?: unknown }) => post.replies).replies.pages.best.comments[0]
-                .cid;
+            const community = await pkc.getCommunity({ address: communityAddress });
+            const replyCid = community.posts.pages.hot.comments.find((post: { replies?: unknown }) => post.replies).replies.pages.best
+                .comments[0].cid;
             const mockReply = await pkc.createComment({ cid: replyCid });
             expect(mockReply.updatedAt).to.be.undefined;
             const recordedStates: string[] = [];

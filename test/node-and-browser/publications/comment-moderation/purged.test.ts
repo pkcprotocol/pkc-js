@@ -97,10 +97,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 }
 
                 // make sure comment to be purged is in pages of community
-                const sub = await pkc.getCommunity({ address: communityAddress });
-                const purgedCommentInPage = findCommentInPageInstanceRecursively(sub.posts, commentToPurge.cid);
+                const communityForPurgeCheck = await pkc.getCommunity({ address: communityAddress });
+                const purgedCommentInPage = findCommentInPageInstanceRecursively(communityForPurgeCheck.posts, commentToPurge.cid);
                 expect(purgedCommentInPage).to.exist;
-                updateCidOfCommunityWithPurgedComment = sub.updateCid;
+                updateCidOfCommunityWithPurgedComment = communityForPurgeCheck.updateCid;
             });
             afterAll(async () => {
                 await pkc.destroy();
@@ -241,30 +241,30 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             it(`Purged comment with depth ${commentDepth} don't show in community.posts`, async () => {
                 const pkc = await config.pkcInstancePromise();
-                const sub = await pkc.createCommunity({ address: commentToPurge.communityAddress });
+                const community = await pkc.createCommunity({ address: commentToPurge.communityAddress });
 
-                await sub.update();
+                await community.update();
 
-                await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
+                await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
                 await resolveWhenConditionIsTrue({
-                    toUpdate: sub,
+                    toUpdate: community,
                     predicate: async () => {
                         const purgedPostInPage = await findCommentInCommunityInstancePagesPreloadedAndPageCids({
                             comment: commentToPurge as Comment & { cid: string },
-                            sub
+                            community
                         });
                         return purgedPostInPage === undefined; // if we can't find it then it's purged
                     }
                 });
 
                 const purgedCommentInRemoteCommunityPage = await findCommentInCommunityInstancePagesPreloadedAndPageCids({
-                    sub,
+                    community,
                     comment: commentToPurge as Comment & { cid: string }
                 });
                 expect(purgedCommentInRemoteCommunityPage).to.be.undefined;
 
-                await sub.stop();
+                await community.stop();
 
                 await pkc.destroy();
             });
@@ -272,7 +272,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             if (commentDepth === 0)
                 itSkipIfRpc(`Purged post should not appear in community.postUpdates`, async () => {
                     const community = await pkc.getCommunity({ address: communityAddress });
-                    if (!community.postUpdates) return; // sub has no post updates, good!
+                    if (!community.postUpdates) return; // community has no post updates, good!
                     const postUpdatesTimes = Object.keys(community.postUpdates);
                     expect(postUpdatesTimes.length).to.equal(1);
                     const mfsPath = `/${commentToPurge.communityAddress}/postUpdates/${postUpdatesTimes[0]}/${commentToPurge.postCid}/update`;

@@ -84,16 +84,16 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`flairs appear in pages of community`, async () => {
-            const sub = await pkc.createCommunity({ address: authorPost.communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: authorPost.communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, sub.posts);
+                    const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, community.posts);
                     return Boolean(commentInPage?.flairs);
                 }
             });
-            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, sub.posts);
+            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(authorPost.cid, community.posts);
             expect(commentInPage.flairs).to.deep.equal([{ text: "Discussion" }]);
         });
 

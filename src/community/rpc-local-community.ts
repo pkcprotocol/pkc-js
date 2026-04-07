@@ -32,9 +32,9 @@ import type {
 import { deepMergeRuntimeFields, hideClassPrivateProps } from "../util.js";
 import { findStartedCommunity, trackStartedCommunity, untrackStartedCommunity } from "../pkc/tracked-instance-registry-util.js";
 
-// This class is for subs that are running and publishing, over RPC. Can be used for both browser and node
+// This class is for communities that are running and publishing, over RPC. Can be used for both browser and node
 export class RpcLocalCommunity extends RpcRemoteCommunity {
-    override started: boolean; // Is the sub started and running? This is not specific to this instance, and applies to all instances of sub with this address
+    override started: boolean; // Is the community started and running? This is not specific to this instance, and applies to all instances of community with this address
     override startedState!: CommunityStartedState;
     override signer!: RpcLocalCommunityLocalProps["signer"];
     override settings!: RpcLocalCommunityLocalProps["settings"];
@@ -146,7 +146,7 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
     protected override _processUpdateEventFromRpcUpdate(args: any) {
         // This function is gonna be called with every update event from rpcLocalCommunity.update()
         const log = Logger("pkc-js:rpc-local-community:_processUpdateEventFromRpcUpdate");
-        log("Received an update event from rpc within rpcLocalCommunity.update for sub " + this.address);
+        log("Received an update event from rpc within rpcLocalCommunity.update for community " + this.address);
 
         const updateRecord: RpcLocalCommunityUpdateResultType = args.params.result; // we're being optimistic here and hoping the rpc server sent the correct update
         if ("community" in updateRecord) this.initRpcInternalCommunityAfterFirstUpdateNoMerge(updateRecord);
@@ -167,7 +167,7 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
 
         const log = Logger("pkc-js:rpc-local-community:_handleRpcUpdateEventFromStart");
         const updateRecord: RpcLocalCommunityUpdateResultType = args.params.result;
-        log("Received an update event from rpc within rpcLocalCommunity.start for sub " + this.address);
+        log("Received an update event from rpc within rpcLocalCommunity.start for community " + this.address);
 
         if ("community" in updateRecord) {
             this.initRpcInternalCommunityAfterFirstUpdateNoMerge(updateRecord);
@@ -189,7 +189,7 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
         const log = Logger("pkc-js:rpc-local-community:_handleRpcStartedStateChangeEvent");
 
         const newStartedState: RpcLocalCommunity["startedState"] = args.params.result.state; // we're being optimistic that the rpc server transmitted a valid string here
-        log("Received a startedstatechange for sub " + this.address, "new started state is", newStartedState);
+        log("Received a startedstatechange for community " + this.address, "new started state is", newStartedState);
 
         if (newStartedState !== this.startedState) this._setStartedStateWithEmission(newStartedState);
         else this.emit("startedstatechange", newStartedState);
@@ -294,7 +294,7 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
         if (this.state === "updating") {
             return super.stop();
         } else if (this.state === "started") {
-            // Need to be careful not to stop an already running sub
+            // Need to be careful not to stop an already running community
             const log = Logger("pkc-js:rpc-local-community:stop");
             try {
                 await this._pkc._pkcRpcClient!.stopCommunity({ address: this.address });

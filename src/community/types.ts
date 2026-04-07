@@ -86,11 +86,11 @@ export type CreateRemoteCommunityOptions = z.infer<typeof CreateRemoteCommunityO
 
 export type CreateNewLocalCommunityUserOptions = z.infer<typeof CreateNewLocalCommunityUserOptionsSchema>;
 
-// These are the options that go straight into _createLocalSub, create a new brand local sub. This is after parsing of pkc-js
+// These are the options that go straight into _createLocalCommunity, create a new brand local community. This is after parsing of pkc-js
 
 export type CreateNewLocalCommunityParsedOptions = z.infer<typeof CreateNewLocalCommunityParsedOptionsSchema>;
 
-// or load an already existing sub through pkc.createCommunity
+// or load an already existing community through pkc.createCommunity
 
 export type CreateInstanceOfLocalOrRemoteCommunityOptions = { address: string };
 
@@ -181,7 +181,7 @@ export interface InternalCommunityRecordAfterFirstUpdateType extends InternalCom
 
 // RPC server transmitting Internal Community records to clients
 
-// Extra local-sub properties not present in CommunityIpfsType
+// Extra local-community properties not present in CommunityIpfsType
 export interface RpcLocalCommunityLocalProps {
     signer: Omit<InternalCommunityRecordBeforeFirstUpdateType["signer"], "privateKey">;
     settings: CommunitySettings;
@@ -191,7 +191,7 @@ export interface RpcLocalCommunityLocalProps {
     startedState: RpcLocalCommunity["startedState"];
 }
 
-// Before first IPNS update: all sub data is in localCommunity (no CommunityIpfs record yet)
+// Before first IPNS update: all community data is in localCommunity (no CommunityIpfs record yet)
 export interface RpcInternalCommunityRecordBeforeFirstUpdateType {
     localCommunity: Omit<InternalCommunityRecordBeforeFirstUpdateType, "signer" | "_internalStateUpdateId" | "_pendingEditProps"> &
         RpcLocalCommunityLocalProps;

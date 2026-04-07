@@ -52,15 +52,15 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`nsfw=true appears in pages of subplebibt`, async () => {
-            const sub = await pkc.createCommunity({ address: randomPost.communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: randomPost.communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => typeof sub.updatedAt === "number"
+                toUpdate: community,
+                predicate: async () => typeof community.updatedAt === "number"
             });
-            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(randomPost.cid, sub.posts);
+            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(randomPost.cid, community.posts);
             expect(commentInPage.nsfw).to.be.true;
-            await sub.stop();
+            await community.stop();
         });
 
         it(`Mod can mark unnsfw author comment `, async () => {
@@ -84,15 +84,15 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`nsfw=false appears in pages of community`, async () => {
-            const sub = await pkc.createCommunity({ address: randomPost.communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: randomPost.communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => typeof sub.updatedAt === "number"
+                toUpdate: community,
+                predicate: async () => typeof community.updatedAt === "number"
             });
-            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(randomPost.cid, sub.posts);
+            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(randomPost.cid, community.posts);
             expect(commentInPage.nsfw).to.be.false;
-            await sub.stop();
+            await community.stop();
         });
     });
 });

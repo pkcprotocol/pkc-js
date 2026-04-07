@@ -140,7 +140,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             challengeRequestToModify.encrypted = await encryptEd25519AesGcm(
                 JSON.stringify(comment.toJSONPubsubRequestToEncrypt()),
                 pubsubSigner.privateKey,
-                signers[5].publicKey // Use a public key that cannot be decrypted for the sub
+                signers[5].publicKey // Use a public key that cannot be decrypted for the community
             );
 
             challengeRequestToModify.signature = await signChallengeRequest({ request: challengeRequestToModify, signer: pubsubSigner });
@@ -263,7 +263,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     }
                 };
                 await pkc._clientsManager.pubsubSubscribe(comment._community!.pubsubTopic!, subMethod);
-                await new Promise<void>((resolve) => setTimeout(resolve, 5000)); // Wait 5s for sub response, if we didn't get a response then the request has been ignored
+                await new Promise<void>((resolve) => setTimeout(resolve, 5000)); // Wait 5s for community response, if we didn't get a response then the request has been ignored
                 resolve();
             });
         });
@@ -435,7 +435,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             };
 
             await pkc._clientsManager.pubsubSubscribe(comment._community!.pubsubTopic!, subMethod);
-            await new Promise<void>((resolve) => setTimeout(resolve, 5000)); // Wait 5s for sub response, if we didn't get a response then the answer has been ignored
+            await new Promise<void>((resolve) => setTimeout(resolve, 5000)); // Wait 5s for community response, if we didn't get a response then the answer has been ignored
         });
 
         it(`Sub responds with error to a challenge answer with answers that can't be decrypted`, async () => {
@@ -461,7 +461,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 challengeAnswerToModify.encrypted = await encryptEd25519AesGcm(
                     JSON.stringify({}),
                     pubsubSigner.privateKey,
-                    signers[5].publicKey // Use a public key that cannot be decrypted for the sub
+                    signers[5].publicKey // Use a public key that cannot be decrypted for the community
                 );
                 challengeAnswerToModify.signature = await signChallengeAnswer({
                     challengeAnswer: challengeAnswerToModify,

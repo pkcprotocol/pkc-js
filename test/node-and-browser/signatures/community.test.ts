@@ -130,10 +130,10 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
         ).to.deep.equal({ valid: true });
     });
     it(`Valid community fixture is validated correctly`, async () => {
-        const sub = remeda.clone(validCommunityFixture) as CommunityIpfsType;
+        const community = remeda.clone(validCommunityFixture) as CommunityIpfsType;
         expect(
             await verifyCommunity({
-                community: sub,
+                community: community,
                 communityIpnsName: signers[0].address,
                 resolveAuthorNames: pkc.resolveAuthorNames,
                 clientsManager: pkc._clientsManager,
@@ -144,11 +144,11 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
     });
 
     it(`Old-format fixture with address in signedPropertyNames still verifies`, async () => {
-        const sub = remeda.clone(validCommunityFixture) as CommunityIpfsType;
-        expect(sub.signature.signedPropertyNames).to.include("address");
+        const community = remeda.clone(validCommunityFixture) as CommunityIpfsType;
+        expect(community.signature.signedPropertyNames).to.include("address");
         expect(
             await verifyCommunity({
-                community: sub,
+                community: community,
                 communityIpnsName: signers[0].address,
                 resolveAuthorNames: pkc.resolveAuthorNames,
                 clientsManager: pkc._clientsManager,
@@ -159,12 +159,12 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
     });
 
     it(`New-format fixture without address verifies`, async () => {
-        const sub = remeda.clone(newFormatFixture) as CommunityIpfsType;
-        expect(sub.signature.signedPropertyNames).to.not.include("address");
-        expect((sub as Record<string, unknown>).address).to.be.undefined;
+        const community = remeda.clone(newFormatFixture) as CommunityIpfsType;
+        expect(community.signature.signedPropertyNames).to.not.include("address");
+        expect((community as Record<string, unknown>).address).to.be.undefined;
         expect(
             await verifyCommunity({
-                community: sub,
+                community: community,
                 communityIpnsName: signers[0].address,
                 resolveAuthorNames: pkc.resolveAuthorNames,
                 clientsManager: pkc._clientsManager,
@@ -175,13 +175,13 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
     });
 
     it(`New-format fixture with name verifies`, async () => {
-        const sub = remeda.clone(newFormatWithNameFixture) as CommunityIpfsType;
-        expect(sub.signature.signedPropertyNames).to.include("name");
-        expect(sub.signature.signedPropertyNames).to.not.include("address");
-        expect(sub.name).to.equal("test-sub.eth");
+        const community = remeda.clone(newFormatWithNameFixture) as CommunityIpfsType;
+        expect(community.signature.signedPropertyNames).to.include("name");
+        expect(community.signature.signedPropertyNames).to.not.include("address");
+        expect(community.name).to.equal("test-sub.eth");
         expect(
             await verifyCommunity({
-                community: sub,
+                community: community,
                 communityIpnsName: signers[0].address,
                 resolveAuthorNames: pkc.resolveAuthorNames,
                 clientsManager: pkc._clientsManager,
@@ -200,18 +200,18 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
                 nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: { "plebbit.eth": signers[4].address } })]
             }
         });
-        const sub = await pkc.createCommunity({ address: "plebbit.bso" });
-        await sub.update();
-        await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
+        const community = await pkc.createCommunity({ address: "plebbit.bso" });
+        await community.update();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
         const verification = await verifyCommunity({
-            community: sub.raw.communityIpfs!,
+            community: community.raw.communityIpfs!,
             communityIpnsName: signers[4].address,
             resolveAuthorNames: tempPKC.resolveAuthorNames,
             clientsManager: tempPKC._clientsManager,
             validatePages: true,
             cacheIfValid: false
         });
-        // Community posts will be invalid because the resolved address of sub will be used to validate posts
+        // Community posts will be invalid because the resolved address of community will be used to validate posts
         expect(verification.valid).to.be.false;
         await tempPKC.destroy();
     });
@@ -225,10 +225,10 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
         });
 
         await loadedCommunity.stop();
-        const subJson = remeda.clone(loadedCommunity.raw.communityIpfs!);
+        const communityJson = remeda.clone(loadedCommunity.raw.communityIpfs!);
         expect(
             await verifyCommunity({
-                community: subJson,
+                community: communityJson,
                 communityIpnsName: signers[0].address,
                 resolveAuthorNames: pkc.resolveAuthorNames,
                 clientsManager: pkc._clientsManager,
@@ -238,10 +238,10 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
             valid: true
         });
 
-        subJson.posts.pages.hot.comments[0].comment.content += "1234"; // Invalidate signature
+        communityJson.posts.pages.hot.comments[0].comment.content += "1234"; // Invalidate signature
         expect(
             await verifyCommunity({
-                community: subJson,
+                community: communityJson,
                 communityIpnsName: signers[0].address,
                 resolveAuthorNames: pkc.resolveAuthorNames,
                 clientsManager: pkc._clientsManager,

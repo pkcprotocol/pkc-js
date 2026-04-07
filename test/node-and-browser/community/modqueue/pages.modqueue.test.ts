@@ -31,11 +31,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             });
 
             try {
-                const sub = await pkc.createCommunity({ address: communityAddressOfFixture });
+                const community = await pkc.createCommunity({ address: communityAddressOfFixture });
 
                 const invalidPageCid = "QmUFu8fzuT1th3jJYgR4oRgGpw3sgRALr4nbenA4pyoCav"; // Gateway will respond with content that is not mapped to this cid
-                sub.modQueue.pageCids.pendingApproval = invalidPageCid; // need to hardcode it here so we can calculate max size
-                await sub.modQueue.getPage({ cid: invalidPageCid });
+                community.modQueue.pageCids.pendingApproval = invalidPageCid; // need to hardcode it here so we can calculate max size
+                await community.modQueue.getPage({ cid: invalidPageCid });
                 expect.fail("Should fail");
             } catch (e) {
                 const error = e as PKCError;
@@ -54,16 +54,16 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const pkc: PKCType = await config.pkcInstancePromise({ pkcOptions: { validatePages: true } });
 
             try {
-                const sub = await pkc.createCommunity({ address: communityAddressOfFixture });
+                const community = await pkc.createCommunity({ address: communityAddressOfFixture });
 
                 const fixtureToInvalidate = JSON.parse(JSON.stringify(validModQueuePage));
 
                 fixtureToInvalidate.comments[0].comment.content += "invalidate signature";
 
                 const invalidPageCid = await addStringToIpfs(JSON.stringify(fixtureToInvalidate));
-                sub.modQueue.pageCids.pendingApproval = invalidPageCid; // need to hardcode it here so we can calculate max size
+                community.modQueue.pageCids.pendingApproval = invalidPageCid; // need to hardcode it here so we can calculate max size
 
-                await sub.modQueue.getPage({ cid: invalidPageCid });
+                await community.modQueue.getPage({ cid: invalidPageCid });
                 expect.fail("should fail");
             } catch (e) {
                 const error = e as PKCError;
@@ -75,20 +75,20 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         itSkipIfRpc("Should fail getPage if a modqueue comment belongs to a different sub", async () => {
-            // TODO: Ensure cross-sub comments cannot appear under another sub's modqueue
+            // TODO: Ensure cross-community comments cannot appear under another community's modqueue
             // and that the operation fails or rejects with an appropriate error
             const pkc: PKCType = await config.pkcInstancePromise({ pkcOptions: { validatePages: true } });
 
             try {
-                const sub = await pkc.createCommunity({ address: communityAddressOfFixture });
+                const community = await pkc.createCommunity({ address: communityAddressOfFixture });
 
                 const invalidPage = JSON.parse(JSON.stringify(validModQueuePage));
                 invalidPage.comments[0].comment.subplebbitAddress = "different-address";
 
                 const invalidPageCid = await addStringToIpfs(JSON.stringify(invalidPage));
-                sub.modQueue.pageCids.pendingApproval = invalidPageCid; // need to hardcode it here so we can calculate max size
+                community.modQueue.pageCids.pendingApproval = invalidPageCid; // need to hardcode it here so we can calculate max size
 
-                await sub.modQueue.getPage({ cid: invalidPageCid });
+                await community.modQueue.getPage({ cid: invalidPageCid });
                 expect.fail("Should have thrown");
             } catch (e) {
                 const error = e as PKCError;
@@ -103,15 +103,15 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const pkc: PKCType = await config.pkcInstancePromise({ pkcOptions: { validatePages: true } });
 
             try {
-                const sub = await pkc.createCommunity({ address: communityAddressOfFixture });
+                const community = await pkc.createCommunity({ address: communityAddressOfFixture });
 
                 const invalidPage = JSON.parse(JSON.stringify(validModQueuePage));
                 // Modify the comment but keep the same commentUpdate.cid
                 invalidPage.comments[0].commentUpdate.cid = invalidPage.comments[1].commentUpdate.cid;
 
                 const invalidPageCid = await addStringToIpfs(JSON.stringify(invalidPage));
-                sub.modQueue.pageCids.pendingApproval = invalidPageCid; // need to hardcode it here so we can calculate max size
-                await sub.modQueue.getPage({ cid: invalidPageCid });
+                community.modQueue.pageCids.pendingApproval = invalidPageCid; // need to hardcode it here so we can calculate max size
+                await community.modQueue.getPage({ cid: invalidPageCid });
                 expect.fail("Should have thrown");
             } catch (e) {
                 const error = e as PKCError;
@@ -128,7 +128,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             try {
                 const invalidPage = JSON.parse(JSON.stringify(validModQueuePage));
 
-                const sub = await pkc.createCommunity({ address: communityAddressOfFixture });
+                const community = await pkc.createCommunity({ address: communityAddressOfFixture });
 
                 invalidPage.comments.find(
                     (comment: Record<string, Record<string, unknown>>) => comment.comment.depth === 0
@@ -144,9 +144,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 );
 
                 const invalidPageCid = await addStringToIpfs(JSON.stringify(invalidPage));
-                sub.modQueue.pageCids.pendingApproval = invalidPageCid; // need to hardcode it here so we can calculate max size
+                community.modQueue.pageCids.pendingApproval = invalidPageCid; // need to hardcode it here so we can calculate max size
 
-                await sub.modQueue.getPage({ cid: invalidPageCid });
+                await community.modQueue.getPage({ cid: invalidPageCid });
                 expect.fail("Should have thrown");
             } catch (e) {
                 const error = e as PKCError;
@@ -163,7 +163,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             try {
                 const invalidPage = JSON.parse(JSON.stringify(validModQueuePage));
 
-                const sub = await pkc.createCommunity({ address: communityAddressOfFixture });
+                const community = await pkc.createCommunity({ address: communityAddressOfFixture });
 
                 const indexOfPost = invalidPage.comments.findIndex(
                     (comment: Record<string, Record<string, unknown>>) => comment.comment.depth === 0
@@ -176,9 +176,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     deterministicStringify(invalidPage.comments[indexOfPost].comment)
                 );
                 const invalidPageCid = await addStringToIpfs(JSON.stringify(invalidPage));
-                sub.modQueue.pageCids.pendingApproval = invalidPageCid; // need to hardcode it here so we can calculate max size
+                community.modQueue.pageCids.pendingApproval = invalidPageCid; // need to hardcode it here so we can calculate max size
 
-                await sub.modQueue.getPage({ cid: invalidPageCid });
+                await community.modQueue.getPage({ cid: invalidPageCid });
                 expect.fail("Should have thrown");
             } catch (e) {
                 const error = e as PKCError;
@@ -234,12 +234,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 // Create a comment with a CID that doesn't exist or will time out
                 const nonExistentCid = "QmbSiusGgY4Uk5LdAe91bzLkBzidyKyKHRKwhXPDz7gGzx"; // Random CID that doesn't exist
 
-                const sub = await pkc.createCommunity({ address: communityAddressOfFixture });
+                const community = await pkc.createCommunity({ address: communityAddressOfFixture });
 
                 // Override the pageCid to use our non-existent CID
-                sub.modQueue.pageCids.pendingApproval = nonExistentCid;
+                community.modQueue.pageCids.pendingApproval = nonExistentCid;
                 // This should time out
-                await sub.modQueue.getPage({ cid: nonExistentCid });
+                await community.modQueue.getPage({ cid: nonExistentCid });
                 expect.fail("Should have timed out");
             } catch (e) {
                 const error = e as PKCError;

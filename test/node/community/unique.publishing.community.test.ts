@@ -235,14 +235,14 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
     // We use Object casting to bypass TypeScript's private member restrictions
     // since at runtime these members exist on the object
 
-    const setDbHandler = (sub: LocalCommunity, handler: InMemoryDbHandlerMock): void => {
+    const setDbHandler = (community: LocalCommunity, handler: InMemoryDbHandlerMock): void => {
         // Using Object to allow any property access
-        (sub as object as { _dbHandler: InMemoryDbHandlerMock })._dbHandler = handler;
+        (community as object as { _dbHandler: InMemoryDbHandlerMock })._dbHandler = handler;
     };
 
-    const setInternalMaps = (sub: LocalCommunity): void => {
+    const setInternalMaps = (community: LocalCommunity): void => {
         // Using Object to allow any property access
-        const s = sub as object as {
+        const s = community as object as {
             _ongoingChallengeExchanges: Map<string, Record<string, number | string | boolean>>;
             _challengeAnswerPromises: Map<string, Record<string, number | string | boolean>>;
             _challengeAnswerResolveReject: Map<string, Record<string, number | string | boolean>>;
@@ -257,13 +257,13 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
     };
 
     const publishChallengeVerification = async (
-        sub: LocalCommunity,
+        community: LocalCommunity,
         challengeResult: { challengeSuccess: boolean; challengeErrors: undefined },
         request: MockChallengeRequest,
         pendingApproval: boolean
     ): Promise<void> => {
         // Using Object to access private method
-        const s = sub as object as {
+        const s = community as object as {
             _publishChallengeVerification(
                 challengeResult: { challengeSuccess: boolean; challengeErrors: undefined },
                 request: MockChallengeRequest,
@@ -607,11 +607,11 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
 
     // Helpers for idempotent duplicate tests
     const checkPublicationValidity = async (
-        sub: LocalCommunity,
+        community: LocalCommunity,
         request: MockChallengeRequest,
         publication: { signature: { publicKey: string; signature: string } }
     ): Promise<string | undefined> => {
-        const s = sub as object as {
+        const s = community as object as {
             _checkPublicationValidity(
                 request: MockChallengeRequest,
                 publication: { signature: { publicKey: string; signature: string } },
@@ -622,12 +622,12 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
     };
 
     const publishIdempotentDuplicateVerification = async (
-        sub: LocalCommunity,
+        community: LocalCommunity,
         request: MockChallengeRequest,
         challengeRequestId: bigint,
         duplicateReason: string
     ): Promise<void> => {
-        const s = sub as object as {
+        const s = community as object as {
             _publishIdempotentDuplicateVerification(
                 request: MockChallengeRequest,
                 challengeRequestId: bigint,
@@ -637,13 +637,13 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
         return s._publishIdempotentDuplicateVerification(request, challengeRequestId, duplicateReason);
     };
 
-    const getDuplicateAttempts = (sub: LocalCommunity, sig: string): number => {
-        const s = sub as object as { _duplicatePublicationAttempts: LRUCache<string, number> };
+    const getDuplicateAttempts = (community: LocalCommunity, sig: string): number => {
+        const s = community as object as { _duplicatePublicationAttempts: LRUCache<string, number> };
         return s._duplicatePublicationAttempts.get(sig) || 0;
     };
 
-    const setDuplicateAttempts = (sub: LocalCommunity, sig: string, count: number): void => {
-        const s = sub as object as { _duplicatePublicationAttempts: LRUCache<string, number> };
+    const setDuplicateAttempts = (community: LocalCommunity, sig: string, count: number): void => {
+        const s = community as object as { _duplicatePublicationAttempts: LRUCache<string, number> };
         s._duplicatePublicationAttempts.set(sig, count);
     };
 

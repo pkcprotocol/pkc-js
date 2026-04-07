@@ -73,14 +73,14 @@ getAvailablePKCConfigsToTestAgainst()
 
             it(`Remote community stop() after update() should complete within 10s`, async () => {
                 pkc = await config.pkcInstancePromise();
-                const sub = (await pkc.createCommunity({ address: communityAddress })) as RemoteCommunity;
-                await sub.update();
+                const community = (await pkc.createCommunity({ address: communityAddress })) as RemoteCommunity;
+                await community.update();
                 await resolveWhenConditionIsTrue({
-                    toUpdate: sub,
-                    predicate: async () => typeof sub.updatedAt === "number"
+                    toUpdate: community,
+                    predicate: async () => typeof community.updatedAt === "number"
                 });
                 const startMs = Date.now();
-                await sub.stop();
+                await community.stop();
                 const elapsed = Date.now() - startMs;
                 expect(elapsed).to.be.lessThan(10000);
             });
@@ -90,10 +90,10 @@ getAvailablePKCConfigsToTestAgainst()
 describe(`community.stop() idempotency`, async () => {
     it(`community.stop() should be a no-op when state is already "stopped"`, async () => {
         const pkc = await mockPKCNoDataPathWithOnlyKuboClient();
-        const sub = await pkc.createCommunity({ address: communityAddress });
-        expect(sub.state).to.equal("stopped");
-        await sub.stop(); // should not throw
-        expect(sub.state).to.equal("stopped");
+        const community = await pkc.createCommunity({ address: communityAddress });
+        expect(community.state).to.equal("stopped");
+        await community.stop(); // should not throw
+        expect(community.state).to.equal("stopped");
         await pkc.destroy();
     });
 });
@@ -107,24 +107,24 @@ describeSkipIfRpc(`community.stop() aborts verification`, async () => {
         });
 
         try {
-            const sub = await pkc.createCommunity({ address: "blocked-sub.bso" });
+            const community = await pkc.createCommunity({ address: "blocked-sub.bso" });
             const errors: Error[] = [];
-            sub.on("error", (error) => errors.push(error as Error));
+            community.on("error", (error) => errors.push(error as Error));
 
-            await sub.update();
+            await community.update();
             await blockedResolver.waitUntilCalled;
 
             expect(blockedResolver.getReceivedName()).to.equal("blocked-sub.bso");
-            expect(sub.clients.nameResolvers["sub-blocked-resolver"].state).to.equal("resolving-community-name");
+            expect(community.clients.nameResolvers["sub-blocked-resolver"].state).to.equal("resolving-community-name");
 
-            await sub.stop();
+            await community.stop();
 
-            expect(sub.state).to.equal("stopped");
-            expect(sub.updatingState).to.equal("stopped");
-            expect(sub.clients.nameResolvers["sub-blocked-resolver"].state).to.equal("stopped");
+            expect(community.state).to.equal("stopped");
+            expect(community.updatingState).to.equal("stopped");
+            expect(community.clients.nameResolvers["sub-blocked-resolver"].state).to.equal("stopped");
             expect(blockedResolver.getReceivedSignal()!.aborted).to.equal(true);
-            expect(sub.updatedAt).to.be.undefined;
-            expect(sub.raw.communityIpfs).to.be.undefined;
+            expect(community.updatedAt).to.be.undefined;
+            expect(community.raw.communityIpfs).to.be.undefined;
             expect(errors).to.have.length(0);
         } finally {
             await pkc.destroy();
@@ -142,25 +142,25 @@ describeSkipIfRpc(`community.stop() aborts in-flight gateway fetches`, async () 
         });
 
         try {
-            const sub = await pkc.createCommunity({ address: communityAddress });
+            const community = await pkc.createCommunity({ address: communityAddress });
             const errors: Error[] = [];
-            sub.on("error", (error) => errors.push(error as Error));
+            community.on("error", (error) => errors.push(error as Error));
 
-            await sub.update();
+            await community.update();
 
             // Wait until the gateway client is actively fetching
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => sub.clients.ipfsGateways["http://192.0.2.1:1"]?.state === "fetching-ipns"
+                toUpdate: community,
+                predicate: async () => community.clients.ipfsGateways["http://192.0.2.1:1"]?.state === "fetching-ipns"
             });
 
             const startMs = Date.now();
-            await sub.stop();
+            await community.stop();
             const elapsed = Date.now() - startMs;
 
-            expect(sub.state).to.equal("stopped");
-            expect(sub.updatingState).to.equal("stopped");
-            expect(sub.clients.ipfsGateways["http://192.0.2.1:1"].state).to.equal("stopped");
+            expect(community.state).to.equal("stopped");
+            expect(community.updatingState).to.equal("stopped");
+            expect(community.clients.ipfsGateways["http://192.0.2.1:1"].state).to.equal("stopped");
             expect(elapsed).to.be.lessThan(2000);
         } finally {
             await pkc.destroy();
@@ -173,24 +173,24 @@ describeSkipIfRpc(`community.stop() aborts in-flight gateway fetches`, async () 
 
         try {
             // Use a valid but non-existent IPNS name
-            const sub = await pkc.createCommunity({ address: "12D3KooWHFMSoRMak4VCKwTrURP1Rf2JHNGbAGCqU4jJhAPZjR3j" });
+            const community = await pkc.createCommunity({ address: "12D3KooWHFMSoRMak4VCKwTrURP1Rf2JHNGbAGCqU4jJhAPZjR3j" });
             const errors: Error[] = [];
-            sub.on("error", (error) => errors.push(error as Error));
+            community.on("error", (error) => errors.push(error as Error));
 
-            await sub.update();
+            await community.update();
 
             const kuboUrl = Object.keys(pkc.clients.kuboRpcClients)[0];
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => (sub as RemoteCommunity).clients.kuboRpcClients[kuboUrl]?.state === "fetching-ipns"
+                toUpdate: community,
+                predicate: async () => (community as RemoteCommunity).clients.kuboRpcClients[kuboUrl]?.state === "fetching-ipns"
             });
 
             const startMs = Date.now();
-            await sub.stop();
+            await community.stop();
             const elapsed = Date.now() - startMs;
 
-            expect(sub.state).to.equal("stopped");
-            expect(sub.updatingState).to.equal("stopped");
+            expect(community.state).to.equal("stopped");
+            expect(community.updatingState).to.equal("stopped");
             expect(elapsed).to.be.lessThan(5000);
         } finally {
             await pkc.destroy();
@@ -201,22 +201,22 @@ describeSkipIfRpc(`community.stop() aborts in-flight gateway fetches`, async () 
         const pkc = await mockPKCNoDataPathWithOnlyKuboClient();
 
         try {
-            const sub = (await pkc.createCommunity({ address: communityAddress })) as RemoteCommunity;
-            await sub.update();
+            const community = (await pkc.createCommunity({ address: communityAddress })) as RemoteCommunity;
+            await community.update();
 
             // Wait for first successful update
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => typeof sub.updatedAt === "number"
+                toUpdate: community,
+                predicate: async () => typeof community.updatedAt === "number"
             });
 
-            // Now sub is in the sleep phase between updates
+            // Now community is in the sleep phase between updates
             const startMs = Date.now();
-            await sub.stop();
+            await community.stop();
             const elapsed = Date.now() - startMs;
 
-            expect(sub.state).to.equal("stopped");
-            expect(sub.updatingState).to.equal("stopped");
+            expect(community.state).to.equal("stopped");
+            expect(community.updatingState).to.equal("stopped");
             // Should not wait for the full updateInterval (which is 1000ms for kubo)
             expect(elapsed).to.be.lessThan(1000);
         } finally {

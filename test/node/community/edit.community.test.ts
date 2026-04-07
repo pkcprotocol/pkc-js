@@ -94,24 +94,24 @@ describeSkipIfRpc(`community.edit`, async () => {
     );
 
     it(`An update is triggered after calling community.edit()`, async () => {
-        const sub = await createSubWithNoChallenge({}, pkc);
-        await sub.start();
-        await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
+        const community = await createSubWithNoChallenge({}, pkc);
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
-        await sub.edit({ features: { requirePostLink: true } });
-        expect(sub.features!.requirePostLink).to.be.true;
+        await community.edit({ features: { requirePostLink: true } });
+        expect(community.features!.requirePostLink).to.be.true;
         // Access private property via casting
-        expect((sub as LocalCommunity)["_communityUpdateTrigger"]).to.be.true;
-        await new Promise((resolve) => sub.once("update", resolve)); // the edit should trigger an update immedietely
-        expect((sub as LocalCommunity)["_communityUpdateTrigger"]).to.be.false;
-        expect(sub.features!.requirePostLink).to.be.true;
+        expect((community as LocalCommunity)["_communityUpdateTrigger"]).to.be.true;
+        await new Promise((resolve) => community.once("update", resolve)); // the edit should trigger an update immedietely
+        expect((community as LocalCommunity)["_communityUpdateTrigger"]).to.be.false;
+        expect(community.features!.requirePostLink).to.be.true;
 
-        await sub.delete();
+        await community.delete();
     });
     it(`Sub is locked for start`, async () => {
         // Check for locks
-        const localSub = community as LocalCommunity;
-        expect(await localSub._dbHandler.isSubStartLocked(community.signer.address)).to.be.true;
+        const localCommunity = community as LocalCommunity;
+        expect(await localCommunity._dbHandler.isCommunityStartLocked(community.signer.address)).to.be.true;
     });
 
     it(`Can edit a community to have ENS domain as address`, async () => {
@@ -179,12 +179,12 @@ describeSkipIfRpc(`community.edit`, async () => {
 
     it(`calling community.edit() should not add community to pkc._updatingCommunities or pkc._startedCommunities`, async () => {
         const pkcInstance = await mockPKC();
-        const sub = (await pkcInstance.createCommunity()) as LocalCommunity | RpcLocalCommunity;
-        expect(pkcInstance._updatingCommunities[sub.address]).to.be.undefined;
-        expect(pkcInstance._startedCommunities[sub.address]).to.be.undefined;
-        await sub.edit({ address: "123" + bsoNameAddress });
-        expect(pkcInstance._updatingCommunities[sub.address]).to.be.undefined;
-        expect(pkcInstance._startedCommunities[sub.address]).to.be.undefined;
+        const community = (await pkcInstance.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+        expect(pkcInstance._updatingCommunities[community.address]).to.be.undefined;
+        expect(pkcInstance._startedCommunities[community.address]).to.be.undefined;
+        await community.edit({ address: "123" + bsoNameAddress });
+        expect(pkcInstance._updatingCommunities[community.address]).to.be.undefined;
+        expect(pkcInstance._startedCommunities[community.address]).to.be.undefined;
 
         await pkcInstance.destroy();
     });
@@ -357,43 +357,45 @@ describeSkipIfRpc(`Concurrency with community.edit`, async () => {
         ] as CommunityEditOptions[]
     ).map((editArgs) =>
         it(`Calling startedCommunity.stop() after edit while updating another community should not reset the edit (${Object.keys(editArgs)})`, async () => {
-            const startedSub = (await pkc.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+            const startedCommunity = (await pkc.createCommunity()) as LocalCommunity | RpcLocalCommunity;
             const editKeys = Object.keys(editArgs) as (keyof CommunityEditOptions)[];
 
-            const hasLatestEditProps = (sub: LocalCommunity | RpcLocalCommunity): boolean => {
-                const picked = remeda.pick(sub, editKeys);
+            const hasLatestEditProps = (community: LocalCommunity | RpcLocalCommunity): boolean => {
+                const picked = remeda.pick(community, editKeys);
                 return remeda.isDeepEqual(picked, editArgs as typeof picked);
             };
 
-            const expectSubToHaveLatestEditProps = (sub: LocalCommunity | RpcLocalCommunity) => {
-                expect(remeda.pick(sub, editKeys)).to.deep.equal(editArgs);
+            const expectSubToHaveLatestEditProps = (community: LocalCommunity | RpcLocalCommunity) => {
+                expect(remeda.pick(community, editKeys)).to.deep.equal(editArgs);
             };
 
-            const updatingCommunity = (await pkc.createCommunity({ address: startedSub.address })) as LocalCommunity | RpcLocalCommunity;
+            const updatingCommunity = (await pkc.createCommunity({ address: startedCommunity.address })) as
+                | LocalCommunity
+                | RpcLocalCommunity;
             await updatingCommunity.update();
 
-            await startedSub.start();
+            await startedCommunity.start();
 
-            const subToEdit = (await pkc.createCommunity({ address: startedSub.address })) as LocalCommunity | RpcLocalCommunity;
+            const subToEdit = (await pkc.createCommunity({ address: startedCommunity.address })) as LocalCommunity | RpcLocalCommunity;
             await subToEdit.edit(editArgs);
             expectSubToHaveLatestEditProps(subToEdit);
-            expectSubToHaveLatestEditProps(startedSub);
+            expectSubToHaveLatestEditProps(startedCommunity);
 
             await resolveWhenConditionIsTrue({
                 toUpdate: updatingCommunity,
                 predicate: async () => hasLatestEditProps(updatingCommunity)
             });
-            expectSubToHaveLatestEditProps(startedSub);
+            expectSubToHaveLatestEditProps(startedCommunity);
             expectSubToHaveLatestEditProps(subToEdit);
             expectSubToHaveLatestEditProps(updatingCommunity);
 
-            await startedSub.stop();
-            expectSubToHaveLatestEditProps(startedSub);
+            await startedCommunity.stop();
+            expectSubToHaveLatestEditProps(startedCommunity);
             expectSubToHaveLatestEditProps(updatingCommunity);
             expectSubToHaveLatestEditProps(subToEdit);
 
             await updatingCommunity.stop();
-            expectSubToHaveLatestEditProps(startedSub);
+            expectSubToHaveLatestEditProps(startedCommunity);
             expectSubToHaveLatestEditProps(updatingCommunity);
             expectSubToHaveLatestEditProps(subToEdit);
         })
@@ -536,35 +538,35 @@ describeSkipIfRpc(`Concurrency with community.edit`, async () => {
 
         customResolverRecords.set(domain, signer.address);
 
-        const sub = await createSubWithNoChallenge({ signer }, customPKC);
-        await sub.edit({ address: domain });
+        const community = await createSubWithNoChallenge({ signer }, customPKC);
+        await community.edit({ address: domain });
         // Check for locks
-        const localSub = sub as LocalCommunity;
-        expect(await localSub._dbHandler.isSubStartLocked(sub.signer.address)).to.be.false;
-        expect(await localSub._dbHandler.isSubStartLocked(domain)).to.be.false;
+        const localCommunity = community as LocalCommunity;
+        expect(await localCommunity._dbHandler.isCommunityStartLocked(community.signer.address)).to.be.false;
+        expect(await localCommunity._dbHandler.isCommunityStartLocked(domain)).to.be.false;
 
-        await sub.start();
-        await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
-        expect(sub.address).to.equal(domain);
+        expect(community.address).to.equal(domain);
         // Check for locks
-        expect(await localSub._dbHandler.isSubStartLocked(sub.signer.address)).to.be.false;
-        expect(await localSub._dbHandler.isSubStartLocked(domain)).to.be.true;
+        expect(await localCommunity._dbHandler.isCommunityStartLocked(community.signer.address)).to.be.false;
+        expect(await localCommunity._dbHandler.isCommunityStartLocked(domain)).to.be.true;
 
-        const post = await publishRandomPost({ communityAddress: sub.address, pkc: customPKC });
+        const post = await publishRandomPost({ communityAddress: community.address, pkc: customPKC });
         await waitTillPostInCommunityPages(post as Comment & { cid: string }, customPKC);
-        await sub.stop();
+        await community.stop();
         await customPKC.destroy();
     });
 
     it(`community.edit() changes persist through IPNS publish cycles`, async () => {
-        const sub = await createSubWithNoChallenge({}, pkc);
-        const localSub = sub as LocalCommunity;
-        await sub.start();
-        await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
+        const community = await createSubWithNoChallenge({}, pkc);
+        const localCommunity = community as LocalCommunity;
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
         // Access the kubo client to mock name.publish
-        const kuboClient = localSub._clientsManager.getDefaultKuboRpcClient();
+        const kuboClient = localCommunity._clientsManager.getDefaultKuboRpcClient();
         const originalPublish = kuboClient._client.name.publish.bind(kuboClient._client.name);
 
         let publishStartedResolve: () => void;
@@ -586,7 +588,7 @@ describeSkipIfRpc(`Concurrency with community.edit`, async () => {
         }) as typeof kuboClient._client.name.publish;
 
         // Edit #1: triggers a new publish cycle
-        await sub.edit({ title: "trigger publish " + Date.now() });
+        await community.edit({ title: "trigger publish " + Date.now() });
 
         // Wait for name.publish to be called.
         // At this point, lines 688-696 have already captured _pendingEditProps
@@ -594,26 +596,26 @@ describeSkipIfRpc(`Concurrency with community.edit`, async () => {
         await publishStartedPromise;
 
         // Edit #2: happens DURING the IPNS publish (after state was captured)
-        await sub.edit({ features: { authorFlairs: true } });
-        expect(sub.features?.authorFlairs).to.be.true;
+        await community.edit({ features: { authorFlairs: true } });
+        expect(community.features?.authorFlairs).to.be.true;
 
         // Wait for the publish cycle to complete
-        await new Promise((resolve) => sub.once("update", resolve));
+        await new Promise((resolve) => community.once("update", resolve));
 
         // Without the fix, initCommunityIpfsPropsNoMerge overwrites this.features
         // with the stale IPNS record (which was constructed before edit #2)
-        expect(sub.features?.authorFlairs).to.be.true;
+        expect(community.features?.authorFlairs).to.be.true;
 
         // Restore original and cleanup
         kuboClient._client.name.publish = originalPublish;
-        await sub.delete();
+        await community.delete();
     });
 });
 
 describe(`Edit misc`, async () => {
     it(`Can edit community.address to a new domain even if community-address text record does not exist`, async () => {
         const customPKC = await mockPKCV2({ stubStorage: false, mockResolve: true });
-        const newSub = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+        const newCommunity = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         if (!customPKC._pkcRpcClient) {
             const resolvedSubAddress = await customPKC._clientsManager.resolveCommunityNameIfNeeded({
                 communityAddress: "no-sub-address.bso"
@@ -622,39 +624,39 @@ describe(`Edit misc`, async () => {
         }
 
         // Has no community-address text record
-        await newSub.edit({ address: "no-sub-address.bso" });
+        await newCommunity.edit({ address: "no-sub-address.bso" });
 
-        expect(newSub.address).to.equal("no-sub-address.bso");
-        await newSub.delete();
+        expect(newCommunity.address).to.equal("no-sub-address.bso");
+        await newCommunity.delete();
         await customPKC.destroy();
     });
 
     it(`Can edit community.address to a new domain even if community-address text record does not match community.signer.address`, async () => {
         const customPKC = await mockPKC();
-        const subAddress = "different-signer.bso";
-        if (customPKC.communities.includes(subAddress)) {
-            const sub = (await customPKC.createCommunity({ address: subAddress })) as LocalCommunity | RpcLocalCommunity;
-            await sub.delete();
+        const communityAddress = "different-signer.bso";
+        if (customPKC.communities.includes(communityAddress)) {
+            const community = (await customPKC.createCommunity({ address: communityAddress })) as LocalCommunity | RpcLocalCommunity;
+            await community.delete();
             await new Promise((resolve) => customPKC.once("communitieschange", resolve));
         }
-        const newSub = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+        const newCommunity = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
 
         // Should not match signer.address
-        await newSub.edit({ address: subAddress });
-        expect(newSub.address).to.equal(subAddress);
-        await newSub.delete();
+        await newCommunity.edit({ address: communityAddress });
+        expect(newCommunity.address).to.equal(communityAddress);
+        await newCommunity.delete();
         await customPKC.destroy();
     });
 
     it(`community.edit({address}) fails if the new address is already taken by another community`, async () => {
         const customPKC = await mockPKC();
-        const newSub = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+        const newCommunity = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         const bsoNameAddress = `community-address-${uuidV4()}.bso`;
-        await newSub.edit({ address: bsoNameAddress });
+        await newCommunity.edit({ address: bsoNameAddress });
 
-        const anotherSub = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+        const anotherCommunity = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         try {
-            await anotherSub.edit({ address: newSub.address });
+            await anotherCommunity.edit({ address: newCommunity.address });
             expect.fail("Should fail");
         } catch (e) {
             expect((e as { code: string }).code).to.equal("ERR_COMMUNITY_OWNER_ATTEMPTED_EDIT_NEW_ADDRESS_THAT_ALREADY_EXISTS");
@@ -665,19 +667,19 @@ describe(`Edit misc`, async () => {
 
 describe(`Editing community.roles`, async () => {
     let pkc: PKCType;
-    let sub: LocalCommunity | RpcLocalCommunity;
+    let community: LocalCommunity | RpcLocalCommunity;
     let remotePKC: PKCType;
 
     beforeAll(async () => {
         pkc = await mockPKC();
         remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
-        sub = (await pkc.createCommunity()) as LocalCommunity | RpcLocalCommunity;
-        await sub.start();
-        await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => Boolean(sub.updatedAt) });
+        community = (await pkc.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => Boolean(community.updatedAt) });
     });
 
     afterAll(async () => {
-        await sub.delete();
+        await community.delete();
         await pkc.destroy();
         await remotePKC.destroy();
     });
@@ -687,79 +689,79 @@ describe(`Editing community.roles`, async () => {
         const signer2 = await pkc.createSigner();
         const authorAddress = signer1.address;
         const secondAuthorAddress = signer2.address;
-        await sub.edit({ roles: { [authorAddress]: { role: "admin" }, [secondAuthorAddress]: { role: "moderator" } } });
+        await community.edit({ roles: { [authorAddress]: { role: "admin" }, [secondAuthorAddress]: { role: "moderator" } } });
 
-        expect(sub.roles![authorAddress].role).to.equal("admin");
-        expect(sub.roles![secondAuthorAddress].role).to.equal("moderator");
+        expect(community.roles![authorAddress].role).to.equal("admin");
+        expect(community.roles![secondAuthorAddress].role).to.equal("moderator");
 
-        await new Promise((resolve) => sub.once("update", resolve));
+        await new Promise((resolve) => community.once("update", resolve));
 
-        let remoteSub = (await remotePKC.getCommunity({ address: sub.address })) as RemoteCommunity;
-        expect(remoteSub.roles![authorAddress].role).to.equal("admin");
-        expect(remoteSub.roles![secondAuthorAddress].role).to.equal("moderator");
+        let remoteCommunity = (await remotePKC.getCommunity({ address: community.address })) as RemoteCommunity;
+        expect(remoteCommunity.roles![authorAddress].role).to.equal("admin");
+        expect(remoteCommunity.roles![secondAuthorAddress].role).to.equal("moderator");
 
-        await sub.edit({ roles: { [authorAddress]: undefined, [secondAuthorAddress]: { role: "moderator" } } });
-        expect(sub.roles![authorAddress]).to.be.undefined;
-        expect(sub.roles![secondAuthorAddress].role).to.equal("moderator");
+        await community.edit({ roles: { [authorAddress]: undefined, [secondAuthorAddress]: { role: "moderator" } } });
+        expect(community.roles![authorAddress]).to.be.undefined;
+        expect(community.roles![secondAuthorAddress].role).to.equal("moderator");
 
-        await new Promise((resolve) => sub.once("update", resolve));
+        await new Promise((resolve) => community.once("update", resolve));
 
-        remoteSub = (await remotePKC.getCommunity({ address: sub.address })) as RemoteCommunity;
-        expect(remoteSub.roles![authorAddress]).to.be.undefined;
-        expect(remoteSub.roles![secondAuthorAddress].role).to.equal("moderator");
+        remoteCommunity = (await remotePKC.getCommunity({ address: community.address })) as RemoteCommunity;
+        expect(remoteCommunity.roles![authorAddress]).to.be.undefined;
+        expect(remoteCommunity.roles![secondAuthorAddress].role).to.equal("moderator");
 
         // Now set the other author role to null, this should set community.roles to undefined
-        await sub.edit({ roles: { [authorAddress]: undefined, [secondAuthorAddress]: undefined } });
-        expect(sub.roles).to.deep.equal({}); // {} after edit, but will be undefined after publishing because we remove any empty objects {} before publishing to IPFS
+        await community.edit({ roles: { [authorAddress]: undefined, [secondAuthorAddress]: undefined } });
+        expect(community.roles).to.deep.equal({}); // {} after edit, but will be undefined after publishing because we remove any empty objects {} before publishing to IPFS
 
-        await new Promise((resolve) => sub.once("update", resolve));
-        expect(sub.roles).to.be.undefined;
+        await new Promise((resolve) => community.once("update", resolve));
+        expect(community.roles).to.be.undefined;
 
-        remoteSub = (await remotePKC.getCommunity({ address: sub.address })) as RemoteCommunity;
-        expect(remoteSub.roles).to.be.undefined;
+        remoteCommunity = (await remotePKC.getCommunity({ address: community.address })) as RemoteCommunity;
+        expect(remoteCommunity.roles).to.be.undefined;
     });
 
     it(`Editing roles with an unresolvable domain throws ERR_ROLE_ADDRESS_DOMAIN_COULD_NOT_BE_RESOLVED`, async () => {
         // "nonexistent.bso" doesn't resolve in the mock resolver
-        await expect(sub.edit({ roles: { "nonexistent.bso": { role: "moderator" } } })).rejects.toMatchObject({
+        await expect(community.edit({ roles: { "nonexistent.bso": { role: "moderator" } } })).rejects.toMatchObject({
             code: "ERR_ROLE_ADDRESS_DOMAIN_COULD_NOT_BE_RESOLVED"
         });
     });
 
     it(`Removing an unresolvable domain role (setting to undefined) does NOT throw`, async () => {
         // Removing a role should skip resolution
-        await sub.edit({ roles: { "nonexistent.bso": undefined } });
+        await community.edit({ roles: { "nonexistent.bso": undefined } });
     });
 
     it(`Editing roles with a resolvable domain succeeds`, async () => {
         // "plebbit.eth" resolves pkc-author-address in the mock resolver
-        await sub.edit({ roles: { "plebbit.eth": { role: "moderator" } } });
-        expect(sub.roles!["plebbit.eth"].role).to.equal("moderator");
+        await community.edit({ roles: { "plebbit.eth": { role: "moderator" } } });
+        expect(community.roles!["plebbit.eth"].role).to.equal("moderator");
         // Clean up
-        await sub.edit({ roles: { "plebbit.eth": undefined } });
+        await community.edit({ roles: { "plebbit.eth": undefined } });
     });
 
     it.skip(`Setting sub.roles.[author-address.bso].role to null doesn't corrupt the signature`, async () => {
         // This test is not needed anymore because zod will catch it
-        const newSub = await createSubWithNoChallenge({}, pkc);
-        await newSub.start();
-        await resolveWhenConditionIsTrue({ toUpdate: newSub, predicate: async () => Boolean(newSub.updatedAt) }); // wait until it publishes an ipns record
-        await remotePKC.getCommunity({ address: newSub.address }); // no problem with signature
+        const newCommunity = await createSubWithNoChallenge({}, pkc);
+        await newCommunity.start();
+        await resolveWhenConditionIsTrue({ toUpdate: newCommunity, predicate: async () => Boolean(newCommunity.updatedAt) }); // wait until it publishes an ipns record
+        await remotePKC.getCommunity({ address: newCommunity.address }); // no problem with signature
 
         const newRoles: Record<string, { role: string | null }> = {
             "author-address.bso": { role: null },
             "author-address2.bso": { role: "admin" }
         };
-        await newSub.edit({ roles: newRoles as { [key: string]: { role: string } } });
-        expect(newSub.roles).to.deep.equal({ "author-address2.bso": { role: "admin" } });
+        await newCommunity.edit({ roles: newRoles as { [key: string]: { role: string } } });
+        expect(newCommunity.roles).to.deep.equal({ "author-address2.bso": { role: "admin" } });
 
-        await new Promise((resolve) => newSub.once("update", resolve));
-        expect(newSub.roles).to.deep.equal({ "author-address2.bso": { role: "admin" } });
+        await new Promise((resolve) => newCommunity.once("update", resolve));
+        expect(newCommunity.roles).to.deep.equal({ "author-address2.bso": { role: "admin" } });
 
-        const remoteSub = (await remotePKC.getCommunity({ address: newSub.address })) as RemoteCommunity;
-        expect(remoteSub.roles).to.deep.equal({ "author-address2.bso": { role: "admin" } });
+        const remoteCommunity = (await remotePKC.getCommunity({ address: newCommunity.address })) as RemoteCommunity;
+        expect(remoteCommunity.roles).to.deep.equal({ "author-address2.bso": { role: "admin" } });
 
-        await newSub.delete();
+        await newCommunity.delete();
     });
 });
 
@@ -886,43 +888,43 @@ describeSkipIfRpc(`.eth <-> .bso alias address transitions`, async () => {
     });
 
     it(`Remote loading of .bso sub also has the post published under .eth`, async () => {
-        const loadedSub = (await remotePKC.getCommunity({ address: bsoNameAddress })) as RemoteCommunity;
-        expect(loadedSub.address).to.equal(bsoNameAddress);
-        expect(loadedSub.posts.pages.hot!.comments.length).to.be.greaterThan(0);
+        const loadedCommunity = (await remotePKC.getCommunity({ address: bsoNameAddress })) as RemoteCommunity;
+        expect(loadedCommunity.address).to.equal(bsoNameAddress);
+        expect(loadedCommunity.posts.pages.hot!.comments.length).to.be.greaterThan(0);
     });
 
     it(`Can load a local community by .eth alias when address is .bso`, async () => {
-        // The sub's current address is bsoNameAddress, but loading with ethNameAddress should still find the local sub
-        const loadedSub = await pkc.createCommunity({ address: ethNameAddress });
-        expect(loadedSub.address).to.equal(bsoNameAddress);
-        expect((loadedSub as LocalCommunity).signer).to.not.be.undefined;
+        // The community's current address is bsoNameAddress, but loading with ethNameAddress should still find the local sub
+        const loadedCommunity = await pkc.createCommunity({ address: ethNameAddress });
+        expect(loadedCommunity.address).to.equal(bsoNameAddress);
+        expect((loadedCommunity as LocalCommunity).signer).to.not.be.undefined;
     });
 
     it(`Can load a local community by .bso alias when address is .eth`, async () => {
-        // Create a separate non-started sub with .eth address and load it with .bso
+        // Create a separate non-started community with .eth address and load it with .bso
         const customPKC = await mockPKC();
-        const sub = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+        const community = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         const domain = `load-alias-${uuidV4()}`;
-        await sub.edit({ address: `${domain}.eth` });
-        expect(sub.address).to.equal(`${domain}.eth`);
+        await community.edit({ address: `${domain}.eth` });
+        expect(community.address).to.equal(`${domain}.eth`);
 
-        // Load with .bso — should find the local sub
-        const loadedSub = await customPKC.createCommunity({ address: `${domain}.bso` });
-        expect(loadedSub.address).to.equal(`${domain}.eth`);
-        expect((loadedSub as LocalCommunity).signer).to.not.be.undefined;
+        // Load with .bso — should find the local community
+        const loadedCommunity = await customPKC.createCommunity({ address: `${domain}.bso` });
+        expect(loadedCommunity.address).to.equal(`${domain}.eth`);
+        expect((loadedCommunity as LocalCommunity).signer).to.not.be.undefined;
         await customPKC.destroy();
     });
 
     it(`community.edit({address}) fails if the .eth/.bso equivalent is already taken by another community`, async () => {
         const customPKC = await mockPKC();
-        const sub1 = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+        const community1 = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         const domain = `address-equiv-${uuidV4()}`;
-        await sub1.edit({ address: `${domain}.eth` });
+        await community1.edit({ address: `${domain}.eth` });
 
-        const sub2 = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+        const community2 = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         try {
-            // Trying to claim the .bso alias of a domain already taken by another sub
-            await sub2.edit({ address: `${domain}.bso` });
+            // Trying to claim the .bso alias of a domain already taken by another community
+            await community2.edit({ address: `${domain}.bso` });
             expect.fail("Should fail");
         } catch (e) {
             expect((e as { code: string }).code).to.equal("ERR_COMMUNITY_OWNER_ATTEMPTED_EDIT_NEW_ADDRESS_THAT_ALREADY_EXISTS");
@@ -932,14 +934,14 @@ describeSkipIfRpc(`.eth <-> .bso alias address transitions`, async () => {
 
     it(`Same sub can transition between .eth and .bso aliases`, async () => {
         const customPKC = await mockPKC();
-        const sub = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+        const community = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         const domain = `self-alias-${uuidV4()}`;
-        await sub.edit({ address: `${domain}.eth` });
-        expect(sub.address).to.equal(`${domain}.eth`);
+        await community.edit({ address: `${domain}.eth` });
+        expect(community.address).to.equal(`${domain}.eth`);
 
         // Should NOT throw — it's the same sub changing its own alias
-        await sub.edit({ address: `${domain}.bso` });
-        expect(sub.address).to.equal(`${domain}.bso`);
+        await community.edit({ address: `${domain}.bso` });
+        expect(community.address).to.equal(`${domain}.bso`);
         await customPKC.destroy();
     });
 });

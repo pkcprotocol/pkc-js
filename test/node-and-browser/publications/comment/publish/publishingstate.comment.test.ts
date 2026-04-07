@@ -33,8 +33,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             await pkc.destroy();
         });
         it(`comment.publishingState stays as stopped after calling comment.update() - IPFS client`, async () => {
-            const sub = await pkc.getCommunity({ address: communityAddress });
-            const commentCid = sub.posts.pages.hot.comments[0].cid;
+            const community = await pkc.getCommunity({ address: communityAddress });
+            const commentCid = community.posts.pages.hot.comments[0].cid;
             const comment = await pkc.createComment({ cid: commentCid });
             expect(comment.publishingState).to.equal("stopped");
             comment.on("publishingstatechange", (newState: string) => {
@@ -156,8 +156,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         });
 
         it(`comment.publishingState stays as stopped after calling comment.update() - IPFS Gateway`, async () => {
-            const sub = await pkc.getCommunity({ address: communityAddress });
-            const commentCid = sub.posts.pages.hot.comments[0].cid;
+            const community = await pkc.getCommunity({ address: communityAddress });
+            const commentCid = community.posts.pages.hot.comments[0].cid;
             const comment = await pkc.createComment({ cid: commentCid });
             expect(comment.publishingState).to.equal("stopped");
             comment.on("publishingstatechange", (newState: string) => {
@@ -271,7 +271,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`order of publishingState-error-publishingstatechange is correct`, async () => {
-            // need to create a mock sub with pubsub topic that's not responding
+            // need to create a mock community with pubsub topic that's not responding
             // that way we will force the error to be thrown for both rpc and other configs
 
             const mockedSub = await publishCommunityRecordWithExtraProp();

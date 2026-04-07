@@ -45,7 +45,7 @@ const depthsToTest = [1, 2, 3, 15, 30];
 
 describeSkipIfRpc("comment.update publishing depth coverage", function () {
     depthsToTest.forEach((depth) => {
-        it(`Local sub generates comment updates for replies at depth ${depth}`, async () => {
+        it(`Local community generates comment updates for replies at depth ${depth}`, async () => {
             const context = await createPublishingTestContext({ targetDepth: depth });
             try {
                 const leafRow = context.rowsByDepth.get(depth);

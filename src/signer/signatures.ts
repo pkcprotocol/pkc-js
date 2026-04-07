@@ -594,8 +594,8 @@ export async function verifyCommunity({
     if (cacheIfValidWithDefault && clientsManager._pkc._memCaches.communityVerificationCache.get(cacheKey)) return { valid: true };
 
     // Derive address for page verification: name || publicKey || ipnsName
-    const subAddress = community.name || getPKCAddressFromPublicKeySync(community.signature.publicKey);
-    const subForPages: CommunityForVerifyingPages = { address: subAddress, signature: community.signature };
+    const communityAddress = community.name || getPKCAddressFromPublicKeySync(community.signature.publicKey);
+    const communityForPages: CommunityForVerifyingPages = { address: communityAddress, signature: community.signature };
 
     if (community.posts?.pages && validatePages)
         for (const preloadedPageSortName of remeda.keys.strict(community.posts.pages)) {
@@ -608,7 +608,7 @@ export async function verifyCommunity({
                 pageSortName: preloadedPageSortName,
                 resolveAuthorNames,
                 clientsManager,
-                community: subForPages,
+                community: communityForPages,
                 parentComment: { cid: undefined, depth: -1, postCid: undefined },
                 validatePages,
                 validateUpdateSignature: false, // no need because we already verified community signature
@@ -617,15 +617,15 @@ export async function verifyCommunity({
 
             if (!pageValidity.valid) {
                 log.error(
-                    `Community (${subAddress}) page (${preloadedPageSortName} - ${community.posts.pageCids?.[preloadedPageSortName]}) has an invalid signature due to reason (${pageValidity.reason})`
+                    `Community (${communityAddress}) page (${preloadedPageSortName} - ${community.posts.pageCids?.[preloadedPageSortName]}) has an invalid signature due to reason (${pageValidity.reason})`
                 );
                 return { valid: false, reason: messages.ERR_COMMUNITY_POSTS_INVALID };
             }
         }
 
-    const subPeerId = PeerId.createFromB58String(communityIpnsName);
+    const communityPeerId = PeerId.createFromB58String(communityIpnsName);
     const signaturePeerId = await getPeerIdFromPublicKey(community.signature.publicKey);
-    if (!subPeerId.equals(signaturePeerId))
+    if (!communityPeerId.equals(signaturePeerId))
         return { valid: false, reason: messages.ERR_COMMUNITY_IPNS_NAME_DOES_NOT_MATCH_SIGNATURE_PUBLIC_KEY };
     clientsManager._pkc._memCaches.communityVerificationCache.set(cacheKey, true);
     return { valid: true };

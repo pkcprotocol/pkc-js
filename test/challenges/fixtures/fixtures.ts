@@ -278,7 +278,7 @@ const excludeFriendlySubKarmaChallengeCommunity: MockCommunity = {
                     // exclude author with karma in those subs using publication.challengeCommentCids
                     {
                         community: {
-                            addresses: ["friendly-sub.bso", "friendly-sub2.bso"],
+                            addresses: ["friendly-sub.bso", "friendly-community2.bso"],
                             postScore: 100,
                             replyScore: 100,
                             maxCommentCids: 3
@@ -437,7 +437,7 @@ communityAuthors[lowKarmaAuthor.address] = {};
 communityAuthors[lowKarmaAuthor.address][excludeHighKarmaChallengeCommunity.title] = { postScore: 1, replyScore: 1000 };
 communityAuthors[lowKarmaAuthor.address][excludeAccountAgeChallengeCommunity.title] = { postScore: 1000, replyScore: 1000 };
 
-// define mock friendly sub comment cids
+// define mock friendly community comment cids
 const challengeCommentCids: Record<string, string[]> = {};
 challengeCommentCids[highKarmaAuthor.address] = ["Qm...friendly-sub.bso,high,old", "Qm...friendly-sub.bso,high,old"];
 

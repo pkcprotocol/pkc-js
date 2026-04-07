@@ -217,9 +217,9 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
             let sourcePostCommentInstance: Comment; // Need a valid instance for cloning/copying tests
             beforeEach(async () => {
                 pkc = await mockRemotePKC();
-                const sub = (await pkc.getCommunity({ address: signers[0].address })) as RemoteCommunity;
-                await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.lastPostCid === "string" });
-                sourcePostCommentInstance = await pkc.getComment({ cid: sub.lastPostCid! });
+                const community = (await pkc.getCommunity({ address: signers[0].address })) as RemoteCommunity;
+                await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.lastPostCid === "string" });
+                sourcePostCommentInstance = await pkc.getComment({ cid: community.lastPostCid! });
                 await sourcePostCommentInstance.update();
                 await resolveWhenConditionIsTrue({
                     toUpdate: sourcePostCommentInstance,

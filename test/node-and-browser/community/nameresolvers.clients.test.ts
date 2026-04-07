@@ -192,7 +192,7 @@ describeSkipIfRpc(`community.clients.nameResolvers`, async () => {
         await pkc.destroy();
     });
 
-    it(`Correct order of nameResolvers state when sub pages has comments with author.address as domain - uncached`, async () => {
+    it(`Correct order of nameResolvers state when community pages has comments with author.address as domain - uncached`, async () => {
         // These tests can't work with RPC clients because:
         // - RPC clients have empty clients.nameResolvers (nameResolvers contain functions that can't be serialized over RPC, see pkc.ts)
         // - The RPC server resolves names server-side and doesn't transmit resolver state changes to the client
@@ -203,22 +203,22 @@ describeSkipIfRpc(`community.clients.nameResolvers`, async () => {
 
         const { pkcPromise, resolvedDomains } = createRemotePKCWithTrackingResolver({ stubStorage: true });
         const pkc = await pkcPromise;
-        const sub = await pkc.createCommunity({ address: communityAddress });
+        const community = await pkc.createCommunity({ address: communityAddress });
 
         const recordedStates: string[] = [];
-        const resolverKey = Object.keys(sub.clients.nameResolvers)[0];
-        sub.clients.nameResolvers[resolverKey].on("statechange", (newState: string) => recordedStates.push(newState));
+        const resolverKey = Object.keys(community.clients.nameResolvers)[0];
+        community.clients.nameResolvers[resolverKey].on("statechange", (newState: string) => recordedStates.push(newState));
 
-        const updatePromise = new Promise((resolve) => sub.once("update", resolve));
-        await sub.update();
+        const updatePromise = new Promise((resolve) => community.once("update", resolve));
+        await community.update();
         await updatePromise;
 
         // Verify the pages loaded with the expected comments
-        expect(sub.posts?.pages?.hot?.comments?.length).to.equal(domainAuthors.length + 1); // 3 domain + 1 non-domain
+        expect(community.posts?.pages?.hot?.comments?.length).to.equal(domainAuthors.length + 1); // 3 domain + 1 non-domain
 
         const commentsWithDomainAuthor: { author: { address: string } }[] = [];
         processAllCommentsRecursively(
-            sub.posts.pages.hot.comments,
+            community.posts.pages.hot.comments,
             (comment: { author: { address: string } }) => comment.author.address.includes(".") && commentsWithDomainAuthor.push(comment)
         );
         expect(commentsWithDomainAuthor.length).to.equal(domainAuthors.length);
@@ -232,7 +232,7 @@ describeSkipIfRpc(`community.clients.nameResolvers`, async () => {
             await new Promise((r) => setTimeout(r, 100));
         }
 
-        await sub.stop();
+        await community.stop();
 
         // The mock resolver was called for exactly the 3 expected domains
         expect(resolvedDomains).to.deep.equal(expectedDomainNames);
@@ -253,21 +253,21 @@ describeSkipIfRpc(`community.clients.nameResolvers`, async () => {
         const { pkc: remotePKC } = await createRemotePKCWithMockResolver({
             stubStorage: true
         });
-        const sub = await remotePKC.createCommunity({ address: "plebbit.bso" });
+        const community = await remotePKC.createCommunity({ address: "plebbit.bso" });
 
         const expectedStates = ["resolving-community-name", "stopped"];
 
         const recordedStates: string[] = [];
 
-        const resolverKey = Object.keys(sub.clients.nameResolvers)[0];
-        sub.clients.nameResolvers[resolverKey].on("statechange", (newState: string) => recordedStates.push(newState));
+        const resolverKey = Object.keys(community.clients.nameResolvers)[0];
+        community.clients.nameResolvers[resolverKey].on("statechange", (newState: string) => recordedStates.push(newState));
 
-        const updatePromise = new Promise((resolve) => sub.once("update", resolve));
-        await sub.update();
+        const updatePromise = new Promise((resolve) => community.once("update", resolve));
+        await community.update();
 
         await updatePromise;
 
-        await sub.stop();
+        await community.stop();
 
         expect(recordedStates.slice(0, 2)).to.deep.equal(expectedStates);
         await remotePKC.destroy();

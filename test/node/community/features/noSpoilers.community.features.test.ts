@@ -44,11 +44,14 @@ describe.concurrent(`community.features.noSpoilers`, async () => {
         await community.edit({ features: { ...community.features, noSpoilers: true } });
         expect(community.features?.noSpoilers).to.be.true;
 
-        const remoteSub = await remotePKC.getCommunity({ address: community.address });
-        await remoteSub.update();
-        await resolveWhenConditionIsTrue({ toUpdate: remoteSub, predicate: async () => remoteSub.features?.noSpoilers === true });
-        expect(remoteSub.features?.noSpoilers).to.be.true;
-        await remoteSub.stop();
+        const remoteCommunity = await remotePKC.getCommunity({ address: community.address });
+        await remoteCommunity.update();
+        await resolveWhenConditionIsTrue({
+            toUpdate: remoteCommunity,
+            predicate: async () => remoteCommunity.features?.noSpoilers === true
+        });
+        expect(remoteCommunity.features?.noSpoilers).to.be.true;
+        await remoteCommunity.stop();
     });
 
     it(`Can't publish a post with spoiler=true`, async () => {

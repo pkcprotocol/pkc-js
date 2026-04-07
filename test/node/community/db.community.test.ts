@@ -60,17 +60,17 @@ const getDatabasesToMigrate = (): DatabaseToMigrate[] => {
 
 const generateRandomSub = async (): Promise<LocalCommunity | RpcLocalCommunity> => {
     const pkc: PKCType = await mockPKC();
-    const sub = await createSubWithNoChallenge({}, pkc);
-    await sub.start();
-    await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => Boolean(sub.updatedAt) });
+    const community = await createSubWithNoChallenge({}, pkc);
+    await community.start();
+    await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => Boolean(community.updatedAt) });
 
-    const post: Comment = await publishRandomPost({ communityAddress: sub.address, pkc: pkc });
-    await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, sub);
+    const post: Comment = await publishRandomPost({ communityAddress: community.address, pkc: pkc });
+    await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, community);
 
-    await sub.stop();
+    await community.stop();
     await pkc.destroy();
 
-    return sub;
+    return community;
 };
 
 const copyDbToDataPath = async (databaseObj: { path: string; address: string }, pkc: PKCType): Promise<void> => {
@@ -114,13 +114,13 @@ describeSkipIfRpc.sequential(`DB importing`, async () => {
         const community = (await tempPKC.createCommunity({ address: randomSub.address })) as LocalCommunity | RpcLocalCommunity;
         await community.edit({
             settings: { ...community.settings, challenges: [{ name: "question", options: { question: "1+1=?", answer: "2" } }] }
-        }); // We want this sub to have a full challenge exchange to test all db tables
+        }); // We want this community to have a full challenge exchange to test all db tables
         expect(community.updatedAt).to.be.a("number"); // Should be fetched from db
 
         await community.start();
         await new Promise<void>((resolve) => community.once("update", () => resolve()));
-        const localSub = community as LocalCommunity;
-        const currentDbVersion = await localSub._dbHandler.getDbVersion();
+        const localCommunity = community as LocalCommunity;
+        const currentDbVersion = await localCommunity._dbHandler.getDbVersion();
         expect(currentDbVersion).to.equal(pkcVersion.DB_VERSION);
 
         const mockPost: Comment = await generateMockPost({ communityAddress: community.address, pkc: tempPKC });
@@ -196,7 +196,7 @@ describeSkipIfRpc.sequential("DB Migration", () => {
 
     databasesToMigrate.map((databaseInfo) =>
         it(`Can migrate from DB version ${databaseInfo.version} to ${pkcVersion.DB_VERSION} - address (${databaseInfo.address})`, async () => {
-            // Once we start the sub, it's gonna attempt to migrate to the latest DB version
+            // Once we start the community, it's gonna attempt to migrate to the latest DB version
 
             const pkc: PKCType = await mockPKC(getTemporaryPKCOptions());
 

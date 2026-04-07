@@ -32,7 +32,7 @@ export const CommunityRoleSchema = z.looseObject({
 export const PubsubTopicSchema = z.string().min(1);
 
 export const CommunitySuggestedSchema = z.looseObject({
-    // values suggested by the sub owner, the client/user can ignore them without breaking interoperability
+    // values suggested by the community owner, the client/user can ignore them without breaking interoperability
     primaryColor: z.string().optional(),
     secondaryColor: z.string().optional(),
     avatarUrl: z.string().min(1).optional(),
@@ -43,7 +43,7 @@ export const CommunitySuggestedSchema = z.looseObject({
 });
 
 export const CommunityFeaturesSchema = z.looseObject({
-    // any boolean that changes the functionality of the sub, add "no" in front if doesn't default to false
+    // any boolean that changes the functionality of the community, add "no" in front if doesn't default to false
     noVideos: z.boolean().optional(), // Block all comments with video links
     noSpoilers: z.boolean().optional(), // Author can't set spoiler = true on any comment
     noImages: z.boolean().optional(), // Block all comments with image links
@@ -276,14 +276,14 @@ export const CommunityEditOptionsSchema = CommunityIpfsSchema.pick({
     suggested: true
 })
     .extend({
-        address: CommunityAddressSchema.optional(), // backward compat for sub.edit({ address: "domain.eth" })
+        address: CommunityAddressSchema.optional(), // backward compat for community.edit({ address: "domain.eth" })
         settings: CommunitySettingsSchema.optional(),
         roles: CommunityRolesToEditSchema.optional()
     })
     .partial()
     .strict();
 
-// These are the options to create a new local sub, provided by user
+// These are the options to create a new local community, provided by user
 
 export const CreateNewLocalCommunityUserOptionsSchema = CommunityEditOptionsSchema.omit({ address: true })
     .extend({
@@ -292,7 +292,7 @@ export const CreateNewLocalCommunityUserOptionsSchema = CommunityEditOptionsSche
     })
     .strict();
 
-// These are the options that go straight into _createLocalSub, create a new brand local sub. This is after parsing of pkc-js
+// These are the options that go straight into _createLocalCommunity, create a new brand local community. This is after parsing of pkc-js
 export const CreateNewLocalCommunityParsedOptionsSchema = CreateNewLocalCommunityUserOptionsSchema.extend({
     address: SignerWithAddressPublicKeySchema.shape.address,
     signer: SignerWithAddressPublicKeySchema

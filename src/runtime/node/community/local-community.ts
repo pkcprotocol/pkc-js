@@ -243,7 +243,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
     private _pageGenerator!: PageGenerator;
     _dbHandler!: DbHandler;
-    private _stopHasBeenCalled: boolean; // we use this to track if sub.stop() has been called after sub.start() or sub.update()
+    private _stopHasBeenCalled: boolean; // we use this to track if community.stop() has been called after community.start() or community.update()
     private _publishLoopPromise?: Promise<void> = undefined;
     private _updateLoopPromise?: Promise<void> = undefined;
     private _updateLoopAbortController?: AbortController;
@@ -340,10 +340,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     }
 
     private async _updateStartedValue() {
-        this.started = await this._dbHandler.isSubStartLocked(this.address);
+        this.started = await this._dbHandler.isCommunityStartLocked(this.address);
     }
 
-    async initNewLocalSubPropsNoMerge(newProps: CreateNewLocalCommunityParsedOptions) {
+    async initNewLocalCommunityPropsNoMerge(newProps: CreateNewLocalCommunityParsedOptions) {
         await this._initSignerProps(newProps.signer);
         this.title = newProps.title;
         this.description = newProps.description;
@@ -407,12 +407,12 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         }
     }
 
-    async _updateInstancePropsWithStartedSubOrDb() {
+    async _updateInstancePropsWithStartedCommunityOrDb() {
         // if it's started in the same pkc instance, we will load it from the started community instance
         // if it's started in another process, we will throw an error
-        // if sub is not started, load the InternalCommunity props from the local db
+        // if community is not started, load the InternalCommunity props from the local db
 
-        const log = Logger("pkc-js:local-community:_updateInstancePropsWithStartedSubOrDb");
+        const log = Logger("pkc-js:local-community:_updateInstancePropsWithStartedCommunityOrDb");
         const startedCommunity = <LocalCommunity | undefined>(
             (findStartedCommunity(this._pkc, { address: this.address }) ||
                 findCommunityInRegistry(processStartedCommunities, { address: this.address }))
@@ -428,8 +428,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             try {
                 await this._updateStartedValue();
 
-                const subDbExists = this._dbHandler.subDbExists();
-                if (!subDbExists)
+                const communityDbExists = this._dbHandler.communityDbExists();
+                if (!communityDbExists)
                     throw new PKCError("CAN_NOT_LOAD_LOCAL_COMMUNITY_IF_DB_DOES_NOT_EXIST", {
                         address: this.address,
                         dataPath: this._pkc.dataPath
@@ -486,13 +486,13 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         props._internalStateUpdateId = uuidV4();
         let lockedIt = false;
         try {
-            await this._dbHandler.lockSubState();
+            await this._dbHandler.lockCommunityState();
             lockedIt = true;
             const internalStateBefore = await this._getDbInternalState(false);
             const mergedInternalState = { ...internalStateBefore, ...props };
             await this._dbHandler.keyvSet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY], mergedInternalState);
             this._internalStateUpdateId = props._internalStateUpdateId;
-            log.trace("Updated sub", this.address, "internal state in db with new props", Object.keys(props));
+            log.trace("Updated community", this.address, "internal state in db with new props", Object.keys(props));
             if (this.updateCid && this.raw.communityIpfs) {
                 this.raw.localCommunity = this.toJSONInternalRpcAfterFirstUpdate();
             } else if (this.settings) {
@@ -500,10 +500,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             }
             return mergedInternalState as InternalCommunityRecordBeforeFirstUpdateType | InternalCommunityRecordAfterFirstUpdateType;
         } catch (e) {
-            log.error("Failed to update sub", this.address, "internal state in db with new props", Object.keys(props), e);
+            log.error("Failed to update community", this.address, "internal state in db with new props", Object.keys(props), e);
             throw e;
         } finally {
-            if (lockedIt) await this._dbHandler.unlockSubState();
+            if (lockedIt) await this._dbHandler.unlockCommunityState();
         }
     }
 
@@ -516,7 +516,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         let lockedIt = false;
         try {
             if (lock) {
-                await this._dbHandler.lockSubState();
+                await this._dbHandler.lockCommunityState();
                 lockedIt = true;
             }
             const internalState = await this._dbHandler.keyvGet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY]);
@@ -524,10 +524,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 throw new PKCError("ERR_COMMUNITY_HAS_NO_INTERNAL_STATE", { address: this.address, dataPath: this._pkc.dataPath });
             return internalState as InternalCommunityRecordAfterFirstUpdateType | InternalCommunityRecordBeforeFirstUpdateType;
         } catch (e) {
-            log.error("Failed to get sub", this.address, "internal state from db", e);
+            log.error("Failed to get community", this.address, "internal state from db", e);
             throw e;
         } finally {
-            if (lockedIt) await this._dbHandler.unlockSubState();
+            if (lockedIt) await this._dbHandler.unlockCommunityState();
         }
     }
 
@@ -551,10 +551,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         }
     }
 
-    async _createNewLocalSubDb() {
+    async _createNewLocalCommunityDb() {
         // We're creating a totally new community here with a new db
-        // This function should be called only once per sub
-        const log = Logger("pkc-js:local-community:_createNewLocalSubDb");
+        // This function should be called only once per community
+        const log = Logger("pkc-js:local-community:_createNewLocalCommunityDb");
         await this.initDbHandlerIfNeeded();
         await this._dbHandler.initDbIfNeeded({ fileMustExist: false });
         await this._dbHandler.createOrMigrateTablesIfNeeded();
@@ -606,7 +606,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     private _calculateLatestUpdateTrigger() {
         const lastPublishTooOld = (this.updatedAt || 0) < timestamp() - 60 * 15; // Publish a community record every 15 minutes at least
 
-        // these two checks below are for rare cases where a purged comments or post is not forcing sub for a new update
+        // these two checks below are for rare cases where a purged comments or post is not forcing community for a new update
         const lastPostCidChanged = this.lastPostCid !== this._dbHandler.queryLatestPostCid()?.cid;
         const lastCommentCidChanged = this.lastCommentCid !== this._dbHandler.queryLatestCommentCid()?.cid;
 
@@ -631,7 +631,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         if (!this.updateCid) return;
         try {
             const ipnsCid = await this._clientsManager.resolveIpnsToCidP2P(this.signer.ipnsKeyName, { timeoutMs: 120000 });
-            log.trace("Resolved sub", this.address, "IPNS key", this.signer.ipnsKeyName, "to", ipnsCid);
+            log.trace("Resolved community", this.address, "IPNS key", this.signer.ipnsKeyName, "to", ipnsCid);
 
             if (ipnsCid && this.updateCid && ipnsCid !== this.updateCid) {
                 log.error(
@@ -658,7 +658,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     ) {
         if (!curPages && !newPages) return;
         else if (curPages && !newPages) {
-            // we had to reset our sub pages, maybe because we purged all comments or changed community address
+            // we had to reset our community pages, maybe because we purged all comments or changed community address
             const allPageCidsUnderCurPages = await iterateOverPageCidsToFindAllCids({
                 pages: curPages,
                 clientManager: this._clientsManager
@@ -782,7 +782,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         const signature = await signCommunity({ community: newIpns, signer: this.signer });
         const newCommunityRecord = <CommunityIpfsType>{ ...newIpns, signature };
 
-        await this._validateSubSizeSchemaAndSignatureBeforePublishing(newCommunityRecord);
+        await this._validateCommunitySizeSchemaAndSignatureBeforePublishing(newCommunityRecord);
 
         const contentToPublish = deterministicStringify(newCommunityRecord);
         const file = await retryKuboIpfsAddAndProvide({
@@ -824,7 +824,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             // ...(ipnsSequence ? { sequence: ipnsSequence } : undefined)
         });
         log(
-            `Published a new IPNS record for sub(${this.address}) on IPNS (${publishRes.name}) that points to file (${publishRes.value}) with updatedAt (${newCommunityRecord.updatedAt}) and TTL (${ttl})`
+            `Published a new IPNS record for community(${this.address}) on IPNS (${publishRes.name}) that points to file (${publishRes.value}) with updatedAt (${newCommunityRecord.updatedAt}) and TTL (${ttl})`
         );
 
         this._clientsManager.updateKuboRpcState("stopped", kuboRpcClient.url);
@@ -890,8 +890,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         return this.address.includes(".") && Math.random() < 0.005; // Resolving domain should be a rare process because default rpcs throttle if we resolve too much
     }
 
-    private async _validateSubSizeSchemaAndSignatureBeforePublishing(recordToPublishRaw: CommunityIpfsType) {
-        const log = Logger("pkc-js:local-community:_validateSubSchemaAndSignatureBeforePublishing");
+    private async _validateCommunitySizeSchemaAndSignatureBeforePublishing(recordToPublishRaw: CommunityIpfsType) {
+        const log = Logger("pkc-js:local-community:_validateCommunitySchemaAndSignatureBeforePublishing");
 
         const stringifiedNewCommunityRecord = deterministicStringify(recordToPublishRaw);
         const calculatedSizeOfNewCommunityRecord = await calculateStringSizeSameAsIpfsAddCidV0(stringifiedNewCommunityRecord);
@@ -1172,11 +1172,11 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             authorIdentity,
             "with signer address",
             authorSignerAddress,
-            "Will be using these props to edit the sub props"
+            "Will be using these props to edit the community props"
         );
 
         const propsAfterEdit = remeda.pick(this, remeda.keys.strict(editProps.communityEdit));
-        log("Current props from sub edit (not edited yet)", propsAfterEdit);
+        log("Current props from community edit (not edited yet)", propsAfterEdit);
         lodashDeepMerge(propsAfterEdit, editProps.communityEdit);
         await this.edit(propsAfterEdit);
         return undefined;
@@ -2398,8 +2398,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             challengeVerification = await getChallengeVerification(decryptedRequestWithCommunityAuthor, this, getChallengeAnswers);
         } catch (e) {
             // getChallengeVerification will throw if one of the getChallenge function throws, which indicates a bug with the challenge script
-            // notify the sub owner that that one of his challenge is misconfigured via an error event
-            log.error("getChallenge failed, the sub owner needs to check the challenge code. The error is: ", e);
+            // notify the community owner that that one of his challenge is misconfigured via an error event
+            log.error("getChallenge failed, the community owner needs to check the challenge code. The error is: ", e);
             this.emit("error", <PKCError>e);
 
             // notify the author that his publication wasn't published because the community is misconfigured
@@ -2527,7 +2527,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         }
 
         if (parsedPubsubMsg.type === "CHALLENGE" || parsedPubsubMsg.type === "CHALLENGEVERIFICATION") {
-            log.trace(`Received a pubsub message that is not meant to by processed by the sub - ${parsedPubsubMsg.type}. Will ignore it`);
+            log.trace(
+                `Received a pubsub message that is not meant to by processed by the community - ${parsedPubsubMsg.type}. Will ignore it`
+            );
             return;
         } else if (parsedPubsubMsg.type === "CHALLENGEREQUEST") {
             try {
@@ -2895,12 +2897,12 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         const kuboRpc = this._clientsManager.getDefaultKuboRpcClient();
         try {
             await kuboRpc._client.files.stat(`/${this.address}`, { hash: true });
-            return; // if the directory of this sub exists, we assume all the comment updates are there
+            return; // if the directory of this community exists, we assume all the comment updates are there
         } catch (e) {
             if (!(<Error>e).message.includes("file does not exist")) throw e;
         }
 
-        // sub has no comment updates, we can return
+        // community has no comment updates, we can return
         if (!this.lastCommentCid) return;
 
         log(`CommentUpdate directory`, this.address, "will republish all comment updates");
@@ -3091,7 +3093,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             this._clientsManager.updateKuboRpcState("stopped", kuboRpc.url);
 
             log.error(
-                `Failed to sync sub`,
+                `Failed to sync community`,
                 this.address,
                 `due to error,`,
                 errorTyped,
@@ -3229,7 +3231,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     async _validateNewAddressBeforeEditing(newAddress: string, log: Logger) {
         if (doesDomainAddressHaveCapitalLetter(newAddress))
             throw new PKCError("ERR_COMMUNITY_NAME_HAS_CAPITAL_LETTER", { communityAddress: newAddress });
-        // Check if any existing sub (other than this one) already has an equivalent address
+        // Check if any existing community (other than this one) already has an equivalent address
         // This handles both exact matches and .eth/.bso alias equivalence
         const existingEquivalent = this._pkc.communities.find(
             (existing) => areEquivalentCommunityAddresses(existing, newAddress) && !areEquivalentCommunityAddresses(existing, this.address)
@@ -3254,7 +3256,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         if (typeof parsedEditOptions.address === "string" && this.address !== parsedEditOptions.address) {
             await this._validateNewAddressBeforeEditing(parsedEditOptions.address, log);
 
-            log(`Attempting to edit community.address from ${oldAddress} to ${parsedEditOptions.address}. We will stop sub first`);
+            log(`Attempting to edit community.address from ${oldAddress} to ${parsedEditOptions.address}. We will stop community first`);
             await this.stop();
             await this._dbHandler.changeDbFilename(oldAddress, parsedEditOptions.address);
             this.setAddress(parsedEditOptions.address);
@@ -3292,7 +3294,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     }
 
     async _editPropsOnNotStartedCommunity(parsedEditOptions: ParsedCommunityEditOptions): Promise<typeof this> {
-        // sceneario 3, the sub is not running anywhere, we need to edit the db and update this instance
+        // sceneario 3, the community is not running anywhere, we need to edit the db and update this instance
         const log = Logger("pkc-js:local-community:edit:editPropsOnNotStartedCommunity");
         const oldAddress = remeda.clone(this.address);
         await this.initDbHandlerIfNeeded();
@@ -3336,7 +3338,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             const editRes = await startedCommunity.edit(newCommunityOptions);
 
             this.setAddress(editRes.address); // need to force an update of the address for this instance
-            await this._updateInstancePropsWithStartedSubOrDb();
+            await this._updateInstancePropsWithStartedCommunityOrDb();
             return this;
         }
 
@@ -3389,7 +3391,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         this._stopHasBeenCalled = false;
         this._firstUpdateAfterStart = true;
         if (!this._clientsManager.getDefaultKuboRpcClientOrHelia())
-            throw Error("You need to define an IPFS client in your pkc instance to be able to start a local sub");
+            throw Error("You need to define an IPFS client in your pkc instance to be able to start a local community");
         await this.initDbHandlerIfNeeded();
         await this._updateStartedValue();
         if (
@@ -3400,10 +3402,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: this.address });
         try {
             await this._initBeforeStarting();
-            // update started value twice because it could be started prior lockSubStart
+            // update started value twice because it could be started prior lockCommunityStart
             this._setState("started");
             await this._updateStartedValue();
-            await this._dbHandler.lockSubStart(); // Will throw if sub is locked already
+            await this._dbHandler.lockCommunityStart(); // Will throw if community is locked already
             trackStartedCommunity(this._pkc, this);
             syncCommunityRegistryEntry(processStartedCommunities, this);
             await this._updateStartedValue();
@@ -3425,7 +3427,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 this.settings.challenges!.map((cs) => getCommunityChallengeFromCommunityChallengeSettings(cs, this._pkc))
             ); // make sure community.challenges is using latest props from settings.challenges
         } catch (e) {
-            await this.stop(); // Make sure to reset the sub state
+            await this.stop(); // Make sure to reset the community state
             //@ts-expect-error
             e.details = { ...e.details, subAddress: this.address };
             throw e;
@@ -3571,10 +3573,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 await this._initMirroringStartedOrUpdatingCommunity(updatingCommunity as LocalCommunity);
                 return;
             }
-            // this sub is not started or updated anywhere, but maybe another process will call edit() on it
+            // this community is not started or updated anywhere, but maybe another process will call edit() on it
             trackUpdatingCommunity(this._pkc, this);
             const oldUpdateId = remeda.clone(this._internalStateUpdateId);
-            await this._updateInstancePropsWithStartedSubOrDb(); // will update this instance props with DB
+            await this._updateInstancePropsWithStartedCommunityOrDb(); // will update this instance props with DB
             if (this._internalStateUpdateId !== oldUpdateId) {
                 log(
                     `Local Community (${this.address}) received a new update from db with updatedAt (${this.updatedAt}). Will emit an update event`
@@ -3667,9 +3669,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             }
 
             try {
-                await this._dbHandler.unlockSubStart();
+                await this._dbHandler.unlockCommunityStart();
             } catch (e) {
-                log.error(`Failed to unlock start lock on sub (${this.address})`, e);
+                log.error(`Failed to unlock start lock on community (${this.address})`, e);
             }
             const kuboRpcClient = this._clientsManager.getDefaultKuboRpcClient();
             const pubsubClient = this._clientsManager.getDefaultKuboPubsubClient();
@@ -3679,7 +3681,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             processStartedCommunities.untrack(this);
             this._duplicatePublicationAttempts?.clear();
             await this._dbHandler.rollbackAllTransactions();
-            await this._dbHandler.unlockSubState();
+            await this._dbHandler.unlockCommunityState();
             await this._updateStartedValue();
             this._clientsManager.updateKuboRpcState("stopped", kuboRpcClient.url);
             this._clientsManager.updateKuboRpcPubsubState("stopped", pubsubClient.url);
@@ -3736,7 +3738,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         // sceneario 1: we call delete() on a community that is not started or updating
         // scenario 2: we call delete() on a community that is updating
         // scenario 3: we call delete() on a community that is started
-        // scenario 4: we call delete() on a community that is not started, but the same sub is started in pkc._startedCommunities[address]
+        // scenario 4: we call delete() on a community that is not started, but the same community is started in pkc._startedCommunities[address]
 
         try {
             await this._addOldPageCidsToCidsToUnpin(this.raw?.communityIpfs?.posts, undefined);

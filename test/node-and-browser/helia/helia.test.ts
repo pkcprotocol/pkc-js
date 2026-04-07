@@ -12,7 +12,7 @@ import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { IpfsHttpClientPubsubMessage } from "../../../dist/node/types.js";
 
-const mathCliNoMockedPubsubCommunityAddress = signers[5].address; // this sub is connected to a pkc instance whose pubsub is not mocked
+const mathCliNoMockedPubsubCommunityAddress = signers[5].address; // this community is connected to a pkc instance whose pubsub is not mocked
 
 // should connect to a kubo node and exchange pubsub messages with it
 // DO NOT MOCK PUBSUB
@@ -32,9 +32,9 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
         });
 
         it(`Can fetch community`, async () => {
-            const sub = await pkc.getCommunity({ address: mathCliNoMockedPubsubCommunityAddress });
-            expect(sub.updatedAt).to.be.a("number");
-            expect(sub.settings).to.be.undefined; // make sure it's not loading local community
+            const community = await pkc.getCommunity({ address: mathCliNoMockedPubsubCommunityAddress });
+            expect(community.updatedAt).to.be.a("number");
+            expect(community.settings).to.be.undefined; // make sure it's not loading local community
         });
 
         it("can post after answering correctly", async function () {
@@ -171,15 +171,15 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             const libp2pJsClient = Object.values(testPKC.clients.libp2pJsClients)[0];
             libp2pJsClient._heliaIpnsRouter.routers = libp2pJsClient._heliaIpnsRouter.routers.slice(1); // remove the fetch router
 
-            const sub = await testPKC.createCommunity({ address: mathCliNoMockedPubsubCommunityAddress });
+            const community = await testPKC.createCommunity({ address: mathCliNoMockedPubsubCommunityAddress });
             const errors: Error[] = [];
-            sub.on("error", (error: Error) => errors.push(error));
+            community.on("error", (error: Error) => errors.push(error));
 
-            await sub.update();
-            await new Promise((resolve) => sub.once("update", resolve));
+            await community.update();
+            await new Promise((resolve) => community.once("update", resolve));
 
-            expect(sub.updatedAt).to.be.a("number");
-            expect(sub.settings).to.be.undefined; // make sure it's not loading local community
+            expect(community.updatedAt).to.be.a("number");
+            expect(community.settings).to.be.undefined; // make sure it's not loading local community
 
             await testPKC.destroy();
         });

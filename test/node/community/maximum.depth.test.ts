@@ -16,12 +16,12 @@ const depth = 100;
 describe.skip(`Test for maximum depth of ${depth}`, () => {
     it(`should be able to create a community with a depth of ${depth}`, async () => {
         const pkc = await mockPKC();
-        const sub = await createSubWithNoChallenge({}, pkc);
-        await sub.start();
-        await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
+        const community = await createSubWithNoChallenge({}, pkc);
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
         const remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
-        const post: Comment = await publishRandomPost({ communityAddress: sub.address, pkc: remotePKC });
+        const post: Comment = await publishRandomPost({ communityAddress: community.address, pkc: remotePKC });
         let lastReply: Comment | undefined;
         for (let i = 0; i < depth; i++) {
             lastReply = await publishRandomReply({
@@ -34,6 +34,6 @@ describe.skip(`Test for maximum depth of ${depth}`, () => {
         const lastReplyRemote: Comment = await remotePKC.getComment({ cid: lastReply!.cid! });
         await waitTillReplyInParentPages(lastReplyRemote as Comment & { cid: string; parentCid: string }, remotePKC);
         expect(lastReplyRemote.depth).to.equal(depth);
-        await sub.delete();
+        await community.delete();
     });
 });

@@ -46,15 +46,15 @@ describe.concurrent(`community.features.requireReplyLinkIsMedia (with requireRep
 
         expect(community.features?.requireReplyLinkIsMedia).to.be.true;
         expect(community.features?.requireReplyLink).to.be.true;
-        const remoteSub = await remotePKC.getCommunity({ address: community.address });
-        await remoteSub.update();
+        const remoteCommunity = await remotePKC.getCommunity({ address: community.address });
+        await remoteCommunity.update();
         await resolveWhenConditionIsTrue({
-            toUpdate: remoteSub,
-            predicate: async () => remoteSub.features?.requireReplyLinkIsMedia === true
+            toUpdate: remoteCommunity,
+            predicate: async () => remoteCommunity.features?.requireReplyLinkIsMedia === true
         });
-        expect(remoteSub.features?.requireReplyLinkIsMedia).to.be.true;
-        expect(remoteSub.features?.requireReplyLink).to.be.true;
-        await remoteSub.stop();
+        expect(remoteCommunity.features?.requireReplyLinkIsMedia).to.be.true;
+        expect(remoteCommunity.features?.requireReplyLink).to.be.true;
+        await remoteCommunity.stop();
     });
 
     it(`Can't publish a reply with invalid link`, async () => {

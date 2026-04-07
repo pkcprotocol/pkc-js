@@ -286,9 +286,9 @@ const shouldExcludeChallengeCommentCids = async (
             maxCommentCids = 3;
         }
 
-        // no friendly sub addresses
+        // no friendly community addresses
         if (!addresses?.length) {
-            throw Error("no friendly sub addresses");
+            throw Error("no friendly community addresses");
         }
         const addressesSet = new Set(addresses);
 

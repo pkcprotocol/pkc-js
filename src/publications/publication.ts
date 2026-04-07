@@ -635,7 +635,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             throw new PKCError("ERR_PUBLICATION_MISSING_FIELD", { type: this.getType(), communityAddress: this.communityAddress });
     }
 
-    private _validateSubFields() {
+    private _validateCommunityFields() {
         if (typeof this._community?.encryption?.publicKey !== "string")
             throw new PKCError("ERR_COMMUNITY_MISSING_FIELD", { communityPublicKey: this._community?.encryption?.publicKey });
         if (typeof this._communityPubsubTopicWithFallback() !== "string")
@@ -884,7 +884,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         newPublishingState?: Publication["publishingState"];
         newState?: Publication["state"];
     }) {
-        // this code block is only called on a sub whose update loop is already started
+        // this code block is only called on a community whose update loop is already started
         // never called in a community that is mirroring a community with an update loop
         const shouldEmitStateChange = opts.newState && opts.newState !== this.state;
         const shouldEmitPublishingstatechange = opts.newPublishingState && opts.newPublishingState !== this.publishingState;
@@ -965,7 +965,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         if (this._community) return;
         try {
             this._community = await this._fetchCommunityForPublishing();
-            this._validateSubFields();
+            this._validateCommunityFields();
         } catch (e) {
             this._setStateWithEmission("stopped");
             this._updatePublishingStateWithEmission("failed");
@@ -1099,14 +1099,14 @@ class Publication extends TypedEmitter<PublicationEvents> {
         return providers;
     }
 
-    private async _publishWithLocalCommunity(sub: LocalCommunity, challengeRequest: ChallengeRequestMessageType) {
-        this._publishingToLocalCommunity = sub;
+    private async _publishWithLocalCommunity(community: LocalCommunity, challengeRequest: ChallengeRequestMessageType) {
+        this._publishingToLocalCommunity = community;
         const log = Logger("pkc-js:publication:publish:_publishWithLocalCommunity");
         log(
-            "Sub is local, will not publish over pubsub, and instead will publish directly to the community by accessing pkc._startedCommunities"
+            "Community is local, will not publish over pubsub, and instead will publish directly to the community by accessing pkc._startedCommunities"
         );
 
-        const subChallengeListener = async (challenge: DecryptedChallengeMessageType) => {
+        const communityChallengeListener = async (challenge: DecryptedChallengeMessageType) => {
             if (challenge.challengeRequestId.toString() === challengeRequest.challengeRequestId.toString()) {
                 // need to remove encrypted fields from challenge otherwise _handleIncomingChallengePubsubMessage will throw
                 const encryptedFields = ["challenges"] as const;
@@ -1116,9 +1116,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
             }
         };
 
-        sub.on("challenge", subChallengeListener);
+        community.on("challenge", communityChallengeListener);
 
-        const subChallengeVerificationListener = async (decryptedChallengeVerification: DecryptedChallengeVerificationMessageType) => {
+        const communityChallengeVerificationListener = async (
+            decryptedChallengeVerification: DecryptedChallengeVerificationMessageType
+        ) => {
             if (decryptedChallengeVerification.challengeRequestId.toString() === challengeRequest.challengeRequestId.toString()) {
                 log("Received a challenge verification from the local community", decryptedChallengeVerification);
                 // need to remove publicatioon fields from challenge verification otherwise verifyChallengeVerification will throw
@@ -1129,10 +1131,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
             }
         };
 
-        sub.on("challengeverification", subChallengeVerificationListener);
+        community.on("challengeverification", communityChallengeVerificationListener);
 
         this.emit("challengerequest", challengeRequest);
-        sub.handleChallengeRequest(challengeRequest, true)
+        community
+            .handleChallengeRequest(challengeRequest, true)
             .then(() => {
                 this._challengeExchanges[challengeRequest.challengeRequestId.toString()] = {
                     ...this._challengeExchanges[challengeRequest.challengeRequestId.toString()],
@@ -1147,8 +1150,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 throw e;
             })
             .finally(() => {
-                sub.removeListener("challenge", subChallengeListener);
-                sub.removeListener("challengeverification", subChallengeVerificationListener);
+                community.removeListener("challenge", communityChallengeListener);
+                community.removeListener("challengeverification", communityChallengeVerificationListener);
             });
     }
 
@@ -1232,7 +1235,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             break;
         }
         // to handle cases where request is published but we didn't receive response within certain timeframe (20s for now)
-        // Maybe the sub didn't receive the request, or the provider did not relay the challenge from sub for some reason
+        // Maybe the community didn't receive the request, or the provider did not relay the challenge from community for some reason
         this._handleNotReceivingResponseToChallengeRequest({
             providers,
             currentPubsubProviderIndex,

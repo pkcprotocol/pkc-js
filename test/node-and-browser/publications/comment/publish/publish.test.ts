@@ -30,12 +30,12 @@ const communityAddress = signers[0].address;
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent("publishing posts - " + config.name, async () => {
-        let pkc: PKC, sub: RemoteCommunity;
+        let pkc: PKC, community: RemoteCommunity;
 
         beforeAll(async () => {
             pkc = await config.pkcInstancePromise();
-            sub = (await pkc.createCommunity({ address: communityAddress })) as RemoteCommunity;
-            await sub.update();
+            community = (await pkc.createCommunity({ address: communityAddress })) as RemoteCommunity;
+            await community.update();
         });
 
         afterAll(async () => {
@@ -47,8 +47,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const post = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc, postProps: { title } });
             expect(post.depth).to.equal(0);
             expect(post.title).to.equal(title);
-            await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, sub);
-            const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, sub.posts);
+            await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, community);
+            const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, community.posts);
             expect(postInPage.title).to.equal(title);
         });
 
@@ -57,8 +57,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const post = await generateMockPost({ communityAddress: communityAddress, pkc: pkc, postProps: { link } });
             expect(post.link).to.equal(link);
             await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
-            await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, sub);
-            const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, sub.posts);
+            await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, community);
+            const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, community.posts);
             expect(postInPage.link).to.equal(link);
         });
 
@@ -90,10 +90,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     const remotePostIpfs = JSON.stringify(remotePost.raw.comment!);
                     expect(await calculateIpfsHash(remotePostIpfs)).to.equal(publishedPostWithEmojiContent.cid);
 
-                    await waitTillPostInCommunityInstancePages(publishedPostWithEmojiContent as Comment & { cid: string }, sub);
+                    await waitTillPostInCommunityInstancePages(publishedPostWithEmojiContent as Comment & { cid: string }, community);
                     const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
                         publishedPostWithEmojiContent.cid,
-                        sub.posts
+                        community.posts
                     );
                     expect(postInPage.content).to.equal(content);
                     expect(postInPage.title).to.equal(content);
@@ -142,8 +142,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const post = await pkc.createComment({ ...commentProps, signer: signers[6] });
 
             await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
-            await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, sub);
-            const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, sub.posts);
+            await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, community);
+            const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, community.posts);
             expect(postInPage.author.avatar).to.deep.equal(commentProps.author.avatar);
             expect(postInPage.author.address).to.equal(commentProps.author.address);
             expect(postInPage.content).to.equal(commentProps.content);
@@ -168,8 +168,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     expect(post.spoiler).to.equal(spoilerValue);
                     const remotePostFromCid = await pkc.getComment({ cid: post.cid });
                     expect(remotePostFromCid.spoiler).to.equal(spoilerValue);
-                    await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, sub);
-                    const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, sub.posts);
+                    await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, community);
+                    const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, community.posts);
                     expect(postInPage.spoiler).to.equal(spoilerValue);
                     await post.stop();
                 })
@@ -193,8 +193,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     expect(post.nsfw).to.equal(nsfwValue);
                     const remotePostFromCid = await pkc.getComment({ cid: post.cid });
                     expect(remotePostFromCid.nsfw).to.equal(nsfwValue);
-                    await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, sub);
-                    const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, sub.posts);
+                    await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, community);
+                    const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, community.posts);
                     expect(postInPage.nsfw).to.equal(nsfwValue);
                     await post.stop();
                 })
@@ -216,8 +216,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
             expect(post.author.wallets).to.deep.equal(wallets);
             await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
-            await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, sub);
-            const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, sub.posts);
+            await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, community);
+            const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, community.posts);
             expect(postInPage.author.wallets).to.deep.equal(wallets);
             await post.stop();
         });
@@ -279,8 +279,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
             expect(post.author.wallets).to.be.undefined;
 
-            await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, sub);
-            const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, sub.posts);
+            await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, community);
+            const postInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(post.cid, community.posts);
             expect(postInPage.author.wallets).to.be.undefined;
 
             const loadedPost = await pkc.getComment({ cid: post.cid }); // should fail if signature is incorrect
@@ -289,7 +289,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         itSkipIfRpc(`publish() can be caught if community failed to load`, async () => {
             const randomSigner = await pkc.createSigner();
-            const downCommunityAddress = randomSigner.address; // an offline sub
+            const downCommunityAddress = randomSigner.address; // an offline community
             const post = await generateMockPost({ communityAddress: downCommunityAddress, pkc: pkc });
             pkc._timeouts["community-ipns"] = 100; // need to change time out from 5 minutes to 100ms
 

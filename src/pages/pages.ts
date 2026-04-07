@@ -78,7 +78,7 @@ export class BasePages {
     }
 
     resetPages() {
-        // Called when the sub changes address and needs to remove all the comments with the old community address
+        // Called when the community changes address and needs to remove all the comments with the old community address
         this.pageCids = {};
         this.pages = {};
     }

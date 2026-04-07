@@ -18,7 +18,7 @@ interface PKCWsServerPrivateAccess {
     _autoStartPreviousCommunities: () => Promise<void>;
 }
 
-const waitForSubToBeStarted = async (rpcServer: PKCWsServerType, address: string, timeout = 10000): Promise<void> => {
+const waitForCommunityToBeStarted = async (rpcServer: PKCWsServerType, address: string, timeout = 10000): Promise<void> => {
     const startTime = Date.now();
     while (Date.now() - startTime < timeout) {
         const privateAccess = rpcServer as unknown as PKCWsServerPrivateAccess;
@@ -27,7 +27,7 @@ const waitForSubToBeStarted = async (rpcServer: PKCWsServerType, address: string
         }
         await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    throw new Error(`Timeout waiting for sub ${address} to be started`);
+    throw new Error(`Timeout waiting for community ${address} to be started`);
 };
 
 describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
@@ -44,7 +44,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
     /**
      * Matrix Scenario Tests:
      *
-     * | # | Sub state on last RPC exit             | startStartedCommunitiesOnStartup | Expected behavior        |
+     * | # | Community state on last RPC exit        | startStartedCommunitiesOnStartup | Expected behavior        |
      * |---|----------------------------------------|----------------------------------|--------------------------|
      * | 1 | Was running (not stopped explicitly)   | true                             | Auto-start               |
      * | 2 | Was running (not stopped explicitly)   | false                            | Do nothing               |
@@ -59,7 +59,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
             const dataPath = tempy.directory();
             const rpcServerPort = 19150;
 
-            // Create first RPC server and start a sub
+            // Create first RPC server and start a community
             const options1: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
                 pkcOptions: {
@@ -75,12 +75,12 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
             const clientPKC1 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
             // Create and start a community
-            const sub = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
-            const subAddress = sub.address;
-            await sub.start();
+            const community = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
+            const communityAddress = community.address;
+            await community.start();
 
             // Verify it's running
-            expect(sub.started).to.be.true;
+            expect(community.started).to.be.true;
 
             // Destroy without stopping (simulating crash/restart)
             await clientPKC1.destroy();
@@ -100,17 +100,17 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
             const rpcServer2 = await PKCWsServer.PKCWsServer(options2);
 
             // Wait for auto-start to complete
-            await waitForSubToBeStarted(rpcServer2, subAddress);
+            await waitForCommunityToBeStarted(rpcServer2, communityAddress);
 
             // Verify it was auto-started
             const privateAccess = rpcServer2 as unknown as PKCWsServerPrivateAccess;
-            expect(subAddress in privateAccess._startedCommunities).to.be.true;
+            expect(communityAddress in privateAccess._startedCommunities).to.be.true;
 
             // Clean up
             const clientPKC2 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
-            const sub2 = (await clientPKC2.createCommunity({ address: subAddress })) as RpcLocalCommunity;
-            await sub2.stop();
-            await sub2.delete();
+            const community2 = (await clientPKC2.createCommunity({ address: communityAddress })) as RpcLocalCommunity;
+            await community2.stop();
+            await community2.delete();
             await clientPKC2.destroy();
             await rpcServer2.destroy();
         });
@@ -137,9 +137,9 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
             const clientPKC1 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
             // Create and start a community
-            const sub = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
-            const subAddress = sub.address;
-            await sub.start();
+            const community = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
+            const communityAddress = community.address;
+            await community.start();
 
             // Destroy without stopping
             await clientPKC1.destroy();
@@ -163,12 +163,12 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
 
             // Verify it was NOT auto-started
             const privateAccess = rpcServer2 as unknown as PKCWsServerPrivateAccess;
-            expect(subAddress in privateAccess._startedCommunities).to.be.false;
+            expect(communityAddress in privateAccess._startedCommunities).to.be.false;
 
             // Clean up
             const clientPKC2 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
-            const sub2 = (await clientPKC2.createCommunity({ address: subAddress })) as RpcLocalCommunity;
-            await sub2.delete();
+            const community2 = (await clientPKC2.createCommunity({ address: communityAddress })) as RpcLocalCommunity;
+            await community2.delete();
             await clientPKC2.destroy();
             await rpcServer2.destroy();
         });
@@ -194,10 +194,10 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
             const clientPKC1 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
             // Create, start, then EXPLICITLY STOP a community
-            const sub = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
-            const subAddress = sub.address;
-            await sub.start();
-            await sub.stop(); // Explicitly stopped!
+            const community = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
+            const communityAddress = community.address;
+            await community.start();
+            await community.stop(); // Explicitly stopped!
 
             await clientPKC1.destroy();
             await rpcServer1.destroy();
@@ -220,12 +220,12 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
 
             // Verify it was NOT auto-started (because it was explicitly stopped)
             const privateAccess = rpcServer2 as unknown as PKCWsServerPrivateAccess;
-            expect(subAddress in privateAccess._startedCommunities).to.be.false;
+            expect(communityAddress in privateAccess._startedCommunities).to.be.false;
 
             // Clean up
             const clientPKC2 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
-            const sub2 = (await clientPKC2.createCommunity({ address: subAddress })) as RpcLocalCommunity;
-            await sub2.delete();
+            const community2 = (await clientPKC2.createCommunity({ address: communityAddress })) as RpcLocalCommunity;
+            await community2.delete();
             await clientPKC2.destroy();
             await rpcServer2.destroy();
         });
@@ -251,10 +251,10 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
             const clientPKC1 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
             // Create, start, then explicitly stop
-            const sub = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
-            const subAddress = sub.address;
-            await sub.start();
-            await sub.stop();
+            const community = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
+            const communityAddress = community.address;
+            await community.start();
+            await community.stop();
 
             await clientPKC1.destroy();
             await rpcServer1.destroy();
@@ -275,12 +275,12 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
             await new Promise((resolve) => setTimeout(resolve, 1000));
 
             const privateAccess = rpcServer2 as unknown as PKCWsServerPrivateAccess;
-            expect(subAddress in privateAccess._startedCommunities).to.be.false;
+            expect(communityAddress in privateAccess._startedCommunities).to.be.false;
 
             // Clean up
             const clientPKC2 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
-            const sub2 = (await clientPKC2.createCommunity({ address: subAddress })) as RpcLocalCommunity;
-            await sub2.delete();
+            const community2 = (await clientPKC2.createCommunity({ address: communityAddress })) as RpcLocalCommunity;
+            await community2.delete();
             await clientPKC2.destroy();
             await rpcServer2.destroy();
         });
@@ -306,9 +306,9 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
             const clientPKC1 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
             // Create a community but NEVER START IT
-            const sub = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
-            const subAddress = sub.address;
-            // Not calling sub.start()!
+            const community = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
+            const communityAddress = community.address;
+            // Not calling community.start()!
 
             await clientPKC1.destroy();
             await rpcServer1.destroy();
@@ -329,12 +329,12 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
             await new Promise((resolve) => setTimeout(resolve, 1000));
 
             const privateAccess = rpcServer2 as unknown as PKCWsServerPrivateAccess;
-            expect(subAddress in privateAccess._startedCommunities).to.be.false;
+            expect(communityAddress in privateAccess._startedCommunities).to.be.false;
 
             // Clean up
             const clientPKC2 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
-            const sub2 = (await clientPKC2.createCommunity({ address: subAddress })) as RpcLocalCommunity;
-            await sub2.delete();
+            const community2 = (await clientPKC2.createCommunity({ address: communityAddress })) as RpcLocalCommunity;
+            await community2.delete();
             await clientPKC2.destroy();
             await rpcServer2.destroy();
         });
@@ -360,8 +360,8 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
             const clientPKC1 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
             // Create a community but NEVER START IT
-            const sub = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
-            const subAddress = sub.address;
+            const community = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
+            const communityAddress = community.address;
 
             await clientPKC1.destroy();
             await rpcServer1.destroy();
@@ -382,12 +382,12 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
             await new Promise((resolve) => setTimeout(resolve, 1000));
 
             const privateAccess = rpcServer2 as unknown as PKCWsServerPrivateAccess;
-            expect(subAddress in privateAccess._startedCommunities).to.be.false;
+            expect(communityAddress in privateAccess._startedCommunities).to.be.false;
 
             // Clean up
             const clientPKC2 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
-            const sub2 = (await clientPKC2.createCommunity({ address: subAddress })) as RpcLocalCommunity;
-            await sub2.delete();
+            const community2 = (await clientPKC2.createCommunity({ address: communityAddress })) as RpcLocalCommunity;
+            await community2.delete();
             await clientPKC2.destroy();
             await rpcServer2.destroy();
         });
@@ -413,22 +413,22 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
             const clientPKC1 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
             // Create and start a community
-            const sub = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
-            const subAddress = sub.address;
-            await sub.start();
+            const community = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
+            const communityAddress = community.address;
+            await community.start();
 
             // Now delete it
-            await sub.stop();
-            await sub.delete();
+            await community.stop();
+            await community.delete();
 
             await clientPKC1.destroy();
             await rpcServer1.destroy();
 
-            // Manually add the deleted sub address back to the SQLite DB to simulate stale state
+            // Manually add the deleted community address back to the SQLite DB to simulate stale state
             const dbPath = path.join(dataPath, "rpc-server", "rpc-state.db");
             const db = new Database(dbPath);
             db.prepare("INSERT OR REPLACE INTO community_states (address, wasStarted, wasExplicitlyStopped) VALUES (?, 1, 0)").run(
-                subAddress
+                communityAddress
             );
             db.close();
 
@@ -448,13 +448,13 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
             // Wait for auto-start attempt
             await new Promise((resolve) => setTimeout(resolve, 2000));
 
-            // Should NOT have started the deleted sub
+            // Should NOT have started the deleted community
             const privateAccess = rpcServer2 as unknown as PKCWsServerPrivateAccess;
-            expect(subAddress in privateAccess._startedCommunities).to.be.false;
+            expect(communityAddress in privateAccess._startedCommunities).to.be.false;
 
             // Verify the stale entry was removed from state
             const dbAfter = new Database(dbPath);
-            const row = dbAfter.prepare("SELECT * FROM community_states WHERE address = ?").get(subAddress);
+            const row = dbAfter.prepare("SELECT * FROM community_states WHERE address = ?").get(communityAddress);
             expect(row).to.be.undefined;
             dbAfter.close();
 
@@ -482,10 +482,10 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
             const rpcUrl = `ws://localhost:${rpcServerPort}`;
             const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-            const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
-            expect(sub.address).to.exist;
+            const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
+            expect(community.address).to.exist;
 
-            await sub.delete();
+            await community.delete();
             await clientPKC.destroy();
             await rpcServer.destroy();
         });
@@ -511,10 +511,10 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
             const rpcUrl = `ws://localhost:${rpcServerPort}`;
             const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-            const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
-            expect(sub.address).to.exist;
+            const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
+            expect(community.address).to.exist;
 
-            await sub.delete();
+            await community.delete();
             await clientPKC.destroy();
             await rpcServer.destroy();
         });
@@ -539,9 +539,9 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
             const rpcUrl = `ws://localhost:${rpcServerPort}`;
             const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-            const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
-            const oldAddress = sub.address;
-            await sub.start();
+            const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
+            const oldAddress = community.address;
+            await community.start();
 
             // Verify state DB has the old address
             const dbPath = path.join(dataPath, "rpc-server", "rpc-state.db");
@@ -553,8 +553,8 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
             expect(row!.wasStarted).to.equal(1);
             db.close();
 
-            await sub.stop();
-            await sub.delete();
+            await community.stop();
+            await community.delete();
             await clientPKC.destroy();
             await rpcServer.destroy();
         });
@@ -581,35 +581,35 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
             rpcServer.on("error", (e) => errors.push(e));
 
             // Create multiple communities
-            const subCount = 5;
+            const communityCount = 5;
             const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-            const subs: RpcLocalCommunity[] = [];
-            for (let i = 0; i < subCount; i++) {
-                const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
-                subs.push(sub);
+            const communities: RpcLocalCommunity[] = [];
+            for (let i = 0; i < communityCount; i++) {
+                const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
+                communities.push(community);
             }
 
             // Start all communities concurrently — each start writes to the state DB
-            await Promise.all(subs.map((sub) => sub.start()));
+            await Promise.all(communities.map((community) => community.start()));
 
             // Verify state DB has all entries
             const dbPath = path.join(dataPath, "rpc-server", "rpc-state.db");
             const db = new Database(dbPath);
             const rows = db.prepare("SELECT * FROM community_states WHERE wasStarted = 1").all() as { address: string }[];
-            expect(rows.length).to.equal(subCount);
+            expect(rows.length).to.equal(communityCount);
 
-            for (const sub of subs) {
-                const row = db.prepare("SELECT * FROM community_states WHERE address = ?").get(sub.address);
+            for (const community of communities) {
+                const row = db.prepare("SELECT * FROM community_states WHERE address = ?").get(community.address);
                 expect(row).to.exist;
             }
 
             // Stop all concurrently — each stop writes to the state DB
-            await Promise.all(subs.map((sub) => sub.stop()));
+            await Promise.all(communities.map((community) => community.stop()));
 
             // Verify all are marked as explicitly stopped
             const stoppedRows = db.prepare("SELECT * FROM community_states WHERE wasExplicitlyStopped = 1").all() as { address: string }[];
-            expect(stoppedRows.length).to.equal(subCount);
+            expect(stoppedRows.length).to.equal(communityCount);
 
             db.close();
 
@@ -617,8 +617,8 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
             expect(errors.length).to.equal(0);
 
             // Clean up
-            for (const sub of subs) {
-                await sub.delete();
+            for (const community of communities) {
+                await community.delete();
             }
             await clientPKC.destroy();
             await rpcServer.destroy();

@@ -29,7 +29,7 @@ export type PageOptions = {
     excludeDeletedComments: boolean;
     excludeCommentPendingApproval: boolean; // Exclude comments waiting in mod queue for approval or disapproval
     excludeCommentWithApprovedFalse: boolean; // comment has only {approved: false}
-    excludeCommentsWithDifferentSubAddress: boolean;
+    excludeCommentsWithDifferentCommunityAddress: boolean;
     commentUpdateFieldsToExclude?: (keyof CommentUpdateType)[];
     parentCid: string | null;
     preloadedPage: PostSortName | ReplySortName; // a list of sort types that will be preloaded on the community/comment instance
@@ -373,7 +373,7 @@ export class PageGenerator {
         preloadedPageSizeBytes: number
     ): Promise<PostsPagesTypeIpfs | { singlePreloadedPage: SinglePreloadedPageRes } | undefined> {
         const pageOptions: PageOptions = {
-            excludeCommentsWithDifferentSubAddress: true,
+            excludeCommentsWithDifferentCommunityAddress: true,
             excludeDeletedComments: true,
             excludeRemovedComments: true,
             excludeCommentPendingApproval: true,
@@ -463,7 +463,7 @@ export class PageGenerator {
         preloadedPageSizeBytes: number
     ) {
         const pageOptions = {
-            excludeCommentsWithDifferentSubAddress: true,
+            excludeCommentsWithDifferentCommunityAddress: true,
             excludeDeletedComments: false,
             excludeRemovedComments: false,
             excludeCommentWithApprovedFalse: false,
@@ -526,7 +526,7 @@ export class PageGenerator {
         preloadedPageSizeBytes: number
     ): Promise<RepliesPagesTypeIpfs | { singlePreloadedPage: SinglePreloadedPageRes } | undefined> {
         const pageOptions = {
-            excludeCommentsWithDifferentSubAddress: true,
+            excludeCommentsWithDifferentCommunityAddress: true,
             excludeDeletedComments: false,
             excludeRemovedComments: false,
             excludeCommentPendingApproval: true,

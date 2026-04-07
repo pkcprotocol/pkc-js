@@ -25,7 +25,7 @@ const votePickOptions = <Record<(typeof VoteSignedPropertyNames)[number] | "sign
     remeda.mapToObj([...VoteSignedPropertyNames, "signature"], (x) => [x, true])
 );
 
-// Will be used by the sub when parsing request.publication
+// Will be used by the community when parsing request.publication
 export const VotePubsubMessagePublicationSchema = CreateVoteUserOptionsSchema.merge(PublicationBaseBeforeSigning)
     .extend({ signature: JsonSignatureSchema, author: PublicationBaseBeforeSigning.shape.author.unwrap().loose().optional() })
     .pick(votePickOptions)

@@ -57,7 +57,11 @@ type InsertVoteOptions = Partial<Pick<VotesTableRowInsert, "authorSignerAddress"
 
 type InsertCommentUpdateOptions = Partial<Omit<CommentUpdatesTableRowInsert, "cid" | "protocolVersion" | "signature" | "author">>;
 
-function createMockEdit(comment: InsertedComment, subAddress: string, deleted: boolean): NonNullable<CommentUpdatesTableRowInsert["edit"]> {
+function createMockEdit(
+    comment: InsertedComment,
+    communityAddress: string,
+    deleted: boolean
+): NonNullable<CommentUpdatesTableRowInsert["edit"]> {
     return {
         timestamp: Math.floor(Date.now() / 1000),
         signature: {
@@ -66,7 +70,7 @@ function createMockEdit(comment: InsertedComment, subAddress: string, deleted: b
             publicKey: "pk",
             signedPropertyNames: []
         },
-        communityPublicKey: subAddress,
+        communityPublicKey: communityAddress,
         protocolVersion: PROTOCOL_VERSION,
         commentCid: comment.cid,
         author: { address: comment.authorSignerAddress },

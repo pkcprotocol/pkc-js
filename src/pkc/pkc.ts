@@ -3,7 +3,7 @@ import {
     listCommunitiesSync as nodeListCommunities,
     createKuboRpcClient,
     monitorCommunitiesDirectory,
-    trytoDeleteSubsThatFailedToBeDeletedBefore
+    tryToDeleteCommunitiesThatFailedToBeDeletedBefore
 } from "../runtime/node/util.js";
 import type {
     StorageInterface,
@@ -22,7 +22,7 @@ import type {
 } from "../types.js";
 import { Comment } from "../publications/comment/comment.js";
 import {
-    waitForUpdateInSubInstanceWithErrorAndTimeout,
+    waitForUpdateInCommunityInstanceWithErrorAndTimeout,
     areEquivalentCommunityAddresses,
     deepMergeRuntimeFields,
     doesDomainAddressHaveCapitalLetter,
@@ -165,7 +165,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             [libp2pJsClientKey: NonNullable<ParsedPKCOptions["libp2pJsClientsOptions"]>[number]["key"]]: Libp2pJsClient;
         };
     };
-    communities!: string[]; // default is [], in case of RPC it will be the aggregate of all RPC servers' subs
+    communities!: string[]; // default is [], in case of RPC it will be the aggregate of all RPC servers' communities
 
     settings: {
         challenges?: Record<string, ChallengeFileFactoryInput>;
@@ -265,8 +265,8 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         };
         // nameResolvers contains functions that can't be serialized over RPC, so skip for RPC clients
         this.nameResolvers = this.pkcRpcClientsOptions ? undefined : this.parsedPKCOptions.nameResolvers;
-        this.on("communitieschange", (newSubs) => {
-            this.communities = newSubs;
+        this.on("communitieschange", (newCommunities) => {
+            this.communities = newCommunities;
         });
 
         this._promiseToWaitForFirstCommunitieschangeEvent = new Promise((resolve) => this.once("communitieschange", resolve));
@@ -370,7 +370,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
 
         if (this.destroyed) return;
 
-        if (this.httpRoutersOptions?.length && this.kuboRpcClientsOptions?.length && this._canCreateNewLocalSub()) {
+        if (this.httpRoutersOptions?.length && this.kuboRpcClientsOptions?.length && this._canCreateNewLocalCommunity()) {
             // only for node
             const setupPromise = setupKuboAddressesRewriterAndHttpRouters(this)
                 .then(async (addressesRewriterProxyServer) => {
@@ -406,8 +406,8 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         // Init clients manager
 
         // pkc-with-rpc-client will subscribe to communitieschange and settingschange for us
-        if (this._canCreateNewLocalSub() && !this.pkcRpcClientsOptions) {
-            await trytoDeleteSubsThatFailedToBeDeletedBefore(this, log);
+        if (this._canCreateNewLocalCommunity() && !this.pkcRpcClientsOptions) {
+            await tryToDeleteCommunitiesThatFailedToBeDeletedBefore(this, log);
             this._communityFsWatchAbort = await monitorCommunitiesDirectory(this);
             await this._waitForCommunitiesToBeDefined();
         } else {
@@ -425,9 +425,9 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         const parsedArgs = parseRpcCommunityLookupParam(getCommunityArgs);
         const community = await this.createCommunity(parsedArgs);
 
-        if (typeof community.createdAt === "number") return <RpcLocalCommunity | LocalCommunity>community; // It's a local sub, and already has been loaded, no need to wait
+        if (typeof community.createdAt === "number") return <RpcLocalCommunity | LocalCommunity>community; // It's a local community, and already has been loaded, no need to wait
         const timeoutMs = this._timeouts["community-ipns"];
-        await waitForUpdateInSubInstanceWithErrorAndTimeout(community, timeoutMs);
+        await waitForUpdateInCommunityInstanceWithErrorAndTimeout(community, timeoutMs);
 
         return community;
     }
@@ -612,7 +612,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         return commentInstance;
     }
 
-    _canCreateNewLocalSub(): boolean {
+    _canCreateNewLocalCommunity(): boolean {
         // TODO check if we have a connection to kubo rpc node for IPFS and pubsub
         const isNode = typeof process?.versions?.node !== "undefined";
         return isNode && Boolean(this.dataPath);
@@ -666,12 +666,12 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         if (!Array.isArray(this.communities)) throw Error("pkc.communities should be defined after communitieschange event");
     }
 
-    async _awaitCommunitiesToIncludeSub(subAddress: string): Promise<void> {
-        if (this.communities.includes(subAddress)) return;
+    async _awaitCommunitiesToIncludeCommunity(communityAddress: string): Promise<void> {
+        if (this.communities.includes(communityAddress)) return;
         else
             await resolveWhenPredicateIsTrue({
                 toUpdate: this,
-                predicate: () => this.communities.includes(subAddress),
+                predicate: () => this.communities.includes(communityAddress),
                 eventName: "communitieschange"
             });
     }
@@ -687,42 +687,42 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         return community;
     }
 
-    private async _createLocalSub(
+    private async _createLocalCommunity(
         options: CreateNewLocalCommunityParsedOptions | CreateInstanceOfLocalOrRemoteCommunityOptions
     ): Promise<LocalCommunity> {
         const log = Logger("pkc-js:pkc:createLocalCommunity");
         log.trace("Received community options to create a local community instance:", options);
 
-        const canCreateLocalSub = this._canCreateNewLocalSub();
-        if (!canCreateLocalSub) throw new PKCError("ERR_CAN_NOT_CREATE_A_LOCAL_COMMUNITY", { pkcOptions: this._userPKCOptions });
+        const canCreateLocalCommunity = this._canCreateNewLocalCommunity();
+        if (!canCreateLocalCommunity) throw new PKCError("ERR_CAN_NOT_CREATE_A_LOCAL_COMMUNITY", { pkcOptions: this._userPKCOptions });
 
-        const localSubs = await nodeListCommunities(this);
-        const isLocalSub = localSubs.includes(options.address); // Sub exists already, only pass address so we don't override other props
+        const localCommunities = await nodeListCommunities(this);
+        const isLocalCommunity = localCommunities.includes(options.address); // Community exists already, only pass address so we don't override other props
         const community = new LocalCommunity(this);
-        if (isLocalSub) {
-            // If the sub is already created before, then load it with address only. We don't care about other props
+        if (isLocalCommunity) {
+            // If the community is already created before, then load it with address only. We don't care about other props
             community.setAddress(options.address);
-            await community._updateInstancePropsWithStartedSubOrDb();
+            await community._updateInstancePropsWithStartedCommunityOrDb();
             log.trace(`Created instance of existing local community (${community.address}) with props:`);
             community.emit("update", community);
             return community;
         } else if ("signer" in options) {
-            // This is a new sub
+            // This is a new community
             const parsedOptions = <CreateNewLocalCommunityParsedOptions>options;
-            await community.initNewLocalSubPropsNoMerge(parsedOptions); // We're initializing a new local sub props here
-            await community._createNewLocalSubDb();
+            await community.initNewLocalCommunityPropsNoMerge(parsedOptions); // We're initializing a new local community props here
+            await community._createNewLocalCommunityDb();
             log.trace(`Created a new local community (${community.address}) with props:`);
             community.emit("update", community);
-            await this._awaitCommunitiesToIncludeSub(community.address);
+            await this._awaitCommunitiesToIncludeCommunity(community.address);
             return community;
-        } else throw Error("Are you trying to create a local sub with no address or signer? This is a critical error");
+        } else throw Error("Are you trying to create a local community with no address or signer? This is a critical error");
     }
 
-    private async _createSubInstanceFromJsonifiedSub(jsonfied: CommunityJson): ReturnType<PKC["createCommunity"]> {
+    private async _createCommunityInstanceFromJsonifiedCommunity(jsonfied: CommunityJson): ReturnType<PKC["createCommunity"]> {
         // jsonfied = JSON.parse(JSON.stringify(communityInstance))
         // should probably exclude internal and instance-exclusive props like states
 
-        if (this.communities.includes(jsonfied.address)) return this._createLocalSub(jsonfied);
+        if (this.communities.includes(jsonfied.address)) return this._createLocalCommunity(jsonfied);
         else return this._createRemoteCommunityInstance(jsonfied);
     }
 
@@ -730,7 +730,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         options: z.infer<typeof CreateCommunityFunctionArgumentsSchema> | CommunityJson = {}
     ): Promise<RemoteCommunity | RpcRemoteCommunity | RpcLocalCommunity | LocalCommunity> {
         const log = Logger("pkc-js:pkc:createCommunity");
-        if ("clients" in options) return this._createSubInstanceFromJsonifiedSub(<CommunityJson>options);
+        if ("clients" in options) return this._createCommunityInstanceFromJsonifiedCommunity(<CommunityJson>options);
         const parsedOptions = <z.infer<typeof CreateCommunityFunctionArgumentsSchema>>options;
         log.trace("Received options: ", parsedOptions);
 
@@ -738,7 +738,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         const hasName = "name" in parsedOptions && typeof parsedOptions.name === "string";
         const hasPublicKey = "publicKey" in parsedOptions && typeof parsedOptions.publicKey === "string";
         const hasSigner = "signer" in parsedOptions && parsedOptions.signer !== undefined;
-        const hasIdentifier = hasAddress || hasName || hasPublicKey; // can identify an existing sub
+        const hasIdentifier = hasAddress || hasName || hasPublicKey; // can identify an existing community
 
         // Derive effective address for local-vs-remote checks
         const effectiveAddress =
@@ -752,27 +752,29 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         // Creating a community when we're connected to RPC will be handled in pkc-with-rpc-client
         // Code below is for NodeJS and browser using IPFS-P2P/gateway
 
-        const canCreateLocalSub = this._canCreateNewLocalSub(); // this is true if we're on NodeJS and have a dataPath
+        const canCreateLocalCommunity = this._canCreateNewLocalCommunity(); // this is true if we're on NodeJS and have a dataPath
 
-        if (hasSigner && !canCreateLocalSub)
+        if (hasSigner && !canCreateLocalCommunity)
             throw new PKCError("ERR_CAN_NOT_CREATE_A_LOCAL_COMMUNITY", {
                 pkcOptions: this._userPKCOptions,
                 isEnvNode: Boolean(process),
                 hasDataPath: Boolean(this.dataPath)
             });
 
-        if (!canCreateLocalSub) {
+        if (!canCreateLocalCommunity) {
             // we're either on browser or on NodeJS with no dataPath
             const parsedRemoteOptions = parseCreateRemoteCommunityFunctionArgumentSchemaWithPKCErrorIfItFails(options);
             return this._createRemoteCommunityInstance(parsedRemoteOptions);
         }
 
         if (hasIdentifier && !hasSigner) {
-            // sub is already created, need to check if it's local or remote
-            const localSubs = await nodeListCommunities(this);
+            // community is already created, need to check if it's local or remote
+            const localCommunities = await nodeListCommunities(this);
             // Check for exact match or .eth/.bso alias match
-            const localSubAddress = localSubs.find((localAddr) => areEquivalentCommunityAddresses(localAddr, effectiveAddress!));
-            if (localSubAddress) return this._createLocalSub({ address: localSubAddress });
+            const localCommunityAddress = localCommunities.find((localAddr) =>
+                areEquivalentCommunityAddresses(localAddr, effectiveAddress!)
+            );
+            if (localCommunityAddress) return this._createLocalCommunity({ address: localCommunityAddress });
             else {
                 const parsedRemoteOptions = parseCreateRemoteCommunityFunctionArgumentSchemaWithPKCErrorIfItFails(options);
                 return this._createRemoteCommunityInstance(parsedRemoteOptions);
@@ -783,7 +785,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             const localOptions = <CreateNewLocalCommunityParsedOptions>{ ...parsedOptions, signer, address: signer.address };
             log(`Did not provide CreateCommunityOptions.signer, generated random signer with address (${localOptions.address})`);
 
-            return this._createLocalSub(localOptions);
+            return this._createLocalCommunity(localOptions);
         } else if (!hasIdentifier && hasSigner) {
             const signerInput = parsedOptions.signer as { type: "ed25519"; privateKey: string } | undefined;
             const signer = await this.createSigner(signerInput);
@@ -792,9 +794,9 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
                 address: signer.address,
                 signer
             };
-            return this._createLocalSub(localOptions);
+            return this._createLocalCommunity(localOptions);
         } else if (hasIdentifier && hasSigner)
-            return this._createLocalSub(parsedOptions as unknown as CreateNewLocalCommunityParsedOptions);
+            return this._createLocalCommunity(parsedOptions as unknown as CreateNewLocalCommunityParsedOptions);
         else throw new PKCError("ERR_CAN_NOT_CREATE_A_LOCAL_COMMUNITY", { parsedOptions });
     }
 
@@ -1076,7 +1078,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
 
         for (const community of listUpdatingCommunities(this)) await community.stop();
 
-        await Promise.all(listStartedCommunities(this).map((sub) => sub.stop()));
+        await Promise.all(listStartedCommunities(this).map((community) => community.stop()));
 
         if (this._communityFsWatchAbort) this._communityFsWatchAbort.abort();
 

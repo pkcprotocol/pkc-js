@@ -30,7 +30,7 @@ describe.concurrent(`pkc._startedCommunities`, () => {
         await pkc.destroy();
     });
 
-    it(`sub.start() should add the community to pkc._startedCommunities. stop() should remove it`, async () => {
+    it(`community.start() should add the community to pkc._startedCommunities. stop() should remove it`, async () => {
         const community = (await pkc.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         await community.start();
         expect(findStartedCommunity(pkc, { address: community.address })).to.equal(community);
@@ -132,52 +132,52 @@ describe.concurrent(`pkc._startedCommunities`, () => {
     });
 
     it(`calling community.delete() will delete the community from _startedCommunities`, async () => {
-        const sub = (await pkc.createCommunity()) as LocalCommunity | RpcLocalCommunity;
-        await sub.start();
-        expect(pkc._startedCommunities[sub.address]).to.exist;
+        const community = (await pkc.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+        await community.start();
+        expect(pkc._startedCommunities[community.address]).to.exist;
 
-        await sub.delete();
-        expect(pkc._startedCommunities[sub.address]).to.not.exist;
-        expect(pkc._updatingCommunities[sub.address]).to.not.exist;
+        await community.delete();
+        expect(pkc._startedCommunities[community.address]).to.not.exist;
+        expect(pkc._updatingCommunities[community.address]).to.not.exist;
     });
 
     it(`calling community.delete() on an instance that's updating from running community will delete the community from _startedCommunities`, async () => {
-        const sub = (await pkc.createCommunity()) as LocalCommunity | RpcLocalCommunity;
-        await sub.start();
-        expect(pkc._startedCommunities[sub.address]).to.exist;
+        const community = (await pkc.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+        await community.start();
+        expect(pkc._startedCommunities[community.address]).to.exist;
 
-        const updatingCommunity = (await pkc.createCommunity({ address: sub.address })) as LocalCommunity | RpcLocalCommunity;
+        const updatingCommunity = (await pkc.createCommunity({ address: community.address })) as LocalCommunity | RpcLocalCommunity;
         await updatingCommunity.update();
         await resolveWhenConditionIsTrue({ toUpdate: updatingCommunity, predicate: async () => Boolean(updatingCommunity.updatedAt) });
         await updatingCommunity.delete();
 
-        expect(pkc._updatingCommunities[sub.address]).to.not.exist;
+        expect(pkc._updatingCommunities[community.address]).to.not.exist;
     });
 
     it(`Publishing/updating via comment should not stop a started community`, async () => {
-        const startedSub = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity | RpcLocalCommunity;
-        await startedSub.start();
-        expect(findStartedCommunity(pkc, { address: startedSub.address })).to.equal(startedSub);
+        const startedCommunity = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity | RpcLocalCommunity;
+        await startedCommunity.start();
+        expect(findStartedCommunity(pkc, { address: startedCommunity.address })).to.equal(startedCommunity);
 
-        const post = await publishRandomPost({ communityAddress: startedSub.address, pkc: pkc });
+        const post = await publishRandomPost({ communityAddress: startedCommunity.address, pkc: pkc });
         const comment = await pkc.createComment({ cid: post.cid! });
         await comment.update();
         await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });
-        expect(findStartedCommunity(pkc, { address: startedSub.address })).to.equal(startedSub);
-        expect(findUpdatingCommunity(pkc, { address: startedSub.address })).to.be.undefined;
+        expect(findStartedCommunity(pkc, { address: startedCommunity.address })).to.equal(startedCommunity);
+        expect(findUpdatingCommunity(pkc, { address: startedCommunity.address })).to.be.undefined;
         expect(findUpdatingComment(pkc, { cid: comment.cid! })).to.exist;
 
         await comment.stop();
         await new Promise((resolve) => setTimeout(resolve, 200));
 
-        expect(findStartedCommunity(pkc, { address: startedSub.address })).to.equal(startedSub);
-        expect(findUpdatingCommunity(pkc, { address: startedSub.address })).to.be.undefined;
+        expect(findStartedCommunity(pkc, { address: startedCommunity.address })).to.equal(startedCommunity);
+        expect(findUpdatingCommunity(pkc, { address: startedCommunity.address })).to.be.undefined;
         expect(findUpdatingComment(pkc, { cid: comment.cid! })).to.not.exist;
 
-        expect(startedSub.state).to.equal("started");
-        await startedSub.stop();
-        expect(findStartedCommunity(pkc, { address: startedSub.address })).to.not.exist;
-        expect(findUpdatingCommunity(pkc, { address: startedSub.address })).to.be.undefined;
+        expect(startedCommunity.state).to.equal("started");
+        await startedCommunity.stop();
+        expect(findStartedCommunity(pkc, { address: startedCommunity.address })).to.not.exist;
+        expect(findUpdatingCommunity(pkc, { address: startedCommunity.address })).to.be.undefined;
         expect(findUpdatingComment(pkc, { cid: comment.cid! })).to.not.exist;
     });
 

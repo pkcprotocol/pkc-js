@@ -27,11 +27,11 @@ const roles = [
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Archiving posts - ${config.name}`, async () => {
-        let pkc: PKC, postToBeArchived: Comment, replyUnderPostToBeArchived: Comment, sub: RemoteCommunity;
+        let pkc: PKC, postToBeArchived: Comment, replyUnderPostToBeArchived: Comment, community: RemoteCommunity;
         beforeAll(async () => {
             pkc = await mockRemotePKC();
-            sub = await pkc.getCommunity({ address: communityAddress });
-            await sub.update();
+            community = await pkc.getCommunity({ address: communityAddress });
+            await community.update();
             postToBeArchived = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
 
             await postToBeArchived.update();
@@ -104,22 +104,25 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`community.posts includes archived post with archived=true`, async () => {
-            const sub = await pkc.createCommunity({ address: postToBeArchived.communityAddress });
+            const community = await pkc.createCommunity({ address: postToBeArchived.communityAddress });
 
-            await sub.update();
+            await community.update();
 
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const archivedPostInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(postToBeArchived.cid, sub.posts);
+                    const archivedPostInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
+                        postToBeArchived.cid,
+                        community.posts
+                    );
                     return archivedPostInPage?.archived === true;
                 }
             });
 
-            await sub.stop();
+            await community.stop();
 
-            for (const pageCid of Object.values(sub.posts.pageCids) as string[]) {
-                const archivedPostInPage = await iterateThroughPageCidToFindComment(postToBeArchived.cid, pageCid, sub.posts);
+            for (const pageCid of Object.values(community.posts.pageCids) as string[]) {
+                const archivedPostInPage = await iterateThroughPageCidToFindComment(postToBeArchived.cid, pageCid, community.posts);
                 expect(archivedPostInPage.archived).to.be.true;
                 expect(archivedPostInPage.reason).to.equal("To archive an author post");
             }

@@ -13,7 +13,7 @@ import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 import type { PageIpfs } from "../../../dist/node/pages/types.js";
 
-const subAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
+const communityAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
 
 // When parentCid is undefined, it means we're verifying a community posts page (depth -1)
 const getParentComment = (parentCid: string | undefined) => {
@@ -65,7 +65,7 @@ describeSkipIfRpc(`verify pages`, async () => {
     let community: RemoteCommunity;
     beforeAll(async () => {
         pkc = await mockRemotePKC();
-        community = await pkc.getCommunity({ address: subAddress });
+        community = await pkc.getCommunity({ address: communityAddress });
     });
 
     afterAll(async () => {
@@ -112,7 +112,7 @@ describeSkipIfRpc(`verify pages`, async () => {
         await tempPKC.destroy();
     });
 
-    describe(`A sub owner changing any of comment fields in page will invalidate`, async () => {
+    describe(`A community owner changing any of comment fields in page will invalidate`, async () => {
         beforeAll(async () => {
             const page = remeda.clone(validPageIpfsFixture) as PageIpfs;
             const verificaiton = await verifyPageJsonAlongWithObject(page, pkc, community, undefined);
@@ -130,7 +130,7 @@ describeSkipIfRpc(`verify pages`, async () => {
         it("comment.content (author has never modified comment.content before))", async () => {
             const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
             const commentWithNoEditIndex = invalidPage.comments.findIndex((pageComment) => !pageComment.commentUpdate.edit?.content);
-            invalidPage.comments[commentWithNoEditIndex].comment.content = "Content modified by sub illegally";
+            invalidPage.comments[commentWithNoEditIndex].comment.content = "Content modified by community illegally";
             const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
@@ -140,7 +140,7 @@ describeSkipIfRpc(`verify pages`, async () => {
             const invalidPage = remeda.clone(legacyPageIpfsFixture) as PageIpfs;
             const commentWithEditIndex = invalidPage.comments.findIndex((pageComment) => pageComment.commentUpdate.edit?.content);
             expect(commentWithEditIndex).to.be.greaterThanOrEqual(0);
-            invalidPage.comments[commentWithEditIndex].comment.content = "Content modified by sub illegally";
+            invalidPage.comments[commentWithEditIndex].comment.content = "Content modified by community illegally";
             const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
@@ -149,7 +149,7 @@ describeSkipIfRpc(`verify pages`, async () => {
             // Use legacy fixture which has comments with commentUpdate.edit.content
             const invalidPage = remeda.clone(legacyPageIpfsFixture) as PageIpfs;
             const commentWithEditIndex = invalidPage.comments.findIndex((pageComment) => pageComment.commentUpdate.edit?.content);
-            invalidPage.comments[commentWithEditIndex].commentUpdate.edit!.content = "Content modified by sub illegally";
+            invalidPage.comments[commentWithEditIndex].commentUpdate.edit!.content = "Content modified by community illegally";
             const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });

@@ -111,7 +111,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(community.updatedAt).to.be.a("number");
         });
 
-        it(`pkc.getCommunity fails to fetch a sub with ENS address if it has capital letter`, async () => {
+        it(`pkc.getCommunity fails to fetch a community with ENS address if it has capital letter`, async () => {
             try {
                 await pkc.getCommunity({ address: "testSub.bso" });
                 expect.fail("Should have thrown");
@@ -169,7 +169,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`pkc.getCommunity times out if community does not load`, async () => {
-            const doesNotExistCommunityAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zx"; // random sub address, should not be able to resolve this
+            const doesNotExistCommunityAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zx"; // random community address, should not be able to resolve this
             const customPKC = await config.pkcInstancePromise();
             customPKC._timeouts["community-ipns"] = 1 * 1000; // change timeout from 5min to 1s
 

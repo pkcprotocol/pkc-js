@@ -30,7 +30,7 @@ type ChallengeVerificationWithExtraProp = { commentUpdate?: { extraProp?: number
 
 const communityAddress = signers[0].address;
 
-const subWithNoResponseSigner = signers[4]; // this sub will never respond via pubsub
+const subWithNoResponseSigner = signers[4]; // this community will never respond via pubsub
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe(`Loading CommentUpdate with extra prop - ${config.name}`, async () => {

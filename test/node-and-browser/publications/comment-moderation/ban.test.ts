@@ -75,15 +75,15 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`author.banExpires is included in pages of community`, async () => {
-            const sub = await pkc.createCommunity({ address: commentToBeBanned.communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: commentToBeBanned.communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => typeof sub.updatedAt === "number"
+                toUpdate: community,
+                predicate: async () => typeof community.updatedAt === "number"
             });
-            const postInCommunityPage = await iterateThroughPagesToFindCommentInParentPagesInstance(commentToBeBanned.cid, sub.posts);
+            const postInCommunityPage = await iterateThroughPagesToFindCommentInParentPagesInstance(commentToBeBanned.cid, community.posts);
             expect(postInCommunityPage.author.community.banExpiresAt).to.be.a("number");
-            await sub.stop();
+            await community.stop();
         });
 
         it(`Regular author can't ban another author`, async () => {

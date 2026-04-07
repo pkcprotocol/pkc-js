@@ -12,29 +12,29 @@ type LooseCommunityIpfs = Partial<CommunityIpfsType> & {
     shortAddress?: string;
 } & Record<string, unknown>;
 
-export function omitRuntimeCommunityFields<Sub extends LooseCommunityIpfs | undefined>(
-    sub: Sub
+export function omitRuntimeCommunityFields<Community extends LooseCommunityIpfs | undefined>(
+    community: Community
 ): Partial<CommunityIpfsType> & Record<string, unknown> {
-    if (!sub) return {};
-    return remeda.omit(sub, runtimeOnlyCommunityFields) as Partial<CommunityIpfsType> & Record<string, unknown>;
+    if (!community) return {};
+    return remeda.omit(community, runtimeOnlyCommunityFields) as Partial<CommunityIpfsType> & Record<string, unknown>;
 }
 
-export function cleanWireCommunity(sub?: LooseCommunityIpfs): Partial<CommunityIpfsType> | undefined {
-    const wireSub = omitRuntimeCommunityFields(sub);
-    if (remeda.isEmpty(wireSub)) return undefined;
-    return wireSub as Partial<CommunityIpfsType>;
+export function cleanWireCommunity(community?: LooseCommunityIpfs): Partial<CommunityIpfsType> | undefined {
+    const wireCommunity = omitRuntimeCommunityFields(community);
+    if (remeda.isEmpty(wireCommunity)) return undefined;
+    return wireCommunity as Partial<CommunityIpfsType>;
 }
 
-export function getCommunityNameFromWire(sub?: LooseCommunityIpfs): string | undefined {
-    const wireSub = omitRuntimeCommunityFields(sub);
-    if (typeof wireSub.name === "string") return wireSub.name;
+export function getCommunityNameFromWire(community?: LooseCommunityIpfs): string | undefined {
+    const wireCommunity = omitRuntimeCommunityFields(community);
+    if (typeof wireCommunity.name === "string") return wireCommunity.name;
     // Backward compat: old records have address as a domain name
-    if (typeof sub?.address === "string" && isStringDomain(sub.address)) return sub.address;
+    if (typeof community?.address === "string" && isStringDomain(community.address)) return community.address;
     return undefined;
 }
 
-export function getCommunityDomainFromWire(sub?: LooseCommunityIpfs): string | undefined {
-    const name = getCommunityNameFromWire(sub);
+export function getCommunityDomainFromWire(community?: LooseCommunityIpfs): string | undefined {
+    const name = getCommunityNameFromWire(community);
     return typeof name === "string" && isStringDomain(name) ? name : undefined;
 }
 

@@ -27,11 +27,11 @@ const roles = [
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Locking posts - ${config.name}`, async () => {
-        let pkc: PKC, postToBeLocked: Comment, replyUnderPostToBeLocked: Comment, modPost: Comment, sub: RemoteCommunity;
+        let pkc: PKC, postToBeLocked: Comment, replyUnderPostToBeLocked: Comment, modPost: Comment, community: RemoteCommunity;
         beforeAll(async () => {
             pkc = await mockRemotePKC();
-            sub = await pkc.getCommunity({ address: communityAddress });
-            await sub.update();
+            community = await pkc.getCommunity({ address: communityAddress });
+            await community.update();
             postToBeLocked = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
             modPost = await publishRandomPost({
                 communityAddress: communityAddress,
@@ -111,41 +111,47 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`community.posts includes locked post with locked=true`, async () => {
-            const sub = await pkc.createCommunity({ address: postToBeLocked.communityAddress });
+            const community = await pkc.createCommunity({ address: postToBeLocked.communityAddress });
 
-            await sub.update();
+            await community.update();
 
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const lockedPostInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(postToBeLocked.cid, sub.posts);
+                    const lockedPostInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
+                        postToBeLocked.cid,
+                        community.posts
+                    );
                     return lockedPostInPage?.locked === true;
                 }
             });
 
-            await sub.stop();
+            await community.stop();
 
-            for (const pageCid of Object.values(sub.posts.pageCids) as string[]) {
-                const lockedPostInPage = await iterateThroughPageCidToFindComment(postToBeLocked.cid, pageCid, sub.posts);
+            for (const pageCid of Object.values(community.posts.pageCids) as string[]) {
+                const lockedPostInPage = await iterateThroughPageCidToFindComment(postToBeLocked.cid, pageCid, community.posts);
                 expect(lockedPostInPage.locked).to.be.true;
                 expect(lockedPostInPage.reason).to.equal("To lock an author post");
             }
         });
 
         it(`locked=true for author post when it's locked by mod in pages of community`, async () => {
-            const sub = await pkc.createCommunity({ address: postToBeLocked.communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: postToBeLocked.communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const postInCommunityPage = await iterateThroughPagesToFindCommentInParentPagesInstance(postToBeLocked.cid, sub.posts);
+                    const postInCommunityPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
+                        postToBeLocked.cid,
+                        community.posts
+                    );
                     return postInCommunityPage?.locked === true;
                 }
             });
-            const postInCommunityPage = await iterateThroughPagesToFindCommentInParentPagesInstance(postToBeLocked.cid, sub.posts);
+            const postInCommunityPage = await iterateThroughPagesToFindCommentInParentPagesInstance(postToBeLocked.cid, community.posts);
             expect(postInCommunityPage.locked).to.be.true;
             expect(postInCommunityPage.reason).to.equal("To lock an author post");
-            await sub.stop();
+            await community.stop();
         });
 
         it.sequential(`Mod can lock their own post`, async () => {
@@ -168,18 +174,18 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`locked=true for mod post when it's locked by mod in getPage of community`, async () => {
-            const sub = await pkc.createCommunity({ address: modPost.communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: modPost.communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const postInCommunityPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, sub.posts);
+                    const postInCommunityPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, community.posts);
                     return postInCommunityPage?.locked === true;
                 }
             });
-            const postInCommunityPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, sub.posts);
+            const postInCommunityPage = await iterateThroughPagesToFindCommentInParentPagesInstance(modPost.cid, community.posts);
             expect(postInCommunityPage.locked).to.be.true;
-            await sub.stop();
+            await community.stop();
         });
 
         it(`Can't publish a reply on a locked post`, async () => {
@@ -238,18 +244,21 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`locked=false in getPage of community after the mod unlocks it`, async () => {
-            const sub = await pkc.createCommunity({ address: postToBeLocked.communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: postToBeLocked.communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const postInCommunityPage = await iterateThroughPagesToFindCommentInParentPagesInstance(postToBeLocked.cid, sub.posts);
+                    const postInCommunityPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
+                        postToBeLocked.cid,
+                        community.posts
+                    );
                     return postInCommunityPage?.locked === false;
                 }
             });
-            const postInCommunityPage = await iterateThroughPagesToFindCommentInParentPagesInstance(postToBeLocked.cid, sub.posts);
+            const postInCommunityPage = await iterateThroughPagesToFindCommentInParentPagesInstance(postToBeLocked.cid, community.posts);
             expect(postInCommunityPage.locked).to.be.false;
-            await sub.stop();
+            await community.stop();
         });
 
         it(`Unlocked post can receive replies`, async () => {

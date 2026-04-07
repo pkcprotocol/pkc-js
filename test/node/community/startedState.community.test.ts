@@ -44,11 +44,11 @@ describe(`community.startedState`, async () => {
     });
 
     itSkipIfRpc(`community.startedState = failed if a failure occurs`, async () => {
-        const localSub = community as LocalCommunity;
+        const localCommunity = community as LocalCommunity;
         // @ts-expect-error _getDbInternalState is private but we need to mock it for testing
-        const originalFunction = localSub._getDbInternalState.bind(localSub);
+        const originalFunction = localCommunity._getDbInternalState.bind(localCommunity);
         // @ts-expect-error _getDbInternalState is private but we need to mock it for testing
-        localSub._getDbInternalState = async () => {
+        localCommunity._getDbInternalState = async () => {
             throw Error("Failed to load sub from db ");
         };
         await publishRandomPost({ communityAddress: community.address, pkc: pkc });
@@ -59,6 +59,6 @@ describe(`community.startedState`, async () => {
         });
         expect(community.startedState).to.equal("failed");
         // @ts-expect-error _getDbInternalState is private but we need to restore it for testing
-        localSub._getDbInternalState = originalFunction;
+        localCommunity._getDbInternalState = originalFunction;
     });
 });

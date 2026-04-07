@@ -180,13 +180,13 @@ describeSkipIfRpc.concurrent("Gateway loading of local community IPNS", async ()
 
     it("Can load the IPNS record from gateway PKC after it's published", async () => {
         console.log("Starting test: Can load the IPNS record from gateway after it's published");
-        const remoteSub = await gatewayPKC.getCommunity({ address: community.address });
-        expect(remoteSub.updatedAt).to.equal(community.updatedAt);
+        const remoteCommunity = await gatewayPKC.getCommunity({ address: community.address });
+        expect(remoteCommunity.updatedAt).to.equal(community.updatedAt);
     });
 
     it("Can load the IPNS record from kubo after it's published", async () => {
         console.log("Starting test: Can load the IPNS record from kubo after it's published");
-        const remoteSub = await kuboPKC.getCommunity({ address: community.address });
-        expect(remoteSub.updatedAt).to.equal(community.updatedAt);
+        const remoteCommunity = await kuboPKC.getCommunity({ address: community.address });
+        expect(remoteCommunity.updatedAt).to.equal(community.updatedAt);
     });
 });

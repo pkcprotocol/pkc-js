@@ -44,11 +44,14 @@ describe.concurrent(`community.features.noVideoReplies`, async () => {
         await community.edit({ features: { ...community.features, noVideoReplies: true } });
         expect(community.features?.noVideoReplies).to.be.true;
 
-        const remoteSub = await remotePKC.getCommunity({ address: community.address });
-        await remoteSub.update();
-        await resolveWhenConditionIsTrue({ toUpdate: remoteSub, predicate: async () => remoteSub.features?.noVideoReplies === true });
-        expect(remoteSub.features?.noVideoReplies).to.be.true;
-        await remoteSub.stop();
+        const remoteCommunity = await remotePKC.getCommunity({ address: community.address });
+        await remoteCommunity.update();
+        await resolveWhenConditionIsTrue({
+            toUpdate: remoteCommunity,
+            predicate: async () => remoteCommunity.features?.noVideoReplies === true
+        });
+        expect(remoteCommunity.features?.noVideoReplies).to.be.true;
+        await remoteCommunity.stop();
     });
 
     it(`Can publish a post with video link (noVideoReplies only blocks replies)`, async () => {

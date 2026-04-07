@@ -47,11 +47,14 @@ describe.concurrent(`community.features.noSpoilerReplies`, async () => {
         await community.edit({ features: { ...community.features, noSpoilerReplies: true } });
         expect(community.features?.noSpoilerReplies).to.be.true;
 
-        const remoteSub = await remotePKC.getCommunity({ address: community.address });
-        await remoteSub.update();
-        await resolveWhenConditionIsTrue({ toUpdate: remoteSub, predicate: async () => remoteSub.features?.noSpoilerReplies === true });
-        expect(remoteSub.features?.noSpoilerReplies).to.be.true;
-        await remoteSub.stop();
+        const remoteCommunity = await remotePKC.getCommunity({ address: community.address });
+        await remoteCommunity.update();
+        await resolveWhenConditionIsTrue({
+            toUpdate: remoteCommunity,
+            predicate: async () => remoteCommunity.features?.noSpoilerReplies === true
+        });
+        expect(remoteCommunity.features?.noSpoilerReplies).to.be.true;
+        await remoteCommunity.stop();
     });
 
     it(`Can publish a post with spoiler=true (noSpoilerReplies only blocks replies)`, async () => {

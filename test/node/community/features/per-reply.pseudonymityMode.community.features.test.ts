@@ -88,7 +88,7 @@ describeSkipIfRpc('community.features.pseudonymityMode="per-reply"', () => {
             await context.cleanup();
         });
 
-        it('Spec: sub re-signs every new comment with a fresh anonymized author address when pseudonymityMode="per-reply"', async () => {
+        it('Spec: community re-signs every new comment with a fresh anonymized author address when pseudonymityMode="per-reply"', async () => {
             const post = await publishRandomPost({
                 communityAddress: context.community.address,
                 pkc: context.publisherPKC,
@@ -983,7 +983,7 @@ describeSkipIfRpc('community.features.pseudonymityMode="per-reply"', () => {
             await secondReply.stop();
         });
 
-        it("Spec: sub owner can resolve multiple anonymized addresses created by the same signer across several replies and map each back to the original signer", async () => {
+        it("Spec: community owner can resolve multiple anonymized addresses created by the same signer across several replies and map each back to the original signer", async () => {
             const post = await publishRandomPost({
                 communityAddress: context.community.address,
                 pkc: context.publisherPKC,
@@ -1048,7 +1048,7 @@ describeSkipIfRpc('community.features.pseudonymityMode="per-reply"', () => {
             await thirdReply.stop();
         });
 
-        it("Spec: sub owner can resolve anonymized author addresses back to the original author address", async () => {
+        it("Spec: community owner can resolve anonymized author addresses back to the original author address", async () => {
             const post = await publishRandomPost({
                 communityAddress: context.community.address,
                 pkc: context.publisherPKC,
@@ -1567,14 +1567,14 @@ describeSkipIfRpc('community.features.pseudonymityMode="per-reply"', () => {
             // 4. Alias's author.community should show 0 karma, not the original author's prior karma
 
             const pkc = await mockPKC();
-            const sub = await createSubWithNoChallenge({}, pkc);
+            const community = await createSubWithNoChallenge({}, pkc);
 
             // Ensure pseudonymity mode is initially disabled
-            await sub.edit({ features: { pseudonymityMode: undefined } });
-            await sub.start();
+            await community.edit({ features: { pseudonymityMode: undefined } });
+            await community.start();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => typeof sub.updatedAt === "number"
+                toUpdate: community,
+                predicate: async () => typeof community.updatedAt === "number"
             });
 
             const author = await pkc.createSigner();
@@ -1583,15 +1583,15 @@ describeSkipIfRpc('community.features.pseudonymityMode="per-reply"', () => {
             try {
                 // Step 1: Build up karma without pseudonymity mode
                 const nonPseudonymousPost = await publishRandomPost({
-                    communityAddress: sub.address,
+                    communityAddress: community.address,
                     pkc: pkc,
                     postProps: { signer: author }
                 });
-                await waitForStoredCommentUpdateWithAssertions(sub as LocalCommunity, nonPseudonymousPost);
+                await waitForStoredCommentUpdateWithAssertions(community as LocalCommunity, nonPseudonymousPost);
 
                 // Upvote the post to give author post karma
                 const upvote = await pkc.createVote({
-                    communityAddress: sub.address,
+                    communityAddress: community.address,
                     commentCid: nonPseudonymousPost.cid,
                     vote: 1,
                     signer: voter
@@ -1600,21 +1600,21 @@ describeSkipIfRpc('community.features.pseudonymityMode="per-reply"', () => {
 
                 // Verify original author has post karma
                 await resolveWhenConditionIsTrue({
-                    toUpdate: sub,
+                    toUpdate: community,
                     predicate: async () => {
-                        const authorCommunity = (sub as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);
+                        const authorCommunity = (community as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);
                         return authorCommunity?.postScore === 1;
                     }
                 });
 
-                const originalAuthorKarma = (sub as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);
+                const originalAuthorKarma = (community as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);
                 expect(originalAuthorKarma?.postScore).to.equal(1);
 
                 // Step 2: Enable pseudonymity mode
-                await sub.edit({ features: { pseudonymityMode: "per-reply" } });
+                await community.edit({ features: { pseudonymityMode: "per-reply" } });
                 await resolveWhenConditionIsTrue({
-                    toUpdate: sub,
-                    predicate: async () => sub.features?.pseudonymityMode === "per-reply"
+                    toUpdate: community,
+                    predicate: async () => community.features?.pseudonymityMode === "per-reply"
                 });
 
                 // Step 3: Author publishes a new comment (gets an alias)
@@ -1625,10 +1625,10 @@ describeSkipIfRpc('community.features.pseudonymityMode="per-reply"', () => {
                         signer: author
                     }
                 });
-                await waitForStoredCommentUpdateWithAssertions(sub as LocalCommunity, pseudonymousReply);
+                await waitForStoredCommentUpdateWithAssertions(community as LocalCommunity, pseudonymousReply);
 
                 // Step 4: Verify the alias's CommentUpdate shows isolated karma (0), not original author's karma (1)
-                const replyUpdate = (sub as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
+                const replyUpdate = (community as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
                     cid: pseudonymousReply.cid
                 }) as StoredCommentUpdate;
 
@@ -1637,18 +1637,18 @@ describeSkipIfRpc('community.features.pseudonymityMode="per-reply"', () => {
                 expect(replyUpdate?.author?.community?.replyScore).to.equal(0);
 
                 // Verify the alias is different from the original author
-                const aliasRow = (sub as LocalCommunity)._dbHandler.queryPseudonymityAliasByCommentCid(pseudonymousReply.cid);
+                const aliasRow = (community as LocalCommunity)._dbHandler.queryPseudonymityAliasByCommentCid(pseudonymousReply.cid);
                 expect(aliasRow).to.exist;
                 expect(aliasRow?.originalAuthorSignerPublicKey).to.equal(author.publicKey);
 
                 // Double-check: original author's karma should still be 1
-                const originalAuthorKarmaAfter = (sub as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);
+                const originalAuthorKarmaAfter = (community as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);
                 expect(originalAuthorKarmaAfter?.postScore).to.equal(1);
 
                 await nonPseudonymousPost.stop();
                 await pseudonymousReply.stop();
             } finally {
-                await sub.stop();
+                await community.stop();
                 await pkc.destroy();
             }
         });

@@ -220,8 +220,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             cidOfInvalidJson = await addInvalidJsonToIpfs();
             cidOfCommentIpfsWithInvalidSchema = await addCommentIpfsWithInvalidSchemaToIpfs();
             cidOfCommentIpfsWithMismatchedCommunityAddress = await addValidCommentIpfsToIpfs();
-            const sub = await pkc.getCommunity({ address: communityAddress });
-            commentUpdateWithInvalidSignatureJson = await createCommentUpdateWithInvalidSignature(sub.posts.pages.hot.comments[0].cid);
+            const community = await pkc.getCommunity({ address: communityAddress });
+            commentUpdateWithInvalidSignatureJson = await createCommentUpdateWithInvalidSignature(
+                community.posts.pages.hot.comments[0].cid
+            );
         });
 
         afterAll(async () => {
@@ -340,8 +342,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             // Pass a communityPublicKey that differs from what the CommentIpfs actually has.
             // After CommentIpfs loads, the real communityPublicKey from the record takes over.
             // The full pipeline (CommentIpfs + CommentUpdate) should complete without errors.
-            const sub = await pkc.getCommunity({ address: communityAddress });
-            const commentCid = sub.posts.pages.hot.comments[0].cid;
+            const community = await pkc.getCommunity({ address: communityAddress });
+            const commentCid = community.posts.pages.hot.comments[0].cid;
 
             const createdComment = await pkc.createComment({ cid: commentCid, communityPublicKey: signers[6].address });
             expect(createdComment.communityPublicKey).to.equal(signers[6].address); // initially set to the "old" key
@@ -369,7 +371,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         itSkipIfRpc.sequential(`comment.update() emit an error if CommentUpdate signature is invalid `, async () => {
-            // Should emit an error as well but stay subscribed to sub updates
+            // Should emit an error as well but stay subscribed to community updates
 
             const createdComment = await pkc.createComment({
                 cid: commentUpdateWithInvalidSignatureJson.cid
@@ -412,7 +414,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             try {
                 const invalidCommentUpdateJson = "<html>something</html>";
-                // Should emit an error as well but stay subscribed to sub updates
+                // Should emit an error as well but stay subscribed to community updates
 
                 const createdComment = await pkc.createComment({
                     cid: commentUpdateWithInvalidSignatureJson.cid
@@ -431,7 +433,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                         predicate: async () => errors.length === 2,
                         eventName: "error"
                     }),
-                    publishRandomPost({ communityAddress: communityAddress, pkc: pkc }) // force sub to publish a new update
+                    publishRandomPost({ communityAddress: communityAddress, pkc: pkc }) // force community to publish a new update
                 ]);
 
                 expect(createdComment.updatedAt).to.be.undefined; // Make sure it didn't use the props from the invalid CommentUpdate
@@ -455,7 +457,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         itSkipIfRpc.sequential(`comment.update() emits error if CommentUpdate is an invalid schema`, async () => {
-            // Should emit an error as well but stay subscribed to sub updates
+            // Should emit an error as well but stay subscribed to community updates
             const createdComment = await pkc.createComment({
                 cid: commentUpdateWithInvalidSignatureJson.cid
             });
@@ -472,7 +474,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             await Promise.all([
                 resolveWhenConditionIsTrue({ toUpdate: createdComment, predicate: async () => errors.length >= 1, eventName: "error" }),
-                publishRandomPost({ communityAddress: communityAddress, pkc: pkc }) // force sub to publish a new update
+                publishRandomPost({ communityAddress: communityAddress, pkc: pkc }) // force community to publish a new update
             ]);
 
             expect(createdComment.updatedAt).to.be.undefined; // Make sure it didn't use the props from the invalid CommentUpdate
@@ -493,8 +495,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         itSkipIfRpc.sequential(`postCommentInstance.update() emits error when post fails to load from postUpdates`, async () => {
-            const sub = await pkc.getCommunity({ address: communityAddress });
-            const postCid = sub.posts.pages.hot.comments[0].cid;
+            const community = await pkc.getCommunity({ address: communityAddress });
+            const postCid = community.posts.pages.hot.comments[0].cid;
 
             const post = await pkc.getComment({ cid: postCid });
             const errors: PKCError[] = [];
@@ -514,8 +516,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         itSkipIfRpc.sequential(`postCommentInstance.update() emits error when community has no postUpdates`, async () => {
-            const sub = await pkc.getCommunity({ address: communityAddress });
-            const postCid = sub.posts.pages.hot.comments[0].cid;
+            const community = await pkc.getCommunity({ address: communityAddress });
+            const postCid = community.posts.pages.hot.comments[0].cid;
 
             const post = await pkc.getComment({ cid: postCid });
             const errors: PKCError[] = [];

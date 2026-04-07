@@ -45,12 +45,15 @@ describe(`community.features.requireReplyLink`, async () => {
         await community.edit({ features: { ...community.features, requireReplyLink: true } });
         expect(community.features?.requireReplyLink).to.be.true;
 
-        const remoteSub = await remotePKC.getCommunity({ address: community.address });
-        await remoteSub.update();
-        await resolveWhenConditionIsTrue({ toUpdate: remoteSub, predicate: async () => remoteSub.features?.requireReplyLink === true });
+        const remoteCommunity = await remotePKC.getCommunity({ address: community.address });
+        await remoteCommunity.update();
+        await resolveWhenConditionIsTrue({
+            toUpdate: remoteCommunity,
+            predicate: async () => remoteCommunity.features?.requireReplyLink === true
+        });
 
-        expect(remoteSub.features?.requireReplyLink).to.be.true;
-        await remoteSub.stop();
+        expect(remoteCommunity.features?.requireReplyLink).to.be.true;
+        await remoteCommunity.stop();
     });
 
     it(`Can't publish a reply with invalid link`, async () => {

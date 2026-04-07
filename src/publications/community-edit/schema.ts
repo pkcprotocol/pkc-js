@@ -15,7 +15,7 @@ const communityEditPublicationPickOptions = <Record<(typeof CommunityEditPublica
     remeda.mapToObj([...CommunityEditPublicationSignedPropertyNames, "signature"], (x) => [x, true])
 );
 
-// Will be used by the sub when parsing request.communityEdit
+// Will be used by the community when parsing request.communityEdit
 export const CommunityEditPubsubMessagePublicationSchema = CreateCommunityEditPublicationOptionsSchema.merge(PublicationBaseBeforeSigning)
     .extend({
         signature: JsonSignatureSchema,

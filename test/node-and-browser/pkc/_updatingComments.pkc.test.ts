@@ -27,7 +27,7 @@ const communityAddress = signers[0].address;
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe(`pkc._updatingComments - ${config.name}`, async () => {
         let pkc: PKC;
-        let sub: RemoteCommunity;
+        let community: RemoteCommunity;
 
         beforeEach(async () => {
             pkc = await config.pkcInstancePromise();
@@ -37,14 +37,14 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
         beforeAll(async () => {
             const pkc = await config.pkcInstancePromise();
-            sub = await pkc.getCommunity({ address: communityAddress });
+            community = await pkc.getCommunity({ address: communityAddress });
 
-            const replyWithDepth1Cid = await findOrPublishCommentWithDepth({ depth: 1, community: sub });
-            const replyWithDepth2Cid = await findOrPublishCommentWithDepth({ depth: 2, community: sub });
-            const replyWithDepth3Cid = await findOrPublishCommentWithDepth({ depth: 3, community: sub });
+            const replyWithDepth1Cid = await findOrPublishCommentWithDepth({ depth: 1, community: community });
+            const replyWithDepth2Cid = await findOrPublishCommentWithDepth({ depth: 2, community: community });
+            const replyWithDepth3Cid = await findOrPublishCommentWithDepth({ depth: 3, community: community });
 
             const replyPostConfigs = [
-                { commentType: "post (depth 0)", cid: sub.posts.pages.hot.comments[0].cid },
+                { commentType: "post (depth 0)", cid: community.posts.pages.hot.comments[0].cid },
                 {
                     commentType: "reply (depth 1)",
                     cid: replyWithDepth1Cid.cid
@@ -239,7 +239,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         // The rest of your standalone tests go here
         it(`findUpdatingComment and listUpdatingComments track one live instance per cid`, async () => {
-            const commentCid = sub.posts.pages.hot.comments[0].cid;
+            const commentCid = community.posts.pages.hot.comments[0].cid;
             const comment1 = await pkc.createComment({ cid: commentCid });
             const comment2 = await pkc.createComment({ cid: commentCid });
 
@@ -267,7 +267,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         itSkipIfRpc(
-            `Stopping the first updating comment shouldn't tear down _updatingCommunities while another comment from the same sub is still updating`,
+            `Stopping the first updating comment shouldn't tear down _updatingCommunities while another comment from the same community is still updating`,
             async () => {
                 const firstPost = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
                 const secondPost = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
@@ -287,32 +287,32 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     predicate: async () => typeof secondComment.updatedAt === "number"
                 });
 
-                const subAddress = firstComment.communityAddress;
-                expect(findUpdatingCommunity(pkc, { address: subAddress })).to.exist;
+                const commentCommunityAddress = firstComment.communityAddress;
+                expect(findUpdatingCommunity(pkc, { address: commentCommunityAddress })).to.exist;
 
                 await firstComment.stop();
                 await new Promise((resolve) => setTimeout(resolve, 200));
 
-                expect(findUpdatingCommunity(pkc, { address: subAddress })).to.exist;
+                expect(findUpdatingCommunity(pkc, { address: commentCommunityAddress })).to.exist;
                 expect(secondComment.state).to.equal("updating");
                 expect(findUpdatingComment(pkc, { cid: secondComment.cid! })).to.exist;
 
                 await secondComment.stop();
                 await new Promise((resolve) => setTimeout(resolve, 200));
 
-                expect(findUpdatingCommunity(pkc, { address: subAddress })).to.not.exist;
+                expect(findUpdatingCommunity(pkc, { address: commentCommunityAddress })).to.not.exist;
                 expect(listUpdatingComments(pkc)).to.deep.equal([]);
             }
         );
 
         it(`doesn't resurrect _updatingComments after stop() when the community record is invalid`, async () => {
-            const { communityRecord, communityAddress: communityAddress, ipnsObj } = await createMockedCommunityIpns({});
+            const { communityRecord, communityAddress: mockedCommunityAddress, ipnsObj } = await createMockedCommunityIpns({});
             const invalidCommunityRecord = { ...communityRecord, updatedAt: communityRecord.updatedAt + 9999 };
             await ipnsObj.publishToIpns(JSON.stringify(invalidCommunityRecord));
 
             const postToPublish = await pkc.createComment({
                 signer: await pkc.createSigner(),
-                communityAddress: communityAddress,
+                communityAddress: mockedCommunityAddress,
                 title: `Mock Post - ${Date.now()}`,
                 content: `Mock content - ${Date.now()}`
             });
@@ -401,8 +401,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         itSkipIfRpc(
             `Calling reply.stop() when it's subscribed to a post and post is updating only for reply should remove both reply and post from _updatingComments`,
             async () => {
-                const replyCid = sub.posts.pages.hot.comments.find((comment) => comment.replies?.pages?.best).replies.pages.best.comments[0]
-                    .cid;
+                const replyCid = community.posts.pages.hot.comments.find((comment) => comment.replies?.pages?.best).replies.pages.best
+                    .comments[0].cid;
                 const reply = await pkc.createComment({ cid: replyCid });
                 await reply.update();
                 // Get the post CID from the reply's parent
@@ -432,7 +432,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         // with rpc clients we don't create a community instance, the rpc server does it for us
         itSkipIfRpc(
-            `Updating a post should create a new entry in _updatingCommunities if we haven't been updating the sub already`,
+            `Updating a post should create a new entry in _updatingCommunities if we haven't been updating the community already`,
             async () => {
                 const community = await pkc.getCommunity({ address: signers[0].address });
                 const commentCid = community.posts.pages.hot.comments[0].cid;

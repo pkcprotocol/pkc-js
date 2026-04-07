@@ -76,15 +76,17 @@ export function parseJsonWithPKCErrorIfFails(x: string): any {
     }
 }
 
-export function parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(subIpfs: z.infer<typeof CommunityIpfsSchema>): CommunityIpfsType {
-    const parseRes = CommunityIpfsSchema.loose().safeParse(subIpfs);
+export function parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(
+    communityIpfs: z.infer<typeof CommunityIpfsSchema>
+): CommunityIpfsType {
+    const parseRes = CommunityIpfsSchema.loose().safeParse(communityIpfs);
     if (!parseRes.success)
         throw new PKCError("ERR_INVALID_COMMUNITY_IPFS_SCHEMA", {
             zodError: parseRes.error,
-            subAddress: (subIpfs as Record<string, unknown>)?.address,
-            subJson: subIpfs
+            communityAddress: (communityIpfs as Record<string, unknown>)?.address,
+            communityJson: communityIpfs
         });
-    else return subIpfs;
+    else return communityIpfs;
 }
 
 export function parseCommentIpfsSchemaWithPKCErrorIfItFails(commentIpfsJson: z.infer<typeof CommentIpfsSchema>): CommentIpfsType {

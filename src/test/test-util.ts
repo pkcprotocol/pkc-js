@@ -428,16 +428,16 @@ type TestServerSubs = {
 export async function startOnlineCommunity() {
     const onlinePKC = await createOnlinePKC();
 
-    const onlineSub = <LocalCommunity>await onlinePKC.createCommunity(); // Will create a new sub that is on the ipfs network
+    const onlineCommunity = <LocalCommunity>await onlinePKC.createCommunity(); // Will create a new community that is on the ipfs network
 
-    await onlineSub.edit({ settings: { challenges: [{ name: "question", options: { question: "1+1=?", answer: "2" } }] } });
+    await onlineCommunity.edit({ settings: { challenges: [{ name: "question", options: { question: "1+1=?", answer: "2" } }] } });
 
-    await onlineSub.start();
+    await onlineCommunity.start();
 
-    await new Promise((resolve) => onlineSub.once("update", resolve));
-    console.log("Online sub is online on address", onlineSub.address);
+    await new Promise((resolve) => onlineCommunity.once("update", resolve));
+    console.log("Online community is online on address", onlineCommunity.address);
 
-    return onlineSub;
+    return onlineCommunity;
 }
 
 export async function startCommunities(props: {
@@ -454,23 +454,23 @@ export async function startCommunities(props: {
         publishInterval: 1000,
         updateInterval: 1000
     });
-    const mainSub = (await createSubWithNoChallenge({ signer: props.signers[0] }, pkc)) as LocalCommunity; // most publications will be on this sub
+    const mainCommunity = (await createSubWithNoChallenge({ signer: props.signers[0] }, pkc)) as LocalCommunity; // most publications will be on this community
 
     // Enable flair features and set allowed flairs for flair tests
-    await mainSub.edit({
+    await mainCommunity.edit({
         features: { postFlairs: true },
         flairs: {
             post: [{ text: "Author Flair" }, { text: "Discussion" }, { text: "Updated" }, { text: "Important", backgroundColor: "#ff0000" }]
         }
     });
 
-    await mainSub.start();
+    await mainCommunity.start();
 
     const mathSub = await _startMathCliCommunity(props.signers[1], pkc);
     const ensSub = await _startEnsCommunity(props.signers, pkc);
     console.time("populate");
 
-    await _populateCommunity(mainSub, props);
+    await _populateCommunity(mainCommunity, props);
     console.timeEnd("populate");
 
     let onlineSub;
@@ -555,7 +555,7 @@ export async function startCommunities(props: {
         onlineSub: onlineSub,
         mathSub: mathSub,
         ensSub: ensSub,
-        mainSub: mainSub,
+        mainSub: mainCommunity,
         NoPubsubResponseSub: subWithNoResponse,
         mathCliSubWithNoMockedPubsub: mathCliSubWithNoMockedPubsub,
         subForPurge: subForPurge,
@@ -639,7 +639,7 @@ export async function mockPKC(pkcOptions?: InputPKCOptions, forceMockPubsub = fa
 export async function mockRemotePKC(opts?: MockPKCOptions) {
     // Mock browser environment
     const pkc = await mockPKCV2({ ...opts, pkcOptions: { dataPath: undefined, ...opts?.pkcOptions } });
-    pkc._canCreateNewLocalSub = () => false;
+    pkc._canCreateNewLocalCommunity = () => false;
     return pkc;
 }
 
@@ -915,17 +915,17 @@ export async function iterateThroughPageCidToFindComment(commentCid: string, pag
 
 export async function findCommentInCommunityInstancePagesPreloadedAndPageCids(opts: {
     comment: Required<Pick<CommentIpfsWithCidDefined, "cid"> & { communityAddress: string }>;
-    sub: RemoteCommunity;
+    community: RemoteCommunity;
 }): Promise<CommentWithinRepliesPostsPageJson | undefined> {
     // TODO need to handle, what if the comment is nested deep down the community.posts tree and doesn't appear in preloaded page
     // code below doesn't handle it
-    const { sub, comment } = opts;
-    if (!sub) throw Error("Failed to provide opts.sub");
+    const { community, comment } = opts;
+    if (!community) throw Error("Failed to provide opts.community");
     if (!comment) throw Error("Failed to provde opts.comment");
-    if (Object.keys(sub.posts.pageCids).length === 0 && Object.keys(sub.posts.pages).length > 0) {
+    if (Object.keys(community.posts.pageCids).length === 0 && Object.keys(community.posts.pages).length > 0) {
         // it's a single preloaded page
         const loadedAllHotPagesComments = <CommentWithinRepliesPostsPageJson[]>(
-            await loadAllPagesBySortName(Object.keys(sub.posts.pages)[0], sub.posts)
+            await loadAllPagesBySortName(Object.keys(community.posts.pages)[0], community.posts)
         );
         const pageIpfs = <PageIpfs>{
             comments: loadedAllHotPagesComments.map((c) => c.raw)
@@ -933,9 +933,9 @@ export async function findCommentInCommunityInstancePagesPreloadedAndPageCids(op
         const postInPage = findCommentInHierarchicalPageIpfsRecursively(pageIpfs, comment.cid);
         if (postInPage) return mapPageIpfsCommentToPageJsonComment(postInPage);
         else return undefined;
-    } else if (Object.keys(sub.posts?.pageCids).length > 0) {
-        const postsNewPageCid = sub.posts.pageCids.new;
-        const postInPageCid = await iterateThroughPageCidToFindComment(comment.cid, postsNewPageCid, sub.posts);
+    } else if (Object.keys(community.posts?.pageCids).length > 0) {
+        const postsNewPageCid = community.posts.pageCids.new;
+        const postInPageCid = await iterateThroughPageCidToFindComment(comment.cid, postsNewPageCid, community.posts);
         return postInPageCid;
     } else return undefined;
 }
@@ -981,12 +981,12 @@ export async function findReplyInParentCommentPagesInstancePreloadedAndPageCids(
 
 export async function waitTillPostInCommunityInstancePages(
     post: Required<Pick<CommentIpfsWithCidDefined, "cid"> & { communityAddress: string }>,
-    sub: RemoteCommunity
+    community: RemoteCommunity
 ) {
-    if (sub.state === "stopped") await sub.update();
+    if (community.state === "stopped") await community.update();
     await resolveWhenConditionIsTrue({
-        toUpdate: sub,
-        predicate: async () => Boolean(await findCommentInCommunityInstancePagesPreloadedAndPageCids({ comment: post, sub }))
+        toUpdate: community,
+        predicate: async () => Boolean(await findCommentInCommunityInstancePagesPreloadedAndPageCids({ comment: post, community }))
     });
 }
 
@@ -994,9 +994,9 @@ export async function waitTillPostInCommunityPages(
     post: Required<Pick<CommentIpfsWithCidDefined, "cid"> & { communityAddress: string }>,
     pkc: PKC
 ) {
-    const sub = await pkc.createCommunity({ address: post.communityAddress });
-    await waitTillPostInCommunityInstancePages(post, sub);
-    await sub.stop();
+    const community = await pkc.createCommunity({ address: post.communityAddress });
+    await waitTillPostInCommunityInstancePages(post, community);
+    await community.stop();
 }
 
 export async function iterateThroughPagesToFindCommentInParentPagesInstance(
@@ -1040,9 +1040,9 @@ export async function createSubWithNoChallenge(
     props: CreateNewLocalCommunityUserOptions,
     pkc: PKC
 ): Promise<LocalCommunity | RpcLocalCommunity> {
-    const sub = <LocalCommunity | RpcLocalCommunity>await pkc.createCommunity(props);
-    await sub.edit({ settings: { challenges: [] } }); // No challenge
-    return sub;
+    const community = <LocalCommunity | RpcLocalCommunity>await pkc.createCommunity(props);
+    await community.edit({ settings: { challenges: [] } }); // No challenge
+    return community;
 }
 
 export async function generatePostToAnswerMathQuestion(
@@ -1707,11 +1707,11 @@ export async function createNewIpns() {
 }
 
 async function getTemplateCommunityRecord(pkc: PKC): Promise<CommunityIpfsType> {
-    const sub = await pkc.createCommunity({ address: "12D3KooWANwdyPERMQaCgiMnTT1t3Lr4XLFbK1z4ptFVhW2ozg1z" });
-    await sub.update();
-    await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
-    const result = sub.raw.communityIpfs!;
-    await sub.stop();
+    const community = await pkc.createCommunity({ address: "12D3KooWANwdyPERMQaCgiMnTT1t3Lr4XLFbK1z4ptFVhW2ozg1z" });
+    await community.update();
+    await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+    const result = community.raw.communityIpfs!;
+    await community.stop();
     return result;
 }
 
@@ -1743,7 +1743,7 @@ export async function createMockedCommunityIpns(communityOpts: CreateNewLocalCom
         posts: undefined,
         pubsubTopic: communityAddress,
         ...communityOpts
-    }; // default sub, will be using its props
+    }; // default community, will be using its props
     if (!communityRecord.posts) delete communityRecord.posts;
 
     communityRecord.signature = await signCommunity({ community: communityRecord, signer: ipnsObj.signer });
@@ -1832,8 +1832,8 @@ function _stripNameResolvedFromPages(pagesContainer: any) {
     }
 }
 
-export function jsonifyCommunityAndRemoveInternalProps(sub: RemoteCommunity) {
-    const jsonfied = JSON.parse(JSON.stringify(sub));
+export function jsonifyCommunityAndRemoveInternalProps(community: RemoteCommunity) {
+    const jsonfied = JSON.parse(JSON.stringify(community));
     delete jsonfied["posts"]["clients"];
     delete jsonfied["modQueue"]["clients"];
     delete jsonfied["raw"]["runtimeFieldsFromRpc"];
@@ -1844,8 +1844,8 @@ export function jsonifyCommunityAndRemoveInternalProps(sub: RemoteCommunity) {
     return remeda.omit(jsonfied, ["startedState", "started", "signer", "settings", "editable", "clients", "updatingState", "state"]);
 }
 
-export function jsonifyLocalSubWithNoInternalProps(sub: LocalCommunity) {
-    const localJson = <LocalCommunityJson>JSON.parse(JSON.stringify(sub));
+export function jsonifyLocalCommunityWithNoInternalProps(community: LocalCommunity) {
+    const localJson = <LocalCommunityJson>JSON.parse(JSON.stringify(community));
     //@ts-expect-error
     delete localJson["posts"]["clients"];
     return remeda.omit(localJson, ["startedState", "started", "clients", "state", "updatingState"]);
@@ -1862,7 +1862,7 @@ export function jsonifyCommentAndRemoveInstanceProps(comment: Comment) {
 }
 
 export async function waitUntilPKCCommunitiesIncludeSubAddress(pkc: PKC, subAddress: string) {
-    return pkc._awaitCommunitiesToIncludeSub(subAddress);
+    return pkc._awaitCommunitiesToIncludeCommunity(subAddress);
 }
 
 export function isPKCFetchingUsingGateways(pkc: PKC): boolean {
@@ -1907,11 +1907,11 @@ export function disablePreloadPagesOnSub({ community }: { community: LocalCommun
     const originalChunkComments = pageGenerator._chunkComments.bind(pageGenerator);
 
     pageGenerator.generateCommunityPosts = async (preloadedPageSortName, preloadedPageSize) => {
-        return originalCommunityPostsFunc(preloadedPageSortName, preloadedPageSize); // should force sub to publish to pageCids
+        return originalCommunityPostsFunc(preloadedPageSortName, preloadedPageSize); // should force community to publish to pageCids
     };
 
     pageGenerator.generatePostPages = async (comment, preloadedPageSortName, preloadedPageSize) => {
-        return originalPostRepliesFunc(comment, preloadedPageSortName, preloadedPageSize); // should force sub to publish to pageCids
+        return originalPostRepliesFunc(comment, preloadedPageSortName, preloadedPageSize); // should force community to publish to pageCids
     };
 
     pageGenerator.generateReplyPages = async (comment, preloadedPageSortName, preloadedPageSize) => {
@@ -1992,10 +1992,10 @@ export function mockPostToHaveCommunityWithNoPostUpdates(postToBeMocked: Comment
     if (postToBeMocked._pkc._pkcRpcClient) throw Error("Can't mock Post to to fail loading post from postUpdates when pkc is using RPC");
 
     mockCommentToNotUsePagesForUpdates(postToBeMocked);
-    const originalCommunityUpdateHandle = updatingPostComment._clientsManager.handleUpdateEventFromSub.bind(
+    const originalCommunityUpdateHandle = updatingPostComment._clientsManager.handleUpdateEventFromCommunity.bind(
         updatingPostComment._clientsManager
     );
-    updatingPostComment._clientsManager.handleUpdateEventFromSub = (community: RemoteCommunity) => {
+    updatingPostComment._clientsManager.handleUpdateEventFromCommunity = (community: RemoteCommunity) => {
         delete community.postUpdates;
         delete community.raw.communityIpfs!.postUpdates;
         return originalCommunityUpdateHandle(community);
@@ -2455,7 +2455,7 @@ export function mockReplyToUseParentPagesForUpdates(reply: Comment) {
 
     updatingComment._clientsManager.handleUpdateEventFromPostToFetchReplyCommentUpdate = (postInstance) => {
         // this should stop pkc-js from assuming the post replies is a single preloaded page
-        const updatingSubInstance = findUpdatingCommunity(reply._pkc, { address: postInstance.communityAddress });
+        const updatingCommunityInstance = findUpdatingCommunity(reply._pkc, { address: postInstance.communityAddress });
         const updatingParentInstance = findUpdatingComment(reply._pkc, { cid: reply.parentCid! });
 
         if (postInstance.replies.pages)
@@ -2463,10 +2463,10 @@ export function mockReplyToUseParentPagesForUpdates(reply: Comment) {
                 if (postInstance.replies.pages[preloadedPageKey]?.comments) postInstance.replies.pages[preloadedPageKey]!.comments = [];
             });
 
-        if (updatingSubInstance?.posts.pages)
-            Object.keys(updatingSubInstance.posts.pages).forEach((preloadedPageKey) => {
-                if (updatingSubInstance.posts.pages[preloadedPageKey]?.comments)
-                    updatingSubInstance.posts.pages[preloadedPageKey].comments = [];
+        if (updatingCommunityInstance?.posts.pages)
+            Object.keys(updatingCommunityInstance.posts.pages).forEach((preloadedPageKey) => {
+                if (updatingCommunityInstance.posts.pages[preloadedPageKey]?.comments)
+                    updatingCommunityInstance.posts.pages[preloadedPageKey].comments = [];
             });
 
         if (updatingParentInstance?.replies?.pages)
@@ -2490,11 +2490,11 @@ export function mockUpdatingCommentResolvingAuthor(
 }
 
 export async function getRandomPostCidFromSub(communityAddress: string, pkc: PKC) {
-    const sub = await pkc.createCommunity({ address: communityAddress });
-    await sub.update();
-    await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
-    const lastPostCid = sub.lastPostCid;
-    await sub.stop();
+    const community = await pkc.createCommunity({ address: communityAddress });
+    await community.update();
+    await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+    const lastPostCid = community.lastPostCid;
+    await community.stop();
     if (!lastPostCid) throw Error("Community should have a last post cid");
     return lastPostCid;
 }

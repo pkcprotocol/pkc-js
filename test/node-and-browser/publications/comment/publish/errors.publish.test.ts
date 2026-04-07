@@ -28,7 +28,7 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
         const normalIpfsGateway = `http://localhost:18080`;
         const gatewayPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [error429Gateway, normalIpfsGateway] } });
         const randomSigner = await gatewayPKC.createSigner();
-        const offlineSubAddress = randomSigner.address; // offline sub
+        const offlineSubAddress = randomSigner.address; // offline community
 
         const post = await generateMockPost({ communityAddress: offlineSubAddress, pkc: gatewayPKC });
 

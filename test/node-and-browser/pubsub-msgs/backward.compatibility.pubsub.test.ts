@@ -97,7 +97,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 expect(requestFromEvent).to.be.a("object");
                 expect(requestFromEvent!.extraProp).to.equal(extraProps.extraProp);
 
-                // TODO need to test challenge request on the sub side as well
+                // TODO need to test challenge request on the community side as well
 
                 const challengeVerification = await new Promise((resolve) => post.once("challengeverification", resolve)); // we received a challenge verification, meaning there is no issue with challenge request
 

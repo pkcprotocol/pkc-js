@@ -39,7 +39,7 @@
 //             createdOwnerCommunitys[createCommunityOptions.address] = { ...createCommunityOptions };
 //         }
 //         // only address provided, so could be a previously created owner community
-//         // add props from previously created sub
+//         // add props from previously created community
 //         else if (
 //             createdOwnerCommunitys[createCommunityOptions.address] &&
 //             JSON.stringify(Object.keys(createCommunityOptions)) === '["address"]'

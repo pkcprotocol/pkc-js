@@ -279,12 +279,12 @@ describe(`pkc.destroy`, async () => {
         // Reproduces a race condition where a community is stored in _updatingCommunities
         // but hasn't transitioned to "updating" state yet (e.g. during fetchLatestSubOrSubscribeToEvent)
         const pkc = await mockPKCNoDataPathWithOnlyKuboClient();
-        const sub = await pkc.createCommunity({ address: fixtureSigner.address });
-        expect(sub.state).to.equal("stopped");
-        // Simulate the race: sub is in the map but still in "stopped" state
-        pkc._updatingCommunities[sub.address] = sub;
+        const community = await pkc.createCommunity({ address: fixtureSigner.address });
+        expect(community.state).to.equal("stopped");
+        // Simulate the race: community is in the map but still in "stopped" state
+        pkc._updatingCommunities[community.address] = community;
         await pkc.destroy(); // should not throw
-        expect(sub.state).to.equal("stopped");
+        expect(community.state).to.equal("stopped");
     });
 });
 

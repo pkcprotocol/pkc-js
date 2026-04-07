@@ -156,50 +156,53 @@ export const setNativeFunctions = (newNativeFunctions: Partial<NativeFunctions>)
 
 export const deleteOldCommunityInWindows = async (subPath: string, pkc: Pick<PKC, "_storage">) => {
     const log = Logger("pkc-js:community:deleteStaleCommunityInWindows");
-    const subAddress = path.basename(subPath);
+    const communityAddress = path.basename(subPath);
     await new Promise((resolve) => setTimeout(resolve, 10000)); // give windows time to release the file
     try {
         await fsPromises.rm(subPath, { force: true });
-        log(`Succeeded in deleting old community (${subAddress})`);
+        log(`Succeeded in deleting old community (${communityAddress})`);
     } catch (e) {
         // Assume it's because of EBUSY
         log.error(
-            `Failed to delete old community (${subAddress}). Restarting the node process or daemon should make this error disappear`,
+            `Failed to delete old community (${communityAddress}). Restarting the node process or daemon should make this error disappear`,
             e
         );
-        // Put subAddress in storage
+        // Put communityAddress in storage
         const storageKey = STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_COMMUNITIES];
-        const subsThatWeFailedToDelete: string[] = (await pkc._storage.getItem(storageKey)) || [];
-        if (!subsThatWeFailedToDelete.includes(subAddress)) subsThatWeFailedToDelete.push(subAddress);
-        await pkc._storage.setItem(storageKey, subsThatWeFailedToDelete);
-        log(`Updated persistent deleted communities in storage`, subsThatWeFailedToDelete);
+        const communitiesThatWeFailedToDelete: string[] = (await pkc._storage.getItem(storageKey)) || [];
+        if (!communitiesThatWeFailedToDelete.includes(communityAddress)) communitiesThatWeFailedToDelete.push(communityAddress);
+        await pkc._storage.setItem(storageKey, communitiesThatWeFailedToDelete);
+        log(`Updated persistent deleted communities in storage`, communitiesThatWeFailedToDelete);
     }
 };
 
-export async function trytoDeleteSubsThatFailedToBeDeletedBefore(pkc: PKC, log: Logger) {
-    const deletedPersistentSubs = <string[] | undefined>(
+export async function tryToDeleteCommunitiesThatFailedToBeDeletedBefore(pkc: PKC, log: Logger) {
+    const deletedPersistentCommunities = <string[] | undefined>(
         await pkc._storage.getItem(STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_COMMUNITIES])
     );
 
-    if (Array.isArray(deletedPersistentSubs)) {
-        if (deletedPersistentSubs.length === 0) {
+    if (Array.isArray(deletedPersistentCommunities)) {
+        if (deletedPersistentCommunities.length === 0) {
             await pkc._storage.removeItem(STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_COMMUNITIES]);
             log("Removed persistent deleted communities from storage because there are none left");
             return undefined;
         }
         // Attempt to delete them
-        const subsThatWereDeletedSuccessfully: string[] = [];
-        for (const subAddress of deletedPersistentSubs) {
-            const subPath = path.join(<string>pkc.dataPath, "communities", subAddress);
+        const communitiesThatWereDeletedSuccessfully: string[] = [];
+        for (const communityAddress of deletedPersistentCommunities) {
+            const communityPath = path.join(<string>pkc.dataPath, "communities", communityAddress);
             try {
-                await fsPromises.rm(subPath, { force: true });
-                log(`Succeeded in deleting old db path (${subAddress})`);
-                subsThatWereDeletedSuccessfully.push(subAddress);
+                await fsPromises.rm(communityPath, { force: true });
+                log(`Succeeded in deleting old db path (${communityAddress})`);
+                communitiesThatWereDeletedSuccessfully.push(communityAddress);
             } catch (e) {
-                log.error(`Failed to delete stale db (${subAddress}). This error should go away after restarting the daemon or process`, e);
+                log.error(
+                    `Failed to delete stale db (${communityAddress}). This error should go away after restarting the daemon or process`,
+                    e
+                );
             }
         }
-        const newPersistentDeletedCommunities = remeda.difference(deletedPersistentSubs, subsThatWereDeletedSuccessfully);
+        const newPersistentDeletedCommunities = remeda.difference(deletedPersistentCommunities, communitiesThatWereDeletedSuccessfully);
         if (newPersistentDeletedCommunities.length === 0) {
             await pkc._storage.removeItem(STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_COMMUNITIES]);
             log("Removed persistent deleted communities from storage because there are none left");
@@ -345,22 +348,22 @@ export function createKuboRpcClient(kuboRpcClientOptions: KuboRpcClient["_client
 
 export async function monitorCommunitiesDirectory(pkc: PKC) {
     const watchAbortController = new AbortController();
-    const subsPath = path.join(pkc.dataPath!, "communities");
+    const communitiesPath = path.join(pkc.dataPath!, "communities");
 
     // Create directory synchronously if it doesn't exist
-    await fsPromises.mkdir(subsPath, { recursive: true });
+    await fsPromises.mkdir(communitiesPath, { recursive: true });
 
     const extensionsToIgnore = [".lock", "-journal", "-shm", "-wal"];
     let isProcessingChange = false;
 
     // Initial check
-    const initialSubs = listCommunitiesSync(pkc);
-    if (deterministicStringify(initialSubs) !== deterministicStringify(pkc.communities)) {
-        pkc.emit("communitieschange", initialSubs);
+    const initialCommunities = listCommunitiesSync(pkc);
+    if (deterministicStringify(initialCommunities) !== deterministicStringify(pkc.communities)) {
+        pkc.emit("communitieschange", initialCommunities);
     }
 
     // Set up watcher with synchronous check
-    fsWatch(subsPath, { signal: watchAbortController.signal, persistent: false }, (eventType, filename) => {
+    fsWatch(communitiesPath, { signal: watchAbortController.signal, persistent: false }, (eventType, filename) => {
         // Skip ignored files
         if (typeof filename === "string" && extensionsToIgnore.some((ext) => filename.endsWith(ext))) return;
 
@@ -369,9 +372,9 @@ export async function monitorCommunitiesDirectory(pkc: PKC) {
 
         isProcessingChange = true;
         try {
-            const currentSubs = listCommunitiesSync(pkc);
-            if (deterministicStringify(currentSubs) !== deterministicStringify(pkc.communities)) {
-                pkc.emit("communitieschange", currentSubs);
+            const currentCommunities = listCommunitiesSync(pkc);
+            if (deterministicStringify(currentCommunities) !== deterministicStringify(pkc.communities)) {
+                pkc.emit("communitieschange", currentCommunities);
             }
         } catch (error) {
             // Handle any errors

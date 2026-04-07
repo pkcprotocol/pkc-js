@@ -127,8 +127,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
             const community2 = await pkc.createCommunity(community1); // we're testing if posts from community are parsed correctly
             const community3 = await pkc.createCommunity(JSON.parse(JSON.stringify(community1)));
-            for (const sub of [community1, community2, community3]) {
-                const editedCommentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(commentToBeEdited.cid, sub.posts);
+            for (const community of [community1, community2, community3]) {
+                const editedCommentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
+                    commentToBeEdited.cid,
+                    community.posts
+                );
                 expect(editedCommentInPage).to.be.a("object");
                 // Should reflect the new content, and also have original.content
                 expect(editedCommentInPage.content.startsWith("edit test")).to.be.true;
@@ -141,33 +144,33 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`The new content should be reflected in JSON.parse(JSON.stringify(community)).posts.pages`, async () => {
-            const sub1 = await pkc.createCommunity({ address: commentToBeEdited.communityAddress });
-            await sub1.update();
+            const community1 = await pkc.createCommunity({ address: commentToBeEdited.communityAddress });
+            await community1.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub1,
+                toUpdate: community1,
                 predicate: async () => {
                     const editedCommentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
                         commentToBeEdited.cid,
-                        sub1.posts
+                        community1.posts
                     );
                     return Boolean(editedCommentInPage?.edit?.reason?.startsWith("To test editing content"));
                 }
             });
-            const sub2 = await pkc.createCommunity(sub1); // we're testing if posts from community are parsed correctly
-            const sub3 = await pkc.createCommunity(JSON.parse(JSON.stringify(sub1)));
+            const community2 = await pkc.createCommunity(community1); // we're testing if posts from community are parsed correctly
+            const sub3 = await pkc.createCommunity(JSON.parse(JSON.stringify(community1)));
 
-            for (const subJson of [
-                sub1,
-                sub2,
+            for (const communityJson of [
+                community1,
+                community2,
                 sub3,
-                { ...sub1 },
-                { ...sub2 },
+                { ...community1 },
+                { ...community2 },
                 { ...sub3 },
-                JSON.parse(JSON.stringify(sub1)),
-                JSON.parse(JSON.stringify(sub2)),
+                JSON.parse(JSON.stringify(community1)),
+                JSON.parse(JSON.stringify(community2)),
                 JSON.parse(JSON.stringify(sub3))
             ]) {
-                const editedCommentInPage = subJson.posts.pages.hot.comments.find((comment: CommentWithinRepliesPostsPageJson) =>
+                const editedCommentInPage = communityJson.posts.pages.hot.comments.find((comment: CommentWithinRepliesPostsPageJson) =>
                     comment.edit?.reason?.startsWith("To test editing content")
                 );
                 expect(editedCommentInPage).to.be.a("object");
@@ -177,7 +180,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(editedCommentInPage.reason).to.be.undefined;
                 expect(editedCommentInPage.edit.reason.startsWith("To test editing content")).to.be.true;
             }
-            await sub1.stop();
+            await community1.stop();
         });
 
         it.sequential(`Author can modify content again, while preserving comment.originalContent`, async () => {

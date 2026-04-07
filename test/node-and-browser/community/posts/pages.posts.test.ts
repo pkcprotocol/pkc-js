@@ -108,14 +108,14 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             // Create a comment with a CID that doesn't exist or will time out
             const nonExistentCid = "QmbSiusGgY4Uk5LdAe91bzLkBzidyKyKHRKwhXPDz7gGzx"; // Random CID that doesn't exist
 
-            const sub = await pkc.getCommunity({ address: communityAddress });
+            const community = await pkc.getCommunity({ address: communityAddress });
 
             // Override the pageCid to use our non-existent CID
-            sub.posts.pageCids.hot = nonExistentCid;
+            community.posts.pageCids.hot = nonExistentCid;
 
             try {
                 // This should time out
-                await sub.posts.getPage({ cid: nonExistentCid });
+                await community.posts.getPage({ cid: nonExistentCid });
                 expect.fail("Should have timed out");
             } catch (e) {
                 const error = e as PKCError;
@@ -336,19 +336,19 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         it(`.getPage will throw if retrieved page has an invalid signature `, async () => {
             const pkc = await config.pkcInstancePromise({ pkcOptions: { validatePages: true } });
 
-            const sub = await pkc.getCommunity({ address: communityAddress });
+            const community = await pkc.getCommunity({ address: communityAddress });
 
-            const pageIpfs = { comments: sub.posts.pages.hot.comments.map((comment) => comment.raw) };
+            const pageIpfs = { comments: community.posts.pages.hot.comments.map((comment) => comment.raw) };
             expect(pageIpfs).to.exist;
 
             const invalidPageIpfs = JSON.parse(JSON.stringify(pageIpfs));
             invalidPageIpfs.comments[0].comment.content += "invalidate signature";
 
             const invalidPageCid = await addStringToIpfs(JSON.stringify(invalidPageIpfs));
-            sub.posts.pageCids.active = invalidPageCid; // need to hardcode it here so we can calculate max size
+            community.posts.pageCids.active = invalidPageCid; // need to hardcode it here so we can calculate max size
 
             try {
-                await sub.posts.getPage({ cid: invalidPageCid });
+                await community.posts.getPage({ cid: invalidPageCid });
                 expect.fail("should fail");
             } catch (e) {
                 const error = e as PKCError;
@@ -366,12 +366,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             const gatewayUrl = "http://localhost:13415"; // a gateway that's gonna respond with invalid content
             const pkc = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [gatewayUrl], validatePages: true } });
 
-            const sub = await pkc.getCommunity({ address: communityAddress });
+            const community = await pkc.getCommunity({ address: communityAddress });
 
             const invalidPageCid = "QmUFu8fzuT1th3jJYgR4oRgGpw3sgRALr4nbenA4pyoCav"; // Gateway will respond with content that is not mapped to this cid
-            sub.posts.pageCids.active = invalidPageCid; // need to hardcode it here so we can calculate max size
+            community.posts.pageCids.active = invalidPageCid; // need to hardcode it here so we can calculate max size
             try {
-                await sub.posts.getPage({ cid: invalidPageCid });
+                await community.posts.getPage({ cid: invalidPageCid });
                 expect.fail("Should fail");
             } catch (e) {
                 const error = e as PKCError;

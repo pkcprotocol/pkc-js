@@ -44,11 +44,11 @@ describe.concurrent(`community.features.noAudio`, async () => {
         await community.edit({ features: { ...community.features, noAudio: true } });
         expect(community.features?.noAudio).to.be.true;
 
-        const remoteSub = await remotePKC.getCommunity({ address: community.address });
-        await remoteSub.update();
-        await resolveWhenConditionIsTrue({ toUpdate: remoteSub, predicate: async () => remoteSub.features?.noAudio === true });
-        expect(remoteSub.features?.noAudio).to.be.true;
-        await remoteSub.stop();
+        const remoteCommunity = await remotePKC.getCommunity({ address: community.address });
+        await remoteCommunity.update();
+        await resolveWhenConditionIsTrue({ toUpdate: remoteCommunity, predicate: async () => remoteCommunity.features?.noAudio === true });
+        expect(remoteCommunity.features?.noAudio).to.be.true;
+        await remoteCommunity.stop();
     });
 
     it(`Can't publish a post with audio link (.mp3)`, async () => {

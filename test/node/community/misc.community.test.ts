@@ -25,44 +25,44 @@ import type { CommunityIpfsType } from "../../../dist/node/community/types.js";
 
 describe(`community.{lastPostCid, lastCommentCid}`, async () => {
     let pkc: PKC;
-    let sub: LocalCommunity | RpcLocalCommunity;
+    let community: LocalCommunity | RpcLocalCommunity;
     beforeAll(async () => {
         pkc = await mockPKC();
-        sub = await createSubWithNoChallenge({}, pkc);
-        await sub.start();
-        await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
+        community = await createSubWithNoChallenge({}, pkc);
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
     });
 
     afterAll(async () => {
-        await sub.delete();
+        await community.delete();
         await pkc.destroy();
     });
 
     it(`community.lastPostCid and lastCommentCid reflects latest post published`, async () => {
-        expect(sub.lastPostCid).to.be.undefined;
-        expect(sub.lastCommentCid).to.be.undefined;
-        const post = await publishRandomPost({ communityAddress: sub.address, pkc: pkc });
+        expect(community.lastPostCid).to.be.undefined;
+        expect(community.lastCommentCid).to.be.undefined;
+        const post = await publishRandomPost({ communityAddress: community.address, pkc: pkc });
         await waitTillPostInCommunityPages(post as Comment & { cid: string }, pkc);
-        expect(sub.lastPostCid).to.equal(post.cid);
-        expect(sub.lastCommentCid).to.equal(post.cid);
+        expect(community.lastPostCid).to.equal(post.cid);
+        expect(community.lastCommentCid).to.equal(post.cid);
     });
 
     it(`community.lastPostCid doesn't reflect latest reply`, async () => {
-        await publishRandomReply({ parentComment: sub.posts.pages.hot!.comments[0], pkc: pkc });
-        expect(sub.lastPostCid).to.equal(sub.posts.pages.hot!.comments[0].cid);
+        await publishRandomReply({ parentComment: community.posts.pages.hot!.comments[0], pkc: pkc });
+        expect(community.lastPostCid).to.equal(community.posts.pages.hot!.comments[0].cid);
     });
 
     it(`community.lastCommentCid reflects latest comment (post or reply)`, async () => {
         await resolveWhenConditionIsTrue({
-            toUpdate: sub,
-            predicate: async () => (sub.posts.pages.hot?.comments[0]?.replyCount ?? 0) > 0
+            toUpdate: community,
+            predicate: async () => (community.posts.pages.hot?.comments[0]?.replyCount ?? 0) > 0
         });
-        expect(sub.lastCommentCid).to.equal(sub.posts.pages.hot!.comments[0].replies!.pages.best!.comments[0].cid);
+        expect(community.lastCommentCid).to.equal(community.posts.pages.hot!.comments[0].replies!.pages.best!.comments[0].cid);
     });
 });
 
 describeSkipIfRpc(`Create a sub with basic auth urls`, async () => {
-    it(`Can create a sub with encoded authorization `, async () => {
+    it(`Can create a community with encoded authorization `, async () => {
         const headers = {
             authorization: "Basic " + Buffer.from("username" + ":" + "password").toString("base64")
         };
@@ -85,11 +85,11 @@ describeSkipIfRpc(`Create a sub with basic auth urls`, async () => {
         };
 
         const pkc = await mockPKC(pkcOptions);
-        const sub = await createSubWithNoChallenge({}, pkc);
-        await sub.start();
-        await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
-        await publishRandomPost({ communityAddress: sub.address, pkc: pkc });
-        await sub.delete();
+        const community = await createSubWithNoChallenge({}, pkc);
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+        await publishRandomPost({ communityAddress: community.address, pkc: pkc });
+        await community.delete();
         await pkc.destroy();
     });
 
@@ -102,11 +102,11 @@ describeSkipIfRpc(`Create a sub with basic auth urls`, async () => {
         };
 
         const pkc = await mockPKC(pkcOptions);
-        const sub = await createSubWithNoChallenge({}, pkc);
-        await sub.start();
-        await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
-        await publishRandomPost({ communityAddress: sub.address, pkc: pkc });
-        await sub.delete();
+        const community = await createSubWithNoChallenge({}, pkc);
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+        await publishRandomPost({ communityAddress: community.address, pkc: pkc });
+        await community.delete();
         await pkc.destroy();
     });
 });
@@ -127,7 +127,7 @@ describe(`community.pubsubTopic`, async () => {
     it(`community.pubsubTopic is defaulted to address when community is first created`, async () => {
         expect(community.pubsubTopic).to.equal(community.address);
     });
-    it(`Publications can be published to a sub with pubsubTopic=undefined`, async () => {
+    it(`Publications can be published to a community with pubsubTopic=undefined`, async () => {
         await community.edit({ pubsubTopic: undefined });
         expect(community.pubsubTopic).to.be.undefined;
         await community.start();
@@ -258,24 +258,24 @@ describe.concurrent(`community.clients (Local)`, async () => {
         });
 
         it(`community.clients.kuboRpcClients.state is publishing-ipns before publishing a new IPNS`, async () => {
-            const sub = await createSubWithNoChallenge({}, pkc);
+            const community = await createSubWithNoChallenge({}, pkc);
 
             let publishStateTime: number | undefined;
             let updateTime: number | undefined;
 
-            const ipfsUrl = Object.keys(sub.clients.kuboRpcClients)[0];
+            const ipfsUrl = Object.keys(community.clients.kuboRpcClients)[0];
 
-            sub.clients.kuboRpcClients[ipfsUrl].on(
+            community.clients.kuboRpcClients[ipfsUrl].on(
                 "statechange",
                 (newState) => newState === "publishing-ipns" && (publishStateTime = Date.now())
             );
 
-            sub.once("update", () => (updateTime = Date.now()));
+            community.once("update", () => (updateTime = Date.now()));
 
-            const updatePromise = new Promise((resolve) => sub.once("update", resolve));
-            await sub.start();
+            const updatePromise = new Promise((resolve) => community.once("update", resolve));
+            await community.start();
             await updatePromise;
-            await sub.stop();
+            await community.stop();
 
             expect(publishStateTime).to.be.a("number");
             expect(updateTime).to.be.a("number");
@@ -391,30 +391,30 @@ describe.concurrent(`community.clients (Local)`, async () => {
 
     describeIfRpc(`community.clients.pkcRpcClients (local community ran over RPC)`, async () => {
         it(`community.clients.pkcRpcClients[rpcUrl] is stopped by default`, async () => {
-            const sub = (await pkc.createCommunity({})) as RpcLocalCommunity;
+            const community = (await pkc.createCommunity({})) as RpcLocalCommunity;
             const rpcUrl = Object.keys(pkc.clients.pkcRpcClients)[0];
-            expect(sub.clients.pkcRpcClients[rpcUrl].state).to.equal("stopped");
+            expect(community.clients.pkcRpcClients[rpcUrl].state).to.equal("stopped");
         });
 
         it(`community.clients.pkcRpcClients states are set correctly prior to publishing IPNS`, async () => {
-            const sub = (await pkc.createCommunity({})) as RpcLocalCommunity;
+            const community = (await pkc.createCommunity({})) as RpcLocalCommunity;
             const rpcUrl = Object.keys(pkc.clients.pkcRpcClients)[0];
             const recordedStates: string[] = [];
 
-            sub.clients.pkcRpcClients[rpcUrl].on("statechange", (newState) => recordedStates.push(newState));
+            community.clients.pkcRpcClients[rpcUrl].on("statechange", (newState) => recordedStates.push(newState));
 
-            await sub.start();
+            await community.start();
 
-            await new Promise((resolve) => sub.once("update", resolve));
+            await new Promise((resolve) => community.once("update", resolve));
             await new Promise((resolve) => setTimeout(resolve, pkc.publishInterval / 2)); // until stopped state is transmitted
 
             expect(recordedStates).to.deep.equal(["publishing-ipns", "stopped"]);
 
-            await sub.delete();
+            await community.delete();
         });
 
         it(`community.clients.pkcRpcClients states are set correctly if it receives a comment while having no challenges`, async () => {
-            const sub = (await createSubWithNoChallenge({}, pkc)) as RpcLocalCommunity;
+            const community = (await createSubWithNoChallenge({}, pkc)) as RpcLocalCommunity;
             const rpcUrl = Object.keys(pkc.clients.pkcRpcClients)[0];
             const recordedStates: string[] = [];
 
@@ -426,24 +426,24 @@ describe.concurrent(`community.clients (Local)`, async () => {
                 "waiting-challenge-requests",
                 "publishing-ipns"
             ];
-            sub.clients.pkcRpcClients[rpcUrl].on("statechange", (newState) => recordedStates.push(newState));
+            community.clients.pkcRpcClients[rpcUrl].on("statechange", (newState) => recordedStates.push(newState));
 
-            await sub.start();
+            await community.start();
 
-            await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
+            await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
-            const post = await publishRandomPost({ communityAddress: sub.address, pkc: pkc });
+            const post = await publishRandomPost({ communityAddress: community.address, pkc: pkc });
             await waitTillPostInCommunityPages(post as Comment & { cid: string }, pkc);
             if (recordedStates[recordedStates.length - 1] === "stopped")
                 expect(recordedStates).to.deep.equal([...expectedStates, "stopped"]);
             else expect(recordedStates).to.deep.equal(expectedStates);
 
-            await sub.delete();
+            await community.delete();
         });
 
         it(`community.clients.pkcRpcClients states are set correctly if it receives a comment while mandating challenge`, async () => {
-            const sub = (await pkc.createCommunity({})) as RpcLocalCommunity;
-            await sub.edit({ settings: { challenges: [{ name: "question", options: { question: "1+1=?", answer: "2" } }] } });
+            const community = (await pkc.createCommunity({})) as RpcLocalCommunity;
+            await community.edit({ settings: { challenges: [{ name: "question", options: { question: "1+1=?", answer: "2" } }] } });
 
             const rpcUrl = Object.keys(pkc.clients.pkcRpcClients)[0];
             const recordedStates: string[] = [];
@@ -459,24 +459,24 @@ describe.concurrent(`community.clients (Local)`, async () => {
                 "publishing-ipns",
                 "stopped"
             ];
-            sub.clients.pkcRpcClients[rpcUrl].on("statechange", (newState) => recordedStates.push(newState));
+            community.clients.pkcRpcClients[rpcUrl].on("statechange", (newState) => recordedStates.push(newState));
 
-            await sub.start();
+            await community.start();
 
-            await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
+            await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
-            const mockPost = await generateMockPost({ communityAddress: sub.address, pkc: pkc });
+            const mockPost = await generateMockPost({ communityAddress: community.address, pkc: pkc });
 
             mockPost.once("challenge", async () => {
                 await mockPost.publishChallengeAnswers(["2"]);
             });
 
             await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });
-            await new Promise((resolve) => sub.once("update", resolve));
-            await new Promise((resolve) => sub.once("startedstatechange", resolve)); // wait for the last stopped state to be emitted
+            await new Promise((resolve) => community.once("update", resolve));
+            await new Promise((resolve) => community.once("startedstatechange", resolve)); // wait for the last stopped state to be emitted
             expect(recordedStates.slice(0, expectedStates.length)).to.deep.equal(expectedStates);
 
-            await sub.delete();
+            await community.delete();
         });
     });
 });

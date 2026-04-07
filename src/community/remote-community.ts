@@ -199,7 +199,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         const postsPagesCreationTimestamp = this.updatedAt;
         this.posts._community = this;
         if (!newPosts)
-            // The sub has changed its address, need to reset the posts
+            // The community has changed its address, need to reset the posts
             this.posts.resetPages();
         else if (
             (!("pages" in newPosts) || !newPosts.pages || Object.keys(newPosts.pages).length === 0) &&
@@ -255,7 +255,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     ) {
         this.modQueue._community = this;
         if (!newModQueue)
-            // The sub has changed its address, need to reset the posts
+            // The community has changed its address, need to reset the posts
             this.modQueue.resetPages();
         else if (newModQueue.pageCids) {
             // only pageCids is provided
@@ -471,7 +471,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         newState?: RemoteCommunity["state"];
         newStartedState?: RemoteCommunity["startedState"];
     }) {
-        // this code block is only called on a sub whose update loop is already started
+        // this code block is only called on a community whose update loop is already started
         // never called in a community that's mirroring a community with an update loop
         const shouldEmitStateChange = opts.newState && opts.newState !== this.state;
         const shouldEmitUpdatingStateChange = opts.newUpdatingState && opts.newUpdatingState !== this.updatingState;
@@ -534,10 +534,10 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
 
     _setCommunityIpfsPropsFromUpdatingCommunitiesIfPossible() {
         const log = Logger("pkc-js:comment:_setCommunityIpfsPropsFromUpdatingCommunitiesIfPossible");
-        const updatingSub = findUpdatingCommunity(this._pkc, { address: this.address });
-        if (updatingSub?.raw?.communityIpfs && (this.updatedAt || 0) < updatingSub.raw.communityIpfs.updatedAt) {
-            this.initCommunityIpfsPropsNoMerge(updatingSub.raw.communityIpfs);
-            this.updateCid = updatingSub.updateCid;
+        const updatingCommunity = findUpdatingCommunity(this._pkc, { address: this.address });
+        if (updatingCommunity?.raw?.communityIpfs && (this.updatedAt || 0) < updatingCommunity.raw.communityIpfs.updatedAt) {
+            this.initCommunityIpfsPropsNoMerge(updatingCommunity.raw.communityIpfs);
+            this.updateCid = updatingCommunity.updateCid;
             log.trace(
                 `New Remote Community instance`,
                 this.address,
@@ -551,21 +551,21 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         }
     }
 
-    private async _initSubInstanceWithListeners() {
-        const trackedUpdatingSub = findUpdatingCommunity(this._pkc, { address: this.address });
-        if (!trackedUpdatingSub) throw Error("should be defined at this stage");
+    private async _initCommunityInstanceWithListeners() {
+        const trackedUpdatingCommunity = findUpdatingCommunity(this._pkc, { address: this.address });
+        if (!trackedUpdatingCommunity) throw Error("should be defined at this stage");
         const log = Logger("pkc-js:remote-community:update");
-        const subInstance = trackedUpdatingSub;
+        const communityInstance = trackedUpdatingCommunity;
         return <NonNullable<this["_updatingCommunityInstanceWithListeners"]>>{
-            community: subInstance,
+            community: communityInstance,
             update: () => {
-                if (!subInstance.raw.communityIpfs || !subInstance.updateCid) {
-                    if (subInstance.publicKey) this._clearDataForKeyMigration(subInstance.publicKey);
+                if (!communityInstance.raw.communityIpfs || !communityInstance.updateCid) {
+                    if (communityInstance.publicKey) this._clearDataForKeyMigration(communityInstance.publicKey);
                 } else {
-                    this.initCommunityIpfsPropsNoMerge(subInstance.raw.communityIpfs);
-                    this.updateCid = subInstance.updateCid;
+                    this.initCommunityIpfsPropsNoMerge(communityInstance.raw.communityIpfs);
+                    this.updateCid = communityInstance.updateCid;
                 }
-                if (typeof subInstance.nameResolved === "boolean") this.nameResolved = subInstance.nameResolved;
+                if (typeof communityInstance.nameResolved === "boolean") this.nameResolved = communityInstance.nameResolved;
                 log(
                     `Remote Community instance`,
                     this.address,
@@ -589,29 +589,29 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         };
     }
 
-    private async fetchLatestSubOrSubscribeToEvent() {
+    private async fetchLatestCommunityOrSubscribeToEvent() {
         const log = Logger("pkc-js:remote-community:update:updateOnce");
 
         if (!findUpdatingCommunity(this._pkc, { address: this.address })) {
-            // Pass publicKey alongside name/address so the updating sub can use publicKey fallback
+            // Pass publicKey alongside name/address so the updating community can use publicKey fallback
             const createOpts =
                 this.publicKey && isStringDomain(this.address)
                     ? { name: this.address, publicKey: this.publicKey }
                     : { address: this.address };
-            const updatingSub = await this._pkc.createCommunity(createOpts);
-            trackUpdatingCommunity(this._pkc, updatingSub);
+            const updatingCommunity = await this._pkc.createCommunity(createOpts);
+            trackUpdatingCommunity(this._pkc, updatingCommunity);
             log("Creating a new entry for this._pkc._updatingCommunities", this.address);
         }
 
-        const subInstance = findUpdatingCommunity(this._pkc, { address: this.address });
-        if (!subInstance) throw Error("should be defined at this stage");
-        if (subInstance === this) {
+        const communityInstance = findUpdatingCommunity(this._pkc, { address: this.address });
+        if (!communityInstance) throw Error("should be defined at this stage");
+        if (communityInstance === this) {
             // Already tracking this instance; start the loop directly without mirroring to itself
             this._clientsManager.startUpdatingLoop().catch((err) => log.error("Failed to start update loop of community", err));
             return;
         }
 
-        this._updatingCommunityInstanceWithListeners = await this._initSubInstanceWithListeners();
+        this._updatingCommunityInstanceWithListeners = await this._initCommunityInstanceWithListeners();
         this._updatingCommunityInstanceWithListeners.community.on("update", this._updatingCommunityInstanceWithListeners.update);
 
         this._updatingCommunityInstanceWithListeners.community.on(
@@ -644,14 +644,14 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
 
         this._setState("updating");
 
-        await this.fetchLatestSubOrSubscribeToEvent();
+        await this.fetchLatestCommunityOrSubscribeToEvent();
         if (this.raw.communityIpfs) this.emit("update", this);
     }
 
-    private async _cleanUpUpdatingSubInstanceWithListeners() {
+    private async _cleanUpUpdatingCommunityInstanceWithListeners() {
         if (!this._updatingCommunityInstanceWithListeners) throw Error("should be defined at this stage");
 
-        const log = Logger("pkc-js:remote-community:stop:cleanUpUpdatingSubInstanceWithListeners");
+        const log = Logger("pkc-js:remote-community:stop:cleanUpUpdatingCommunityInstanceWithListeners");
         const updatingCommunity = this._updatingCommunityInstanceWithListeners.community;
         if (typeof updatingCommunity.ipnsName === "string") this._ipnsName = updatingCommunity.ipnsName;
         if (typeof updatingCommunity.ipnsPubsubTopic === "string") this._ipnsPubsubTopic = updatingCommunity.ipnsPubsubTopic;
@@ -698,7 +698,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         const log = Logger("pkc-js:remote-community:stop");
         this._abortStopOperations(`Aborting community operations for ${this.address} because community.stop() was called`);
 
-        if (this._updatingCommunityInstanceWithListeners) await this._cleanUpUpdatingSubInstanceWithListeners();
+        if (this._updatingCommunityInstanceWithListeners) await this._cleanUpUpdatingCommunityInstanceWithListeners();
         else {
             // this instance is pkc._updatingCommunity[address] itself
             await this._clientsManager.stopUpdatingLoop();

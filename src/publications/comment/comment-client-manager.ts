@@ -435,10 +435,10 @@ export class CommentClientsManager extends PublicationClientsManager {
         // this code below won't be executed by a post, and instead it will be a reply
         // what do we do if we don't have parentCid?
 
-        // - download all comments under a sub and look for our specific comment
+        // - download all comments under a community and look for our specific comment
         if (!this._comment.communityAddress) throw Error("Comment communityAddress should be defined");
         if (!this._comment.cid) throw Error("Comment cid should be defined");
-        const sub = await this._pkc.createCommunity({
+        const community = await this._pkc.createCommunity({
             name: this._comment.communityName,
             publicKey: this._comment.communityPublicKey,
             address: this._comment.communityAddress
@@ -447,7 +447,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         const abortController = new AbortController();
         const abortIfNeeded = async () => {
             if (!abortController.signal.aborted) abortController.abort();
-            if (sub.state === "updating") await sub.stop();
+            if (community.state === "updating") await community.stop();
         };
         const onCommentUpdate = async () => {
             if (this._comment.raw.comment) await abortIfNeeded();
@@ -462,7 +462,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         if (this._comment.state === "stopped" || this._pkc.destroyed) return;
         try {
             if (abortController.signal.aborted) return;
-            await sub.update();
+            await community.update();
             await new Promise<void>((resolve, reject) => {
                 const abortError = () => {
                     const error = new Error("The operation was aborted");
@@ -470,7 +470,7 @@ export class CommentClientsManager extends PublicationClientsManager {
                     return error;
                 };
                 const cleanup = () => {
-                    sub.removeListener("update", onUpdate);
+                    community.removeListener("update", onUpdate);
                     abortController.signal.removeEventListener("abort", onAbort);
                 };
                 const onAbort = () => {
@@ -479,7 +479,7 @@ export class CommentClientsManager extends PublicationClientsManager {
                 };
                 const onUpdate = async () => {
                     try {
-                        if (typeof sub.updatedAt === "number") {
+                        if (typeof community.updatedAt === "number") {
                             cleanup();
                             resolve();
                         }
@@ -493,14 +493,14 @@ export class CommentClientsManager extends PublicationClientsManager {
                     return;
                 }
                 abortController.signal.addEventListener("abort", onAbort);
-                sub.on("update", onUpdate);
+                community.on("update", onUpdate);
                 void onUpdate();
             });
 
-            await sub.stop();
+            await community.stop();
 
             const commentAfterSearchingAllPages = await loadAllPagesUnderCommunityToFindComment({
-                community: sub,
+                community: community,
                 commentCidToFind: this._comment.cid,
                 postCid: this._comment.postCid,
                 parentCid: this._comment.parentCid,
@@ -512,7 +512,7 @@ export class CommentClientsManager extends PublicationClientsManager {
                     this._comment.emit("update", this._comment);
                 }
                 if ((this._comment.updatedAt || 0) < commentAfterSearchingAllPages.commentUpdate.updatedAt)
-                    this._comment._initCommentUpdate(commentAfterSearchingAllPages.commentUpdate, sub.raw.communityIpfs);
+                    this._comment._initCommentUpdate(commentAfterSearchingAllPages.commentUpdate, community.raw.communityIpfs);
             }
         } catch (err) {
             if ((err as Error)?.name !== "AbortError") throw err;
@@ -551,18 +551,18 @@ export class CommentClientsManager extends PublicationClientsManager {
     }
 
     _findCommentInPagesOfUpdatingCommentsOrCommunity(opts?: {
-        sub?: RemoteCommunity;
+        community?: RemoteCommunity;
         post?: Comment;
         parent?: Comment;
     }): PageIpfs["comments"][0] | undefined {
         // TODO rewrite this to use updating comments and community
         if (typeof this._comment.cid !== "string") throw Error("Need to have defined cid");
-        const sub: RemoteCommunity | undefined =
+        const community: RemoteCommunity | undefined =
             findStartedCommunity(this._pkc, { address: this._comment.communityAddress }) ||
             findUpdatingCommunity(this._pkc, { address: this._comment.communityAddress }) ||
-            opts?.sub;
-        let updateFromSub: PageIpfs["comments"][0] | undefined;
-        if (sub) updateFromSub = findCommentInPageInstanceRecursively(sub.posts, this._comment.cid);
+            opts?.community;
+        let updateFromCommunity: PageIpfs["comments"][0] | undefined;
+        if (community) updateFromCommunity = findCommentInPageInstanceRecursively(community.posts, this._comment.cid);
 
         const post: Comment | undefined = this._comment.postCid
             ? findUpdatingComment(this._pkc, { cid: this._comment.postCid })
@@ -578,42 +578,48 @@ export class CommentClientsManager extends PublicationClientsManager {
             updateFromParent = parent.replies && findCommentInPageInstance(parent.replies, this._comment.cid);
         }
 
-        const updates: PageIpfs["comments"][0][] = [updateFromSub, updateFromPost, updateFromParent].filter((update) => !!update);
+        const updates: PageIpfs["comments"][0][] = [updateFromCommunity, updateFromPost, updateFromParent].filter((update) => !!update);
         const latestUpdate = updates.sort((a, b) => b.commentUpdate.updatedAt - a.commentUpdate.updatedAt)[0];
         return latestUpdate;
     }
 
-    // will handling sub states down here
+    // will handling community states down here
     // this is for posts with depth === 0
-    override async handleUpdateEventFromSub(sub: RemoteCommunity) {
+    override async handleUpdateEventFromCommunity(community: RemoteCommunity) {
         const log = Logger("pkc-js:comment:update");
         if (!this._comment.cid) {
             log("comment.cid is not defined because comment is publishing, waiting until cid is defined");
             return;
         }
-        // a new update has been emitted by sub
+        // a new update has been emitted by community
         if (this._comment.state === "stopped") {
             // there are async cases where we fetch a CommunityUpdate in the background and stop() is called midway
             await this._comment.stop();
             return;
         }
 
-        if (!sub.raw.communityIpfs) throw Error("Community IPFS should be defined when an update is emitted");
+        if (!community.raw.communityIpfs) throw Error("Community IPFS should be defined when an update is emitted");
         // let's try to find a CommentUpdate in community pages, or _updatingComments
         // this._communityForUpdating!.community.raw.communityIpfs?.posts.
 
-        const postInUpdatingCommunity = this._findCommentInPagesOfUpdatingCommentsOrCommunity({ sub });
+        const postInUpdatingCommunity = this._findCommentInPagesOfUpdatingCommentsOrCommunity({ community });
 
         if (
             postInUpdatingCommunity &&
             postInUpdatingCommunity.commentUpdate.updatedAt > (this._comment.raw?.commentUpdate?.updatedAt || 0)
         ) {
-            const log = Logger("pkc-js:comment:update:handleUpdateEventFromSub:find-comment-update-in-updating-sub-or-comments-pages");
-            this._useLoadedCommentUpdateIfNewInfo({ commentUpdate: postInUpdatingCommunity.commentUpdate }, sub.raw.communityIpfs, log);
+            const log = Logger(
+                "pkc-js:comment:update:handleUpdateEventFromCommunity:find-comment-update-in-updating-community-or-comments-pages"
+            );
+            this._useLoadedCommentUpdateIfNewInfo(
+                { commentUpdate: postInUpdatingCommunity.commentUpdate },
+                community.raw.communityIpfs,
+                log
+            );
         } else
             try {
                 // this is only for posts with depth === 0
-                await this.useCommunityPostUpdatesToFetchCommentUpdateForPost(sub.raw.communityIpfs);
+                await this.useCommunityPostUpdatesToFetchCommentUpdateForPost(community.raw.communityIpfs);
             } catch (e) {
                 if (isAbortError(e)) return;
                 log.error("Failed to use community update to fetch new CommentUpdate", e);
@@ -806,9 +812,9 @@ export class CommentClientsManager extends PublicationClientsManager {
             });
     }
 
-    override async handleErrorEventFromSub(error: PKCError | Error) {
-        // we received a non retriable error from sub instance
-        if (this._comment.state === "publishing") return super.handleErrorEventFromSub(error);
+    override async handleErrorEventFromCommunity(error: PKCError | Error) {
+        // we received a non retriable error from community instance
+        if (this._comment.state === "publishing") return super.handleErrorEventFromCommunity(error);
         else if (this._communityForUpdating?.community?.updatingState === "failed") {
             // let's make sure
             // we're updating a comment
@@ -836,26 +842,27 @@ export class CommentClientsManager extends PublicationClientsManager {
         else if (communityNewGatewayState === "fetching-ipns") this.updateGatewayState("fetching-community-ipns", gatewayUrl);
     }
 
-    _translateSubUpdatingStateToCommentUpdatingState(newSubUpdatingState: RemoteCommunity["updatingState"]) {
-        const subUpdatingStateToCommentUpdatingState: Record<typeof newSubUpdatingState, Comment["updatingState"] | undefined> = {
-            failed: "failed",
-            "fetching-ipfs": "fetching-community-ipfs",
-            "fetching-ipns": "fetching-community-ipns",
-            "resolving-name": "resolving-community-name",
-            "waiting-retry": "waiting-retry",
-            stopped: "stopped",
-            succeeded: undefined,
-            "publishing-ipns": undefined
-        };
-        const translatedCommentUpdatingState = subUpdatingStateToCommentUpdatingState[newSubUpdatingState];
+    _translateCommunityUpdatingStateToCommentUpdatingState(newCommunityUpdatingState: RemoteCommunity["updatingState"]) {
+        const communityUpdatingStateToCommentUpdatingState: Record<typeof newCommunityUpdatingState, Comment["updatingState"] | undefined> =
+            {
+                failed: "failed",
+                "fetching-ipfs": "fetching-community-ipfs",
+                "fetching-ipns": "fetching-community-ipns",
+                "resolving-name": "resolving-community-name",
+                "waiting-retry": "waiting-retry",
+                stopped: "stopped",
+                succeeded: undefined,
+                "publishing-ipns": undefined
+            };
+        const translatedCommentUpdatingState = communityUpdatingStateToCommentUpdatingState[newCommunityUpdatingState];
         if (translatedCommentUpdatingState) this._comment._setUpdatingStateWithEmissionIfNewState(translatedCommentUpdatingState);
     }
 
-    override handleUpdatingStateChangeEventFromSub(newSubUpdatingState: RemoteCommunity["updatingState"]) {
-        if (this._comment.state === "publishing") return super.handleUpdatingStateChangeEventFromSub(newSubUpdatingState);
+    override handleUpdatingStateChangeEventFromCommunity(newCommunityUpdatingState: RemoteCommunity["updatingState"]) {
+        if (this._comment.state === "publishing") return super.handleUpdatingStateChangeEventFromCommunity(newCommunityUpdatingState);
         if (this._comment.updatingState === "fetching-update-ipfs") return;
 
-        this._translateSubUpdatingStateToCommentUpdatingState(newSubUpdatingState);
+        this._translateCommunityUpdatingStateToCommentUpdatingState(newCommunityUpdatingState);
     }
 
     handleErrorEventFromPost(error: PKCError | Error) {
@@ -932,7 +939,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         }
         if (replyInPage && replyInPage.commentUpdate.updatedAt > (this._comment.raw?.commentUpdate?.updatedAt || 0)) {
             const log = Logger(
-                "pkc-js:comment:update:handleUpdateEventFromPostToFetchReplyCommentUpdate:find-comment-update-in-updating-sub-or-comments-pages"
+                "pkc-js:comment:update:handleUpdateEventFromPostToFetchReplyCommentUpdate:find-comment-update-in-updating-community-or-comments-pages"
             );
             this._useLoadedCommentUpdateIfNewInfo({ commentUpdate: replyInPage.commentUpdate }, repliesCommunity, log);
             return; // we found an update from pages, no need to do anything else

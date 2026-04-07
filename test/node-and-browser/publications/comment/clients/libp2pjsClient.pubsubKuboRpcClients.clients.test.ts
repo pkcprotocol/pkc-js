@@ -172,7 +172,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     pkcOptions: { pubsubKuboRpcClientsOptions: [offlinePubsubUrl, upPubsubUrl] }
                 });
 
-                pkc.clients.pubsubKuboRpcClients[upPubsubUrl]._client = createMockPubsubClient(); // Use mock pubsub to be on the same pubsub as the sub
+                pkc.clients.pubsubKuboRpcClients[upPubsubUrl]._client = createMockPubsubClient(); // Use mock pubsub to be on the same pubsub as the community
 
                 const mockPost = await generateMockPost({ communityAddress: signers[0].address, pkc: pkc });
 
@@ -205,7 +205,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     remotePKC: true
                 });
 
-                pkc.clients.pubsubKuboRpcClients[upPubsubUrl]._client = createMockPubsubClient(); // Use mock pubsub to be on the same pubsub as the sub
+                pkc.clients.pubsubKuboRpcClients[upPubsubUrl]._client = createMockPubsubClient(); // Use mock pubsub to be on the same pubsub as the community
 
                 const mockPost = await generateMockPost({ communityAddress: signers[0].address, pkc: pkc });
                 (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 5;
@@ -235,7 +235,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     pkcOptions: { pubsubKuboRpcClientsOptions: [notRespondingPubsubUrl, upPubsubUrl] }
                 });
 
-                pkc.clients.pubsubKuboRpcClients[upPubsubUrl]._client = createMockPubsubClient(); // Use mock pubsub to be on the same pubsub as the sub
+                pkc.clients.pubsubKuboRpcClients[upPubsubUrl]._client = createMockPubsubClient(); // Use mock pubsub to be on the same pubsub as the community
 
                 const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, pkc);
                 (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 5;

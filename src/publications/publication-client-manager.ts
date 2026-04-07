@@ -13,7 +13,7 @@ import {
 } from "./publication-clients.js";
 import { CommentIpfsGatewayClient, CommentKuboRpcClient } from "./comment/comment-clients.js";
 import type { CommunityEvents, CommunityIpfsType } from "../community/types.js";
-import { waitForUpdateInSubInstanceWithErrorAndTimeout } from "../util.js";
+import { waitForUpdateInCommunityInstanceWithErrorAndTimeout } from "../util.js";
 import { findStartedCommunity, findUpdatingCommunity } from "../pkc/tracked-instance-registry-util.js";
 
 export class PublicationClientsManager extends PKCClientsManager {
@@ -38,10 +38,10 @@ export class PublicationClientsManager extends PKCClientsManager {
         super(publication._pkc);
         this._publication = publication;
         this._initPKCRpcClients();
-        this.handleErrorEventFromSub = this.handleErrorEventFromSub.bind(this);
+        this.handleErrorEventFromCommunity = this.handleErrorEventFromCommunity.bind(this);
         this.handleIpfsGatewayCommunityState = this.handleIpfsGatewayCommunityState.bind(this);
-        this.handleUpdateEventFromSub = this.handleUpdateEventFromSub.bind(this);
-        this.handleUpdatingStateChangeEventFromSub = this.handleUpdatingStateChangeEventFromSub.bind(this);
+        this.handleUpdateEventFromCommunity = this.handleUpdateEventFromCommunity.bind(this);
+        this.handleUpdatingStateChangeEventFromCommunity = this.handleUpdatingStateChangeEventFromCommunity.bind(this);
     }
 
     protected override _initKuboRpcClients(): void {
@@ -85,7 +85,7 @@ export class PublicationClientsManager extends PKCClientsManager {
         super.updateGatewayState(newState, gateway);
     }
 
-    _translateSubUpdatingStateToPublishingState(newUpdatingState: RemoteCommunity["updatingState"]) {
+    _translateCommunityUpdatingStateToPublishingState(newUpdatingState: RemoteCommunity["updatingState"]) {
         const mapper: Partial<Record<typeof newUpdatingState, Publication["publishingState"]>> = {
             failed: "failed",
             "fetching-ipfs": "fetching-community-ipfs",
@@ -96,17 +96,17 @@ export class PublicationClientsManager extends PKCClientsManager {
         if (translatedState) this._publication._updatePublishingStateWithEmission(translatedState);
     }
 
-    handleUpdatingStateChangeEventFromSub(newUpdatingState: RemoteCommunity["updatingState"]) {
+    handleUpdatingStateChangeEventFromCommunity(newUpdatingState: RemoteCommunity["updatingState"]) {
         // will be overridden in comment-client-manager to provide a specific states relevant to post updating
         // below is for handling translation to publishingState
-        this._translateSubUpdatingStateToPublishingState(newUpdatingState);
+        this._translateCommunityUpdatingStateToPublishingState(newUpdatingState);
     }
-    handleUpdateEventFromSub(sub: RemoteCommunity) {
-        // a new update has been emitted by sub
+    handleUpdateEventFromCommunity(community: RemoteCommunity) {
+        // a new update has been emitted by community
         // should be handled in comment-client-manager
     }
 
-    handleErrorEventFromSub(err: PKCError | Error) {}
+    handleErrorEventFromCommunity(err: PKCError | Error) {}
 
     handleIpfsGatewayCommunityState(
         communityNewGatewayState: RemoteCommunity["clients"]["ipfsGateways"][string]["state"],
@@ -161,14 +161,14 @@ export class PublicationClientsManager extends PKCClientsManager {
         if (translatedState) this.updateLibp2pJsClientState(translatedState, libp2pJsClientKey);
     }
 
-    async _createSubInstanceWithStateTranslation() {
+    async _createCommunityInstanceWithStateTranslation() {
         // basically in Publication or comment we need to be fetching the community record
         // this function will be for translating between the states of the community and its clients to publication/comment states
-        const directSubInstance =
+        const directCommunityInstance =
             findUpdatingCommunity(this._pkc, { address: this._publication.communityAddress }) ||
             findStartedCommunity(this._pkc, { address: this._publication.communityAddress });
-        const sub =
-            directSubInstance ||
+        const community =
+            directCommunityInstance ||
             (await this._pkc.createCommunity({
                 name: this._publication.communityName,
                 publicKey: this._publication.communityPublicKey,
@@ -176,10 +176,10 @@ export class PublicationClientsManager extends PKCClientsManager {
             }));
 
         this._communityForUpdating = {
-            community: sub,
-            error: this.handleErrorEventFromSub.bind(this),
-            update: this.handleUpdateEventFromSub.bind(this),
-            updatingstatechange: this.handleUpdatingStateChangeEventFromSub.bind(this)
+            community: community,
+            error: this.handleErrorEventFromCommunity.bind(this),
+            update: this.handleUpdateEventFromCommunity.bind(this),
+            updatingstatechange: this.handleUpdatingStateChangeEventFromCommunity.bind(this)
         };
 
         if (
@@ -260,13 +260,13 @@ export class PublicationClientsManager extends PKCClientsManager {
 
         this._communityForUpdating.community.on("error", this._communityForUpdating.error);
 
-        if (directSubInstance) {
-            directSubInstance._numOfListenersForUpdatingInstance++;
+        if (directCommunityInstance) {
+            directCommunityInstance._numOfListenersForUpdatingInstance++;
         }
         return this._communityForUpdating!;
     }
 
-    async cleanUpUpdatingSubInstance() {
+    async cleanUpUpdatingCommunityInstance() {
         if (!this._communityForUpdating) throw Error("Need to define communityForUpdating first");
 
         // Clean up IPFS Gateway listeners
@@ -338,34 +338,34 @@ export class PublicationClientsManager extends PKCClientsManager {
     }
 
     private async _loadCommunityForPublishingFromNetwork(): Promise<NonNullable<Publication["_community"]>> {
-        const updatingSubInstance = await this._createSubInstanceWithStateTranslation();
-        let subIpfs: CommunityIpfsType;
-        if (!updatingSubInstance.community.raw.communityIpfs) {
+        const updatingCommunityInstance = await this._createCommunityInstanceWithStateTranslation();
+        let communityIpfs: CommunityIpfsType;
+        if (!updatingCommunityInstance.community.raw.communityIpfs) {
             const timeoutMs = this._pkc._timeouts["community-ipns"];
             try {
-                await waitForUpdateInSubInstanceWithErrorAndTimeout(updatingSubInstance.community, timeoutMs);
-                subIpfs = updatingSubInstance.community.raw.communityIpfs!;
+                await waitForUpdateInCommunityInstanceWithErrorAndTimeout(updatingCommunityInstance.community, timeoutMs);
+                communityIpfs = updatingCommunityInstance.community.raw.communityIpfs!;
             } catch (e) {
-                await this.cleanUpUpdatingSubInstance();
+                await this.cleanUpUpdatingCommunityInstance();
                 throw e;
             }
-            await this.cleanUpUpdatingSubInstance();
+            await this.cleanUpUpdatingCommunityInstance();
         } else {
-            subIpfs = updatingSubInstance.community.raw.communityIpfs!;
-            await this.cleanUpUpdatingSubInstance();
+            communityIpfs = updatingCommunityInstance.community.raw.communityIpfs!;
+            await this.cleanUpUpdatingCommunityInstance();
         }
 
-        if (!subIpfs)
+        if (!communityIpfs)
             throw new PKCError("ERR_GET_COMMUNITY_TIMED_OUT", {
-                communityAddress: updatingSubInstance.community.address,
+                communityAddress: updatingCommunityInstance.community.address,
                 timeoutMs: this._pkc._timeouts["community-ipns"]
             });
         return {
-            address: updatingSubInstance.community.address,
-            publicKey: updatingSubInstance.community.publicKey!,
-            name: updatingSubInstance.community.name,
-            encryption: subIpfs.encryption,
-            pubsubTopic: subIpfs.pubsubTopic
+            address: updatingCommunityInstance.community.address,
+            publicKey: updatingCommunityInstance.community.publicKey!,
+            name: updatingCommunityInstance.community.name,
+            encryption: communityIpfs.encryption,
+            pubsubTopic: communityIpfs.pubsubTopic
         };
     }
 }

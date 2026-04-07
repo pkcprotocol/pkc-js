@@ -87,7 +87,7 @@ import { CommunityAddressRpcParam, CommunityLookupRpcParam } from "../../clients
 import { findStartedCommunity } from "../../pkc/tracked-instance-registry-util.js";
 
 // store started communities to be able to stop them
-// store as a singleton because not possible to start the same sub twice at the same time
+// store as a singleton because not possible to start the same community twice at the same time
 
 const log = Logger("pkc-js-rpc:pkc-ws-server");
 
@@ -224,7 +224,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     }
 
     async getStartedCommunity(address: string): Promise<LocalCommunity> {
-        if (!(address in this._startedCommunities)) throw Error("Can't call getStartedCommunity when the sub hasn't been started");
+        if (!(address in this._startedCommunities)) throw Error("Can't call getStartedCommunity when the community hasn't been started");
         // if pending, wait until no longer pendng
         while (this._startedCommunities[address] === "pending") {
             await new Promise((r) => setTimeout(r, 20));
@@ -300,10 +300,10 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         }[];
 
         const pkc = await this._getPKCInstance();
-        const localSubs = pkc.communities;
+        const localCommunities = pkc.communities;
 
         for (const row of rows) {
-            if (!localSubs.includes(row.address)) {
+            if (!localCommunities.includes(row.address)) {
                 autoStartLog(`Skipping auto-start for ${row.address} - community no longer exists`);
                 this._removeCommunityState(row.address);
                 continue;
@@ -429,15 +429,15 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const { cid: pageCid, communityAddress, type, pageMaxSize } = parseRpcCommunityPageParam(params[0]);
         const pkc = await this._getPKCInstance();
 
-        // Use started community to fetch the page if possible, to expediete the process
-        const sub =
+        // Use started community to fetch the page if possible, to expedite the process
+        const community =
             communityAddress in this._startedCommunities
                 ? await this.getStartedCommunity(communityAddress)
                 : <RemoteCommunity | LocalCommunity>await pkc.createCommunity({ address: communityAddress });
         const { page } =
             type === "posts"
-                ? await sub.posts._fetchAndVerifyPage({ pageCid, pageMaxSize })
-                : await sub.modQueue._fetchAndVerifyPage({ pageCid, pageMaxSize });
+                ? await community.posts._fetchAndVerifyPage({ pageCid, pageMaxSize })
+                : await community.modQueue._fetchAndVerifyPage({ pageCid, pageMaxSize });
         const runtimeFields = buildPageRuntimeFields(page, pkc._memCaches.nameResolvedCache);
         return { page, runtimeFields };
     }
@@ -498,10 +498,10 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const updateListener = () => {
             const json = getUpdateJson();
             // Merge preloaded page runtimeFields into existing runtimeFields
-            const subIpfs = community.raw.communityIpfs;
-            if (subIpfs?.posts?.pages && "runtimeFields" in json && json.runtimeFields) {
+            const communityIpfsRecord = community.raw.communityIpfs;
+            if (communityIpfsRecord?.posts?.pages && "runtimeFields" in json && json.runtimeFields) {
                 Object.assign(json.runtimeFields, {
-                    posts: { pages: buildPagesRuntimeFields(subIpfs.posts.pages, community._pkc._memCaches.nameResolvedCache) }
+                    posts: { pages: buildPagesRuntimeFields(communityIpfsRecord.posts.pages, community._pkc._memCaches.nameResolvedCache) }
                 });
             }
             sendEvent("update", json);
@@ -568,16 +568,16 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const { address } = parseRpcCommunityAddressParam(params[0]);
         const pkc = await this._getPKCInstance();
 
-        const localSubs = pkc.communities;
-        if (!localSubs.includes(address))
+        const localCommunities = pkc.communities;
+        if (!localCommunities.includes(address))
             throw new PKCError("ERR_RPC_CLIENT_ATTEMPTING_TO_START_A_REMOTE_COMMUNITY", { communityAddress: address });
 
         const subscriptionId = generateSubscriptionId();
 
-        const startSub = async () => {
+        const startCommunityImpl = async () => {
             const pkc = await this._getPKCInstance();
-            const isSubStarted = address in this._startedCommunities;
-            if (isSubStarted) {
+            const isCommunityStarted = address in this._startedCommunities;
+            if (isCommunityStarted) {
                 const community = await this.getStartedCommunity(address);
                 this._setupStartedEvents(community, connectionId, subscriptionId);
             } else {
@@ -586,7 +586,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
                     const community = <LocalCommunity>await pkc.createCommunity({ address });
                     this._setupStartedEvents(community, connectionId, subscriptionId);
                     community.started = true; // a small hack to make sure first update has started=true
-                    community.emit("update", community); // Need to emit an update so rpc user can receive sub props prior to running
+                    community.emit("update", community); // Need to emit an update so rpc user can receive community props prior to running
                     await community.start();
                     this._startedCommunities[address] = community;
                     this._updateCommunityState(address, { wasStarted: true, wasExplicitlyStopped: false });
@@ -616,7 +616,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             }
         };
 
-        await startSub();
+        await startCommunityImpl();
 
         return subscriptionId;
     }
@@ -625,11 +625,12 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const { address } = parseRpcCommunityAddressParam(params[0]);
         const pkc = await this._getPKCInstance();
 
-        const localSubs = pkc.communities;
-        if (!localSubs.includes(address))
+        const localCommunities = pkc.communities;
+        if (!localCommunities.includes(address))
             throw new PKCError("ERR_RPC_CLIENT_TRYING_TO_STOP_REMOTE_COMMUNITY", { communityAddress: address });
-        const isSubStarted = address in this._startedCommunities;
-        if (!isSubStarted) throw new PKCError("ERR_RPC_CLIENT_TRYING_TO_STOP_COMMUNITY_THAT_IS_NOT_RUNNING", { communityAddress: address });
+        const isCommunityStarted = address in this._startedCommunities;
+        if (!isCommunityStarted)
+            throw new PKCError("ERR_RPC_CLIENT_TRYING_TO_STOP_COMMUNITY_THAT_IS_NOT_RUNNING", { communityAddress: address });
         const startedCommunity = await this.getStartedCommunity(address);
         await startedCommunity.stop();
         // emit last updates so subscribed instances can set their state to stopped
@@ -664,8 +665,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const editCommunityOptions = parseCommunityEditOptionsSchemaWithPKCErrorIfItFails(editOptions);
         const pkc = await this._getPKCInstance();
 
-        const localSubs = pkc.communities;
-        if (!localSubs.includes(address))
+        const localCommunities = pkc.communities;
+        if (!localCommunities.includes(address))
             throw new PKCError("ERR_RPC_CLIENT_TRYING_TO_EDIT_REMOTE_COMMUNITY", { communityAddress: address });
         let community: LocalCommunity;
         if (this._startedCommunities[address] instanceof LocalCommunity) community = <LocalCommunity>this._startedCommunities[address];
@@ -703,8 +704,10 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         if (!addresses.includes(address))
             throw new PKCError("ERR_RPC_CLIENT_TRYING_TO_DELETE_REMOTE_COMMUNITY", { communityAddress: address });
 
-        const isSubStarted = address in this._startedCommunities;
-        const community = isSubStarted ? await this.getStartedCommunity(address) : <LocalCommunity>await pkc.createCommunity({ address });
+        const isCommunityStarted = address in this._startedCommunities;
+        const community = isCommunityStarted
+            ? await this.getStartedCommunity(address)
+            : <LocalCommunity>await pkc.createCommunity({ address });
         await community.delete();
         await this._postStoppingOrDeleting(community);
         delete this._startedCommunities[address];
@@ -726,7 +729,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             });
         };
 
-        const pkcSubscribeEvent = (newSubs: string[]) => sendEvent("communitieschange", { communities: newSubs });
+        const pkcSubscribeEvent = (newCommunities: string[]) => sendEvent("communitieschange", { communities: newCommunities });
 
         const pkc = await this._getPKCInstance();
         pkc.on("communitieschange", pkcSubscribeEvent);
@@ -972,7 +975,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const isStartedCommunity = Boolean(startedCommunity);
         const community = startedCommunity || <LocalCommunity | RemoteCommunity>await pkc.createCommunity(parsedArgs);
 
-        const sendSubJson = () => {
+        const sendCommunityJson = () => {
             let jsonToSend:
                 | RpcRemoteCommunityType
                 | RpcInternalCommunityRecordAfterFirstUpdateType
@@ -985,17 +988,17 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             else jsonToSend = community.toJSONRpcRemote();
 
             // Merge preloaded page runtimeFields into existing runtimeFields
-            const subIpfs = community.raw.communityIpfs;
-            if (subIpfs?.posts?.pages && "runtimeFields" in jsonToSend && jsonToSend.runtimeFields) {
+            const communityIpfsRecord = community.raw.communityIpfs;
+            if (communityIpfsRecord?.posts?.pages && "runtimeFields" in jsonToSend && jsonToSend.runtimeFields) {
                 Object.assign(jsonToSend.runtimeFields, {
-                    posts: { pages: buildPagesRuntimeFields(subIpfs.posts.pages, pkc._memCaches.nameResolvedCache) }
+                    posts: { pages: buildPagesRuntimeFields(communityIpfsRecord.posts.pages, pkc._memCaches.nameResolvedCache) }
                 });
             }
 
             sendEvent("update", jsonToSend);
         };
 
-        const updateListener = () => sendSubJson();
+        const updateListener = () => sendCommunityJson();
         community.on("update", updateListener);
 
         const updatingStateListener = () => sendEvent("updatingstatechange", { state: community.updatingState });
@@ -1025,7 +1028,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             community.removeListener("startedstatechange", startedStateListener);
             if (this._onSettingsChange[connectionId]) delete this._onSettingsChange[connectionId][subscriptionId];
 
-            // We don't wanna stop the local sub if it's running already, this function is just for fetching updates
+            // We don't wanna stop the local community if it's running already, this function is just for fetching updates
             // if we comment this out remove test passes
             if (!isStartedCommunity && community.state !== "stopped") await community.stop();
         };
@@ -1041,8 +1044,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
         // if fail, cleanup
         try {
-            // need to send an update with first communityUpdate if it's a local sub
-            if ("signer" in community || community.raw.communityIpfs) sendSubJson();
+            // need to send an update with first communityUpdate if it's a local community
+            if ("signer" in community || community.raw.communityIpfs) sendCommunityJson();
 
             // No need to call .update() if it's already running locally because we're listening to update event
             if (!isStartedCommunity) await community.update();

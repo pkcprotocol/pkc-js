@@ -395,13 +395,13 @@ describeSkipIfRpc("verify Comment", async () => {
         expect(tamperedVerification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
 
-    it(`verifyCommentIpfs passes when communityPublicKey differs from sub but communityName matches (key rotation)`, async () => {
+    it(`verifyCommentIpfs passes when communityPublicKey differs from community but communityName matches (key rotation)`, async () => {
         const comment = remeda.clone(validCommentFixture) as CommentIpfsType;
-        // Simulate key rotation: comment was published under old key, sub now has new key.
+        // Simulate key rotation: comment was published under old key, community now has new key.
         // Add new-format fields; old communityAddress stays for signature validity since it's in signedPropertyNames.
         // getCommunityAddressFromRecord returns communityName first, so the address check uses the domain, not the key.
         (comment as Record<string, unknown>).communityName = "example.eth";
-        (comment as Record<string, unknown>).communityPublicKey = signers[6].address; // "old" key, differs from sub's current
+        (comment as Record<string, unknown>).communityPublicKey = signers[6].address; // "old" key, differs from community's current
 
         const verification = await verifyCommentIpfs({
             comment,

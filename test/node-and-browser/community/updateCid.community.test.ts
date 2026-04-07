@@ -10,12 +10,12 @@ import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 getAvailablePKCConfigsToTestAgainst().map((config) =>
     describe(`community.updateCid (Remote) - ${config.name}`, async () => {
         let pkc: PKCType;
-        let subAddress: string;
+        let communityAddress: string;
 
         beforeAll(async () => {
             pkc = await config.pkcInstancePromise();
             const ipnsObj = await createMockedCommunityIpns({});
-            subAddress = ipnsObj.communityAddress;
+            communityAddress = ipnsObj.communityAddress;
         });
 
         afterAll(async () => {
@@ -23,24 +23,24 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
         });
 
         it(`community.updateCid is defined after first update event`, async () => {
-            const sub = await pkc.createCommunity({ address: subAddress });
-            expect(sub.updateCid).to.be.undefined;
+            const community = await pkc.createCommunity({ address: communityAddress });
+            expect(community.updateCid).to.be.undefined;
 
-            await sub.update();
-            await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
-            expect(sub.updateCid).to.be.a("string");
+            await community.update();
+            await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+            expect(community.updateCid).to.be.a("string");
 
-            await sub.stop();
+            await community.stop();
         });
 
         it(`community.updateCid is defined after pkc.getCommunity`, async () => {
-            const sub = await pkc.getCommunity({ address: subAddress });
-            expect(sub.updateCid).to.be.a("string");
+            const community = await pkc.getCommunity({ address: communityAddress });
+            expect(community.updateCid).to.be.a("string");
         });
 
         it(`community.updateCid is part of community.toJSON()`, async () => {
-            const subJson = JSON.parse(JSON.stringify(await pkc.getCommunity({ address: subAddress })));
-            expect(subJson.updateCid).to.be.a("string");
+            const communityJson = JSON.parse(JSON.stringify(await pkc.getCommunity({ address: communityAddress })));
+            expect(communityJson.updateCid).to.be.a("string");
         });
     })
 );

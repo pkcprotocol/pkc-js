@@ -94,18 +94,18 @@ describeSkipIfRpc(`Testing HTTP router settings and address rewriter`, async () 
     });
 
     it(`The proxy proxies requests to http router properly`, async () => {
-        const sub = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity; // an online sub
+        const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity; // an online community
 
-        await sub.start();
-        await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
-        expect(sub.updateCid).to.be.a("string");
-        expect(sub.pubsubTopicRoutingCid).to.be.a("string");
-        expect(sub.ipnsPubsubTopicRoutingCid).to.be.a("string");
+        expect(community.updateCid).to.be.a("string");
+        expect(community.pubsubTopicRoutingCid).to.be.a("string");
+        expect(community.ipnsPubsubTopicRoutingCid).to.be.a("string");
         const provideToTestAgainst = [
-            { label: "sub.updateCid", cid: sub.updateCid! },
-            { label: "sub.pubsubTopicRoutingCid", cid: sub.pubsubTopicRoutingCid! },
-            { label: "sub.ipnsPubsubTopicRoutingCid", cid: sub.ipnsPubsubTopicRoutingCid! }
+            { label: "community.updateCid", cid: community.updateCid! },
+            { label: "community.pubsubTopicRoutingCid", cid: community.pubsubTopicRoutingCid! },
+            { label: "community.ipnsPubsubTopicRoutingCid", cid: community.ipnsPubsubTopicRoutingCid! }
         ];
 
         const providerStatuses = provideToTestAgainst.map(({ cid, label }) => ({
@@ -153,7 +153,7 @@ describeSkipIfRpc(`Testing HTTP router settings and address rewriter`, async () 
             .some((request) => request.url.startsWith("/routing/v1/providers"));
         expect(hasPutRequest).to.be.true;
 
-        await sub.delete();
+        await community.delete();
     });
 
     it(`Calling pkc.destroy() on original pkc instance that started address rewriter proxy frees up the proxy server`, async () => {

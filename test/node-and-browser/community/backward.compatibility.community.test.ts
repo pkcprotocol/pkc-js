@@ -23,20 +23,20 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             const remotePKC = await config.pkcInstancePromise();
 
-            const sub = await remotePKC.createCommunity(publishedSub.communityRecord);
+            const community = await remotePKC.createCommunity(publishedSub.communityRecord);
 
-            expect((sub.raw.communityIpfs! as Record<string, unknown>).extraProp).to.equal(publishedSub.communityRecord.extraProp);
-            expect(sub.raw.communityIpfs!).to.deep.equal(publishedSub.communityRecord);
-            expect((sub as unknown as Record<string, unknown>)["extraProp"]).to.equal(publishedSub.communityRecord.extraProp);
+            expect((community.raw.communityIpfs! as Record<string, unknown>).extraProp).to.equal(publishedSub.communityRecord.extraProp);
+            expect(community.raw.communityIpfs!).to.deep.equal(publishedSub.communityRecord);
+            expect((community as unknown as Record<string, unknown>)["extraProp"]).to.equal(publishedSub.communityRecord.extraProp);
 
-            const recreatedSubFromInstance = await remotePKC.createCommunity(sub);
+            const recreatedSubFromInstance = await remotePKC.createCommunity(community);
             expect(recreatedSubFromInstance.raw.communityIpfs!).to.deep.equal(publishedSub.communityRecord);
             expect(JSON.parse(JSON.stringify(recreatedSubFromInstance)).extraProp).to.equal(opts.extraProps.extraProp);
             expect((recreatedSubFromInstance as unknown as Record<string, unknown>)["extraProp"]).to.equal(
                 publishedSub.communityRecord.extraProp
             );
 
-            const recreatedSubFromJson = await remotePKC.createCommunity(JSON.parse(JSON.stringify(sub)));
+            const recreatedSubFromJson = await remotePKC.createCommunity(JSON.parse(JSON.stringify(community)));
             expect(JSON.parse(JSON.stringify(recreatedSubFromJson)).extraProp).to.equal(publishedSub.communityRecord.extraProp);
             expect((recreatedSubFromJson as unknown as Record<string, unknown>)["extraProp"]).to.equal(
                 publishedSub.communityRecord.extraProp
@@ -53,25 +53,25 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             const remotePKC = await config.pkcInstancePromise();
 
-            const sub = await remotePKC.createCommunity({ address: publishedSub.ipnsObj.signer.address });
+            const community = await remotePKC.createCommunity({ address: publishedSub.ipnsObj.signer.address });
 
-            await sub.update();
+            await community.update();
 
-            await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
+            await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
-            expect((sub.raw.communityIpfs! as Record<string, unknown>).extraProp).to.equal(opts.extraProps.extraProp);
+            expect((community.raw.communityIpfs! as Record<string, unknown>).extraProp).to.equal(opts.extraProps.extraProp);
 
             // Verify communityIpfs does not contain address or communityAddress (those are runtime-only)
-            expect((sub.raw.communityIpfs! as Record<string, unknown>).address).to.be.undefined;
-            expect((sub.raw.communityIpfs! as Record<string, unknown>).communityAddress).to.be.undefined;
+            expect((community.raw.communityIpfs! as Record<string, unknown>).address).to.be.undefined;
+            expect((community.raw.communityIpfs! as Record<string, unknown>).communityAddress).to.be.undefined;
 
-            expect(sub.raw.communityIpfs!).to.deep.equal(publishedSub.communityRecord);
+            expect(community.raw.communityIpfs!).to.deep.equal(publishedSub.communityRecord);
 
-            expect(JSON.parse(JSON.stringify(sub)).extraProp).to.equal(opts.extraProps.extraProp);
+            expect(JSON.parse(JSON.stringify(community)).extraProp).to.equal(opts.extraProps.extraProp);
 
-            expect((sub as unknown as Record<string, unknown>)["extraProp"]).to.equal(opts.extraProps.extraProp);
+            expect((community as unknown as Record<string, unknown>)["extraProp"]).to.equal(opts.extraProps.extraProp);
 
-            await sub.stop();
+            await community.stop();
             await remotePKC.destroy();
         });
 
@@ -82,11 +82,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             const remotePKC = await config.pkcInstancePromise();
 
-            const sub = await remotePKC.createCommunity({ address: publishedSub.ipnsObj.signer.address });
+            const community = await remotePKC.createCommunity({ address: publishedSub.ipnsObj.signer.address });
 
-            const errorPromise = new Promise<PKCError>((resolve) => sub.once("error", resolve as (err: Error) => void));
+            const errorPromise = new Promise<PKCError>((resolve) => community.once("error", resolve as (err: Error) => void));
 
-            await sub.update();
+            await community.update();
 
             const error = await errorPromise;
 
@@ -106,9 +106,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 );
             }
 
-            expect(sub.updatedAt).to.be.undefined; // should not accept update
+            expect(community.updatedAt).to.be.undefined; // should not accept update
 
-            await sub.stop();
+            await community.stop();
             await remotePKC.destroy();
         });
     });
@@ -131,18 +131,18 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const remotePKC = await config.pkcInstancePromise();
 
             // Test createCommunity with record directly
-            const sub = await remotePKC.createCommunity(communityRecord);
-            const subJson = sub.raw.communityIpfs! as CommunityWithNestedExtraProps;
-            expect(subJson.features?.extraFeature).to.equal(true);
-            expect(subJson.features?.noVideos).to.equal(true);
+            const community = await remotePKC.createCommunity(communityRecord);
+            const communityJson = community.raw.communityIpfs! as CommunityWithNestedExtraProps;
+            expect(communityJson.features?.extraFeature).to.equal(true);
+            expect(communityJson.features?.noVideos).to.equal(true);
 
             // Test recreation from instance
-            const recreatedSub = await remotePKC.createCommunity(sub);
-            const recreatedJson = recreatedSub.raw.communityIpfs! as CommunityWithNestedExtraProps;
+            const recreatedCommunity = await remotePKC.createCommunity(community);
+            const recreatedJson = recreatedCommunity.raw.communityIpfs! as CommunityWithNestedExtraProps;
             expect(recreatedJson.features?.extraFeature).to.equal(true);
 
             // Test recreation from JSON
-            const recreatedFromJson = await remotePKC.createCommunity(JSON.parse(JSON.stringify(sub)));
+            const recreatedFromJson = await remotePKC.createCommunity(JSON.parse(JSON.stringify(community)));
             const recreatedFromJsonJson = recreatedFromJson.raw.communityIpfs! as CommunityWithNestedExtraProps;
             expect(recreatedFromJsonJson.features?.extraFeature).to.equal(true);
 
@@ -168,10 +168,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const remotePKC = await config.pkcInstancePromise();
 
             // Test createCommunity with record directly
-            const sub = await remotePKC.createCommunity(communityRecord);
-            const subJson = sub.raw.communityIpfs! as CommunityWithNestedExtraProps;
-            expect(subJson.suggested?.extraSuggested).to.equal("customValue");
-            expect(subJson.suggested?.primaryColor).to.equal("#ff0000");
+            const community = await remotePKC.createCommunity(communityRecord);
+            const communityJson = community.raw.communityIpfs! as CommunityWithNestedExtraProps;
+            expect(communityJson.suggested?.extraSuggested).to.equal("customValue");
+            expect(communityJson.suggested?.primaryColor).to.equal("#ff0000");
 
             // Test update() flow
             const subToUpdate = await remotePKC.createCommunity({ address: communityAddress });
@@ -198,13 +198,13 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const remotePKC = await config.pkcInstancePromise();
 
             // Test createCommunity with modified record
-            const sub = await remotePKC.createCommunity(recordWithExtraEncryption);
-            const subJson = sub.raw.communityIpfs! as CommunityWithNestedExtraProps;
-            expect(subJson.encryption?.extraEncryption).to.equal("extraData");
-            expect(subJson.encryption?.type).to.equal(communityRecord.encryption.type);
+            const community = await remotePKC.createCommunity(recordWithExtraEncryption);
+            const communityJson = community.raw.communityIpfs! as CommunityWithNestedExtraProps;
+            expect(communityJson.encryption?.extraEncryption).to.equal("extraData");
+            expect(communityJson.encryption?.type).to.equal(communityRecord.encryption.type);
 
             // Test recreation from JSON
-            const recreatedFromJson = await remotePKC.createCommunity(JSON.parse(JSON.stringify(sub)));
+            const recreatedFromJson = await remotePKC.createCommunity(JSON.parse(JSON.stringify(community)));
             const recreatedJson = recreatedFromJson.raw.communityIpfs! as CommunityWithNestedExtraProps;
             expect(recreatedJson.encryption?.extraEncryption).to.equal("extraData");
 
@@ -223,10 +223,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const remotePKC = await config.pkcInstancePromise();
 
             // Test createCommunity with record directly
-            const sub = await remotePKC.createCommunity(communityRecord);
-            const subJson = sub.raw.communityIpfs! as CommunityWithNestedExtraProps;
-            expect(subJson.roles?.[testAddress]?.extraRoleProp).to.equal("customRoleData");
-            expect(subJson.roles?.[testAddress]?.role).to.equal("moderator");
+            const community = await remotePKC.createCommunity(communityRecord);
+            const communityJson = community.raw.communityIpfs! as CommunityWithNestedExtraProps;
+            expect(communityJson.roles?.[testAddress]?.extraRoleProp).to.equal("customRoleData");
+            expect(communityJson.roles?.[testAddress]?.role).to.equal("moderator");
 
             // Test update() flow
             const subToUpdate = await remotePKC.createCommunity({ address: communityAddress });
@@ -251,13 +251,13 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             const remotePKC = await config.pkcInstancePromise();
 
-            const sub = await remotePKC.createCommunity(communityRecord);
-            const subJson = sub.raw.communityIpfs! as CommunityWithNestedExtraProps;
+            const community = await remotePKC.createCommunity(communityRecord);
+            const communityJson = community.raw.communityIpfs! as CommunityWithNestedExtraProps;
 
             // Verify all nested extra props
-            expect(subJson.features?.extraFeature).to.equal(true);
-            expect(subJson.suggested?.extraSuggested).to.equal("suggestedValue");
-            expect(subJson.roles?.[testAddress]?.extraRoleProp).to.equal("roleValue");
+            expect(communityJson.features?.extraFeature).to.equal(true);
+            expect(communityJson.suggested?.extraSuggested).to.equal("suggestedValue");
+            expect(communityJson.roles?.[testAddress]?.extraRoleProp).to.equal("roleValue");
 
             // Test update() flow
             const subToUpdate = await remotePKC.createCommunity({ address: communityAddress });
@@ -299,10 +299,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it(`community.update() rejects CommunityIpfs with nameResolved reserved field`, async () => {
             const remotePKC = await config.pkcInstancePromise();
 
-            const sub = await remotePKC.createCommunity({ address: publishedSub.ipnsObj.signer.address });
-            const errorPromise = new Promise<PKCError>((resolve) => sub.once("error", resolve as (err: Error) => void));
+            const community = await remotePKC.createCommunity({ address: publishedSub.ipnsObj.signer.address });
+            const errorPromise = new Promise<PKCError>((resolve) => community.once("error", resolve as (err: Error) => void));
 
-            await sub.update();
+            await community.update();
             const error = await errorPromise;
 
             if (isPKCFetchingUsingGateways(remotePKC)) {
@@ -315,8 +315,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(error.details.signatureValidity.reason).to.equal(messages.ERR_COMMUNITY_RECORD_INCLUDES_RESERVED_FIELD);
             }
 
-            expect(sub.updatedAt).to.be.undefined;
-            await sub.stop();
+            expect(community.updatedAt).to.be.undefined;
+            await community.stop();
             await remotePKC.destroy();
         });
 

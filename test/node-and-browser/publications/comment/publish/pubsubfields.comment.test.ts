@@ -29,8 +29,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         beforeAll(async () => {
             pkc = await config.pkcInstancePromise();
-            const sub = await pkc.getCommunity({ address: signers[0].address });
-            community = sub as CommunityForSigning;
+            const loadedCommunity = await pkc.getCommunity({ address: signers[0].address });
+            community = loadedCommunity as CommunityForSigning;
         });
 
         afterAll(async () => {

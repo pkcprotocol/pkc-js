@@ -553,7 +553,7 @@ export async function resolveWhenPredicateIsTrue(options: {
     });
 }
 
-export async function waitForUpdateInSubInstanceWithErrorAndTimeout(community: RemoteCommunity, timeoutMs: number) {
+export async function waitForUpdateInCommunityInstanceWithErrorAndTimeout(community: RemoteCommunity, timeoutMs: number) {
     const wasUpdating = community.state === "updating";
     const updatingStates: RemoteCommunity["updatingState"][] = [];
     const updatingStateChangeListener = (state: RemoteCommunity["updatingState"]) => updatingStates.push(state);

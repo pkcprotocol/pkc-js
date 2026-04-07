@@ -29,36 +29,36 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`address stays immutable when loading new-format record with name`, async () => {
-            const sub = await pkc.createCommunity({ address: signers[0].address });
-            sub.initCommunityIpfsPropsNoMerge(remeda.clone(newFormatWithNameFixture) as CommunityIpfsType);
-            expect(sub.name).to.equal("test-sub.eth");
-            expect(sub.address).to.equal(signers[0].address); // address is immutable
+            const community = await pkc.createCommunity({ address: signers[0].address });
+            community.initCommunityIpfsPropsNoMerge(remeda.clone(newFormatWithNameFixture) as CommunityIpfsType);
+            expect(community.name).to.equal("test-sub.eth");
+            expect(community.address).to.equal(signers[0].address); // address is immutable
         });
 
         it(`address falls back to publicKey when no name is present`, async () => {
-            const sub = await pkc.createCommunity({ address: signers[0].address });
-            sub.initCommunityIpfsPropsNoMerge(remeda.clone(newFormatFixture) as CommunityIpfsType);
+            const community = await pkc.createCommunity({ address: signers[0].address });
+            community.initCommunityIpfsPropsNoMerge(remeda.clone(newFormatFixture) as CommunityIpfsType);
             // No name, so address should be the IPNS key derived from signature.publicKey
-            expect(sub.address).to.equal(signers[0].address);
+            expect(community.address).to.equal(signers[0].address);
         });
 
         it(`address is computed correctly when loading old-format record with IPNS address`, async () => {
-            const sub = await pkc.createCommunity({ address: signers[0].address });
+            const community = await pkc.createCommunity({ address: signers[0].address });
             // Old fixture has address = signers[0].address (IPNS key)
-            sub.initCommunityIpfsPropsNoMerge(remeda.clone(validCommunityFixture) as CommunityIpfsType);
-            expect(sub.address).to.equal(signers[0].address);
+            community.initCommunityIpfsPropsNoMerge(remeda.clone(validCommunityFixture) as CommunityIpfsType);
+            expect(community.address).to.equal(signers[0].address);
         });
 
         it(`publicKey is derived from signature.publicKey`, async () => {
-            const sub = await pkc.createCommunity({ address: signers[0].address });
-            sub.initCommunityIpfsPropsNoMerge(remeda.clone(newFormatFixture) as CommunityIpfsType);
-            expect(sub.publicKey).to.equal(signers[0].address);
+            const community = await pkc.createCommunity({ address: signers[0].address });
+            community.initCommunityIpfsPropsNoMerge(remeda.clone(newFormatFixture) as CommunityIpfsType);
+            expect(community.publicKey).to.equal(signers[0].address);
         });
 
         it(`address and publicKey appear in JSON.stringify output`, async () => {
-            const sub = await pkc.createCommunity({ address: signers[0].address });
-            sub.initCommunityIpfsPropsNoMerge(remeda.clone(newFormatFixture) as CommunityIpfsType);
-            const json = JSON.parse(JSON.stringify(sub));
+            const community = await pkc.createCommunity({ address: signers[0].address });
+            community.initCommunityIpfsPropsNoMerge(remeda.clone(newFormatFixture) as CommunityIpfsType);
+            const json = JSON.parse(JSON.stringify(community));
             expect(json.address).to.be.a("string");
             expect(json.publicKey).to.be.a("string");
         });
@@ -134,44 +134,44 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`createCommunity({ address }) still works (backward compat)`, async () => {
-            const sub = await pkc.createCommunity({ address: signers[0].address });
-            expect(sub.address).to.equal(signers[0].address);
-            expect(sub.address).to.be.a("string").that.is.not.empty;
+            const community = await pkc.createCommunity({ address: signers[0].address });
+            expect(community.address).to.equal(signers[0].address);
+            expect(community.address).to.be.a("string").that.is.not.empty;
         });
 
         it(`createCommunity({ name }) creates instance with address = name`, async () => {
-            const sub = await pkc.createCommunity({ name: "memes.eth" });
-            expect(sub.address).to.equal("memes.eth");
-            expect(sub.name).to.equal("memes.eth");
-            expect(sub.address).to.be.a("string").that.is.not.empty;
+            const community = await pkc.createCommunity({ name: "memes.eth" });
+            expect(community.address).to.equal("memes.eth");
+            expect(community.name).to.equal("memes.eth");
+            expect(community.address).to.be.a("string").that.is.not.empty;
         });
 
         it(`createCommunity({ publicKey }) creates instance with address = publicKey`, async () => {
-            const sub = await pkc.createCommunity({ publicKey: signers[0].address });
-            expect(sub.address).to.equal(signers[0].address);
-            expect(sub.address).to.be.a("string").that.is.not.empty;
+            const community = await pkc.createCommunity({ publicKey: signers[0].address });
+            expect(community.address).to.equal(signers[0].address);
+            expect(community.address).to.be.a("string").that.is.not.empty;
         });
 
         it(`createCommunity({ name, publicKey }) creates instance with address = name (name takes priority)`, async () => {
-            const sub = await pkc.createCommunity({ name: "memes.eth", publicKey: signers[0].address });
-            expect(sub.address).to.equal("memes.eth");
-            expect(sub.name).to.equal("memes.eth");
-            expect(sub.address).to.be.a("string").that.is.not.empty;
+            const community = await pkc.createCommunity({ name: "memes.eth", publicKey: signers[0].address });
+            expect(community.address).to.equal("memes.eth");
+            expect(community.name).to.equal("memes.eth");
+            expect(community.address).to.be.a("string").that.is.not.empty;
         });
 
         it(`createCommunity({ name, publicKey, address }) works with all three`, async () => {
-            const sub = await pkc.createCommunity({ name: "memes.eth", publicKey: signers[0].address, address: "memes.eth" });
-            expect(sub.address).to.equal("memes.eth");
-            expect(sub.address).to.be.a("string").that.is.not.empty;
+            const community = await pkc.createCommunity({ name: "memes.eth", publicKey: signers[0].address, address: "memes.eth" });
+            expect(community.address).to.equal("memes.eth");
+            expect(community.address).to.be.a("string").that.is.not.empty;
         });
 
         it(`instance.address is always defined after creation`, async () => {
-            const sub1 = await pkc.createCommunity({ address: signers[0].address });
-            const sub2 = await pkc.createCommunity({ name: "test.eth" });
+            const community1 = await pkc.createCommunity({ address: signers[0].address });
+            const community2 = await pkc.createCommunity({ name: "test.eth" });
             const sub3 = await pkc.createCommunity({ publicKey: signers[1].address });
 
-            expect(sub1.address).to.be.a("string").that.is.not.empty;
-            expect(sub2.address).to.be.a("string").that.is.not.empty;
+            expect(community1.address).to.be.a("string").that.is.not.empty;
+            expect(community2.address).to.be.a("string").that.is.not.empty;
             expect(sub3.address).to.be.a("string").that.is.not.empty;
         });
     });

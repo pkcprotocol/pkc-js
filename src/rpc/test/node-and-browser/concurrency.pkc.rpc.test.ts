@@ -208,11 +208,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
             const pkcB = await config.pkcInstancePromise();
 
             try {
-                const [subA, subB] = await Promise.all([
+                const [communityA, communityB] = await Promise.all([
                     pkcA.getCommunity({ address: communityAddress }),
                     pkcB.getCommunity({ address: communityAddress })
                 ]);
-                await Promise.all([subA.update(), subB.update()]);
+                await Promise.all([communityA.update(), communityB.update()]);
 
                 const [postFromA, postFromB] = await pTimeout(
                     Promise.all([
@@ -242,18 +242,18 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
             const pkcToKeep = await config.pkcInstancePromise();
 
             try {
-                const subToKeep = await pkcToKeep.getCommunity({ address: communityAddress });
-                await subToKeep.update();
+                const communityToKeep = await pkcToKeep.getCommunity({ address: communityAddress });
+                await communityToKeep.update();
 
                 const publishPromise = publishRandomPost({ communityAddress: communityAddress, pkc: pkcToKeep });
 
                 await pkcToDestroy.destroy();
 
                 const publishedPost = await publishPromise;
-                await subToKeep.update();
+                await communityToKeep.update();
                 await waitTillPostInCommunityInstancePages(
                     publishedPost as Parameters<typeof waitTillPostInCommunityInstancePages>[0],
-                    subToKeep
+                    communityToKeep
                 );
                 const remotePost = await pkcToKeep.getComment({ cid: publishedPost.cid });
 
@@ -265,23 +265,26 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
             }
         }, 60000);
 
-        it("keeps updates flowing to one subscriber after another subscriber to the same sub stops", async () => {
+        it("keeps updates flowing to one subscriber after another subscriber to the same community stops", async () => {
             const pkcA = await config.pkcInstancePromise();
             const pkcB = await config.pkcInstancePromise();
 
             try {
-                const [subA, subB] = await Promise.all([
+                const [communityA, communityB] = await Promise.all([
                     pkcA.getCommunity({ address: communityAddress }),
                     pkcB.getCommunity({ address: communityAddress })
                 ]);
-                await Promise.all([subA.update(), subB.update()]);
+                await Promise.all([communityA.update(), communityB.update()]);
 
-                await subB.stop(); // unsubscribes B from server-side listeners
+                await communityB.stop(); // unsubscribes B from server-side listeners
                 await pkcB.destroy();
 
                 const newPost = await publishRandomPost({ communityAddress: communityAddress, pkc: pkcA });
-                await subA.update(); // trigger a fresh update on the surviving subscriber
-                await waitTillPostInCommunityInstancePages(newPost as Parameters<typeof waitTillPostInCommunityInstancePages>[0], subA);
+                await communityA.update(); // trigger a fresh update on the surviving subscriber
+                await waitTillPostInCommunityInstancePages(
+                    newPost as Parameters<typeof waitTillPostInCommunityInstancePages>[0],
+                    communityA
+                );
 
                 const fetched = await pkcA.getComment({ cid: newPost.cid });
                 expect(fetched.cid).to.equal(newPost.cid);
@@ -312,8 +315,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
                 await pkcA._pkcRpcClient.setSettings({ pkcOptions: updatedOptions } as unknown as SetSettingsArg);
                 await settingsChangeOnB;
 
-                const subB = await pkcB.getCommunity({ address: communityAddress });
-                await subB.update();
+                const communityB = await pkcB.getCommunity({ address: communityAddress });
+                await communityB.update();
                 const post = await publishRandomPost({ communityAddress: communityAddress, pkc: pkcB });
                 const fetched = await pkcB.getComment({ cid: post.cid });
                 expect(fetched.cid).to.equal(post.cid);
@@ -356,10 +359,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
                                     pkcOptions: optionsWithJitter
                                 } as unknown as SetSettingsArg);
 
-                                const createdSub = await createPromise;
+                                const createdCommunity = await createPromise;
                                 await settingsPromise;
-                                await createdSub.start();
-                                const post = await publishRandomPost({ communityAddress: createdSub.address, pkc: pkcB });
+                                await createdCommunity.start();
+                                const post = await publishRandomPost({ communityAddress: createdCommunity.address, pkc: pkcB });
                                 const fetched = await pkcB.getComment({ cid: post.cid });
                                 expect(fetched.cid).to.equal(post.cid);
                             })(),
@@ -476,8 +479,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
             const pkcB = await config.pkcInstancePromise();
 
             try {
-                const subB = await pkcB.getCommunity({ address: communityAddress });
-                await subB.update();
+                const communityB = await pkcB.getCommunity({ address: communityAddress });
+                await communityB.update();
 
                 const currentSettings = await waitForSettings(pkcA._pkcRpcClient);
                 const updatedOptions = {
@@ -491,7 +494,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
                     message: "Timed out waiting for settingschange on client B"
                 });
 
-                const updatePromise = pTimeout(subB.update(), {
+                const updatePromise = pTimeout(communityB.update(), {
                     milliseconds: 45000,
                     message: "community.update timed out while setSettings ran"
                 });
@@ -502,7 +505,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
                 await Promise.all([settingsChangeOnB, updatePromise]);
 
                 const post = await publishRandomPost({ communityAddress: communityAddress, pkc: pkcB });
-                await waitTillPostInCommunityInstancePages(post as Parameters<typeof waitTillPostInCommunityInstancePages>[0], subB); // hangs here
+                await waitTillPostInCommunityInstancePages(post as Parameters<typeof waitTillPostInCommunityInstancePages>[0], communityB); // hangs here
                 const fetched = await pkcB.getComment({ cid: post.cid });
                 expect(fetched.cid).to.equal(post.cid);
             } finally {
@@ -516,11 +519,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
             const pkcB = await config.pkcInstancePromise();
 
             try {
-                const freshSub = await createSubWithNoChallenge({ title: "temp sub " + Date.now(), description: "tmp" }, pkcB);
-                const freshAddress = freshSub.address;
-                const startSubId = await (pkcB._pkcRpcClient as unknown as RpcClientWithInternals)._webSocketClient.call("startCommunity", [
-                    { address: freshAddress }
-                ]);
+                const freshCommunity = await createSubWithNoChallenge({ title: "temp community " + Date.now(), description: "tmp" }, pkcB);
+                const freshAddress = freshCommunity.address;
+                const startCommunityId = await (pkcB._pkcRpcClient as unknown as RpcClientWithInternals)._webSocketClient.call(
+                    "startCommunity",
+                    [{ address: freshAddress }]
+                );
 
                 const currentSettings = await waitForSettings(pkcA._pkcRpcClient);
                 const updatedOptions = {
@@ -538,15 +542,15 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
 
                 const updateNotification = await pTimeout(
                     new Promise((resolve, reject) => {
-                        const sub = pkcB._pkcRpcClient.getSubscription(startSubId);
+                        const sub = pkcB._pkcRpcClient.getSubscription(startCommunityId);
                         if (!sub) return reject(new Error("No startCommunity subscription found after setSettings"));
                         sub.once("update", (res: { params?: { result?: unknown } }) => resolve(res.params?.result));
-                        // trigger sub update to provoke an event
+                        // trigger community update to provoke an event
                         (pkcB._pkcRpcClient as unknown as RpcClientWithInternals)._webSocketClient
                             .call("communityUpdateSubscribe", [{ address: freshAddress }])
                             .catch((err) => reject(err));
                     }),
-                    { milliseconds: 45000, message: "Timed out waiting for started sub update after setSettings" }
+                    { milliseconds: 45000, message: "Timed out waiting for started community update after setSettings" }
                 );
 
                 expect(updateNotification).to.be.ok;
@@ -556,14 +560,17 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
             }
         }, 75000);
 
-        it("in-flight publish on a started sub survives setSettings from another client", async () => {
+        it("in-flight publish on a started community survives setSettings from another client", async () => {
             const pkcA = await config.pkcInstancePromise();
             const pkcB = await config.pkcInstancePromise();
 
             try {
-                const freshSub = await createSubWithNoChallenge({ title: "temp publish sub " + Date.now(), description: "tmp" }, pkcB);
-                const freshAddress = freshSub.address;
-                await freshSub.start();
+                const freshCommunity = await createSubWithNoChallenge(
+                    { title: "temp publish community " + Date.now(), description: "tmp" },
+                    pkcB
+                );
+                const freshAddress = freshCommunity.address;
+                await freshCommunity.start();
 
                 const currentSettings = await waitForSettings(pkcA._pkcRpcClient);
                 const updatedOptions = {
@@ -612,13 +619,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
                     message: "Timed out waiting for settingschange on client B"
                 });
 
-                const createStartSubPromise = pTimeout(
+                const createStartCommunityPromise = pTimeout(
                     (async () => {
-                        const sub = await createSubWithNoChallenge({ title: "temp overlap " + Date.now(), description: "tmp" }, pkcB);
-                        await sub.start();
-                        return sub;
+                        const community = await createSubWithNoChallenge({ title: "temp overlap " + Date.now(), description: "tmp" }, pkcB);
+                        await community.start();
+                        return community;
                     })(),
-                    { milliseconds: 45000, message: "Timed out creating sub during overlapping setSettings" }
+                    { milliseconds: 45000, message: "Timed out creating community during overlapping setSettings" }
                 );
 
                 await delay(10);
@@ -628,8 +635,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
                 });
                 await settingsChangeOnB;
 
-                const sub = await createStartSubPromise;
-                const post = await publishRandomPost({ communityAddress: sub.address, pkc: pkcB });
+                const community = await createStartCommunityPromise;
+                const post = await publishRandomPost({ communityAddress: community.address, pkc: pkcB });
                 const fetched = await pkcB.getComment({ cid: post.cid });
                 expect(fetched.cid).to.equal(post.cid);
             } finally {
@@ -643,8 +650,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
             const pkcB = await config.pkcInstancePromise();
 
             try {
-                const subB = await pkcB.getCommunity({ address: communityAddress });
-                await subB.update();
+                const communityB = await pkcB.getCommunity({ address: communityAddress });
+                await communityB.update();
 
                 const communityUpdateSubscriptionId = await pkcB._pkcRpcClient.communityUpdateSubscribe({
                     address: communityAddress
@@ -656,7 +663,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
                     updateInterval: (currentSettings.pkcOptions.updateInterval || 60000) + 29
                 };
 
-                const overlappingUpdate = pTimeout(subB.update(), {
+                const overlappingUpdate = pTimeout(communityB.update(), {
                     milliseconds: 45000,
                     message: "community.update timed out while setSettings ran"
                 });
@@ -672,7 +679,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
                 await Promise.all([setSettingsPromise, overlappingUpdate]);
 
                 const updateAfterSettings = await pTimeout(
-                    waitForSubscriptionEvent(pkcB._pkcRpcClient, communityUpdateSubscriptionId, "update", () => subB.update()),
+                    waitForSubscriptionEvent(pkcB._pkcRpcClient, communityUpdateSubscriptionId, "update", () => communityB.update()),
                     { milliseconds: 45000, message: "communityUpdate subscription stopped emitting after setSettings" }
                 );
 
@@ -688,11 +695,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
             const pkcB = await config.pkcInstancePromise();
 
             try {
-                const freshSub = await createSubWithNoChallenge(
-                    { title: "sub setSettings overlap " + Date.now(), description: "tmp" },
+                const freshCommunity = await createSubWithNoChallenge(
+                    { title: "community setSettings overlap " + Date.now(), description: "tmp" },
                     pkcB
                 );
-                const freshAddress = freshSub.address;
+                const freshAddress = freshCommunity.address;
 
                 const startCommunitySubscriptionId = await pkcB._pkcRpcClient.startCommunity({ address: freshAddress });
                 await pTimeout(waitForSubscriptionEvent(pkcB._pkcRpcClient, startCommunitySubscriptionId, "update"), {
@@ -715,7 +722,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
                     message: "startCommunity stopped emitting updates after setSettings"
                 });
 
-                const subUpdateAfterSettings = pTimeout(
+                const communityUpdateAfterSettings = pTimeout(
                     waitForSubscriptionEvent(pkcB._pkcRpcClient, communityUpdateSubscriptionId, "update", async () =>
                         (await pkcB.getCommunity({ address: freshAddress })).update()
                     ),
@@ -735,7 +742,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
                     }
                 );
 
-                const [publishedPost] = await Promise.all([publishPromise, nextStartUpdate, subUpdateAfterSettings, setSettingsPromise]);
+                const [publishedPost] = await Promise.all([
+                    publishPromise,
+                    nextStartUpdate,
+                    communityUpdateAfterSettings,
+                    setSettingsPromise
+                ]);
                 const fetched = await pkcB.getComment({ cid: publishedPost.cid });
 
                 expect(fetched.cid).to.equal(publishedPost.cid);

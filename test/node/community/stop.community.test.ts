@@ -7,13 +7,13 @@ import type { LocalCommunity } from "../../../dist/node/runtime/node/community/l
 describe(`community.stop() timing`, async () => {
     it(`LocalCommunity.stop() after update() should complete within 10s`, async () => {
         const pkc: PKCType = await mockPKC();
-        const sub = await createSubWithNoChallenge({}, pkc);
-        await sub.update();
+        const community = await createSubWithNoChallenge({}, pkc);
+        await community.update();
         const startMs = Date.now();
-        await sub.stop();
+        await community.stop();
         const elapsed = Date.now() - startMs;
         expect(elapsed).to.be.lessThan(10000);
-        await sub.delete();
+        await community.delete();
         await pkc.destroy();
     });
 });

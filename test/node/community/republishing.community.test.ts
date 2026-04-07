@@ -23,7 +23,7 @@ import type { CommentIpfsWithCidDefined } from "../../../dist/node/publications/
 import type { CreateNewLocalCommunityUserOptions } from "../../../dist/node/community/types.js";
 
 // This test file will be focused on republishing of comments/community/commentupdate/pages to the network
-// if the ipfs repo is lost, the sub should re-publish everything again
+// if the ipfs repo is lost, the community should re-publish everything again
 // Part of that is re-constructing commentIpfs which is something will we will be testing for
 
 describeSkipIfRpc(`Migration to a new IPFS repo`, async () => {
@@ -111,18 +111,21 @@ describeSkipIfRpc(`Migration to a new IPFS repo`, async () => {
     });
 
     it(`Post with extra prop retains its extra prop in pages`, async () => {
-        const loadedSub = await remotePKC.createCommunity({ address: postWithExtraProps.communityAddress });
-        await loadedSub.update();
+        const loadedCommunity = await remotePKC.createCommunity({ address: postWithExtraProps.communityAddress });
+        await loadedCommunity.update();
         await resolveWhenConditionIsTrue({
-            toUpdate: loadedSub,
+            toUpdate: loadedCommunity,
             predicate: async () => {
-                const loadedPost = await iterateThroughPagesToFindCommentInParentPagesInstance(postWithExtraProps.cid!, loadedSub.posts);
+                const loadedPost = await iterateThroughPagesToFindCommentInParentPagesInstance(
+                    postWithExtraProps.cid!,
+                    loadedCommunity.posts
+                );
                 return (loadedPost as { extraProp?: string } | undefined)?.extraProp === "1234";
             }
         });
-        const loadedPost = await iterateThroughPagesToFindCommentInParentPagesInstance(postWithExtraProps.cid!, loadedSub.posts);
+        const loadedPost = await iterateThroughPagesToFindCommentInParentPagesInstance(postWithExtraProps.cid!, loadedCommunity.posts);
         expect((loadedPost as { extraProp?: string } | undefined)?.extraProp).to.equal("1234");
-        await loadedSub.stop();
+        await loadedCommunity.stop();
     });
 
     it(`Comments' IPFS are repinned`, async () => {

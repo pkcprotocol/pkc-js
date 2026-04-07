@@ -42,12 +42,15 @@ describe.concurrent(`community.features.noDownvotes`, async () => {
         expect(community.features).to.be.undefined;
         await community.edit({ features: { ...community.features, noDownvotes: true } });
         expect(community.features?.noDownvotes).to.be.true;
-        const remoteSub = await remotePKC.getCommunity({ address: community.address });
-        await remoteSub.update();
-        await resolveWhenConditionIsTrue({ toUpdate: remoteSub, predicate: async () => remoteSub.features?.noDownvotes === true }); // that means we published a new update
+        const remoteCommunity = await remotePKC.getCommunity({ address: community.address });
+        await remoteCommunity.update();
+        await resolveWhenConditionIsTrue({
+            toUpdate: remoteCommunity,
+            predicate: async () => remoteCommunity.features?.noDownvotes === true
+        }); // that means we published a new update
 
-        await remoteSub.stop();
-        expect(remoteSub.features?.noDownvotes).to.be.true;
+        await remoteCommunity.stop();
+        expect(remoteCommunity.features?.noDownvotes).to.be.true;
     });
 
     it(`Not allowed to publish downvotes if community.features.noDownvotes=true`, async () => {

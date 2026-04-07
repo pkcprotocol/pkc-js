@@ -53,7 +53,7 @@ describe("Community rejects publications with unsupported author TLDs", () => {
         const signer = await pkc.createSigner();
 
         // even we as a rpc client, the rpc server shouldn't refuse to publish it even if it doesn't have .xyz resolver
-        // rpc server should just trust the rpc client and publish it, the sub owner will take care of validation
+        // rpc server should just trust the rpc client and publish it, the community owner will take care of validation
         const comment = await pkc.createComment({
             author: { address: unsupportedTldAddress },
             signer,
@@ -71,7 +71,7 @@ describe("Community rejects publications with unsupported author TLDs", () => {
 
     it("rejects Vote with unsupported TLD (.xyz)", async () => {
         // even we as a rpc client, the rpc server shouldn't refuse to publish it even if it doesn't have .xyz resolver
-        // rpc server should just trust the rpc client and publish it, the sub owner will take care of validation
+        // rpc server should just trust the rpc client and publish it, the community owner will take care of validation
 
         const unsupportedTldAddress = "voter.xyz";
         const signer = await pkc.createSigner();
@@ -93,7 +93,7 @@ describe("Community rejects publications with unsupported author TLDs", () => {
 
     it("rejects CommentEdit with unsupported TLD (.xyz)", async () => {
         // even we as a rpc client, the rpc server shouldn't refuse to publish it even if it doesn't have .xyz resolver
-        // rpc server should just trust the rpc client and publish it, the sub owner will take care of validation
+        // rpc server should just trust the rpc client and publish it, the community owner will take care of validation
 
         const unsupportedTldAddress = "editor.xyz";
         const signer = await pkc.createSigner();

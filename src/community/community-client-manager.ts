@@ -153,12 +153,15 @@ export class CommunityClientsManager extends PKCClientsManager {
         return areEquivalentCommunityAddresses(addressA, addressB);
     }
 
-    private _deriveAddressFromWireRecord(subJson: CommunityIpfsType): string {
+    private _deriveAddressFromWireRecord(communityJson: CommunityIpfsType): string {
         // Old records have address in the wire format, new records use name || publicKey
-        return getCommunityNameFromWire(subJson as Record<string, unknown>) || getPKCAddressFromPublicKeySync(subJson.signature.publicKey);
+        return (
+            getCommunityNameFromWire(communityJson as Record<string, unknown>) ||
+            getPKCAddressFromPublicKeySync(communityJson.signature.publicKey)
+        );
     }
 
-    // functions for updatingSubInstance
+    // functions for updatingCommunityInstance
 
     private async _retryLoadingCommunityAddress(
         communityAddress: string
@@ -213,29 +216,32 @@ export class CommunityClientsManager extends PKCClientsManager {
         const log = Logger("pkc-js:remote-community:update");
 
         this._ipnsLoadingOperation = retry.operation({ forever: true, factor: 2, maxTimeout: 30000 });
-        const subLoadingRes = await this._retryLoadingCommunityAddress(this._community.address); // will return undefined if no new sub CID is found
+        const communityLoadingRes = await this._retryLoadingCommunityAddress(this._community.address); // will return undefined if no new community CID is found
         this._ipnsLoadingOperation.stop();
 
-        if (subLoadingRes && "aborted" in subLoadingRes) {
+        if (communityLoadingRes && "aborted" in communityLoadingRes) {
             return;
-        } else if (subLoadingRes && "criticalError" in subLoadingRes) {
+        } else if (communityLoadingRes && "criticalError" in communityLoadingRes) {
             // Log individual gateway errors separately to avoid Node.js [Object] truncation
-            if (subLoadingRes.criticalError instanceof FailedToFetchCommunityFromGatewaysError) {
-                for (const [gatewayUrl, gatewayError] of Object.entries(subLoadingRes.criticalError.details.gatewayToError)) {
+            if (communityLoadingRes.criticalError instanceof FailedToFetchCommunityFromGatewaysError) {
+                for (const [gatewayUrl, gatewayError] of Object.entries(communityLoadingRes.criticalError.details.gatewayToError)) {
                     log.error(`Community ${this._community.address} gateway ${gatewayUrl} non-retriable error:`, gatewayError);
                 }
             }
             log.error(
                 `Community ${this._community.address} encountered a non retriable error while updating, will emit an error event and mark invalid cid to not be loaded again`,
-                subLoadingRes.criticalError
+                communityLoadingRes.criticalError
             );
             this._community._changeStateEmitEventEmitStateChangeEvent({
-                event: { name: "error", args: [subLoadingRes.criticalError] },
+                event: { name: "error", args: [communityLoadingRes.criticalError] },
                 newUpdatingState: "failed"
             });
-        } else if (subLoadingRes?.community && (this._community.raw.communityIpfs?.updatedAt || 0) < subLoadingRes.community.updatedAt) {
-            this._community.initCommunityIpfsPropsNoMerge(subLoadingRes.community);
-            this._community.updateCid = subLoadingRes.cid;
+        } else if (
+            communityLoadingRes?.community &&
+            (this._community.raw.communityIpfs?.updatedAt || 0) < communityLoadingRes.community.updatedAt
+        ) {
+            this._community.initCommunityIpfsPropsNoMerge(communityLoadingRes.community);
+            this._community.updateCid = communityLoadingRes.cid;
             // If we just discovered a name, trigger background resolution now (don't wait for next loop)
             if (
                 !isStringDomain(this._community.address) &&
@@ -259,11 +265,11 @@ export class CommunityClientsManager extends PKCClientsManager {
                 newUpdatingState: "succeeded"
             });
             this._resolvePageAuthorNamesInBackground();
-        } else if (subLoadingRes === undefined) {
-            // we loaded a sub record that we already consumed
+        } else if (communityLoadingRes === undefined) {
+            // we loaded a community record that we already consumed
             // we will retry later
             this._community._setUpdatingStateWithEventEmissionIfNewState("waiting-retry");
-        } else if (subLoadingRes?.community) {
+        } else if (communityLoadingRes?.community) {
             this._community._setUpdatingStateWithEventEmissionIfNewState("succeeded");
         }
     }
@@ -523,9 +529,9 @@ export class CommunityClientsManager extends PKCClientsManager {
         else this.updateKuboRpcState("fetching-ipfs", kuboRpcOrHelia.url);
         this._community._setUpdatingStateWithEventEmissionIfNewState("fetching-ipfs");
 
-        let rawSubJsonString: Awaited<ReturnType<typeof this._fetchCidP2P>>;
+        let rawCommunityJsonString: Awaited<ReturnType<typeof this._fetchCidP2P>>;
         try {
-            rawSubJsonString = await this._fetchCidP2P(latestCommunityCid, {
+            rawCommunityJsonString = await this._fetchCidP2P(latestCommunityCid, {
                 maxFileSizeBytes: MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS,
                 timeoutMs: this._pkc._timeouts["community-ipfs"],
                 abortSignal: this._community._getStopAbortSignal()
@@ -546,17 +552,19 @@ export class CommunityClientsManager extends PKCClientsManager {
 
         this._updateCidsAlreadyLoaded.add(latestCommunityCid);
         try {
-            const subIpfs = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(parseJsonWithPKCErrorIfFails(rawSubJsonString));
+            const communityIpfs = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(
+                parseJsonWithPKCErrorIfFails(rawCommunityJsonString)
+            );
 
-            const errInRecord = await this._findErrorInCommunityRecord(subIpfs, ipnsName, latestCommunityCid);
+            const errInRecord = await this._findErrorInCommunityRecord(communityIpfs, ipnsName, latestCommunityCid);
 
             if (errInRecord) throw errInRecord;
-            return { community: subIpfs, cid: latestCommunityCid };
+            return { community: communityIpfs, cid: latestCommunityCid };
         } catch (e) {
             // invalid community record
             (e as PKCError).details = {
                 ...(e as PKCError).details,
-                cidOfSubIpns: latestCommunityCid,
+                cidOfCommunityIpns: latestCommunityCid,
                 ipnsPubsubTopic: this._community.ipnsPubsubTopic,
                 ipnsPubsubTopicRoutingCid: this._community.ipnsPubsubTopicRoutingCid
             };
@@ -588,11 +596,11 @@ export class CommunityClientsManager extends PKCClientsManager {
             ) => {
                 if (typeof gatewayRes.resText !== "string") throw Error("Gateway response has no body");
                 // get ipfs cid of IPNS from header or calculate it
-                const calculatedSubCidFromBody = await this.calculateIpfsCid(gatewayRes.resText); // cid v0
+                const calculatedCommunityCidFromBody = await this.calculateIpfsCid(gatewayRes.resText); // cid v0
 
-                if (this._updateCidsAlreadyLoaded.has(calculatedSubCidFromBody))
+                if (this._updateCidsAlreadyLoaded.has(calculatedCommunityCidFromBody))
                     throw new PKCError("ERR_GATEWAY_ABORTING_LOADING_COMMUNITY_BECAUSE_WE_ALREADY_LOADED_THIS_RECORD", {
-                        calculatedSubCidFromBody,
+                        calculatedCommunityCidFromBody,
                         ipnsName,
                         ipnsPubsubTopic: this._community.ipnsPubsubTopic,
                         ipnsPubsubTopicRoutingCid: this._community.ipnsPubsubTopicRoutingCid,
@@ -600,21 +608,23 @@ export class CommunityClientsManager extends PKCClientsManager {
                         gatewayUrl
                     });
 
-                this._updateCidsAlreadyLoaded.add(calculatedSubCidFromBody);
+                this._updateCidsAlreadyLoaded.add(calculatedCommunityCidFromBody);
 
-                let subIpfs: CommunityIpfsType;
+                let communityIpfs: CommunityIpfsType;
                 try {
-                    subIpfs = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(parseJsonWithPKCErrorIfFails(gatewayRes.resText));
+                    communityIpfs = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(
+                        parseJsonWithPKCErrorIfFails(gatewayRes.resText)
+                    );
                 } catch (e) {
                     (e as PKCError).details = {
                         ...(e as PKCError).details,
-                        cidOfSubIpns: calculatedSubCidFromBody,
+                        cidOfCommunityIpns: calculatedCommunityCidFromBody,
                         ipnsPubsubTopic: this._community.ipnsPubsubTopic,
                         ipnsPubsubTopicRoutingCid: this._community.ipnsPubsubTopicRoutingCid
                     };
                     throw e;
                 }
-                const errorWithinRecord = await this._findErrorInCommunityRecord(subIpfs, ipnsName, calculatedSubCidFromBody);
+                const errorWithinRecord = await this._findErrorInCommunityRecord(communityIpfs, ipnsName, calculatedCommunityCidFromBody);
                 if (errorWithinRecord) {
                     delete errorWithinRecord["stack"];
                     if (errorWithinRecord.code === "ERR_COMMUNITY_SIGNATURE_IS_INVALID") {
@@ -622,16 +632,16 @@ export class CommunityClientsManager extends PKCClientsManager {
                         const etag = gatewayRes?.res?.headers?.get("etag");
                         log.error(
                             `Gateway ${gatewayUrl} returned community record with invalid signature. ` +
-                                `Client-computed CID: ${calculatedSubCidFromBody}. ` +
+                                `Client-computed CID: ${calculatedCommunityCidFromBody}. ` +
                                 `Etag header (Kubo CID): ${etag}. ` +
-                                `updatedAt: ${subIpfs.updatedAt}. ` +
+                                `updatedAt: ${communityIpfs.updatedAt}. ` +
                                 `Response body: ${gatewayRes.resText}`
                         );
                     }
                     throw errorWithinRecord;
                 } else {
-                    gatewayFetches[gatewayUrl].communityRecord = subIpfs;
-                    gatewayFetches[gatewayUrl].cid = calculatedSubCidFromBody;
+                    gatewayFetches[gatewayUrl].communityRecord = communityIpfs;
+                    gatewayFetches[gatewayUrl].cid = calculatedCommunityCidFromBody;
 
                     // Log the TTL from max-age header after successfully setting the community record
                     const cacheControl = gatewayRes?.res?.headers?.get("cache-control");
@@ -717,8 +727,10 @@ export class CommunityClientsManager extends PKCClientsManager {
         const _findRecentCommunity = (): { community: CommunityIpfsType; cid: string } | undefined => {
             // Try to find a very recent community
             // If not then go with the most recent community record after fetching from 3 gateways
-            const gatewaysWithSub = remeda.keys.strict(gatewayFetches).filter((gatewayUrl) => gatewayFetches[gatewayUrl].communityRecord);
-            if (gatewaysWithSub.length === 0) return undefined;
+            const gatewaysWithCommunity = remeda.keys
+                .strict(gatewayFetches)
+                .filter((gatewayUrl) => gatewayFetches[gatewayUrl].communityRecord);
+            if (gatewaysWithCommunity.length === 0) return undefined;
 
             const currentUpdatedAt = this._community.raw.communityIpfs?.updatedAt || 0;
 
@@ -727,20 +739,20 @@ export class CommunityClientsManager extends PKCClientsManager {
             const gatewaysWithError = remeda.keys.strict(gatewayFetches).filter((gatewayUrl) => gatewayFetches[gatewayUrl].error);
 
             const bestGatewayUrl = <string>(
-                remeda.maxBy(gatewaysWithSub, (gatewayUrl) => gatewayFetches[gatewayUrl].communityRecord!.updatedAt)
+                remeda.maxBy(gatewaysWithCommunity, (gatewayUrl) => gatewayFetches[gatewayUrl].communityRecord!.updatedAt)
             );
             const bestGatewayRecordAge = timestamp() - gatewayFetches[bestGatewayUrl].communityRecord!.updatedAt; // how old is the record, relative to now, in seconds
 
             if (gatewayFetches[bestGatewayUrl].communityRecord!.updatedAt > currentUpdatedAt) {
-                const bestSubRecord = gatewayFetches[bestGatewayUrl].communityRecord!;
+                const bestCommunityRecord = gatewayFetches[bestGatewayUrl].communityRecord!;
                 log(
-                    `Gateway (${bestGatewayUrl}) was able to find a very recent community (${this._deriveAddressFromWireRecord(bestSubRecord)}) whose IPNS is (${ipnsName}).  The record has updatedAt (${bestSubRecord.updatedAt}) that's ${bestGatewayRecordAge}s old with a TTL of ${gatewayFetches[bestGatewayUrl].ttl} seconds`
+                    `Gateway (${bestGatewayUrl}) was able to find a very recent community (${this._deriveAddressFromWireRecord(bestCommunityRecord)}) whose IPNS is (${ipnsName}).  The record has updatedAt (${bestCommunityRecord.updatedAt}) that's ${bestGatewayRecordAge}s old with a TTL of ${gatewayFetches[bestGatewayUrl].ttl} seconds`
                 );
-                return { community: bestSubRecord, cid: gatewayFetches[bestGatewayUrl].cid! };
+                return { community: bestCommunityRecord, cid: gatewayFetches[bestGatewayUrl].cid! };
             }
 
             // We weren't able to find any new community records
-            if (gatewaysWithError.length + gatewaysWithSub.length === totalGateways) return undefined;
+            if (gatewaysWithError.length + gatewaysWithCommunity.length === totalGateways) return undefined;
         };
 
         const promisesToIterate = <Promise<{ resText: string; res: Response } | { error: PKCError }>[]>(
@@ -800,13 +812,13 @@ export class CommunityClientsManager extends PKCClientsManager {
     }
 
     private async _findErrorInCommunityRecord(
-        subJson: CommunityIpfsType,
-        ipnsNameOfSub: string,
-        cidOfSubIpns: string
+        communityJson: CommunityIpfsType,
+        ipnsNameOfCommunity: string,
+        cidOfCommunityIpns: string
     ): Promise<PKCError | undefined> {
-        const subInstanceAddress = this._getCommunityAddressFromInstance();
-        const recordAddress = this._deriveAddressFromWireRecord(subJson);
-        const addressMatchesInstance = this._areEquivalentCommunityAddresses(recordAddress, subInstanceAddress);
+        const communityInstanceAddress = this._getCommunityAddressFromInstance();
+        const recordAddress = this._deriveAddressFromWireRecord(communityJson);
+        const addressMatchesInstance = this._areEquivalentCommunityAddresses(recordAddress, communityInstanceAddress);
         // When address is a domain but we loaded via publicKey fallback, the record's derived address
         // might be the publicKey (if the record has no name field) — also accept that as a match
         const addressMatchesPublicKey = this._community.publicKey
@@ -815,27 +827,27 @@ export class CommunityClientsManager extends PKCClientsManager {
         // Accept when user loaded by raw IPNS key and the record's signature key matches.
         // Handles: {address: "12D3Koo..."} loads record with name: "plebbit.bso".
         // NOT applied for domain addresses (Scenario C stays rejected).
-        const instanceAddressIsDomain = isStringDomain(subInstanceAddress);
+        const instanceAddressIsDomain = isStringDomain(communityInstanceAddress);
         const signatureKeyMatchesIpnsName = !instanceAddressIsDomain
-            ? this._areEquivalentCommunityAddresses(getPKCAddressFromPublicKeySync(subJson.signature.publicKey), ipnsNameOfSub)
+            ? this._areEquivalentCommunityAddresses(getPKCAddressFromPublicKeySync(communityJson.signature.publicKey), ipnsNameOfCommunity)
             : false;
         if (!addressMatchesInstance && !addressMatchesPublicKey && !signatureKeyMatchesIpnsName) {
             // Did the gateway supply us with a different community's ipns
 
             const error = new PKCError("ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED", {
-                addressFromCommunityInstance: subInstanceAddress,
-                ipnsName: ipnsNameOfSub,
+                addressFromCommunityInstance: communityInstanceAddress,
+                ipnsName: ipnsNameOfCommunity,
                 addressFromGateway: recordAddress,
-                communityIpnsFromGateway: subJson,
+                communityIpnsFromGateway: communityJson,
                 ipnsPubsubTopic: this._community.ipnsPubsubTopic,
                 ipnsPubsubTopicRoutingCid: this._community.ipnsPubsubTopicRoutingCid,
-                cidOfSubIpns
+                cidOfCommunityIpns
             });
             return error;
         }
         const verificationOpts = {
-            community: subJson,
-            communityIpnsName: ipnsNameOfSub,
+            community: communityJson,
+            communityIpnsName: ipnsNameOfCommunity,
             resolveAuthorNames: this._pkc.resolveAuthorNames,
             clientsManager: this,
             validatePages: this._pkc.validatePages,
@@ -848,7 +860,7 @@ export class CommunityClientsManager extends PKCClientsManager {
                 ipnsPubsubTopic: this._community.ipnsPubsubTopic,
                 ipnsPubsubTopicRoutingCid: this._community.ipnsPubsubTopicRoutingCid,
                 verificationOpts,
-                cidOfSubIpns
+                cidOfCommunityIpns
             });
             return error;
         }

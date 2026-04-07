@@ -175,7 +175,7 @@ export class DbHandler {
         } catch (e) {
             await this.initDbIfNeeded();
             log.error(
-                `Sub (${this._community.address}) failed to create/migrate tables. Current db version (${this.getDbVersion()}), latest db version (${env.DB_VERSION}). Error`,
+                `Community (${this._community.address}) failed to create/migrate tables. Current db version (${this.getDbVersion()}), latest db version (${env.DB_VERSION}). Error`,
                 e
             );
             await this.destoryConnection();
@@ -222,7 +222,7 @@ export class DbHandler {
         this._db = this._keyv = undefined;
         this._transactionDepth = 0;
 
-        log("Destroyed DB connection to sub", this._community.address, "successfully");
+        log("Destroyed DB connection to community", this._community.address, "successfully");
     }
 
     createTransaction(): void {
@@ -1211,7 +1211,7 @@ export class DbHandler {
         const whereClauses: string[] = [`${commentsTable}.parentCid = ?`];
         const params: any[] = [options.parentCid];
 
-        if (options.excludeCommentsWithDifferentSubAddress) {
+        if (options.excludeCommentsWithDifferentCommunityAddress) {
             const { clause, params: addrParams } = this._communityAddressClause(commentsTable);
             whereClauses.push(clause);
             params.push(...addrParams);
@@ -1296,7 +1296,7 @@ export class DbHandler {
         const commentUpdatesAlias = "c_updates";
         const deletedLookupAlias = "d";
 
-        if (options.excludeCommentsWithDifferentSubAddress) {
+        if (options.excludeCommentsWithDifferentCommunityAddress) {
             const { clause: baseClause, params: baseAddrParams } = this._communityAddressClause(commentsAlias);
             baseFilterClauses.push(baseClause);
             params.push(...baseAddrParams);
@@ -2648,89 +2648,89 @@ export class DbHandler {
         log(`Changed db path from (${oldPathString}) to (${newPathString})`);
     }
 
-    async lockSubStart(subAddress = this._community.address) {
+    async lockCommunityStart(communityAddress = this._community.address) {
         const log = Logger("pkc-js:local-community:db-handler:lock:start");
 
-        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${subAddress}.start.lock`);
-        const subDbPath = path.join(this._community._pkc.dataPath!, "communities", subAddress);
+        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${communityAddress}.start.lock`);
+        const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", communityAddress);
 
         try {
-            await lockfile.lock(subDbPath, {
+            await lockfile.lock(communityDbPath, {
                 lockfilePath,
                 onCompromised: () => {} // Temporary bandaid for the moment. Should be deleted later
             });
-            log(`Locked the start of community (${subAddress}) successfully`);
+            log(`Locked the start of community (${communityAddress}) successfully`);
         } catch (e: unknown) {
             if (e instanceof Error && e.message === "Lock file is already being held")
-                throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { communityAddress: subAddress, error: e });
+                throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { communityAddress: communityAddress, error: e });
             else {
-                log(`Error while trying to lock start of sub (${subAddress}): ${e}`);
+                log(`Error while trying to lock start of community (${communityAddress}): ${e}`);
                 throw e;
             }
         }
     }
 
-    async unlockSubStart(subAddress = this._community.address) {
+    async unlockCommunityStart(communityAddress = this._community.address) {
         const log = Logger("pkc-js:local-community:db-handler:unlock:start");
-        log.trace(`Attempting to unlock the start of sub (${subAddress})`);
+        log.trace(`Attempting to unlock the start of community (${communityAddress})`);
 
-        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${subAddress}.start.lock`);
-        const subDbPath = path.join(this._community._pkc.dataPath!, "communities", subAddress);
-        if (!fs.existsSync(lockfilePath) || !fs.existsSync(subDbPath)) return;
+        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${communityAddress}.start.lock`);
+        const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", communityAddress);
+        if (!fs.existsSync(lockfilePath) || !fs.existsSync(communityDbPath)) return;
 
         try {
-            await lockfile.unlock(subDbPath, { lockfilePath });
-            log(`Unlocked start of sub (${subAddress})`);
+            await lockfile.unlock(communityDbPath, { lockfilePath });
+            log(`Unlocked start of community (${communityAddress})`);
         } catch (e: unknown) {
-            log(`Error while trying to unlock start of sub (${subAddress}): ${e}`);
+            log(`Error while trying to unlock start of community (${communityAddress}): ${e}`);
             throw e;
         }
     }
 
-    async isSubStartLocked(subAddress = this._community.address): Promise<boolean> {
-        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${subAddress}.start.lock`);
-        const subDbPath = path.join(this._community._pkc.dataPath!, "communities", subAddress);
-        const isLocked = await lockfile.check(subDbPath, { lockfilePath, realpath: false, stale: 10000 });
+    async isCommunityStartLocked(communityAddress = this._community.address): Promise<boolean> {
+        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${communityAddress}.start.lock`);
+        const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", communityAddress);
+        const isLocked = await lockfile.check(communityDbPath, { lockfilePath, realpath: false, stale: 10000 });
         return isLocked;
     }
 
     // Community state lock
 
-    async lockSubState() {
-        const log = Logger("pkc-js:local-community:db-handler:lock:lockSubState");
+    async lockCommunityState() {
+        const log = Logger("pkc-js:local-community:db-handler:lock:lockCommunityState");
         const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${this._community.address}.state.lock`);
-        const subDbPath = path.join(this._community._pkc.dataPath!, "communities", this._community.address);
+        const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", this._community.address);
         try {
-            await lockfile.lock(subDbPath, {
+            await lockfile.lock(communityDbPath, {
                 lockfilePath,
                 retries: 5,
                 onCompromised: () => {}
             });
         } catch (e: unknown) {
-            log.error(`Error when attempting to lock sub state`, this._community.address, e);
+            log.error(`Error when attempting to lock community state`, this._community.address, e);
             if (e instanceof Error && e.message === "Lock file is already being held")
                 throw new PKCError("ERR_COMMUNITY_STATE_LOCKED", { communityAddress: this._community.address, error: e });
             // Not sure, do we need to throw error here
         }
     }
 
-    async unlockSubState() {
-        const log = Logger("pkc-js:local-community:db-handler:lock:unlockSubState");
+    async unlockCommunityState() {
+        const log = Logger("pkc-js:local-community:db-handler:lock:unlockCommunityState");
 
         const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${this._community.address}.state.lock`);
-        const subDbPath = path.join(this._community._pkc.dataPath!, "communities", this._community.address);
+        const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", this._community.address);
         if (!fs.existsSync(lockfilePath)) return;
         try {
-            await lockfile.unlock(subDbPath, { lockfilePath });
+            await lockfile.unlock(communityDbPath, { lockfilePath });
         } catch (e: unknown) {
-            log.error(`Error when attempting to unlock sub state`, this._community.address, e);
+            log.error(`Error when attempting to unlock community state`, this._community.address, e);
             if (e instanceof Error && "code" in e && e.code !== "ENOTACQUIRED") throw e;
         }
     }
 
-    subDbExists() {
-        const subDbPath = path.join(this._community._pkc.dataPath!, "communities", this._community.address);
-        return fs.existsSync(subDbPath);
+    communityDbExists() {
+        const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", this._community.address);
+        return fs.existsSync(communityDbPath);
     }
 
     markCommentsAsPublishedToPostUpdates(commentCids: string[]): void {
@@ -2801,7 +2801,7 @@ export class DbHandler {
         const { clause: postsAddrClause, params: postsAddrParams } = this._communityAddressClauseNamed("c", "asPosts");
 
         const activeScoreRootConditions = ["p.depth = 0"];
-        if (pageOptions.excludeCommentsWithDifferentSubAddress) activeScoreRootConditions.push(rootAddrClause);
+        if (pageOptions.excludeCommentsWithDifferentCommunityAddress) activeScoreRootConditions.push(rootAddrClause);
         if (pageOptions.excludeCommentPendingApproval) activeScoreRootConditions.push(this._pendingApprovalClause("p"));
         if (pageOptions.excludeRemovedComments) activeScoreRootConditions.push(this._removedClause("cu_root"));
         if (pageOptions.excludeDeletedComments) activeScoreRootConditions.push(this._deletedFromUpdatesClause("cu_root"));
@@ -2809,7 +2809,7 @@ export class DbHandler {
         const activeScoreRootWhere = `WHERE ${activeScoreRootConditions.join(" AND ")}`;
 
         const activeScoreDescendantConditions: string[] = [];
-        if (pageOptions.excludeCommentsWithDifferentSubAddress) activeScoreDescendantConditions.push(descAddrClause);
+        if (pageOptions.excludeCommentsWithDifferentCommunityAddress) activeScoreDescendantConditions.push(descAddrClause);
         if (pageOptions.excludeCommentPendingApproval) activeScoreDescendantConditions.push(this._pendingApprovalClause("c"));
         if (pageOptions.excludeRemovedComments) activeScoreDescendantConditions.push(this._removedClause("cu"));
         if (pageOptions.excludeDeletedComments) activeScoreDescendantConditions.push(this._deletedFromLookupClause("deleted_lookup"));
@@ -2849,7 +2849,7 @@ export class DbHandler {
 
         const postsWhereClauses = ["c.depth = 0"];
 
-        if (pageOptions.excludeCommentsWithDifferentSubAddress) {
+        if (pageOptions.excludeCommentsWithDifferentCommunityAddress) {
             postsWhereClauses.push(postsAddrClause);
             Object.assign(params, postsAddrParams);
         }

@@ -59,15 +59,15 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`mod flairs appear in pages of community`, async () => {
-            const sub = await pkc.createCommunity({ address: randomPost.communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: randomPost.communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => typeof sub.updatedAt === "number"
+                toUpdate: community,
+                predicate: async () => typeof community.updatedAt === "number"
             });
-            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(randomPost.cid, sub.posts);
+            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(randomPost.cid, community.posts);
             expect(commentInPage.flairs).to.deep.equal([{ text: "Mod Tag", backgroundColor: "#0000ff" }]);
-            await sub.stop();
+            await community.stop();
         });
     });
 
@@ -107,15 +107,15 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`author flairs appear in pages of community`, async () => {
-            const sub = await pkc.createCommunity({ address: randomPost.communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: randomPost.communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => typeof sub.updatedAt === "number"
+                toUpdate: community,
+                predicate: async () => typeof community.updatedAt === "number"
             });
-            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(randomPost.cid, sub.posts);
+            const commentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(randomPost.cid, community.posts);
             expect(commentInPage.author.flairs).to.deep.equal([{ text: "Trusted", textColor: "#fff", backgroundColor: "#00ff00" }]);
-            await sub.stop();
+            await community.stop();
         });
     });
 

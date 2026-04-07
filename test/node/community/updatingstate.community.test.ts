@@ -57,31 +57,31 @@ describe.concurrent(`community.updatingState from a local community`, async () =
         expect(recordedStates).to.deep.equal(expectedStates);
     });
 
-    itIfRpc(`localCommunity.updatingState is copied from startedState if we're updating a local sub via rpc`, async () => {
-        const startedSub = await createSubWithNoChallenge({}, pkc);
+    itIfRpc(`localCommunity.updatingState is copied from startedState if we're updating a local community via rpc`, async () => {
+        const startedCommunity = await createSubWithNoChallenge({}, pkc);
 
-        const updatingSub = (await pkc.createCommunity({ address: startedSub.address })) as LocalCommunity | RpcLocalCommunity;
+        const updatingCommunity = (await pkc.createCommunity({ address: startedCommunity.address })) as LocalCommunity | RpcLocalCommunity;
 
         const startedInstanceStartedStates: string[] = [];
-        startedSub.on("startedstatechange", () => startedInstanceStartedStates.push(startedSub.startedState));
+        startedCommunity.on("startedstatechange", () => startedInstanceStartedStates.push(startedCommunity.startedState));
 
         const updatingSubUpdatingStates: CommunityUpdatingState[] = [];
-        updatingSub.on("updatingstatechange", () => updatingSubUpdatingStates.push(updatingSub.updatingState));
+        updatingCommunity.on("updatingstatechange", () => updatingSubUpdatingStates.push(updatingCommunity.updatingState));
 
         const updates: number[] = [];
-        updatingSub.on("update", () => updates.push(updates.length));
-        await startedSub.start();
+        updatingCommunity.on("update", () => updates.push(updates.length));
+        await startedCommunity.start();
 
-        await resolveWhenConditionIsTrue({ toUpdate: startedSub, predicate: async () => Boolean(startedSub.updatedAt) });
+        await resolveWhenConditionIsTrue({ toUpdate: startedCommunity, predicate: async () => Boolean(startedCommunity.updatedAt) });
 
-        await updatingSub.update();
+        await updatingCommunity.update();
 
-        await publishRandomPost({ communityAddress: startedSub.address, pkc: pkc }); // to trigger an update
+        await publishRandomPost({ communityAddress: startedCommunity.address, pkc: pkc }); // to trigger an update
         await new Promise((resolve) => setTimeout(resolve, 1000));
-        await publishRandomPost({ communityAddress: startedSub.address, pkc: pkc });
+        await publishRandomPost({ communityAddress: startedCommunity.address, pkc: pkc });
 
-        await resolveWhenConditionIsTrue({ toUpdate: updatingSub, predicate: async () => updates.length >= 2 });
-        await startedSub.delete();
+        await resolveWhenConditionIsTrue({ toUpdate: updatingCommunity, predicate: async () => updates.length >= 2 });
+        await startedCommunity.delete();
 
         expect(updatingSubUpdatingStates).to.deep.equal(
             startedInstanceStartedStates.splice(startedInstanceStartedStates.length - updatingSubUpdatingStates.length)

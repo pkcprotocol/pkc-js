@@ -50,9 +50,9 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`Correct order of ${clientFieldName} state when updating a post that was created with pkc.createComment({cid})`, async () => {
-            const sub = await pkc.getCommunity({ address: signers[0].address });
+            const community = await pkc.getCommunity({ address: signers[0].address });
 
-            const mockPost = await pkc.createComment({ cid: sub.posts.pages.hot.comments[0].cid });
+            const mockPost = await pkc.createComment({ cid: community.posts.pages.hot.comments[0].cid });
 
             const expectedStates = [
                 "fetching-ipfs",
@@ -83,8 +83,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
         it(`Correct order of ${clientFieldName} state when updating a reply that was created with pkc.createComment({cid}) and the post has a single preloaded page`, async () => {
             const pkc: PKC = await config.pkcInstancePromise();
-            const sub = await pkc.getCommunity({ address: signers[0].address });
-            const replyCid = sub.posts.pages.hot.comments.find((post) => post.replies).replies.pages.best.comments[0].cid;
+            const community = await pkc.getCommunity({ address: signers[0].address });
+            const replyCid = community.posts.pages.hot.comments.find((post) => post.replies).replies.pages.best.comments[0].cid;
             const reply = await pkc.createComment({ cid: replyCid });
 
             const expectedStates = [
@@ -119,9 +119,9 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         );
 
         it(`Correct order of ${clientFieldName} state when updating a post that was created with pkc.getComment({cid: cid})`, async () => {
-            const sub = await pkc.getCommunity({ address: signers[0].address });
+            const community = await pkc.getCommunity({ address: signers[0].address });
 
-            const mockPost = await pkc.getComment({ cid: sub.posts.pages.hot.comments[0].cid });
+            const mockPost = await pkc.getComment({ cid: community.posts.pages.hot.comments[0].cid });
 
             const expectedStates = ["fetching-community-ipns", "fetching-community-ipfs", "stopped", "fetching-update-ipfs", "stopped"];
 
@@ -186,19 +186,19 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         it(`Correct order of ${clientFieldName} when we update a post but its community is not publishing new community records`, async () => {
             const customPKC = await config.pkcInstancePromise();
 
-            const sub = await customPKC.createCommunity({ address: signers[0].address });
+            const community = await customPKC.createCommunity({ address: signers[0].address });
 
             // now pkc._updatingCommunities will be defined
 
-            const updatePromise = new Promise((resolve) => sub.once("update", resolve));
-            await sub.update();
+            const updatePromise = new Promise((resolve) => community.once("update", resolve));
+            await community.update();
             await updatePromise;
 
-            const updatingSubInstance = customPKC._updatingCommunities[sub.address];
+            const updatingSubInstance = customPKC._updatingCommunities[community.address];
 
-            updatingSubInstance._clientsManager.resolveIpnsToCidP2P = async () => sub.updateCid!; // stop it from loading new IPNS
+            updatingSubInstance._clientsManager.resolveIpnsToCidP2P = async () => community.updateCid!; // stop it from loading new IPNS
 
-            const mockPost = await customPKC.createComment({ cid: sub.posts.pages.hot.comments[0].cid });
+            const mockPost = await customPKC.createComment({ cid: community.posts.pages.hot.comments[0].cid });
 
             const recordedStates: string[] = [];
 
@@ -229,16 +229,16 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 expect(noNewUpdateStates[i + 1]).to.equal("stopped");
             }
 
-            await sub.stop();
+            await community.stop();
         });
 
         it(`Correct order of ${clientFieldName} when we update a post but its commentupdate is an invalid record (bad signature/schema/etc)`, async () => {
             const pkc: PKC = await config.pkcInstancePromise();
 
-            const sub = await pkc.getCommunity({ address: signers[0].address });
+            const community = await pkc.getCommunity({ address: signers[0].address });
 
             const commentUpdateWithInvalidSignatureJson = await createCommentUpdateWithInvalidSignature(
-                sub.posts.pages.hot.comments[0].cid
+                community.posts.pages.hot.comments[0].cid
             );
 
             const createdComment = await pkc.createComment({

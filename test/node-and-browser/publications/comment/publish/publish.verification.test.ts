@@ -136,7 +136,7 @@ describe.concurrent("Community rejection of incorrect values of fields", async (
     });
 
     itSkipIfRpc(`Throws an error when a comment has no title, link or content`, async () => {
-        // should fail both locally in pkc.createComment, and when we publish to the sub
+        // should fail both locally in pkc.createComment, and when we publish to the community
         try {
             await generateMockPost({
                 communityAddress: communityAddress,
@@ -234,7 +234,7 @@ describe.concurrent(`Posts with forbidden fields are rejected during challenge e
         await pkc.destroy();
     });
 
-    it(`Can't publish a post to sub with signer being part of CommentPubsubMessage`, async () => {
+    it(`Can't publish a post to community with signer being part of CommentPubsubMessage`, async () => {
         const post = await generateMockPost({ communityAddress: communityAddress, pkc: pkc });
         await setExtraPropOnCommentAndSign(post, { signer: { privateKey: post.signer.privateKey } }, true);
         await publishWithExpectedResult({

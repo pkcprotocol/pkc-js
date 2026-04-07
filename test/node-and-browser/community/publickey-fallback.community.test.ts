@@ -23,25 +23,28 @@ describe(`publicKey fallback - createCommunity stores publicKey from explicit op
     });
 
     it(`createCommunity({ name, publicKey }) sets publicKey on instance`, async () => {
-        const sub = await pkc.createCommunity({ name: "test.sol", publicKey: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR" });
-        expect(sub.publicKey).to.equal("12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR");
-        expect(sub.address).to.equal("test.sol");
+        const community = await pkc.createCommunity({
+            name: "test.sol",
+            publicKey: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR"
+        });
+        expect(community.publicKey).to.equal("12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR");
+        expect(community.address).to.equal("test.sol");
     });
 
     it(`createCommunity({ publicKey }) without name sets publicKey as address`, async () => {
-        const sub = await pkc.createCommunity({ publicKey: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR" });
-        expect(sub.publicKey).to.equal("12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR");
-        expect(sub.address).to.equal("12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR");
+        const community = await pkc.createCommunity({ publicKey: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR" });
+        expect(community.publicKey).to.equal("12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR");
+        expect(community.address).to.equal("12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR");
     });
 
     it(`createCommunity({ name, publicKey }) keeps name as address even when publicKey differs`, async () => {
-        const sub = await pkc.createCommunity({
+        const community = await pkc.createCommunity({
             name: "myforum.eth",
             publicKey: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR"
         });
         // name takes priority for address, but publicKey is stored
-        expect(sub.address).to.equal("myforum.eth");
-        expect(sub.publicKey).to.equal("12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR");
+        expect(community.address).to.equal("myforum.eth");
+        expect(community.publicKey).to.equal("12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR");
     });
 });
 
@@ -63,25 +66,25 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             // The domain "myforum.eth" is only inside the IPNS record's wire format
             const { communityAddress: communityPublicKey } = await createMockedCommunityIpns({ name: "myforum.eth" });
 
-            const sub = await pkc.createCommunity({ publicKey: communityPublicKey });
-            expect(sub.publicKey).to.equal(communityPublicKey);
-            expect(sub.address).to.equal(communityPublicKey);
-            expect(sub.name).to.be.undefined;
+            const community = await pkc.createCommunity({ publicKey: communityPublicKey });
+            expect(community.publicKey).to.equal(communityPublicKey);
+            expect(community.address).to.equal(communityPublicKey);
+            expect(community.name).to.be.undefined;
 
-            await sub.update();
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => typeof sub.updatedAt === "number"
+                toUpdate: community,
+                predicate: async () => typeof community.updatedAt === "number"
             });
 
             // name gets populated from the IPNS record after update
-            expect(sub.name).to.equal("myforum.eth");
+            expect(community.name).to.equal("myforum.eth");
             // address stays immutable at the publicKey it was created with
-            expect(sub.address).to.equal(communityPublicKey);
-            expect(sub.publicKey).to.equal(communityPublicKey);
-            expect(sub.updatedAt).to.be.a("number");
+            expect(community.address).to.equal(communityPublicKey);
+            expect(community.publicKey).to.equal(communityPublicKey);
+            expect(community.updatedAt).to.be.a("number");
 
-            await sub.stop();
+            await community.stop();
         });
 
         it(`update() succeeds via publicKey when no resolver handles .sol`, async () => {
@@ -100,22 +103,22 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 }
             });
 
-            // Create sub with .sol name but real publicKey
-            const sub = await testPKC.createCommunity({ name: "test.sol", publicKey: communityAddress });
-            expect(sub.publicKey).to.equal(communityAddress);
-            expect(sub.address).to.equal("test.sol");
+            // Create community with .sol name but real publicKey
+            const community = await testPKC.createCommunity({ name: "test.sol", publicKey: communityAddress });
+            expect(community.publicKey).to.equal(communityAddress);
+            expect(community.address).to.equal("test.sol");
 
-            await sub.update();
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => typeof sub.updatedAt === "number"
+                toUpdate: community,
+                predicate: async () => typeof community.updatedAt === "number"
             });
 
-            expect(sub.updatedAt).to.be.a("number");
+            expect(community.updatedAt).to.be.a("number");
             // nameResolved should be false because .sol can't be resolved
-            expect(sub.nameResolved).to.equal(false);
+            expect(community.nameResolved).to.equal(false);
 
-            await sub.stop();
+            await community.stop();
             await testPKC.destroy();
         });
 
@@ -134,18 +137,18 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 }
             });
 
-            const sub = await testPKC.createCommunity({ name: "unresolvable.eth", publicKey: communityAddress });
-            await sub.update();
+            const community = await testPKC.createCommunity({ name: "unresolvable.eth", publicKey: communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => typeof sub.updatedAt === "number"
+                toUpdate: community,
+                predicate: async () => typeof community.updatedAt === "number"
             });
 
-            expect(sub.updatedAt).to.be.a("number");
+            expect(community.updatedAt).to.be.a("number");
             // nameResolved should be false because resolver returned null
-            expect(sub.nameResolved).to.equal(false);
+            expect(community.nameResolved).to.equal(false);
 
-            await sub.stop();
+            await community.stop();
             await testPKC.destroy();
         });
 
@@ -159,18 +162,18 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 }
             });
 
-            const sub = await testPKC.createCommunity({ name: "plebbit.bso", publicKey: communityAddress });
-            await sub.update();
+            const community = await testPKC.createCommunity({ name: "plebbit.bso", publicKey: communityAddress });
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
-                predicate: async () => typeof sub.updatedAt === "number"
+                toUpdate: community,
+                predicate: async () => typeof community.updatedAt === "number"
             });
 
-            expect(sub.updatedAt).to.be.a("number");
+            expect(community.updatedAt).to.be.a("number");
             // nameResolved should be true because resolver returned matching publicKey
-            expect(sub.nameResolved).to.equal(true);
+            expect(community.nameResolved).to.equal(true);
 
-            await sub.stop();
+            await community.stop();
             await testPKC.destroy();
         });
     });
@@ -190,9 +193,9 @@ describe(`publicKey fallback - failure cases without publicKey`, () => {
             }
         });
 
-        const sub = await testPKC.createCommunity({ address: "test.sol" });
+        const community = await testPKC.createCommunity({ address: "test.sol" });
         const errorPromise = new Promise<void>((resolve) => {
-            sub.on("error", (err: PKCError | Error) => {
+            community.on("error", (err: PKCError | Error) => {
                 // ERR_NO_RESOLVER_FOR_NAME when client resolver doesn't handle .sol;
                 // ERR_DOMAIN_TXT_RECORD_NOT_FOUND when RPC server resolver handles .sol but finds no record
                 expect((err as PKCError).code).to.be.oneOf(["ERR_NO_RESOLVER_FOR_NAME", "ERR_DOMAIN_TXT_RECORD_NOT_FOUND"]);
@@ -200,18 +203,18 @@ describe(`publicKey fallback - failure cases without publicKey`, () => {
             });
         });
 
-        await sub.update();
+        await community.update();
         await errorPromise;
 
         if (testPKC._pkcRpcClient) {
             // ERR_DOMAIN_TXT_RECORD_NOT_FOUND is retriable
-            expect(sub.updatingState).to.equal("waiting-retry");
+            expect(community.updatingState).to.equal("waiting-retry");
         } else {
             // ERR_NO_RESOLVER_FOR_NAME is non-retriable
-            expect(sub.updatingState).to.equal("failed");
+            expect(community.updatingState).to.equal("failed");
         }
 
-        await sub.stop();
+        await community.stop();
         await testPKC.destroy();
     });
 
@@ -228,23 +231,23 @@ describe(`publicKey fallback - failure cases without publicKey`, () => {
             }
         });
 
-        const sub = await testPKC.createCommunity({ address: "unresolvable.eth" });
+        const community = await testPKC.createCommunity({ address: "unresolvable.eth" });
         let errorCount = 0;
         const errorPromise = new Promise<void>((resolve) => {
-            sub.on("error", (err: PKCError | Error) => {
+            community.on("error", (err: PKCError | Error) => {
                 expect((err as PKCError).code).to.equal("ERR_DOMAIN_TXT_RECORD_NOT_FOUND");
                 errorCount++;
                 if (errorCount >= 2) resolve();
             });
         });
 
-        await sub.update();
+        await community.update();
         await errorPromise;
 
         // ERR_DOMAIN_TXT_RECORD_NOT_FOUND is retriable
-        expect(sub.updatingState).to.equal("waiting-retry");
+        expect(community.updatingState).to.equal("waiting-retry");
 
-        await sub.stop();
+        await community.stop();
         await testPKC.destroy();
     });
 });
@@ -274,24 +277,24 @@ describe(`publicKey fallback - .sol community loading`, () => {
                     }
                 });
 
-                const sub = await testPKC.createCommunity({ address: "mycommunity.sol" });
+                const community = await testPKC.createCommunity({ address: "mycommunity.sol" });
                 let emittedError: PKCError | Error | undefined;
                 const errorPromise = new Promise<void>((resolve) => {
-                    sub.once("error", (err) => {
+                    community.once("error", (err) => {
                         emittedError = err;
                         resolve();
                     });
                 });
 
-                await sub.update();
+                await community.update();
                 await errorPromise;
 
                 // ERR_NO_RESOLVER_FOR_NAME when client resolver doesn't handle .sol;
                 // ERR_DOMAIN_TXT_RECORD_NOT_FOUND when RPC server resolver handles .sol but finds no record
                 expect((emittedError as PKCError).code).to.be.oneOf(["ERR_NO_RESOLVER_FOR_NAME", "ERR_DOMAIN_TXT_RECORD_NOT_FOUND"]);
-                expect(sub.raw.communityIpfs).to.be.undefined;
+                expect(community.raw.communityIpfs).to.be.undefined;
 
-                await sub.stop();
+                await community.stop();
                 await testPKC.destroy();
             });
 
@@ -309,17 +312,17 @@ describe(`publicKey fallback - .sol community loading`, () => {
                     }
                 });
 
-                const sub = await testPKC.createCommunity({ name: "mycommunity.sol", publicKey: communityAddress });
-                await sub.update();
+                const community = await testPKC.createCommunity({ name: "mycommunity.sol", publicKey: communityAddress });
+                await community.update();
                 await resolveWhenConditionIsTrue({
-                    toUpdate: sub,
-                    predicate: async () => typeof sub.updatedAt === "number"
+                    toUpdate: community,
+                    predicate: async () => typeof community.updatedAt === "number"
                 });
 
-                expect(sub.updatedAt).to.be.a("number");
-                expect(sub.nameResolved).to.equal(false);
+                expect(community.updatedAt).to.be.a("number");
+                expect(community.nameResolved).to.equal(false);
 
-                await sub.stop();
+                await community.stop();
                 await testPKC.destroy();
             });
         });

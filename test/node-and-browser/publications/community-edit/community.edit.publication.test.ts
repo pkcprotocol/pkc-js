@@ -205,11 +205,14 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Community should publish an update after the admin edits one of its props`, async () => {
-            const sub = await pkc.createCommunity({ address: communityAddress });
-            await sub.update();
-            await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => sub.description === editProps.description });
-            await sub.stop();
-            expect(sub.description).to.equal(editProps.description);
+            const community = await pkc.createCommunity({ address: communityAddress });
+            await community.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: community,
+                predicate: async () => community.description === editProps.description
+            });
+            await community.stop();
+            expect(community.description).to.equal(editProps.description);
         });
 
         it(`Community edit props should be deep merged`);
@@ -231,9 +234,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`sub owner should be able to modify address`, async () => {
             const ownerSigner = await pkc.createSigner(roles[0].signer);
-            const sub = await pkc.getCommunity({ address: communityAddress });
+            const community = await pkc.getCommunity({ address: communityAddress });
             const communityEditPub = await pkc.createCommunityEdit({
-                communityEdit: { address: sub.address }, // we're not changing the address because it's a sub used by other tests as well. But if the test pass it means {address} was passed over to sub.edit which is enough for our testing
+                communityEdit: { address: community.address }, // we're not changing the address because it's a community used by other tests as well. But if the test pass it means {address} was passed over to community.edit which is enough for our testing
                 communityAddress: communityAddress,
                 signer: ownerSigner
             });
@@ -267,13 +270,16 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Community should publish an update after the owner edits one of its props`, async () => {
-            const sub = await pkc.createCommunity({ address: communityAddress });
-            await sub.update();
-            await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => sub.description === editProps.description });
-            await sub.stop();
-            expect(sub.description).to.equal(editProps.description);
-            expect(sub.roles[newRoleAddress].role).to.equal("admin");
-            expect(Object.keys(sub.roles).length).to.be.above(1); // should not override other roles
+            const community = await pkc.createCommunity({ address: communityAddress });
+            await community.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: community,
+                predicate: async () => community.description === editProps.description
+            });
+            await community.stop();
+            expect(community.description).to.equal(editProps.description);
+            expect(community.roles[newRoleAddress].role).to.equal("admin");
+            expect(Object.keys(community.roles).length).to.be.above(1); // should not override other roles
         });
 
         it(`Community edit props should be deep merged`);

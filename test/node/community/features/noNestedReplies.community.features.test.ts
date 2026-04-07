@@ -45,11 +45,14 @@ describe.concurrent(`community.features.noNestedReplies`, async () => {
         await community.edit({ features: { ...community.features, noNestedReplies: true } });
         expect(community.features?.noNestedReplies).to.be.true;
 
-        const remoteSub = await remotePKC.getCommunity({ address: community.address });
-        await remoteSub.update();
-        await resolveWhenConditionIsTrue({ toUpdate: remoteSub, predicate: async () => remoteSub.features?.noNestedReplies === true });
-        expect(remoteSub.features?.noNestedReplies).to.be.true;
-        await remoteSub.stop();
+        const remoteCommunity = await remotePKC.getCommunity({ address: community.address });
+        await remoteCommunity.update();
+        await resolveWhenConditionIsTrue({
+            toUpdate: remoteCommunity,
+            predicate: async () => remoteCommunity.features?.noNestedReplies === true
+        });
+        expect(remoteCommunity.features?.noNestedReplies).to.be.true;
+        await remoteCommunity.stop();
     });
 
     it(`Can publish a post`, async () => {

@@ -108,7 +108,7 @@ const getPendingChallengesOrChallengeVerification = async (
     challengeRequestMessage: DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
     community: LocalCommunity
 ): Promise<ChallengeVerificationSuccess | ChallengeVerificationPending | ChallengeVerificationFailure> => {
-    // if sub has no challenges, no need to send a challenge
+    // if community has no challenges, no need to send a challenge
     if (!Array.isArray(community.settings?.challenges))
         return {
             challengeSuccess: true,

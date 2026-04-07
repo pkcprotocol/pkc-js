@@ -90,8 +90,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it.sequential(`Updating states is in correct upon updating a post that's included in preloaded pages of community`, async () => {
-            const sub = await pkc.getCommunity({ address: communityAddress });
-            const postCid = sub.posts.pages.hot.comments.find(
+            const community = await pkc.getCommunity({ address: communityAddress });
+            const postCid = community.posts.pages.hot.comments.find(
                 (comment: { author: { address: string } }) => !comment.author.address.includes(".")
             ).cid;
             const mockPost = await pkc.createComment({ cid: postCid });
@@ -119,8 +119,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         it(`updating states is in correct order upon updating a post with IPFS client using postUpdates`, async () => {
             const dedicatedPKC = await config.pkcInstancePromise();
             try {
-                const sub = await dedicatedPKC.getCommunity({ address: communityAddress });
-                const postCid = sub.posts.pages.hot.comments[0].cid;
+                const community = await dedicatedPKC.getCommunity({ address: communityAddress });
+                const postCid = community.posts.pages.hot.comments[0].cid;
                 const mockPost = await dedicatedPKC.createComment({ cid: postCid });
                 const expectedStates = [
                     "fetching-community-ipns",
@@ -147,7 +147,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         it(`updating state of post is set to failed if sub has an invalid Community record`, async () => {
             const pkc = await config.pkcInstancePromise({ pkcOptions: { resolveAuthorNames: false } }); // set resolve to false so it wouldn't show up in states
             try {
-                const { commentCid, communityAddress: subAddress } = await createStaticCommunityRecordForComment({
+                const { commentCid, communityAddress: communityAddress } = await createStaticCommunityRecordForComment({
                     pkc: pkc,
                     invalidateCommunitySignature: true
                 });
@@ -192,9 +192,9 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         it(`updating state is set to failed if we load an invalid CommentUpdate record from postUpdates`, async () => {
             const dedicatedPKC = await config.pkcInstancePromise();
             try {
-                const sub = await dedicatedPKC.getCommunity({ address: communityAddress });
+                const community = await dedicatedPKC.getCommunity({ address: communityAddress });
                 const commentUpdateWithInvalidSignatureJson = await createCommentUpdateWithInvalidSignature(
-                    sub.posts.pages.hot.comments[0].cid
+                    community.posts.pages.hot.comments[0].cid
                 );
                 const createdComment = await dedicatedPKC.createComment({
                     cid: commentUpdateWithInvalidSignatureJson.cid
@@ -276,7 +276,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         it(`updating state of post is set to failed if sub has an invalid Community record`, async () => {
             const dedicatedPKC = await config.pkcInstancePromise();
             try {
-                const { commentCid, communityAddress: subAddress } = await createStaticCommunityRecordForComment({
+                const { commentCid, communityAddress: communityAddress } = await createStaticCommunityRecordForComment({
                     pkc: dedicatedPKC,
                     invalidateCommunitySignature: true
                 });
@@ -320,9 +320,9 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         it(`updating state is set to failed if we load an invalid CommentUpdate record from postUpdates`, async () => {
             const dedicatedPKC = await config.pkcInstancePromise();
             try {
-                const sub = await dedicatedPKC.getCommunity({ address: communityAddress });
+                const community = await dedicatedPKC.getCommunity({ address: communityAddress });
                 const commentUpdateWithInvalidSignatureJson = await createCommentUpdateWithInvalidSignature(
-                    sub.posts.pages.hot.comments[0].cid
+                    community.posts.pages.hot.comments[0].cid
                 );
                 const createdComment = await dedicatedPKC.createComment({
                     cid: commentUpdateWithInvalidSignatureJson.cid
@@ -374,8 +374,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             }
         });
         it(`Updating states is in correct upon updating a post that's included in preloaded pages of community`, async () => {
-            const sub = await pkc.getCommunity({ address: communityAddress });
-            const postCid = sub.posts.pages.hot.comments[0].cid;
+            const community = await pkc.getCommunity({ address: communityAddress });
+            const postCid = community.posts.pages.hot.comments[0].cid;
             const mockPost = await pkc.createComment({ cid: postCid });
             const recordedStates: string[] = [];
             mockPost.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
@@ -468,8 +468,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`the order of state-event-statechange is correct when we get a new update from post`, async () => {
-            const sub = await pkc.getCommunity({ address: communityAddress });
-            const postCid = sub.posts.pages.hot.comments[0].cid;
+            const community = await pkc.getCommunity({ address: communityAddress });
+            const postCid = community.posts.pages.hot.comments[0].cid;
             const mockPost = await pkc.createComment({ cid: postCid });
             expect(mockPost.raw.comment).to.be.undefined;
             expect(mockPost.raw.commentUpdate).to.be.undefined;

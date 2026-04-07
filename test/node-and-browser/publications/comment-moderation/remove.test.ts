@@ -17,7 +17,7 @@ import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 
-const communityAddress = signers[7].address; // this sub is dedicated for removing
+const communityAddress = signers[7].address; // this community is dedicated for removing
 const roles = [
     { role: "owner", signer: signers[1] },
     { role: "admin", signer: signers[2] },
@@ -67,21 +67,24 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(postToRemove.raw.commentUpdate.edit).to.be.undefined;
         });
         it(`Removed post don't show in community.posts`, async () => {
-            const sub = await pkc.createCommunity({ address: communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: communityAddress });
+            await community.update();
 
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const removedPostInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(postToRemove.cid, sub.posts);
+                    const removedPostInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
+                        postToRemove.cid,
+                        community.posts
+                    );
                     return removedPostInPage === undefined;
                 }
             });
 
-            await sub.stop();
+            await community.stop();
 
-            for (const pageCid of Object.values(sub.posts.pageCids) as string[]) {
-                const removedPostInPage = await iterateThroughPageCidToFindComment(postToRemove.cid, pageCid, sub.posts);
+            for (const pageCid of Object.values(community.posts.pageCids) as string[]) {
+                const removedPostInPage = await iterateThroughPageCidToFindComment(postToRemove.cid, pageCid, community.posts);
 
                 expect(removedPostInPage).to.be.undefined;
             }
@@ -162,21 +165,24 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Unremoved post is included in community.posts with removed=false`, async () => {
-            const sub = await pkc.createCommunity({ address: communityAddress });
-            await sub.update();
+            const community = await pkc.createCommunity({ address: communityAddress });
+            await community.update();
 
             await resolveWhenConditionIsTrue({
-                toUpdate: sub,
+                toUpdate: community,
                 predicate: async () => {
-                    const unremovedPostInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(postToRemove.cid, sub.posts);
+                    const unremovedPostInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(
+                        postToRemove.cid,
+                        community.posts
+                    );
                     return Boolean(unremovedPostInPage);
                 }
             });
 
-            await sub.stop();
+            await community.stop();
 
-            for (const pageCid of Object.values(sub.posts.pageCids) as string[]) {
-                const unremovedPostInPage = await iterateThroughPageCidToFindComment(postToRemove.cid, pageCid, sub.posts);
+            for (const pageCid of Object.values(community.posts.pageCids) as string[]) {
+                const unremovedPostInPage = await iterateThroughPageCidToFindComment(postToRemove.cid, pageCid, community.posts);
                 expect(unremovedPostInPage).to.exist;
                 expect(unremovedPostInPage.removed).to.equal(false);
                 expect(unremovedPostInPage.reason).to.equal("To unremove a post");
