@@ -10,4 +10,4 @@ if (typeof window !== "undefined" && window.localStorage && debugNamespaces) {
     }
 }
 
-console.log("Vitest browser setup - PLEBBIT_CONFIGS:", globalThis.PLEBBIT_CONFIGS);
+console.log("Vitest browser setup - PKC_CONFIGS:", globalThis.PKC_CONFIGS);

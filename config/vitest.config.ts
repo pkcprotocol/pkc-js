@@ -73,7 +73,7 @@ const browserProject = defineProject({
         globals: true,
         setupFiles: ["./test/vitest-browser-setup.js"],
         env: {
-            PLEBBIT_CONFIGS: process.env.PLEBBIT_CONFIGS,
+            PKC_CONFIGS: process.env.PKC_CONFIGS,
             DEBUG: process.env.DEBUG,
             NO_COLOR: process.env.NO_COLOR,
             FORCE_COLOR: process.env.FORCE_COLOR,
@@ -88,10 +88,10 @@ const browserProject = defineProject({
         fileParallelism: false
     },
     define: {
-        "process.env.PLEBBIT_CONFIGS": JSON.stringify(process.env.PLEBBIT_CONFIGS),
+        "process.env.PKC_CONFIGS": JSON.stringify(process.env.PKC_CONFIGS),
         "process.env.DEBUG": JSON.stringify(process.env.DEBUG),
-        "globalThis.PLEBBIT_CONFIGS": JSON.stringify(process.env.PLEBBIT_CONFIGS),
-        "window.PLEBBIT_CONFIGS": JSON.stringify(process.env.PLEBBIT_CONFIGS)
+        "globalThis.PKC_CONFIGS": JSON.stringify(process.env.PKC_CONFIGS),
+        "window.PKC_CONFIGS": JSON.stringify(process.env.PKC_CONFIGS)
     },
     resolve: {
         alias: [

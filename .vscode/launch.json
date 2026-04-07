@@ -24,7 +24,7 @@
             "console": "integratedTerminal",
             "env": {
                 "DEBUG": "pkc-js*,pkc-react-hooks*,-pkc*trace",
-                "REMOTE_PLEBBIT_CONFIGS": "remote-kubo-rpc",
+                "REMOTE_PKC_CONFIGS": "remote-kubo-rpc",
                 "START_RPC_SERVER": "1"
             }
         },
@@ -74,7 +74,7 @@
             "type": "node",
             "env": {
                 "DEBUG": "pkc*,-pkc*trace",
-                "PLEBBIT_CONFIGS": "remote-ipfs-gateway,remote-kubo-rpc,remote-libp2pjs"
+                "PKC_CONFIGS": "remote-ipfs-gateway,remote-kubo-rpc,remote-libp2pjs"
             }
         },
         {
@@ -91,7 +91,7 @@
             "type": "node",
             "env": {
                 "DEBUG": "pkc-js*,pkc-react-hooks*,-pkc*trace",
-                "PLEBBIT_CONFIGS": "local-kubo-rpc"
+                "PKC_CONFIGS": "local-kubo-rpc"
             }
         },
         {
@@ -116,7 +116,7 @@
             "type": "node",
             "env": {
                 "DEBUG": "pkc-js*,pkc-react-hooks*",
-                "PLEBBIT_CONFIGS": "remote-pkc-rpc",
+                "PKC_CONFIGS": "remote-pkc-rpc",
                 "USE_RPC": "1"
             }
         },
@@ -144,7 +144,7 @@
             "type": "node",
             "env": {
                 "DEBUG": "pkc-js*,pkc-react-hooks*,-pkc*trace",
-                "PLEBBIT_CONFIGS": "remote-libp2pjs"
+                "PKC_CONFIGS": "remote-libp2pjs"
             }
         },
         {
@@ -168,7 +168,7 @@
             "type": "node",
             "env": {
                 "DEBUG": "*",
-                "PLEBBIT_CONFIGS": "remote-libp2pjs"
+                "PKC_CONFIGS": "remote-libp2pjs"
             }
         }
     ]
