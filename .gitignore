@@ -108,6 +108,11 @@ dist/
 
 # Plebbit data directory
 .plebbit/
+
+# PKC data directory
+.pkc/
+.pkc-rpc-server
+.pkc-rpc-server-remote
 # Test captchas directory
 .captcha/
 
