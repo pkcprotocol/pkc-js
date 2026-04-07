@@ -101,7 +101,9 @@ const defaultMockResolverRecords = new Map<string, string>([
     ["migration-test.bso", "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR"],
     ["migrating.bso", "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR"],
     // Resolves to signers[3] but record has name "plebbit.bso" — used by name mismatch rejection test
-    ["wrong-name.bso", "12D3KooWNMYPSuNadceoKsJ6oUQcxGcfiAsHNpVTt1RQ1zSrKKpo"]
+    ["wrong-name.bso", "12D3KooWNMYPSuNadceoKsJ6oUQcxGcfiAsHNpVTt1RQ1zSrKKpo"],
+    // Resolves to signers[4] — used by resolver tests where client signs with signers[6] but server resolves to a different key
+    ["testgibbreish.bso", "12D3KooWJrsheZoiATwG4Z6EJpNqo1v11wpHLcnMECqa4mneZiho"]
 ]);
 
 function getMockResolverRecord(records: MockResolverRecords | undefined, name: string): { found: boolean; value: string | undefined } {
@@ -1838,6 +1840,11 @@ export function jsonifyCommunityAndRemoveInternalProps(community: RemoteCommunit
     delete jsonfied["modQueue"]["clients"];
     delete jsonfied["raw"]["runtimeFieldsFromRpc"];
     delete jsonfied["raw"]["localCommunity"];
+    // Normalize old raw key to new key for backward compat comparison
+    if (jsonfied["raw"]["subplebbitIpfs"] && !jsonfied["raw"]["communityIpfs"]) {
+        jsonfied["raw"]["communityIpfs"] = jsonfied["raw"]["subplebbitIpfs"];
+        delete jsonfied["raw"]["subplebbitIpfs"];
+    }
     _stripNameResolvedFromPages(jsonfied["posts"]);
     _stripNameResolvedFromPages(jsonfied["modQueue"]);
 

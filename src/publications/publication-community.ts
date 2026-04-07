@@ -2,6 +2,7 @@ import { isStringDomain } from "../util.js";
 
 // A record that may come in old format (subplebbitAddress) or new format (communityPublicKey/communityName)
 type LoosePublicationRecord = {
+    communityAddress?: string;
     communityPublicKey?: string;
     communityName?: string;
     subplebbitAddress?: string; // old format, kept for backward compat with stored CommentIpfs
@@ -37,6 +38,7 @@ export function getCommunityNameFromWire(pub?: LoosePublicationRecord): string |
  * Used in verification to check address match regardless of format.
  */
 export function getCommunityAddressFromRecord(pub?: LoosePublicationRecord): string | undefined {
+    if (typeof pub?.communityAddress === "string") return pub.communityAddress;
     if (typeof pub?.communityName === "string") return pub.communityName;
     if (typeof pub?.communityPublicKey === "string") return pub.communityPublicKey;
     if (typeof pub?.subplebbitAddress === "string") return pub.subplebbitAddress;

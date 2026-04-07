@@ -275,7 +275,19 @@ export function parseRawPages(
         return { pages: pages.pages }; // already parsed
     else {
         pages = pages as PagesTypeJson;
-
+        // Backward compat: old serialized flat pages may have subplebbitAddress but not communityAddress
+        for (const page of Object.values(pages.pages)) {
+            if (!page) continue;
+            for (const comment of page.comments) {
+                if (!comment.communityAddress) {
+                    const addr = getCommunityAddressFromRecord(comment as unknown as Record<string, unknown>);
+                    if (addr) {
+                        comment.communityAddress = addr;
+                        comment.shortCommunityAddress = shortifyAddress(addr);
+                    }
+                }
+            }
+        }
         return {
             pages: pages.pages
         };

@@ -102,7 +102,7 @@ function buildPageComment({
             signature: {
                 publicKey: signerPublicKey,
                 signature: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-                signedPropertyNames: ["content", "author", "subplebbitAddress", "protocolVersion", "timestamp"],
+                signedPropertyNames: ["content", "author", "communityAddress", "protocolVersion", "timestamp"],
                 type: "ed25519"
             }
         },

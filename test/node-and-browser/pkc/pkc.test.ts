@@ -34,7 +34,7 @@ describe("PKC options", async () => {
 
         // no dataPath in browser
         if (typeof window === "undefined") {
-            expect(defaultPKC.dataPath).to.match(/\.plebbit$/);
+            expect(defaultPKC.dataPath).to.match(/\.pkc$/);
         } else {
             expect(defaultPKC.dataPath).to.equal(undefined);
         }

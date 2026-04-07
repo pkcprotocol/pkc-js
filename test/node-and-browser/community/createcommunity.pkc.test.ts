@@ -150,7 +150,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
         it("createCommunity preserves runtime-only author.nameResolved in preloaded fixture pages", async () => {
             const communityJson = remeda.clone(validCommunityJsonfiedFixture);
             const sourceComment = communityJson.posts.pages.hot.comments[0];
-            const sourceRawComment = communityJson.raw.subplebbitIpfs.posts.pages.hot.comments[0];
+            const sourceRawComment = (communityJson.raw.subplebbitIpfs || (communityJson.raw as Record<string, any>).communityIpfs).posts
+                .pages.hot.comments[0];
             Object.assign(sourceComment.author, { nameResolved: true });
 
             expect(sourceComment.author).to.have.property("nameResolved", true);
@@ -170,7 +171,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
         it("createCommunity preserves runtime-only author.nameResolved in preloaded OLD-wire-format fixture pages", async () => {
             const communityJson = remeda.clone(validCommunityJsonfiedOldWireFormatFixture);
             const sourceComment = communityJson.posts.pages.hot.comments[0];
-            const sourceRawComment = communityJson.raw.subplebbitIpfs.posts.pages.hot.comments[0];
+            const sourceRawComment = (communityJson.raw.subplebbitIpfs || (communityJson.raw as Record<string, any>).communityIpfs).posts
+                .pages.hot.comments[0];
             Object.assign(sourceComment.author, { nameResolved: true });
 
             expect(sourceComment.author).to.have.property("nameResolved", true);

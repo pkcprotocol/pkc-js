@@ -657,6 +657,14 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
                 }
             }
         }
+
+        // Backward compat: old serialized instances have raw.subplebbitIpfs instead of raw.communityIpfs
+        if (!community.raw.communityIpfs && "raw" in options) {
+            const legacyRaw = (options.raw as Record<string, unknown>).subplebbitIpfs;
+            if (legacyRaw) {
+                community.raw.communityIpfs = legacyRaw as CommunityIpfsType;
+            }
+        }
     }
 
     protected async _waitForCommunitiesToBeDefined() {
