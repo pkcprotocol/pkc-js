@@ -1789,8 +1789,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     ): Promise<messages | undefined> {
         const log = Logger("pkc-js:local-community:handleChallengeRequest:checkPublicationValidity");
 
-        // Reject deprecated old wire format field
-        if ("communityAddress" in publication) return messages.ERR_PUBLICATION_USES_DEPRECATED_SUBPLEBBIT_ADDRESS;
+        // Reject deprecated old wire format fields
+        if ("subplebbitAddress" in publication) return messages.ERR_PUBLICATION_USES_DEPRECATED_SUBPLEBBIT_ADDRESS;
+        if ("communityAddress" in publication) return messages.ERR_PUBLICATION_USES_DEPRECATED_COMMUNITY_ADDRESS;
 
         // communityPublicKey must be present and match this community's IPNS key
         const pubCommunityPublicKey = getCommunityPublicKeyFromWire(publication as Record<string, unknown>);
@@ -2332,6 +2333,21 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 { reason: messages.ERR_CHALLENGE_REQUEST_ENCRYPTED_HAS_MULTIPLE_PUBLICATIONS_AFTER_DECRYPTING },
                 request.challengeRequestId
             );
+
+        // Reject deprecated wire format fields early, before signature verification
+        // (these fields are never in signedPropertyNames and would otherwise fail with a generic error)
+        if ("subplebbitAddress" in publication) {
+            return this._publishFailedChallengeVerification(
+                { reason: messages.ERR_PUBLICATION_USES_DEPRECATED_SUBPLEBBIT_ADDRESS },
+                request.challengeRequestId
+            );
+        }
+        if ("communityAddress" in publication) {
+            return this._publishFailedChallengeVerification(
+                { reason: messages.ERR_PUBLICATION_USES_DEPRECATED_COMMUNITY_ADDRESS },
+                request.challengeRequestId
+            );
+        }
 
         const authorSignerAddress = await getPKCAddressFromPublicKey(publication.signature.publicKey);
         const authorDomain = getAuthorDomainFromWire(publication.author);

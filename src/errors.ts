@@ -233,6 +233,7 @@ export enum messages {
     ERR_COMMUNITY_PUBLICATION_PARENT_CID_NOT_DEFINED = "The parent cid of this publication is not defined. Make sure either commentCid or parentCid is defined",
     ERR_PUBLICATION_INVALID_COMMUNITY_ADDRESS = "The communityAddress field of publication is not the same as the community being published to",
     ERR_PUBLICATION_USES_DEPRECATED_SUBPLEBBIT_ADDRESS = "Publication uses the deprecated `subplebbitAddress` field; update your client to use `communityPublicKey`",
+    ERR_PUBLICATION_USES_DEPRECATED_COMMUNITY_ADDRESS = "Publication uses the deprecated `communityAddress` field; update your client to use `communityPublicKey`",
     ERR_PUBLICATION_INVALID_COMMUNITY_PUBLIC_KEY = "The communityPublicKey field of publication does not match the community's IPNS key",
     ERR_PUBLICATION_INVALID_COMMUNITY_NAME = "The communityName field of publication does not match the community's address",
     ERR_AUTHOR_IS_BANNED = "Author is banned",

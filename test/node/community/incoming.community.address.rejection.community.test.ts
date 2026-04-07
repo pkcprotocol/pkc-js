@@ -78,7 +78,7 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
 
         const newSignedProps = [
             ...orig.signature.signedPropertyNames.filter((k) => k !== "communityPublicKey" && k !== "communityName"),
-            "subplebbitAddress"
+            "communityAddress"
         ];
         modified.signature = await _signJson(newSignedProps, cleanUpBeforePublishing(modified), publication.signer, log);
         publication.raw.pubsubMessageToPublish = modified as typeof orig;
@@ -100,6 +100,28 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
         disableValidationOfSignatureBeforePublishing(publication);
     }
 
+    async function injectSubplebbitAddress(publication: PublicationWithSigner) {
+        const log = Logger("pkc-js:test:injectSubplebbitAddress");
+        if (!publication.signer) throw Error("Expected publication to have a signer");
+        await ensurePublicationIsSigned(publication, community);
+
+        const orig = publication.raw.pubsubMessageToPublish!;
+        const modified = { ...orig } as Record<string, unknown>;
+        delete modified.communityPublicKey;
+        delete modified.communityName;
+        // Use the community's correct IPNS key to prove rejection is field-name-based, not value-based
+        modified.subplebbitAddress = community.signer!.address;
+
+        const newSignedProps = [
+            ...orig.signature.signedPropertyNames.filter((k) => k !== "communityPublicKey" && k !== "communityName"),
+            "subplebbitAddress"
+        ];
+        modified.signature = await _signJson(newSignedProps, cleanUpBeforePublishing(modified), publication.signer, log);
+        publication.raw.pubsubMessageToPublish = modified as typeof orig;
+        publication.signature = modified.signature as typeof publication.signature;
+        disableValidationOfSignatureBeforePublishing(publication);
+    }
+
     // --- comment ---
 
     it("rejects a comment with deprecated communityAddress field", async () => {
@@ -113,7 +135,7 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
         await publishWithExpectedResult({
             publication: comment,
             expectedChallengeSuccess: false,
-            expectedReason: messages.ERR_PUBLICATION_USES_DEPRECATED_SUBPLEBBIT_ADDRESS
+            expectedReason: messages.ERR_PUBLICATION_USES_DEPRECATED_COMMUNITY_ADDRESS
         });
     });
 
@@ -147,6 +169,21 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
         });
     });
 
+    it("rejects a comment with deprecated subplebbitAddress field", async () => {
+        const comment = await pkc.createComment({
+            communityAddress: community.address,
+            title: `Deprecated subplebbitAddress comment ${Date.now()}`,
+            content: `Content ${Date.now()}`,
+            signer: await pkc.createSigner()
+        });
+        await injectSubplebbitAddress(comment);
+        await publishWithExpectedResult({
+            publication: comment,
+            expectedChallengeSuccess: false,
+            expectedReason: messages.ERR_PUBLICATION_USES_DEPRECATED_SUBPLEBBIT_ADDRESS
+        });
+    });
+
     // --- vote ---
 
     it("rejects a vote with deprecated communityAddress field", async () => {
@@ -161,7 +198,7 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
         await publishWithExpectedResult({
             publication: vote,
             expectedChallengeSuccess: false,
-            expectedReason: messages.ERR_PUBLICATION_USES_DEPRECATED_SUBPLEBBIT_ADDRESS
+            expectedReason: messages.ERR_PUBLICATION_USES_DEPRECATED_COMMUNITY_ADDRESS
         });
     });
 
@@ -197,6 +234,22 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
         });
     });
 
+    it("rejects a vote with deprecated subplebbitAddress field", async () => {
+        if (!targetPost.cid) throw Error("Expected target post to have a CID");
+        const vote = await pkc.createVote({
+            commentCid: targetPost.cid,
+            vote: 1,
+            communityAddress: community.address,
+            signer: await pkc.createSigner()
+        });
+        await injectSubplebbitAddress(vote);
+        await publishWithExpectedResult({
+            publication: vote,
+            expectedChallengeSuccess: false,
+            expectedReason: messages.ERR_PUBLICATION_USES_DEPRECATED_SUBPLEBBIT_ADDRESS
+        });
+    });
+
     // --- commentEdit ---
 
     it("rejects a commentEdit with deprecated communityAddress field", async () => {
@@ -212,7 +265,7 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
         await publishWithExpectedResult({
             publication: commentEdit,
             expectedChallengeSuccess: false,
-            expectedReason: messages.ERR_PUBLICATION_USES_DEPRECATED_SUBPLEBBIT_ADDRESS
+            expectedReason: messages.ERR_PUBLICATION_USES_DEPRECATED_COMMUNITY_ADDRESS
         });
     });
 
@@ -250,6 +303,23 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
         });
     });
 
+    it("rejects a commentEdit with deprecated subplebbitAddress field", async () => {
+        if (!targetPost.cid) throw Error("Expected target post to have a CID");
+        if (!targetPost.signer) throw Error("Expected target post instance to retain its signer");
+        const commentEdit = await pkc.createCommentEdit({
+            commentCid: targetPost.cid,
+            content: `Deprecated subplebbitAddress edit ${Date.now()}`,
+            communityAddress: community.address,
+            signer: targetPost.signer
+        });
+        await injectSubplebbitAddress(commentEdit);
+        await publishWithExpectedResult({
+            publication: commentEdit,
+            expectedChallengeSuccess: false,
+            expectedReason: messages.ERR_PUBLICATION_USES_DEPRECATED_SUBPLEBBIT_ADDRESS
+        });
+    });
+
     // --- commentModeration ---
 
     it("rejects a commentModeration with deprecated communityAddress field", async () => {
@@ -264,7 +334,7 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
         await publishWithExpectedResult({
             publication: commentModeration,
             expectedChallengeSuccess: false,
-            expectedReason: messages.ERR_PUBLICATION_USES_DEPRECATED_SUBPLEBBIT_ADDRESS
+            expectedReason: messages.ERR_PUBLICATION_USES_DEPRECATED_COMMUNITY_ADDRESS
         });
     });
 
@@ -300,6 +370,22 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
         });
     });
 
+    it("rejects a commentModeration with deprecated subplebbitAddress field", async () => {
+        if (!targetPost.cid) throw Error("Expected target post to have a CID");
+        const commentModeration = await pkc.createCommentModeration({
+            communityAddress: community.address,
+            commentCid: targetPost.cid,
+            commentModeration: { reason: `Deprecated subplebbitAddress mod ${Date.now()}`, spoiler: true },
+            signer: moderatorSigner
+        });
+        await injectSubplebbitAddress(commentModeration);
+        await publishWithExpectedResult({
+            publication: commentModeration,
+            expectedChallengeSuccess: false,
+            expectedReason: messages.ERR_PUBLICATION_USES_DEPRECATED_SUBPLEBBIT_ADDRESS
+        });
+    });
+
     // --- communityEdit ---
 
     it("rejects a communityEdit with deprecated communityAddress field", async () => {
@@ -314,7 +400,7 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
         await publishWithExpectedResult({
             publication: communityEdit,
             expectedChallengeSuccess: false,
-            expectedReason: messages.ERR_PUBLICATION_USES_DEPRECATED_SUBPLEBBIT_ADDRESS
+            expectedReason: messages.ERR_PUBLICATION_USES_DEPRECATED_COMMUNITY_ADDRESS
         });
     });
 
@@ -347,6 +433,22 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
             publication: communityEdit,
             expectedChallengeSuccess: false,
             expectedReason: messages.ERR_PUBLICATION_INVALID_COMMUNITY_NAME
+        });
+    });
+
+    it("rejects a communityEdit with deprecated subplebbitAddress field", async () => {
+        if (!community.signer || !("privateKey" in community.signer) || typeof community.signer.privateKey !== "string")
+            throw Error("Expected local community to expose its owner signer with a private key");
+        const communityEdit = await pkc.createCommunityEdit({
+            communityAddress: community.address,
+            communityEdit: { description: `Deprecated subplebbitAddress sub edit ${Date.now()}` },
+            signer: community.signer as SignerType
+        });
+        await injectSubplebbitAddress(communityEdit);
+        await publishWithExpectedResult({
+            publication: communityEdit,
+            expectedChallengeSuccess: false,
+            expectedReason: messages.ERR_PUBLICATION_USES_DEPRECATED_SUBPLEBBIT_ADDRESS
         });
     });
 });
