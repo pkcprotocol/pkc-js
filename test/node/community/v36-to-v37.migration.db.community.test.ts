@@ -776,6 +776,291 @@ describeSkipIfRpc("v36 → v37 DB migration (subplebbitAddress → communityPubl
         });
     });
 
+    describe("Page queries on migrated data", () => {
+        let pageDbHandler: DbHandler | undefined;
+
+        beforeAll(async () => {
+            const fakeCommunity = createFakeCommunity(IPNS_ADDRESS);
+            pageDbHandler = new DbHandler(fakeCommunity as unknown as LocalCommunity);
+            await pageDbHandler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
+
+            const priv = getPrivate(pageDbHandler);
+            const db = priv._db;
+
+            // Create v36 schema
+            db.exec(V36_CREATE_COMMENTS);
+            db.exec(V36_CREATE_COMMENT_UPDATES);
+            db.exec(V36_CREATE_VOTES);
+            db.exec(V36_CREATE_COMMENT_EDITS);
+            db.exec(V36_CREATE_COMMENT_MODERATIONS);
+            db.exec(V36_CREATE_PSEUDONYMITY_ALIASES);
+
+            // Insert a post with IPNS key address
+            db.prepare(
+                `INSERT INTO comments (cid, authorSignerAddress, author, link, parentCid, postCid, previousCid,
+                    subplebbitAddress, content, timestamp, signature, title, depth, spoiler, pendingApproval,
+                    nsfw, extraProps, protocolVersion, insertedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).run(
+                "QmPagePost",
+                "12D3KooWAuthor1",
+                JSON.stringify({ address: "12D3KooWAuthor1" }),
+                null,
+                null,
+                "QmPagePost",
+                null,
+                IPNS_ADDRESS,
+                "post for page test",
+                now,
+                fakeSignatureJson("sig-page-post"),
+                "Page Post",
+                0,
+                0,
+                0,
+                0,
+                null,
+                "1.0.0",
+                now
+            );
+
+            // Insert a reply
+            db.prepare(
+                `INSERT INTO comments (cid, authorSignerAddress, author, link, parentCid, postCid, previousCid,
+                    subplebbitAddress, content, timestamp, signature, title, depth, spoiler, pendingApproval,
+                    nsfw, extraProps, protocolVersion, insertedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).run(
+                "QmPageReply",
+                "12D3KooWAuthor2",
+                JSON.stringify({ address: "12D3KooWAuthor2" }),
+                null,
+                "QmPagePost",
+                "QmPagePost",
+                null,
+                IPNS_ADDRESS,
+                "reply for page test",
+                now + 1,
+                fakeSignatureJson("sig-page-reply"),
+                null,
+                1,
+                0,
+                0,
+                0,
+                null,
+                "1.0.0",
+                now + 1
+            );
+
+            // Set to v36 and migrate
+            db.pragma("user_version = 36");
+            priv._purgeCommentsWithInvalidSchemaOrSignature = async () => {};
+            priv._purgeCommentEditsWithInvalidSchemaOrSignature = async () => {};
+            priv._purgePublicationTablesWithDuplicateSignatures = async () => {};
+
+            await pageDbHandler!.createOrMigrateTablesIfNeeded();
+
+            // Insert commentUpdates AFTER migration (migration drops/recreates commentUpdates table)
+            const cuSig = fakeSignatureJson("sig-cu");
+            const cuDb = getPrivate(pageDbHandler!);
+            cuDb._db
+                .prepare(
+                    `INSERT INTO commentUpdates (cid, upvoteCount, downvoteCount, replyCount, childCount, number, postNumber,
+                    updatedAt, protocolVersion, signature, publishedToPostUpdatesMFS, insertedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                )
+                .run("QmPagePost", 1, 0, 1, 1, 1, 1, now, "1.0.0", cuSig, 1, now);
+            cuDb._db
+                .prepare(
+                    `INSERT INTO commentUpdates (cid, upvoteCount, downvoteCount, replyCount, childCount, number, postNumber,
+                    updatedAt, protocolVersion, signature, publishedToPostUpdatesMFS, insertedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                )
+                .run("QmPageReply", 0, 0, 0, 0, 2, null, now + 1, "1.0.0", cuSig, 1, now + 1);
+        });
+
+        afterAll(() => {
+            if (pageDbHandler) {
+                pageDbHandler.destoryConnection();
+                pageDbHandler = undefined;
+            }
+        });
+
+        it("queryPageComments with excludeCommentsWithDifferentCommunityAddress returns migrated replies", () => {
+            // queryPageComments finds direct children of a parent — use the post to find its reply
+            const results = pageDbHandler!.queryPageComments({
+                parentCid: "QmPagePost",
+                excludeCommentsWithDifferentCommunityAddress: true,
+                excludeRemovedComments: false,
+                excludeDeletedComments: false,
+                excludeCommentPendingApproval: false,
+                excludeCommentWithApprovedFalse: false,
+                preloadedPage: "hot",
+                baseTimestamp: Math.floor(Date.now() / 1000)
+            });
+            expect(results.length).to.equal(1);
+            expect(results[0].commentUpdate.cid).to.equal("QmPageReply");
+        });
+
+        it("queryFlattenedPageReplies returns replies from migrated data", () => {
+            const results = pageDbHandler!.queryFlattenedPageReplies({
+                parentCid: "QmPagePost",
+                excludeCommentsWithDifferentCommunityAddress: true,
+                excludeRemovedComments: false,
+                excludeDeletedComments: false,
+                excludeCommentPendingApproval: false,
+                excludeCommentWithApprovedFalse: false,
+                preloadedPage: "new",
+                baseTimestamp: Math.floor(Date.now() / 1000)
+            });
+            expect(results.length).to.equal(1);
+            expect(results[0].commentUpdate.cid).to.equal("QmPageReply");
+        });
+
+        it("queryFirstCommentWithDepth(0) works on migrated data", () => {
+            const row = pageDbHandler!.queryFirstCommentWithDepth(0);
+            expect(row).to.exist;
+            expect(row!.depth).to.equal(0);
+        });
+
+        it("queryCommentsUnderComment returns migrated children", () => {
+            const children = pageDbHandler!.queryCommentsUnderComment("QmPagePost");
+            expect(children.length).to.equal(1);
+            expect(children[0].cid).to.equal("QmPageReply");
+        });
+
+        it("queryPostsWithActiveScore returns migrated posts with scores", () => {
+            const results = pageDbHandler!.queryPostsWithActiveScore({
+                parentCid: null,
+                excludeCommentsWithDifferentCommunityAddress: true,
+                excludeRemovedComments: false,
+                excludeDeletedComments: false,
+                excludeCommentPendingApproval: false,
+                excludeCommentWithApprovedFalse: false
+            });
+            expect(results.length).to.be.greaterThan(0);
+            expect(results[0]).to.have.property("activeScore");
+        });
+    });
+
+    describe("Domain address filtering on migrated data", () => {
+        let domainDbHandler: DbHandler | undefined;
+
+        beforeAll(async () => {
+            const fakeCommunity = createFakeCommunity(DOMAIN_ADDRESS);
+            domainDbHandler = new DbHandler(fakeCommunity as unknown as LocalCommunity);
+            await domainDbHandler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
+
+            const priv = getPrivate(domainDbHandler);
+            const db = priv._db;
+
+            // Create v36 schema
+            db.exec(V36_CREATE_COMMENTS);
+            db.exec(V36_CREATE_COMMENT_UPDATES);
+            db.exec(V36_CREATE_VOTES);
+            db.exec(V36_CREATE_COMMENT_EDITS);
+            db.exec(V36_CREATE_COMMENT_MODERATIONS);
+            db.exec(V36_CREATE_PSEUDONYMITY_ALIASES);
+
+            // Insert a post with domain address
+            db.prepare(
+                `INSERT INTO comments (cid, authorSignerAddress, author, link, parentCid, postCid, previousCid,
+                    subplebbitAddress, content, timestamp, signature, title, depth, spoiler, pendingApproval,
+                    nsfw, extraProps, protocolVersion, insertedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).run(
+                "QmDomainPost",
+                "12D3KooWAuthor1",
+                JSON.stringify({ address: "12D3KooWAuthor1" }),
+                null,
+                null,
+                "QmDomainPost",
+                null,
+                DOMAIN_ADDRESS,
+                "post in domain community",
+                now,
+                fakeSignatureJson("sig-domain-page-post"),
+                "Domain Page Post",
+                0,
+                0,
+                0,
+                0,
+                null,
+                "1.0.0",
+                now
+            );
+
+            // Set to v36 and migrate
+            db.pragma("user_version = 36");
+            priv._purgeCommentsWithInvalidSchemaOrSignature = async () => {};
+            priv._purgeCommentEditsWithInvalidSchemaOrSignature = async () => {};
+            priv._purgePublicationTablesWithDuplicateSignatures = async () => {};
+
+            await domainDbHandler!.createOrMigrateTablesIfNeeded();
+
+            // Insert commentUpdate AFTER migration (migration drops/recreates commentUpdates table)
+            const domainPriv = getPrivate(domainDbHandler!);
+            domainPriv._db
+                .prepare(
+                    `INSERT INTO commentUpdates (cid, upvoteCount, downvoteCount, replyCount, childCount, number, postNumber,
+                    updatedAt, protocolVersion, signature, publishedToPostUpdatesMFS, insertedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                )
+                .run("QmDomainPost", 1, 0, 0, 0, 1, 1, now, "1.0.0", fakeSignatureJson("sig-cu-domain"), 1, now);
+        });
+
+        afterAll(() => {
+            if (domainDbHandler) {
+                domainDbHandler.destoryConnection();
+                domainDbHandler = undefined;
+            }
+        });
+
+        it("queryPostsWithActiveScore finds domain-address posts (communityName matched)", () => {
+            const results = domainDbHandler!.queryPostsWithActiveScore({
+                parentCid: null,
+                excludeCommentsWithDifferentCommunityAddress: true,
+                excludeRemovedComments: false,
+                excludeDeletedComments: false,
+                excludeCommentPendingApproval: false,
+                excludeCommentWithApprovedFalse: false
+            });
+            expect(results.length).to.equal(1);
+            expect(results[0].commentUpdate.cid).to.equal("QmDomainPost");
+        });
+
+        it("queryFirstCommentWithDepth(0) finds domain-address comment", () => {
+            const row = domainDbHandler!.queryFirstCommentWithDepth(0);
+            expect(row).to.exist;
+            expect(row!.cid).to.equal("QmDomainPost");
+        });
+
+        it(".bso equivalent matches .eth migrated rows", () => {
+            // Create a second DbHandler with .bso address pointing at same DB
+            // The .bso address should match the .eth migrated row via getEquivalentCommunityAddresses
+            // DOMAIN_ADDRESS is "my-community.eth", so "my-community.bso" should also match
+            const priv = getPrivate(domainDbHandler!);
+            const bsoFakeCommunity = createFakeCommunity("my-community.bso");
+            // Swap the community temporarily to test .bso equivalence
+            const originalCommunity = priv._community;
+            priv._community = bsoFakeCommunity;
+
+            try {
+                const results = domainDbHandler!.queryPostsWithActiveScore({
+                    parentCid: null,
+                    excludeCommentsWithDifferentCommunityAddress: true,
+                    excludeRemovedComments: false,
+                    excludeDeletedComments: false,
+                    excludeCommentPendingApproval: false,
+                    excludeCommentWithApprovedFalse: false
+                });
+                expect(results.length).to.equal(1);
+                expect(results[0].commentUpdate.cid).to.equal("QmDomainPost");
+            } finally {
+                priv._community = originalCommunity;
+            }
+        });
+    });
+
     describe("CHECK constraint enforcement", () => {
         let constraintDbHandler: DbHandler | undefined;
 
