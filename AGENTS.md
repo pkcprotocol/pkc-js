@@ -59,6 +59,7 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 
 ### Debugging
 
+- When a failing test is reported, run it first with stdout and stderr captured (e.g. `--stdout-log /tmp/out.log --stderr-log /tmp/err.log` or `DEBUG="pkc-js*"`) and derive your theory from the logs. Do not start by reading source code — the codebase has many moving parts and logs give a far more reliable picture of what actually went wrong.
 - When a bug or regression is reported, reproduce it deterministically in a test case first, then brainstorm how to fix it.
 - When a bug or test failure is reported, understand the root cause instead of trying to fix it with timeouts.
 
