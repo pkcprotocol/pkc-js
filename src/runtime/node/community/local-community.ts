@@ -1125,8 +1125,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 else this._dbHandler.removeCommentFromPendingApproval({ cid: modTableRow.commentCid });
             }
         }
-        this._communityUpdateTrigger = true;
         this._dbHandler.insertCommentModerations([modTableRow]);
+        this._communityUpdateTrigger = true;
         log("Inserted comment moderation", "of comment", modTableRow.commentCid, "into db", "with props", modTableRow);
     }
 
