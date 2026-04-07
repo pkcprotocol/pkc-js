@@ -182,7 +182,7 @@ function createTestCommunity(overrides: { address?: string } = {}): { community:
         })),
         _updateDbInternalState: vi.fn(),
         _updateIpnsPubsubPropsIfNeeded: vi.fn(),
-        _validateSubSizeSchemaAndSignatureBeforePublishing: vi.fn(),
+        _validateCommunitySizeSchemaAndSignatureBeforePublishing: vi.fn(),
         initCommunityIpfsPropsNoMerge: vi.fn(),
         _resolveIpnsAndLogIfPotentialProblematicSequence: vi.fn(),
         _calculateNewPostUpdates: vi.fn().mockResolvedValue(undefined),

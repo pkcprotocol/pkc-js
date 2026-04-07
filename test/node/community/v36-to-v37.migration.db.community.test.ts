@@ -7,7 +7,7 @@ import type Database from "better-sqlite3";
 
 // ──────────────────────────────────────────────────────────────
 // v36 table schemas (reconstructed from v37 by replacing
-// communityPublicKey/communityName with communityAddress TEXT NOT NULL)
+// communityPublicKey/communityName with subplebbitAddress TEXT NOT NULL)
 // ──────────────────────────────────────────────────────────────
 
 const V36_CREATE_COMMENTS = `
@@ -24,7 +24,7 @@ const V36_CREATE_COMMENTS = `
         parentCid TEXT NULLABLE REFERENCES comments(cid),
         postCid TEXT NOT NULL REFERENCES comments(cid),
         previousCid TEXT NULLABLE,
-        communityAddress TEXT NOT NULL,
+        subplebbitAddress TEXT NOT NULL,
         content TEXT NULLABLE,
         timestamp INTEGER NOT NULL,
         signature TEXT NOT NULL,
@@ -98,7 +98,7 @@ const V36_CREATE_COMMENT_EDITS = `
         author TEXT NULLABLE,
         signature TEXT NOT NULL,
         protocolVersion TEXT NOT NULL,
-        communityAddress TEXT NOT NULL,
+        subplebbitAddress TEXT NOT NULL,
         timestamp INTEGER CHECK(timestamp > 0) NOT NULL,
         content TEXT NULLABLE,
         reason TEXT NULLABLE,
@@ -119,7 +119,7 @@ const V36_CREATE_COMMENT_MODERATIONS = `
         signature TEXT NOT NULL,
         modSignerAddress TEXT NOT NULL,
         protocolVersion TEXT NOT NULL,
-        communityAddress TEXT NOT NULL,
+        subplebbitAddress TEXT NOT NULL,
         timestamp INTEGER CHECK(timestamp > 0) NOT NULL,
         commentModeration TEXT NOT NULL,
         insertedAt INTEGER NOT NULL,
@@ -226,7 +226,7 @@ function getPrivate(handler: DbHandler): DbHandlerPrivate {
 // Tests
 // ──────────────────────────────────────────────────────────────
 
-describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPublicKey/communityName)", function () {
+describeSkipIfRpc("v36 → v37 DB migration (subplebbitAddress → communityPublicKey/communityName)", function () {
     let dbHandler: DbHandler | undefined;
 
     afterAll(() => {
@@ -257,7 +257,7 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
             db.prepare(
                 `
                 INSERT INTO comments (cid, authorSignerAddress, author, link, parentCid, postCid, previousCid,
-                    communityAddress, content, timestamp, signature, title, depth, spoiler, pendingApproval,
+                    subplebbitAddress, content, timestamp, signature, title, depth, spoiler, pendingApproval,
                     nsfw, extraProps, protocolVersion, insertedAt)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `
@@ -269,7 +269,7 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
                 null, // parentCid (post)
                 "QmPostIpns", // postCid (self-referencing for posts)
                 null, // previousCid
-                IPNS_ADDRESS, // communityAddress (IPNS key)
+                IPNS_ADDRESS, // subplebbitAddress (IPNS key)
                 "post in IPNS-key community", // content
                 now, // timestamp
                 fakeSignatureJson("sig-ipns-post"), // signature
@@ -287,7 +287,7 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
             db.prepare(
                 `
                 INSERT INTO comments (cid, authorSignerAddress, author, link, parentCid, postCid, previousCid,
-                    communityAddress, content, timestamp, signature, title, depth, spoiler, pendingApproval,
+                    subplebbitAddress, content, timestamp, signature, title, depth, spoiler, pendingApproval,
                     nsfw, extraProps, protocolVersion, insertedAt)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `
@@ -299,7 +299,7 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
                 null,
                 "QmPostDomain",
                 null,
-                DOMAIN_ADDRESS, // communityAddress (domain)
+                DOMAIN_ADDRESS, // subplebbitAddress (domain)
                 "post in domain community",
                 now,
                 fakeSignatureJson("sig-domain-post"),
@@ -317,7 +317,7 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
             db.prepare(
                 `
                 INSERT INTO comments (cid, authorSignerAddress, author, link, parentCid, postCid, previousCid,
-                    communityAddress, content, timestamp, signature, title, depth, spoiler, pendingApproval,
+                    subplebbitAddress, content, timestamp, signature, title, depth, spoiler, pendingApproval,
                     nsfw, extraProps, protocolVersion, insertedAt)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `
@@ -347,7 +347,7 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
             db.prepare(
                 `
                 INSERT INTO commentEdits (commentCid, authorSignerAddress, author, signature, protocolVersion,
-                    communityAddress, timestamp, content, reason, deleted, spoiler, nsfw, isAuthorEdit, insertedAt, extraProps)
+                    subplebbitAddress, timestamp, content, reason, deleted, spoiler, nsfw, isAuthorEdit, insertedAt, extraProps)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `
             ).run(
@@ -356,7 +356,7 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
                 JSON.stringify({}),
                 fakeSignatureJson("sig-edit-ipns"),
                 "1.0.0",
-                IPNS_ADDRESS, // communityAddress (IPNS key)
+                IPNS_ADDRESS, // subplebbitAddress (IPNS key)
                 now,
                 "edited content",
                 null,
@@ -372,7 +372,7 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
             db.prepare(
                 `
                 INSERT INTO commentEdits (commentCid, authorSignerAddress, author, signature, protocolVersion,
-                    communityAddress, timestamp, content, reason, deleted, spoiler, nsfw, isAuthorEdit, insertedAt, extraProps)
+                    subplebbitAddress, timestamp, content, reason, deleted, spoiler, nsfw, isAuthorEdit, insertedAt, extraProps)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `
             ).run(
@@ -381,7 +381,7 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
                 JSON.stringify({}),
                 fakeSignatureJson("sig-edit-domain"),
                 "1.0.0",
-                DOMAIN_ADDRESS, // communityAddress (domain)
+                DOMAIN_ADDRESS, // subplebbitAddress (domain)
                 now,
                 "edited domain content",
                 null,
@@ -397,7 +397,7 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
             db.prepare(
                 `
                 INSERT INTO commentModerations (commentCid, author, signature, modSignerAddress, protocolVersion,
-                    communityAddress, timestamp, commentModeration, insertedAt, extraProps)
+                    subplebbitAddress, timestamp, commentModeration, insertedAt, extraProps)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `
             ).run(
@@ -406,7 +406,7 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
                 fakeSignatureJson("sig-mod-ipns"),
                 "12D3KooWMod1",
                 "1.0.0",
-                IPNS_ADDRESS, // communityAddress (IPNS key)
+                IPNS_ADDRESS, // subplebbitAddress (IPNS key)
                 now,
                 JSON.stringify({ approved: true }),
                 now,
@@ -417,7 +417,7 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
             db.prepare(
                 `
                 INSERT INTO commentModerations (commentCid, author, signature, modSignerAddress, protocolVersion,
-                    communityAddress, timestamp, commentModeration, insertedAt, extraProps)
+                    subplebbitAddress, timestamp, commentModeration, insertedAt, extraProps)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `
             ).run(
@@ -426,7 +426,7 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
                 fakeSignatureJson("sig-mod-domain"),
                 "12D3KooWMod2",
                 "1.0.0",
-                DOMAIN_ADDRESS, // communityAddress (domain)
+                DOMAIN_ADDRESS, // subplebbitAddress (domain)
                 now,
                 JSON.stringify({ approved: true }),
                 now,
@@ -453,7 +453,7 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
             expect(dbHandler!.getDbVersion()).to.equal(37);
         });
 
-        it("communityAddress column no longer exists in comments table", () => {
+        it("subplebbitAddress column no longer exists in comments table", () => {
             const priv = getPrivate(dbHandler!);
             const columns = priv._db.pragma("table_info(comments)") as { name: string }[];
             const columnNames = columns.map((c) => c.name);
@@ -468,7 +468,7 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
             expect(columnNames).to.include("communityName");
         });
 
-        it("communityAddress column no longer exists in commentEdits table", () => {
+        it("subplebbitAddress column no longer exists in commentEdits table", () => {
             const priv = getPrivate(dbHandler!);
             const columns = priv._db.pragma("table_info(commentEdits)") as { name: string }[];
             const columnNames = columns.map((c) => c.name);
@@ -483,7 +483,7 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
             expect(columnNames).to.include("communityName");
         });
 
-        it("communityAddress column no longer exists in commentModerations table", () => {
+        it("subplebbitAddress column no longer exists in commentModerations table", () => {
             const priv = getPrivate(dbHandler!);
             const columns = priv._db.pragma("table_info(commentModerations)") as { name: string }[];
             const columnNames = columns.map((c) => c.name);
@@ -500,7 +500,7 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
 
         // ── comments table: IPNS key → communityPublicKey ──
 
-        it("IPNS-key comment: communityPublicKey = old communityAddress, communityName = NULL", () => {
+        it("IPNS-key comment: communityPublicKey = old subplebbitAddress, communityName = NULL", () => {
             const priv = getPrivate(dbHandler!);
             const row = priv._db.prepare("SELECT * FROM comments WHERE cid = ?").get("QmPostIpns") as Record<string, unknown>;
             expect(row).to.exist;
@@ -508,16 +508,16 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
             expect(row.communityName).to.be.null;
         });
 
-        it("IPNS-key comment: extraProps contains communityAddress", () => {
+        it("IPNS-key comment: extraProps contains subplebbitAddress", () => {
             const priv = getPrivate(dbHandler!);
             const row = priv._db.prepare("SELECT * FROM comments WHERE cid = ?").get("QmPostIpns") as Record<string, unknown>;
             const extraProps = JSON.parse(row.extraProps as string);
-            expect(extraProps.communityAddress).to.equal(IPNS_ADDRESS);
+            expect(extraProps.subplebbitAddress).to.equal(IPNS_ADDRESS);
         });
 
         // ── comments table: domain → communityName ──
 
-        it("domain comment: communityName = old communityAddress, communityPublicKey = NULL", () => {
+        it("domain comment: communityName = old subplebbitAddress, communityPublicKey = NULL", () => {
             const priv = getPrivate(dbHandler!);
             const row = priv._db.prepare("SELECT * FROM comments WHERE cid = ?").get("QmPostDomain") as Record<string, unknown>;
             expect(row).to.exist;
@@ -525,26 +525,26 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
             expect(row.communityPublicKey).to.be.null;
         });
 
-        it("domain comment: extraProps contains communityAddress", () => {
+        it("domain comment: extraProps contains subplebbitAddress", () => {
             const priv = getPrivate(dbHandler!);
             const row = priv._db.prepare("SELECT * FROM comments WHERE cid = ?").get("QmPostDomain") as Record<string, unknown>;
             const extraProps = JSON.parse(row.extraProps as string);
-            expect(extraProps.communityAddress).to.equal(DOMAIN_ADDRESS);
+            expect(extraProps.subplebbitAddress).to.equal(DOMAIN_ADDRESS);
         });
 
         // ── comments table: existing extraProps are preserved/merged ──
 
-        it("comment with existing extraProps: communityAddress is merged into extraProps alongside original properties", () => {
+        it("comment with existing extraProps: subplebbitAddress is merged into extraProps alongside original properties", () => {
             const priv = getPrivate(dbHandler!);
             const row = priv._db.prepare("SELECT * FROM comments WHERE cid = ?").get("QmPostWithExtra") as Record<string, unknown>;
             const extraProps = JSON.parse(row.extraProps as string);
-            expect(extraProps.communityAddress).to.equal(IPNS_ADDRESS);
+            expect(extraProps.subplebbitAddress).to.equal(IPNS_ADDRESS);
             expect(extraProps.ipnsName).to.equal("old-ipns-name");
         });
 
         // ── commentEdits table ──
 
-        it("IPNS-key commentEdit: communityPublicKey = old communityAddress, communityName = NULL", () => {
+        it("IPNS-key commentEdit: communityPublicKey = old subplebbitAddress, communityName = NULL", () => {
             const priv = getPrivate(dbHandler!);
             const row = priv._db.prepare("SELECT * FROM commentEdits WHERE commentCid = ?").get("QmPostIpns") as Record<string, unknown>;
             expect(row).to.exist;
@@ -552,14 +552,14 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
             expect(row.communityName).to.be.null;
         });
 
-        it("IPNS-key commentEdit: extraProps contains communityAddress", () => {
+        it("IPNS-key commentEdit: extraProps contains subplebbitAddress", () => {
             const priv = getPrivate(dbHandler!);
             const row = priv._db.prepare("SELECT * FROM commentEdits WHERE commentCid = ?").get("QmPostIpns") as Record<string, unknown>;
             const extraProps = JSON.parse(row.extraProps as string);
-            expect(extraProps.communityAddress).to.equal(IPNS_ADDRESS);
+            expect(extraProps.subplebbitAddress).to.equal(IPNS_ADDRESS);
         });
 
-        it("domain commentEdit: communityName = old communityAddress, communityPublicKey = NULL", () => {
+        it("domain commentEdit: communityName = old subplebbitAddress, communityPublicKey = NULL", () => {
             const priv = getPrivate(dbHandler!);
             const row = priv._db.prepare("SELECT * FROM commentEdits WHERE commentCid = ?").get("QmPostDomain") as Record<string, unknown>;
             expect(row).to.exist;
@@ -567,16 +567,16 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
             expect(row.communityPublicKey).to.be.null;
         });
 
-        it("domain commentEdit: extraProps contains communityAddress", () => {
+        it("domain commentEdit: extraProps contains subplebbitAddress", () => {
             const priv = getPrivate(dbHandler!);
             const row = priv._db.prepare("SELECT * FROM commentEdits WHERE commentCid = ?").get("QmPostDomain") as Record<string, unknown>;
             const extraProps = JSON.parse(row.extraProps as string);
-            expect(extraProps.communityAddress).to.equal(DOMAIN_ADDRESS);
+            expect(extraProps.subplebbitAddress).to.equal(DOMAIN_ADDRESS);
         });
 
         // ── commentModerations table ──
 
-        it("IPNS-key commentModeration: communityPublicKey = old communityAddress, communityName = NULL", () => {
+        it("IPNS-key commentModeration: communityPublicKey = old subplebbitAddress, communityName = NULL", () => {
             const priv = getPrivate(dbHandler!);
             const row = priv._db.prepare("SELECT * FROM commentModerations WHERE commentCid = ?").get("QmPostIpns") as Record<
                 string,
@@ -587,17 +587,17 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
             expect(row.communityName).to.be.null;
         });
 
-        it("IPNS-key commentModeration: extraProps contains communityAddress", () => {
+        it("IPNS-key commentModeration: extraProps contains subplebbitAddress", () => {
             const priv = getPrivate(dbHandler!);
             const row = priv._db.prepare("SELECT * FROM commentModerations WHERE commentCid = ?").get("QmPostIpns") as Record<
                 string,
                 unknown
             >;
             const extraProps = JSON.parse(row.extraProps as string);
-            expect(extraProps.communityAddress).to.equal(IPNS_ADDRESS);
+            expect(extraProps.subplebbitAddress).to.equal(IPNS_ADDRESS);
         });
 
-        it("domain commentModeration: communityName = old communityAddress, communityPublicKey = NULL", () => {
+        it("domain commentModeration: communityName = old subplebbitAddress, communityPublicKey = NULL", () => {
             const priv = getPrivate(dbHandler!);
             const row = priv._db.prepare("SELECT * FROM commentModerations WHERE commentCid = ?").get("QmPostDomain") as Record<
                 string,
@@ -608,47 +608,47 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
             expect(row.communityPublicKey).to.be.null;
         });
 
-        it("domain commentModeration: extraProps contains communityAddress", () => {
+        it("domain commentModeration: extraProps contains subplebbitAddress", () => {
             const priv = getPrivate(dbHandler!);
             const row = priv._db.prepare("SELECT * FROM commentModerations WHERE commentCid = ?").get("QmPostDomain") as Record<
                 string,
                 unknown
             >;
             const extraProps = JSON.parse(row.extraProps as string);
-            expect(extraProps.communityAddress).to.equal(DOMAIN_ADDRESS);
+            expect(extraProps.subplebbitAddress).to.equal(DOMAIN_ADDRESS);
         });
     });
 
     describe("deriveCommentIpfsFromCommentTableRow for migrated rows", () => {
-        it("old-format row (with extraProps.communityAddress): derived CommentIpfs has communityAddress, not communityPublicKey/communityName", () => {
-            // Simulate a migrated row: communityPublicKey is set, extraProps has communityAddress
+        it("old-format row (with extraProps.subplebbitAddress): derived CommentIpfs has subplebbitAddress, not communityPublicKey/communityName", () => {
+            // Simulate a migrated row: communityPublicKey is set, extraProps has subplebbitAddress
             const row = dbHandler!.queryComment("QmPostIpns");
             expect(row).to.exist;
             const commentIpfs = deriveCommentIpfsFromCommentTableRow(row!);
 
-            // Should have communityAddress (from extraProps spread)
-            expect((commentIpfs as Record<string, unknown>).communityAddress).to.equal(IPNS_ADDRESS);
+            // Should have subplebbitAddress (from extraProps spread)
+            expect((commentIpfs as Record<string, unknown>).subplebbitAddress).to.equal(IPNS_ADDRESS);
             // Should NOT have communityPublicKey/communityName (removed for CID preservation)
             expect((commentIpfs as Record<string, unknown>).communityPublicKey).to.be.undefined;
             expect((commentIpfs as Record<string, unknown>).communityName).to.be.undefined;
         });
 
-        it("old-format row (domain, with extraProps.communityAddress): derived CommentIpfs has communityAddress, not communityPublicKey/communityName", () => {
+        it("old-format row (domain, with extraProps.subplebbitAddress): derived CommentIpfs has subplebbitAddress, not communityPublicKey/communityName", () => {
             const row = dbHandler!.queryComment("QmPostDomain");
             expect(row).to.exist;
             const commentIpfs = deriveCommentIpfsFromCommentTableRow(row!);
 
-            expect((commentIpfs as Record<string, unknown>).communityAddress).to.equal(DOMAIN_ADDRESS);
+            expect((commentIpfs as Record<string, unknown>).subplebbitAddress).to.equal(DOMAIN_ADDRESS);
             expect((commentIpfs as Record<string, unknown>).communityPublicKey).to.be.undefined;
             expect((commentIpfs as Record<string, unknown>).communityName).to.be.undefined;
         });
     });
 
-    describe("deriveCommentIpfsFromCommentTableRow for new-format rows (no extraProps.communityAddress)", () => {
+    describe("deriveCommentIpfsFromCommentTableRow for new-format rows (no extraProps.subplebbitAddress)", () => {
         let newFormatDbHandler: DbHandler | undefined;
 
         beforeAll(async () => {
-            // Create a fresh v37 DB with a new-format comment (no extraProps.communityAddress)
+            // Create a fresh v37 DB with a new-format comment (no extraProps.subplebbitAddress)
             const fakeCommunity = createFakeCommunity(IPNS_ADDRESS);
             newFormatDbHandler = new DbHandler(fakeCommunity as unknown as LocalCommunity);
             await newFormatDbHandler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
@@ -716,63 +716,63 @@ describeSkipIfRpc("v36 → v37 DB migration (communityAddress → communityPubli
             }
         });
 
-        it("new-format row (no extraProps.communityAddress): derived CommentIpfs has communityPublicKey, not communityAddress", () => {
+        it("new-format row (no extraProps.subplebbitAddress): derived CommentIpfs has communityPublicKey, not subplebbitAddress", () => {
             const row = newFormatDbHandler!.queryComment("QmNewFormatPost");
             expect(row).to.exist;
             const commentIpfs = deriveCommentIpfsFromCommentTableRow(row!);
 
             // Should have communityPublicKey (new wire format)
             expect((commentIpfs as Record<string, unknown>).communityPublicKey).to.equal(IPNS_ADDRESS);
-            // Should NOT have communityAddress
-            expect((commentIpfs as Record<string, unknown>).communityAddress).to.be.undefined;
+            // Should NOT have subplebbitAddress
+            expect((commentIpfs as Record<string, unknown>).subplebbitAddress).to.be.undefined;
         });
     });
 
     describe("_spreadExtraProps strips communityPublicKey/communityName for old migrated rows", () => {
         // Bug: _spreadExtraProps (used by _parsePrefixedComment in page queries) spreads
-        // extraProps.communityAddress into the record but doesn't remove communityPublicKey/communityName.
+        // extraProps.subplebbitAddress into the record but doesn't remove communityPublicKey/communityName.
         // This causes page comments to have BOTH old and new fields → CID mismatch → invalid signature.
 
-        it("record with extraProps.communityAddress should NOT have communityPublicKey or communityName after spread", () => {
+        it("record with extraProps.subplebbitAddress should NOT have communityPublicKey or communityName after spread", () => {
             const priv = getPrivate(dbHandler!);
             const record: Record<string, unknown> = {
                 communityPublicKey: IPNS_ADDRESS,
                 communityName: undefined,
                 content: "test",
-                extraProps: { communityAddress: IPNS_ADDRESS }
+                extraProps: { subplebbitAddress: IPNS_ADDRESS }
             };
             const result = priv._spreadExtraProps({ ...record });
-            // communityAddress should be present (restored from extraProps)
-            expect(result.communityAddress).to.equal(IPNS_ADDRESS);
+            // subplebbitAddress should be present (restored from extraProps)
+            expect(result.subplebbitAddress).to.equal(IPNS_ADDRESS);
             // communityPublicKey/communityName should be removed to preserve CID reproducibility
             expect(result.communityPublicKey).to.be.undefined;
             expect(result.communityName).to.be.undefined;
         });
 
-        it("record with extraProps.communityAddress (domain) should NOT have communityPublicKey or communityName after spread", () => {
+        it("record with extraProps.subplebbitAddress (domain) should NOT have communityPublicKey or communityName after spread", () => {
             const priv = getPrivate(dbHandler!);
             const record: Record<string, unknown> = {
                 communityPublicKey: undefined,
                 communityName: DOMAIN_ADDRESS,
                 content: "test",
-                extraProps: { communityAddress: DOMAIN_ADDRESS }
+                extraProps: { subplebbitAddress: DOMAIN_ADDRESS }
             };
             const result = priv._spreadExtraProps({ ...record });
-            expect(result.communityAddress).to.equal(DOMAIN_ADDRESS);
+            expect(result.subplebbitAddress).to.equal(DOMAIN_ADDRESS);
             expect(result.communityPublicKey).to.be.undefined;
             expect(result.communityName).to.be.undefined;
         });
 
-        it("record WITHOUT extraProps.communityAddress should keep communityPublicKey/communityName", () => {
+        it("record WITHOUT extraProps.subplebbitAddress should keep communityPublicKey/communityName", () => {
             const priv = getPrivate(dbHandler!);
             const record: Record<string, unknown> = {
                 communityPublicKey: IPNS_ADDRESS,
                 content: "new format post"
             };
             const result = priv._spreadExtraProps({ ...record });
-            // No communityAddress → new wire format, communityPublicKey should stay
+            // No subplebbitAddress → new wire format, communityPublicKey should stay
             expect(result.communityPublicKey).to.equal(IPNS_ADDRESS);
-            expect(result.communityAddress).to.be.undefined;
+            expect(result.subplebbitAddress).to.be.undefined;
         });
     });
 
