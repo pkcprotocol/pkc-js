@@ -16,8 +16,7 @@ import env from "../../../version.js";
 import Database, { type Database as BetterSqlite3Database } from "better-sqlite3";
 import { sha256 } from "js-sha256";
 
-//@ts-expect-error
-import * as lockfile from "@plebbit/proper-lockfile";
+import * as lockfile from "@pkc/proper-lock-file";
 import type { PageOptions } from "./page-generator.js";
 import type {
     InternalCommunityRecordAfterFirstUpdateType,

@@ -245,7 +245,7 @@ After removing `captcha-canvas-v3`, `mintpass`, `voucher`, and extracting `evm-c
 ### 2.2 External Dependencies (Document for Later)
 The following dependencies are in the @plebbit namespace and need separate repository work (rename AFTER pkc-js rename):
 - [x] `@plebbit/plebbit-logger` → `@pkc/pkc-logger` - Done
-- [ ] `@plebbit/proper-lockfile` - Note: Requires separate repo rename
+- [x] `@plebbit/proper-lockfile` → `@pkc/proper-lock-file` - Done
 
 ### 2.3 RPC Package Configuration
 - [ ] **rpc/package.json** - Update keywords
@@ -1182,7 +1182,7 @@ Full sweep of all remaining `plebbit` and `subplebbit` keywords in `src/` and `t
 
 ### 18.7 Items Intentionally Kept
 - `subplebbitAddress` backward-compat code (publication-community.ts, db-handler.ts, pkc.ts, errors.ts)
-- `@plebbit/plebbit-js` and `@plebbit/proper-lockfile` npm package names
+- `@plebbit/plebbit-js` npm package name
 - `plebbit.eth` / `plebbit.bso` test domain names
 - GitHub URLs pointing to `plebbit/plebbit-js` repo
 - Logger mapping tuples in `src/logger.ts`
@@ -1282,7 +1282,7 @@ These repositories are outside plebbit-js but will need coordinated updates:
 | Repository | Changes Needed | Status |
 |------------|---------------|--------|
 | @plebbit/plebbit-logger | Renamed to @pkc/pkc-logger | [x] Done |
-| @plebbit/proper-lockfile | Rename to @pkc/proper-lockfile (after pkc-js rename) | [ ] Not Started |
+| @plebbit/proper-lockfile | Renamed to @pkc/proper-lock-file | [x] Done |
 | plebbit-cli | Directory migration: `.plebbit/` → `.pkc/` and `subplebbits/` → `communities/`, API updates, install name resolvers | [ ] Not Started |
 | Desktop apps | Directory migration: `.plebbit/` → `.pkc/` and `subplebbits/` → `communities/`, API updates, install name resolvers | [ ] Not Started |
 | plebbit-js-benchmarks | Rename repo to pkc-js-benchmarks, update all plebbit/subplebbit references | [ ] Not Started |

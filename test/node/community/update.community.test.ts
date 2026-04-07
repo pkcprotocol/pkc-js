@@ -1,5 +1,4 @@
-//@ts-expect-error
-import lockfile from "@plebbit/proper-lockfile";
+import lockfile from "@pkc/proper-lock-file";
 import path from "path";
 import {
     createSubWithNoChallenge,
