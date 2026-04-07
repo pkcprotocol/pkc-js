@@ -1097,7 +1097,10 @@ Update all documentation files:
 - [x] `docs/testing.md`
 - [x] `docs/verifying-publications.md`
 
-### 15.2 RPC Documentation
+### 15.2 Domain Separator Rename
+- [x] `"plebbit-author-avatar"` → `"pkc-author-avatar"` in `docs/nft.md` and `test/node-and-browser/publications/comment/publish/publish.verification.test.ts`
+
+### 15.3 RPC Documentation
 - [x] `src/rpc/README.md`
 - [x] `src/rpc/EXPORT_SUBPLEBBIT_SPEC.md` deleted (duplicate of `EXPORT_COMMUNITY_SPEC.md`)
 
