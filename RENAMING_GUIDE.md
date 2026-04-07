@@ -937,7 +937,7 @@ Rename all test files with "subplebbit" or "plebbit" in the name. Files without 
 - [x] `getsubplebbit.publickey-fallback-rpc.test.ts` → `getcommunity.publickey-fallback-rpc.test.ts`
 
 **test/node/** (root-level test files)
-- [ ] `logger.namespace.test.ts` (content updates only)
+- [x] `logger.namespace.test.ts` (content updates only)
 
 **test/node/pages/**
 - [x] `author-subplebbit-in-pages.test.ts` → `author-community-in-pages.test.ts`
@@ -951,27 +951,27 @@ Rename all test files with "subplebbit" or "plebbit" in the name. Files without 
 - [x] `createsubplebbit.plebbit.test.ts` → `createcommunity.pkc.test.ts`
 - [x] `update.subplebbit.test.ts` → `update.community.test.ts`
 - [x] `stop.subplebbit.test.ts` → `stop.community.test.ts`
-- [ ] `ipfsgateways.clients.test.ts` (content updates only)
-- [ ] `libp2pjs.kuboRpc.clients.test.ts` (content updates only)
-- [ ] `nameresolvers.clients.test.ts` (content updates only)
-- [ ] `rpc.clients.test.ts` (content updates only)
-- [ ] `updatingstate.test.ts` (content updates only)
-- [ ] `waiting-retry.update.test.ts` (content updates only)
+- [x] `ipfsgateways.clients.test.ts` (content updates only)
+- [x] `libp2pjs.kuboRpc.clients.test.ts` (content updates only)
+- [x] `nameresolvers.clients.test.ts` (content updates only)
+- [x] `rpc.clients.test.ts` (content updates only)
+- [x] `updatingstate.test.ts` (content updates only)
+- [x] `waiting-retry.update.test.ts` (content updates only)
 
 **test/node-and-browser/subplebbit/ipns/**
 - [x] `ipns.fields.subplebbit.test.ts` → `ipns.fields.community.test.ts`
 
 **test/node-and-browser/subplebbit/posts/** (directory moves to test/node-and-browser/community/posts/)
-- [ ] `pages.posts.test.ts` (content updates only)
-- [ ] `ipfsgateways.clients.posts.test.ts` (content updates only)
-- [ ] `rpc.clients.posts.test.ts` (content updates only)
-- [ ] `libp2pjs.kuboRpc.clients.posts.test.ts` (content updates only)
+- [x] `pages.posts.test.ts` (content updates only)
+- [x] `ipfsgateways.clients.posts.test.ts` (content updates only)
+- [x] `rpc.clients.posts.test.ts` (content updates only)
+- [x] `libp2pjs.kuboRpc.clients.posts.test.ts` (content updates only)
 
 **test/node-and-browser/subplebbit/modqueue/** (directory moves to test/node-and-browser/community/modqueue/)
-- [ ] `pages.modqueue.test.ts` (content updates only)
-- [ ] `ipfsgateways.clients.modqueue.test.ts` (content updates only)
-- [ ] `rpc.clients.modqueue.test.ts` (content updates only)
-- [ ] `libp2pjs.kuboRpc.clients.modqueue.test.ts` (content updates only)
+- [x] `pages.modqueue.test.ts` (content updates only)
+- [x] `ipfsgateways.clients.modqueue.test.ts` (content updates only)
+- [x] `rpc.clients.modqueue.test.ts` (content updates only)
+- [x] `libp2pjs.kuboRpc.clients.modqueue.test.ts` (content updates only)
 
 **test/node-and-browser/plebbit/** (directory to be renamed to test/node-and-browser/pkc/)
 - [x] `plebbit.test.ts` → `pkc.test.ts`
@@ -979,29 +979,29 @@ Rename all test files with "subplebbit" or "plebbit" in the name. Files without 
 - [x] `_updatingComments.plebbit.test.ts` → `_updatingComments.pkc.test.ts`
 - [x] `fetchCid.plebbit.test.ts` → `fetchCid.pkc.test.ts`
 - [x] `test.configs.plebbit.test.ts` → `test.configs.pkc.test.ts`
-- [ ] `tracked-instance-registry.test.ts` (content updates only)
+- [x] `tracked-instance-registry.test.ts` (content updates only)
 
 **test/node-and-browser/signatures/**
 - [x] `subplebbit.test.ts` → `community.test.ts`
-- [ ] `pubsub.messages.test.ts` (content updates only)
-- [ ] `comment.test.ts` (content updates only)
-- [ ] `edit.comment.test.ts` (content updates only)
-- [ ] `vote.test.ts` (content updates only)
-- [ ] `pages.test.ts` (content updates only)
+- [x] `pubsub.messages.test.ts` (content updates only)
+- [x] `comment.test.ts` (content updates only)
+- [x] `edit.comment.test.ts` (content updates only)
+- [x] `vote.test.ts` (content updates only)
+- [x] `pages.test.ts` (content updates only)
 
 **test/node-and-browser/publications/subplebbit-edit/** (directory moves to test/node-and-browser/publications/community-edit/)
 - [x] `subplebbit.edit.publication.test.ts` → `community.edit.publication.test.ts`
 
 **test/node-and-browser/publications/**
-- [ ] `author-address-domain-normalization.test.ts` (content updates only)
-- [ ] `runtime-author-fields-serialization.test.ts` (content updates only)
-- [ ] `community-publickey-fallback.publish.test.ts` (content updates only — already uses new naming convention)
+- [x] `author-address-domain-normalization.test.ts` (content updates only)
+- [x] `runtime-author-fields-serialization.test.ts` (content updates only)
+- [x] `community-publickey-fallback.publish.test.ts` (content updates only — already uses new naming convention)
 
 **test/node-and-browser/publications/comment/**
 - [x] `getcomment.plebbit.test.ts` → `getcomment.pkc.test.ts`
 
 **test/node-and-browser/** (root-level test files)
-- [ ] `deep-merge-runtime-fields.test.ts` (content updates only)
+- [x] `deep-merge-runtime-fields.test.ts` (content updates only)
 
 **test/browser/**
 - [x] `plebbit.test.ts` → `pkc.test.ts`
@@ -1010,20 +1010,21 @@ Rename all test files with "subplebbit" or "plebbit" in the name. Files without 
 - [x] `plebbit-ws-server.js` → `pkc-ws-server.js`
 
 ### 12.2 Test Content Updates
-- [ ] Update all test imports to use new module paths
-- [ ] Update all test assertions referencing old names
-- [ ] Update fixture references
+- [x] Update all test imports to use new module paths
+- [x] Update all test assertions referencing old names
+- [x] Update fixture references
 
 ### 12.3 Test Fixtures (test/fixtures/)
-- [ ] `test/fixtures/signatures/subplebbit/` → `test/fixtures/signatures/community/`
-- [ ] Update JSON fixture files:
-  - `valid_subplebbit_ipfs.json` → `valid_community_ipfs.json`
-  - `valid_subplebbit_jsonfied.json` → `valid_community_jsonfied.json`
-  - Update content within fixtures to use new property names
+- [x] `test/fixtures/signatures/subplebbit/` → `test/fixtures/signatures/community/`
+- [x] Update JSON fixture files:
+  - `valid_subplebbit_ipfs.json` → `valid_community_ipfs.json` (old duplicates deleted, new-named copies already existed)
+  - `valid_subplebbit_jsonfied.json` → `valid_community_jsonfied.json` (old duplicates deleted, new-named copies already existed)
+  - `valid_page_legacy_subplebbitAddress.json` → `valid_page_legacy_communityAddress.json`
+  - Note: JSON content within fixtures intentionally kept (wire-format backward-compat data)
 
 ### 12.4 Test Configuration
-- [ ] `test/run-test-config.js` - Update PLEBBIT_CONFIGS → PKC_CONFIGS
-- [ ] Update environment variable references
+- [x] `test/run-test-config.js` - Update PLEBBIT_CONFIGS → PKC_CONFIGS (done in Phase 18)
+- [x] Update environment variable references (done in Phase 18)
 
 ---
 
