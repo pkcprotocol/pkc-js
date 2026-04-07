@@ -201,7 +201,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                           }).length
                         : nameResolveSpy!.mock.calls.filter((callArgs: unknown[]) => callArgs[0] === randomSub.communityAddress).length;
 
-                    expect(resolveCallsCount).to.equal(1, "Publishing to the same subplebbit should only resolve IPNS once");
+                    expect(resolveCallsCount).to.equal(1, "Publishing to the same community should only resolve IPNS once");
                     await Promise.all(comments.map((comment) => comment.stop()));
                 } finally {
                     if (nameResolveSpy) nameResolveSpy.mockRestore();

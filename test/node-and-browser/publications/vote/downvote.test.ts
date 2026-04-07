@@ -122,7 +122,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(replyToVote.author.community.lastCommentCid).to.equal(replyToVote.cid);
         });
 
-        it("plebbit.createVote fails when commentCid is invalid ", async () => {
+        it("pkc.createVote fails when commentCid is invalid ", async () => {
             try {
                 await pkc.createVote({
                     vote: previousVotes[1].vote,

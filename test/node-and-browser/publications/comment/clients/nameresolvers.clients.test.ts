@@ -178,7 +178,7 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
         const { pkc: pkc } = await createPKCWithMockResolver({
             remotePKC: true,
             stubStorage: false
-        }); // need to use different plebbit so it won't use the memory cache of subplebbit for publishing
+        }); // need to use different pkc so it won't use the memory cache of community for publishing
         const mockPost = await generateMockPost({ communityAddress: "plebbit.bso", pkc: pkc });
         const expectedStates = ["resolving-community-name", "stopped"];
 
@@ -246,7 +246,7 @@ describeSkipIfRpc(`comment.clients.nameResolvers`, async () => {
         await loadedPost.stop();
 
         // The post itself has no domain author, so the post's nameResolver should not show resolving-author-name.
-        // Reply page authors are resolved through the plebbit-level manager, not the comment's.
+        // Reply page authors are resolved through the pkc-level manager, not the comment's.
         const authorNameStates = actualStates.filter((s) => s === "resolving-author-name");
         expect(authorNameStates).to.have.length(0);
     });

@@ -2,9 +2,9 @@ import { beforeAll, afterAll } from "vitest";
 import signers from "../../fixtures/signers.js";
 import { getAvailablePKCConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
 import * as remeda from "remeda";
-import validCommunityFixture from "../../fixtures/signatures/community/valid_subplebbit_ipfs.json" with { type: "json" };
-import newFormatFixture from "../../fixtures/signatures/community/valid_subplebbit_ipfs_new_format.json" with { type: "json" };
-import newFormatWithNameFixture from "../../fixtures/signatures/community/valid_subplebbit_ipfs_new_format_with_name.json" with { type: "json" };
+import validCommunityFixture from "../../fixtures/signatures/community/valid_community_ipfs.json" with { type: "json" };
+import newFormatFixture from "../../fixtures/signatures/community/valid_community_ipfs_new_format.json" with { type: "json" };
+import newFormatWithNameFixture from "../../fixtures/signatures/community/valid_community_ipfs_new_format_with_name.json" with { type: "json" };
 import { parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails } from "../../../dist/node/schema/schema-util.js";
 import {
     omitRuntimeCommunityFields,

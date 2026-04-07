@@ -93,9 +93,9 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
         // Only pubsubProviders [2] is able to publish/subscribe
 
         const post = await generateMockPost({ communityAddress: communityAddress, pkc: tempPKC });
-        // Pre-set _subplebbit to skip the network IPNS fetch in _initCommunity(),
+        // Pre-set _community to skip the network IPNS fetch in _initCommunity(),
         // which is flaky in CI. This isolates the test to only exercise the pubsub failure path.
-        (post as any)._subplebbit = {
+        (post as any)._community = {
             encryption: { type: "ed25519-aes-gcm", publicKey: signers[0].publicKey },
             pubsubTopic: signers[0].address,
             address: signers[0].address
@@ -117,9 +117,9 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
         pkc.clients.pubsubKuboRpcClients[notRespondingPubsubUrl]._client.pubsub.subscribe = async () => {};
 
         const mockPost = await generateMockPost({ communityAddress: signers[0].address, pkc: pkc });
-        // Pre-set _subplebbit to skip the network IPNS fetch in _initCommunity(),
+        // Pre-set _community to skip the network IPNS fetch in _initCommunity(),
         // which is flaky in CI. This isolates the test to only exercise the pubsub failure path.
-        (mockPost as any)._subplebbit = {
+        (mockPost as any)._community = {
             encryption: { type: "ed25519-aes-gcm", publicKey: signers[0].publicKey },
             pubsubTopic: signers[0].address,
             address: signers[0].address
@@ -152,9 +152,9 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
             pkcOptions: { pubsubKuboRpcClientsOptions: offlinePubsubUrls }
         });
         const mockPost = await generateMockPost({ communityAddress: signers[1].address, pkc: offlinePubsubPKC });
-        // Pre-set _subplebbit to skip the network IPNS fetch in _initCommunity(),
+        // Pre-set _community to skip the network IPNS fetch in _initCommunity(),
         // which is flaky in CI. This isolates the test to only exercise the pubsub failure path.
-        (mockPost as any)._subplebbit = {
+        (mockPost as any)._community = {
             encryption: { type: "ed25519-aes-gcm", publicKey: signers[1].publicKey },
             pubsubTopic: signers[1].address,
             address: signers[1].address
@@ -187,9 +187,9 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
             pkcOptions: { pubsubKuboRpcClientsOptions: [notRespondingPubsubUrl, offlinePubsubUrl] }
         });
         const mockPost = await generateMockPost({ communityAddress: signers[1].address, pkc: offlinePubsubPKC });
-        // Pre-set _subplebbit to skip the network IPNS fetch in _initCommunity(),
+        // Pre-set _community to skip the network IPNS fetch in _initCommunity(),
         // which is flaky in CI. This isolates the test to only exercise the pubsub failure path.
-        (mockPost as any)._subplebbit = {
+        (mockPost as any)._community = {
             encryption: { type: "ed25519-aes-gcm", publicKey: signers[1].publicKey },
             pubsubTopic: signers[1].address,
             address: signers[1].address

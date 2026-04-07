@@ -83,7 +83,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     encryption: ipfs.encryption,
                     pubsubTopic: ipfs.pubsubTopic
                 };
-            }; // so libp2pjs client state won't include fetching subplebbit states
+            }; // so libp2pjs client state won't include fetching community states
             await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });
 
             expect(actualStates).to.deep.equal(expectedStates);

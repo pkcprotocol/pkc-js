@@ -125,7 +125,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     return Boolean(editedCommentInPage?.edit?.reason?.startsWith("To test editing content"));
                 }
             });
-            const community2 = await pkc.createCommunity(community1); // we're testing if posts from subplebbit are parsed correctly
+            const community2 = await pkc.createCommunity(community1); // we're testing if posts from community are parsed correctly
             const community3 = await pkc.createCommunity(JSON.parse(JSON.stringify(community1)));
             for (const sub of [community1, community2, community3]) {
                 const editedCommentInPage = await iterateThroughPagesToFindCommentInParentPagesInstance(commentToBeEdited.cid, sub.posts);
@@ -153,7 +153,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     return Boolean(editedCommentInPage?.edit?.reason?.startsWith("To test editing content"));
                 }
             });
-            const sub2 = await pkc.createCommunity(sub1); // we're testing if posts from subplebbit are parsed correctly
+            const sub2 = await pkc.createCommunity(sub1); // we're testing if posts from community are parsed correctly
             const sub3 = await pkc.createCommunity(JSON.parse(JSON.stringify(sub1)));
 
             for (const subJson of [

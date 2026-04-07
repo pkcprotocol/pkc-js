@@ -96,7 +96,7 @@ describe("PKC options", async () => {
 
     itIfRpc("Error is thrown if RPC is down", async () => {
         const pkc = await mockRpcRemotePKC({ pkcOptions: { pkcRpcClientsOptions: ["ws://localhost:39650"] } }); // Already has RPC config
-        // pkc.subplebbits will take 20s to timeout and throw this error
+        // pkc.communities will take 20s to timeout and throw this error
         try {
             await pkc.fetchCid({ cid: "QmYHzA8euDgUpNy3fh7JRwpPwt6jCgF35YTutYkyGGyr8f" }); // random cid
             expect.fail("Should have thrown");

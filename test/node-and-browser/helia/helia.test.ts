@@ -12,7 +12,7 @@ import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { IpfsHttpClientPubsubMessage } from "../../../dist/node/types.js";
 
-const mathCliNoMockedPubsubCommunityAddress = signers[5].address; // this sub is connected to a plebbit instance whose pubsub is not mocked
+const mathCliNoMockedPubsubCommunityAddress = signers[5].address; // this sub is connected to a pkc instance whose pubsub is not mocked
 
 // should connect to a kubo node and exchange pubsub messages with it
 // DO NOT MOCK PUBSUB
@@ -34,7 +34,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
         it(`Can fetch community`, async () => {
             const sub = await pkc.getCommunity({ address: mathCliNoMockedPubsubCommunityAddress });
             expect(sub.updatedAt).to.be.a("number");
-            expect(sub.settings).to.be.undefined; // make sure it's not loading local subplebbit
+            expect(sub.settings).to.be.undefined; // make sure it's not loading local community
         });
 
         it("can post after answering correctly", async function () {
@@ -158,7 +158,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
         });
 
         it(`We can fetch the IPNS using pubsub only`, async () => {
-            // plebbit-js sets up helia to use two routers for IPNS:
+            // pkc-js sets up helia to use two routers for IPNS:
             // 1. Pubsub router: Joins pubsub topic, and awaits for the IPNS record to be published
             // 2. Fetch router: requests the IPNS record from peers in the pubsub topic
 
@@ -179,7 +179,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             await new Promise((resolve) => sub.once("update", resolve));
 
             expect(sub.updatedAt).to.be.a("number");
-            expect(sub.settings).to.be.undefined; // make sure it's not loading local subplebbit
+            expect(sub.settings).to.be.undefined; // make sure it's not loading local community
 
             await testPKC.destroy();
         });

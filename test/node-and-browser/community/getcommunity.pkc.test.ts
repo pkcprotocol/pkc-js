@@ -84,19 +84,19 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it("Can load community via IPNS address", async () => {
             const loadedCommunity = await pkc.getCommunity({ address: communitySigner.address });
-            const _subplebbitIpns = loadedCommunity.raw.communityIpfs!;
-            expect(_subplebbitIpns.lastPostCid).to.be.a.string;
-            expect(_subplebbitIpns.pubsubTopic).to.be.a.string;
+            const _communityIpns = loadedCommunity.raw.communityIpfs!;
+            expect(_communityIpns.lastPostCid).to.be.a.string;
+            expect(_communityIpns.pubsubTopic).to.be.a.string;
             expect(loadedCommunity.address).to.be.a.string;
-            expect(_subplebbitIpns.statsCid).to.be.a.string;
-            expect(_subplebbitIpns.createdAt).to.be.a("number");
-            expect(_subplebbitIpns.updatedAt).to.be.a("number");
-            expect(_subplebbitIpns.encryption).to.be.a("object");
-            expect(_subplebbitIpns.roles).to.be.a("object");
-            expect(_subplebbitIpns.signature).to.be.a("object");
-            expect(_subplebbitIpns.posts).to.be.a("object");
+            expect(_communityIpns.statsCid).to.be.a.string;
+            expect(_communityIpns.createdAt).to.be.a("number");
+            expect(_communityIpns.updatedAt).to.be.a("number");
+            expect(_communityIpns.encryption).to.be.a("object");
+            expect(_communityIpns.roles).to.be.a("object");
+            expect(_communityIpns.signature).to.be.a("object");
+            expect(_communityIpns.posts).to.be.a("object");
             // Remove undefined keys from json
-            expect(deterministicStringify(loadedCommunity.raw.communityIpfs!)).to.equals(deterministicStringify(_subplebbitIpns));
+            expect(deterministicStringify(loadedCommunity.raw.communityIpfs!)).to.equals(deterministicStringify(_communityIpns));
         });
 
         it("can load community with ENS domain via pkc.getCommunity", async () => {

@@ -216,7 +216,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect.fail("Should have thrown an error for page with unknown max size");
             } catch (e) {
                 expect((e as Error).message).to.equal(
-                    "Failed to calculate max page size. Is this page cid under the correct subplebbit/comment?"
+                    "Failed to calculate max page size. Is this page cid under the correct community/comment?"
                 );
             }
         });

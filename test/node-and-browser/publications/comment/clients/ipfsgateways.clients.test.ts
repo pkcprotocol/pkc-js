@@ -101,7 +101,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         it(`Correct order of ipfsGateways state when publishing a comment (cached community)`, async () => {
             const mockPost = await generateMockPost({ communityAddress: signers[0].address, pkc: pkc });
 
-            const expectedStates: string[] = []; // Should be empty since we're using cached subplebbit
+            const expectedStates: string[] = []; // Should be empty since we're using cached community
 
             const actualStates: string[] = [];
 
@@ -183,7 +183,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             const expectedIpfsGatewayStates = [
                 "fetching-ipfs", // fetching comment-ipfs
                 "stopped",
-                "fetching-community-ipns", // fetching subplebbit + comment update
+                "fetching-community-ipns", // fetching community + comment update
                 "fetching-update-ipfs",
                 "stopped"
             ];

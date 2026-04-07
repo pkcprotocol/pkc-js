@@ -26,7 +26,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             await pkc.destroy();
         });
 
-        it(`comment.replies.clients.${clientFieldName} is {} for gateway plebbit`, async () => {
+        it(`comment.replies.clients.${clientFieldName} is {} for gateway pkc`, async () => {
             const gatewayPKC = await mockGatewayPKC();
             const comment = await gatewayPKC.getComment({ cid: await getRandomPostCidFromSub(communityAddress, pkc) });
             const sortTypes = Object.keys((comment.replies.clients as Record<string, Record<string, unknown>>)[clientFieldName]);

@@ -55,7 +55,7 @@ describe("publication-match challenge", () => {
             timestamp: 1234567890,
             title: "title",
             link: "link",
-            communityAddress: "subplebbitAddress"
+            communityAddress: "communityAddress"
         };
 
         return {

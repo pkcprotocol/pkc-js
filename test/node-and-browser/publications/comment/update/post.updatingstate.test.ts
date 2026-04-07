@@ -178,9 +178,9 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 const expectedUpdateStates = [
                     "fetching-ipfs", // fetching comment ipfs of post
                     "succeeded", // succeeded loading comment ipfs of post
-                    "fetching-community-ipns", // fetching subplebbit ipns
-                    "fetching-community-ipfs", // fetching subplebbit ipfs
-                    "failed", // subplebbit ipfs record is invalid
+                    "fetching-community-ipns", // fetching community ipns
+                    "fetching-community-ipfs", // fetching community ipfs
+                    "failed", // community ipfs record is invalid
                     "stopped" // called post.stop()
                 ];
                 expect(updatingStates).to.deep.equal(expectedUpdateStates);
@@ -217,7 +217,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     eventName: "error"
                 });
 
-                await publishRandomPost({ communityAddress: communityAddress, pkc: dedicatedPKC }); // force subplebbit to publish a new update which will increase loading attempts
+                await publishRandomPost({ communityAddress: communityAddress, pkc: dedicatedPKC }); // force community to publish a new update which will increase loading attempts
                 await resolveWhenConditionIsTrue({
                     toUpdate: createdComment,
                     predicate: async () => errors.length >= 2,
@@ -307,8 +307,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 const expectedUpdateStates = [
                     "fetching-ipfs", // fetching comment ipfs of post
                     "succeeded", // succeeded loading comment ipfs of post
-                    "fetching-community-ipns", // fetching subplebbit ipnsa from gateway
-                    "failed", // subplebbit ipfs record is invalid
+                    "fetching-community-ipns", // fetching community ipns from gateway
+                    "failed", // community ipfs record is invalid
                     "stopped" // called post.stop()
                 ];
                 expect(recordedStates).to.deep.equal(expectedUpdateStates);
@@ -348,7 +348,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
 
                 await createErrorPromise();
 
-                await publishRandomPost({ communityAddress: communityAddress, pkc: dedicatedPKC }); // force subplebbit to publish a new update which will increase loading attempts
+                await publishRandomPost({ communityAddress: communityAddress, pkc: dedicatedPKC }); // force community to publish a new update which will increase loading attempts
                 await createErrorPromise();
 
                 await createdComment.stop();

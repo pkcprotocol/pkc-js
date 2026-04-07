@@ -47,7 +47,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 pkc = await config.pkcInstancePromise();
                 remotePKCIpfs = await mockPKCNoDataPathWithOnlyKuboClientNoAdd(); // this instance is connected to the same IPFS node as the sub
                 const community = await pkc.getCommunity({ address: communityAddress });
-                const commentToPurgeTemp = await publishCommentWithDepth({ depth: commentDepth, community: community }); // reason why we publish in a different plebbit instance so it doesn't get added to local kubo node
+                const commentToPurgeTemp = await publishCommentWithDepth({ depth: commentDepth, community: community }); // reason why we publish in a different pkc instance so it doesn't get added to local kubo node
                 commentToPurge = await pkc.createComment({ cid: commentToPurgeTemp.cid });
                 await commentToPurge.update();
                 await resolveWhenConditionIsTrue({
@@ -297,7 +297,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 const intervalId = setInterval(() => {
                     if (community.state === "updating")
                         console.log(
-                            "lastPostCid of subplebbit",
+                            "lastPostCid of community",
                             community.address,
                             "is",
                             community.lastPostCid,
@@ -320,7 +320,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it.sequential(
-                `The whole reply tree including comment, replies and their pages should not be stored in the ipfs node of the subplebbit`,
+                `The whole reply tree including comment, replies and their pages should not be stored in the ipfs node of the community`,
                 async () => {
                     await new Promise((resolve) => setTimeout(resolve, 3000));
                     const cidEntries = [
@@ -424,7 +424,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                         await Promise.race([errorConditionPromise, updateEventPromise, timeoutPromise]);
 
                         // we've attempted to load twice but it's not defined yet
-                        // plebbit-js keeps on retrying to load the comment update, but it's not loading because ipfs node removed it from MFS
+                        // pkc-js keeps on retrying to load the comment update, but it's not loading because ipfs node removed it from MFS
                         // expect(waitingRetryErrs.length).to.be.greaterThan(0);
                         expect(purgedComment.updatedAt).to.be.undefined; // should not load comment update
                         // expect(purgedComment.depth).to.be.undefined; // should not load comment ipfs

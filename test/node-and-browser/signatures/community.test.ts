@@ -10,9 +10,9 @@ import {
 import { messages } from "../../../dist/node/errors.js";
 import { verifyCommunity, signCommunity, cleanUpBeforePublishing, _signJson } from "../../../dist/node/signer/signatures.js";
 import * as remeda from "remeda";
-import validCommunityFixture from "../../fixtures/signatures/community/valid_subplebbit_ipfs.json" with { type: "json" };
-import newFormatFixture from "../../fixtures/signatures/community/valid_subplebbit_ipfs_new_format.json" with { type: "json" };
-import newFormatWithNameFixture from "../../fixtures/signatures/community/valid_subplebbit_ipfs_new_format_with_name.json" with { type: "json" };
+import validCommunityFixture from "../../fixtures/signatures/community/valid_community_ipfs.json" with { type: "json" };
+import newFormatFixture from "../../fixtures/signatures/community/valid_community_ipfs_new_format.json" with { type: "json" };
+import newFormatWithNameFixture from "../../fixtures/signatures/community/valid_community_ipfs_new_format_with_name.json" with { type: "json" };
 import { removeUndefinedValuesRecursively } from "../../../dist/node/util.js";
 import Logger from "@pkc/pkc-logger";
 

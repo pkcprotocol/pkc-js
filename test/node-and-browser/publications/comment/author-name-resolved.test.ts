@@ -278,7 +278,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(comment.author.nameResolved).to.equal(false);
         });
 
-        it("multiple comment instances sharing same plebbit use same nameResolved cache", async () => {
+        it("multiple comment instances sharing same pkc use same nameResolved cache", async () => {
             const instance1 = await pkc.createComment({ cid: domainCommentCid });
             const instance2 = await pkc.createComment({ cid: domainCommentCid });
 

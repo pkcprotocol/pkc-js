@@ -34,7 +34,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             await pkc.destroy();
         });
 
-        it(`comment.clients.${clientFieldName} is undefined for gateway plebbit`, async () => {
+        it(`comment.clients.${clientFieldName} is undefined for gateway pkc`, async () => {
             const gatewayPKC = await mockGatewayPKC();
             const mockPost = await generateMockPost({ communityAddress: communityAddress, pkc: gatewayPKC });
             expect((mockPost.clients as Record<string, unknown>)[clientFieldName]).to.be.undefined;
@@ -217,7 +217,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
             await mockPost.stop();
 
-            const expectedFirstStates = ["fetching-update-ipfs", "stopped"]; // CommentIpfs is already loaded from updating subplebbit preloaded pages
+            const expectedFirstStates = ["fetching-update-ipfs", "stopped"]; // CommentIpfs is already loaded from updating community preloaded pages
             expect(recordedStates.slice(0, expectedFirstStates.length)).to.deep.equal(expectedFirstStates);
 
             const noNewUpdateStates = recordedStates.slice(expectedFirstStates.length, recordedStates.length); // should be just 'fetching-ipns' and 'succeeded
@@ -270,7 +270,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             const expectedIpfsClientStates = [
                 "fetching-ipfs", // fetching comment-ipfs
                 "stopped",
-                "fetching-community-ipns", // fetching subplebbit
+                "fetching-community-ipns", // fetching community
                 "fetching-community-ipfs",
                 "stopped",
                 "fetching-update-ipfs", // fetching comment update
@@ -287,7 +287,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 // Check for the first state in any valid pattern
                 expect(restOfIpfsStates[i]).to.equal(
                     "fetching-community-ipns",
-                    `State at position ${i} should be 'fetching-subplebbit-ipns'`
+                    `State at position ${i} should be 'fetching-community-ipns'`
                 );
 
                 i++;
@@ -304,7 +304,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     // Pattern 2: Found new community record
                     expect(restOfIpfsStates[i]).to.equal(
                         "fetching-community-ipfs",
-                        `State at position ${i} should be 'fetching-subplebbit-ipfs'`
+                        `State at position ${i} should be 'fetching-community-ipfs'`
                     );
                     i++;
 

@@ -522,7 +522,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
             depth: validCommentFixture.depth,
             signature: validCommentFixture.signature
         };
-        update.signature = await signCommentUpdate({ update, signer: signers[0] }); // Same signer as the subplebbit that signed the CommentUpdate
+        update.signature = await signCommentUpdate({ update, signer: signers[0] }); // Same signer as the community that signed the CommentUpdate
         const verification = await verifyCommentUpdate({
             update,
             resolveAuthorNames: pkc.resolveAuthorNames,
@@ -563,7 +563,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
             depth: validCommentFixture.depth,
             signature: validCommentFixture.signature
         };
-        update.signature = await signCommentUpdate({ update, signer: signers[6] }); // A different signer than subplebbit
+        update.signature = await signCommentUpdate({ update, signer: signers[6] }); // A different signer than community
         const verification = await verifyCommentUpdate({
             update,
             resolveAuthorNames: pkc.resolveAuthorNames,
@@ -638,7 +638,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
             })
         ).to.deep.equal({ valid: true });
         update.edit.content += "12345"; // Invalidate signature
-        update.signature = await signCommentUpdate({ update: update as CommentUpdateType, signer: signers[6] }); // A different signer than subplebbit and author
+        update.signature = await signCommentUpdate({ update: update as CommentUpdateType, signer: signers[6] }); // A different signer than community and author
 
         const verification = await verifyCommentUpdate({
             update: update as CommentUpdateType,

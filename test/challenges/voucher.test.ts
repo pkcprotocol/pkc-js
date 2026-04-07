@@ -63,7 +63,7 @@ describe.skip("voucher challenge", () => {
             },
             content: "test content",
             timestamp: 1234567890,
-            communityAddress: "subplebbitAddress"
+            communityAddress: "communityAddress"
         };
 
         return {

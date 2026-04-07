@@ -181,9 +181,9 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 const expectedUpdateStates = [
                     "fetching-ipfs", // fetching comment ipfs of reply
                     "succeeded", // succeeded loading comment ipfs of reply
-                    "fetching-community-ipns", // fetching subplebbit ipns
-                    "fetching-community-ipfs", // fetching subplebbit ipfs
-                    "failed", // subplebbit ipfs record is invalid
+                    "fetching-community-ipns", // fetching community ipns
+                    "fetching-community-ipfs", // fetching community ipfs
+                    "failed", // community ipfs record is invalid
                     "stopped" // called post.stop()
                 ];
                 const filteredExpectedStates = cleanupStateArray(expectedUpdateStates);
@@ -265,8 +265,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 const expectedUpdateStates = [
                     "fetching-ipfs", // fetching comment ipfs of reply
                     "succeeded", // succeeded loading comment ipfs of reply
-                    "fetching-community-ipns", // fetching subplebbit ipns from gateway
-                    "failed", // subplebbit ipfs record is invalid
+                    "fetching-community-ipns", // fetching community ipns from gateway
+                    "failed", // community ipfs record is invalid
                     "stopped" // called post.stop()
                 ];
                 const filteredExpectedStates = cleanupStateArray(expectedUpdateStates);

@@ -26,7 +26,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
         it(`Correct order of comment.clients.pkcRpcClients states when publishing to a sub with challenge`, async () => {
             const mathCliCommunityAddress = signers[1].address;
 
-            await pkc.getCommunity({ address: mathCliCommunityAddress }); // Do this to cache subplebbit so we won't get fetching-subplebbit-ipns
+            await pkc.getCommunity({ address: mathCliCommunityAddress }); // Do this to cache community so we won't get fetching-community-ipns
 
             const rpcUrl = Object.keys(pkc.clients.pkcRpcClients)[0];
             const mockPost = await generateMockPost({ communityAddress: mathCliCommunityAddress, pkc: pkc });

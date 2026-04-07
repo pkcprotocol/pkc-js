@@ -7,7 +7,7 @@ import * as remeda from "remeda";
 import { v4 as uuidV4 } from "uuid";
 
 import validPageIpfsFixture from "../../fixtures/valid_page.json" with { type: "json" };
-import legacyPageIpfsFixture from "../../fixtures/valid_page_legacy_subplebbitAddress.json" with { type: "json" };
+import legacyPageIpfsFixture from "../../fixtures/valid_page_legacy_communityAddress.json" with { type: "json" };
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";

@@ -98,9 +98,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`Can recreate a stringifed local Comment instance after publishing with pkc.createComment`, async () => {
             const localComment = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
-            expect(localComment.author.community).to.be.a("object"); // should get it from subplebbit
+            expect(localComment.author.community).to.be.a("object"); // should get it from community
             const commentClone = await pkc.createComment(JSON.parse(JSON.stringify(localComment)));
-            expect(commentClone.author.community).to.be.a("object"); // should get it from subplebbit
+            expect(commentClone.author.community).to.be.a("object"); // should get it from community
             const commentCloneJson = jsonifyCommentAndRemoveInstanceProps(commentClone);
             const localCommentJson = jsonifyCommentAndRemoveInstanceProps(localComment);
 

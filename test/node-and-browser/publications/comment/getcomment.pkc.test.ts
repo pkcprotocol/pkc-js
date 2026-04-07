@@ -36,7 +36,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         // sequential because we're spying on global fetch here which may affect other tests
         itSkipIfRpc.sequential(
-            "calling pkc.getCommunity({address: ) in parallel of the same subplebbit resolves IPNS only once",
+            "calling pkc.getCommunity({address: ) in parallel of the same community resolves IPNS only once",
             async () => {
                 const localPKC: PKC = await config.pkcInstancePromise();
                 const randomCid = (await pkc.getCommunity({ address: communitySigner.address })).lastPostCid;
