@@ -808,8 +808,8 @@ State strings emitted via `statechange` and `publishingstatechange` events:
 
 ### 10.4 Logger Prefixes
 ~~Replace all logger prefixes:~~
-- [x] `Logger("plebbit-js:...")` → `Logger("pkc-js:...")` (48+ prefixes across src/) — Done via centralized `Logger()` function in `src/logger.ts` that maps namespaces at runtime (plebbit→pkc, subplebbit→community, Subplebbit→Community, etc.). All logger instantiations across src/ now use this function.
-- [x] `Logger("plebbit-js-rpc:...")` → `Logger("pkc-js-rpc:...")` — Covered by the same runtime namespace normalization
+- [x] `Logger("plebbit-js:...")` → `Logger("pkc-js:...")` (48+ prefixes across src/) — All Logger call sites now use the correct `pkc-js:` namespaces directly. The runtime namespace replacement layer in `src/logger.ts` was removed (`309d8fe65`) after all call sites were updated. Logger calls referencing "sub" were renamed to "community" in `d11432c0a`.
+- [x] `Logger("plebbit-js-rpc:...")` → `Logger("pkc-js-rpc:...")` — All call sites updated directly
 - [x] CI workflows and VSCode debug configurations updated for new namespace scheme (`DEBUG` filters now use `pkc-js*` and `pkc-js-rpc*`)
 
 ---
@@ -1070,7 +1070,8 @@ Domain resolution cache keys are removed from pkc-js core (resolution moves to e
 - [x] `subplebbitAddress` removed from tables entirely (preserved in `extraProps` for CID reconstruction)
 - [x] DB_VERSION bumped to 37, migration logic added (backfill from `subplebbitAddress`)
 - [x] Backfill `communityPublicKey` from `subplebbitAddress` for existing records (IPNS key → `communityPublicKey`; domain → `communityName`)
-- [x] Migration tests in `test/node/subplebbit/v36-to-v37.migration.db.subplebbit.test.ts`
+- [x] Migration tests in `test/node/community/v36-to-v37.migration.db.community.test.ts` (page queries, domain filtering, .bso↔.eth equivalence)
+- [x] Comprehensive v29→v37 migration tests in `test/node/community/v29-production.migration.db.community.test.ts` (sampled from real production DB — diverse fields, CID reconstruction, page queries)
 - [x] `queryComment()` returns proper values for new columns
 
 ### 14.4 External Applications Migration (IMPORTANT)
@@ -1188,7 +1189,7 @@ Full sweep of all remaining `plebbit` and `subplebbit` keywords in `src/` and `t
 - `plebbit.eth` / `plebbit.bso` test domain names
 - External repo URLs not yet moved (`plebbit/plebbit-protocol-test`, `plebbit/plebbit-react-hooks`)
 - `PLEBBIT_JS_BENCHMARKS_DEPLOY_KEY` GitHub secret name (not yet renamed)
-- Logger mapping tuples in `src/logger.ts`
+- ~~Logger mapping tuples in `src/logger.ts`~~ (removed in `309d8fe65` — all call sites updated directly)
 - JSON fixture file contents (wire-format backward-compat data)
 - Comments documenting backward-compat behavior with old field names
 - Old DNS record names in `docs/ens.md` migration section (`subplebbit-address`, `plebbit-author-address`)
@@ -1253,29 +1254,29 @@ Use this section to track overall progress:
 
 | Phase | Status | Notes |
 |-------|--------|-------|
-| Phase 1: Web3 Modularization | [~] In Progress | Name resolver done; challenge cleanup done; `resolveAuthorName` renamed; exported challenge types done; runtime author computation and `author.nameResolved` follow-up done; `nameResolved` reserved field fully implemented across all types; non-blocking author resolution; author.name validation moved to subplebbit; logger normalization complete; RPC challenge verification wrapper refactored |
-| Phase 1B Step 1: SubplebbitIpfs wire format | [x] Done | `name` field added, `address`/`publicKey`/`nameResolved` instance-only, domain verification via key migration, `sub.edit({name})` works, publicKey fallback loading, RPC support for all scenarios |
-| Phase 1B Step 2: Publication wire format | [x] Done | `communityPublicKey`/`communityName` wire fields, `communityAddress` instance-only, backward compat via `preprocessCommentIpfsBackwardCompat()`, LocalSubplebbit normalizes old→new format |
-| Phase 1B Step 3: DB migration | [x] Done | DB_VERSION=37, columns added, `subplebbitAddress` removed (in `extraProps` for CID reconstruction), migration tests |
-| Phase 2: Package Config | [ ] Not Started | |
+| Phase 1: Web3 Modularization | [~] In Progress | Name resolver done; challenge cleanup done; `resolveAuthorName` renamed; exported challenge types done; runtime author computation and `author.nameResolved` follow-up done; `nameResolved` reserved field fully implemented across all types; non-blocking author resolution; author.name validation moved to community; logger normalization complete; RPC challenge verification wrapper refactored. Deprecated `subplebbitAddress`/`communityAddress` wire fields rejected with distinct errors (`421efd796`) |
+| Phase 1B Step 1: SubplebbitIpfs wire format | [x] Done | `name` field added, `address`/`publicKey`/`nameResolved` instance-only, domain verification via key migration, `community.edit({name})` works, publicKey fallback loading, RPC support for all scenarios |
+| Phase 1B Step 2: Publication wire format | [x] Done | `communityPublicKey`/`communityName` wire fields, `communityAddress` instance-only, backward compat via `preprocessCommentIpfsBackwardCompat()`, LocalCommunity normalizes old→new format. Backward compat fixes for `communityAddress` in page parsing and `raw.subplebbitIpfs` fallback (`d6abb4417`) |
+| Phase 1B Step 3: DB migration | [x] Done | DB_VERSION=37, columns added, `subplebbitAddress` removed (in `extraProps` for CID reconstruction), v36→v37 and v29→v37 migration tests with production data patterns |
+| Phase 2: Package Config | [x] Done | Package renamed to `@pkc/pkc-js`, README rewritten, AGENTS.md updated (`61b66f198`) |
 | Phase 3: Directory Structure | [x] Done | All src/ and test/ directories renamed |
 | Phase 4: Source Files | [x] Done | All files renamed within moved directories |
 | Phase 5: Import Paths | [x] Done | All import paths updated in src/ and test/ |
-| Phase 6: Classes & Types | [ ] Not Started | |
-| Phase 7: Schemas | [ ] Not Started | |
-| Phase 8: API Methods | [ ] Not Started | |
-| Phase 9: RPC Methods | [ ] Not Started | |
-| Phase 10: Errors & Logging | [~] Partially Done | Logger namespace normalization complete (`src/logger.ts` runtime mapping); error codes renamed (Phase 10.2 done) |
-| Phase 11: Signer Functions | [~] Partially Done | Phase 11.1 signer function renames done |
-| Phase 12: Test Files | [~] Partially Done | File renames done (as part of Phase 3-5); content updates partially done in Phase 18 |
+| Phase 6: Classes & Types | [x] Done | All classes, types, and interfaces renamed (sections 6.1–6.3) |
+| Phase 7: Schemas | [x] Done | All Zod schemas renamed (sections 7.1–7.7) |
+| Phase 8: API Methods | [x] Done | All API methods and properties renamed (sections 8.1–8.5) |
+| Phase 9: RPC Methods | [x] Done | All RPC methods, events, and params renamed (sections 9.1–9.4) |
+| Phase 10: Errors & Logging | [x] Done | All error codes renamed; Logger runtime replacement removed (`309d8fe65`); all Logger calls use correct `pkc-js:` namespaces directly; "sub"→"community" in Logger calls (`d11432c0a`) |
+| Phase 11: Signer Functions | [x] Done | All signer function renames and parameter renames done (sections 11.1–11.2) |
+| Phase 12: Test Files | [x] Done | All file renames, content updates, fixture updates, and configuration changes done (sections 12.1–12.4) |
 | Phase 13: DNS & Protocol | [x] Done | DNS TXT lookups + cache logic removed from core; migration documented in `docs/ens.md` |
 | Phase 14: Data Migration | [x] Done | 14.1 code done + migration guide in `docs/protocol/data-path-migration.md`; 14.2 documented in `docs/ens.md`; 14.3 done in Phase 1B Step 3; 14.4 out of scope for pkc-js |
-| Phase 14.3: DB Schema Migration | [x] Done | Completed as Phase 1B Step 3 |
+| Phase 14.3: DB Schema Migration | [x] Done | Completed as Phase 1B Step 3; comprehensive v29→v37 migration tests added (`6f4b31847`) |
 | Phase 14.4: External Apps | [~] Out of Scope | plebbit-cli, desktop apps — see `docs/protocol/data-path-migration.md` |
-| Phase 15: Documentation | [ ] Not Started | |
-| Phase 16: GitHub & CI/CD | [ ] Not Started | |
+| Phase 15: Documentation | [x] Done | All docs/ files updated, RPC README updated, duplicate EXPORT_SUBPLEBBIT_SPEC.md deleted (`bdc8064dd`) |
+| Phase 16: GitHub & CI/CD | [x] Done | CI workflow files renamed and updated, benchmarks repo URL updated (`bdc8064dd`) |
 | Phase 17: Build & Verify | [ ] Not Started | |
-| Phase 18: Keyword Cleanup | [x] Done | Full sweep of remaining plebbit/subplebbit in src/ and test/; wire format `subplebbitEdit` → `communityEdit`; env var, test infra, comments, dead code |
+| Phase 18: Keyword Cleanup | [x] Done | Full sweep of remaining plebbit/subplebbit in src/ and test/; wire format `subplebbitEdit` → `communityEdit`; env var, test infra, comments, dead code; `PLEBBIT_CONFIGS` → `PKC_CONFIGS` (`499d8b9a9`) |
 
 ---
 
