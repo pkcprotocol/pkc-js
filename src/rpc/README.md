@@ -1,33 +1,33 @@
-## Get started running the plebbit JSON-RPC websocket server
+## Get started running the PKC JSON-RPC websocket server
 
 ```js
-const {PlebbitWsServer} = require('@plebbit/plebbit-js/rpc')
+const {PKCWsServer} = require('@plebbit/plebbit-js/rpc')
 const port = 8080
-const plebbitOptions = {ipfsHttpClientsOptions: ['http://localhost:5001/api/v0']}
-const plebbitWebSocketServer = await PlebbitWsServer({port, plebbitOptions})
+const pkcOptions = {ipfsHttpClientsOptions: ['http://localhost:5001/api/v0']}
+const pkcWebSocketServer = await PKCWsServer({port, pkcOptions})
 
 // debug raw JSON RPC messages in console (optional)
-plebbitWebSocketServer.ws.on('connection', (socket, request) => {
+pkcWebSocketServer.ws.on('connection', (socket, request) => {
   console.log('connection')
   socket.on('message', (message) => console.log(message.toString()))
 })
 
-// handle plebbit and wss errors
-plebbitWebSocketServer.on('error', console.log)
+// handle pkc and wss errors
+pkcWebSocketServer.on('error', console.log)
 
-console.log(`test server plebbit wss listening on port ${port}`)
+console.log(`test server pkc wss listening on port ${port}`)
 ```
 
 ## Name resolution
 
-Name resolution (`.bso`, `.eth` domains) happens **server-side**. The RPC server must have `nameResolvers` configured in its `plebbitOptions` — for example, by registering `@bitsocial/bso-resolver`. RPC clients do **not** need `nameResolvers`; they pass domain names directly to methods like `subplebbitUpdateSubscribe` and the server resolves them.
+Name resolution (`.bso`, `.eth` domains) happens **server-side**. The RPC server must have `nameResolvers` configured in its `pkcOptions` — for example, by registering `@bitsocial/bso-resolver`. RPC clients do **not** need `nameResolvers`; they pass domain names directly to methods like `communityUpdateSubscribe` and the server resolves them.
 
 ```js
-const plebbitOptions = {
+const pkcOptions = {
   ipfsHttpClientsOptions: ['http://localhost:5001/api/v0'],
   nameResolvers: [bsoResolver({provider: 'https://cloudflare-eth.com'})]
 }
-const plebbitWebSocketServer = await PlebbitWsServer({port, plebbitOptions})
+const pkcWebSocketServer = await PKCWsServer({port, pkcOptions})
 ```
 
 If the server has no resolvers configured, requests with domain names will fail with `ERR_NO_RESOLVER_FOR_NAME`.
@@ -107,14 +107,14 @@ new Subscription(subscriptionId).on('message', console.log)
 
 - `method: getComment, params: [{cid: string}], result: CommentIpfs`
 - `method: getCommentRepliesPage, params: [{cid: string, commentCid: string}]`
-- `method: getSubplebbitPostsPage, params: [{cid: string, subplebbitAddress: string}]`
-- `method: getSubplebbitModqueuePage, params: [{cid: string, subplebbitAddress: string}]`
-- `method: createSubplebbit, params: [createSubplebbitOptions: CreateSubplebbitOptions]`
-- `method: stopSubplebbit, params: [{address: string}]`
-- `method: editSubplebbit, params: [address: string, subplebbitEditOptions: SubplebbitEditOptions]`
-- `method: deleteSubplebbit, params: [{address: string}]`
+- `method: getCommunityPostsPage, params: [{cid: string, communityAddress: string}]`
+- `method: getCommunityModqueuePage, params: [{cid: string, communityAddress: string}]`
+- `method: createCommunity, params: [createCommunityOptions: CreateCommunityOptions]`
+- `method: stopCommunity, params: [{address: string}]`
+- `method: editCommunity, params: [address: string, communityEditOptions: CommunityEditOptions]`
+- `method: deleteCommunity, params: [{address: string}]`
 - `method: fetchCid, params: [{cid: string}]`
-- `method: setSettings, params: [plebbitRpcSettings: PlebbitRpcSettings]`
+- `method: setSettings, params: [pkcRpcSettings: PKCRpcSettings]`
 - (below not implemented yet, probably make them subscriptions only)
 - `method: getDefaults, params: []`
 - `method: getPeers, params: []`
@@ -123,14 +123,14 @@ new Subscription(subscriptionId).on('message', console.log)
 # JSON-RPC Pubsub Websocket API
 
 - [`method: commentUpdateSubscribe, params: [{cid: string}]`](#commentupdatesubscribe)
-- [`method: subplebbitUpdateSubscribe, params: [{address: string}]`](#subplebbitupdatesubscribe)
+- [`method: communityUpdateSubscribe, params: [{address: string}]`](#communityupdatesubscribe)
 - [`method: publishComment, params: [{comment, challengeAnswers, challengeCommentCids}]`](#publishcomment)
 - `method: publishVote, params: [{vote, challengeAnswers, challengeCommentCids}]`
 - `method: publishCommentEdit, params: [{commentEdit, challengeAnswers, challengeCommentCids}]`
 - `method: publishCommentModeration, params: [{commentModeration, challengeAnswers, challengeCommentCids}]`
 - `method: publishChallengeAnswers, params: [subscriptionId: number, {challengeAnswers}]`
-- `method: startSubplebbit, params: [{address: string}]`
-- [`method: subplebbitsSubscribe, params: []`](#subplebbitssubscribe)
+- `method: startCommunity, params: [{address: string}]`
+- [`method: communitiesSubscribe, params: []`](#communitiessubscribe)
 - [`method: settingsSubscribe, params: []`](#settingssubscribe)
 - [`method: unsubscribe, params: [subscriptionId: number]`](#unsubscribe)
 
@@ -171,7 +171,7 @@ Subscribe to a comment update to receive notifications when the comment is updat
 
 #### Notification Format:
 
-The notification format is the same as seen in the plebbit-js [Comment Events](https://github.com/plebbit/plebbit-js#comment-events)
+The notification format is the same as seen in the pkc-js [Comment Events](https://github.com/plebbit/plebbit-js#comment-events)
 
 `update` event:
 
@@ -209,15 +209,15 @@ The notification format is the same as seen in the plebbit-js [Comment Events](h
 }
 ```
 
-## subplebbitUpdateSubscribe
+## communityUpdateSubscribe
 
-Subscribe to a subplebbit update to receive notifications when the subplebbit is updated, e.g. has a new post
+Subscribe to a community update to receive notifications when the community is updated, e.g. has a new post
 
 ### Parameters:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| address | `string` | address of the subplebbit |
+| address | `string` | address of the community |
 
 ### Result:
 
@@ -229,7 +229,7 @@ Subscribe to a subplebbit update to receive notifications when the subplebbit is
 {
   "jsonrpc": "2.0",
   "id": 1,
-  "method": "subplebbitUpdateSubscribe",
+  "method": "communityUpdateSubscribe",
   "params": [
     {
       "address": "memes.bso"
@@ -246,14 +246,14 @@ Subscribe to a subplebbit update to receive notifications when the subplebbit is
 
 #### Notification Format:
 
-The notification format is the same as seen in the plebbit-js [Subplebbit Events](https://github.com/plebbit/plebbit-js#subplebbit-events)
+The notification format is the same as seen in the pkc-js [Community Events](https://github.com/plebbit/plebbit-js#community-events)
 
 `update` event:
 
 ```json
 {
   "jsonrpc": "2.0",
-  "method": "subplebbitUpdateNotification",
+  "method": "communityUpdateNotification",
   "params": {
     "result": {
       "title": "Memes",
@@ -271,7 +271,7 @@ The notification format is the same as seen in the plebbit-js [Subplebbit Events
 ```json
 {
   "jsonrpc": "2.0",
-  "method": "subplebbitUpdateNotification",
+  "method": "communityUpdateNotification",
   "params": {
     "result": "fetching-ipfs",
     "event": "updatingstatechange",
@@ -326,7 +326,7 @@ Publish a comment and subscribe to receive notifications of the challenge pubsub
 
 #### Notification Format:
 
-The notification format is the same as seen in the plebbit-js [Comment Events](https://github.com/plebbit/plebbit-js#comment-events)
+The notification format is the same as seen in the pkc-js [Comment Events](https://github.com/plebbit/plebbit-js#comment-events)
 
 `challenge` event:
 
@@ -385,9 +385,9 @@ The notification format is the same as seen in the plebbit-js [Comment Events](h
 }
 ```
 
-## subplebbitsSubscribe
+## communitiesSubscribe
 
-Subscribe to the subplebbits list managed by the plebbit rpc to receive notifications when they change
+Subscribe to the communities list managed by the pkc rpc to receive notifications when they change
 
 ### Result:
 
@@ -399,7 +399,7 @@ Subscribe to the subplebbits list managed by the plebbit rpc to receive notifica
 {
   "jsonrpc": "2.0",
   "id": 1,
-  "method": "subplebbitsSubscribe",
+  "method": "communitiesSubscribe",
   "params": []
 }
 ```
@@ -412,20 +412,20 @@ Subscribe to the subplebbits list managed by the plebbit rpc to receive notifica
 
 #### Notification Format:
 
-The notification format is the same as seen in the plebbit-js [Plebbit Events](https://github.com/plebbit/plebbit-js#plebbit-events)
+The notification format is the same as seen in the pkc-js [PKC Events](https://github.com/plebbit/plebbit-js#pkc-events)
 
-`subplebbitschange` event:
+`communitieschange` event:
 
 ```json
 {
   "jsonrpc": "2.0",
-  "method": "subplebbitsNotification",
+  "method": "communitiesNotification",
   "params": {
     "result": [
       "memes.bso",
       "news.bso"
     ],
-    "event": "subplebbitschange",
+    "event": "communitieschange",
     "subscription": 23784
   }
 }
@@ -433,7 +433,7 @@ The notification format is the same as seen in the plebbit-js [Plebbit Events](h
 
 ## settingsSubscribe
 
-Subscribe to the plebbit rpc settings to receive notifications when they change
+Subscribe to the pkc rpc settings to receive notifications when they change
 
 ### Result:
 
@@ -458,7 +458,7 @@ Subscribe to the plebbit rpc settings to receive notifications when they change
 
 #### Notification Format:
 
-The notification format is the same as seen in the plebbit-js [Plebbit Events](https://github.com/plebbit/plebbit-js#plebbit-events)
+The notification format is the same as seen in the pkc-js [PKC Events](https://github.com/plebbit/plebbit-js#pkc-events)
 
 `settingschange` event:
 
@@ -468,7 +468,7 @@ The notification format is the same as seen in the plebbit-js [Plebbit Events](h
   "method": "settingsNotification",
   "params": {
     "result": {
-      "plebbitOptions": {...},
+      "pkcOptions": {...},
       "challenges": {
         "challenge-name": {...}
       }

@@ -143,7 +143,7 @@ export function convertBase32ToBase58btc(base32String: string) {
 }
 
 export const getPKCAddressFromPublicKeySync = (publicKeyBase64: string): string => {
-    // plebbit address is the base58 string of the peer id of the public key
+    // pkc address is the base58 string of the peer id of the public key
     if (!publicKeyBase64 || typeof publicKeyBase64 !== "string")
         throw Error(`getPKCAddressFromPublicKeySync publicKeyBase64 '${publicKeyBase64}' not a string`);
     let publicKeyBuffer: Uint8Array;

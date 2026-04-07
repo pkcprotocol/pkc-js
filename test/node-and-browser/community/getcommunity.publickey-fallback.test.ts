@@ -11,7 +11,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             // communityAddress is the B58 IPNS key, not the domain
             const { communityAddress: communityPublicKey } = await createMockedCommunityIpns({ name: "myforum.eth" });
 
-            const testPKC = await config.plebbitInstancePromise();
+            const testPKC = await config.pkcInstancePromise();
 
             try {
                 const sub = await testPKC.getCommunity({ publicKey: communityPublicKey });
@@ -29,9 +29,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it(`loads via publicKey when no resolver handles .sol`, async () => {
             const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
 
-            const testPKC = await config.plebbitInstancePromise({
+            const testPKC = await config.pkcInstancePromise({
                 mockResolve: false,
-                plebbitOptions: {
+                pkcOptions: {
                     nameResolvers: [
                         createMockNameResolver({
                             canResolve: ({ name }: { name: string }) => name.endsWith(".eth") || name.endsWith(".bso")

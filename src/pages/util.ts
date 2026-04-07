@@ -157,7 +157,7 @@ export function mapModqueuePageIpfsCommentToModQueuePageJsonComment(
             ...runtimeAuthor,
             ...(pageComment.commentUpdate.author || {}),
             shortAddress: shortifyAddress(runtimeAuthor.address),
-            flairs: pageComment.commentUpdate?.author?.subplebbit?.flairs || runtimeAuthor.flairs
+            flairs: pageComment.commentUpdate?.author?.community?.flairs || runtimeAuthor.flairs
         },
         communityAddress: communityAddr,
         shortCid: shortifyCid(pageComment.commentUpdate.cid),
@@ -203,7 +203,7 @@ export function mapPageIpfsCommentToPageJsonComment(pageComment: PageIpfs["comme
             ...(pageComment.commentUpdate.author || {}),
             shortAddress: shortifyAddress(runtimeAuthor.address),
             flairs:
-                pageComment.commentUpdate?.author?.subplebbit?.flairs ||
+                pageComment.commentUpdate?.author?.community?.flairs ||
                 pageComment.commentUpdate?.edit?.author?.flairs ||
                 runtimeAuthor.flairs
         },
@@ -254,7 +254,7 @@ export function processAllCommentsRecursively(comments: PageIpfs["comments"], pr
             processAllCommentsRecursively(comment.commentUpdate.replies.pages.best.comments, processor);
 }
 
-// To use for both subplebbit.posts and comment.replies
+// To use for both community.posts and comment.replies
 
 export function parseRawPages(
     pages: PagesTypeIpfs | Omit<PagesTypeJson, "clients"> | RepliesPages | PostsPages | undefined
@@ -462,7 +462,7 @@ export async function iterateOverPageCidsToFindAllCids(opts: { pages: PagesSourc
     if (!opts?.pages) throw Error("expected pages to be defined when iterating over page cids");
     const { pages, clientManager } = opts;
 
-    const timeoutMs = clientManager._plebbit._timeouts["page-ipfs"];
+    const timeoutMs = clientManager._pkc._timeouts["page-ipfs"];
     const visited = new Set<string>();
     const queued = new Map<string, PendingPageCid>();
     const queue: PendingPageCid[] = [];

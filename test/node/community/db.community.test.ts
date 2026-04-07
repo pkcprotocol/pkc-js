@@ -9,7 +9,7 @@ import {
     generateMockPost,
     publishWithExpectedResult,
     describeSkipIfRpc,
-    waitUntilPKCCommunitysIncludeSubAddress,
+    waitUntilPKCCommunitiesIncludeSubAddress,
     publishRandomPost,
     createSubWithNoChallenge,
     resolveWhenConditionIsTrue,
@@ -17,7 +17,7 @@ import {
 } from "../../../dist/node/test/test-util.js";
 import * as cborg from "cborg";
 
-import plebbitVersion from "../../../dist/node/version.js";
+import pkcVersion from "../../../dist/node/version.js";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
@@ -41,7 +41,7 @@ const getTemporaryPKCOptions = (): InputPKCOptions => {
 };
 
 const getDatabasesToMigrate = (): DatabaseToMigrate[] => {
-    const dbRootPath = path.join(process.cwd(), "test", "fixtures", "subplebbits_dbs");
+    const dbRootPath = path.join(process.cwd(), "test", "fixtures", "communities_dbs");
     if (!fs.existsSync(dbRootPath)) return [];
     const versions = fs.readdirSync(dbRootPath); // version_6, version_7, version_8 etc
     const databasesToMigrate: DatabaseToMigrate[] = [];
@@ -59,84 +59,84 @@ const getDatabasesToMigrate = (): DatabaseToMigrate[] => {
 };
 
 const generateRandomSub = async (): Promise<LocalCommunity | RpcLocalCommunity> => {
-    const plebbit: PKCType = await mockPKC();
-    const sub = await createSubWithNoChallenge({}, plebbit);
+    const pkc: PKCType = await mockPKC();
+    const sub = await createSubWithNoChallenge({}, pkc);
     await sub.start();
     await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => Boolean(sub.updatedAt) });
 
-    const post: Comment = await publishRandomPost({ communityAddress: sub.address, plebbit: plebbit });
+    const post: Comment = await publishRandomPost({ communityAddress: sub.address, pkc: pkc });
     await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, sub);
 
     await sub.stop();
-    await plebbit.destroy();
+    await pkc.destroy();
 
     return sub;
 };
 
-const copyDbToDataPath = async (databaseObj: { path: string; address: string }, plebbit: PKCType): Promise<void> => {
-    const newPath = path.join(plebbit.dataPath!, "subplebbits", databaseObj.address);
+const copyDbToDataPath = async (databaseObj: { path: string; address: string }, pkc: PKCType): Promise<void> => {
+    const newPath = path.join(pkc.dataPath!, "communities", databaseObj.address);
     await fs.promises.cp(databaseObj.path, newPath);
 };
 
 describeSkipIfRpc.sequential(`DB importing`, async () => {
-    let plebbit: PKCType;
+    let pkc: PKCType;
 
     beforeAll(async () => {
-        plebbit = await mockPKC(getTemporaryPKCOptions());
+        pkc = await mockPKC(getTemporaryPKCOptions());
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
-    it(`Community will show up in plebbit.subplebbits if its db was copied to datapath/subplebbits`, async () => {
-        expect(plebbit.subplebbits).to.not.include(signers[0].address);
+    it(`Community will show up in pkc.communities if its db was copied to datapath/communities`, async () => {
+        expect(pkc.communities).to.not.include(signers[0].address);
 
         const regularPKC: PKCType = await mockPKC();
         const databaseToMigrate = {
             address: signers[0].address,
-            path: path.join(regularPKC.dataPath!, "subplebbits", signers[0].address)
+            path: path.join(regularPKC.dataPath!, "communities", signers[0].address)
         };
-        await copyDbToDataPath(databaseToMigrate, plebbit);
-        await waitUntilPKCCommunitysIncludeSubAddress(plebbit, databaseToMigrate.address);
-        expect(plebbit.subplebbits).to.include(databaseToMigrate.address);
+        await copyDbToDataPath(databaseToMigrate, pkc);
+        await waitUntilPKCCommunitiesIncludeSubAddress(pkc, databaseToMigrate.address);
+        expect(pkc.communities).to.include(databaseToMigrate.address);
         await regularPKC.destroy();
     });
 
-    it(`Can import a subplebbit by copying its sql file to datapath/subplebbits`, async () => {
+    it(`Can import a community by copying its sql file to datapath/communities`, async () => {
         const regularPKC: PKCType = await mockPKC();
         const randomSub = await generateRandomSub();
         const tempPKC: PKCType = await mockPKC(getTemporaryPKCOptions());
-        const srcDbPath = path.join(regularPKC.dataPath!, "subplebbits", randomSub.address);
-        await fs.promises.cp(srcDbPath, path.join(tempPKC.dataPath!, "subplebbits", randomSub.address));
-        await waitUntilPKCCommunitysIncludeSubAddress(tempPKC, randomSub.address);
-        // Should be included in tempPKC.subplebbits now
-        const subplebbit = (await tempPKC.createCommunity({ address: randomSub.address })) as LocalCommunity | RpcLocalCommunity;
-        await subplebbit.edit({
-            settings: { ...subplebbit.settings, challenges: [{ name: "question", options: { question: "1+1=?", answer: "2" } }] }
+        const srcDbPath = path.join(regularPKC.dataPath!, "communities", randomSub.address);
+        await fs.promises.cp(srcDbPath, path.join(tempPKC.dataPath!, "communities", randomSub.address));
+        await waitUntilPKCCommunitiesIncludeSubAddress(tempPKC, randomSub.address);
+        // Should be included in tempPKC.communities now
+        const community = (await tempPKC.createCommunity({ address: randomSub.address })) as LocalCommunity | RpcLocalCommunity;
+        await community.edit({
+            settings: { ...community.settings, challenges: [{ name: "question", options: { question: "1+1=?", answer: "2" } }] }
         }); // We want this sub to have a full challenge exchange to test all db tables
-        expect(subplebbit.updatedAt).to.be.a("number"); // Should be fetched from db
+        expect(community.updatedAt).to.be.a("number"); // Should be fetched from db
 
-        await subplebbit.start();
-        await new Promise<void>((resolve) => subplebbit.once("update", () => resolve()));
-        const localSub = subplebbit as LocalCommunity;
+        await community.start();
+        await new Promise<void>((resolve) => community.once("update", () => resolve()));
+        const localSub = community as LocalCommunity;
         const currentDbVersion = await localSub._dbHandler.getDbVersion();
-        expect(currentDbVersion).to.equal(plebbitVersion.DB_VERSION);
+        expect(currentDbVersion).to.equal(pkcVersion.DB_VERSION);
 
-        const mockPost: Comment = await generateMockPost({ communityAddress: subplebbit.address, plebbit: tempPKC });
+        const mockPost: Comment = await generateMockPost({ communityAddress: community.address, pkc: tempPKC });
         mockPost.once("challenge", async () => {
             await mockPost.publishChallengeAnswers(["2"]); // hardcode answer here
         });
 
         await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });
 
-        await subplebbit.delete();
+        await community.delete();
         await tempPKC.destroy();
         await regularPKC.destroy();
     });
 
     // skip until kubo fixes the bug
-    it.skip(`A subplebbit IPNS' sequence number is up to date even after migrating to new ipfs repo`, async () => {
+    it.skip(`A community IPNS' sequence number is up to date even after migrating to new ipfs repo`, async () => {
         const regularPKC: PKCType = await mockPKC();
         const randomSub = await generateRandomSub();
         await randomSub.start();
@@ -152,15 +152,15 @@ describeSkipIfRpc.sequential(`DB importing`, async () => {
 
         await randomSub.stop();
         const tempPKC: PKCType = await mockPKC(getTemporaryPKCOptions()); // different kubo, should use sequence in keyv
-        const srcDbPath = path.join(regularPKC.dataPath!, "subplebbits", randomSub.address);
-        await fs.promises.cp(srcDbPath, path.join(tempPKC.dataPath!, "subplebbits", randomSub.address));
-        await waitUntilPKCCommunitysIncludeSubAddress(tempPKC, randomSub.address);
-        // Should be included in tempPKC.subplebbits now
-        const subplebbit = (await tempPKC.createCommunity({ address: randomSub.address })) as LocalCommunity | RpcLocalCommunity;
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => subplebbit.updatedAt! > randomSub.updatedAt! });
+        const srcDbPath = path.join(regularPKC.dataPath!, "communities", randomSub.address);
+        await fs.promises.cp(srcDbPath, path.join(tempPKC.dataPath!, "communities", randomSub.address));
+        await waitUntilPKCCommunitiesIncludeSubAddress(tempPKC, randomSub.address);
+        // Should be included in tempPKC.communities now
+        const community = (await tempPKC.createCommunity({ address: randomSub.address })) as LocalCommunity | RpcLocalCommunity;
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => community.updatedAt! > randomSub.updatedAt! });
 
-        const localCommunity = subplebbit as LocalCommunity;
+        const localCommunity = community as LocalCommunity;
         const ipnsRecordOfSubInDifferentKubo = await localCommunity._dbHandler.keyvGet("LAST_IPNS_RECORD");
 
         expect(ipnsRecordOfSubInDifferentKubo).to.exist;
@@ -173,19 +173,19 @@ describeSkipIfRpc.sequential(`DB importing`, async () => {
         );
         expect(ipnsRecordOfSubInDifferentKuboDecoded.sequence).to.equal(3);
 
-        await subplebbit.stop();
+        await community.stop();
 
         await regularPKC.destroy();
         await tempPKC.destroy();
 
-        // const mockPost = await generateMockPost({ communityAddress: subplebbit.address, plebbit: tempPKC });
+        // const mockPost = await generateMockPost({ communityAddress: community.address, pkc: tempPKC });
         // mockPost.once("challenge", async (challengeMsg) => {
         //     await mockPost.publishChallengeAnswers(["2"]); // hardcode answer here
         // });
 
         // await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });
 
-        // await subplebbit.delete();
+        // await community.delete();
         // await tempPKC.destroy();
         // await regularPKC.destroy();
     });
@@ -195,37 +195,37 @@ describeSkipIfRpc.sequential("DB Migration", () => {
     const databasesToMigrate = getDatabasesToMigrate();
 
     databasesToMigrate.map((databaseInfo) =>
-        it(`Can migrate from DB version ${databaseInfo.version} to ${plebbitVersion.DB_VERSION} - address (${databaseInfo.address})`, async () => {
+        it(`Can migrate from DB version ${databaseInfo.version} to ${pkcVersion.DB_VERSION} - address (${databaseInfo.address})`, async () => {
             // Once we start the sub, it's gonna attempt to migrate to the latest DB version
 
-            const plebbit: PKCType = await mockPKC(getTemporaryPKCOptions());
+            const pkc: PKCType = await mockPKC(getTemporaryPKCOptions());
 
             console.log(
-                `We're using datapath (${plebbit.dataPath}) For testing migration from db version (${databaseInfo.version}) to ${plebbitVersion.DB_VERSION}`
+                `We're using datapath (${pkc.dataPath}) For testing migration from db version (${databaseInfo.version}) to ${pkcVersion.DB_VERSION}`
             );
-            await copyDbToDataPath(databaseInfo, plebbit);
+            await copyDbToDataPath(databaseInfo, pkc);
 
-            await waitUntilPKCCommunitysIncludeSubAddress(plebbit, databaseInfo.address);
+            await waitUntilPKCCommunitiesIncludeSubAddress(pkc, databaseInfo.address);
 
-            const subplebbit = (await plebbit.createCommunity({ address: databaseInfo.address })) as LocalCommunity | RpcLocalCommunity;
-            expect(subplebbit.started).to.be.a("boolean"); // make sure it's creating a local sub instance
-            expect(subplebbit.updatedAt).to.be.a("number"); // it should load the internal state from db
-            expect(subplebbit.createdAt).to.be.a("number"); // it should load the internal state from db
+            const community = (await pkc.createCommunity({ address: databaseInfo.address })) as LocalCommunity | RpcLocalCommunity;
+            expect(community.started).to.be.a("boolean"); // make sure it's creating a local sub instance
+            expect(community.updatedAt).to.be.a("number"); // it should load the internal state from db
+            expect(community.createdAt).to.be.a("number"); // it should load the internal state from db
 
-            await subplebbit.start();
+            await community.start();
 
-            await new Promise<void>((resolve) => subplebbit.once("update", () => resolve())); // Ensure IPNS is published
-            await subplebbit.edit({ settings: { ...subplebbit.settings, challenges: [] } });
-            const mockPost: Comment = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
+            await new Promise<void>((resolve) => community.once("update", () => resolve())); // Ensure IPNS is published
+            await community.edit({ settings: { ...community.settings, challenges: [] } });
+            const mockPost: Comment = await publishRandomPost({ communityAddress: community.address, pkc: pkc });
 
             await mockPost.update();
             await resolveWhenConditionIsTrue({ toUpdate: mockPost, predicate: async () => Boolean(mockPost.updatedAt) });
             expect(mockPost.updatedAt).to.be.a("number");
-            expect(mockPost.author.subplebbit).to.be.a("object");
+            expect(mockPost.author.community).to.be.a("object");
             await mockPost.stop();
 
-            await subplebbit.delete();
-            await plebbit.destroy();
+            await community.delete();
+            await pkc.destroy();
         })
     );
 });

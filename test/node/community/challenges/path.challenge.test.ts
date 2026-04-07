@@ -15,26 +15,26 @@ import type { RemoteCommunity } from "../../../../dist/node/community/remote-com
 import type { DecryptedChallengeMessageType } from "../../../../dist/node/pubsub-messages/types.js";
 import type { CommunityChallengeSetting } from "../../../../dist/node/community/types.js";
 
-describeSkipIfRpc.concurrent(`subplebbit.settings.challenges with path`, async () => {
-    let plebbit: PKCType;
+describeSkipIfRpc.concurrent(`community.settings.challenges with path`, async () => {
+    let pkc: PKCType;
     let remotePKC: PKCType;
     beforeAll(async () => {
-        plebbit = await mockPKC();
+        pkc = await mockPKC();
         remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
         await remotePKC.destroy();
     });
 
     it(`Can use a challenge via path instead of name`, async () => {
-        const subplebbit = (await plebbit.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
+        const community = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
 
         // Use the built question challenge via path instead of name
         const questionChallengePath = path.resolve(
             process.cwd(),
-            "dist/node/runtime/node/community/challenges/plebbit-js-challenges/question.js"
+            "dist/node/runtime/node/community/challenges/pkc-js-challenges/question.js"
         );
         const challenges: CommunityChallengeSetting[] = [
             {
@@ -43,27 +43,27 @@ describeSkipIfRpc.concurrent(`subplebbit.settings.challenges with path`, async (
             }
         ];
 
-        await subplebbit.edit({ settings: { challenges } });
-        expect(subplebbit._usingDefaultChallenge).to.be.false;
-        expect(subplebbit?.settings?.challenges).to.deep.equal(challenges);
+        await community.edit({ settings: { challenges } });
+        expect(community._usingDefaultChallenge).to.be.false;
+        expect(community?.settings?.challenges).to.deep.equal(challenges);
 
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
-        const remoteSub = (await remotePKC.getCommunity({ address: subplebbit.address })) as RemoteCommunity;
+        const remoteSub = (await remotePKC.getCommunity({ address: community.address })) as RemoteCommunity;
 
-        expect(subplebbit.updatedAt).to.equal(remoteSub.updatedAt);
-        for (const _subplebbit of [subplebbit, remoteSub]) {
-            expect(_subplebbit.challenges![0].challenge).to.equal("What is 2+2?");
-            expect(_subplebbit.challenges![0].description).to.equal("Ask a question, like 'What is the password?'");
-            expect(_subplebbit.challenges![0].exclude).to.be.undefined;
-            expect(_subplebbit.challenges![0].type).to.equal("text/plain");
+        expect(community.updatedAt).to.equal(remoteSub.updatedAt);
+        for (const _community of [community, remoteSub]) {
+            expect(_community.challenges![0].challenge).to.equal("What is 2+2?");
+            expect(_community.challenges![0].description).to.equal("Ask a question, like 'What is the password?'");
+            expect(_community.challenges![0].exclude).to.be.undefined;
+            expect(_community.challenges![0].type).to.equal("text/plain");
         }
 
         // Test with correct answer
         const mockPost = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: plebbit,
+            communityAddress: community.address,
+            pkc: pkc,
             postProps: {
                 challengeRequest: { challengeAnswers: ["4"] }
             }
@@ -79,15 +79,15 @@ describeSkipIfRpc.concurrent(`subplebbit.settings.challenges with path`, async (
         await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });
         expect(receivedChallenge).to.be.false; // Should not receive challenge since answer is correct
 
-        await subplebbit.delete();
+        await community.delete();
     });
 
     it(`Challenge via path sends challenge when answer is wrong`, async () => {
-        const subplebbit = (await plebbit.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
+        const community = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
 
         const questionChallengePath = path.resolve(
             process.cwd(),
-            "dist/node/runtime/node/community/challenges/plebbit-js-challenges/question.js"
+            "dist/node/runtime/node/community/challenges/pkc-js-challenges/question.js"
         );
         const challenges: CommunityChallengeSetting[] = [
             {
@@ -96,12 +96,12 @@ describeSkipIfRpc.concurrent(`subplebbit.settings.challenges with path`, async (
             }
         ];
 
-        await subplebbit.edit({ settings: { challenges } });
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+        await community.edit({ settings: { challenges } });
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
         // Test with wrong answer
-        const mockPost = await generateMockPost({ communityAddress: subplebbit.address, plebbit: plebbit });
+        const mockPost = await generateMockPost({ communityAddress: community.address, pkc: pkc });
         mockPost.removeAllListeners("challenge");
 
         let challengeReceived = false;
@@ -118,15 +118,15 @@ describeSkipIfRpc.concurrent(`subplebbit.settings.challenges with path`, async (
         expect(challengeData!.challenges[0].challenge).to.equal("What is the capital of France?");
         expect(challengeData!.challenges[0].type).to.equal("text/plain");
 
-        await subplebbit.delete();
+        await community.delete();
     });
 
     it(`Can use multiple challenges with mix of path and name`, async () => {
-        const subplebbit = (await plebbit.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
+        const community = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
 
         const questionChallengePath = path.resolve(
             process.cwd(),
-            "dist/node/runtime/node/community/challenges/plebbit-js-challenges/question.js"
+            "dist/node/runtime/node/community/challenges/pkc-js-challenges/question.js"
         );
         const challenges: CommunityChallengeSetting[] = [
             {
@@ -139,22 +139,22 @@ describeSkipIfRpc.concurrent(`subplebbit.settings.challenges with path`, async (
             }
         ];
 
-        await subplebbit.edit({ settings: { challenges } });
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+        await community.edit({ settings: { challenges } });
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
-        const remoteSub = (await remotePKC.getCommunity({ address: subplebbit.address })) as RemoteCommunity;
+        const remoteSub = (await remotePKC.getCommunity({ address: community.address })) as RemoteCommunity;
 
-        for (const _subplebbit of [subplebbit, remoteSub]) {
-            expect(_subplebbit.challenges).to.have.length(2);
-            expect(_subplebbit.challenges![0].challenge).to.equal("What is 3+3?");
-            expect(_subplebbit.challenges![1].challenge).to.equal("What is 4+4?");
+        for (const _community of [community, remoteSub]) {
+            expect(_community.challenges).to.have.length(2);
+            expect(_community.challenges![0].challenge).to.equal("What is 3+3?");
+            expect(_community.challenges![1].challenge).to.equal("What is 4+4?");
         }
 
         // Test with correct answers for both challenges
         const mockPost = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: plebbit,
+            communityAddress: community.address,
+            pkc: pkc,
             postProps: {
                 challengeRequest: { challengeAnswers: ["6", "8"] }
             }
@@ -168,11 +168,11 @@ describeSkipIfRpc.concurrent(`subplebbit.settings.challenges with path`, async (
         await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });
         expect(receivedChallenge).to.be.false;
 
-        await subplebbit.delete();
+        await community.delete();
     });
 
-    it(`Throws error for invalid challenge path when we try to edit subplebbit`, async () => {
-        const subplebbit = (await plebbit.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
+    it(`Throws error for invalid challenge path when we try to edit community`, async () => {
+        const community = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
 
         const invalidPath = "/path/to/nonexistent/challenge.js";
         const challenges: CommunityChallengeSetting[] = [
@@ -183,13 +183,13 @@ describeSkipIfRpc.concurrent(`subplebbit.settings.challenges with path`, async (
         ];
 
         try {
-            await subplebbit.edit({ settings: { challenges } });
+            await community.edit({ settings: { challenges } });
             expect.fail("Should have thrown an error for invalid path");
         } catch (error) {
             const err = error as { code?: string };
             expect(err.code).to.include("ERR_MODULE_NOT_FOUND");
         }
 
-        await subplebbit.delete();
+        await community.delete();
     });
 });

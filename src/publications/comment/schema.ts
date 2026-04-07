@@ -72,7 +72,7 @@ export const CommentPubsubMessageWithFlexibleAuthorSchema = CommentPubsubMessage
     z.object({ author: AuthorPubsubSchema.loose().optional() })
 ).strict();
 
-// This is used by the subplebbit when parsing request.comment
+// This is used by the community when parsing request.comment
 export const CommentPubsubMessageWithFlexibleAuthorRefinementSchema = CommentPubsubMessageWithFlexibleAuthorSchema.loose().refine(
     (arg) => arg.link || arg.content || arg.title,
     messages.ERR_COMMENT_HAS_NO_CONTENT_LINK_TITLE
@@ -92,7 +92,7 @@ export const CommentChallengeRequestToEncryptSchema = CreateCommentOptionsSchema
 
 // Remote comments
 
-// These are the props added by the subplebbit before adding the comment to ipfs
+// These are the props added by the community before adding the comment to ipfs
 export const CommentIpfsSchema = CommentPubsubMessageWithFlexibleAuthorSchema.extend({
     depth: z.number().nonnegative().int(),
     thumbnailUrl: z.string().min(1).optional(),
@@ -113,7 +113,7 @@ export const CommentIpfsWithRefinmentSchema = CommentIpfsSchema.refine(
 export const AuthorWithCommentUpdateSchema = CommentPubsubMessagePublicationSchema.shape.author
     .unwrap()
     .extend({
-        subplebbit: CommunityAuthorSchema.optional()
+        community: CommunityAuthorSchema.optional()
     })
     .loose();
 
@@ -137,7 +137,7 @@ export const CommentUpdateSchema = z
         reason: z.string().optional(), // reason the mod took a mood action,
         approved: z.boolean().optional(), // if comment was pending approval and it got approved or disapproved. Does not apply to comments pending approvals, you need to use moderation.pageCids.pendingApproval to fetch pending comments
         updatedAt: PKCTimestampSchema, // timestamp in seconds the CommentUpdate was updated
-        author: AuthorWithCommentUpdateSchema.pick({ subplebbit: true }).optional(), // add commentUpdate.author.subplebbit to comment.author.subplebbit, override comment.author.flairs with commentUpdate.author.subplebbit.flairs if any
+        author: AuthorWithCommentUpdateSchema.pick({ community: true }).optional(), // add commentUpdate.author.community to comment.author.community, override comment.author.flairs with commentUpdate.author.community.flairs if any
         lastChildCid: CidStringSchema.optional(), // The cid of the most recent direct child of the comment
         lastReplyTimestamp: PKCTimestampSchema.optional(), // The timestamp of the most recent direct or indirect child of the comment
         signature: JsonSignatureSchema, // signature of the CommentUpdate by the sub owner to protect against malicious gateway

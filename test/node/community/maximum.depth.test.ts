@@ -14,19 +14,19 @@ import type { CommentIpfsWithCidDefined } from "../../../dist/node/publications/
 const depth = 100;
 
 describe.skip(`Test for maximum depth of ${depth}`, () => {
-    it(`should be able to create a subplebbit with a depth of ${depth}`, async () => {
-        const plebbit = await mockPKC();
-        const sub = await createSubWithNoChallenge({}, plebbit);
+    it(`should be able to create a community with a depth of ${depth}`, async () => {
+        const pkc = await mockPKC();
+        const sub = await createSubWithNoChallenge({}, pkc);
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
 
         const remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
-        const post: Comment = await publishRandomPost({ communityAddress: sub.address, plebbit: remotePKC });
+        const post: Comment = await publishRandomPost({ communityAddress: sub.address, pkc: remotePKC });
         let lastReply: Comment | undefined;
         for (let i = 0; i < depth; i++) {
             lastReply = await publishRandomReply({
                 parentComment: (lastReply || post) as CommentIpfsWithCidDefined,
-                plebbit: remotePKC
+                pkc: remotePKC
             });
             expect(lastReply.depth).to.equal(i + 1);
             console.log("Published reply with depth", lastReply.depth);

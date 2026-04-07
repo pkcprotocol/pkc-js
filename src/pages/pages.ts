@@ -18,19 +18,19 @@ import { sha256 } from "js-sha256";
 import type { PageRuntimeFields } from "./util.js";
 
 type BaseProps = {
-    subplebbit: Pick<RemoteCommunity, "address" | "signature"> & {
+    community: Pick<RemoteCommunity, "address" | "signature"> & {
         _getStopAbortSignal?: () => AbortSignal | undefined;
     };
-    plebbit: PKC;
+    pkc: PKC;
 };
 
-type PostsProps = Pick<PostsPages, "pages" | "pageCids"> & BaseProps & { subplebbit: RemoteCommunity };
+type PostsProps = Pick<PostsPages, "pages" | "pageCids"> & BaseProps & { community: RemoteCommunity };
 type RepliesProps = Pick<RepliesPages, "pages" | "pageCids"> &
     BaseProps & {
         parentComment: Comment;
     };
 
-type ModQueueProps = Pick<ModQueuePages, "pageCids" | "pages"> & BaseProps & { subplebbit: RemoteCommunity };
+type ModQueueProps = Pick<ModQueuePages, "pageCids" | "pages"> & BaseProps & { community: RemoteCommunity };
 
 export class BasePages {
     pages!: PostsPages["pages"] | RepliesPages["pages"] | ModQueuePages["pages"];
@@ -38,18 +38,18 @@ export class BasePages {
     clients!: BasePagesClientsManager["clients"];
     _clientsManager!: BasePagesClientsManager;
     _parentComment: Comment | undefined = undefined; // would be undefined if the comment is not initialized yet and we don't have comment.cid
-    _subplebbit!: BaseProps["subplebbit"];
+    _community!: BaseProps["community"];
 
     constructor(props: PostsProps | RepliesProps | ModQueueProps) {
-        this._initClientsManager(props.plebbit);
+        this._initClientsManager(props.pkc);
         this.updateProps(props);
         hideClassPrivateProps(this);
     }
 
-    updateProps(props: Omit<PostsProps | RepliesProps | ModQueueProps, "plebbit">) {
+    updateProps(props: Omit<PostsProps | RepliesProps | ModQueueProps, "pkc">) {
         this.pages = props.pages;
         this.pageCids = props.pageCids;
-        this._subplebbit = props.subplebbit;
+        this._community = props.community;
         if (this.pageCids) {
             this._clientsManager.updatePageCidsToSortTypes(this.pageCids);
             this._clientsManager.updatePagesMaxSizeCache(Object.values(this.pageCids), 1024 * 1024);
@@ -63,7 +63,7 @@ export class BasePages {
     }
 
     _applyNameResolvedCacheToPage(page: PageTypeJson | ModQueuePageTypeJson) {
-        const cache = this._clientsManager._plebbit._memCaches.nameResolvedCache;
+        const cache = this._clientsManager._pkc._memCaches.nameResolvedCache;
         for (const comment of page.comments) {
             const domain = getAuthorDomainFromRuntime(comment.author);
             if (!domain) continue;
@@ -73,12 +73,12 @@ export class BasePages {
         }
     }
 
-    protected _initClientsManager(plebbit: PKC) {
+    protected _initClientsManager(pkc: PKC) {
         throw Error(`This function should be overridden`);
     }
 
     resetPages() {
-        // Called when the sub changes address and needs to remove all the comments with the old subplebbit address
+        // Called when the sub changes address and needs to remove all the comments with the old community address
         this.pageCids = {};
         this.pages = {};
     }
@@ -92,7 +92,7 @@ export class BasePages {
         pageMaxSize?: number;
     }): Promise<{ page: PageIpfs | ModQueuePageIpfs; runtimeFields?: PageRuntimeFields }> {
         const { page: pageIpfs, runtimeFields } = await this._clientsManager.fetchPage(opts.pageCid, opts.pageMaxSize);
-        if (!this._clientsManager._plebbit._plebbitRpcClient && this._clientsManager._plebbit.validatePages)
+        if (!this._clientsManager._pkc._pkcRpcClient && this._clientsManager._pkc.validatePages)
             await this._validatePage(pageIpfs, opts.pageCid);
 
         return { page: pageIpfs, runtimeFields };
@@ -103,7 +103,7 @@ export class BasePages {
     }
 
     async getPage(pageCid: GetPageParam): Promise<PageTypeJson | ModQueuePageTypeJson> {
-        if (!this._subplebbit?.address) throw Error("Community address needs to be defined under page");
+        if (!this._community?.address) throw Error("Community address needs to be defined under page");
         const parsedArgs = parsePageCidParams(pageCid);
 
         const { page: pageIpfs, runtimeFields } = await this._fetchAndVerifyPage({ pageCid: parsedArgs.cid });
@@ -113,10 +113,10 @@ export class BasePages {
         return parsed;
     }
 
-    // method below will be present in both subplebbit.posts and comment.replies
+    // method below will be present in both community.posts and comment.replies
     async validatePage(page: PageIpfs | PageTypeJson) {
-        if (this._clientsManager._plebbit.validatePages)
-            throw Error("This function is used for manual verification and you need to have plebbit.validatePages=false");
+        if (this._clientsManager._pkc.validatePages)
+            throw Error("This function is used for manual verification and you need to have pkc.validatePages=false");
         const pageIpfs = <PageIpfs>{ comments: page.comments.map((comment) => ("comment" in comment ? comment : comment.raw)) };
 
         await this._validatePage(pageIpfs);
@@ -141,12 +141,12 @@ export class RepliesPages extends BasePages {
         hideClassPrivateProps(this);
     }
 
-    override updateProps(props: Omit<RepliesProps, "plebbit" | "parentComment">) {
+    override updateProps(props: Omit<RepliesProps, "pkc" | "parentComment">) {
         super.updateProps(props);
     }
 
-    protected override _initClientsManager(plebbit: PKC): void {
-        this._clientsManager = new RepliesPagesClientsManager({ plebbit, pages: this });
+    protected override _initClientsManager(pkc: PKC): void {
+        this._clientsManager = new RepliesPagesClientsManager({ pkc, pages: this });
         this.clients = this._clientsManager.clients;
     }
 
@@ -216,12 +216,12 @@ export class RepliesPages extends BasePages {
             pageCid,
             pageSortName,
             page: pageIpfs,
-            resolveAuthorNames: this._clientsManager._plebbit.resolveAuthorNames,
+            resolveAuthorNames: this._clientsManager._pkc.resolveAuthorNames,
             clientsManager: this._clientsManager,
-            subplebbit: this._subplebbit,
+            community: this._community,
             parentComment: isUniformDepth ? this._parentComment : { postCid: this._parentComment.postCid }, // if it's a flat page, we don't need to verify the parent comment. Only the post
 
-            validatePages: this._clientsManager._plebbit.validatePages,
+            validatePages: this._clientsManager._pkc.validatePages,
             validateUpdateSignature: false, // no need because we verified that page cid matches its content
             abortSignal: this._parentComment._getStopAbortSignal()
         };
@@ -243,18 +243,18 @@ export class PostsPages extends BasePages {
 
     override _clientsManager!: CommunityPostsPagesClientsManager;
     override _parentComment: undefined = undefined; // would be undefined because we don't have a parent comment for posts
-    override _subplebbit!: RemoteCommunity;
+    override _community!: RemoteCommunity;
 
     constructor(props: PostsProps) {
         super(props);
     }
 
-    override updateProps(props: Omit<PostsProps, "plebbit">) {
+    override updateProps(props: Omit<PostsProps, "pkc">) {
         super.updateProps(props);
     }
 
-    protected override _initClientsManager(plebbit: PKC): void {
-        this._clientsManager = new CommunityPostsPagesClientsManager({ plebbit, pages: this });
+    protected override _initClientsManager(pkc: PKC): void {
+        this._clientsManager = new CommunityPostsPagesClientsManager({ pkc, pages: this });
         this.clients = this._clientsManager.clients;
     }
 
@@ -271,7 +271,7 @@ export class PostsPages extends BasePages {
     }
 
     override async getPage(getPageArgs: GetPageParam): Promise<PageTypeJson> {
-        // we need to make all updating subplebbit instances do the getPage call to cache _loadedUniqueCommentFromGetPage
+        // we need to make all updating community instances do the getPage call to cache _loadedUniqueCommentFromGetPage
 
         return <PageTypeJson>await super.getPage(getPageArgs);
     }
@@ -283,14 +283,14 @@ export class PostsPages extends BasePages {
             pageCid,
             pageSortName,
             page: pageIpfs,
-            resolveAuthorNames: this._clientsManager._plebbit.resolveAuthorNames,
+            resolveAuthorNames: this._clientsManager._pkc.resolveAuthorNames,
             clientsManager: this._clientsManager,
-            subplebbit: this._subplebbit,
+            community: this._community,
             parentComment: { cid: undefined, postCid: undefined, depth: -1 },
 
-            validatePages: this._clientsManager._plebbit.validatePages,
+            validatePages: this._clientsManager._pkc.validatePages,
             validateUpdateSignature: false, // no need because we verified that page cid matches its content
-            abortSignal: this._subplebbit._getStopAbortSignal?.()
+            abortSignal: this._community._getStopAbortSignal?.()
         };
         const signatureValidity = await verifyPage(verificationOpts);
         if (!signatureValidity.valid)
@@ -317,8 +317,8 @@ export class ModQueuePages extends BasePages {
         this.pages = {};
     }
 
-    protected override _initClientsManager(plebbit: PKC): void {
-        this._clientsManager = new CommunityModQueueClientsManager({ plebbit, pages: this });
+    protected override _initClientsManager(pkc: PKC): void {
+        this._clientsManager = new CommunityModQueueClientsManager({ pkc, pages: this });
         this.clients = this._clientsManager.clients;
     }
 
@@ -345,14 +345,14 @@ export class ModQueuePages extends BasePages {
             pageCid,
             pageSortName,
             page: pageIpfs,
-            resolveAuthorNames: this._clientsManager._plebbit.resolveAuthorNames,
+            resolveAuthorNames: this._clientsManager._pkc.resolveAuthorNames,
             clientsManager: this._clientsManager,
-            subplebbit: this._subplebbit,
+            community: this._community,
             parentComment: { cid: undefined, postCid: undefined, depth: -1 },
 
-            validatePages: this._clientsManager._plebbit.validatePages,
+            validatePages: this._clientsManager._pkc.validatePages,
             validateUpdateSignature: false, // no need because we verified that page cid matches its content
-            abortSignal: this._subplebbit._getStopAbortSignal?.()
+            abortSignal: this._community._getStopAbortSignal?.()
         };
         const signatureValidity = await verifyModQueuePage(verificationOpts);
         if (!signatureValidity.valid)

@@ -32,12 +32,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             pkc = await mockRemotePKC();
             sub = await pkc.getCommunity({ address: communityAddress });
             await sub.update();
-            postToBeArchived = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            postToBeArchived = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
 
             await postToBeArchived.update();
             replyUnderPostToBeArchived = await publishRandomReply({
                 parentComment: postToBeArchived as CommentIpfsWithCidDefined,
-                plebbit: pkc
+                pkc: pkc
             });
         });
         afterAll(async () => {

@@ -18,14 +18,14 @@ export class BasePagesClientsManager extends BaseClientsManager {
     clients: {
         ipfsGateways: { [sortType: string]: { [ipfsGatewayUrl: string]: PagesIpfsGatewayClient } };
         kuboRpcClients: { [sortType: string]: { [kuboRpcClientUrl: string]: PagesKuboRpcClient } };
-        plebbitRpcClients: { [sortType: string]: { [rpcUrl: string]: PagesPKCRpcStateClient } };
+        pkcRpcClients: { [sortType: string]: { [rpcUrl: string]: PagesPKCRpcStateClient } };
         libp2pJsClients: { [sortType: string]: { [libp2pJsClientKey: string]: PagesLibp2pJsClient } };
     };
 
     protected _pages: RepliesPages | PostsPages | ModQueuePages; // can be undefined if it's a mod queue
 
-    constructor(opts: { pages: BasePagesClientsManager["_pages"]; plebbit: PKC }) {
-        super(opts.plebbit);
+    constructor(opts: { pages: BasePagesClientsManager["_pages"]; pkc: PKC }) {
+        super(opts.pkc);
         this._pages = opts.pages;
         //@ts-expect-error
         this.clients = {};
@@ -43,39 +43,39 @@ export class BasePagesClientsManager extends BaseClientsManager {
         if (!this.clients.ipfsGateways) this.clients.ipfsGateways = {};
         for (const sortType of sortTypes) {
             if (!this.clients.ipfsGateways[sortType]) this.clients.ipfsGateways[sortType] = {};
-            for (const gatewayUrl of remeda.keys.strict(this._plebbit.clients.ipfsGateways))
+            for (const gatewayUrl of remeda.keys.strict(this._pkc.clients.ipfsGateways))
                 if (!this.clients.ipfsGateways[sortType][gatewayUrl])
                     this.clients.ipfsGateways[sortType][gatewayUrl] = new PagesIpfsGatewayClient("stopped");
         }
     }
 
     protected _updateKuboRpcClientStates(sortTypes: string[]) {
-        if (this._plebbit.clients.kuboRpcClients && !this.clients.kuboRpcClients) this.clients.kuboRpcClients = {};
+        if (this._pkc.clients.kuboRpcClients && !this.clients.kuboRpcClients) this.clients.kuboRpcClients = {};
         for (const sortType of sortTypes) {
             if (!this.clients.kuboRpcClients[sortType]) this.clients.kuboRpcClients[sortType] = {};
-            for (const kuboRpcUrl of remeda.keys.strict(this._plebbit.clients.kuboRpcClients))
+            for (const kuboRpcUrl of remeda.keys.strict(this._pkc.clients.kuboRpcClients))
                 if (!this.clients.kuboRpcClients[sortType][kuboRpcUrl])
                     this.clients.kuboRpcClients[sortType][kuboRpcUrl] = new PagesKuboRpcClient("stopped");
         }
     }
 
     protected _updateLibp2pJsClientStates(sortTypes: string[]) {
-        if (this._plebbit.clients.libp2pJsClients && !this.clients.libp2pJsClients) this.clients.libp2pJsClients = {};
+        if (this._pkc.clients.libp2pJsClients && !this.clients.libp2pJsClients) this.clients.libp2pJsClients = {};
         for (const sortType of sortTypes) {
             if (!this.clients.libp2pJsClients[sortType]) this.clients.libp2pJsClients[sortType] = {};
-            for (const libp2pJsClientKey of remeda.keys.strict(this._plebbit.clients.libp2pJsClients))
+            for (const libp2pJsClientKey of remeda.keys.strict(this._pkc.clients.libp2pJsClients))
                 if (!this.clients.libp2pJsClients[sortType][libp2pJsClientKey])
                     this.clients.libp2pJsClients[sortType][libp2pJsClientKey] = new PagesLibp2pJsClient("stopped");
         }
     }
 
     protected _updatePKCRpcClientStates(sortTypes: string[]) {
-        if (this._plebbit.clients.plebbitRpcClients && !this.clients.plebbitRpcClients) this.clients.plebbitRpcClients = {};
+        if (this._pkc.clients.pkcRpcClients && !this.clients.pkcRpcClients) this.clients.pkcRpcClients = {};
         for (const sortType of sortTypes) {
-            if (!this.clients.plebbitRpcClients[sortType]) this.clients.plebbitRpcClients[sortType] = {};
-            for (const rpcUrl of remeda.keys.strict(this._plebbit.clients.plebbitRpcClients))
-                if (!this.clients.plebbitRpcClients[sortType][rpcUrl])
-                    this.clients.plebbitRpcClients[sortType][rpcUrl] = new PagesPKCRpcStateClient("stopped");
+            if (!this.clients.pkcRpcClients[sortType]) this.clients.pkcRpcClients[sortType] = {};
+            for (const rpcUrl of remeda.keys.strict(this._pkc.clients.pkcRpcClients))
+                if (!this.clients.pkcRpcClients[sortType][rpcUrl])
+                    this.clients.pkcRpcClients[sortType][rpcUrl] = new PagesPKCRpcStateClient("stopped");
         }
     }
 
@@ -83,14 +83,14 @@ export class BasePagesClientsManager extends BaseClientsManager {
 
     override preFetchGateway(gatewayUrl: string, loadOpts: OptionsToLoadFromGateway): void {
         const cid = loadOpts.root;
-        const sortTypes = this._plebbit._memCaches.pageCidToSortTypes.get(cid);
+        const sortTypes = this._pkc._memCaches.pageCidToSortTypes.get(cid);
 
         this.updateGatewayState("fetching-ipfs", gatewayUrl, sortTypes);
     }
 
     override postFetchGatewaySuccess(gatewayUrl: string, loadOpts: OptionsToLoadFromGateway) {
         const cid = loadOpts.root;
-        const sortTypes = this._plebbit._memCaches.pageCidToSortTypes.get(cid);
+        const sortTypes = this._pkc._memCaches.pageCidToSortTypes.get(cid);
 
         this.updateGatewayState("stopped", gatewayUrl, sortTypes);
     }
@@ -104,12 +104,12 @@ export class BasePagesClientsManager extends BaseClientsManager {
     }
 
     _updatePageCidsSortCache(pageCid: string, sortTypes: string[]) {
-        const curSortTypes: string[] | undefined = this._plebbit._memCaches.pageCidToSortTypes.get(pageCid);
+        const curSortTypes: string[] | undefined = this._pkc._memCaches.pageCidToSortTypes.get(pageCid);
         if (!curSortTypes) {
-            this._plebbit._memCaches.pageCidToSortTypes.set(pageCid, sortTypes);
+            this._pkc._memCaches.pageCidToSortTypes.set(pageCid, sortTypes);
         } else {
             const newSortTypes = remeda.unique([...curSortTypes, ...sortTypes]);
-            this._plebbit._memCaches.pageCidToSortTypes.set(pageCid, newSortTypes);
+            this._pkc._memCaches.pageCidToSortTypes.set(pageCid, newSortTypes);
         }
     }
 
@@ -123,17 +123,17 @@ export class BasePagesClientsManager extends BaseClientsManager {
     }
 
     private _calculatePageMaxSizeCacheKey(pageCid: string) {
-        return sha256(this._pages._subplebbit.address + pageCid);
+        return sha256(this._pages._community.address + pageCid);
     }
 
     updatePagesMaxSizeCache(newPageCids: string[], pageMaxSizeBytes: number) {
         remeda
             .unique(newPageCids)
-            .forEach((pageCid) => this._plebbit._memCaches.pagesMaxSize.set(this._calculatePageMaxSizeCacheKey(pageCid), pageMaxSizeBytes));
+            .forEach((pageCid) => this._pkc._memCaches.pagesMaxSize.set(this._calculatePageMaxSizeCacheKey(pageCid), pageMaxSizeBytes));
     }
 
     updatePageCidsToSortTypesToIncludeSubsequent(nextPageCid: string, previousPageCid: string) {
-        const sortTypes: string[] | undefined = this._plebbit._memCaches.pageCidToSortTypes.get(previousPageCid);
+        const sortTypes: string[] | undefined = this._pkc._memCaches.pageCidToSortTypes.get(previousPageCid);
         if (!Array.isArray(sortTypes)) return;
         this._updatePageCidsSortCache(nextPageCid, sortTypes);
     }
@@ -172,9 +172,9 @@ export class BasePagesClientsManager extends BaseClientsManager {
     updateRpcState(newState: PagesPKCRpcStateClient["state"], rpcUrl: string, sortTypes: string[] | undefined) {
         if (!Array.isArray(sortTypes)) return;
         for (const sortType of sortTypes) {
-            if (this.clients.plebbitRpcClients[sortType][rpcUrl].state === newState) continue;
-            this.clients.plebbitRpcClients[sortType][rpcUrl].state = newState;
-            this.clients.plebbitRpcClients[sortType][rpcUrl].emit("statechange", newState);
+            if (this.clients.pkcRpcClients[sortType][rpcUrl].state === newState) continue;
+            this.clients.pkcRpcClients[sortType][rpcUrl].state = newState;
+            this.clients.pkcRpcClients[sortType][rpcUrl].emit("statechange", newState);
         }
     }
 
@@ -206,7 +206,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
         sortTypes: string[] | undefined;
         pageMaxSize: number;
     }): Promise<{ page: ModQueuePageIpfs | PageIpfs; runtimeFields?: PageRuntimeFields }> {
-        const currentRpcUrl = this._plebbit.pkcRpcClientsOptions![0];
+        const currentRpcUrl = this._pkc.pkcRpcClientsOptions![0];
 
         this.preFetchPage();
         opts.log.trace(`Fetching page cid (${opts.pageCid}) using rpc`);
@@ -235,7 +235,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
     ): Promise<PageIpfs | ModQueuePageIpfs> {
         const heliaOrKubo = this.getDefaultKuboRpcClientOrHelia();
         this._updateKuboRpcClientOrHeliaState("fetching-ipfs", heliaOrKubo, sortTypes);
-        const pageTimeoutMs = this._plebbit._timeouts["page-ipfs"];
+        const pageTimeoutMs = this._pkc._timeouts["page-ipfs"];
         try {
             return this.parsePageJson(
                 parseJsonWithPKCErrorIfFails(await this._fetchCidP2P(pageCid, { maxFileSizeBytes: pageMaxSize, timeoutMs: pageTimeoutMs }))
@@ -259,7 +259,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
             recordPKCType: "page-ipfs",
             validateGatewayResponseFunc: async () => {},
             maxFileSizeBytes: pageMaxSize,
-            timeoutMs: this._plebbit._timeouts["page-ipfs"],
+            timeoutMs: this._pkc._timeouts["page-ipfs"],
             log
         });
         const pageIpfs = this.parsePageJson(parseJsonWithPKCErrorIfFails(res.resText)) as PageIpfs;
@@ -277,24 +277,24 @@ export class BasePagesClientsManager extends BaseClientsManager {
         if (sortTypesFromPageCids.length > 0) {
             this.updatePageCidsToSortTypes(this._pages.pageCids);
         }
-        const sortTypesFromMemcache: string[] | undefined = this._plebbit._memCaches.pageCidToSortTypes.get(pageCid);
+        const sortTypesFromMemcache: string[] | undefined = this._pkc._memCaches.pageCidToSortTypes.get(pageCid);
 
         const isFirstPage = Object.values(this._pages.pageCids).includes(pageCid) || remeda.isEmpty(this._pages.pageCids);
         const pageMaxSize = overridePageMaxSize
             ? overridePageMaxSize
-            : this._plebbit._memCaches.pagesMaxSize.get(this._calculatePageMaxSizeCacheKey(pageCid))
-              ? this._plebbit._memCaches.pagesMaxSize.get(this._calculatePageMaxSizeCacheKey(pageCid))
+            : this._pkc._memCaches.pagesMaxSize.get(this._calculatePageMaxSizeCacheKey(pageCid))
+              ? this._pkc._memCaches.pagesMaxSize.get(this._calculatePageMaxSizeCacheKey(pageCid))
               : isFirstPage
                 ? 1024 * 1024
                 : undefined;
-        if (!pageMaxSize) throw Error("Failed to calculate max page size. Is this page cid under the correct subplebbit/comment?");
+        if (!pageMaxSize) throw Error("Failed to calculate max page size. Is this page cid under the correct community/comment?");
         let result: { page: PageIpfs | ModQueuePageIpfs; runtimeFields?: PageRuntimeFields };
         try {
-            if (this._plebbit._plebbitRpcClient) {
+            if (this._pkc._pkcRpcClient) {
                 result = await this._fetchPageWithRpc({ pageCid, log, sortTypes: sortTypesFromMemcache, pageMaxSize });
             } else if (
-                Object.keys(this._plebbit.clients.kuboRpcClients).length > 0 ||
-                Object.keys(this._plebbit.clients.libp2pJsClients).length > 0
+                Object.keys(this._pkc.clients.kuboRpcClients).length > 0 ||
+                Object.keys(this._pkc.clients.libp2pJsClients).length > 0
             )
                 result = { page: await this._fetchPageWithKuboOrHeliaP2P(pageCid, log, sortTypesFromMemcache, pageMaxSize) };
             else result = { page: await this._fetchPageFromGateways(pageCid, log, pageMaxSize) };
@@ -321,7 +321,7 @@ export class RepliesPagesClientsManager extends BasePagesClientsManager {
     override clients!: {
         ipfsGateways: Record<keyof typeof POST_REPLIES_SORT_TYPES, { [ipfsGatewayUrl: string]: PagesIpfsGatewayClient }>;
         kuboRpcClients: Record<keyof typeof POST_REPLIES_SORT_TYPES, { [kuboRpcClientUrl: string]: PagesIpfsGatewayClient }>;
-        plebbitRpcClients: Record<keyof typeof POST_REPLIES_SORT_TYPES, { [rpcUrl: string]: PagesPKCRpcStateClient }>;
+        pkcRpcClients: Record<keyof typeof POST_REPLIES_SORT_TYPES, { [rpcUrl: string]: PagesPKCRpcStateClient }>;
         libp2pJsClients: Record<keyof typeof POST_REPLIES_SORT_TYPES, { [libp2pJsClientKey: string]: PagesIpfsGatewayClient }>;
     };
 
@@ -340,10 +340,10 @@ export class RepliesPagesClientsManager extends BasePagesClientsManager {
         sortTypes: string[] | undefined;
         pageMaxSize: number;
     }): Promise<{ page: PageIpfs; runtimeFields?: PageRuntimeFields }> {
-        const result = await this._plebbit._plebbitRpcClient!.getCommentPage({
+        const result = await this._pkc._pkcRpcClient!.getCommentPage({
             cid: opts.pageCid,
             commentCid: this._pages._parentComment!.cid!,
-            subplebbitAddress: this._pages._subplebbit.address,
+            communityAddress: this._pages._community.address,
             pageMaxSize: opts.pageMaxSize
         });
         return { page: result.page, runtimeFields: result.runtimeFields };
@@ -354,7 +354,7 @@ export class CommunityPostsPagesClientsManager extends BasePagesClientsManager {
     override clients!: {
         ipfsGateways: Record<keyof typeof POSTS_SORT_TYPES, { [ipfsGatewayUrl: string]: PagesIpfsGatewayClient }>;
         kuboRpcClients: Record<keyof typeof POSTS_SORT_TYPES, { [kuboRpcClientUrl: string]: PagesIpfsGatewayClient }>;
-        plebbitRpcClients: Record<keyof typeof POSTS_SORT_TYPES, { [rpcUrl: string]: PagesPKCRpcStateClient }>;
+        pkcRpcClients: Record<keyof typeof POSTS_SORT_TYPES, { [rpcUrl: string]: PagesPKCRpcStateClient }>;
         libp2pJsClients: Record<keyof typeof POSTS_SORT_TYPES, { [libp2pJsClientKey: string]: PagesIpfsGatewayClient }>;
     };
 
@@ -363,9 +363,9 @@ export class CommunityPostsPagesClientsManager extends BasePagesClientsManager {
     }
 
     protected override preFetchPage(): void {
-        if (!this._pages._subplebbit) throw Error("Community needs to be defined");
+        if (!this._pages._community) throw Error("Community needs to be defined");
 
-        if (!this._pages._subplebbit.address) throw Error("Community address is not defined");
+        if (!this._pages._community.address) throw Error("Community address is not defined");
     }
 
     protected override async _requestPageFromRPC(opts: {
@@ -374,9 +374,9 @@ export class CommunityPostsPagesClientsManager extends BasePagesClientsManager {
         sortTypes: string[] | undefined;
         pageMaxSize: number;
     }): Promise<{ page: PageIpfs; runtimeFields?: PageRuntimeFields }> {
-        const result = await this._plebbit._plebbitRpcClient!.getCommunityPage({
+        const result = await this._pkc._pkcRpcClient!.getCommunityPage({
             cid: opts.pageCid,
-            subplebbitAddress: this._pages._subplebbit.address,
+            communityAddress: this._pages._community.address,
             type: "posts",
             pageMaxSize: opts.pageMaxSize
         });
@@ -388,7 +388,7 @@ export class CommunityModQueueClientsManager extends BasePagesClientsManager {
     override clients!: {
         ipfsGateways: Record<ModQueueSortName, { [ipfsGatewayUrl: string]: PagesIpfsGatewayClient }>;
         kuboRpcClients: Record<ModQueueSortName, { [kuboRpcClientUrl: string]: PagesIpfsGatewayClient }>;
-        plebbitRpcClients: Record<ModQueueSortName, { [rpcUrl: string]: PagesPKCRpcStateClient }>;
+        pkcRpcClients: Record<ModQueueSortName, { [rpcUrl: string]: PagesPKCRpcStateClient }>;
         libp2pJsClients: Record<ModQueueSortName, { [libp2pJsClientKey: string]: PagesIpfsGatewayClient }>;
     };
 
@@ -405,9 +405,9 @@ export class CommunityModQueueClientsManager extends BasePagesClientsManager {
     }
 
     protected override preFetchPage(): void {
-        if (!this._pages._subplebbit) throw Error("Community needs to be defined");
+        if (!this._pages._community) throw Error("Community needs to be defined");
 
-        if (!this._pages._subplebbit.address) throw Error("Community address is not defined");
+        if (!this._pages._community.address) throw Error("Community address is not defined");
     }
 
     protected override parsePageJson(json: unknown): ModQueuePageIpfs {
@@ -421,10 +421,10 @@ export class CommunityModQueueClientsManager extends BasePagesClientsManager {
         sortTypes: string[] | undefined;
         pageMaxSize: number;
     }): Promise<{ page: ModQueuePageIpfs; runtimeFields?: PageRuntimeFields }> {
-        const result = await this._plebbit._plebbitRpcClient!.getCommunityPage({
+        const result = await this._pkc._pkcRpcClient!.getCommunityPage({
             type: "modqueue",
             cid: opts.pageCid,
-            subplebbitAddress: this._pages._subplebbit.address,
+            communityAddress: this._pages._community.address,
             pageMaxSize: opts.pageMaxSize
         });
         return { page: result.page as ModQueuePageIpfs, runtimeFields: result.runtimeFields };

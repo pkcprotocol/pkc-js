@@ -4,16 +4,16 @@ import { mockPKC, createSubWithNoChallenge } from "../../../dist/node/test/test-
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 
-describe(`subplebbit.stop() timing`, async () => {
+describe(`community.stop() timing`, async () => {
     it(`LocalCommunity.stop() after update() should complete within 10s`, async () => {
-        const plebbit: PKCType = await mockPKC();
-        const sub = await createSubWithNoChallenge({}, plebbit);
+        const pkc: PKCType = await mockPKC();
+        const sub = await createSubWithNoChallenge({}, pkc);
         await sub.update();
         const startMs = Date.now();
         await sub.stop();
         const elapsed = Date.now() - startMs;
         expect(elapsed).to.be.lessThan(10000);
         await sub.delete();
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 });

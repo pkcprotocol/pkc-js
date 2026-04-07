@@ -51,7 +51,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -89,9 +89,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
 
             // Create pkc with resolver that only handles .eth/.bso (not .sol)
-            const testPKC = await config.plebbitInstancePromise({
+            const testPKC = await config.pkcInstancePromise({
                 mockResolve: false,
-                plebbitOptions: {
+                pkcOptions: {
                     nameResolvers: [
                         createMockNameResolver({
                             canResolve: ({ name }: { name: string }) => name.endsWith(".eth") || name.endsWith(".bso")
@@ -123,9 +123,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
 
             // Create pkc with resolver that returns null for our domain
-            const testPKC = await config.plebbitInstancePromise({
+            const testPKC = await config.pkcInstancePromise({
                 mockResolve: false,
-                plebbitOptions: {
+                pkcOptions: {
                     nameResolvers: [
                         createMockNameResolver({
                             records: { "unresolvable.eth": null }
@@ -153,8 +153,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             // Use "plebbit.bso" from defaultMockResolverRecords so both RPC server and client resolve it
             const communityAddress = signers[3].address; // plebbit.bso resolves to signers[3]
 
-            const testPKC = await config.plebbitInstancePromise({
-                plebbitOptions: {
+            const testPKC = await config.pkcInstancePromise({
+                pkcOptions: {
                     nameResolvers: [createMockNameResolver({ includeDefaultRecords: true })]
                 }
             });
@@ -181,7 +181,7 @@ describe(`publicKey fallback - failure cases without publicKey`, () => {
         const testPKC = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
-            plebbitOptions: {
+            pkcOptions: {
                 nameResolvers: [
                     createMockNameResolver({
                         canResolve: ({ name }: { name: string }) => name.endsWith(".eth") || name.endsWith(".bso")
@@ -203,7 +203,7 @@ describe(`publicKey fallback - failure cases without publicKey`, () => {
         await sub.update();
         await errorPromise;
 
-        if (testPKC._plebbitRpcClient) {
+        if (testPKC._pkcRpcClient) {
             // ERR_DOMAIN_TXT_RECORD_NOT_FOUND is retriable
             expect(sub.updatingState).to.equal("waiting-retry");
         } else {
@@ -219,7 +219,7 @@ describe(`publicKey fallback - failure cases without publicKey`, () => {
         const testPKC = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
-            plebbitOptions: {
+            pkcOptions: {
                 nameResolvers: [
                     createMockNameResolver({
                         records: { "unresolvable.eth": null }
@@ -255,7 +255,7 @@ describe(`publicKey fallback - .sol community loading`, () => {
             let pkc: PKC;
 
             beforeAll(async () => {
-                pkc = await config.plebbitInstancePromise();
+                pkc = await config.pkcInstancePromise();
             });
 
             afterAll(async () => {
@@ -263,9 +263,9 @@ describe(`publicKey fallback - .sol community loading`, () => {
             });
 
             it(`createCommunity({ address: "mycommunity.sol" }).update() fails (no resolver for .sol)`, async () => {
-                const testPKC = await config.plebbitInstancePromise({
+                const testPKC = await config.pkcInstancePromise({
                     mockResolve: false,
-                    plebbitOptions: {
+                    pkcOptions: {
                         nameResolvers: [
                             createMockNameResolver({
                                 canResolve: ({ name }: { name: string }) => name.endsWith(".eth") || name.endsWith(".bso")
@@ -289,7 +289,7 @@ describe(`publicKey fallback - .sol community loading`, () => {
                 // ERR_NO_RESOLVER_FOR_NAME when client resolver doesn't handle .sol;
                 // ERR_DOMAIN_TXT_RECORD_NOT_FOUND when RPC server resolver handles .sol but finds no record
                 expect((emittedError as PKCError).code).to.be.oneOf(["ERR_NO_RESOLVER_FOR_NAME", "ERR_DOMAIN_TXT_RECORD_NOT_FOUND"]);
-                expect(sub.raw.subplebbitIpfs).to.be.undefined;
+                expect(sub.raw.communityIpfs).to.be.undefined;
 
                 await sub.stop();
                 await testPKC.destroy();
@@ -298,9 +298,9 @@ describe(`publicKey fallback - .sol community loading`, () => {
             it(`createCommunity({ name: "mycommunity.sol", publicKey }) succeeds via publicKey fallback`, async () => {
                 const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
 
-                const testPKC = await config.plebbitInstancePromise({
+                const testPKC = await config.pkcInstancePromise({
                     mockResolve: false,
-                    plebbitOptions: {
+                    pkcOptions: {
                         nameResolvers: [
                             createMockNameResolver({
                                 canResolve: ({ name }: { name: string }) => name.endsWith(".eth") || name.endsWith(".bso")

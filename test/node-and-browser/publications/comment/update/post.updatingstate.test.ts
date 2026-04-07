@@ -82,7 +82,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
     describeSkipIfRpc.concurrent(`post.updatingState - ${config.name}`, async () => {
         let pkc: PKC;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -117,7 +117,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`updating states is in correct order upon updating a post with IPFS client using postUpdates`, async () => {
-            const dedicatedPKC = await config.plebbitInstancePromise();
+            const dedicatedPKC = await config.pkcInstancePromise();
             try {
                 const sub = await dedicatedPKC.getCommunity({ address: communityAddress });
                 const postCid = sub.posts.pages.hot.comments[0].cid;
@@ -145,10 +145,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`updating state of post is set to failed if sub has an invalid Community record`, async () => {
-            const pkc = await config.plebbitInstancePromise({ plebbitOptions: { resolveAuthorNames: false } }); // set resolve to false so it wouldn't show up in states
+            const pkc = await config.pkcInstancePromise({ pkcOptions: { resolveAuthorNames: false } }); // set resolve to false so it wouldn't show up in states
             try {
                 const { commentCid, communityAddress: subAddress } = await createStaticCommunityRecordForComment({
-                    plebbit: pkc,
+                    pkc: pkc,
                     invalidateCommunitySignature: true
                 });
 
@@ -190,7 +190,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`updating state is set to failed if we load an invalid CommentUpdate record from postUpdates`, async () => {
-            const dedicatedPKC = await config.plebbitInstancePromise();
+            const dedicatedPKC = await config.pkcInstancePromise();
             try {
                 const sub = await dedicatedPKC.getCommunity({ address: communityAddress });
                 const commentUpdateWithInvalidSignatureJson = await createCommentUpdateWithInvalidSignature(
@@ -217,7 +217,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     eventName: "error"
                 });
 
-                await publishRandomPost({ communityAddress: communityAddress, plebbit: dedicatedPKC }); // force subplebbit to publish a new update which will increase loading attempts
+                await publishRandomPost({ communityAddress: communityAddress, pkc: dedicatedPKC }); // force subplebbit to publish a new update which will increase loading attempts
                 await resolveWhenConditionIsTrue({
                     toUpdate: createdComment,
                     predicate: async () => errors.length >= 2,
@@ -266,7 +266,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
     describeSkipIfRpc.concurrent(`post.updatingState - ${config.name}`, async () => {
         let pkc: PKC;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -274,10 +274,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         });
 
         it(`updating state of post is set to failed if sub has an invalid Community record`, async () => {
-            const dedicatedPKC = await config.plebbitInstancePromise();
+            const dedicatedPKC = await config.pkcInstancePromise();
             try {
                 const { commentCid, communityAddress: subAddress } = await createStaticCommunityRecordForComment({
-                    plebbit: dedicatedPKC,
+                    pkc: dedicatedPKC,
                     invalidateCommunitySignature: true
                 });
                 const createdPost = await dedicatedPKC.createComment({ cid: commentCid });
@@ -318,7 +318,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         });
 
         it(`updating state is set to failed if we load an invalid CommentUpdate record from postUpdates`, async () => {
-            const dedicatedPKC = await config.plebbitInstancePromise();
+            const dedicatedPKC = await config.pkcInstancePromise();
             try {
                 const sub = await dedicatedPKC.getCommunity({ address: communityAddress });
                 const commentUpdateWithInvalidSignatureJson = await createCommentUpdateWithInvalidSignature(
@@ -348,7 +348,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
 
                 await createErrorPromise();
 
-                await publishRandomPost({ communityAddress: communityAddress, plebbit: dedicatedPKC }); // force subplebbit to publish a new update which will increase loading attempts
+                await publishRandomPost({ communityAddress: communityAddress, pkc: dedicatedPKC }); // force subplebbit to publish a new update which will increase loading attempts
                 await createErrorPromise();
 
                 await createdComment.stop();
@@ -398,7 +398,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         });
 
         it(`updating states is in correct order upon updating a post with gateway using postUpdates`, async () => {
-            const dedicatedPKC = await config.plebbitInstancePromise();
+            const dedicatedPKC = await config.pkcInstancePromise();
             try {
                 const community = await dedicatedPKC.getCommunity({ address: communityAddress });
                 const postCid = community.posts.pages.hot.comments[0].cid;
@@ -436,7 +436,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     describeSkipIfRpc.concurrent(`post.updatingState - ${config.name}`, async () => {
         let pkc: PKC;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {

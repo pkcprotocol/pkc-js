@@ -16,38 +16,38 @@ import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-loca
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 
-describe(`subplebbit.features.postFlairs`, async () => {
-    let plebbit: PKC;
+describe(`community.features.postFlairs`, async () => {
+    let pkc: PKC;
     let remotePKC: PKC;
-    let subplebbit: LocalCommunity | RpcLocalCommunity;
+    let community: LocalCommunity | RpcLocalCommunity;
     let publishedPost: Comment;
     const validPostFlair = { text: "Discussion", backgroundColor: "#0000ff", textColor: "#ffffff" };
 
     beforeAll(async () => {
-        plebbit = await mockPKC();
+        pkc = await mockPKC();
         remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
-        subplebbit = await createSubWithNoChallenge({}, plebbit);
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+        community = await createSubWithNoChallenge({}, pkc);
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
         // Set up allowed post flairs
-        await subplebbit.edit({ flairs: { post: [validPostFlair] } });
+        await community.edit({ flairs: { post: [validPostFlair] } });
 
         // Publish a post before enabling the feature
-        publishedPost = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: remotePKC });
+        publishedPost = await publishRandomPost({ communityAddress: community.address, pkc: remotePKC });
     });
 
     afterAll(async () => {
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
         await remotePKC.destroy();
     });
 
     it(`Can't publish a post with post flairs when postFlairs feature is disabled (default)`, async () => {
-        expect(subplebbit.features?.postFlairs).to.be.undefined;
+        expect(community.features?.postFlairs).to.be.undefined;
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: {
                 flairs: [validPostFlair]
             }
@@ -72,7 +72,7 @@ describe(`subplebbit.features.postFlairs`, async () => {
 
     it(`Can't edit a comment with flairs when postFlairs feature is disabled`, async () => {
         const flairsEdit = await remotePKC.createCommentEdit({
-            communityAddress: subplebbit.address,
+            communityAddress: community.address,
             commentCid: publishedPost.cid,
             flairs: [validPostFlair],
             signer: publishedPost.signer
@@ -85,14 +85,14 @@ describe(`subplebbit.features.postFlairs`, async () => {
     });
 
     it.sequential(`Feature is updated correctly in props`, async () => {
-        await subplebbit.edit({ features: { ...subplebbit.features, postFlairs: true } });
-        expect(subplebbit.features?.postFlairs).to.be.true;
+        await community.edit({ features: { ...community.features, postFlairs: true } });
+        expect(community.features?.postFlairs).to.be.true;
     });
 
     it(`Can publish a post with valid post flair when feature is enabled`, async () => {
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: {
                 flairs: [validPostFlair]
             }
@@ -110,8 +110,8 @@ describe(`subplebbit.features.postFlairs`, async () => {
     it(`Can't publish a post with invalid post flair (not in allowed list)`, async () => {
         const invalidFlair = { text: "Invalid", backgroundColor: "#ff0000" };
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: {
                 flairs: [invalidFlair]
             }
@@ -126,8 +126,8 @@ describe(`subplebbit.features.postFlairs`, async () => {
     it(`Can't publish a post with flair that has wrong colors`, async () => {
         const wrongColorFlair = { text: "Discussion", backgroundColor: "#ff0000", textColor: "#000000" };
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: {
                 flairs: [wrongColorFlair]
             }
@@ -141,7 +141,7 @@ describe(`subplebbit.features.postFlairs`, async () => {
 
     it(`Can edit a comment with valid flair when feature is enabled`, async () => {
         const flairsEdit = await remotePKC.createCommentEdit({
-            communityAddress: subplebbit.address,
+            communityAddress: community.address,
             commentCid: publishedPost.cid,
             flairs: [validPostFlair],
             signer: publishedPost.signer
@@ -152,7 +152,7 @@ describe(`subplebbit.features.postFlairs`, async () => {
     it(`Can't edit a comment with invalid flair (not in allowed list)`, async () => {
         const invalidFlair = { text: "Invalid", backgroundColor: "#ff0000" };
         const flairsEdit = await remotePKC.createCommentEdit({
-            communityAddress: subplebbit.address,
+            communityAddress: community.address,
             commentCid: publishedPost.cid,
             flairs: [invalidFlair],
             signer: publishedPost.signer
@@ -165,15 +165,15 @@ describe(`subplebbit.features.postFlairs`, async () => {
     });
 
     it(`Can publish a post without post flairs when feature is enabled`, async () => {
-        const post = await generateMockPost({ communityAddress: subplebbit.address, plebbit: remotePKC });
+        const post = await generateMockPost({ communityAddress: community.address, pkc: remotePKC });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });
 
     it(`Can't publish a post with flair that has extra properties`, async () => {
         const flairWithExtraProps = { text: "Discussion", backgroundColor: "#0000ff", textColor: "#ffffff", expiresAt: 12345 };
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: {
                 flairs: [flairWithExtraProps]
             }
@@ -189,8 +189,8 @@ describe(`subplebbit.features.postFlairs`, async () => {
         // validPostFlair has all 3 props, this one only has text
         const flairMissingProps = { text: "Discussion" };
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: {
                 flairs: [flairMissingProps]
             }

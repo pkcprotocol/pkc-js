@@ -10,7 +10,7 @@ import type { PurgedCommentTableRows } from "../../../dist/node/runtime/node/com
 
 interface FakeCommunity {
     address: string;
-    _plebbit: { noData: boolean };
+    _pkc: { noData: boolean };
     _cidsToUnPin: Set<string>;
     _blocksToRm: string[];
     _mfsPathsToRemove: Set<string>;
@@ -61,7 +61,7 @@ describeSkipIfRpc("db-handler duplicate signature purge during migration", funct
         const fakePKC = { noData: true };
         const fakeCommunity: FakeCommunity = {
             address: communityAddress,
-            _plebbit: fakePKC,
+            _pkc: fakePKC,
             _cidsToUnPin: new Set<string>(),
             _blocksToRm: [],
             _mfsPathsToRemove: new Set<string>(),
@@ -238,14 +238,14 @@ describeSkipIfRpc("db-handler duplicate signature purge during migration", funct
 
         const dbHandlerWithPrivate = dbHandler as unknown as {
             _purgePublicationTablesWithDuplicateSignatures: () => void;
-            _subplebbit: FakeCommunity;
+            _community: FakeCommunity;
         };
         dbHandlerWithPrivate._purgePublicationTablesWithDuplicateSignatures();
 
         const commentDuplicatesAfter = rowsWithSignature("comments", "signature", ["signature"], "comment-duplicate");
         expect(commentDuplicatesAfter.map((row) => row.cid)).to.deep.equal([commentOriginal.cid]);
 
-        const unpinnedCids = Array.from(dbHandlerWithPrivate._subplebbit._cidsToUnPin);
+        const unpinnedCids = Array.from(dbHandlerWithPrivate._community._cidsToUnPin);
         expect(unpinnedCids).to.include(commentDuplicate.cid);
     });
 

@@ -26,7 +26,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
     describe(`comment.publishingState - ${config.name}`, async () => {
         let pkc: PKC;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -99,7 +99,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 "succeeded"
             ];
             const recordedStates: string[] = [];
-            const mockPost = await generateMockPost({ communityAddress: "plebbit.bso", plebbit: pkc });
+            const mockPost = await generateMockPost({ communityAddress: "plebbit.bso", pkc: pkc });
             mockPost._getCommunityCache = (): ReturnType<typeof mockPost._getCommunityCache> => undefined;
 
             mockPost.on("publishingstatechange", (newState: string) => recordedStates.push(newState));
@@ -115,7 +115,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"]
     describe.concurrent(`comment.publishingState - ${config.name}`, async () => {
         let pkc: PKC;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -124,11 +124,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"]
 
         it(`comment.publishingState = 'failed' if pubsub provider is down`, async () => {
             const offlinePubsubUrl = "http://localhost:23425";
-            const offlinePubsubPKC = await config.plebbitInstancePromise({
-                plebbitOptions: { pubsubKuboRpcClientsOptions: [offlinePubsubUrl] }
+            const offlinePubsubPKC = await config.pkcInstancePromise({
+                pkcOptions: { pubsubKuboRpcClientsOptions: [offlinePubsubUrl] }
             });
             offlinePubsubPKC.on("error", () => {});
-            const mockPost = await generateMockPost({ communityAddress: signers[1].address, plebbit: offlinePubsubPKC });
+            const mockPost = await generateMockPost({ communityAddress: signers[1].address, pkc: offlinePubsubPKC });
 
             try {
                 await mockPost.publish();
@@ -148,7 +148,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
     describe(`comment.publishingState - ${config.name}`, async () => {
         let pkc: PKC;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -216,7 +216,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`comment.publishingState - ${config.name}`, async () => {
         let pkc: PKC;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -224,12 +224,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`publishingState is stopped by default`, async () => {
-            const comment = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
+            const comment = await generateMockPost({ communityAddress: communityAddress, pkc: pkc });
             expect(comment.publishingState).to.equal("stopped");
         });
 
         it(`comment.publishingState = 'failed' if user provide incorrect answer`, async () => {
-            const mockPost = await generateMockPost({ communityAddress: mathCliCommunityAddress, plebbit: pkc });
+            const mockPost = await generateMockPost({ communityAddress: mathCliCommunityAddress, pkc: pkc });
             mockPost.removeAllListeners("challenge");
 
             mockPost.once("challenge", async (challengeMsg) => {
@@ -248,7 +248,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             await ipnsObj.publishToIpns("<html></html>");
 
-            const mockPost = await generateMockPost({ communityAddress: ipnsObj.signer.address, plebbit: pkc });
+            const mockPost = await generateMockPost({ communityAddress: ipnsObj.signer.address, pkc: pkc });
 
             const recordedPublishingStates: string[] = [];
 
@@ -265,7 +265,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(recordedPublishingStates).to.deep.equal(["fetching-community-ipns", "fetching-community-ipfs", "failed"]);
             else expect(recordedPublishingStates).to.deep.equal(["fetching-community-ipns", "failed"]);
 
-            await ipnsObj.plebbit.destroy();
+            await ipnsObj.pkc.destroy();
 
             await mockPost.stop();
         });
@@ -276,7 +276,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             const mockedSub = await publishCommunityRecordWithExtraProp();
 
-            const mockPost = await generateMockPost({ communityAddress: mockedSub.ipnsObj.signer.address, plebbit: pkc });
+            const mockPost = await generateMockPost({ communityAddress: mockedSub.ipnsObj.signer.address, pkc: pkc });
             (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 1;
             (mockPost as unknown as CommentWithInternals)._setProviderFailureThresholdSeconds = 2;
 
@@ -312,7 +312,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 "failed"
             );
             expect(recordedPublishingStates).to.deep.equal(expectedPublishingState);
-            await mockedSub.ipnsObj.plebbit.destroy();
+            await mockedSub.ipnsObj.pkc.destroy();
             await mockPost.stop();
         });
     });

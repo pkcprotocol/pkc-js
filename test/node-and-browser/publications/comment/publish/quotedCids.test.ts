@@ -29,13 +29,13 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let post2: Comment; // a different post for cross-thread testing
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
             // Create a post
-            post = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            post = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
             // Create a reply under the post
-            reply1 = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc });
+            reply1 = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, pkc: pkc });
             // Create another post for cross-thread testing
-            post2 = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            post2 = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
         });
 
         afterAll(async () => {
@@ -130,7 +130,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             it("Post with quotedCids is rejected", async () => {
                 const newPost = await generateMockPost({
                     communityAddress: communityAddress,
-                    plebbit: pkc,
+                    pkc: pkc,
                     postProps: {
                         signer: signers[1]
                     }
@@ -205,8 +205,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         describe("Edge case quotedCids scenarios", () => {
             it("Reply quoting a sibling reply (same parent) succeeds", async () => {
                 // Create two sibling replies under the same post, then a third that quotes both
-                const sibling1 = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc });
-                const sibling2 = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc });
+                const sibling1 = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, pkc: pkc });
+                const sibling2 = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, pkc: pkc });
 
                 const quotedCids = [sibling1.cid!, sibling2.cid!];
                 const reply = await generateMockComment(post as CommentIpfsWithCidDefined, pkc, false, {
@@ -223,7 +223,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             it("Reply quoting a deeply nested comment chain succeeds", async () => {
                 // Create a chain: reply1 → reply2 (quotes reply1) → reply3 (quotes both reply1 and reply2)
-                const deepReply1 = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc });
+                const deepReply1 = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, pkc: pkc });
 
                 // reply2 quotes reply1
                 const deepReply2 = await generateMockComment(post as CommentIpfsWithCidDefined, pkc, false, {
@@ -250,7 +250,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 // Create multiple replies and quote all of them
                 const replyPromises = [];
                 for (let i = 0; i < 10; i++) {
-                    replyPromises.push(publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc }));
+                    replyPromises.push(publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, pkc: pkc }));
                 }
                 const replies = await Promise.all(replyPromises);
 
@@ -279,12 +279,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let replyToDelete: Comment;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
             // Create a post
-            post = await publishRandomPost({ communityAddress: modCommunityAddress, plebbit: pkc });
+            post = await publishRandomPost({ communityAddress: modCommunityAddress, pkc: pkc });
             // Create replies that will be removed/deleted
-            replyToRemove = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc });
-            replyToDelete = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc });
+            replyToRemove = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, pkc: pkc });
+            replyToDelete = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, pkc: pkc });
 
             // Remove the first reply (mod action)
             const removeModeration = await pkc.createCommentModeration({

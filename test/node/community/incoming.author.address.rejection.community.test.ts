@@ -35,49 +35,48 @@ type PublicationWithSigner = Publication & {
 };
 
 describeSkipIfRpc.sequential("LocalCommunity rejects incoming signed wire author.address", async () => {
-    let plebbit: PKC;
-    let subplebbit: LocalCommunity | RpcLocalCommunity;
+    let pkc: PKC;
+    let community: LocalCommunity | RpcLocalCommunity;
     let targetPost: Comment;
     let moderatorSigner: SignerType;
 
     beforeAll(async () => {
-        plebbit = await mockPKC();
-        subplebbit = await createSubWithNoChallenge({}, plebbit);
+        pkc = await mockPKC();
+        community = await createSubWithNoChallenge({}, pkc);
 
-        await subplebbit.start();
+        await community.start();
         await resolveWhenConditionIsTrue({
-            toUpdate: subplebbit,
-            predicate: async () => typeof subplebbit.updatedAt === "number"
+            toUpdate: community,
+            predicate: async () => typeof community.updatedAt === "number"
         });
 
         targetPost = await publishRandomPost({
-            communityAddress: subplebbit.address,
-            plebbit
+            communityAddress: community.address,
+            pkc
         });
 
-        moderatorSigner = await plebbit.createSigner();
-        const ownerSigner = subplebbit.signer;
+        moderatorSigner = await pkc.createSigner();
+        const ownerSigner = community.signer;
         if (!ownerSigner?.address || !("privateKey" in ownerSigner) || typeof ownerSigner.privateKey !== "string")
-            throw Error("Expected local subplebbit to have an owner signer with a private key");
+            throw Error("Expected local community to have an owner signer with a private key");
 
-        await subplebbit.edit({
+        await community.edit({
             roles: {
-                ...(subplebbit.roles || {}),
+                ...(community.roles || {}),
                 [moderatorSigner.address]: { role: "moderator" },
                 [ownerSigner.address]: { role: "owner" }
             }
         });
         await resolveWhenConditionIsTrue({
-            toUpdate: subplebbit,
+            toUpdate: community,
             predicate: async () =>
-                subplebbit.roles?.[moderatorSigner.address]?.role === "moderator" &&
-                subplebbit.roles?.[ownerSigner.address]?.role === "owner"
+                community.roles?.[moderatorSigner.address]?.role === "moderator" && community.roles?.[ownerSigner.address]?.role === "owner"
         });
     });
 
     afterAll(async () => {
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
     });
 
     async function assertPublicationRejectsWireAuthorAddress({
@@ -106,11 +105,11 @@ describeSkipIfRpc.sequential("LocalCommunity rejects incoming signed wire author
         });
     }
 
-    async function injectSignedAuthorAddressIntoCommunityEdit(subplebbitEdit: CommunityEdit, authorAddress: string) {
-        if (!subplebbitEdit.signer) throw Error("Expected subplebbitEdit.signer to be defined");
-        await ensurePublicationIsSigned(subplebbitEdit, subplebbit);
+    async function injectSignedAuthorAddressIntoCommunityEdit(communityEdit: CommunityEdit, authorAddress: string) {
+        if (!communityEdit.signer) throw Error("Expected communityEdit.signer to be defined");
+        await ensurePublicationIsSigned(communityEdit, community);
 
-        const publication = subplebbitEdit.raw.pubsubMessageToPublish!;
+        const publication = communityEdit.raw.pubsubMessageToPublish!;
         const modifiedPublication = {
             ...publication,
             author: { ...(publication.author || {}), address: authorAddress }
@@ -123,28 +122,28 @@ describeSkipIfRpc.sequential("LocalCommunity rejects incoming signed wire author
         modifiedPublication.signature = await _signJson(
             signedPropertyNames,
             cleanUpBeforePublishing(modifiedPublication),
-            subplebbitEdit.signer,
+            communityEdit.signer,
             log
         );
 
-        subplebbitEdit.raw.pubsubMessageToPublish = modifiedPublication;
-        subplebbitEdit.signature = modifiedPublication.signature;
-        disableValidationOfSignatureBeforePublishing(subplebbitEdit);
+        communityEdit.raw.pubsubMessageToPublish = modifiedPublication;
+        communityEdit.signature = modifiedPublication.signature;
+        disableValidationOfSignatureBeforePublishing(communityEdit);
     }
 
     it("rejects a live incoming comment with signed wire author.address", async () => {
-        const comment = await plebbit.createComment({
-            communityAddress: subplebbit.address,
+        const comment = await pkc.createComment({
+            communityAddress: community.address,
             title: `Reserved author.address comment ${Date.now()}`,
             content: `Reserved author.address comment content ${Date.now()}`,
-            signer: await plebbit.createSigner()
+            signer: await pkc.createSigner()
         });
 
         await assertPublicationRejectsWireAuthorAddress({
             publication: comment,
             publicationKey: "comment",
             injectAuthorAddress: async (authorAddress) => {
-                await ensurePublicationIsSigned(comment, subplebbit);
+                await ensurePublicationIsSigned(comment, community);
                 await setExtraPropOnCommentAndSign(comment, { author: { address: authorAddress } }, true);
             }
         });
@@ -152,18 +151,18 @@ describeSkipIfRpc.sequential("LocalCommunity rejects incoming signed wire author
 
     it("rejects a live incoming vote with signed wire author.address", async () => {
         if (!targetPost.cid) throw Error("Expected target post to have a CID");
-        const vote = await plebbit.createVote({
+        const vote = await pkc.createVote({
             commentCid: targetPost.cid,
             vote: 1,
-            communityAddress: subplebbit.address,
-            signer: await plebbit.createSigner()
+            communityAddress: community.address,
+            signer: await pkc.createSigner()
         });
 
         await assertPublicationRejectsWireAuthorAddress({
             publication: vote,
             publicationKey: "vote",
             injectAuthorAddress: async (authorAddress) => {
-                await ensurePublicationIsSigned(vote, subplebbit);
+                await ensurePublicationIsSigned(vote, community);
                 await setExtraPropOnVoteAndSign(vote as Vote, { author: { address: authorAddress } }, true);
             }
         });
@@ -172,10 +171,10 @@ describeSkipIfRpc.sequential("LocalCommunity rejects incoming signed wire author
     it("rejects a live incoming commentEdit with signed wire author.address", async () => {
         if (!targetPost.cid) throw Error("Expected target post to have a CID");
         if (!targetPost.signer) throw Error("Expected target post instance to retain its signer");
-        const commentEdit = await plebbit.createCommentEdit({
+        const commentEdit = await pkc.createCommentEdit({
             commentCid: targetPost.cid,
             content: `Reserved author.address edit ${Date.now()}`,
-            communityAddress: subplebbit.address,
+            communityAddress: community.address,
             signer: targetPost.signer
         });
 
@@ -183,7 +182,7 @@ describeSkipIfRpc.sequential("LocalCommunity rejects incoming signed wire author
             publication: commentEdit,
             publicationKey: "commentEdit",
             injectAuthorAddress: async (authorAddress) => {
-                await ensurePublicationIsSigned(commentEdit, subplebbit);
+                await ensurePublicationIsSigned(commentEdit, community);
                 await setExtraPropOnCommentEditAndSign(commentEdit as CommentEdit, { author: { address: authorAddress } }, true);
             }
         });
@@ -191,8 +190,8 @@ describeSkipIfRpc.sequential("LocalCommunity rejects incoming signed wire author
 
     it("rejects a live incoming commentModeration with signed wire author.address", async () => {
         if (!targetPost.cid) throw Error("Expected target post to have a CID");
-        const commentModeration = await plebbit.createCommentModeration({
-            communityAddress: subplebbit.address,
+        const commentModeration = await pkc.createCommentModeration({
+            communityAddress: community.address,
             commentCid: targetPost.cid,
             commentModeration: {
                 reason: `Reserved author.address moderation ${Date.now()}`,
@@ -205,7 +204,7 @@ describeSkipIfRpc.sequential("LocalCommunity rejects incoming signed wire author
             publication: commentModeration,
             publicationKey: "commentModeration",
             injectAuthorAddress: async (authorAddress) => {
-                await ensurePublicationIsSigned(commentModeration, subplebbit);
+                await ensurePublicationIsSigned(commentModeration, community);
                 await setExtraPropOnCommentModerationAndSign(
                     commentModeration as CommentModeration,
                     { author: { address: authorAddress } },
@@ -215,65 +214,65 @@ describeSkipIfRpc.sequential("LocalCommunity rejects incoming signed wire author
         });
     });
 
-    it("rejects a live incoming subplebbitEdit with signed wire author.address", async () => {
-        if (!subplebbit.signer || !("privateKey" in subplebbit.signer) || typeof subplebbit.signer.privateKey !== "string")
-            throw Error("Expected local subplebbit to expose its owner signer with a private key");
-        const subplebbitEdit = await plebbit.createCommunityEdit({
-            communityAddress: subplebbit.address,
-            subplebbitEdit: {
+    it("rejects a live incoming communityEdit with signed wire author.address", async () => {
+        if (!community.signer || !("privateKey" in community.signer) || typeof community.signer.privateKey !== "string")
+            throw Error("Expected local community to expose its owner signer with a private key");
+        const communityEdit = await pkc.createCommunityEdit({
+            communityAddress: community.address,
+            communityEdit: {
                 description: `Reserved author.address sub edit ${Date.now()}`
             },
-            signer: subplebbit.signer as SignerType
+            signer: community.signer as SignerType
         });
 
         await assertPublicationRejectsWireAuthorAddress({
-            publication: subplebbitEdit,
+            publication: communityEdit,
             publicationKey: "subplebbitEdit",
             injectAuthorAddress: async (authorAddress) => {
-                await injectSignedAuthorAddressIntoCommunityEdit(subplebbitEdit, authorAddress);
+                await injectSignedAuthorAddressIntoCommunityEdit(communityEdit, authorAddress);
             }
         });
     });
 });
 
-// RPC skipped because these tests require direct subplebbit interaction with crafted wire payloads
+// RPC skipped because these tests require direct community interaction with crafted wire payloads
 describeSkipIfRpc.sequential("LocalCommunity rejects incoming non-domain author.name", async () => {
-    let plebbit: PKC;
-    let subplebbit: LocalCommunity | RpcLocalCommunity;
+    let pkc: PKC;
+    let community: LocalCommunity | RpcLocalCommunity;
     let targetPost: Comment;
 
     beforeAll(async () => {
-        plebbit = await mockPKC();
-        subplebbit = await createSubWithNoChallenge({}, plebbit);
+        pkc = await mockPKC();
+        community = await createSubWithNoChallenge({}, pkc);
 
-        await subplebbit.start();
+        await community.start();
         await resolveWhenConditionIsTrue({
-            toUpdate: subplebbit,
-            predicate: async () => typeof subplebbit.updatedAt === "number"
+            toUpdate: community,
+            predicate: async () => typeof community.updatedAt === "number"
         });
 
         targetPost = await publishRandomPost({
-            communityAddress: subplebbit.address,
-            plebbit
+            communityAddress: community.address,
+            pkc
         });
     });
 
     afterAll(async () => {
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
     });
 
     it("rejects a comment with author.name set to another user's B58 address", async () => {
-        const signer = await plebbit.createSigner();
-        const comment = await plebbit.createComment({
-            communityAddress: subplebbit.address,
+        const signer = await pkc.createSigner();
+        const comment = await pkc.createComment({
+            communityAddress: community.address,
             title: `Spoofed B58 author.name ${Date.now()}`,
             content: `Content ${Date.now()}`,
             signer
         });
 
         // Inject author.name as a different signer's B58 address (spoofing attempt)
-        await ensurePublicationIsSigned(comment, subplebbit);
+        await ensurePublicationIsSigned(comment, community);
         const currentAuthor = comment.raw.pubsubMessageToPublish!.author || {};
         await setExtraPropOnCommentAndSign(comment, { author: { ...currentAuthor, name: signers[2].address } }, true);
 
@@ -285,15 +284,15 @@ describeSkipIfRpc.sequential("LocalCommunity rejects incoming non-domain author.
     });
 
     it("rejects a comment with author.name set to gibberish (not a domain or B58)", async () => {
-        const signer = await plebbit.createSigner();
-        const comment = await plebbit.createComment({
-            communityAddress: subplebbit.address,
+        const signer = await pkc.createSigner();
+        const comment = await pkc.createComment({
+            communityAddress: community.address,
             title: `Gibberish author.name ${Date.now()}`,
             content: `Content ${Date.now()}`,
             signer
         });
 
-        await ensurePublicationIsSigned(comment, subplebbit);
+        await ensurePublicationIsSigned(comment, community);
         const currentAuthor = comment.raw.pubsubMessageToPublish!.author || {};
         await setExtraPropOnCommentAndSign(comment, { author: { ...currentAuthor, name: "not-a-valid-address" } }, true);
 
@@ -306,15 +305,15 @@ describeSkipIfRpc.sequential("LocalCommunity rejects incoming non-domain author.
 
     it("rejects a vote with author.name set to another user's B58 address", async () => {
         if (!targetPost.cid) throw Error("Expected target post to have a CID");
-        const signer = await plebbit.createSigner();
-        const vote = await plebbit.createVote({
+        const signer = await pkc.createSigner();
+        const vote = await pkc.createVote({
             commentCid: targetPost.cid,
             vote: 1,
-            communityAddress: subplebbit.address,
+            communityAddress: community.address,
             signer
         });
 
-        await ensurePublicationIsSigned(vote, subplebbit);
+        await ensurePublicationIsSigned(vote, community);
         const currentAuthor = vote.raw.pubsubMessageToPublish!.author || {};
         await setExtraPropOnVoteAndSign(vote as Vote, { author: { ...currentAuthor, name: signers[3].address } }, true);
 

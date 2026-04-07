@@ -15,9 +15,9 @@ const WsServerClassOptions = z.object({
 
 export const CreatePKCWsServerOptionsSchema = z
     .object({
-        plebbitOptions: z.custom<InputPKCOptions>().optional(), // no need to validate here, will be validated with await PKC()
+        pkcOptions: z.custom<InputPKCOptions>().optional(), // no need to validate here, will be validated with await PKC()
         authKey: z.string().optional(),
-        startStartedCommunitysOnStartup: z.boolean().optional()
+        startStartedCommunitiesOnStartup: z.boolean().optional()
     })
     .merge(WsServerClassOptions)
     .loose();
@@ -25,13 +25,13 @@ export const CreatePKCWsServerOptionsSchema = z
 // rpc WS
 
 export const SetNewSettingsPKCWsServerSchema = z.object({
-    plebbitOptions: PKCUserOptionBaseSchema.extend({
+    pkcOptions: PKCUserOptionBaseSchema.extend({
         nameResolvers: NameResolverSerializedSchema.array().optional()
     }).loose()
 });
 
 export const PKCWsServerSettingsSerializedSchema = z.object({
-    plebbitOptions: PKCParsedOptionsSchema.loose(),
+    pkcOptions: PKCParsedOptionsSchema.loose(),
     challenges: z.record(
         z.string(),
         ChallengeFileSchema.omit({ getChallenge: true }) // to avoid throwing because of recursive dependency

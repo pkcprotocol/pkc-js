@@ -14,7 +14,7 @@ describeSkipIfRpc(`Testing HTTP router settings and address rewriter`, async () 
 
     const startPort = 19575;
 
-    let plebbit: PKCType;
+    let pkc: PKCType;
 
     beforeAll(async () => {
         mockHttpRouter = new MockHttpRouter();
@@ -24,25 +24,25 @@ describeSkipIfRpc(`Testing HTTP router settings and address rewriter`, async () 
 
     afterAll(async () => {
         try {
-            await plebbit.destroy();
+            await pkc.destroy();
         } catch {}
         if (mockHttpRouter) {
             await mockHttpRouter.destroy();
         }
     });
 
-    it(`address rewriter proxy should not be taken before we start plebbit`, async () => {
+    it(`address rewriter proxy should not be taken before we start pkc`, async () => {
         for (let i = 0; i < httpRouterUrls.length; i++) expect(await tcpPortUsed.check(startPort + i)).to.be.false;
     });
 
     it(`PKC({kuboRpcClientsOptions, httpRoutersOptions}) will change config of ipfs node`, async () => {
-        plebbit = await PKC({ kuboRpcClientsOptions: [kuboNodeForHttpRouter], httpRoutersOptions: httpRouterUrls });
-        plebbit.on("error", (err) => {
+        pkc = await PKC({ kuboRpcClientsOptions: [kuboNodeForHttpRouter], httpRoutersOptions: httpRouterUrls });
+        pkc.on("error", (err) => {
             console.log("Received an error on PKC instance", err);
         });
-        await new Promise((resolve) => setTimeout(resolve, 5000)); // wait unti plebbit is done changing config and restarting
-        expect(plebbit.httpRoutersOptions).to.deep.equal(httpRouterUrls);
-        const kuboRpcClient = plebbit.clients.kuboRpcClients[kuboNodeForHttpRouter]._client;
+        await new Promise((resolve) => setTimeout(resolve, 5000)); // wait unti pkc is done changing config and restarting
+        expect(pkc.httpRoutersOptions).to.deep.equal(httpRouterUrls);
+        const kuboRpcClient = pkc.clients.kuboRpcClients[kuboNodeForHttpRouter]._client;
         const configValueType = await kuboRpcClient.config.get("Routing.Type");
         expect(configValueType).to.equal("custom");
 
@@ -60,7 +60,7 @@ describeSkipIfRpc(`Testing HTTP router settings and address rewriter`, async () 
     });
 
     it(`Routing.Routers should be set to proxy`, async () => {
-        const kuboRpcClient = plebbit.clients.kuboRpcClients[kuboNodeForHttpRouter]._client;
+        const kuboRpcClient = pkc.clients.kuboRpcClients[kuboNodeForHttpRouter]._client;
         const configValueRouters = (await kuboRpcClient.config.get("Routing.Routers")) as Record<
             string,
             { Parameters: { Endpoint: string } }
@@ -71,11 +71,11 @@ describeSkipIfRpc(`Testing HTTP router settings and address rewriter`, async () 
         }
     });
 
-    it(`Can create another plebbit instance with same configs with no problem`, async () => {
+    it(`Can create another pkc instance with same configs with no problem`, async () => {
         const anotherInstance = await PKC({
             kuboRpcClientsOptions: [kuboNodeForHttpRouter],
             httpRoutersOptions: httpRouterUrls,
-            dataPath: plebbit.dataPath
+            dataPath: pkc.dataPath
         });
         anotherInstance.on("error", (err) => {
             console.log("Received an error on PKC instance", err);
@@ -94,7 +94,7 @@ describeSkipIfRpc(`Testing HTTP router settings and address rewriter`, async () 
     });
 
     it(`The proxy proxies requests to http router properly`, async () => {
-        const sub = (await createSubWithNoChallenge({}, plebbit)) as LocalCommunity; // an online sub
+        const sub = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity; // an online sub
 
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
@@ -119,7 +119,7 @@ describeSkipIfRpc(`Testing HTTP router settings and address rewriter`, async () 
         ).to.be.true;
 
         for (const httpRouterUrl of httpRouterUrls) {
-            // why does subplebbit.ipnsPubsubDhtKey fails here?
+            // why does community.ipnsPubsubDhtKey fails here?
             for (const { cid: resourceToProvide } of provideToTestAgainst) {
                 const providersUrl = `${httpRouterUrl}/routing/v1/providers/${resourceToProvide}`;
                 const res = await fetch(providersUrl, { method: "GET" });
@@ -156,19 +156,19 @@ describeSkipIfRpc(`Testing HTTP router settings and address rewriter`, async () 
         await sub.delete();
     });
 
-    it(`Calling plebbit.destroy() on original plebbit instance that started address rewriter proxy frees up the proxy server`, async () => {
-        await plebbit.destroy();
+    it(`Calling pkc.destroy() on original pkc instance that started address rewriter proxy frees up the proxy server`, async () => {
+        await pkc.destroy();
         for (let i = 0; i < httpRouterUrls.length; i++) expect(await tcpPortUsed.check(startPort + i)).to.be.false;
     });
 
-    it(`Creating a new plebbit instance will start a new proxy server after destroying the previous one`, async () => {
+    it(`Creating a new pkc instance will start a new proxy server after destroying the previous one`, async () => {
         const anotherInstance = await PKC({
             kuboRpcClientsOptions: [kuboNodeForHttpRouter],
             httpRoutersOptions: httpRouterUrls,
-            dataPath: plebbit.dataPath
+            dataPath: pkc.dataPath
         });
 
-        await new Promise((resolve) => setTimeout(resolve, 5000)); // wait unti plebbit is done changing config and restarting
+        await new Promise((resolve) => setTimeout(resolve, 5000)); // wait unti pkc is done changing config and restarting
         for (let i = 0; i < httpRouterUrls.length; i++) expect(await tcpPortUsed.check(startPort + i)).to.be.true;
 
         await anotherInstance.destroy();

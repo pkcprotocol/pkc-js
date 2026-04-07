@@ -10,66 +10,66 @@ import { z } from "zod";
 import { PKCError } from "../pkc-error.js";
 import type { AuthorNameRpcParam, CidRpcParam } from "../clients/rpc-client/types.js";
 import { parseRpcAuthorNameParam, parseRpcCidParam } from "../clients/rpc-client/rpc-schema-util.js";
-import { listStartedCommunitys } from "./tracked-instance-registry-util.js";
+import { listStartedCommunities } from "./tracked-instance-registry-util.js";
 
 // This is a helper class for separating RPC-client logic from main PKC
 // Not meant to be used with end users
 export class PKCWithRpcClient extends PKC {
-    override _plebbitRpcClient!: NonNullable<PKC["_plebbitRpcClient"]>;
+    override _pkcRpcClient!: NonNullable<PKC["_pkcRpcClient"]>;
     override pkcRpcClientsOptions!: NonNullable<PKC["pkcRpcClientsOptions"]>;
 
     constructor(options: InputPKCOptions) {
         super(options);
-        this._plebbitRpcClient = this.clients.plebbitRpcClients[Object.keys(this.clients.plebbitRpcClients)[0]]; // will change later once we start supporting multiple RPCs
+        this._pkcRpcClient = this.clients.pkcRpcClients[Object.keys(this.clients.pkcRpcClients)[0]]; // will change later once we start supporting multiple RPCs
     }
 
     override async _init(): Promise<void> {
         await super._init();
         const log = Logger("pkc-js:pkc-with-rpc-client:_init");
 
-        this.subplebbits = [];
+        this.communities = [];
 
-        this._plebbitRpcClient.on("subplebbitschange", (newSubs) => this.emit("subplebbitschange", newSubs));
+        this._pkcRpcClient.on("communitieschange", (newSubs) => this.emit("communitieschange", newSubs));
 
-        for (const rpcUrl of Object.keys(this.clients.plebbitRpcClients)) {
-            const rpcClient = this.clients.plebbitRpcClients[rpcUrl];
+        for (const rpcUrl of Object.keys(this.clients.pkcRpcClients)) {
+            const rpcClient = this.clients.pkcRpcClients[rpcUrl];
             rpcClient.on("error", (err) => this.emit("error", err));
-            rpcClient.initalizeCommunityschangeEvent().catch((err) => {
-                log.error("Failed to initialize RPC", rpcUrl, "subplebbitschange event", err);
+            rpcClient.initalizeCommunitieschangeEvent().catch((err) => {
+                log.error("Failed to initialize RPC", rpcUrl, "communitieschange event", err);
             });
             rpcClient.initalizeSettingschangeEvent().catch((err) => {
                 log.error("Failed to initialize RPC", rpcUrl, "settingschange event", err);
             });
         }
-        // TODO merge different plebbitRpcClient.subplebbits
+        // TODO merge different pkcRpcClient.communities
 
-        this._plebbitRpcClient.on("settingschange", (newSettings) => {
-            this.emit("settingschange", newSettings.plebbitOptions);
+        this._pkcRpcClient.on("settingschange", (newSettings) => {
+            this.emit("settingschange", newSettings.pkcOptions);
         });
     }
 
     override async fetchCid(cid: CidRpcParam) {
         const parsedCid = parseRpcCidParam(cid).cid;
-        return this._plebbitRpcClient.fetchCid({ cid: parsedCid });
+        return this._pkcRpcClient.fetchCid({ cid: parsedCid });
     }
 
     override async resolveAuthorName(args: AuthorNameRpcParam) {
         const parsedArgs = parseRpcAuthorNameParam(args);
-        return this._plebbitRpcClient.resolveAuthorName(parsedArgs);
+        return this._pkcRpcClient.resolveAuthorName(parsedArgs);
     }
 
     override async destroy() {
-        for (const startedCommunity of listStartedCommunitys(this)) {
+        for (const startedCommunity of listStartedCommunities(this)) {
             await startedCommunity.stopWithoutRpcCall();
         }
         await super.destroy();
-        await this._plebbitRpcClient.destroy();
+        await this._pkcRpcClient.destroy();
     }
 
     override async getComment(commentCid: CidRpcParam) {
         const parsedArgs = parseRpcCidParam(commentCid);
 
-        const commentIpfs = await this._plebbitRpcClient.getComment(parsedArgs);
+        const commentIpfs = await this._pkcRpcClient.getComment(parsedArgs);
         return this.createComment({ raw: { comment: commentIpfs }, cid: parsedArgs.cid });
     }
 
@@ -82,7 +82,7 @@ export class PKCWithRpcClient extends PKC {
         const parsedRpcOptions =
             "clients" in options ? options : parseCreateRpcCommunityFunctionArgumentSchemaWithPKCErrorIfItFails(options);
 
-        log.trace("Received subplebbit options to create a subplebbit instance over RPC:", options);
+        log.trace("Received community options to create a community instance over RPC:", options);
 
         const hasIdentifier =
             ("address" in parsedRpcOptions && typeof parsedRpcOptions.address === "string") ||
@@ -94,8 +94,8 @@ export class PKCWithRpcClient extends PKC {
             ((parsedRpcOptions as Record<string, unknown>).publicKey as string | undefined);
 
         if (hasIdentifier && effectiveAddress) {
-            await this._waitForCommunitysToBeDefined();
-            const rpcSubs = this.subplebbits; // should probably be replaced with a direct call for subs
+            await this._waitForCommunitiesToBeDefined();
+            const rpcSubs = this.communities; // should probably be replaced with a direct call for subs
             const isSubRpcLocal = rpcSubs.includes(effectiveAddress);
 
             if ("clients" in options && isSubRpcLocal) {
@@ -106,7 +106,7 @@ export class PKCWithRpcClient extends PKC {
                     | RpcLocalCommunityUpdateResultType
                     | undefined;
                 if (rawRecord) {
-                    if ("subplebbit" in rawRecord) sub.initRpcInternalCommunityAfterFirstUpdateNoMerge(rawRecord);
+                    if ("community" in rawRecord) sub.initRpcInternalCommunityAfterFirstUpdateNoMerge(rawRecord);
                     else sub.initRpcInternalCommunityBeforeFirstUpdateNoMerge(rawRecord);
                 }
                 if (jsonified.raw) Object.assign(sub.raw, jsonified.raw);
@@ -127,7 +127,7 @@ export class PKCWithRpcClient extends PKC {
 
                 return sub;
             } else {
-                log.trace("Creating a remote RPC subplebbit instance with address", effectiveAddress);
+                log.trace("Creating a remote RPC community instance with address", effectiveAddress);
                 const remoteSub = new RpcRemoteCommunity(this);
                 await this._setCommunityIpfsOnInstanceIfPossible(remoteSub, parsedRpcOptions);
 
@@ -141,16 +141,16 @@ export class PKCWithRpcClient extends PKC {
                 return remoteSub;
             }
             // We're creating a new local sub
-            const subPropsAfterCreation = await this._plebbitRpcClient!.createCommunity(parsedRpcOptions);
+            const subPropsAfterCreation = await this._pkcRpcClient!.createCommunity(parsedRpcOptions);
             log(
-                `Created new local-RPC subplebbit (${subPropsAfterCreation.localCommunity.address}) with props:`,
+                `Created new local-RPC community (${subPropsAfterCreation.localCommunity.address}) with props:`,
                 JSON.parse(JSON.stringify(subPropsAfterCreation))
             );
             const sub = new RpcLocalCommunity(this);
             await sub.initRpcInternalCommunityBeforeFirstUpdateNoMerge(subPropsAfterCreation);
             sub.emit("update", sub);
-            await this._awaitCommunitysToIncludeSub(subPropsAfterCreation.localCommunity.address);
+            await this._awaitCommunitiesToIncludeSub(subPropsAfterCreation.localCommunity.address);
             return sub;
-        } else throw Error("Failed to create subplebbit rpc instance, are you sure you provided the correct args?");
+        } else throw Error("Failed to create community rpc instance, are you sure you provided the correct args?");
     }
 }

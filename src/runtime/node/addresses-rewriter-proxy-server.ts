@@ -16,7 +16,7 @@ type AddressesRewriterOptions = {
     port: number;
     hostname: string | undefined;
     proxyTargetUrl: string;
-    plebbit: Pick<PKC, "_storage" | "dataPath">;
+    pkc: Pick<PKC, "_storage" | "dataPath">;
 };
 
 export class AddressesRewriterProxyServer {
@@ -27,7 +27,7 @@ export class AddressesRewriterProxyServer {
     proxyTarget: URL;
     server: ReturnType<(typeof http)["createServer"]>;
     _storageKeyName: string;
-    _plebbit: Pick<PKC, "_storage" | "dataPath">;
+    _pkc: Pick<PKC, "_storage" | "dataPath">;
 
     // SQLite logging
     private _db: AddressRewriterDatabase | null;
@@ -45,7 +45,7 @@ export class AddressesRewriterProxyServer {
     // HTTP agents for connection reuse
     private _httpAgent: http.Agent;
     private _httpsAgent: https.Agent;
-    constructor({ kuboClients: kuboClient, port, hostname, proxyTargetUrl, plebbit }: AddressesRewriterOptions) {
+    constructor({ kuboClients: kuboClient, port, hostname, proxyTargetUrl, pkc }: AddressesRewriterOptions) {
         this.addresses = {};
 
         this.kuboClients = kuboClient;
@@ -54,7 +54,7 @@ export class AddressesRewriterProxyServer {
         this.proxyTarget = new URL(proxyTargetUrl);
         this.server = http.createServer((req, res) => this._proxyRequestRewrite(req, res));
         this._storageKeyName = `httprouter_proxy_${proxyTargetUrl}`;
-        this._plebbit = plebbit;
+        this._pkc = pkc;
 
         // Environment-based logging toggle
         const envValue = process.env.ENABLE_LOGGING_OF_ADDRESS_REWRITER_PROXY;
@@ -63,7 +63,7 @@ export class AddressesRewriterProxyServer {
         // Initialize database only when logging is enabled
         if (this._loggingEnabled) {
             const kuboConfig = this.kuboClients?.[0]?.getEndpointConfig();
-            this._db = new AddressRewriterDatabase(this._plebbit.dataPath!, kuboConfig, this.proxyTarget);
+            this._db = new AddressRewriterDatabase(this._pkc.dataPath!, kuboConfig, this.proxyTarget);
         } else {
             this._db = null;
         }
@@ -109,7 +109,7 @@ export class AddressesRewriterProxyServer {
             this.proxyTarget.host,
             `- request logging ${this._loggingEnabled ? "enabled" : "disabled"}`
         );
-        await this._plebbit._storage.setItem(this._storageKeyName, `http://${this.hostname}:${this.port}`);
+        await this._pkc._storage.setItem(this._storageKeyName, `http://${this.hostname}:${this.port}`);
     }
 
     async destroy() {
@@ -134,7 +134,7 @@ export class AddressesRewriterProxyServer {
         this._httpAgent.destroy();
         this._httpsAgent.destroy();
 
-        await this._plebbit._storage.removeItem(this._storageKeyName);
+        await this._pkc._storage.removeItem(this._storageKeyName);
     }
 
     _proxyRequestRewrite(req: Parameters<http.RequestListener>[0], res: Parameters<http.RequestListener>[1]) {

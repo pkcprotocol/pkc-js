@@ -104,15 +104,15 @@ const getAvailablePort = async (startPort = 39660): Promise<number> => {
     throw new Error(`No available port found in range ${startPort}-${startPort + 99}`);
 };
 
-describe("plebbit.settings.challenges over RPC", () => {
+describe("pkc.settings.challenges over RPC", () => {
     let rpcServer: PKCWsServerType;
     let serverPKC: PKCType;
     let RPC_URL: string;
 
     beforeAll(async () => {
-        // Create a server plebbit with custom challenges
+        // Create a server pkc with custom challenges
         serverPKC = await mockRpcServerPKC({
-            dataPath: path.join(process.cwd(), ".plebbit-rpc-settings-challenges-test")
+            dataPath: path.join(process.cwd(), ".pkc-rpc-settings-challenges-test")
         });
         serverPKC.settings.challenges = {
             "sky-color": customSkyChallenge
@@ -122,25 +122,25 @@ describe("plebbit.settings.challenges over RPC", () => {
         const rpcPort = await getAvailablePort();
         RPC_URL = `ws://localhost:${rpcPort}`;
 
-        // Spin up the RPC server — pass plebbitOptions to avoid creating a heavyweight default PKC
+        // Spin up the RPC server — pass pkcOptions to avoid creating a heavyweight default PKC
         rpcServer = await PKCWsServer.PKCWsServer({
             port: rpcPort,
             authKey: RPC_AUTH_KEY,
-            plebbitOptions: {
+            pkcOptions: {
                 kuboRpcClientsOptions: ["http://localhost:15001/api/v0"],
                 httpRoutersOptions: [],
                 dataPath: serverPKC.dataPath
             }
         });
-        // Replace the factory-created plebbit with our mock that has custom challenges
+        // Replace the factory-created pkc with our mock that has custom challenges
         const server = rpcServer as any;
         server._initPKC(serverPKC);
         server._createPKCInstanceFromSetSettings = async (newOptions: any) => {
             const newPKC = await mockRpcServerPKC({
-                dataPath: path.join(process.cwd(), ".plebbit-rpc-settings-challenges-test"),
+                dataPath: path.join(process.cwd(), ".pkc-rpc-settings-challenges-test"),
                 ...newOptions
             });
-            // Preserve the custom challenges on re-created plebbit
+            // Preserve the custom challenges on re-created pkc
             newPKC.settings.challenges = serverPKC.settings.challenges;
             return newPKC;
         };
@@ -159,7 +159,7 @@ describe("plebbit.settings.challenges over RPC", () => {
         });
         clientPKC.on("error", () => {}); // Prevent uncaught errors from WebSocket reconnection
 
-        const rpcClient = clientPKC.clients.plebbitRpcClients[RPC_URL];
+        const rpcClient = clientPKC.clients.pkcRpcClients[RPC_URL];
 
         // Wait for initial settingschange if settings haven't arrived yet
         await resolveWhenConditionIsTrue({
@@ -191,7 +191,7 @@ describe("plebbit.settings.challenges over RPC", () => {
         });
         clientPKC.on("error", () => {}); // Prevent uncaught errors from WebSocket reconnection
 
-        const rpcClient = clientPKC.clients.plebbitRpcClients[RPC_URL];
+        const rpcClient = clientPKC.clients.pkcRpcClients[RPC_URL];
 
         await resolveWhenConditionIsTrue({
             toUpdate: rpcClient,
@@ -226,7 +226,7 @@ describe("plebbit.settings.challenges over RPC", () => {
         });
         clientPKC.on("error", () => {}); // Prevent uncaught errors from WebSocket reconnection
 
-        const rpcClient = clientPKC.clients.plebbitRpcClients[RPC_URL];
+        const rpcClient = clientPKC.clients.pkcRpcClients[RPC_URL];
 
         await resolveWhenConditionIsTrue({
             toUpdate: rpcClient,
@@ -246,7 +246,7 @@ describe("plebbit.settings.challenges over RPC", () => {
         await clientPKC.destroy();
     });
 
-    it(`settingschange event on plebbit instance includes correct plebbitOptions`, async () => {
+    it(`settingschange event on pkc instance includes correct pkcOptions`, async () => {
         const clientPKC = await PKC({
             pkcRpcClientsOptions: [RPC_URL],
             dataPath: undefined,
@@ -254,20 +254,20 @@ describe("plebbit.settings.challenges over RPC", () => {
         });
         clientPKC.on("error", () => {}); // Prevent uncaught errors from WebSocket reconnection
 
-        // Wait for the plebbit instance to initialize and receive settingschange
+        // Wait for the pkc instance to initialize and receive settingschange
         const settingsPromise = new Promise<any>((resolve) => clientPKC.once("settingschange", resolve));
 
-        // The settingschange should fire during init with plebbitOptions
-        const plebbitOptions = await settingsPromise;
+        // The settingschange should fire during init with pkcOptions
+        const pkcOptions = await settingsPromise;
 
-        expect(plebbitOptions).to.be.an("object");
-        // plebbitOptions should have typical plebbit config fields
-        expect(plebbitOptions).to.have.property("dataPath");
+        expect(pkcOptions).to.be.an("object");
+        // pkcOptions should have typical pkc config fields
+        expect(pkcOptions).to.have.property("dataPath");
 
         await clientPKC.destroy();
     });
 
-    it(`modifying server plebbit.settings.challenges at runtime is reflected to new RPC clients`, async () => {
+    it(`modifying server pkc.settings.challenges at runtime is reflected to new RPC clients`, async () => {
         // Add a brand new challenge at runtime on the server
         serverPKC.settings.challenges = {
             ...serverPKC.settings.challenges,
@@ -282,7 +282,7 @@ describe("plebbit.settings.challenges over RPC", () => {
         });
         clientPKC.on("error", () => {}); // Prevent uncaught errors from WebSocket reconnection
 
-        const rpcClient = clientPKC.clients.plebbitRpcClients[RPC_URL];
+        const rpcClient = clientPKC.clients.pkcRpcClients[RPC_URL];
 
         await resolveWhenConditionIsTrue({
             toUpdate: clientPKC,
@@ -298,7 +298,7 @@ describe("plebbit.settings.challenges over RPC", () => {
         await clientPKC.destroy();
     });
 
-    it(`RPC client can create a subplebbit with custom challenge and publish to it`, async () => {
+    it(`RPC client can create a community with custom challenge and publish to it`, async () => {
         // Reset server challenges to only have sky-color (remove any overrides from prior tests)
         serverPKC.settings.challenges = {
             "sky-color": customSkyChallenge
@@ -311,31 +311,31 @@ describe("plebbit.settings.challenges over RPC", () => {
         });
         clientPKC.on("error", () => {}); // Prevent uncaught errors from WebSocket reconnection
 
-        // Create subplebbit via RPC
-        const subplebbit = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
-        expect(subplebbit.address).to.be.a("string");
+        // Create community via RPC
+        const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
+        expect(community.address).to.be.a("string");
 
         // Set challenges to the custom "sky-color" challenge registered on the server
-        await subplebbit.edit({ settings: { challenges: [{ name: "sky-color" }] } });
-        expect(subplebbit.settings!.challenges).to.deep.equal([{ name: "sky-color" }]);
+        await community.edit({ settings: { challenges: [{ name: "sky-color" }] } });
+        expect(community.settings!.challenges).to.deep.equal([{ name: "sky-color" }]);
 
-        // Start the subplebbit
-        await subplebbit.start();
+        // Start the community
+        await community.start();
         await resolveWhenConditionIsTrue({
-            toUpdate: subplebbit,
-            predicate: async () => typeof subplebbit.updatedAt === "number"
+            toUpdate: community,
+            predicate: async () => typeof community.updatedAt === "number"
         });
 
-        // Verify the custom challenge metadata is active on the subplebbit
-        expect(subplebbit.challenges).to.have.length(1);
-        expect(subplebbit.challenges![0].type).to.equal("text/plain");
-        expect(subplebbit.challenges![0].description).to.equal("A custom challenge asking about the sky color.");
-        expect(subplebbit.challenges![0].challenge).to.equal("What color is the sky?");
+        // Verify the custom challenge metadata is active on the community
+        expect(community.challenges).to.have.length(1);
+        expect(community.challenges![0].type).to.equal("text/plain");
+        expect(community.challenges![0].description).to.equal("A custom challenge asking about the sky color.");
+        expect(community.challenges![0].challenge).to.equal("What color is the sky?");
 
         // Publish with correct pre-answer — should succeed
         const correctPost = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: clientPKC,
+            communityAddress: community.address,
+            pkc: clientPKC,
             postProps: {
                 challengeRequest: { challengeAnswers: ["blue"] }
             }
@@ -344,15 +344,15 @@ describe("plebbit.settings.challenges over RPC", () => {
 
         // Publish with wrong pre-answer — should fail
         const wrongPost = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: clientPKC,
+            communityAddress: community.address,
+            pkc: clientPKC,
             postProps: {
                 challengeRequest: { challengeAnswers: ["red"] }
             }
         });
         await publishWithExpectedResult({ publication: wrongPost, expectedChallengeSuccess: false });
 
-        await subplebbit.delete();
+        await community.delete();
         await clientPKC.destroy();
     });
 });

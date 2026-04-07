@@ -41,7 +41,7 @@ describeSkipIfRpc("db-handler.queryCalculatedCommentUpdate", () => {
     async function createTestDbHandler(): Promise<DbHandler> {
         communityAddress = `test-sub-${Date.now()}-${Math.random()}`;
         const fakePKC = { noData: true };
-        const fakeCommunity = { address: communityAddress, _plebbit: fakePKC };
+        const fakeCommunity = { address: communityAddress, _pkc: fakePKC };
         const handler = new DbHandler(fakeCommunity as never);
         await handler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
         await handler.createOrMigrateTablesIfNeeded();
@@ -127,7 +127,7 @@ describeSkipIfRpc("db-handler.queryCalculatedCommentUpdate", () => {
                 protocolVersion: PROTOCOL_VERSION,
                 signature: { type: "ed25519", signature: "sig", publicKey: "pk", signedPropertyNames: [] },
                 author: {
-                    subplebbit: {
+                    community: {
                         postScore: 0,
                         replyScore: 0,
                         lastCommentCid: comment.cid,
@@ -469,64 +469,64 @@ describeSkipIfRpc("db-handler.queryCalculatedCommentUpdate", () => {
         });
     });
 
-    describe("author.subplebbit aggregation", () => {
+    describe("author.community aggregation", () => {
         it("postScore increases with an upvote to a post", () => {
             const authorSignerAddress = "author-post-upvote";
             const post = createCommentWithUpdate({ depth: 0, authorSignerAddress });
 
             let calculated = queryCalculated(post);
             expect(calculated.upvoteCount).to.equal(0);
-            expect(calculated.author?.subplebbit?.postScore).to.equal(0);
-            expect(calculated.author?.subplebbit?.replyScore).to.equal(0);
+            expect(calculated.author?.community?.postScore).to.equal(0);
+            expect(calculated.author?.community?.replyScore).to.equal(0);
 
             insertVote(post, { vote: 1 });
 
             calculated = queryCalculated(post);
 
             expect(calculated.upvoteCount).to.equal(1);
-            expect(calculated.author?.subplebbit?.postScore).to.equal(1);
-            expect(calculated.author?.subplebbit?.replyScore).to.equal(0);
+            expect(calculated.author?.community?.postScore).to.equal(1);
+            expect(calculated.author?.community?.replyScore).to.equal(0);
         });
 
         it("aggregates postScore across multiple posts", () => {
             const authorSignerAddress = "author-two-posts";
             const firstPost = createCommentWithUpdate({ depth: 0, authorSignerAddress, timestamp: 100 });
             let firstCalculated = queryCalculated(firstPost);
-            expect(firstCalculated.author?.subplebbit?.postScore).to.equal(0);
-            expect(firstCalculated.author?.subplebbit?.replyScore).to.equal(0);
+            expect(firstCalculated.author?.community?.postScore).to.equal(0);
+            expect(firstCalculated.author?.community?.replyScore).to.equal(0);
 
             insertVote(firstPost, { vote: 1 });
 
             firstCalculated = queryCalculated(firstPost);
-            expect(firstCalculated.author?.subplebbit?.postScore).to.equal(1);
-            expect(firstCalculated.author?.subplebbit?.replyScore).to.equal(0);
+            expect(firstCalculated.author?.community?.postScore).to.equal(1);
+            expect(firstCalculated.author?.community?.replyScore).to.equal(0);
 
             const secondPost = createCommentWithUpdate({ depth: 0, authorSignerAddress, timestamp: 200 });
             let secondCalculated = queryCalculated(secondPost);
-            expect(secondCalculated.author?.subplebbit?.postScore).to.equal(1);
-            expect(secondCalculated.author?.subplebbit?.replyScore).to.equal(0);
+            expect(secondCalculated.author?.community?.postScore).to.equal(1);
+            expect(secondCalculated.author?.community?.replyScore).to.equal(0);
             insertVote(secondPost, { vote: 1 });
 
             firstCalculated = queryCalculated(firstPost);
             secondCalculated = queryCalculated(secondPost);
 
-            expect(firstCalculated.author?.subplebbit?.postScore).to.equal(2);
-            expect(firstCalculated.author?.subplebbit?.replyScore).to.equal(0);
-            expect(secondCalculated.author?.subplebbit?.postScore).to.equal(2);
-            expect(secondCalculated.author?.subplebbit?.replyScore).to.equal(0);
-            expect(secondCalculated.author?.subplebbit?.firstCommentTimestamp).to.equal(100);
+            expect(firstCalculated.author?.community?.postScore).to.equal(2);
+            expect(firstCalculated.author?.community?.replyScore).to.equal(0);
+            expect(secondCalculated.author?.community?.postScore).to.equal(2);
+            expect(secondCalculated.author?.community?.replyScore).to.equal(0);
+            expect(secondCalculated.author?.community?.firstCommentTimestamp).to.equal(100);
         });
 
         it("replyScore increases with upvotes to replies", () => {
             const authorSignerAddress = "author-replies";
             const post = createCommentWithUpdate({ depth: 0, authorSignerAddress, timestamp: 1_000 });
             let postCalculated = queryCalculated(post);
-            expect(postCalculated.author?.subplebbit?.postScore).to.equal(0);
-            expect(postCalculated.author?.subplebbit?.replyScore).to.equal(0);
+            expect(postCalculated.author?.community?.postScore).to.equal(0);
+            expect(postCalculated.author?.community?.replyScore).to.equal(0);
             insertVote(post, { vote: 1 });
             postCalculated = queryCalculated(post);
-            expect(postCalculated.author?.subplebbit?.postScore).to.equal(1);
-            expect(postCalculated.author?.subplebbit?.replyScore).to.equal(0);
+            expect(postCalculated.author?.community?.postScore).to.equal(1);
+            expect(postCalculated.author?.community?.replyScore).to.equal(0);
 
             const reply = createCommentWithUpdate({
                 depth: 1,
@@ -536,40 +536,40 @@ describeSkipIfRpc("db-handler.queryCalculatedCommentUpdate", () => {
                 timestamp: 2_000
             });
             let replyCalculated = queryCalculated(reply);
-            expect(replyCalculated.author?.subplebbit?.postScore).to.equal(1);
-            expect(replyCalculated.author?.subplebbit?.replyScore).to.equal(0);
+            expect(replyCalculated.author?.community?.postScore).to.equal(1);
+            expect(replyCalculated.author?.community?.replyScore).to.equal(0);
             insertVote(reply, { vote: 1 });
 
             postCalculated = queryCalculated(post);
             replyCalculated = queryCalculated(reply);
 
-            expect(postCalculated.author?.subplebbit?.postScore).to.equal(1);
-            expect(postCalculated.author?.subplebbit?.replyScore).to.equal(1);
-            expect(replyCalculated.author?.subplebbit?.postScore).to.equal(1);
-            expect(replyCalculated.author?.subplebbit?.replyScore).to.equal(1);
-            expect(replyCalculated.author?.subplebbit?.firstCommentTimestamp).to.equal(1_000);
+            expect(postCalculated.author?.community?.postScore).to.equal(1);
+            expect(postCalculated.author?.community?.replyScore).to.equal(1);
+            expect(replyCalculated.author?.community?.postScore).to.equal(1);
+            expect(replyCalculated.author?.community?.replyScore).to.equal(1);
+            expect(replyCalculated.author?.community?.firstCommentTimestamp).to.equal(1_000);
         });
 
         it("lastCommentCid reflects the author's latest comment", () => {
             const authorSignerAddress = "author-last-comment";
             const firstPost = createCommentWithUpdate({ depth: 0, authorSignerAddress, timestamp: 10 });
             let firstCalculated = queryCalculated(firstPost);
-            expect(firstCalculated.author?.subplebbit?.lastCommentCid).to.equal(firstPost.cid);
+            expect(firstCalculated.author?.community?.lastCommentCid).to.equal(firstPost.cid);
 
             const secondPost = createCommentWithUpdate({ depth: 0, authorSignerAddress, timestamp: 20 });
 
             firstCalculated = queryCalculated(firstPost);
             const secondCalculated = queryCalculated(secondPost);
 
-            expect(firstCalculated.author?.subplebbit?.lastCommentCid).to.equal(secondPost.cid);
-            expect(secondCalculated.author?.subplebbit?.lastCommentCid).to.equal(secondPost.cid);
+            expect(firstCalculated.author?.community?.lastCommentCid).to.equal(secondPost.cid);
+            expect(secondCalculated.author?.community?.lastCommentCid).to.equal(secondPost.cid);
         });
 
         it("lastCommentCid updates when the author publishes a reply", () => {
             const authorSignerAddress = "author-reply-last-comment";
             const post = createCommentWithUpdate({ depth: 0, authorSignerAddress, timestamp: 10 });
             let postCalculated = queryCalculated(post);
-            expect(postCalculated.author?.subplebbit?.lastCommentCid).to.equal(post.cid);
+            expect(postCalculated.author?.community?.lastCommentCid).to.equal(post.cid);
 
             const reply = createCommentWithUpdate({
                 depth: 1,
@@ -582,21 +582,21 @@ describeSkipIfRpc("db-handler.queryCalculatedCommentUpdate", () => {
             postCalculated = queryCalculated(post);
             const replyCalculated = queryCalculated(reply);
 
-            expect(postCalculated.author?.subplebbit?.lastCommentCid).to.equal(reply.cid);
-            expect(replyCalculated.author?.subplebbit?.lastCommentCid).to.equal(reply.cid);
+            expect(postCalculated.author?.community?.lastCommentCid).to.equal(reply.cid);
+            expect(replyCalculated.author?.community?.lastCommentCid).to.equal(reply.cid);
         });
 
         it("firstCommentTimestamp remains the first comment from the author", () => {
             const authorSignerAddress = "author-first-timestamp";
             const firstPost = createCommentWithUpdate({ depth: 0, authorSignerAddress, timestamp: 50 });
             const firstCalculated = queryCalculated(firstPost);
-            expect(firstCalculated.author?.subplebbit?.firstCommentTimestamp).to.equal(50);
+            expect(firstCalculated.author?.community?.firstCommentTimestamp).to.equal(50);
 
             const secondPost = createCommentWithUpdate({ depth: 0, authorSignerAddress, timestamp: 100 });
 
             const secondCalculated = queryCalculated(secondPost);
 
-            expect(secondCalculated.author?.subplebbit?.firstCommentTimestamp).to.equal(50);
+            expect(secondCalculated.author?.community?.firstCommentTimestamp).to.equal(50);
         });
     });
 

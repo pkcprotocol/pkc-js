@@ -19,7 +19,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
     describe.concurrent(`comment.clients.ipfsGateways - ${config.name}`, async () => {
         let pkc: PKC;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -27,7 +27,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         });
         // All tests below use PKC instance that doesn't have clients.kuboRpcClients
         it(`comment.clients.ipfsGateways[url] is stopped by default`, async () => {
-            const mockPost = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
+            const mockPost = await generateMockPost({ communityAddress: communityAddress, pkc: pkc });
             expect(Object.keys(mockPost.clients.ipfsGateways).length).to.equal(1);
             expect(Object.values(mockPost.clients.ipfsGateways)[0].state).to.equal("stopped");
         });
@@ -82,7 +82,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         });
 
         it.sequential(`Correct order of ipfsGateways state when publishing a comment (uncached community)`, async () => {
-            const mockPost = await generateMockPost({ communityAddress: signers[0].address, plebbit: pkc });
+            const mockPost = await generateMockPost({ communityAddress: signers[0].address, pkc: pkc });
 
             mockPost._getCommunityCache = (): ReturnType<typeof mockPost._getCommunityCache> => undefined;
 
@@ -99,7 +99,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         });
 
         it(`Correct order of ipfsGateways state when publishing a comment (cached community)`, async () => {
-            const mockPost = await generateMockPost({ communityAddress: signers[0].address, plebbit: pkc });
+            const mockPost = await generateMockPost({ communityAddress: signers[0].address, pkc: pkc });
 
             const expectedStates: string[] = []; // Should be empty since we're using cached subplebbit
 
@@ -114,9 +114,9 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         });
 
         it(`Correct order of ipfs gateway clients state when we update a comment but its community is not publishing new updates`, async () => {
-            const plebbit: PKC = await config.plebbitInstancePromise();
+            const pkc: PKC = await config.pkcInstancePromise();
             try {
-                const { commentCid } = await createStaticCommunityRecordForComment({ plebbit: pkc });
+                const { commentCid } = await createStaticCommunityRecordForComment({ pkc: pkc });
 
                 const mockPost = await pkc.createComment({ cid: commentCid });
 
@@ -153,7 +153,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         });
 
         it(`Correct order of ipfs gateway states when we update a comment but its commentupdate is an invalid record (bad signature/schema/etc)`, async () => {
-            const plebbit: PKC = await config.plebbitInstancePromise();
+            const pkc: PKC = await config.pkcInstancePromise();
 
             const sub = await pkc.getCommunity({ address: signers[0].address });
 

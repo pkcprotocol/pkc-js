@@ -29,12 +29,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC, postToVote: Comment, replyToVote: Comment, signer: SignerWithPublicKeyAddress;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: false } });
+            pkc = await config.pkcInstancePromise({ pkcOptions: { validatePages: false } });
             signer = await pkc.createSigner();
-            postToVote = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc, postProps: { signer } });
+            postToVote = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc, postProps: { signer } });
             replyToVote = await publishRandomReply({
                 parentComment: postToVote as CommentIpfsWithCidDefined,
-                plebbit: pkc,
+                pkc: pkc,
                 commentProps: { signer }
             });
             await postToVote.update();
@@ -71,9 +71,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
             expect(postToVote.upvoteCount).to.be.equal(originalUpvote + 1);
             expect(postToVote.downvoteCount).to.be.equal(0);
-            expect(postToVote.author.subplebbit.replyScore).to.equal(0);
-            expect(postToVote.author.subplebbit.postScore).to.equal(1);
-            expect(postToVote.author.subplebbit.lastCommentCid).to.equal(replyToVote.cid);
+            expect(postToVote.author.community.replyScore).to.equal(0);
+            expect(postToVote.author.community.postScore).to.equal(1);
+            expect(postToVote.author.community.lastCommentCid).to.equal(replyToVote.cid);
             previousVotes.push(vote);
         });
 
@@ -87,9 +87,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
             expect(replyToVote.upvoteCount).to.equal(originalUpvote + 1);
             expect(replyToVote.downvoteCount).to.equal(0);
-            expect(replyToVote.author.subplebbit.replyScore).to.equal(1);
-            expect(replyToVote.author.subplebbit.postScore).to.equal(1);
-            expect(replyToVote.author.subplebbit.lastCommentCid).to.equal(replyToVote.cid);
+            expect(replyToVote.author.community.replyScore).to.equal(1);
+            expect(replyToVote.author.community.postScore).to.equal(1);
+            expect(replyToVote.author.community.lastCommentCid).to.equal(replyToVote.cid);
 
             previousVotes.push(vote);
         });
@@ -111,9 +111,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             expect(postToVote.upvoteCount).to.equal(originalUpvote - 1);
             expect(postToVote.downvoteCount).to.equal(originalDownvote + 1);
-            expect(postToVote.author.subplebbit.postScore).to.equal(-1);
-            expect(postToVote.author.subplebbit.replyScore).to.equal(1);
-            expect(postToVote.author.subplebbit.lastCommentCid).to.equal(replyToVote.cid);
+            expect(postToVote.author.community.postScore).to.equal(-1);
+            expect(postToVote.author.community.replyScore).to.equal(1);
+            expect(postToVote.author.community.lastCommentCid).to.equal(replyToVote.cid);
         });
 
         it.sequential("Can change reply upvote to downvote", async () => {
@@ -133,9 +133,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             expect(replyToVote.upvoteCount).to.equal(originalUpvote - 1);
             expect(replyToVote.downvoteCount).to.equal(originalDownvote + 1);
-            expect(replyToVote.author.subplebbit.postScore).to.equal(-1);
-            expect(replyToVote.author.subplebbit.replyScore).to.equal(-1);
-            expect(replyToVote.author.subplebbit.lastCommentCid).to.equal(replyToVote.cid);
+            expect(replyToVote.author.community.postScore).to.equal(-1);
+            expect(replyToVote.author.community.replyScore).to.equal(-1);
+            expect(replyToVote.author.community.lastCommentCid).to.equal(replyToVote.cid);
         });
 
         it.sequential("Does not throw an error when vote is duplicated", async () => {

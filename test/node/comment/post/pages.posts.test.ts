@@ -24,20 +24,20 @@ import type { PageIpfs } from "../../../../dist/node/pages/types.js";
 const remotePKCLoadingConfigs = getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true });
 
 interface LocalCommunityWithPageCidsContext {
-    plebbit: PKC;
+    pkc: PKC;
     publisherCommunity: LocalCommunity;
     newPost: Comment;
     cleanup: () => Promise<void>;
 }
 
-describe("local subplebbit.posts pagination coverage", () => {
-    let plebbit: PKC;
+describe("local community.posts pagination coverage", () => {
+    let pkc: PKC;
     let publisherCommunity: LocalCommunity;
     let newPost: Comment;
     let cleanup: () => Promise<void>;
 
     beforeAll(async () => {
-        ({ plebbit, publisherCommunity, newPost, cleanup } = await createLocalCommunityWithPageCids());
+        ({ pkc, publisherCommunity, newPost, cleanup } = await createLocalCommunityWithPageCids());
     });
 
     afterAll(async () => {
@@ -45,11 +45,11 @@ describe("local subplebbit.posts pagination coverage", () => {
     });
 
     remotePKCLoadingConfigs.forEach((remotePKCConfig) => {
-        describe(`local subplebbit.posts pagination coverage with plebbit config ${remotePKCConfig.name}`, async () => {
+        describe(`local community.posts pagination coverage with pkc config ${remotePKCConfig.name}`, async () => {
             let remotePKC: PKC;
             let remoteCommunity: RemoteCommunity;
             beforeAll(async () => {
-                remotePKC = await remotePKCConfig.plebbitInstancePromise();
+                remotePKC = await remotePKCConfig.pkcInstancePromise();
                 remoteCommunity = await remotePKC.getCommunity({ address: publisherCommunity.address });
                 await remoteCommunity.update();
                 await resolveWhenConditionIsTrue({
@@ -145,7 +145,7 @@ describe("local subplebbit.posts pagination coverage", () => {
                 expect(pageCids.length).to.be.greaterThan(0);
 
                 for (const pageCid of pageCids) {
-                    const pageIpfs = JSON.parse(await plebbit.fetchCid({ cid: pageCid })) as PageIpfs; // will have PageIpfs type
+                    const pageIpfs = JSON.parse(await pkc.fetchCid({ cid: pageCid })) as PageIpfs; // will have PageIpfs type
 
                     for (const commentInPageIpfs of pageIpfs.comments) {
                         const calculatedCid = await calculateIpfsHash(JSON.stringify(commentInPageIpfs.comment));
@@ -166,13 +166,13 @@ async function createLocalCommunityWithPageCids(): Promise<LocalCommunityWithPag
         toUpdate: publisherCommunity,
         predicate: async () => typeof publisherCommunity.updatedAt === "number"
     });
-    const latestPost = await publishRandomPost({ communityAddress: publisherCommunity.address, plebbit: publisherPKC });
+    const latestPost = await publishRandomPost({ communityAddress: publisherCommunity.address, pkc: publisherPKC });
     await waitTillPostInCommunityPages(latestPost as never, publisherPKC);
 
     await forceLocalSubPagesToAlwaysGenerateMultipleChunks({
-        subplebbit: publisherCommunity as LocalCommunity,
+        community: publisherCommunity as LocalCommunity,
         forcedPreloadedPageSizeBytes: 1,
-        subplebbitPostsCommentProps: { content: `local pagination coverage` } as never
+        communityPostsCommentProps: { content: `local pagination coverage` } as never
     });
 
     await resolveWhenConditionIsTrue({
@@ -187,5 +187,5 @@ async function createLocalCommunityWithPageCids(): Promise<LocalCommunityWithPag
         await publisherPKC.destroy();
     };
 
-    return { plebbit: publisherPKC, publisherCommunity: publisherCommunity as LocalCommunity, newPost: latestPost, cleanup };
+    return { pkc: publisherPKC, publisherCommunity: publisherCommunity as LocalCommunity, newPost: latestPost, cleanup };
 }

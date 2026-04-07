@@ -14,40 +14,40 @@ import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 
-describe.concurrent(`subplebbit.update - Local subs`, async () => {
-    let plebbit: PKCType;
+describe.concurrent(`community.update - Local subs`, async () => {
+    let pkc: PKCType;
     beforeAll(async () => {
-        plebbit = await mockPKC();
+        pkc = await mockPKC();
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`Can receive updates from local sub`, async () => {
-        const sub = await createSubWithNoChallenge({}, plebbit);
+        const sub = await createSubWithNoChallenge({}, pkc);
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
-        const recreatedSub = await plebbit.createCommunity({ address: sub.address });
+        const recreatedSub = await pkc.createCommunity({ address: sub.address });
         expect(recreatedSub.state).to.equal("stopped");
         expect(recreatedSub.started).to.be.a("boolean"); // make sure it's creating a local sub, not remote
 
         const oldUpdatedAt = JSON.parse(JSON.stringify(recreatedSub.updatedAt)) as number;
         await recreatedSub.update();
-        await publishRandomPost({ communityAddress: recreatedSub.address, plebbit: plebbit });
+        await publishRandomPost({ communityAddress: recreatedSub.address, pkc: pkc });
         await resolveWhenConditionIsTrue({ toUpdate: recreatedSub, predicate: async () => recreatedSub.updatedAt !== oldUpdatedAt });
         expect(recreatedSub.updatedAt).to.be.greaterThan(oldUpdatedAt);
         await recreatedSub.stop();
         await sub.delete();
     });
 
-    it(`A local subplebbit is not emitting updates unneccessarily (after first update)`, async () => {
-        const sub = await createSubWithNoChallenge({}, plebbit);
+    it(`A local community is not emitting updates unneccessarily (after first update)`, async () => {
+        const sub = await createSubWithNoChallenge({}, pkc);
         expect(sub.started).to.be.a("boolean"); // make sure it's creating a local sub, not remote
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
 
-        const recreatedSub = await plebbit.createCommunity({ address: sub.address });
+        const recreatedSub = await pkc.createCommunity({ address: sub.address });
         const oldUpdatedAt = JSON.parse(JSON.stringify(recreatedSub.updatedAt)) as number;
         expect(oldUpdatedAt).to.be.a("number");
         expect(oldUpdatedAt).to.equal(sub.updatedAt);
@@ -64,7 +64,7 @@ describe.concurrent(`subplebbit.update - Local subs`, async () => {
         );
 
         try {
-            await Promise.race([failPromise, new Promise<void>((resolve) => setTimeout(resolve, plebbit.publishInterval * 3))]);
+            await Promise.race([failPromise, new Promise<void>((resolve) => setTimeout(resolve, pkc.publishInterval * 3))]);
         } catch (e) {
             throw e;
         } finally {
@@ -73,8 +73,8 @@ describe.concurrent(`subplebbit.update - Local subs`, async () => {
         }
     });
 
-    it(`A local subplebbit is not emitted updates unnecessarily (before first update)`, async () => {
-        const sub = await createSubWithNoChallenge({}, plebbit);
+    it(`A local community is not emitted updates unnecessarily (before first update)`, async () => {
+        const sub = await createSubWithNoChallenge({}, pkc);
         expect(sub.started).to.be.a("boolean"); // make sure it's creating a local sub, not remote
 
         let emittedUpdates = 0;
@@ -82,20 +82,20 @@ describe.concurrent(`subplebbit.update - Local subs`, async () => {
 
         await sub.update();
 
-        await new Promise<void>((resolve) => setTimeout(resolve, plebbit.publishInterval * 3));
+        await new Promise<void>((resolve) => setTimeout(resolve, pkc.publishInterval * 3));
 
         expect(emittedUpdates).to.equal(0);
 
         await sub.delete();
     });
 
-    itSkipIfRpc(`Local subplebbit should update properly even when another process holds the start lock`, async () => {
-        const sub = await createSubWithNoChallenge({}, plebbit);
+    itSkipIfRpc(`Local community should update properly even when another process holds the start lock`, async () => {
+        const sub = await createSubWithNoChallenge({}, pkc);
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
         await sub.stop();
 
-        const subDbPath = path.join(plebbit.dataPath!, "subplebbits", sub.address);
+        const subDbPath = path.join(pkc.dataPath!, "communities", sub.address);
         const lockfilePath = `${subDbPath}.start.lock`;
 
         const releaseLock = await lockfile.lock(subDbPath, {
@@ -104,7 +104,7 @@ describe.concurrent(`subplebbit.update - Local subs`, async () => {
             onCompromised: () => {}
         });
 
-        const secondPKC = await mockPKC({ dataPath: plebbit.dataPath! });
+        const secondPKC = await mockPKC({ dataPath: pkc.dataPath! });
 
         try {
             const recreatedSub = await secondPKC.createCommunity({ address: sub.address });

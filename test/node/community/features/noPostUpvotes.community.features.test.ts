@@ -16,32 +16,32 @@ import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-loca
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 
-describe.concurrent(`subplebbit.features.noPostUpvotes`, async () => {
-    let plebbit: PKC;
-    let subplebbit: LocalCommunity | RpcLocalCommunity;
+describe.concurrent(`community.features.noPostUpvotes`, async () => {
+    let pkc: PKC;
+    let community: LocalCommunity | RpcLocalCommunity;
     let remotePKC: PKC;
     let postToVoteOn: Comment;
 
     beforeAll(async () => {
-        plebbit = await mockPKC();
+        pkc = await mockPKC();
         remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
-        subplebbit = await createSubWithNoChallenge({}, plebbit);
+        community = await createSubWithNoChallenge({}, pkc);
 
-        await subplebbit.edit({ features: { ...subplebbit.features, noPostUpvotes: true } });
+        await community.edit({ features: { ...community.features, noPostUpvotes: true } });
 
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
-        postToVoteOn = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: remotePKC });
+        postToVoteOn = await publishRandomPost({ communityAddress: community.address, pkc: remotePKC });
     });
 
     afterAll(async () => {
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
         await remotePKC.destroy();
     });
 
-    it(`Not allowed to publish upvotes to posts if subplebbit.features.noPostUpvotes=true`, async () => {
+    it(`Not allowed to publish upvotes to posts if community.features.noPostUpvotes=true`, async () => {
         const upvote = await generateMockVote(postToVoteOn as CommentIpfsWithCidDefined, 1, remotePKC); // should be rejected
 
         await publishWithExpectedResult({
@@ -51,14 +51,14 @@ describe.concurrent(`subplebbit.features.noPostUpvotes`, async () => {
         });
     });
 
-    it(`Allowed to publish downvotes to posts if subplebbit.features.noPostUpvotes=true`, async () => {
+    it(`Allowed to publish downvotes to posts if community.features.noPostUpvotes=true`, async () => {
         const downvote = await generateMockVote(postToVoteOn as CommentIpfsWithCidDefined, -1, remotePKC); // should be accepted
 
         await publishWithExpectedResult({ publication: downvote, expectedChallengeSuccess: true });
     });
 
-    it(`Allowed to publish upvotes and downvotes to replies if subplebbit.noPostUpvotes=true`, async () => {
-        const reply = await publishRandomReply({ parentComment: postToVoteOn as CommentIpfsWithCidDefined, plebbit: plebbit });
+    it(`Allowed to publish upvotes and downvotes to replies if community.noPostUpvotes=true`, async () => {
+        const reply = await publishRandomReply({ parentComment: postToVoteOn as CommentIpfsWithCidDefined, pkc: pkc });
 
         const upvote = await generateMockVote(reply as CommentIpfsWithCidDefined, 1, remotePKC);
         const downvote = await generateMockVote(reply as CommentIpfsWithCidDefined, -1, remotePKC);

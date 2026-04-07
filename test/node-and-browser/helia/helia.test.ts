@@ -24,7 +24,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
         let publishedPost: Comment;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise({ forceMockPubsub: false });
+            pkc = await config.pkcInstancePromise({ forceMockPubsub: false });
         });
 
         afterAll(async () => {
@@ -57,17 +57,17 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
 
             await comment.update();
             await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });
-            expect(comment.author.subplebbit).to.be.a("object");
+            expect(comment.author.community).to.be.a("object");
             await comment.stop();
         });
 
         it(`It should connect to peers if we're publishing over pubsub`, async () => {
-            const testPKC = await config.plebbitInstancePromise({
+            const testPKC = await config.pkcInstancePromise({
                 forceMockPubsub: false
             });
 
             const kuboPKC = await mockPKCV2({
-                plebbitOptions: { pubsubKuboRpcClientsOptions: ["http://localhost:15001/api/v0"] },
+                pkcOptions: { pubsubKuboRpcClientsOptions: ["http://localhost:15001/api/v0"] },
                 forceMockPubsub: false,
                 remotePKC: true
             });
@@ -99,12 +99,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
         });
 
         it(`should connect to peers if we're subscribing over pubsub`, async () => {
-            const testPKC = await config.plebbitInstancePromise({
+            const testPKC = await config.pkcInstancePromise({
                 forceMockPubsub: false
             });
 
             const kuboPKC = await mockPKCV2({
-                plebbitOptions: { pubsubKuboRpcClientsOptions: ["http://localhost:15001/api/v0"] },
+                pkcOptions: { pubsubKuboRpcClientsOptions: ["http://localhost:15001/api/v0"] },
                 forceMockPubsub: false,
                 remotePKC: true
             });
@@ -138,7 +138,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             await kuboPKC.destroy();
         });
         it(`it should connect if we're fetching content by CID`, async () => {
-            const testPKC = await config.plebbitInstancePromise({
+            const testPKC = await config.pkcInstancePromise({
                 forceMockPubsub: false
             });
 
@@ -164,7 +164,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
 
             // We need to test if we can fetch the IPNS using pubsub only
 
-            const testPKC = await config.plebbitInstancePromise({
+            const testPKC = await config.pkcInstancePromise({
                 forceMockPubsub: false
             });
 
@@ -190,9 +190,9 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             const parallelClients = 20;
             const sharedKey = `helia-parallel-${Date.now()}`;
             const plebbitFactory = () =>
-                config.plebbitInstancePromise({
+                config.pkcInstancePromise({
                     forceMockPubsub: true,
-                    plebbitOptions: {
+                    pkcOptions: {
                         libp2pJsClientsOptions: [
                             {
                                 key: sharedKey,

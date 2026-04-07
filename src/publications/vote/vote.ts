@@ -18,8 +18,8 @@ class Vote extends Publication implements VotePubsubMessagePublication {
     override raw: { pubsubMessageToPublish?: VotePubsubMessagePublication } = {};
     override challengeRequest?: CreateVoteOptions["challengeRequest"];
 
-    constructor(plebbit: PKC) {
-        super(plebbit);
+    constructor(pkc: PKC) {
+        super(pkc);
 
         // public method should be bound
         this.publish = this.publish.bind(this);
@@ -55,7 +55,7 @@ class Vote extends Publication implements VotePubsubMessagePublication {
     protected override async _signPublicationOptionsToPublish(
         cleanedPublication: unknown
     ): Promise<VotePubsubMessagePublication["signature"]> {
-        return signVote({ vote: cleanedPublication as VoteOptionsToSign, plebbit: this._plebbit });
+        return signVote({ vote: cleanedPublication as VoteOptionsToSign, pkc: this._pkc });
     }
 
     _initRemoteProps(props: VotePubsubMessagePublication): void {
@@ -73,7 +73,7 @@ class Vote extends Publication implements VotePubsubMessagePublication {
         const voteObj = JSON.parse(JSON.stringify(this.raw.pubsubMessageToPublish!)); // Stringified here to simulate a message sent through IPNS/PUBSUB
         const signatureValidity = await verifyVote({
             vote: voteObj,
-            resolveAuthorNames: this._plebbit.resolveAuthorNames,
+            resolveAuthorNames: this._pkc.resolveAuthorNames,
             clientsManager: this._clientsManager
         });
         if (!signatureValidity.valid) throw new PKCError("ERR_SIGNATURE_IS_INVALID", { signatureValidity });

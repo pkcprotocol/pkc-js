@@ -31,38 +31,38 @@ for (let i = 0; i < depthsToTest.length; i += batchSize) {
 }
 
 for (const batch of depthBatches) {
-    // Sequential between batches — limits concurrent subplebbits to 3 at a time
+    // Sequential between batches — limits concurrent communities to 3 at a time
     describe(`Approved modqueue batch [${batch.join(",")}]`, () => {
         for (const pendingCommentDepth of batch) {
             describeSkipIfRpc.concurrent(`Approved comments after pending approval, with depth ` + pendingCommentDepth, async () => {
-                let plebbit: PKCType;
-                let subplebbit: LocalCommunity | RpcLocalCommunity;
+                let pkc: PKCType;
+                let community: LocalCommunity | RpcLocalCommunity;
                 let approvedComment: Comment;
                 let modSigner: SignerType;
                 let remotePKC: PKCType;
 
                 beforeAll(async () => {
-                    plebbit = await mockPKC();
+                    pkc = await mockPKC();
                     remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
-                    subplebbit = (await plebbit.createCommunity()) as LocalCommunity | RpcLocalCommunity;
-                    subplebbit.setMaxListeners(200);
-                    modSigner = await plebbit.createSigner();
+                    community = (await pkc.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+                    community.setMaxListeners(200);
+                    modSigner = await pkc.createSigner();
 
-                    await subplebbit.edit({
+                    await community.edit({
                         roles: {
                             [modSigner.address]: { role: "moderator" }
                         },
                         settings: { challenges: [createPendingApprovalChallenge()] }
                     });
-                    await subplebbit.start();
+                    await community.start();
 
-                    await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => Boolean(subplebbit.updatedAt) });
+                    await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => Boolean(community.updatedAt) });
 
-                    expect(Object.keys(subplebbit.modQueue.pageCids)).to.deep.equal([]); // should be empty
+                    expect(Object.keys(community.modQueue.pageCids)).to.deep.equal([]); // should be empty
 
                     const pending = await publishToModQueueWithDepth({
-                        subplebbit,
-                        plebbit: remotePKC,
+                        community,
+                        pkc: remotePKC,
                         depth: pendingCommentDepth,
                         modCommentProps: { signer: modSigner },
                         commentProps: pendingApprovalCommentProps
@@ -70,21 +70,21 @@ for (const batch of depthBatches) {
                     approvedComment = pending.comment;
 
                     await resolveWhenConditionIsTrue({
-                        toUpdate: subplebbit,
-                        predicate: async () => Boolean(subplebbit.modQueue.pageCids.pendingApproval)
+                        toUpdate: community,
+                        predicate: async () => Boolean(community.modQueue.pageCids.pendingApproval)
                     }); // wait until we publish a new mod queue with this new comment
                     await approvedComment.update();
                 });
 
                 afterAll(async () => {
-                    await subplebbit.delete();
-                    await plebbit.destroy();
+                    await community.delete();
+                    await pkc.destroy();
                     await remotePKC.destroy();
                 });
 
                 it.sequential("Should approve comment using createCommentModeration with approved: true", async () => {
-                    const commentModeration = await plebbit.createCommentModeration({
-                        communityAddress: subplebbit.address,
+                    const commentModeration = await pkc.createCommentModeration({
+                        communityAddress: community.address,
                         signer: modSigner,
                         commentModeration: { approved: true, reason: "test approval" },
                         commentCid: approvedComment.cid!
@@ -117,50 +117,46 @@ for (const batch of depthBatches) {
                 });
 
                 if (pendingCommentDepth === 0)
-                    it.sequential(`Approved post is now reflected in subplebbit.lastPostCid`, async () => {
+                    it.sequential(`Approved post is now reflected in community.lastPostCid`, async () => {
                         await resolveWhenConditionIsTrue({
-                            toUpdate: subplebbit,
-                            predicate: async () => subplebbit.lastPostCid === approvedComment.cid
+                            toUpdate: community,
+                            predicate: async () => community.lastPostCid === approvedComment.cid
                         });
-                        expect(subplebbit.lastPostCid).to.equal(approvedComment.cid);
+                        expect(community.lastPostCid).to.equal(approvedComment.cid);
                     });
 
-                it.sequential(`Approved comment now appears in subplebbit.lastCommentCid`, async () => {
+                it.sequential(`Approved comment now appears in community.lastCommentCid`, async () => {
                     await resolveWhenConditionIsTrue({
-                        toUpdate: subplebbit,
-                        predicate: async () => subplebbit.lastCommentCid === approvedComment.cid
+                        toUpdate: community,
+                        predicate: async () => community.lastCommentCid === approvedComment.cid
                     });
 
-                    expect(subplebbit.lastCommentCid).to.equal(approvedComment.cid);
+                    expect(community.lastCommentCid).to.equal(approvedComment.cid);
                 });
 
                 if (pendingCommentDepth > 0) {
                     it.sequential(`Approved reply show up in parentComment.replyCount`, async () => {
-                        expect((await getCommentWithCommentUpdateProps({ cid: approvedComment.parentCid!, plebbit })).replyCount).to.equal(
-                            1
-                        );
+                        expect((await getCommentWithCommentUpdateProps({ cid: approvedComment.parentCid!, pkc })).replyCount).to.equal(1);
                     });
                     it(`Approved reply show up in parentComment.childCount`, async () => {
-                        expect((await getCommentWithCommentUpdateProps({ cid: approvedComment.parentCid!, plebbit })).childCount).to.equal(
-                            1
-                        );
+                        expect((await getCommentWithCommentUpdateProps({ cid: approvedComment.parentCid!, pkc })).childCount).to.equal(1);
                     });
                     it(`Approved reply show up in parentComment.lastChildCid`, async () => {
-                        expect(
-                            (await getCommentWithCommentUpdateProps({ cid: approvedComment.parentCid!, plebbit })).lastChildCid
-                        ).to.equal(approvedComment.cid);
+                        expect((await getCommentWithCommentUpdateProps({ cid: approvedComment.parentCid!, pkc })).lastChildCid).to.equal(
+                            approvedComment.cid
+                        );
                     });
                     it(`Approved reply show up in parentComment.lastReplyTimestamp`, async () => {
                         expect(
-                            (await getCommentWithCommentUpdateProps({ cid: approvedComment.parentCid!, plebbit })).lastReplyTimestamp
+                            (await getCommentWithCommentUpdateProps({ cid: approvedComment.parentCid!, pkc })).lastReplyTimestamp
                         ).to.equal(approvedComment.timestamp);
                     });
                 }
 
-                it(`Approved comment now appears in subplebbit.posts`, async () => {
+                it(`Approved comment now appears in community.posts`, async () => {
                     const preloadedSortName = "hot";
                     const { generated, capturedChunks } = await capturePostsGeneration(
-                        subplebbit as LocalCommunity,
+                        community as LocalCommunity,
                         preloadedSortName,
                         1024 * 1024
                     );
@@ -173,11 +169,11 @@ for (const batch of depthBatches) {
                 if (pendingCommentDepth > 0) {
                     itSkipIfRpc(`Approved reply now shows up in parentComment.replies`, async () => {
                         // @ts-expect-error - accessing private _dbHandler
-                        const parentRow = (subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(approvedComment.parentCid!);
+                        const parentRow = (community._dbHandler as LocalCommunity["_dbHandler"]).queryComment(approvedComment.parentCid!);
                         expect(parentRow).to.exist;
 
                         const { generated, capturedChunks } = await captureRepliesGeneration({
-                            subplebbit: subplebbit as LocalCommunity,
+                            community: community as LocalCommunity,
                             parentCid: parentRow!.cid,
                             parentDepth: parentRow!.depth,
                             preloadedSortName: "best",
@@ -190,12 +186,12 @@ for (const batch of depthBatches) {
                     });
                     itSkipIfRpc(`Approved reply now shows up in its post's flat pages`, async () => {
                         // @ts-expect-error - accessing private _dbHandler
-                        const postRow = (subplebbit._dbHandler as LocalCommunity["_dbHandler"]).queryComment(approvedComment.postCid!);
+                        const postRow = (community._dbHandler as LocalCommunity["_dbHandler"]).queryComment(approvedComment.postCid!);
                         expect(postRow).to.exist;
 
                         for (const sortName of ["newFlat", "oldFlat"]) {
                             const { generated, capturedChunks } = await captureRepliesGeneration({
-                                subplebbit: subplebbit as LocalCommunity,
+                                community: community as LocalCommunity,
                                 parentCid: postRow!.cid,
                                 parentDepth: postRow!.depth,
                                 preloadedSortName: sortName,
@@ -210,14 +206,14 @@ for (const batch of depthBatches) {
                 }
 
                 it(`Approved comment does not appear in modQueue.pageCids`, async () => {
-                    expect(subplebbit.modQueue.pageCids.pendingApproval).to.be.undefined;
+                    expect(community.modQueue.pageCids.pendingApproval).to.be.undefined;
                 });
 
                 if (pendingCommentDepth === 0)
-                    itSkipIfRpc(`Approved post shows up in subplebbit.postUpdates`, async () => {
-                        expect(subplebbit.postUpdates).to.exist;
-                        const localMfsPath = `/${subplebbit.address}/postUpdates/86400/${approvedComment.cid}/update`;
-                        const kuboRpc = Object.values(plebbit.clients.kuboRpcClients)[0]._client;
+                    itSkipIfRpc(`Approved post shows up in community.postUpdates`, async () => {
+                        expect(community.postUpdates).to.exist;
+                        const localMfsPath = `/${community.address}/postUpdates/86400/${approvedComment.cid}/update`;
+                        const kuboRpc = Object.values(pkc.clients.kuboRpcClients)[0]._client;
 
                         const res = await kuboRpc.files.stat(localMfsPath); // this call needs to pass because file should exist
 
@@ -225,7 +221,7 @@ for (const batch of depthBatches) {
                     });
 
                 itSkipIfRpc(`Approved comment is pinned to IPFS node`, async () => {
-                    const kuboRpc = Object.values(plebbit.clients.kuboRpcClients)[0]._client;
+                    const kuboRpc = Object.values(pkc.clients.kuboRpcClients)[0]._client;
 
                     // Retry block.stat to handle transient Kubo RPC connection issues on macOS CI
                     let res: { size: number } | undefined;
@@ -252,8 +248,8 @@ for (const batch of depthBatches) {
                 });
 
                 it(`Sub should reject CommentModeration if a mod publishes approval for a comment that already got approved`, async () => {
-                    const commentModeration = await plebbit.createCommentModeration({
-                        communityAddress: subplebbit.address,
+                    const commentModeration = await pkc.createCommentModeration({
+                        communityAddress: community.address,
                         signer: modSigner,
                         commentModeration: { approved: true },
                         commentCid: approvedComment.cid!
@@ -271,27 +267,27 @@ for (const batch of depthBatches) {
 }
 
 async function capturePostsGeneration(
-    subplebbit: LocalCommunity,
+    community: LocalCommunity,
     preloadedSortName: string,
     preloadedPageSizeBytes: number
 ): Promise<{ generated: CommentWithinRepliesPostsPageJson | undefined; capturedChunks: ChunkItem[][] }> {
     return captureSortChunks({
-        subplebbit,
+        community,
         matchParentCid: null,
         matchSortName: preloadedSortName,
         // @ts-expect-error - accessing private _pageGenerator
-        generate: () => subplebbit._pageGenerator.generateCommunityPosts(preloadedSortName, preloadedPageSizeBytes)
+        generate: () => community._pageGenerator.generateCommunityPosts(preloadedSortName, preloadedPageSizeBytes)
     });
 }
 
 async function captureRepliesGeneration({
-    subplebbit,
+    community,
     parentCid,
     parentDepth,
     preloadedSortName,
     preloadedPageSizeBytes
 }: {
-    subplebbit: LocalCommunity;
+    community: LocalCommunity;
     parentCid: string;
     parentDepth: number;
     preloadedSortName: string;
@@ -300,17 +296,17 @@ async function captureRepliesGeneration({
     const generator =
         parentDepth === 0
             ? // @ts-expect-error - accessing private _pageGenerator
-              () => subplebbit._pageGenerator.generatePostPages({ cid: parentCid }, preloadedSortName, preloadedPageSizeBytes)
+              () => community._pageGenerator.generatePostPages({ cid: parentCid }, preloadedSortName, preloadedPageSizeBytes)
             : () =>
                   // @ts-expect-error - accessing private _pageGenerator
-                  subplebbit._pageGenerator.generateReplyPages(
+                  community._pageGenerator.generateReplyPages(
                       { cid: parentCid, depth: parentDepth },
                       preloadedSortName,
                       preloadedPageSizeBytes
                   );
 
     return captureSortChunks({
-        subplebbit,
+        community,
         matchParentCid: parentCid,
         matchSortName: preloadedSortName,
         generate: generator
@@ -318,21 +314,21 @@ async function captureRepliesGeneration({
 }
 
 async function captureSortChunks<T>({
-    subplebbit,
+    community,
     matchParentCid,
     matchSortName,
     generate
 }: {
-    subplebbit: LocalCommunity;
+    community: LocalCommunity;
     matchParentCid: string | null;
     matchSortName: string;
     generate: () => Promise<T>;
 }): Promise<{ generated: T; capturedChunks: ChunkItem[][] }> {
     const capturedChunks: ChunkItem[][] = [];
     // @ts-expect-error - accessing private _pageGenerator
-    const originalSortAndChunk = subplebbit._pageGenerator.sortAndChunkComments;
+    const originalSortAndChunk = community._pageGenerator.sortAndChunkComments;
     // @ts-expect-error - accessing private _pageGenerator
-    subplebbit._pageGenerator.sortAndChunkComments = async function (...args: [unknown, string, { parentCid?: string | null }?]) {
+    community._pageGenerator.sortAndChunkComments = async function (...args: [unknown, string, { parentCid?: string | null }?]) {
         const result = await originalSortAndChunk.apply(this, args);
         const [, sortName, options] = args;
         if (sortName === matchSortName && (options?.parentCid ?? null) === (matchParentCid ?? null)) {
@@ -346,7 +342,7 @@ async function captureSortChunks<T>({
         return { generated, capturedChunks };
     } finally {
         // @ts-expect-error - accessing private _pageGenerator
-        subplebbit._pageGenerator.sortAndChunkComments = originalSortAndChunk;
+        community._pageGenerator.sortAndChunkComments = originalSortAndChunk;
     }
 }
 

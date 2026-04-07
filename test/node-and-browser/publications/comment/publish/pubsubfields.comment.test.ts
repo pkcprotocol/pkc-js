@@ -28,7 +28,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let community: CommunityForSigning;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
             const sub = await pkc.getCommunity({ address: signers[0].address });
             community = sub as CommunityForSigning;
         });
@@ -41,7 +41,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const challengeRequestFields = { challengeAnswers: ["12345"] };
             const comment = await generateMockPost({
                 communityAddress: signers[0].address,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: { challengeRequest: challengeRequestFields }
             });
             expect(comment.challengeRequest).to.deep.equal(challengeRequestFields);
@@ -60,7 +60,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const challengeRequestFields = { challengeCommentCids: ["QmXsYKgNH7XoZXdLko5uDvtWSRNE2AXuQ4u8KxVpCacrZx"] }; // random cid
             const comment = await generateMockPost({
                 communityAddress: signers[0].address,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: { challengeRequest: challengeRequestFields }
             });
 
@@ -82,7 +82,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             }; // random cid
             const comment = await generateMockPost({
                 communityAddress: signers[0].address,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: { challengeRequest: challengeRequestFields }
             });
             const recreatedComment = await pkc.createComment(JSON.parse(JSON.stringify(comment)));

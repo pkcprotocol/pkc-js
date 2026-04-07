@@ -56,7 +56,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             if (!communityPage || communityPage.comments.length < 10) {
                 await Promise.all(
                     new Array(5).fill(null).map(async (_x) => {
-                        const post = await publishRandomPost({ communityAddress: community.address, plebbit: pkc });
+                        const post = await publishRandomPost({ communityAddress: community.address, pkc: pkc });
                         await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, community);
                         return post;
                     })
@@ -64,19 +64,19 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             }
         };
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
             sub = await pkc.getCommunity({ address: communityAddress });
             await populateSub(sub);
             await sub.update();
 
             postToPin = await publishRandomPost({
                 communityAddress: communityAddress,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: { timestamp: Math.round(Date.now() / 1000) - 110 }
             });
             secondPostToPin = await publishRandomPost({
                 communityAddress: communityAddress,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: { timestamp: Math.round(Date.now() / 1000) - 100 }
             });
 
@@ -320,15 +320,13 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         const populatePost = async () => {
             if (post.replyCount < 5) {
                 await Promise.all(
-                    new Array(10)
-                        .fill(null)
-                        .map((_x) => publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc }))
+                    new Array(10).fill(null).map((_x) => publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, pkc: pkc }))
                 );
                 await resolveWhenConditionIsTrue({ toUpdate: post, predicate: async () => post.replyCount > 5 });
             }
         };
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
             sub = await pkc.getCommunity({ address: communityAddress });
 
             const allPosts = sub.posts.pageCids.new ? await loadAllPages(sub.posts.pageCids.new, sub.posts) : sub.posts.pages.hot.comments;
@@ -336,7 +334,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await post.update();
             await populatePost();
             expect(post.replyCount).to.be.greaterThan(5); // Arbitary number
-            replyToPin = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc });
+            replyToPin = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, pkc: pkc });
             await removeAllPins(
                 post.replies.pageCids.best
                     ? await loadAllPages(post.replies.pageCids.best, post.replies)

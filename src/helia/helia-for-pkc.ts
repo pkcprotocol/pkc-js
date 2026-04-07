@@ -23,10 +23,10 @@ import { connectToPubsubPeers } from "./util.js";
 
 const log = Logger("pkc-js:libp2p-js");
 
-const libp2pJsClients: Partial<Record<string, Libp2pJsClient>> = {}; // key => plebbit.clients.libp2pJsClients[key]
+const libp2pJsClients: Partial<Record<string, Libp2pJsClient>> = {}; // key => pkc.clients.libp2pJsClients[key]
 const creatingLibp2pJsClients: Partial<Record<string, Promise<Libp2pJsClient>>> = {};
 
-// TODO need to call ipnsRouter.cancel when our subplebbit stops updating
+// TODO need to call ipnsRouter.cancel when our community stops updating
 // TODO we may need to remove libp2pJsClients and creatingLibp2pJsClients, I actually don't think they're needed
 
 // TODO can you verify if we're already content who has a specific and we fetch the CID even though http router says it has no providers, it should be able to load the CID
@@ -45,43 +45,43 @@ function getDelegatedRoutingFields(routers: string[]) {
 }
 
 export async function createLibp2pJsClientOrUseExistingOne(
-    plebbitOptions: Required<Pick<ParsedPKCOptions, "httpRoutersOptions">> & NonNullable<ParsedPKCOptions["libp2pJsClientsOptions"]>[number]
+    pkcOptions: Required<Pick<ParsedPKCOptions, "httpRoutersOptions">> & NonNullable<ParsedPKCOptions["libp2pJsClientsOptions"]>[number]
 ): Promise<Libp2pJsClient> {
-    if (!plebbitOptions.httpRoutersOptions?.length) throw Error("You need to have plebbit.httpRouterOptions to set up helia");
-    const existingClient = libp2pJsClients[plebbitOptions.key];
+    if (!pkcOptions.httpRoutersOptions?.length) throw Error("You need to have pkc.httpRouterOptions to set up helia");
+    const existingClient = libp2pJsClients[pkcOptions.key];
     if (existingClient) {
         existingClient.countOfUsesOfInstance++;
         return existingClient;
     }
 
-    const creatingClientPromise = creatingLibp2pJsClients[plebbitOptions.key];
+    const creatingClientPromise = creatingLibp2pJsClients[pkcOptions.key];
     if (creatingClientPromise) {
         const client = await creatingClientPromise;
         client.countOfUsesOfInstance++;
         return client;
     }
 
-    creatingLibp2pJsClients[plebbitOptions.key] = (async () => {
+    creatingLibp2pJsClients[pkcOptions.key] = (async () => {
         const mergedHeliaInit = {
             libp2p: {
                 // for now we're overwriting addresses
                 addresses: { listen: [] }, // TODO at some point we should use addresses, but right now it gets into an infinite loop with random walk
                 peerDiscovery: undefined,
-                ...plebbitOptions.libp2pOptions,
+                ...pkcOptions.libp2pOptions,
                 // Configure connection manager to handle more concurrent streams
 
                 services: {
                     identify: identify(),
                     pubsub: gossipsub(),
                     fetch: libp2pFetch(),
-                    ...getDelegatedRoutingFields(plebbitOptions.httpRoutersOptions),
-                    ...plebbitOptions.libp2pOptions?.services
+                    ...getDelegatedRoutingFields(pkcOptions.httpRoutersOptions),
+                    ...pkcOptions.libp2pOptions?.services
                 }
             },
             blockstore: new MemoryBlockstore(), // TODO use indexed db here
             blockBrokers: [bitswap()],
             start: false,
-            ...plebbitOptions.heliaOptions
+            ...pkcOptions.heliaOptions
         } as Libp2pJsClient["_mergedHeliaOptions"];
 
         const helia = <HeliaWithLibp2pPubsub>await createHelia(mergedHeliaInit);
@@ -89,7 +89,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
         //@ts-expect-error
         helia.routing.routers = [helia.routing.routers[0]]; // remove gateway routing
 
-        log("Initialized libp2pjs helia with key", plebbitOptions.key, "peer id", helia.libp2p.peerId.toString());
+        log("Initialized libp2pjs helia with key", pkcOptions.key, "peer id", helia.libp2p.peerId.toString());
 
         const pubsubEventHandler = new EventEmitter();
 
@@ -113,7 +113,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
             if (helia.libp2p.status === "stopped" || helia.libp2p.status === "stopping")
                 throw new PKCError("ERR_HELIAS_STOPPING_OR_STOPPED", {
                     heliaStatus: helia.libp2p.status,
-                    heliaKey: plebbitOptions.key,
+                    heliaKey: pkcOptions.key,
                     heliaPeerId: helia.libp2p.peerId.toString(),
                     helia
                 });
@@ -213,10 +213,10 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 entry: Parameters<Libp2pJsClient["heliaWithKuboRpcClientFunctions"]["add"]>[0], // More specific types will be checked internally
                 options?: Parameters<Libp2pJsClient["heliaWithKuboRpcClientFunctions"]["add"]>[1]
             ): Promise<AddResult> {
-                throw Error("Helia 'add' is not supported at the moment in plebbit-js API");
+                throw Error("Helia 'add' is not supported at the moment in pkc-js API");
             },
             async stop(options) {
-                const clientFromMap = libp2pJsClients[plebbitOptions.key];
+                const clientFromMap = libp2pJsClients[pkcOptions.key];
                 if (!clientFromMap) return; // already been stopped
                 if (clientFromMap.countOfUsesOfInstance <= 0) return; // stop already in progress or over-released
                 clientFromMap.countOfUsesOfInstance--;
@@ -228,8 +228,8 @@ export async function createLibp2pJsClientOrUseExistingOne(
                         log.error("Error stopping helia", e);
                     }
 
-                    delete libp2pJsClients[plebbitOptions.key];
-                    log("Helia/libp2p-js stopped with key", plebbitOptions.key, "and peer id", helia.libp2p.peerId.toString());
+                    delete libp2pJsClients[pkcOptions.key];
+                    log("Helia/libp2p-js stopped with key", pkcOptions.key, "and peer id", helia.libp2p.peerId.toString());
                 }
             }
         };
@@ -261,26 +261,26 @@ export async function createLibp2pJsClientOrUseExistingOne(
             heliaIpnsRouter: ipnsNameResolver,
             mergedHeliaOptions: mergedHeliaInit,
             countOfUsesOfInstance: 1,
-            libp2pJsClientsOptions: plebbitOptions,
-            key: plebbitOptions.key
+            libp2pJsClientsOptions: pkcOptions,
+            key: pkcOptions.key
         };
 
         const client = new Libp2pJsClient(fullInstanceWithOptions);
 
         await helia.start();
-        log("Helia/libp2p-js started with key", plebbitOptions.key, "and peer id", helia.libp2p.peerId.toString());
+        log("Helia/libp2p-js started with key", pkcOptions.key, "and peer id", helia.libp2p.peerId.toString());
 
-        libp2pJsClients[plebbitOptions.key] = client;
+        libp2pJsClients[pkcOptions.key] = client;
 
         return client;
     })();
 
-    const createdClientPromise = creatingLibp2pJsClients[plebbitOptions.key];
+    const createdClientPromise = creatingLibp2pJsClients[pkcOptions.key];
     if (!createdClientPromise) throw new Error("Missing creation promise after initialization");
 
     try {
         return await createdClientPromise;
     } finally {
-        delete creatingLibp2pJsClients[plebbitOptions.key];
+        delete creatingLibp2pJsClients[pkcOptions.key];
     }
 }

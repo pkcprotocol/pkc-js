@@ -25,10 +25,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC, commentToBeEdited: Comment, originalContent: string;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
             commentToBeEdited = await publishRandomPost({
                 communityAddress: communityAddress,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: { content: "original content" }
             });
             originalContent = remeda.clone(commentToBeEdited.content);
@@ -79,9 +79,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(commentToBeEdited.content).to.equal(editedText);
             expect((commentToBeEdited.raw.comment ?? commentToBeEdited.raw.pubsubMessageToPublish)?.content).to.equal(originalContent);
             expect(commentToBeEdited.edit.reason).to.equal(editReason);
-            expect(commentToBeEdited.author.subplebbit.postScore).to.equal(0);
-            expect(commentToBeEdited.author.subplebbit.replyScore).to.equal(0);
-            expect(commentToBeEdited.author.subplebbit.lastCommentCid).to.equal(commentToBeEdited.cid);
+            expect(commentToBeEdited.author.community.postScore).to.equal(0);
+            expect(commentToBeEdited.author.community.replyScore).to.equal(0);
+            expect(commentToBeEdited.author.community.lastCommentCid).to.equal(commentToBeEdited.cid);
             expect(commentToBeEdited.edit.authorAddress).to.be.undefined;
             expect(commentToBeEdited.edit.challengeRequestId).to.be.undefined;
         });
@@ -200,16 +200,16 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(commentToBeEdited.content).to.equal(editedText);
             expect((commentToBeEdited.raw.comment ?? commentToBeEdited.raw.pubsubMessageToPublish)?.content).to.equal(originalContent);
             expect(commentToBeEdited.edit.reason).to.equal(editReason);
-            expect(commentToBeEdited.author.subplebbit.postScore).to.equal(0);
-            expect(commentToBeEdited.author.subplebbit.replyScore).to.equal(0);
-            expect(commentToBeEdited.author.subplebbit.lastCommentCid).to.equal(commentToBeEdited.cid);
+            expect(commentToBeEdited.author.community.postScore).to.equal(0);
+            expect(commentToBeEdited.author.community.replyScore).to.equal(0);
+            expect(commentToBeEdited.author.community.lastCommentCid).to.equal(commentToBeEdited.cid);
         });
 
         roles.map((roleTest) =>
             it(`${roleTest.role} role Can modify their own comment content`, async () => {
                 const commentToEdit = await publishRandomPost({
                     communityAddress: communityAddress,
-                    plebbit: pkc,
+                    pkc: pkc,
                     postProps: { signer: roleTest.signer }
                 });
                 const originalContent = remeda.clone(commentToEdit.content);

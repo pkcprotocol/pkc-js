@@ -31,20 +31,20 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
     describe(`comment.clients.${clientFieldName} - ${config.name}`, async () => {
         let pkc: PKC;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
         afterAll(async () => {
             await pkc.destroy();
         });
 
         it(`comment.clients.${clientFieldName}[url].state is stopped by default`, async () => {
-            const mockPost = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
+            const mockPost = await generateMockPost({ communityAddress: communityAddress, pkc: pkc });
             for (const client of Object.values(mockPost.clients[clientFieldName as keyof typeof mockPost.clients]))
                 expect((client as { state: string }).state).to.equal("stopped");
         });
 
         it(`correct order of ${clientFieldName} state when publishing a comment with a sub that skips challenge`, async () => {
-            const mockPost = await generateMockPost({ communityAddress: signers[0].address, plebbit: pkc });
+            const mockPost = await generateMockPost({ communityAddress: signers[0].address, pkc: pkc });
 
             const pubsubUrls = Object.keys((pkc.clients as Record<string, Record<string, unknown>>)[clientFieldName]);
             // Only first pubsub url is used for subscription. For publishing we use all providers
@@ -75,7 +75,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
             const community = await pkc.getCommunity({ address: signers[0].address });
             mockPost._getCommunityCache = (): ReturnType<Comment["_getCommunityCache"]> => {
-                const ipfs = community.raw.subplebbitIpfs;
+                const ipfs = community.raw.communityIpfs;
                 if (!ipfs) return undefined;
                 return {
                     address: community.address,
@@ -136,13 +136,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         if (config.testConfigCode === "remote-kubo-rpc")
             it(`correct order of ${clientFieldName} state when failing to publish a comment and the error is from the pubsub provider`, async () => {
                 const offlinePubsubUrl = "http://localhost:13173"; // Should be down
-                const offlinePubsubPKC = await config.plebbitInstancePromise({
-                    plebbitOptions: {
+                const offlinePubsubPKC = await config.pkcInstancePromise({
+                    pkcOptions: {
                         pubsubKuboRpcClientsOptions: [offlinePubsubUrl]
                     }
                 });
 
-                const mockPost = await generateMockPost({ communityAddress: signers[1].address, plebbit: offlinePubsubPKC });
+                const mockPost = await generateMockPost({ communityAddress: signers[1].address, pkc: offlinePubsubPKC });
 
                 const actualStates: string[] = [];
 
@@ -168,13 +168,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             it(`Correct order of ${clientFieldName} state when failing to publish a comment on one pubsub provider and moving on to the other one`, async () => {
                 const offlinePubsubUrl = "http://localhost:13173"; // Should be down
                 const upPubsubUrl = "http://localhost:15002/api/v0";
-                const plebbit: PKC = await mockRemotePKC({
-                    plebbitOptions: { pubsubKuboRpcClientsOptions: [offlinePubsubUrl, upPubsubUrl] }
+                const pkc: PKC = await mockRemotePKC({
+                    pkcOptions: { pubsubKuboRpcClientsOptions: [offlinePubsubUrl, upPubsubUrl] }
                 });
 
                 pkc.clients.pubsubKuboRpcClients[upPubsubUrl]._client = createMockPubsubClient(); // Use mock pubsub to be on the same pubsub as the sub
 
-                const mockPost = await generateMockPost({ communityAddress: signers[0].address, plebbit: pkc });
+                const mockPost = await generateMockPost({ communityAddress: signers[0].address, pkc: pkc });
 
                 const expectedStates = {
                     [offlinePubsubUrl]: ["subscribing-pubsub", "stopped"],
@@ -197,8 +197,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             it(`Correct order of pubsubKuboRpcClients state when provider 1 is not responding and moving on to the other one`, async () => {
                 const notRespondingPubsubUrl = "http://localhost:15005/api/v0"; // Should take msgs but not respond, never throws errors
                 const upPubsubUrl = "http://localhost:15002/api/v0";
-                const plebbit: PKC = await mockPKCV2({
-                    plebbitOptions: {
+                const pkc: PKC = await mockPKCV2({
+                    pkcOptions: {
                         pubsubKuboRpcClientsOptions: [notRespondingPubsubUrl, upPubsubUrl]
                     },
                     forceMockPubsub: false,
@@ -207,7 +207,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
                 pkc.clients.pubsubKuboRpcClients[upPubsubUrl]._client = createMockPubsubClient(); // Use mock pubsub to be on the same pubsub as the sub
 
-                const mockPost = await generateMockPost({ communityAddress: signers[0].address, plebbit: pkc });
+                const mockPost = await generateMockPost({ communityAddress: signers[0].address, pkc: pkc });
                 (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 5;
 
                 const expectedStates = {
@@ -231,8 +231,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             it(`correct order of pubsubKuboRpcClients state when publishing a comment with a sub that requires challenge (pubsub provider 0 fail to receive a response in alotted time)`, async () => {
                 const notRespondingPubsubUrl = "http://localhost:15005/api/v0"; // Should take pubsub msgs but not respond, never throws errors
                 const upPubsubUrl = "http://localhost:15002/api/v0";
-                const plebbit: PKC = await mockRemotePKC({
-                    plebbitOptions: { pubsubKuboRpcClientsOptions: [notRespondingPubsubUrl, upPubsubUrl] }
+                const pkc: PKC = await mockRemotePKC({
+                    pkcOptions: { pubsubKuboRpcClientsOptions: [notRespondingPubsubUrl, upPubsubUrl] }
                 });
 
                 pkc.clients.pubsubKuboRpcClients[upPubsubUrl]._client = createMockPubsubClient(); // Use mock pubsub to be on the same pubsub as the sub

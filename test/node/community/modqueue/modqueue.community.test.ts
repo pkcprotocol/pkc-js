@@ -21,20 +21,20 @@ import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publicatio
 // comment.approved = true is treated like a regular comment
 
 describe(`Pending approval modqueue functionality`, async () => {
-    let plebbit: PKCType;
-    let subplebbit: LocalCommunity | RpcLocalCommunity;
+    let pkc: PKCType;
+    let community: LocalCommunity | RpcLocalCommunity;
     let modSigner: SignerType;
     let regularPublishedComment: Comment;
 
     beforeAll(async () => {
-        plebbit = await mockPKC();
-        subplebbit = await createSubWithNoChallenge({}, plebbit);
-        await subplebbit.start();
+        pkc = await mockPKC();
+        community = await createSubWithNoChallenge({}, pkc);
+        await community.start();
 
-        regularPublishedComment = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
+        regularPublishedComment = await publishRandomPost({ communityAddress: community.address, pkc: pkc });
 
-        modSigner = await plebbit.createSigner();
-        await subplebbit.edit({
+        modSigner = await pkc.createSigner();
+        await community.edit({
             roles: {
                 [modSigner.address]: { role: "moderator" }
             },
@@ -50,37 +50,37 @@ describe(`Pending approval modqueue functionality`, async () => {
             }
         });
 
-        expect(Object.keys(subplebbit.modQueue.pageCids)).to.deep.equal([]); // should be empty
+        expect(Object.keys(community.modQueue.pageCids)).to.deep.equal([]); // should be empty
 
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => Boolean(subplebbit.updatedAt) });
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => Boolean(community.updatedAt) });
     });
 
     afterAll(async () => {
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
     });
 
     describe("Challenge with pendingApproval", () => {
         it("Should support pendingApproval field in challenge settings", async () => {
-            const newUpdatePromise = new Promise((resolve) => subplebbit.once("update", resolve));
-            await subplebbit.edit({ settings: { challenges: [{ ...subplebbit.settings!.challenges![0], pendingApproval: true }] } });
-            expect(subplebbit.settings!.challenges![0].pendingApproval).to.be.true;
+            const newUpdatePromise = new Promise((resolve) => community.once("update", resolve));
+            await community.edit({ settings: { challenges: [{ ...community.settings!.challenges![0], pendingApproval: true }] } });
+            expect(community.settings!.challenges![0].pendingApproval).to.be.true;
             await newUpdatePromise;
         });
 
-        it("Should reflect settings in subplebbit.challenges[x].pendingApproval", async () => {
-            expect(subplebbit.challenges![0].pendingApproval).to.be.true;
+        it("Should reflect settings in community.challenges[x].pendingApproval", async () => {
+            expect(community.challenges![0].pendingApproval).to.be.true;
         });
     });
 
     describe("Comment moderation approval of pending comment", () => {
         // TODO: Test that pending approval can exclude certain types
         // TODO need to test for publications that should not support pending approval
-        // like vote, subplebbitEdit, commentModeration, commentEdit
+        // like vote, communityEdit, commentModeration, commentEdit
 
         it("Should exclude vote type from pending approval", async () => {
             // it should fail because vote is not applicable for pendingApproval AND it published the wrong answers
-            const vote = await generateMockVote(regularPublishedComment as CommentIpfsWithCidDefined, 1, plebbit);
+            const vote = await generateMockVote(regularPublishedComment as CommentIpfsWithCidDefined, 1, pkc);
 
             vote.once("challenge", async () => await vote.publishChallengeAnswers(["1234 " + Math.random()])); // wrong answers
 
@@ -97,7 +97,7 @@ describe(`Pending approval modqueue functionality`, async () => {
 
         it(`should exclude CommentEdit from pending approval`, async () => {
             // it should fail because CommentEdit is not applicable for pendingApproval AND it published the wrong answers
-            const edit = await plebbit.createCommentEdit({
+            const edit = await pkc.createCommentEdit({
                 communityAddress: regularPublishedComment.communityAddress,
                 commentCid: regularPublishedComment.cid!,
                 reason: "random reason should fail",

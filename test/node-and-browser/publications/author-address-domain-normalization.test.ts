@@ -19,7 +19,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -93,7 +93,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it("createCommunityEdit copies author.address domain to author.name and excludes address from wire", async () => {
             const subEdit = await pkc.createCommunityEdit({
                 communityAddress: communityAddress,
-                subplebbitEdit: { title: "new title" },
+                communityEdit: { title: "new title" },
                 author: { address: domainAddress },
                 signer: signers[3]
             });
@@ -172,7 +172,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it("createCommunityEdit ignores non-domain author.address and derives address from signer", async () => {
             const subEdit = await pkc.createCommunityEdit({
                 communityAddress: communityAddress,
-                subplebbitEdit: { title: "new title" },
+                communityEdit: { title: "new title" },
                 author: { address: "bogusAddress123" },
                 signer: signers[3]
             });

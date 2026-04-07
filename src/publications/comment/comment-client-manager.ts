@@ -42,7 +42,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         ipfsGateways: { [ipfsGatewayUrl: string]: CommentIpfsGatewayClient };
         kuboRpcClients: { [ipfsClientUrl: string]: CommentKuboRpcClient };
         pubsubKuboRpcClients: { [pubsubClientUrl: string]: CommentKuboPubsubClient };
-        plebbitRpcClients: Record<string, CommentPKCRpcStateClient>;
+        pkcRpcClients: Record<string, CommentPKCRpcStateClient>;
         libp2pJsClients: { [libp2pJsClientKey: string]: CommentLibp2pJsClient };
         nameResolvers: { [resolverKey: string]: NameResolverClient };
     };
@@ -68,19 +68,19 @@ export class CommentClientsManager extends PublicationClientsManager {
     }
 
     protected override _initKuboRpcClients(): void {
-        if (this._plebbit.clients.kuboRpcClients)
-            for (const ipfsUrl of remeda.keys.strict(this._plebbit.clients.kuboRpcClients))
+        if (this._pkc.clients.kuboRpcClients)
+            for (const ipfsUrl of remeda.keys.strict(this._pkc.clients.kuboRpcClients))
                 this.clients.kuboRpcClients = { ...this.clients.kuboRpcClients, [ipfsUrl]: new CommentKuboRpcClient("stopped") };
     }
 
     protected override _initLibp2pJsClients(): void {
-        for (const libp2pJsClientKey of remeda.keys.strict(this._plebbit.clients.libp2pJsClients))
+        for (const libp2pJsClientKey of remeda.keys.strict(this._pkc.clients.libp2pJsClients))
             this.clients.libp2pJsClients = { ...this.clients.libp2pJsClients, [libp2pJsClientKey]: new CommentLibp2pJsClient("stopped") };
     }
 
     protected override _initPKCRpcClients() {
-        for (const rpcUrl of remeda.keys.strict(this._plebbit.clients.plebbitRpcClients))
-            this.clients.plebbitRpcClients = { ...this.clients.plebbitRpcClients, [rpcUrl]: new CommentPKCRpcStateClient("stopped") };
+        for (const rpcUrl of remeda.keys.strict(this._pkc.clients.pkcRpcClients))
+            this.clients.pkcRpcClients = { ...this.clients.pkcRpcClients, [rpcUrl]: new CommentPKCRpcStateClient("stopped") };
     }
 
     override updateLibp2pJsClientState(newState: CommentLibp2pJsClient["state"], libp2pJsClientKey: string) {
@@ -145,7 +145,7 @@ export class CommentClientsManager extends PublicationClientsManager {
             const path = this._calculatePathForPostCommentUpdate(folderCid, this._comment.postCid!);
             this._updateKuboRpcClientOrHeliaState("fetching-update-ipfs", kuboRpcOrHelia);
             let res: string;
-            const commentUpdateTimeoutMs = this._plebbit._timeouts["comment-update-ipfs"];
+            const commentUpdateTimeoutMs = this._pkc._timeouts["comment-update-ipfs"];
             try {
                 res = await this._fetchCidP2P(path, {
                     maxFileSizeBytes: MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE,
@@ -202,17 +202,17 @@ export class CommentClientsManager extends PublicationClientsManager {
         return true;
     }
 
-    private async _throwIfCommentUpdateHasInvalidSignature(commentUpdate: CommentUpdateType, subplebbitIpfs: CommunityIpfsType) {
+    private async _throwIfCommentUpdateHasInvalidSignature(commentUpdate: CommentUpdateType, communityIpfs: CommunityIpfsType) {
         if (!this._comment.raw.comment) throw Error("Can't validate comment update when CommentIpfs hasn't been loaded");
         if (!this._comment.cid) throw Error("can't validate comment update when cid is not defined");
         if (!this._comment.postCid) throw Error("can't validate comment update when postCid is not defined");
         const verifyOptions = {
             update: commentUpdate,
-            resolveAuthorNames: this._plebbit.resolveAuthorNames,
+            resolveAuthorNames: this._pkc.resolveAuthorNames,
             clientsManager: this,
-            subplebbit: { address: this._comment.communityAddress, signature: subplebbitIpfs.signature },
+            community: { address: this._comment.communityAddress, signature: communityIpfs.signature },
             comment: { ...this._comment.raw.comment, cid: this._comment.cid, postCid: this._comment.postCid },
-            validatePages: this._plebbit.validatePages,
+            validatePages: this._pkc.validatePages,
             validateUpdateSignature: true,
             abortSignal: this._comment._getStopAbortSignal()
         };
@@ -275,7 +275,7 @@ export class CommentClientsManager extends PublicationClientsManager {
                     validateGatewayResponseFunc: validateCommentFromGateway,
                     log,
                     maxFileSizeBytes: MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE,
-                    timeoutMs: this._plebbit._timeouts["comment-update-ipfs"],
+                    timeoutMs: this._pkc._timeouts["comment-update-ipfs"],
                     abortSignal: this._comment._getStopAbortSignal()
                 });
                 if (!commentUpdate) throw Error("Failed to load comment update from gateways. This is a critical logic error");
@@ -307,12 +307,12 @@ export class CommentClientsManager extends PublicationClientsManager {
 
     _useLoadedCommentUpdateIfNewInfo(
         loadedCommentUpdate: NonNullable<NewCommentUpdate> | Pick<NonNullable<NewCommentUpdate>, "commentUpdate">,
-        subplebbit: Pick<CommunityIpfsType, "signature">,
+        community: Pick<CommunityIpfsType, "signature">,
         log: Logger
     ) {
         if ((this._comment.raw.commentUpdate?.updatedAt || 0) < loadedCommentUpdate.commentUpdate.updatedAt) {
             log(`${this._comment.depth === 0 ? "Post" : "Reply"} (${this._comment.cid}) received a new CommentUpdate`);
-            this._comment._initCommentUpdate(loadedCommentUpdate.commentUpdate, subplebbit);
+            this._comment._initCommentUpdate(loadedCommentUpdate.commentUpdate, community);
             if ("commentUpdateIpfsPath" in loadedCommentUpdate)
                 this._comment._commentUpdateIpfsPath = loadedCommentUpdate.commentUpdateIpfsPath;
             this._comment._changeCommentStateEmitEventEmitStateChangeEvent({
@@ -338,10 +338,7 @@ export class CommentClientsManager extends PublicationClientsManager {
 
         let newCommentUpdate: NewCommentUpdate;
         try {
-            if (
-                Object.keys(this._plebbit.clients.kuboRpcClients).length > 0 ||
-                Object.keys(this._plebbit.clients.libp2pJsClients).length > 0
-            ) {
+            if (Object.keys(this._pkc.clients.kuboRpcClients).length > 0 || Object.keys(this._pkc.clients.libp2pJsClients).length > 0) {
                 newCommentUpdate = await this._fetchPostCommentUpdateIpfsP2P(subIpfs, timestampRanges, log);
             } else {
                 newCommentUpdate = await this._fetchPostCommentUpdateFromGateways(subIpfs, timestampRanges, log);
@@ -384,7 +381,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         const kuboRpcOrHelia = this.getDefaultKuboRpcClientOrHelia();
         this._updateKuboRpcClientOrHeliaState("fetching-ipfs", kuboRpcOrHelia);
         let commentRawString: string;
-        const commentTimeoutMs = this._plebbit._timeouts["comment-ipfs"];
+        const commentTimeoutMs = this._pkc._timeouts["comment-ipfs"];
         try {
             commentRawString = await this._fetchCidP2P(cid, {
                 maxFileSizeBytes: 1024 * 1024,
@@ -413,7 +410,7 @@ export class CommentClientsManager extends PublicationClientsManager {
             validateGatewayResponseFunc: async () => {},
             log,
             maxFileSizeBytes: 1024 * 1024,
-            timeoutMs: this._plebbit._timeouts["comment-ipfs"],
+            timeoutMs: this._pkc._timeouts["comment-ipfs"],
             abortSignal: this._comment._getStopAbortSignal()
         });
         return res.resText;
@@ -423,7 +420,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         // Can potentially throw if resolver if not working
         const verificationOpts = {
             comment: commentIpfs,
-            resolveAuthorNames: this._plebbit.resolveAuthorNames,
+            resolveAuthorNames: this._pkc.resolveAuthorNames,
             clientsManager: this,
             calculatedCommentCid: commentCid,
             communityAddressFromInstance: this._comment.communityAddress,
@@ -441,7 +438,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         // - download all comments under a sub and look for our specific comment
         if (!this._comment.communityAddress) throw Error("Comment communityAddress should be defined");
         if (!this._comment.cid) throw Error("Comment cid should be defined");
-        const sub = await this._plebbit.createCommunity({
+        const sub = await this._pkc.createCommunity({
             name: this._comment.communityName,
             publicKey: this._comment.communityPublicKey,
             address: this._comment.communityAddress
@@ -462,7 +459,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         this._comment.on("update", onCommentUpdate);
         this._comment.on("statechange", onStateChange);
 
-        if (this._comment.state === "stopped" || this._plebbit.destroyed) return;
+        if (this._comment.state === "stopped" || this._pkc.destroyed) return;
         try {
             if (abortController.signal.aborted) return;
             await sub.update();
@@ -503,7 +500,7 @@ export class CommentClientsManager extends PublicationClientsManager {
             await sub.stop();
 
             const commentAfterSearchingAllPages = await loadAllPagesUnderCommunityToFindComment({
-                subplebbit: sub,
+                community: sub,
                 commentCidToFind: this._comment.cid,
                 postCid: this._comment.postCid,
                 parentCid: this._comment.parentCid,
@@ -515,7 +512,7 @@ export class CommentClientsManager extends PublicationClientsManager {
                     this._comment.emit("update", this._comment);
                 }
                 if ((this._comment.updatedAt || 0) < commentAfterSearchingAllPages.commentUpdate.updatedAt)
-                    this._comment._initCommentUpdate(commentAfterSearchingAllPages.commentUpdate, sub.raw.subplebbitIpfs);
+                    this._comment._initCommentUpdate(commentAfterSearchingAllPages.commentUpdate, sub.raw.communityIpfs);
             }
         } catch (err) {
             if ((err as Error)?.name !== "AbortError") throw err;
@@ -527,32 +524,25 @@ export class CommentClientsManager extends PublicationClientsManager {
 
     // We're gonna fetch Comment Ipfs, and verify its signature and schema
     async fetchAndVerifyCommentCid(cid: string): Promise<CommentIpfsType> {
-        const cachedComment = this._plebbit._memCaches.commentIpfs.get(cid);
+        const cachedComment = this._pkc._memCaches.commentIpfs.get(cid);
         if (cachedComment) {
             fetchCommentLogger.trace("Serving comment CID from cache", cid);
             return remeda.clone(cachedComment);
         }
 
-        const verifiedComment = await this._plebbit._inflightFetchManager.withResource(
-            InflightResourceTypes.COMMENT_IPFS,
-            cid,
-            async () => {
-                fetchCommentLogger.trace("Fetching comment CID", cid);
-                let commentRawString: string;
-                if (
-                    Object.keys(this._plebbit.clients.kuboRpcClients).length > 0 ||
-                    Object.keys(this._plebbit.clients.libp2pJsClients).length > 0
-                ) {
-                    commentRawString = await this._fetchRawCommentCidIpfsP2P(cid);
-                } else commentRawString = await this._fetchCommentIpfsFromGateways(cid);
+        const verifiedComment = await this._pkc._inflightFetchManager.withResource(InflightResourceTypes.COMMENT_IPFS, cid, async () => {
+            fetchCommentLogger.trace("Fetching comment CID", cid);
+            let commentRawString: string;
+            if (Object.keys(this._pkc.clients.kuboRpcClients).length > 0 || Object.keys(this._pkc.clients.libp2pJsClients).length > 0) {
+                commentRawString = await this._fetchRawCommentCidIpfsP2P(cid);
+            } else commentRawString = await this._fetchCommentIpfsFromGateways(cid);
 
-                const commentIpfs = parseCommentIpfsSchemaWithPKCErrorIfItFails(parseJsonWithPKCErrorIfFails(commentRawString)); // could throw if schema is invalid
-                await this._throwIfCommentIpfsIsInvalid(commentIpfs, cid);
-                return commentIpfs;
-            }
-        );
+            const commentIpfs = parseCommentIpfsSchemaWithPKCErrorIfItFails(parseJsonWithPKCErrorIfFails(commentRawString)); // could throw if schema is invalid
+            await this._throwIfCommentIpfsIsInvalid(commentIpfs, cid);
+            return commentIpfs;
+        });
 
-        this._plebbit._memCaches.commentIpfs.set(cid, verifiedComment);
+        this._pkc._memCaches.commentIpfs.set(cid, verifiedComment);
         return verifiedComment;
     }
 
@@ -565,23 +555,23 @@ export class CommentClientsManager extends PublicationClientsManager {
         post?: Comment;
         parent?: Comment;
     }): PageIpfs["comments"][0] | undefined {
-        // TODO rewrite this to use updating comments and subplebbit
+        // TODO rewrite this to use updating comments and community
         if (typeof this._comment.cid !== "string") throw Error("Need to have defined cid");
         const sub: RemoteCommunity | undefined =
-            findStartedCommunity(this._plebbit, { address: this._comment.communityAddress }) ||
-            findUpdatingCommunity(this._plebbit, { address: this._comment.communityAddress }) ||
+            findStartedCommunity(this._pkc, { address: this._comment.communityAddress }) ||
+            findUpdatingCommunity(this._pkc, { address: this._comment.communityAddress }) ||
             opts?.sub;
         let updateFromSub: PageIpfs["comments"][0] | undefined;
         if (sub) updateFromSub = findCommentInPageInstanceRecursively(sub.posts, this._comment.cid);
 
         const post: Comment | undefined = this._comment.postCid
-            ? findUpdatingComment(this._plebbit, { cid: this._comment.postCid })
+            ? findUpdatingComment(this._pkc, { cid: this._comment.postCid })
             : opts?.post;
         let updateFromPost: PageIpfs["comments"][0] | undefined;
         if (post) updateFromPost = findCommentInPageInstanceRecursively(post.replies, this._comment.cid);
 
         const parent: Comment | undefined = this._comment.parentCid
-            ? opts?.parent || findUpdatingComment(this._plebbit, { cid: this._comment.parentCid })
+            ? opts?.parent || findUpdatingComment(this._pkc, { cid: this._comment.parentCid })
             : undefined;
         let updateFromParent: PageIpfs["comments"][0] | undefined;
         if (parent) {
@@ -608,9 +598,9 @@ export class CommentClientsManager extends PublicationClientsManager {
             return;
         }
 
-        if (!sub.raw.subplebbitIpfs) throw Error("Community IPFS should be defined when an update is emitted");
-        // let's try to find a CommentUpdate in subplebbit pages, or _updatingComments
-        // this._communityForUpdating!.subplebbit.raw.subplebbitIpfs?.posts.
+        if (!sub.raw.communityIpfs) throw Error("Community IPFS should be defined when an update is emitted");
+        // let's try to find a CommentUpdate in community pages, or _updatingComments
+        // this._communityForUpdating!.community.raw.communityIpfs?.posts.
 
         const postInUpdatingCommunity = this._findCommentInPagesOfUpdatingCommentsOrCommunity({ sub });
 
@@ -619,14 +609,14 @@ export class CommentClientsManager extends PublicationClientsManager {
             postInUpdatingCommunity.commentUpdate.updatedAt > (this._comment.raw?.commentUpdate?.updatedAt || 0)
         ) {
             const log = Logger("pkc-js:comment:update:handleUpdateEventFromSub:find-comment-update-in-updating-sub-or-comments-pages");
-            this._useLoadedCommentUpdateIfNewInfo({ commentUpdate: postInUpdatingCommunity.commentUpdate }, sub.raw.subplebbitIpfs, log);
+            this._useLoadedCommentUpdateIfNewInfo({ commentUpdate: postInUpdatingCommunity.commentUpdate }, sub.raw.communityIpfs, log);
         } else
             try {
                 // this is only for posts with depth === 0
-                await this.useCommunityPostUpdatesToFetchCommentUpdateForPost(sub.raw.subplebbitIpfs);
+                await this.useCommunityPostUpdatesToFetchCommentUpdateForPost(sub.raw.communityIpfs);
             } catch (e) {
                 if (isAbortError(e)) return;
-                log.error("Failed to use subplebbit update to fetch new CommentUpdate", e);
+                log.error("Failed to use community update to fetch new CommentUpdate", e);
                 this._comment._changeCommentStateEmitEventEmitStateChangeEvent({
                     newUpdatingState: "failed",
                     event: { name: "error", args: [e as PKCError] }
@@ -660,13 +650,13 @@ export class CommentClientsManager extends PublicationClientsManager {
         const log = Logger("pkc-js:comment:update:usePageCidsOfParentToFetchCommentUpdateForReply");
         if (!this._comment.cid) throw Error("comment.cid needs to be defined to fetch comment update of reply");
         if (!this._comment.parentCid) throw Error("comment.parentCid needs to be defined to fetch comment update of reply");
-        const subplebbitWithSignature = <Required<Pick<RemoteCommunity, "signature">>>postCommentInstance.replies._subplebbit;
-        if (!subplebbitWithSignature.signature)
-            throw Error("comment.replies._subplebbit.signature needs to be defined to fetch comment update of reply");
+        const communityWithSignature = <Required<Pick<RemoteCommunity, "signature">>>postCommentInstance.replies._community;
+        if (!communityWithSignature.signature)
+            throw Error("comment.replies._community.signature needs to be defined to fetch comment update of reply");
         const parentCommentInstance =
             postCommentInstance.cid === this._comment.parentCid
                 ? postCommentInstance
-                : await this._plebbit.createComment({ cid: this._comment.parentCid });
+                : await this._pkc.createComment({ cid: this._comment.parentCid });
         let startedUpdatingParentComment = false;
         if (parentCommentInstance.state === "stopped") {
             await parentCommentInstance.update();
@@ -687,7 +677,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         ) {
             this._useLoadedCommentUpdateIfNewInfo(
                 { commentUpdate: replyInPreloadedParentPages.commentUpdate },
-                subplebbitWithSignature,
+                communityWithSignature,
                 log
             );
             return;
@@ -705,7 +695,7 @@ export class CommentClientsManager extends PublicationClientsManager {
                 );
                 this._useLoadedCommentUpdateIfNewInfo(
                     { commentUpdate: replyInPreloadedParentPages.commentUpdate },
-                    subplebbitWithSignature,
+                    communityWithSignature,
                     log
                 );
                 return;
@@ -806,7 +796,7 @@ export class CommentClientsManager extends PublicationClientsManager {
             newCommentUpdate ? "a new comment update" : "no new comment update"
         );
         if (newCommentUpdate)
-            this._useLoadedCommentUpdateIfNewInfo({ commentUpdate: newCommentUpdate.commentUpdate }, subplebbitWithSignature, log);
+            this._useLoadedCommentUpdateIfNewInfo({ commentUpdate: newCommentUpdate.commentUpdate }, communityWithSignature, log);
         else if (!replyFoundWithoutNewerUpdate)
             throw new PKCError("ERR_FAILED_TO_FIND_REPLY_COMMENT_UPDATE_WITHIN_PARENT_COMMENT_PAGE_CIDS", {
                 replyCid: this._comment.cid,
@@ -819,14 +809,14 @@ export class CommentClientsManager extends PublicationClientsManager {
     override async handleErrorEventFromSub(error: PKCError | Error) {
         // we received a non retriable error from sub instance
         if (this._comment.state === "publishing") return super.handleErrorEventFromSub(error);
-        else if (this._communityForUpdating?.subplebbit?.updatingState === "failed") {
+        else if (this._communityForUpdating?.community?.updatingState === "failed") {
             // let's make sure
             // we're updating a comment
             const log = Logger("pkc-js:comment:update");
             log.error(
                 this._comment.depth === 0 ? "Post" : "Reply",
                 this._comment.cid,
-                "received a non retriable error from its subplebbit instance. Will stop comment updating",
+                "received a non retriable error from its community instance. Will stop comment updating",
                 error
             );
             this._comment._changeCommentStateEmitEventEmitStateChangeEvent({
@@ -838,19 +828,19 @@ export class CommentClientsManager extends PublicationClientsManager {
     }
 
     override handleIpfsGatewayCommunityState(
-        subplebbitNewGatewayState: RemoteCommunity["clients"]["ipfsGateways"][string]["state"],
+        communityNewGatewayState: RemoteCommunity["clients"]["ipfsGateways"][string]["state"],
         gatewayUrl: string
     ) {
-        if (this._comment.state === "publishing") return super.handleIpfsGatewayCommunityState(subplebbitNewGatewayState, gatewayUrl);
+        if (this._comment.state === "publishing") return super.handleIpfsGatewayCommunityState(communityNewGatewayState, gatewayUrl);
         // we're updating
-        else if (subplebbitNewGatewayState === "fetching-ipns") this.updateGatewayState("fetching-subplebbit-ipns", gatewayUrl);
+        else if (communityNewGatewayState === "fetching-ipns") this.updateGatewayState("fetching-community-ipns", gatewayUrl);
     }
 
     _translateSubUpdatingStateToCommentUpdatingState(newSubUpdatingState: RemoteCommunity["updatingState"]) {
         const subUpdatingStateToCommentUpdatingState: Record<typeof newSubUpdatingState, Comment["updatingState"] | undefined> = {
             failed: "failed",
-            "fetching-ipfs": "fetching-subplebbit-ipfs",
-            "fetching-ipns": "fetching-subplebbit-ipns",
+            "fetching-ipfs": "fetching-community-ipfs",
+            "fetching-ipns": "fetching-community-ipns",
             "resolving-name": "resolving-community-name",
             "waiting-retry": "waiting-retry",
             stopped: "stopped",
@@ -875,8 +865,8 @@ export class CommentClientsManager extends PublicationClientsManager {
     handleUpdatingStateChangeEventFromPost(newState: Comment["updatingState"]) {
         const postUpdatingStateToReplyUpdatingState: Record<Comment["updatingState"], Comment["updatingState"] | undefined> = {
             failed: "failed",
-            "fetching-subplebbit-ipfs": "fetching-subplebbit-ipfs",
-            "fetching-subplebbit-ipns": "fetching-subplebbit-ipns",
+            "fetching-community-ipfs": "fetching-community-ipfs",
+            "fetching-community-ipns": "fetching-community-ipns",
             "resolving-community-name": "resolving-community-name",
             "waiting-retry": "waiting-retry",
             stopped: undefined,
@@ -930,10 +920,10 @@ export class CommentClientsManager extends PublicationClientsManager {
         }
         const replyInPage = this._findCommentInPagesOfUpdatingCommentsOrCommunity({ post: postInstance });
 
-        const updatingCommunity = findUpdatingCommunity(this._plebbit, { address: postInstance.communityAddress });
-        const startedCommunity = findStartedCommunity(this._plebbit, { address: postInstance.communityAddress });
+        const updatingCommunity = findUpdatingCommunity(this._pkc, { address: postInstance.communityAddress });
+        const startedCommunity = findStartedCommunity(this._pkc, { address: postInstance.communityAddress });
         const repliesCommunity = <Pick<CommunityIpfsType, "signature">>(
-            (updatingCommunity?.raw?.subplebbitIpfs || startedCommunity?.raw?.subplebbitIpfs || postInstance.replies._subplebbit)
+            (updatingCommunity?.raw?.communityIpfs || startedCommunity?.raw?.communityIpfs || postInstance.replies._community)
         );
         if (!repliesCommunity.signature) throw Error("repliesCommunity.signature needs to be defined to fetch comment update of reply");
         if (replyInPage && !this._comment.raw.comment) {
@@ -942,7 +932,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         }
         if (replyInPage && replyInPage.commentUpdate.updatedAt > (this._comment.raw?.commentUpdate?.updatedAt || 0)) {
             const log = Logger(
-                "plebbit-js:comment:update:handleUpdateEventFromPostToFetchReplyCommentUpdate:find-comment-update-in-updating-sub-or-comments-pages"
+                "pkc-js:comment:update:handleUpdateEventFromPostToFetchReplyCommentUpdate:find-comment-update-in-updating-sub-or-comments-pages"
             );
             this._useLoadedCommentUpdateIfNewInfo({ commentUpdate: replyInPage.commentUpdate }, repliesCommunity, log);
             return; // we found an update from pages, no need to do anything else
@@ -970,8 +960,8 @@ export class CommentClientsManager extends PublicationClientsManager {
         // this function will be for translating between the states of the post and its clients to reply states
         if (!this._comment.postCid) throw Error("comment.postCid needs to be defined to fetch comment update of reply");
         const post =
-            findUpdatingComment(this._plebbit, { cid: this._comment.postCid }) ||
-            (await this._plebbit.createComment({ cid: this._comment.postCid }));
+            findUpdatingComment(this._pkc, { cid: this._comment.postCid }) ||
+            (await this._pkc.createComment({ cid: this._comment.postCid }));
 
         this._postForUpdating = {
             comment: post,
@@ -1107,7 +1097,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         this._postForUpdating.comment.removeListener("error", this._postForUpdating.error);
         this._postForUpdating.comment.removeListener("update", this._postForUpdating.update);
 
-        // only stop if it's mirroring the actual comment instance updating at plebbit._updatingComments
+        // only stop if it's mirroring the actual comment instance updating at pkc._updatingComments
         if (this._postForUpdating.comment._updatingCommentInstance) await this._postForUpdating.comment.stop();
         this._parentFirstPageCidsAlreadyLoaded.clear();
         this._postForUpdating = undefined;

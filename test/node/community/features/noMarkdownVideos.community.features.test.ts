@@ -16,35 +16,35 @@ import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-loca
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 
-describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
-    let plebbit: PKC;
+describe.concurrent(`community.features.noMarkdownVideos`, async () => {
+    let pkc: PKC;
     let remotePKC: PKC;
-    let subplebbit: LocalCommunity | RpcLocalCommunity;
+    let community: LocalCommunity | RpcLocalCommunity;
     let publishedPost: Comment;
 
     beforeAll(async () => {
-        plebbit = await mockPKC();
+        pkc = await mockPKC();
         remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
-        subplebbit = await createSubWithNoChallenge({}, plebbit);
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+        community = await createSubWithNoChallenge({}, pkc);
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
         // Publish a post first (before enabling the feature) to test comment edits later
-        publishedPost = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: remotePKC });
+        publishedPost = await publishRandomPost({ communityAddress: community.address, pkc: remotePKC });
     });
 
     afterAll(async () => {
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
         await remotePKC.destroy();
     });
 
     it.sequential(`Feature is updated correctly in props`, async () => {
-        expect(subplebbit.features).to.be.undefined;
-        await subplebbit.edit({ features: { ...subplebbit.features, noMarkdownVideos: true } });
-        expect(subplebbit.features?.noMarkdownVideos).to.be.true;
+        expect(community.features).to.be.undefined;
+        await community.edit({ features: { ...community.features, noMarkdownVideos: true } });
+        expect(community.features?.noMarkdownVideos).to.be.true;
 
-        const remoteSub = await remotePKC.getCommunity({ address: subplebbit.address });
+        const remoteSub = await remotePKC.getCommunity({ address: community.address });
         await remoteSub.update();
         await resolveWhenConditionIsTrue({ toUpdate: remoteSub, predicate: async () => remoteSub.features?.noMarkdownVideos === true });
         expect(remoteSub.features?.noMarkdownVideos).to.be.true;
@@ -54,8 +54,8 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
     it(`Can't publish a post with markdown video syntax (video extension)`, async () => {
         const contentWithMarkdownVideo = "Here is a video: ![video](https://example.com/video.mp4)";
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: { content: contentWithMarkdownVideo }
         });
         await publishWithExpectedResult({
@@ -68,8 +68,8 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
     it(`Can't publish a post with HTML video tag`, async () => {
         const contentWithHtmlVideo = 'Here is a video: <video src="https://example.com/video.mp4"></video>';
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: { content: contentWithHtmlVideo }
         });
         await publishWithExpectedResult({
@@ -82,8 +82,8 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
     it(`Can't publish a post with HTML iframe tag`, async () => {
         const contentWithIframe = 'Embedded video: <iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ"></iframe>';
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: { content: contentWithIframe }
         });
         await publishWithExpectedResult({
@@ -108,8 +108,8 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
     it(`Can publish a post with plain text content`, async () => {
         const plainContent = "This is just plain text without any videos";
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: { content: plainContent }
         });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
@@ -118,8 +118,8 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
     it(`Can't publish a post with markdown GIF`, async () => {
         const contentWithGif = "Here is a gif: ![gif](https://example.com/animation.gif)";
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: { content: contentWithGif }
         });
         await publishWithExpectedResult({
@@ -133,8 +133,8 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
         // noMarkdownVideos should not block images
         const contentWithImage = "Here is an image: ![img](https://example.com/photo.jpg)";
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: { content: contentWithImage }
         });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
@@ -142,8 +142,8 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
 
     it(`Can publish a post with direct link field to video (not markdown content)`, async () => {
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: {
                 link: "https://example.com/video.mp4",
                 content: "Just text"
@@ -157,7 +157,7 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
         const commentEdit = await remotePKC.createCommentEdit({
             commentCid: publishedPost.cid!,
             content: contentWithMarkdownVideo,
-            communityAddress: subplebbit.address,
+            communityAddress: community.address,
             signer: publishedPost.signer
         });
         await publishWithExpectedResult({
@@ -172,7 +172,7 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
         const commentEdit = await remotePKC.createCommentEdit({
             commentCid: publishedPost.cid!,
             content: contentWithIframe,
-            communityAddress: subplebbit.address,
+            communityAddress: community.address,
             signer: publishedPost.signer
         });
         await publishWithExpectedResult({
@@ -187,7 +187,7 @@ describe.concurrent(`subplebbit.features.noMarkdownVideos`, async () => {
         const commentEdit = await remotePKC.createCommentEdit({
             commentCid: publishedPost.cid!,
             content: plainContent,
-            communityAddress: subplebbit.address,
+            communityAddress: community.address,
             signer: publishedPost.signer
         });
         await publishWithExpectedResult({ publication: commentEdit, expectedChallengeSuccess: true });

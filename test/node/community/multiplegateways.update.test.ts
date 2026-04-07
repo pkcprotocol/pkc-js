@@ -10,7 +10,7 @@ import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { SignerWithPublicKeyAddress } from "../../../dist/node/signer/index.js";
 import type { CommunityIpfsType } from "../../../dist/node/community/types.js";
 
-describe("Test fetching subplebbit record from multiple gateways (isolated)", async () => {
+describe("Test fetching community record from multiple gateways (isolated)", async () => {
     // Mock gateway ports (chosen to avoid conflicts with test-server.js ports)
     // test-server.js uses 13415-13418, 14000-14006, 14952-14953, 15001-15006, 18080-18085, 20001, 24001-24006, 30001
     const STALLING_GATEWAY_PORT = 25000;
@@ -65,7 +65,7 @@ describe("Test fetching subplebbit record from multiple gateways (isolated)", as
         });
     };
 
-    // Check if request is for our test subplebbit
+    // Check if request is for our test community
     const isRequestForTestSub = (req: IncomingMessage): boolean => {
         if (!req.url?.includes("/ipns/")) return false;
         const base36Address = req.url.split("/ipns/")[1]?.split("?")[0];
@@ -73,7 +73,7 @@ describe("Test fetching subplebbit record from multiple gateways (isolated)", as
         return base36Address === expectedBase36;
     };
 
-    // Generate a fresh subplebbit record
+    // Generate a fresh community record
     const generateFreshRecord = (): Omit<CommunityIpfsType, "signature"> => {
         const now = Math.round(Date.now() / 1000);
         return {
@@ -90,9 +90,9 @@ describe("Test fetching subplebbit record from multiple gateways (isolated)", as
         };
     };
 
-    // Sign a subplebbit record
+    // Sign a community record
     const signRecord = async (record: Omit<CommunityIpfsType, "signature">): Promise<CommunityIpfsType> => {
-        const signature = await signCommunity({ subplebbit: record, signer: testSigner });
+        const signature = await signCommunity({ community: record, signer: testSigner });
         return { ...record, signature };
     };
 
@@ -105,8 +105,8 @@ describe("Test fetching subplebbit record from multiple gateways (isolated)", as
 
     beforeAll(async () => {
         // Create a unique signer for this test to ensure complete isolation
-        const plebbit: PKC = await mockPKC();
-        testSigner = await plebbit.createSigner();
+        const pkc: PKC = await mockPKC();
+        testSigner = await pkc.createSigner();
         subAddress = testSigner.address;
         expectedBase36 = convertBase58IpnsNameToBase36Cid(subAddress);
         const baseRecord = generateFreshRecord();
@@ -116,7 +116,7 @@ describe("Test fetching subplebbit record from multiple gateways (isolated)", as
         const newerRecord = { ...baseRecord, updatedAt: baseRecord.updatedAt + 60 };
         newerRecordJson = JSON.stringify(await signRecord(newerRecord));
         newerRecordCid = await calculateIpfsHash(newerRecordJson);
-        await plebbit.destroy();
+        await pkc.destroy();
 
         // Stalling gateway - waits 11s before responding
         await createServer(STALLING_GATEWAY_PORT, async (req, res) => {
@@ -323,9 +323,9 @@ describe("Test fetching subplebbit record from multiple gateways (isolated)", as
         }
     });
 
-    it(`plebbit.getCommunity times out if a single gateway is not responding (timeout)`, async () => {
-        const customPKC = await mockGatewayPKC({ plebbitOptions: { ipfsGatewayUrls: [stallingGateway] } });
-        customPKC._timeouts["subplebbit-ipns"] = 5 * 1000; // change timeout from 5min to 5s
+    it(`pkc.getCommunity times out if a single gateway is not responding (timeout)`, async () => {
+        const customPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [stallingGateway] } });
+        customPKC._timeouts["community-ipns"] = 5 * 1000; // change timeout from 5min to 5s
         try {
             await customPKC.getCommunity({ address: subAddress });
             expect.fail("Should not fulfill");
@@ -339,12 +339,12 @@ describe("Test fetching subplebbit record from multiple gateways (isolated)", as
         }
     });
 
-    it(`updating a subplebbit through working gateway and another gateway that is timing out`, async () => {
-        const customPKC = await mockGatewayPKC({ plebbitOptions: { ipfsGatewayUrls: [normalGateway, stallingGateway] } });
-        customPKC._timeouts["subplebbit-ipns"] = 5 * 1000; // change timeout from 5min to 5s
+    it(`updating a community through working gateway and another gateway that is timing out`, async () => {
+        const customPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [normalGateway, stallingGateway] } });
+        customPKC._timeouts["community-ipns"] = 5 * 1000; // change timeout from 5min to 5s
         try {
             const subFromGateway = await customPKC.getCommunity({ address: subAddress });
-            // Verify it's our test subplebbit with the expected structure
+            // Verify it's our test community with the expected structure
             expect(subFromGateway.address).to.equal(subAddress);
             expect(subFromGateway.updatedAt).to.be.a("number");
             // Verify it's fresh (within the last 10 seconds)
@@ -355,8 +355,8 @@ describe("Test fetching subplebbit record from multiple gateways (isolated)", as
         }
     });
 
-    it(`updating a subplebbit through working gateway and another gateway that is throwing an error`, async () => {
-        const customPKC = await mockGatewayPKC({ plebbitOptions: { ipfsGatewayUrls: [normalGateway, errorGateway] } });
+    it(`updating a community through working gateway and another gateway that is throwing an error`, async () => {
+        const customPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [normalGateway, errorGateway] } });
         try {
             const sub = await customPKC.getCommunity({ address: subAddress });
             expect(sub.address).to.equal(subAddress);
@@ -368,9 +368,9 @@ describe("Test fetching subplebbit record from multiple gateways (isolated)", as
 
     it(`all gateways are throwing an error`, async () => {
         const customPKC = await mockGatewayPKC({
-            plebbitOptions: { ipfsGatewayUrls: [errorGateway, errorGateway2, stallingGateway] }
+            pkcOptions: { ipfsGatewayUrls: [errorGateway, errorGateway2, stallingGateway] }
         });
-        customPKC._timeouts["subplebbit-ipns"] = 5 * 1000; // change timeout from 5min to 5s
+        customPKC._timeouts["community-ipns"] = 5 * 1000; // change timeout from 5min to 5s
 
         try {
             await customPKC.getCommunity({ address: subAddress });
@@ -387,9 +387,9 @@ describe("Test fetching subplebbit record from multiple gateways (isolated)", as
         // hourLateGateway responds immediately with 60-min old record, normalWithStallingGateway delays 3s
         // Since any record with updatedAt > 0 is accepted, the algorithm returns the hour-old record immediately
         const customPKC = await mockGatewayPKC({
-            plebbitOptions: { ipfsGatewayUrls: [normalWithStallingGateway, hourLateGateway] }
+            pkcOptions: { ipfsGatewayUrls: [normalWithStallingGateway, hourLateGateway] }
         });
-        customPKC._timeouts["subplebbit-ipns"] = 10 * 1000; // change timeout from 5min to 10s
+        customPKC._timeouts["community-ipns"] = 10 * 1000; // change timeout from 5min to 10s
 
         try {
             const bufferSeconds = 10;
@@ -405,7 +405,7 @@ describe("Test fetching subplebbit record from multiple gateways (isolated)", as
     });
 
     it(`Fetching algo goes with the highest updatedAt of records if all of them are older than 60 min`, async () => {
-        const customPKC = await mockGatewayPKC({ plebbitOptions: { ipfsGatewayUrls: [hourLateGateway, twoHoursLateGateway] } });
+        const customPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [hourLateGateway, twoHoursLateGateway] } });
         try {
             const sub = await customPKC.getCommunity({ address: subAddress });
             await sub.update();
@@ -435,11 +435,11 @@ describe("Test fetching subplebbit record from multiple gateways (isolated)", as
 
     it(`fetching algo gets the highest updatedAt with 5 gateways`, async () => {
         const customPKC = await mockGatewayPKC({
-            plebbitOptions: {
+            pkcOptions: {
                 ipfsGatewayUrls: [normalGateway, normalWithStallingGateway, thirtyMinuteLateGateway, errorGateway, stallingGateway]
             }
         });
-        customPKC._timeouts["subplebbit-ipns"] = 10 * 1000; // change timeout from 5min to 10s
+        customPKC._timeouts["community-ipns"] = 10 * 1000; // change timeout from 5min to 10s
 
         try {
             const gatewaySub = await customPKC.getCommunity({ address: subAddress });
@@ -454,7 +454,7 @@ describe("Test fetching subplebbit record from multiple gateways (isolated)", as
     });
 
     it(`returns undefined when one gateway returns 304 and another fails`, async () => {
-        const customPKC = await mockGatewayPKC({ plebbitOptions: { ipfsGatewayUrls: [conditional304Gateway, notFoundGateway] } });
+        const customPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [conditional304Gateway, notFoundGateway] } });
         try {
             const sub = await customPKC.getCommunity({ address: subAddress });
             expect(sub.updateCid).to.equal(conditional304RecordCid);
@@ -467,7 +467,7 @@ describe("Test fetching subplebbit record from multiple gateways (isolated)", as
     });
 
     it(`updates when one gateway returns 304 and another returns 200 with newer record`, async () => {
-        const customPKC = await mockGatewayPKC({ plebbitOptions: { ipfsGatewayUrls: [conditional304Gateway, newerGateway] } });
+        const customPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [conditional304Gateway, newerGateway] } });
         try {
             const sub = await customPKC.getCommunity({ address: subAddress });
             expect(sub.updateCid).to.equal(conditional304RecordCid);
@@ -481,7 +481,7 @@ describe("Test fetching subplebbit record from multiple gateways (isolated)", as
     });
 
     it(`returns undefined when one gateway returns 304 and another returns same already-loaded cid as 200`, async () => {
-        const customPKC = await mockGatewayPKC({ plebbitOptions: { ipfsGatewayUrls: [conditional304Gateway, sameCidGateway] } });
+        const customPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [conditional304Gateway, sameCidGateway] } });
         try {
             const sub = await customPKC.getCommunity({ address: subAddress });
             expect(sub.updateCid).to.equal(conditional304RecordCid);
@@ -494,8 +494,8 @@ describe("Test fetching subplebbit record from multiple gateways (isolated)", as
     });
 
     it(`returns undefined when one gateway returns 304 and another times out`, async () => {
-        const customPKC = await mockGatewayPKC({ plebbitOptions: { ipfsGatewayUrls: [conditional304Gateway, stallingGateway] } });
-        customPKC._timeouts["subplebbit-ipns"] = 400;
+        const customPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [conditional304Gateway, stallingGateway] } });
+        customPKC._timeouts["community-ipns"] = 400;
         try {
             const sub = await customPKC.getCommunity({ address: subAddress });
             expect(sub.updateCid).to.equal(conditional304RecordCid);
@@ -509,7 +509,7 @@ describe("Test fetching subplebbit record from multiple gateways (isolated)", as
 
     it(`returns undefined when one gateway returns 304 and another returns invalid json`, async () => {
         const customPKC = await mockGatewayPKC({
-            plebbitOptions: { ipfsGatewayUrls: [conditional304Gateway, invalidJsonGateway] }
+            pkcOptions: { ipfsGatewayUrls: [conditional304Gateway, invalidJsonGateway] }
         });
         try {
             const sub = await customPKC.getCommunity({ address: subAddress });
@@ -524,7 +524,7 @@ describe("Test fetching subplebbit record from multiple gateways (isolated)", as
 
     it(`updates when a fast 304 arrives before a delayed 200 newer record`, async () => {
         const customPKC = await mockGatewayPKC({
-            plebbitOptions: { ipfsGatewayUrls: [conditional304Gateway, delayedNewerGateway] }
+            pkcOptions: { ipfsGatewayUrls: [conditional304Gateway, delayedNewerGateway] }
         });
         try {
             const sub = await customPKC.getCommunity({ address: subAddress });

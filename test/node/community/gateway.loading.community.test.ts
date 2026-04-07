@@ -32,8 +32,8 @@ const getGatewayBaseUrl = (gatewayPKC: PKCType): string => {
     return gatewayUrl;
 };
 
-const buildGatewayIpnsUrl = (gatewayPKC: PKCType, subplebbit: LocalCommunity): string => {
-    return new URL(`/ipns/${subplebbit.address}`, getGatewayBaseUrl(gatewayPKC)).toString();
+const buildGatewayIpnsUrl = (gatewayPKC: PKCType, community: LocalCommunity): string => {
+    return new URL(`/ipns/${community.address}`, getGatewayBaseUrl(gatewayPKC)).toString();
 };
 
 const buildGatewayIpfsUrl = (gatewayPKC: PKCType, cid: string): string => {
@@ -105,8 +105,8 @@ const fetchGatewayJson = async (url: string, context: string): Promise<Community
     }
 };
 
-const fetchIpnsRecordDirectly = async (gatewayPKC: PKCType, subplebbit: LocalCommunity): Promise<CommunityIpfsType> => {
-    const ipnsUrl = buildGatewayIpnsUrl(gatewayPKC, subplebbit);
+const fetchIpnsRecordDirectly = async (gatewayPKC: PKCType, community: LocalCommunity): Promise<CommunityIpfsType> => {
+    const ipnsUrl = buildGatewayIpnsUrl(gatewayPKC, community);
     return fetchGatewayJson(ipnsUrl, "Direct IPNS fetch");
 };
 
@@ -115,15 +115,15 @@ const fetchCidRecordDirectly = async (gatewayPKC: PKCType, cid: string): Promise
     return fetchGatewayJson(ipfsUrl, "Direct CID fetch");
 };
 
-describeSkipIfRpc.concurrent("Gateway loading of local subplebbit IPNS", async () => {
-    let plebbit: PKCType;
-    let subplebbit: LocalCommunity;
+describeSkipIfRpc.concurrent("Gateway loading of local community IPNS", async () => {
+    let pkc: PKCType;
+    let community: LocalCommunity;
     let gatewayPKC: PKCType;
     let kuboPKC: PKCType;
     let latestUpdateCid: string;
 
     beforeAll(async () => {
-        plebbit = await mockPKC();
+        pkc = await mockPKC();
         gatewayPKC = await mockGatewayPKC();
         gatewayPKC.on("error", (err) => console.error("gatewayPKC error event", err));
         console.log("Gateway URLs:", gatewayPKC.ipfsGatewayUrls);
@@ -135,58 +135,58 @@ describeSkipIfRpc.concurrent("Gateway loading of local subplebbit IPNS", async (
         }
 
         kuboPKC = await mockPKCNoDataPathWithOnlyKuboClient();
-        subplebbit = (await plebbit.createCommunity()) as LocalCommunity;
+        community = (await pkc.createCommunity()) as LocalCommunity;
 
-        await subplebbit.start();
+        await community.start();
 
-        const modSigner = await plebbit.createSigner();
-        await subplebbit.edit({
-            settings: { challenges: [{ ...subplebbit.settings.challenges[0], pendingApproval: true }] },
+        const modSigner = await pkc.createSigner();
+        await community.edit({
+            settings: { challenges: [{ ...community.settings.challenges[0], pendingApproval: true }] },
             roles: {
                 [modSigner.address]: { role: "moderator" }
             }
         });
 
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updateCid === "string" });
-        latestUpdateCid = subplebbit.updateCid!;
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updateCid === "string" });
+        latestUpdateCid = community.updateCid!;
     });
 
     afterAll(async () => {
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
         await gatewayPKC.destroy();
         await kuboPKC.destroy();
     });
 
-    it("Can fetch the IPNS record directly from gateway without plebbit instance", async () => {
-        console.log("Starting test: Direct IPNS fetch without plebbit instance");
-        const record = await fetchIpnsRecordDirectly(gatewayPKC, subplebbit);
-        expect(record.updatedAt).to.equal(subplebbit.updatedAt);
+    it("Can fetch the IPNS record directly from gateway without pkc instance", async () => {
+        console.log("Starting test: Direct IPNS fetch without pkc instance");
+        const record = await fetchIpnsRecordDirectly(gatewayPKC, community);
+        expect(record.updatedAt).to.equal(community.updatedAt);
     });
 
-    it("Can fetch the CID directly from gateway without plebbit instance", async () => {
-        console.log("Starting test: Direct CID fetch without plebbit instance");
+    it("Can fetch the CID directly from gateway without pkc instance", async () => {
+        console.log("Starting test: Direct CID fetch without pkc instance");
         const record = await fetchCidRecordDirectly(gatewayPKC, latestUpdateCid);
-        expect(record.updatedAt).to.equal(subplebbit.updatedAt);
+        expect(record.updatedAt).to.equal(community.updatedAt);
     });
 
     it("Can load the CID using gatewayPKC.fetchCid after it's published", async () => {
         console.log("Starting test: Can load the CID using gatewayPKC.fetchCid after it's published");
         const rawRecord = await gatewayPKC.fetchCid({ cid: latestUpdateCid });
         const record = JSON.parse(rawRecord) as CommunityIpfsType;
-        expect(record.updatedAt).to.equal(subplebbit.updatedAt);
+        expect(record.updatedAt).to.equal(community.updatedAt);
     });
 
     it("Can load the IPNS record from gateway PKC after it's published", async () => {
         console.log("Starting test: Can load the IPNS record from gateway after it's published");
-        const remoteSub = await gatewayPKC.getCommunity({ address: subplebbit.address });
-        expect(remoteSub.updatedAt).to.equal(subplebbit.updatedAt);
+        const remoteSub = await gatewayPKC.getCommunity({ address: community.address });
+        expect(remoteSub.updatedAt).to.equal(community.updatedAt);
     });
 
     it("Can load the IPNS record from kubo after it's published", async () => {
         console.log("Starting test: Can load the IPNS record from kubo after it's published");
-        const remoteSub = await kuboPKC.getCommunity({ address: subplebbit.address });
-        expect(remoteSub.updatedAt).to.equal(subplebbit.updatedAt);
+        const remoteSub = await kuboPKC.getCommunity({ address: community.address });
+        expect(remoteSub.updatedAt).to.equal(community.updatedAt);
     });
 });

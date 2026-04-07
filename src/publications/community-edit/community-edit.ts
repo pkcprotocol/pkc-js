@@ -12,16 +12,16 @@ import type { SignerType } from "../../signer/types.js";
 import { signCommunityEdit, verifyCommunityEdit } from "../../signer/signatures.js";
 import type { CreatePublicationOptions } from "../../types.js";
 
-// subplebbitEdit.signer is inherited from Publication
+// communityEdit.signer is inherited from Publication
 class CommunityEdit extends Publication implements CommunityEditPubsubMessagePublication {
-    subplebbitEdit!: CommunityEditPubsubMessagePublication["subplebbitEdit"];
+    communityEdit!: CommunityEditPubsubMessagePublication["communityEdit"];
     override signature!: CommunityEditPubsubMessagePublication["signature"];
 
     override raw: { pubsubMessageToPublish?: CommunityEditPubsubMessagePublication } = {};
     override challengeRequest?: CreateCommunityEditPublicationOptions["challengeRequest"];
 
-    constructor(plebbit: PKC) {
-        super(plebbit);
+    constructor(pkc: PKC) {
+        super(pkc);
 
         // public method should be bound
         this.publish = this.publish.bind(this);
@@ -40,15 +40,15 @@ class CommunityEdit extends Publication implements CommunityEditPubsubMessagePub
     >(opts: { unsignedOptions: T; challengeRequest?: CreatePublicationOptions["challengeRequest"] }) {
         super._initUnsignedLocalProps(opts);
         const o = opts.unsignedOptions as unknown as CommunityEditPublicationOptionsToSign;
-        this.subplebbitEdit = o.subplebbitEdit;
+        this.communityEdit = o.communityEdit;
     }
 
     _initLocalProps(props: {
-        subplebbitEdit: CommunityEditPubsubMessagePublication;
+        communityEdit: CommunityEditPubsubMessagePublication;
         signer?: SignerType;
         challengeRequest?: CreateCommunityEditPublicationOptions["challengeRequest"];
     }): void {
-        this._initRemoteProps(props.subplebbitEdit);
+        this._initRemoteProps(props.communityEdit);
         this.challengeRequest = props.challengeRequest;
         this.signer = props.signer;
     }
@@ -57,14 +57,14 @@ class CommunityEdit extends Publication implements CommunityEditPubsubMessagePub
         cleanedPublication: unknown
     ): Promise<CommunityEditPubsubMessagePublication["signature"]> {
         return signCommunityEdit({
-            subplebbitEdit: cleanedPublication as CommunityEditPublicationOptionsToSign,
-            plebbit: this._plebbit
+            communityEdit: cleanedPublication as CommunityEditPublicationOptionsToSign,
+            pkc: this._pkc
         });
     }
 
     _initRemoteProps(props: CommunityEditPubsubMessagePublication): void {
         super._initBaseRemoteProps(props);
-        this.subplebbitEdit = props.subplebbitEdit;
+        this.communityEdit = props.communityEdit;
         this.raw.pubsubMessageToPublish = props;
     }
 
@@ -73,10 +73,10 @@ class CommunityEdit extends Publication implements CommunityEditPubsubMessagePub
     }
 
     protected override async _validateSignatureHook() {
-        const subplebbitEditObj = JSON.parse(JSON.stringify(this.raw.pubsubMessageToPublish!)); // Stringified here to simulate a message sent through IPNS/PUBSUB
+        const communityEditObj = JSON.parse(JSON.stringify(this.raw.pubsubMessageToPublish!)); // Stringified here to simulate a message sent through IPNS/PUBSUB
         const signatureValidity = await verifyCommunityEdit({
-            subplebbitEdit: subplebbitEditObj,
-            resolveAuthorNames: this._plebbit.resolveAuthorNames,
+            communityEdit: communityEditObj,
+            resolveAuthorNames: this._pkc.resolveAuthorNames,
             clientsManager: this._clientsManager
         });
         if (!signatureValidity.valid) throw new PKCError("ERR_SIGNATURE_IS_INVALID", { signatureValidity });

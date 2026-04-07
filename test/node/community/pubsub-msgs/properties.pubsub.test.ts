@@ -18,34 +18,34 @@ import type {
     DecryptedChallengeVerificationMessageType
 } from "../../../../dist/node/pubsub-messages/types.js";
 
-describe.sequential("Validate props of subplebbit Pubsub messages", async () => {
-    let plebbit: PKC;
-    let subplebbit: LocalCommunity | RpcLocalCommunity;
+describe.sequential("Validate props of community Pubsub messages", async () => {
+    let pkc: PKC;
+    let community: LocalCommunity | RpcLocalCommunity;
     let commentSigner: SignerType;
     beforeAll(async () => {
-        plebbit = await mockPKC();
-        subplebbit = (await plebbit.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+        pkc = await mockPKC();
+        community = (await pkc.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         const challenges = [{ name: "question", options: { question: "1+1=?", answer: "2" } }];
-        await subplebbit.edit({ settings: { challenges } });
+        await community.edit({ settings: { challenges } });
 
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
-        commentSigner = await plebbit.createSigner(); // We're using the same signer for publishing so that publication.author.subplebbit is defined
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+        commentSigner = await pkc.createSigner(); // We're using the same signer for publishing so that publication.author.community is defined
     });
 
     afterAll(async () => {
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
     });
 
     it(`Validate props of challengerequest`, async () => {
         const comment = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: plebbit,
+            communityAddress: community.address,
+            pkc: pkc,
             postProps: { signer: commentSigner }
         });
         const challengeRequestPromise = new Promise<DecryptedChallengeRequestMessageTypeWithCommunityAuthor>((resolve) =>
-            subplebbit.once("challengerequest", resolve)
+            community.once("challengerequest", resolve)
         );
         await comment.publish();
         const request = await challengeRequestPromise;
@@ -78,11 +78,11 @@ describe.sequential("Validate props of subplebbit Pubsub messages", async () => 
 
     it(`Validate props of challenge`, async () => {
         const comment = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: plebbit,
+            communityAddress: community.address,
+            pkc: pkc,
             postProps: { signer: commentSigner }
         });
-        const challengePromise = new Promise<DecryptedChallengeMessageType>((resolve) => subplebbit.once("challenge", resolve));
+        const challengePromise = new Promise<DecryptedChallengeMessageType>((resolve) => community.once("challenge", resolve));
 
         await comment.publish();
         const challenge = await challengePromise;
@@ -113,10 +113,10 @@ describe.sequential("Validate props of subplebbit Pubsub messages", async () => 
     });
 
     it(`Validate props of challengeanswer`, async () => {
-        const comment = await generatePostToAnswerMathQuestion({ communityAddress: subplebbit.address, signer: commentSigner }, plebbit);
+        const comment = await generatePostToAnswerMathQuestion({ communityAddress: community.address, signer: commentSigner }, pkc);
 
         const challengeAnswerPromise = new Promise<DecryptedChallengeAnswerMessageType>((resolve) =>
-            subplebbit.once("challengeanswer", resolve)
+            community.once("challengeanswer", resolve)
         );
         const challengeVerificationPromise = new Promise<DecryptedChallengeVerificationMessageType>((resolve) =>
             comment.once("challengeverification", resolve)
@@ -151,8 +151,8 @@ describe.sequential("Validate props of subplebbit Pubsub messages", async () => 
     it(`Validate props of challengeverification (challengeSuccess=false)`, async () => {
         // Use generateMockPost instead of generatePostToAnswerMathQuestion so we can provide a wrong answer
         const comment = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: plebbit,
+            communityAddress: community.address,
+            pkc: pkc,
             postProps: { signer: commentSigner }
         });
 
@@ -162,7 +162,7 @@ describe.sequential("Validate props of subplebbit Pubsub messages", async () => 
         });
 
         const challengeVerificationPromise = new Promise<DecryptedChallengeVerificationMessageType>((resolve) =>
-            subplebbit.once("challengeverification", resolve)
+            community.once("challengeverification", resolve)
         );
 
         await comment.publish();
@@ -190,10 +190,10 @@ describe.sequential("Validate props of subplebbit Pubsub messages", async () => 
     });
 
     it(`Validate props of challengeverification (challengeSuccess=true)`, async () => {
-        const comment = await generatePostToAnswerMathQuestion({ communityAddress: subplebbit.address, signer: commentSigner }, plebbit);
+        const comment = await generatePostToAnswerMathQuestion({ communityAddress: community.address, signer: commentSigner }, pkc);
 
         const challengeVerificationPromise = new Promise<DecryptedChallengeVerificationMessageType>((resolve) =>
-            subplebbit.once("challengeverification", resolve)
+            community.once("challengeverification", resolve)
         );
         const commentChallengeVerificationPromise = new Promise<DecryptedChallengeVerificationMessageType>((resolve) =>
             comment.once("challengeverification", resolve)
@@ -212,7 +212,7 @@ describe.sequential("Validate props of subplebbit Pubsub messages", async () => 
         expect(challengeVerifcation.encrypted!.type).to.equal("ed25519-aes-gcm");
         expect(challengeVerifcation.comment).to.be.a("object");
         expect(challengeVerifcation.commentUpdate).to.be.a("object");
-        expect(challengeVerifcation.commentUpdate!.author!.subplebbit).to.be.a("object");
+        expect(challengeVerifcation.commentUpdate!.author!.community).to.be.a("object");
         expect(challengeVerifcation.commentUpdate!.number).to.be.a("number");
         expect(challengeVerifcation.commentUpdate!.postNumber).to.be.a("number");
         expect(comment.number).to.equal(challengeVerifcation.commentUpdate!.number);

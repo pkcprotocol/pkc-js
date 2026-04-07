@@ -21,13 +21,13 @@ export class PublicationClientsManager extends PKCClientsManager {
         ipfsGateways: { [ipfsGatewayUrl: string]: PublicationIpfsGatewayClient | CommentIpfsGatewayClient };
         kuboRpcClients: { [kuboRpcUrl: string]: PublicationKuboRpcClient | CommentKuboRpcClient };
         pubsubKuboRpcClients: { [kuboRpcUrl: string]: PublicationKuboPubsubClient };
-        plebbitRpcClients: Record<string, PublicationPKCRpcStateClient>;
+        pkcRpcClients: Record<string, PublicationPKCRpcStateClient>;
         libp2pJsClients: { [libp2pJsUrl: string]: PublicationLibp2pJsClient };
         nameResolvers: { [resolverKey: string]: NameResolverClient };
     };
     _publication: Publication;
     _communityForUpdating?: {
-        subplebbit: RemoteCommunity;
+        community: RemoteCommunity;
         ipfsGatewayListeners?: Record<string, Parameters<RemoteCommunity["clients"]["ipfsGateways"][string]["on"]>[1]>;
         kuboRpcListeners?: Record<string, Parameters<RemoteCommunity["clients"]["kuboRpcClients"][string]["on"]>[1]>;
         libp2pJsListeners?: Record<string, Parameters<RemoteCommunity["clients"]["libp2pJsClients"][string]["on"]>[1]>;
@@ -35,7 +35,7 @@ export class PublicationClientsManager extends PKCClientsManager {
     } & Pick<CommunityEvents, "updatingstatechange" | "update" | "error"> = undefined;
 
     constructor(publication: Publication) {
-        super(publication._plebbit);
+        super(publication._pkc);
         this._publication = publication;
         this._initPKCRpcClients();
         this.handleErrorEventFromSub = this.handleErrorEventFromSub.bind(this);
@@ -45,13 +45,13 @@ export class PublicationClientsManager extends PKCClientsManager {
     }
 
     protected override _initKuboRpcClients(): void {
-        if (this._plebbit.clients.kuboRpcClients)
-            for (const ipfsUrl of remeda.keys.strict(this._plebbit.clients.kuboRpcClients))
+        if (this._pkc.clients.kuboRpcClients)
+            for (const ipfsUrl of remeda.keys.strict(this._pkc.clients.kuboRpcClients))
                 this.clients.kuboRpcClients = { ...this.clients.kuboRpcClients, [ipfsUrl]: new PublicationKuboRpcClient("stopped") };
     }
 
     protected override _initPubsubKuboRpcClients(): void {
-        for (const pubsubUrl of remeda.keys.strict(this._plebbit.clients.pubsubKuboRpcClients))
+        for (const pubsubUrl of remeda.keys.strict(this._pkc.clients.pubsubKuboRpcClients))
             this.clients.pubsubKuboRpcClients = {
                 ...this.clients.pubsubKuboRpcClients,
                 [pubsubUrl]: new PublicationKuboPubsubClient("stopped")
@@ -59,9 +59,9 @@ export class PublicationClientsManager extends PKCClientsManager {
     }
 
     protected _initPKCRpcClients() {
-        for (const rpcUrl of remeda.keys.strict(this._plebbit.clients.plebbitRpcClients))
-            this.clients.plebbitRpcClients = {
-                ...this.clients.plebbitRpcClients,
+        for (const rpcUrl of remeda.keys.strict(this._pkc.clients.pkcRpcClients))
+            this.clients.pkcRpcClients = {
+                ...this.clients.pkcRpcClients,
                 [rpcUrl]: new PublicationPKCRpcStateClient("stopped")
             };
     }
@@ -88,8 +88,8 @@ export class PublicationClientsManager extends PKCClientsManager {
     _translateSubUpdatingStateToPublishingState(newUpdatingState: RemoteCommunity["updatingState"]) {
         const mapper: Partial<Record<typeof newUpdatingState, Publication["publishingState"]>> = {
             failed: "failed",
-            "fetching-ipfs": "fetching-subplebbit-ipfs",
-            "fetching-ipns": "fetching-subplebbit-ipns",
+            "fetching-ipfs": "fetching-community-ipfs",
+            "fetching-ipns": "fetching-community-ipns",
             "resolving-name": "resolving-community-name"
         };
         const translatedState = mapper[newUpdatingState];
@@ -109,46 +109,46 @@ export class PublicationClientsManager extends PKCClientsManager {
     handleErrorEventFromSub(err: PKCError | Error) {}
 
     handleIpfsGatewayCommunityState(
-        subplebbitNewGatewayState: RemoteCommunity["clients"]["ipfsGateways"][string]["state"],
+        communityNewGatewayState: RemoteCommunity["clients"]["ipfsGateways"][string]["state"],
         gatewayUrl: string
     ) {
         this.updateGatewayState(
-            subplebbitNewGatewayState === "fetching-ipns" ? "fetching-subplebbit-ipns" : subplebbitNewGatewayState,
+            communityNewGatewayState === "fetching-ipns" ? "fetching-community-ipns" : communityNewGatewayState,
             gatewayUrl
         );
     }
 
     handleNameResolverCommunityState(
-        subplebbitNewResolverState: RemoteCommunity["clients"]["nameResolvers"][string]["state"],
+        communityNewResolverState: RemoteCommunity["clients"]["nameResolvers"][string]["state"],
         resolverKey: string
     ) {
-        // Don't forward page-author resolution states from the subplebbit — only community-name resolution is relevant
-        if (subplebbitNewResolverState === "resolving-author-name") return;
-        this.updateNameResolverState(subplebbitNewResolverState, resolverKey);
+        // Don't forward page-author resolution states from the community — only community-name resolution is relevant
+        if (communityNewResolverState === "resolving-author-name") return;
+        this.updateNameResolverState(communityNewResolverState, resolverKey);
     }
 
     handleKuboRpcCommunityState(
-        subplebbitNewKuboRpcState: RemoteCommunity["clients"]["kuboRpcClients"][string]["state"],
+        communityNewKuboRpcState: RemoteCommunity["clients"]["kuboRpcClients"][string]["state"],
         kuboRpcUrl: string
     ) {
-        const stateMapper: Record<typeof subplebbitNewKuboRpcState, PublicationKuboRpcClient["state"] | undefined> = {
-            "fetching-ipns": "fetching-subplebbit-ipns",
-            "fetching-ipfs": "fetching-subplebbit-ipfs",
+        const stateMapper: Record<typeof communityNewKuboRpcState, PublicationKuboRpcClient["state"] | undefined> = {
+            "fetching-ipns": "fetching-community-ipns",
+            "fetching-ipfs": "fetching-community-ipfs",
             stopped: "stopped",
             "publishing-ipns": undefined
         };
 
-        const translatedState = stateMapper[subplebbitNewKuboRpcState];
+        const translatedState = stateMapper[communityNewKuboRpcState];
         if (translatedState) this.updateKuboRpcState(translatedState, kuboRpcUrl);
     }
 
     handleLibp2pJsClientCommunityState(
-        subplebbitNewLibp2pJsState: RemoteCommunity["clients"]["libp2pJsClients"][string]["state"],
+        communityNewLibp2pJsState: RemoteCommunity["clients"]["libp2pJsClients"][string]["state"],
         libp2pJsClientKey: string
     ) {
-        const stateMapper: Record<typeof subplebbitNewLibp2pJsState, PublicationLibp2pJsClient["state"] | undefined> = {
-            "fetching-ipns": "fetching-subplebbit-ipns",
-            "fetching-ipfs": "fetching-subplebbit-ipfs",
+        const stateMapper: Record<typeof communityNewLibp2pJsState, PublicationLibp2pJsClient["state"] | undefined> = {
+            "fetching-ipns": "fetching-community-ipns",
+            "fetching-ipfs": "fetching-community-ipfs",
             stopped: "stopped",
             "publishing-ipns": undefined,
             "waiting-challenge-answers": undefined,
@@ -157,43 +157,43 @@ export class PublicationClientsManager extends PKCClientsManager {
             "publishing-challenge-verification": undefined
         };
 
-        const translatedState = stateMapper[subplebbitNewLibp2pJsState];
+        const translatedState = stateMapper[communityNewLibp2pJsState];
         if (translatedState) this.updateLibp2pJsClientState(translatedState, libp2pJsClientKey);
     }
 
     async _createSubInstanceWithStateTranslation() {
-        // basically in Publication or comment we need to be fetching the subplebbit record
-        // this function will be for translating between the states of the subplebbit and its clients to publication/comment states
+        // basically in Publication or comment we need to be fetching the community record
+        // this function will be for translating between the states of the community and its clients to publication/comment states
         const directSubInstance =
-            findUpdatingCommunity(this._plebbit, { address: this._publication.communityAddress }) ||
-            findStartedCommunity(this._plebbit, { address: this._publication.communityAddress });
+            findUpdatingCommunity(this._pkc, { address: this._publication.communityAddress }) ||
+            findStartedCommunity(this._pkc, { address: this._publication.communityAddress });
         const sub =
             directSubInstance ||
-            (await this._plebbit.createCommunity({
+            (await this._pkc.createCommunity({
                 name: this._publication.communityName,
                 publicKey: this._publication.communityPublicKey,
                 address: this._publication.communityAddress
             }));
 
         this._communityForUpdating = {
-            subplebbit: sub,
+            community: sub,
             error: this.handleErrorEventFromSub.bind(this),
             update: this.handleUpdateEventFromSub.bind(this),
             updatingstatechange: this.handleUpdatingStateChangeEventFromSub.bind(this)
         };
 
         if (
-            this._communityForUpdating.subplebbit.clients.ipfsGateways &&
-            Object.keys(this._communityForUpdating.subplebbit.clients.ipfsGateways).length > 0
+            this._communityForUpdating.community.clients.ipfsGateways &&
+            Object.keys(this._communityForUpdating.community.clients.ipfsGateways).length > 0
         ) {
             // we're using gateways
             const ipfsGatewayListeners: (typeof this._communityForUpdating)["ipfsGatewayListeners"] = {};
 
-            for (const gatewayUrl of Object.keys(this._communityForUpdating.subplebbit.clients.ipfsGateways)) {
-                const ipfsStateListener = (subplebbitNewIpfsState: RemoteCommunity["clients"]["ipfsGateways"][string]["state"]) =>
-                    this.handleIpfsGatewayCommunityState(subplebbitNewIpfsState, gatewayUrl);
+            for (const gatewayUrl of Object.keys(this._communityForUpdating.community.clients.ipfsGateways)) {
+                const ipfsStateListener = (communityNewIpfsState: RemoteCommunity["clients"]["ipfsGateways"][string]["state"]) =>
+                    this.handleIpfsGatewayCommunityState(communityNewIpfsState, gatewayUrl);
 
-                this._communityForUpdating.subplebbit.clients.ipfsGateways[gatewayUrl].on("statechange", ipfsStateListener);
+                this._communityForUpdating.community.clients.ipfsGateways[gatewayUrl].on("statechange", ipfsStateListener);
                 ipfsGatewayListeners[gatewayUrl] = ipfsStateListener;
             }
             this._communityForUpdating.ipfsGatewayListeners = ipfsGatewayListeners;
@@ -201,16 +201,16 @@ export class PublicationClientsManager extends PKCClientsManager {
 
         // Add Kubo RPC client state listeners
         if (
-            this._communityForUpdating.subplebbit.clients.kuboRpcClients &&
-            Object.keys(this._communityForUpdating.subplebbit.clients.kuboRpcClients).length > 0
+            this._communityForUpdating.community.clients.kuboRpcClients &&
+            Object.keys(this._communityForUpdating.community.clients.kuboRpcClients).length > 0
         ) {
             const kuboRpcListeners: Record<string, Parameters<RemoteCommunity["clients"]["kuboRpcClients"][string]["on"]>[1]> = {};
 
-            for (const kuboRpcUrl of Object.keys(this._communityForUpdating.subplebbit.clients.kuboRpcClients)) {
-                const kuboRpcStateListener = (subplebbitNewKuboRpcState: RemoteCommunity["clients"]["kuboRpcClients"][string]["state"]) =>
-                    this.handleKuboRpcCommunityState(subplebbitNewKuboRpcState, kuboRpcUrl);
+            for (const kuboRpcUrl of Object.keys(this._communityForUpdating.community.clients.kuboRpcClients)) {
+                const kuboRpcStateListener = (communityNewKuboRpcState: RemoteCommunity["clients"]["kuboRpcClients"][string]["state"]) =>
+                    this.handleKuboRpcCommunityState(communityNewKuboRpcState, kuboRpcUrl);
 
-                this._communityForUpdating.subplebbit.clients.kuboRpcClients[kuboRpcUrl].on("statechange", kuboRpcStateListener);
+                this._communityForUpdating.community.clients.kuboRpcClients[kuboRpcUrl].on("statechange", kuboRpcStateListener);
                 kuboRpcListeners[kuboRpcUrl] = kuboRpcStateListener;
             }
             this._communityForUpdating.kuboRpcListeners = kuboRpcListeners;
@@ -218,17 +218,17 @@ export class PublicationClientsManager extends PKCClientsManager {
 
         // add libp2pJs client state listeners
         if (
-            this._communityForUpdating.subplebbit.clients.libp2pJsClients &&
-            Object.keys(this._communityForUpdating.subplebbit.clients.libp2pJsClients).length > 0
+            this._communityForUpdating.community.clients.libp2pJsClients &&
+            Object.keys(this._communityForUpdating.community.clients.libp2pJsClients).length > 0
         ) {
             const libp2pJsListeners: Record<string, Parameters<RemoteCommunity["clients"]["libp2pJsClients"][string]["on"]>[1]> = {};
 
-            for (const libp2pJsClientKey of Object.keys(this._communityForUpdating.subplebbit.clients.libp2pJsClients)) {
+            for (const libp2pJsClientKey of Object.keys(this._communityForUpdating.community.clients.libp2pJsClients)) {
                 const libp2pJsClientStateListener = (
-                    subplebbitNewLibp2pJsState: RemoteCommunity["clients"]["libp2pJsClients"][string]["state"]
-                ) => this.handleLibp2pJsClientCommunityState(subplebbitNewLibp2pJsState, libp2pJsClientKey);
+                    communityNewLibp2pJsState: RemoteCommunity["clients"]["libp2pJsClients"][string]["state"]
+                ) => this.handleLibp2pJsClientCommunityState(communityNewLibp2pJsState, libp2pJsClientKey);
 
-                this._communityForUpdating.subplebbit.clients.libp2pJsClients[libp2pJsClientKey].on(
+                this._communityForUpdating.community.clients.libp2pJsClients[libp2pJsClientKey].on(
                     "statechange",
                     libp2pJsClientStateListener
                 );
@@ -239,26 +239,26 @@ export class PublicationClientsManager extends PKCClientsManager {
 
         // Add name resolver state listeners
         if (
-            this._communityForUpdating.subplebbit.clients.nameResolvers &&
-            Object.keys(this._communityForUpdating.subplebbit.clients.nameResolvers).length > 0
+            this._communityForUpdating.community.clients.nameResolvers &&
+            Object.keys(this._communityForUpdating.community.clients.nameResolvers).length > 0
         ) {
             const nameResolverListeners: Record<string, Parameters<RemoteCommunity["clients"]["nameResolvers"][string]["on"]>[1]> = {};
 
-            for (const resolverKey of Object.keys(this._communityForUpdating.subplebbit.clients.nameResolvers)) {
-                const resolverStateListener = (subplebbitNewResolverState: RemoteCommunity["clients"]["nameResolvers"][string]["state"]) =>
-                    this.handleNameResolverCommunityState(subplebbitNewResolverState, resolverKey);
+            for (const resolverKey of Object.keys(this._communityForUpdating.community.clients.nameResolvers)) {
+                const resolverStateListener = (communityNewResolverState: RemoteCommunity["clients"]["nameResolvers"][string]["state"]) =>
+                    this.handleNameResolverCommunityState(communityNewResolverState, resolverKey);
 
-                this._communityForUpdating.subplebbit.clients.nameResolvers[resolverKey].on("statechange", resolverStateListener);
+                this._communityForUpdating.community.clients.nameResolvers[resolverKey].on("statechange", resolverStateListener);
                 nameResolverListeners[resolverKey] = resolverStateListener;
             }
             this._communityForUpdating.nameResolverListeners = nameResolverListeners;
         }
 
-        this._communityForUpdating.subplebbit.on("update", this._communityForUpdating.update);
+        this._communityForUpdating.community.on("update", this._communityForUpdating.update);
 
-        this._communityForUpdating.subplebbit.on("updatingstatechange", this._communityForUpdating.updatingstatechange);
+        this._communityForUpdating.community.on("updatingstatechange", this._communityForUpdating.updatingstatechange);
 
-        this._communityForUpdating.subplebbit.on("error", this._communityForUpdating.error);
+        this._communityForUpdating.community.on("error", this._communityForUpdating.error);
 
         if (directSubInstance) {
             directSubInstance._numOfListenersForUpdatingInstance++;
@@ -267,12 +267,12 @@ export class PublicationClientsManager extends PKCClientsManager {
     }
 
     async cleanUpUpdatingSubInstance() {
-        if (!this._communityForUpdating) throw Error("Need to define subplebbitForUpdating first");
+        if (!this._communityForUpdating) throw Error("Need to define communityForUpdating first");
 
         // Clean up IPFS Gateway listeners
         if (this._communityForUpdating.ipfsGatewayListeners) {
             for (const gatewayUrl of Object.keys(this._communityForUpdating.ipfsGatewayListeners)) {
-                this._communityForUpdating.subplebbit.clients.ipfsGateways[gatewayUrl].removeListener(
+                this._communityForUpdating.community.clients.ipfsGateways[gatewayUrl].removeListener(
                     "statechange",
                     this._communityForUpdating.ipfsGatewayListeners[gatewayUrl]
                 );
@@ -283,7 +283,7 @@ export class PublicationClientsManager extends PKCClientsManager {
         // Clean up Kubo RPC listeners
         if (this._communityForUpdating.kuboRpcListeners) {
             for (const kuboRpcUrl of Object.keys(this._communityForUpdating.kuboRpcListeners)) {
-                this._communityForUpdating.subplebbit.clients.kuboRpcClients[kuboRpcUrl].removeListener(
+                this._communityForUpdating.community.clients.kuboRpcClients[kuboRpcUrl].removeListener(
                     "statechange",
                     this._communityForUpdating.kuboRpcListeners[kuboRpcUrl]
                 );
@@ -294,7 +294,7 @@ export class PublicationClientsManager extends PKCClientsManager {
         // clean up libp2pJs listeners
         if (this._communityForUpdating.libp2pJsListeners) {
             for (const libp2pJsClientKey of Object.keys(this._communityForUpdating.libp2pJsListeners)) {
-                this._communityForUpdating.subplebbit.clients.libp2pJsClients[libp2pJsClientKey].removeListener(
+                this._communityForUpdating.community.clients.libp2pJsClients[libp2pJsClientKey].removeListener(
                     "statechange",
                     this._communityForUpdating.libp2pJsListeners[libp2pJsClientKey]
                 );
@@ -305,7 +305,7 @@ export class PublicationClientsManager extends PKCClientsManager {
         // Clean up name resolver listeners
         if (this._communityForUpdating.nameResolverListeners) {
             for (const resolverKey of Object.keys(this._communityForUpdating.nameResolverListeners)) {
-                this._communityForUpdating.subplebbit.clients.nameResolvers[resolverKey].removeListener(
+                this._communityForUpdating.community.clients.nameResolvers[resolverKey].removeListener(
                     "statechange",
                     this._communityForUpdating.nameResolverListeners[resolverKey]
                 );
@@ -314,21 +314,21 @@ export class PublicationClientsManager extends PKCClientsManager {
         }
 
         // Remove update event at the end
-        this._communityForUpdating.subplebbit.removeListener("updatingstatechange", this._communityForUpdating.updatingstatechange);
-        this._communityForUpdating.subplebbit.removeListener("error", this._communityForUpdating.error);
-        this._communityForUpdating.subplebbit.removeListener("update", this._communityForUpdating.update);
+        this._communityForUpdating.community.removeListener("updatingstatechange", this._communityForUpdating.updatingstatechange);
+        this._communityForUpdating.community.removeListener("error", this._communityForUpdating.error);
+        this._communityForUpdating.community.removeListener("update", this._communityForUpdating.update);
 
-        if (this._communityForUpdating.subplebbit._updatingSubInstanceWithListeners)
-            // should only stop when _communityForUpdating is not plebbit._updatingCommunitys
-            await this._communityForUpdating.subplebbit.stop();
+        if (this._communityForUpdating.community._updatingCommunityInstanceWithListeners)
+            // should only stop when _communityForUpdating is not pkc._updatingCommunities
+            await this._communityForUpdating.community.stop();
         else {
-            // _communityForUpdating is actually plebbit._updatingCommunitys or plebbit._startedCommunitys
-            this._communityForUpdating.subplebbit._numOfListenersForUpdatingInstance--;
+            // _communityForUpdating is actually pkc._updatingCommunities or pkc._startedCommunities
+            this._communityForUpdating.community._numOfListenersForUpdatingInstance--;
             if (
-                this._communityForUpdating.subplebbit._numOfListenersForUpdatingInstance <= 0 &&
-                this._communityForUpdating.subplebbit.state === "updating"
+                this._communityForUpdating.community._numOfListenersForUpdatingInstance <= 0 &&
+                this._communityForUpdating.community.state === "updating"
             )
-                await this._communityForUpdating.subplebbit.stop();
+                await this._communityForUpdating.community.stop();
         }
         this._communityForUpdating = undefined;
     }
@@ -340,30 +340,30 @@ export class PublicationClientsManager extends PKCClientsManager {
     private async _loadCommunityForPublishingFromNetwork(): Promise<NonNullable<Publication["_community"]>> {
         const updatingSubInstance = await this._createSubInstanceWithStateTranslation();
         let subIpfs: CommunityIpfsType;
-        if (!updatingSubInstance.subplebbit.raw.subplebbitIpfs) {
-            const timeoutMs = this._plebbit._timeouts["subplebbit-ipns"];
+        if (!updatingSubInstance.community.raw.communityIpfs) {
+            const timeoutMs = this._pkc._timeouts["community-ipns"];
             try {
-                await waitForUpdateInSubInstanceWithErrorAndTimeout(updatingSubInstance.subplebbit, timeoutMs);
-                subIpfs = updatingSubInstance.subplebbit.raw.subplebbitIpfs!;
+                await waitForUpdateInSubInstanceWithErrorAndTimeout(updatingSubInstance.community, timeoutMs);
+                subIpfs = updatingSubInstance.community.raw.communityIpfs!;
             } catch (e) {
                 await this.cleanUpUpdatingSubInstance();
                 throw e;
             }
             await this.cleanUpUpdatingSubInstance();
         } else {
-            subIpfs = updatingSubInstance.subplebbit.raw.subplebbitIpfs!;
+            subIpfs = updatingSubInstance.community.raw.communityIpfs!;
             await this.cleanUpUpdatingSubInstance();
         }
 
         if (!subIpfs)
             throw new PKCError("ERR_GET_COMMUNITY_TIMED_OUT", {
-                subplebbitAddress: updatingSubInstance.subplebbit.address,
-                timeoutMs: this._plebbit._timeouts["subplebbit-ipns"]
+                communityAddress: updatingSubInstance.community.address,
+                timeoutMs: this._pkc._timeouts["community-ipns"]
             });
         return {
-            address: updatingSubInstance.subplebbit.address,
-            publicKey: updatingSubInstance.subplebbit.publicKey!,
-            name: updatingSubInstance.subplebbit.name,
+            address: updatingSubInstance.community.address,
+            publicKey: updatingSubInstance.community.publicKey!,
+            name: updatingSubInstance.community.name,
             encryption: subIpfs.encryption,
             pubsubTopic: subIpfs.pubsubTopic
         };

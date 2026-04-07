@@ -8,17 +8,17 @@ import { createScenarioContext, defineHangingScenario } from "./hanging-test-uti
  * so the destroy call can flush everything properly.
  */
 export default defineHangingScenario({
-    id: "subplebbit-update",
-    description: "update a subplebbit and destroy plebbit",
+    id: "community-update",
+    description: "update a community and destroy pkc",
     run: async ({ configCode }) => {
-        const subplebbitAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
-        const { plebbit, config } = await createScenarioContext(configCode);
+        const communityAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
+        const { pkc, config } = await createScenarioContext(configCode);
 
-        const subplebbit = await plebbit.createCommunity({ address: subplebbitAddress });
+        const community = await pkc.createCommunity({ address: communityAddress });
 
-        await subplebbit.update();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+        await community.update();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
-        await plebbit.destroy();
+        await pkc.destroy();
     }
 });

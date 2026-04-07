@@ -25,28 +25,28 @@ interface ReceivedPubsubMessage {
     timestamp: number;
 }
 
-describeSkipIfRpc("Local publishing to subplebbit", async () => {
-    let plebbit: PKCType;
-    let subplebbit: LocalCommunity | RpcLocalCommunity;
+describeSkipIfRpc("Local publishing to community", async () => {
+    let pkc: PKCType;
+    let community: LocalCommunity | RpcLocalCommunity;
     let commentSigner: SignerType;
     const receivedPubsubMessages: ReceivedPubsubMessage[] = [];
     let pubsubTopic: string;
 
     beforeAll(async () => {
-        plebbit = await mockPKC();
-        subplebbit = (await plebbit.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+        pkc = await mockPKC();
+        community = (await pkc.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         const challenges = [{ name: "question", options: { question: "1+1=?", answer: "2" } }];
-        await subplebbit.edit({ settings: { challenges } });
+        await community.edit({ settings: { challenges } });
 
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
-        commentSigner = await plebbit.createSigner();
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+        commentSigner = await pkc.createSigner();
 
-        // Get the pubsub topic for this subplebbit (pubsubTopic || address)
-        pubsubTopic = subplebbit.pubsubTopic || subplebbit.address;
+        // Get the pubsub topic for this community (pubsubTopic || address)
+        pubsubTopic = community.pubsubTopic || community.address;
 
         // Subscribe to the pubsub topic to capture any messages that might be published
-        const pubsubClient = plebbit._clientsManager.getDefaultKuboPubsubClient();
+        const pubsubClient = pkc._clientsManager.getDefaultKuboPubsubClient();
         await pubsubClient._client.pubsub.subscribe(pubsubTopic, (msg: PubsubMessage) => {
             receivedPubsubMessages.push({
                 topic: pubsubTopic,
@@ -57,15 +57,15 @@ describeSkipIfRpc("Local publishing to subplebbit", async () => {
     });
 
     afterAll(async () => {
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
     });
 
     it("should publish comment locally without going through pubsub exchange", async () => {
         // Create a comment that will answer the math question correctly
         const comment: Comment = await generatePostToAnswerMathQuestion(
-            { communityAddress: subplebbit.address, signer: commentSigner },
-            plebbit
+            { communityAddress: community.address, signer: commentSigner },
+            pkc
         );
 
         const challengeRequestPromise = new Promise((resolve) => comment.once("challengerequest", resolve));
@@ -94,12 +94,12 @@ describeSkipIfRpc("Local publishing to subplebbit", async () => {
         // Verify the challenge succeeded
         expect((challengeVerification as { challengeSuccess: boolean }).challengeSuccess).to.be.true;
 
-        // Verify that the subplebbit is indeed local (running on the same plebbit instance)
-        expect(plebbit._startedCommunitys[subplebbit.address]).to.equal(subplebbit);
+        // Verify that the community is indeed local (running on the same pkc instance)
+        expect(pkc._startedCommunities[community.address]).to.equal(community);
 
         // Verify that the publication was handled locally by checking the _publishingToLocalCommunity flag
         // This flag should be set during local publishing to prevent pubsub updates
-        expect(comment._publishingToLocalCommunity).to.equal(subplebbit);
+        expect(comment._publishingToLocalCommunity).to.equal(community);
 
         // Verify that no pubsub messages were received during local publishing
         // If we receive any messages, it means pubsub was used when it shouldn't be for local publishing
@@ -107,11 +107,11 @@ describeSkipIfRpc("Local publishing to subplebbit", async () => {
     });
 
     it("Should be able to publish comment without needing to await for updatedAt to be defined", async () => {
-        const subplebbit = (await createSubWithNoChallenge({}, plebbit)) as LocalCommunity | RpcLocalCommunity;
-        await subplebbit.start();
-        expect(subplebbit.updatedAt).to.be.undefined;
+        const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity | RpcLocalCommunity;
+        await community.start();
+        expect(community.updatedAt).to.be.undefined;
 
-        await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
-        await subplebbit.delete();
+        await publishRandomPost({ communityAddress: community.address, pkc: pkc });
+        await community.delete();
     });
 });

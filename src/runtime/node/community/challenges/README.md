@@ -1,4 +1,4 @@
-NOTE: Challenges included with plebbit-js are located in ./plebbit-js-challenges
+NOTE: Challenges included with pkc-js are located in ./pkc-js-challenges
 
 #### How to use:
 
@@ -9,8 +9,8 @@ const {getChallengeVerification} = require('./challenges')
 // because they are sometimes skipped
 const getChallengeAnswers = async (challenges) => {
   // ...get challenge answers from user. e.g.:
-  // step 1. subplebbit publishes challenge pubsub message with `challenges` provided in argument of `getChallengeAnswers`
-  // step 2. subplebbit waits for challenge answer pubsub message with `challengeAnswers` and then returns `challengeAnswers`
+  // step 1. community publishes challenge pubsub message with `challenges` provided in argument of `getChallengeAnswers`
+  // step 2. community waits for challenge answer pubsub message with `challengeAnswers` and then returns `challengeAnswers`
   return challengeAnswers
 }
 
@@ -18,17 +18,17 @@ const getChallengeAnswers = async (challenges) => {
 // because some challenges are automatic and skip the challenge message
 let challengeVerification
 try {
-  challengeVerification = await getChallengeVerification(challengeRequest, subplebbit, getChallengeAnswers)
+  challengeVerification = await getChallengeVerification(challengeRequest, community, getChallengeAnswers)
 }
 // getChallengeVerification will throw if one of the getChallenge function throws, which indicates a bug with the challenge script
 catch (e) {
   // notify the sub owner that that one of his challenge is misconfigured via an error event
-  subplebbit.emit('error', e.message)
+  community.emit('error', e.message)
 
-  // notify the author that his publication wasn't published because the subplebbit is misconfigured
+  // notify the author that his publication wasn't published because the community is misconfigured
   challengeVerification = {
     challengeSuccess: false,
-    reason: `One of the subplebbit challenges is misconfigured: ${e.message}`
+    reason: `One of the community challenges is misconfigured: ${e.message}`
   }
 }
 ```
@@ -36,37 +36,37 @@ catch (e) {
 #### Types:
 
 ```javascript
-// list of challenges included with plebbit-js
-Plebbit.challenges = {[challengeName: string]: ChallengeFile}
+// list of challenges included with pkc-js
+PKC.challenges = {[challengeName: string]: ChallengeFile}
 
 // new props 
 ChallengeRequestMessage {
   encrypted: Encrypted
   /* ChallengeRequestMessage.encrypted.ciphertext decrypts to JSON {
     publication: Publication
-    challengeAnswers?: string[] // some challenges might be included in subplebbit.challenges and can be pre-answered
-    challengeCommentCids?: string[] // some challenges could require including comment cids in other subs, like friendly subplebbit karma challenges
+    challengeAnswers?: string[] // some challenges might be included in community.challenges and can be pre-answered
+    challengeCommentCids?: string[] // some challenges could require including comment cids in other subs, like friendly community karma challenges
   } */
 }
-Subplebbit {
+Community {
   // challenges is public, part of the IPNS record
-  challenges: SubplebbitChallenge[]
+  challenges: CommunityChallenge[]
   // settings is private, not part of the IPNS record
   settings: {
-    challenges: SubplebbitChallengeSettings[]
+    challenges: CommunityChallengeSettings[]
   }
 }
 
 // public challenges types
-SubplebbitChallenge { // copy values from private subplebbit.settings and publish to subplebbit.challenges
-  exclude?: Exclude[] // copied from subplebbit.settings.challenges.exclude
-  description?: string // copied from subplebbit.settings.challenges.description
+CommunityChallenge { // copy values from private community.settings and publish to community.challenges
+  exclude?: Exclude[] // copied from community.settings.challenges.exclude
+  description?: string // copied from community.settings.challenges.description
   challenge?: string // copied from ChallengeFile.challenge
   type?: // copied from ChallengeFile.type
 }
-SubplebbitChallengeSettings { // the private settings of the challenge (subplebbit.settings.challenges)
+CommunityChallengeSettings { // the private settings of the challenge (community.settings.challenges)
   path?: string // (only if name is undefined) the path to the challenge js file, used to get the props ChallengeFile {optionInputs, type, getChallenge}
-  name?: string // (only if path is undefined) the challengeName from Plebbit.challenges to identify it
+  name?: string // (only if path is undefined) the challengeName from PKC.challenges to identify it
   options?: [optionPropertyName: string]: string // the options to be used to the getChallenge function, all values must be strings for UI ease of use
   exclude?: Exclude[] // singular because it only has to match 1 exclude, the client must know the exclude setting to configure what challengeCommentCids to send
   description?: string // describe in the frontend what kind of challenge the user will receive when publishing
@@ -79,7 +79,7 @@ ChallengeFile { // the result of the function exported by the challenge file
   getChallenge: GetChallengeFunction
 }
 GetChallengeFunction {
-  (challenge: SubplebbitChallengeSettings, challengeRequest: ChallengeRequestMessage, challengeIndex: number): Challenge | ChallengeResult
+  (challenge: CommunityChallengeSettings, challengeRequest: ChallengeRequestMessage, challengeIndex: number): Challenge | ChallengeResult
 }
 Challenge { // if the result of a challenge can't be optained by getChallenge(), return a challenge
   challenge: string // e.g. '2 + 2'
@@ -91,7 +91,7 @@ ChallengeResult { // if the result of a challenge can be optained by getChalleng
   error?: string // the reason why the challenge failed, add it to ChallengeVerificationMessage.errors
 }
 Exclude { // all conditions in Exclude are AND, for OR, use another Exclude item in the Exclude array
-  subplebbit?: ExcludeSubplebbit // exclude if author karma (from challengeRequestMessage.challengeCommentCids) in another subplebbit is greater or equal
+  community?: ExcludeCommunity // exclude if author karma (from challengeRequestMessage.challengeCommentCids) in another community is greater or equal
   postScore?: number // exclude if author post score is greater or equal
   postReply?: number // exclude if author reply score is greater or equal
   firstCommentTimestamp?: number // exclude if author account age is greater or equal than now - firstCommentTimestamp
@@ -109,8 +109,8 @@ ExcludePublicationType { // singular because it only has to match 1 publication 
   commentEdit?: boolean // exclude challenge if publication is a comment edit
   commentModeration?: boolean // exclude challenge if publication is a comment moderation
 }
-ExcludeSubplebbit { // singular because it only has to match 1 subplebbit
-  addresses: string[] // list of subplebbit addresses that can be used to exclude, plural because not a condition field like 'role'
+ExcludeCommunity { // singular because it only has to match 1 community
+  addresses: string[] // list of community addresses that can be used to exclude, plural because not a condition field like 'role'
   maxCommentCids: number // maximum amount of comment cids that will be fetched to check
   postScore?: number
   postReply?: number
@@ -128,5 +128,5 @@ OptionInput {
 
 #### Ideas:
 
-- interface so that the sub owner can display on publication.author.subplebbit the amount paid by the user for payment challenges
+- interface so that the sub owner can display on publication.author.community the amount paid by the user for payment challenges
 - "standard" challenges like "fail" and "evm-contract-call" so that the frontend could calculate the exclude and result of the challenge to see if the author passes it before even publishing

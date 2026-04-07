@@ -34,7 +34,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`comment.update - ${config.name}`, async () => {
         let pkc: PKC;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -44,7 +44,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it.sequential(
             `pkc.createComment({cid}).update() fetches comment ipfs and update correctly when cid is the cid of a post`,
             async () => {
-                const originalPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+                const originalPost = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
 
                 const recreatedPost = await pkc.createComment({ cid: originalPost.cid });
 
@@ -75,7 +75,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
                 const reply = await publishRandomReply({
                     parentComment: (await pkc.getComment({ cid: postCid })) as CommentIpfsWithCidDefined,
-                    plebbit: pkc
+                    pkc: pkc
                 });
 
                 const recreatedReply = await pkc.createComment({ cid: reply.cid });
@@ -129,7 +129,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`comment.update() is working as expected after calling comment.stop()`, async () => {
-            const pkc = await config.plebbitInstancePromise();
+            const pkc = await config.pkcInstancePromise();
             try {
                 const community = await pkc.getCommunity({ address: communityAddress });
                 const postToStop = await pkc.createComment({ cid: community.posts.pages.hot.comments[0].cid });
@@ -140,7 +140,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
                 await postToStop.update();
 
-                const reply = await publishRandomReply({ parentComment: postToStop as CommentIpfsWithCidDefined, plebbit: pkc });
+                const reply = await publishRandomReply({ parentComment: postToStop as CommentIpfsWithCidDefined, pkc: pkc });
                 await waitTillReplyInParentPagesInstance(reply as unknown as ReplyWithRequiredFields, postToStop);
                 await postToStop.stop();
             } finally {
@@ -149,7 +149,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`comment.update() is working as expected after comment.publish()`, async () => {
-            const post = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            const post = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
             await post.update();
             await resolveWhenConditionIsTrue({ toUpdate: post, predicate: async () => typeof post.updatedAt === "number" });
             expect(post.updatedAt).to.be.a("number");
@@ -157,14 +157,14 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`reply can receive comment updates`, async () => {
-            const post = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
-            const reply = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc });
+            const post = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
+            const reply = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, pkc: pkc });
             await reply.update();
             await resolveWhenConditionIsTrue({ toUpdate: reply, predicate: async () => typeof reply.updatedAt === "number" });
 
             await reply.stop();
             expect(reply.updatedAt).to.be.a("number");
-            expect(reply.author.subplebbit).to.be.a("object");
+            expect(reply.author.community).to.be.a("object");
         });
     });
 });
@@ -215,7 +215,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC;
         let commentUpdateWithInvalidSignatureJson: { cid: string };
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
             invalidCommentIpfsCid = await addCommentIpfsWithInvalidSignatureToIpfs();
             cidOfInvalidJson = await addInvalidJsonToIpfs();
             cidOfCommentIpfsWithInvalidSchema = await addCommentIpfsWithInvalidSchemaToIpfs();
@@ -385,7 +385,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             await Promise.all([
                 resolveWhenConditionIsTrue({ toUpdate: createdComment, predicate: async () => errors.length >= 1, eventName: "error" }),
-                publishRandomPost({ communityAddress: communityAddress, plebbit: pkc })
+                publishRandomPost({ communityAddress: communityAddress, pkc: pkc })
             ]);
 
             expect(createdComment.updatedAt).to.be.undefined; // Make sure it didn't use the props from the invalid CommentUpdate
@@ -408,7 +408,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         itSkipIfRpc(`comment.update() emits error if CommentUpdate is an invalid json`, async () => {
             // this test times out sometimes
             // Should emit an error and keep on updating
-            const pkc = await config.plebbitInstancePromise();
+            const pkc = await config.pkcInstancePromise();
 
             try {
                 const invalidCommentUpdateJson = "<html>something</html>";
@@ -431,7 +431,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                         predicate: async () => errors.length === 2,
                         eventName: "error"
                     }),
-                    publishRandomPost({ communityAddress: communityAddress, plebbit: pkc }) // force sub to publish a new update
+                    publishRandomPost({ communityAddress: communityAddress, pkc: pkc }) // force sub to publish a new update
                 ]);
 
                 expect(createdComment.updatedAt).to.be.undefined; // Make sure it didn't use the props from the invalid CommentUpdate
@@ -472,7 +472,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             await Promise.all([
                 resolveWhenConditionIsTrue({ toUpdate: createdComment, predicate: async () => errors.length >= 1, eventName: "error" }),
-                publishRandomPost({ communityAddress: communityAddress, plebbit: pkc }) // force sub to publish a new update
+                publishRandomPost({ communityAddress: communityAddress, pkc: pkc }) // force sub to publish a new update
             ]);
 
             expect(createdComment.updatedAt).to.be.undefined; // Make sure it didn't use the props from the invalid CommentUpdate
@@ -540,7 +540,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
     describe(`comment.update() emits errors for gateways that return content that does not correspond to their cids`, async () => {
         it(`comment.update() emit an error and stops updating loop if gateway responded with a CommentIpfs that's not derived from its CID - IPFS Gateway`, async () => {
             const gatewayUrl = "http://localhost:13415"; // This gateway responds with content that is not equivalent to its CID
-            const pkc = await config.plebbitInstancePromise({ plebbitOptions: { ipfsGatewayUrls: [gatewayUrl] } });
+            const pkc = await config.pkcInstancePromise({ pkcOptions: { ipfsGatewayUrls: [gatewayUrl] } });
 
             const cid = "QmUFu8fzuT1th3jJYgR4oRgGpw3sgRALr4nbenA4pyoCav"; // Gateway will respond with random content for this cid
             const createdComment = await pkc.createComment({ cid });

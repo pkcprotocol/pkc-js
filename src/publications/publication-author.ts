@@ -3,7 +3,7 @@ import type { AuthorPubsubType, RuntimeAuthorType, RuntimeAuthorWithCommentUpdat
 import { getPKCAddressFromPublicKeySync } from "../signer/util.js";
 import { isStringDomain } from "../util.js";
 
-const runtimeOnlyAuthorFields = ["address", "publicKey", "shortAddress", "subplebbit", "nameResolved"] as const;
+const runtimeOnlyAuthorFields = ["address", "publicKey", "shortAddress", "community", "nameResolved"] as const;
 
 type LooseAuthor = Partial<RuntimeAuthorWithCommentUpdateType> & Record<string, unknown>;
 
@@ -52,11 +52,11 @@ export function getAuthorDomainFromRuntime(author?: Pick<RuntimeAuthorType, "nam
 export function buildRuntimeAuthor({
     author,
     signaturePublicKey,
-    subplebbit
+    community
 }: {
     author?: LooseAuthor;
     signaturePublicKey: string;
-    subplebbit?: RuntimeAuthorWithCommentUpdateType["subplebbit"];
+    community?: RuntimeAuthorWithCommentUpdateType["community"];
 }): RuntimeAuthorWithCommentUpdateType {
     const publicKey = getPKCAddressFromPublicKeySync(signaturePublicKey);
     const name = getAuthorNameFromWire(author);
@@ -64,7 +64,7 @@ export function buildRuntimeAuthor({
     const runtimeAuthor: RuntimeAuthorWithCommentUpdateType = {
         ...wireAuthor,
         ...(name ? { name } : undefined),
-        ...(subplebbit ? { subplebbit } : undefined),
+        ...(community ? { community } : undefined),
         address: name || publicKey,
         publicKey
     };
@@ -75,15 +75,15 @@ export function buildRuntimeAuthorWithShortAddress({
     author,
     signaturePublicKey,
     shortAddress,
-    subplebbit
+    community
 }: {
     author?: LooseAuthor;
     signaturePublicKey: string;
     shortAddress: string;
-    subplebbit?: RuntimeAuthorWithCommentUpdateType["subplebbit"];
+    community?: RuntimeAuthorWithCommentUpdateType["community"];
 }): RuntimeAuthorWithCommentUpdateType & { shortAddress: string } {
     return {
-        ...buildRuntimeAuthor({ author, signaturePublicKey, subplebbit }),
+        ...buildRuntimeAuthor({ author, signaturePublicKey, community }),
         shortAddress
     };
 }

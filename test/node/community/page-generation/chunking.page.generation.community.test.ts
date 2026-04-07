@@ -296,8 +296,8 @@ function createCommentAuthor(label: string): CommentIpfsType["author"] {
 
 function createCommentUpdateAuthor(label: string): CommentUpdateType["author"] {
     const author = structuredClone(BASE_COMMENT_UPDATE.author);
-    if (author?.subplebbit) {
-        author.subplebbit = { ...author.subplebbit, lastCommentCid: `${author.subplebbit.lastCommentCid}-${label}` };
+    if (author?.community) {
+        author.community = { ...author.community, lastCommentCid: `${author.community.lastCommentCid}-${label}` };
     }
     return author;
 }

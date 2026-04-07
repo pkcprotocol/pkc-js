@@ -8,19 +8,19 @@ import Database from "better-sqlite3";
 
 // Storage is for long term items, no eviction based on ttl or anything like that
 export default class Storage implements StorageInterface {
-    private _plebbit: PKC;
+    private _pkc: PKC;
     private _keyv: KeyvBetterSqlite3;
     private _db: Database.Database;
 
-    constructor(plebbit: Storage["_plebbit"]) {
-        this._plebbit = plebbit;
+    constructor(pkc: Storage["_pkc"]) {
+        this._pkc = pkc;
 
         let dbFilePath: string;
-        if (this._plebbit.noData || !this._plebbit.dataPath) {
+        if (this._pkc.noData || !this._pkc.dataPath) {
             dbFilePath = ":memory:";
         } else {
-            fs.mkdirSync(this._plebbit.dataPath, { recursive: true });
-            dbFilePath = path.join(this._plebbit.dataPath, "storage.db");
+            fs.mkdirSync(this._pkc.dataPath, { recursive: true });
+            dbFilePath = path.join(this._pkc.dataPath, "storage.db");
         }
         this._db = new Database(dbFilePath);
         this._keyv = new KeyvBetterSqlite3(this._db);
@@ -28,7 +28,7 @@ export default class Storage implements StorageInterface {
         this._keyv.on("error", (err: any) => {
             err.details = { ...err.details, dbFilePath, keyv: this._keyv, db: this._db };
             console.error("Error in Keyv", err);
-            this._plebbit.emit("error", err);
+            this._pkc.emit("error", err);
         });
 
         hideClassPrivateProps(this);

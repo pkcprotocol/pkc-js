@@ -42,8 +42,8 @@ const getAvailablePort = async (): Promise<number> =>
 
 describeSkipIfRpc("PKC RPC server stress publish", function () {
     let rpcServer: PKCWsServerType | undefined;
-    let plebbit: PKCType;
-    let subplebbit: RpcLocalCommunity;
+    let pkc: PKCType;
+    let community: RpcLocalCommunity;
     let moderatorSigner: SignerType;
     let rpcPort: number;
     const stressClients: PKCType[] = [];
@@ -51,7 +51,7 @@ describeSkipIfRpc("PKC RPC server stress publish", function () {
 
     function configureServerPubsubClients(options: { dropRate?: number; throwOnPublish?: boolean } = {}) {
         const { dropRate, throwOnPublish } = options;
-        const pubsubClients = rpcServer?.plebbit?.clients?.pubsubKuboRpcClients;
+        const pubsubClients = rpcServer?.pkc?.clients?.pubsubKuboRpcClients;
         if (!pubsubClients) return;
         for (const pubsubUrl of Object.keys(pubsubClients)) {
             const wrapper = pubsubClients[pubsubUrl] as unknown as { _client?: MockPubsubClientType; destroy?: () => Promise<void> };
@@ -82,16 +82,16 @@ describeSkipIfRpc("PKC RPC server stress publish", function () {
         const port = await getAvailablePort();
         rpcPort = port;
         const dataPath = tempy.directory();
-        rpcServer = await createPKCWsServer({ port, plebbitOptions: { dataPath } });
+        rpcServer = await createPKCWsServer({ port, pkcOptions: { dataPath } });
         mockRpcServerForTests(rpcServer);
-        rpcServer?.plebbit?.setMaxListeners?.(1000);
+        rpcServer?.pkc?.setMaxListeners?.(1000);
         configureServerPubsubClients();
 
-        plebbit = await PKC({ pkcRpcClientsOptions: [`ws://127.0.0.1:${port}`], dataPath: undefined, httpRoutersOptions: [] });
-        subplebbit = (await plebbit.createCommunity({})) as RpcLocalCommunity;
-        subplebbit.setMaxListeners(100);
-        moderatorSigner = await plebbit.createSigner();
-        await subplebbit.edit({
+        pkc = await PKC({ pkcRpcClientsOptions: [`ws://127.0.0.1:${port}`], dataPath: undefined, httpRoutersOptions: [] });
+        community = (await pkc.createCommunity({})) as RpcLocalCommunity;
+        community.setMaxListeners(100);
+        moderatorSigner = await pkc.createSigner();
+        await community.edit({
             roles: {
                 [moderatorSigner.address]: { role: "moderator" }
             },
@@ -99,17 +99,17 @@ describeSkipIfRpc("PKC RPC server stress publish", function () {
                 challenges: [createPendingApprovalChallenge()]
             }
         });
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
     });
 
     afterAll(async () => {
-        if (subplebbit) {
+        if (community) {
             try {
-                await subplebbit.stop();
+                await community.stop();
             } catch {}
         }
-        if (plebbit) await plebbit.destroy();
+        if (pkc) await pkc.destroy();
         if (rpcServer) await rpcServer.destroy();
         restorePKCJs();
     });
@@ -142,7 +142,7 @@ describeSkipIfRpc("PKC RPC server stress publish", function () {
                 const client = await createPKCRpcClient();
                 const authorSigner = await client.createSigner();
                 const pendingComment = await client.createComment({
-                    communityAddress: subplebbit.address,
+                    communityAddress: community.address,
                     content: `stress comment ${i}`,
                     title: `stress ${i}`,
                     signer: authorSigner,
@@ -150,8 +150,8 @@ describeSkipIfRpc("PKC RPC server stress publish", function () {
                 });
                 await publishWithExpectedResult({ publication: pendingComment, expectedChallengeSuccess: true });
 
-                const rejection = await plebbit.createCommentModeration({
-                    communityAddress: subplebbit.address,
+                const rejection = await pkc.createCommentModeration({
+                    communityAddress: community.address,
                     commentCid: pendingComment.cid!,
                     signer: moderatorSigner,
                     commentModeration: { approved: false, reason: `reject-${i}` }
@@ -159,7 +159,7 @@ describeSkipIfRpc("PKC RPC server stress publish", function () {
                 await publishWithExpectedResult({ publication: rejection, expectedChallengeSuccess: true });
 
                 const edit = await client.createCommentEdit({
-                    communityAddress: subplebbit.address,
+                    communityAddress: community.address,
                     commentCid: pendingComment.cid!,
                     reason: "stress-edit",
                     content: "text to edit on pending comment",
@@ -190,7 +190,7 @@ describeSkipIfRpc("PKC RPC server stress publish", function () {
                 const client = await createPKCRpcClient();
                 const authorSigner = await client.createSigner();
                 const pendingComment = await client.createComment({
-                    communityAddress: subplebbit.address,
+                    communityAddress: community.address,
                     content: `drop stress comment ${i}`,
                     title: `drop stress ${i}`,
                     signer: authorSigner,
@@ -198,8 +198,8 @@ describeSkipIfRpc("PKC RPC server stress publish", function () {
                 });
                 await publishWithExpectedResult({ publication: pendingComment, expectedChallengeSuccess: true });
 
-                const rejection = await plebbit.createCommentModeration({
-                    communityAddress: subplebbit.address,
+                const rejection = await pkc.createCommentModeration({
+                    communityAddress: community.address,
                     commentCid: pendingComment.cid!,
                     signer: moderatorSigner,
                     commentModeration: { approved: false, reason: `drop-reject-${i}` }
@@ -207,7 +207,7 @@ describeSkipIfRpc("PKC RPC server stress publish", function () {
                 await publishWithExpectedResult({ publication: rejection, expectedChallengeSuccess: true });
 
                 const edit = await client.createCommentEdit({
-                    communityAddress: subplebbit.address,
+                    communityAddress: community.address,
                     commentCid: pendingComment.cid!,
                     reason: "drop-stress-edit",
                     content: "drop text to edit on pending comment",
@@ -236,10 +236,10 @@ describeSkipIfRpc("PKC RPC server stress publish", function () {
             const authorSigner = await client.createSigner();
 
             const { comment: pendingComment, challengeVerification } = await publishCommentToModQueue({
-                plebbit: client,
-                subplebbit: subplebbit,
+                pkc: client,
+                community: community,
                 commentProps: {
-                    communityAddress: subplebbit.address,
+                    communityAddress: community.address,
                     content: `toggle stress comment ${index}`,
                     title: `toggle stress ${index}`,
                     signer: authorSigner,
@@ -247,8 +247,8 @@ describeSkipIfRpc("PKC RPC server stress publish", function () {
                 }
             });
 
-            const rejection = await plebbit.createCommentModeration({
-                communityAddress: subplebbit.address,
+            const rejection = await pkc.createCommentModeration({
+                communityAddress: community.address,
                 commentCid: pendingComment.cid!,
                 signer: moderatorSigner,
                 commentModeration: { approved: false, reason: `toggle-reject-${index}` }
@@ -256,7 +256,7 @@ describeSkipIfRpc("PKC RPC server stress publish", function () {
             await publishWithExpectedResult({ publication: rejection, expectedChallengeSuccess: true });
 
             const edit = await client.createCommentEdit({
-                communityAddress: subplebbit.address,
+                communityAddress: community.address,
                 commentCid: pendingComment.cid!,
                 reason: "toggle-stress-edit",
                 content: "toggle edit content",

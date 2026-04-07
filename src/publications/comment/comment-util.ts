@@ -5,12 +5,12 @@ import Logger from "../../logger.js";
 
 export async function loadAllPagesUnderCommunityToFindComment(opts: {
     commentCidToFind: CommentIpfsWithCidDefined["cid"];
-    subplebbit: RemoteCommunity;
+    community: RemoteCommunity;
     postCid?: CommentIpfsWithCidDefined["cid"];
     parentCid?: CommentIpfsWithCidDefined["cid"];
     signal?: AbortSignal;
 }): Promise<PageIpfs["comments"][number] | undefined> {
-    const { commentCidToFind, subplebbit, signal, postCid, parentCid } = opts;
+    const { commentCidToFind, community, signal, postCid, parentCid } = opts;
     if (!commentCidToFind) throw Error("commentCidToFind should be defined");
 
     const log = Logger("pkc-js:comment:loadAllPagesUnderCommunityToFindComment");
@@ -30,7 +30,7 @@ export async function loadAllPagesUnderCommunityToFindComment(opts: {
     const getParentCommentInstance = (parentCid: string) => {
         let existing = parentCommentCache.get(parentCid);
         if (!existing) {
-            existing = subplebbit._plebbit.getComment({ cid: parentCid });
+            existing = community._pkc.getComment({ cid: parentCid });
             parentCommentCache.set(parentCid, existing);
         }
         return existing;
@@ -71,7 +71,7 @@ export async function loadAllPagesUnderCommunityToFindComment(opts: {
         throwIfAborted();
         if (source === "posts") {
             try {
-                return await subplebbit.posts.getPage({ cid: cid });
+                return await community.posts.getPage({ cid: cid });
             } catch (err) {
                 log.trace("posts.getPage failed", { cid, err });
                 return undefined;
@@ -169,14 +169,14 @@ export async function loadAllPagesUnderCommunityToFindComment(opts: {
 
     const findPostCommentInCommunity = async (targetPostCid: string): Promise<PageIpfs["comments"][number] | undefined> => {
         const processPostPage = processPageForCidOnly(targetPostCid);
-        for (const page of Object.values(subplebbit.posts.pages || {})) {
+        for (const page of Object.values(community.posts.pages || {})) {
             if (!page) continue;
             const comment = await processPostPage(page, "posts");
             if (comment) return comment;
         }
 
         const initialPostsPageCid =
-            subplebbit.posts.pageCids?.new || Object.values(subplebbit.posts.pageCids || {}).find((cid) => typeof cid === "string");
+            community.posts.pageCids?.new || Object.values(community.posts.pageCids || {}).find((cid) => typeof cid === "string");
         enqueue(initialPostsPageCid, "posts");
         const foundFromQueue = await drainQueue(processPostPage);
         if (foundFromQueue) return foundFromQueue;
@@ -221,14 +221,14 @@ export async function loadAllPagesUnderCommunityToFindComment(opts: {
 
     resetTraversalState();
 
-    for (const page of Object.values(subplebbit.posts.pages || {})) {
+    for (const page of Object.values(community.posts.pages || {})) {
         if (!page) continue;
         const comment = await processPage(page, "posts");
         if (comment) return comment;
     }
 
     const initialPageCid =
-        subplebbit.posts.pageCids?.new || Object.values(subplebbit.posts.pageCids || {}).find((cid) => typeof cid === "string");
+        community.posts.pageCids?.new || Object.values(community.posts.pageCids || {}).find((cid) => typeof cid === "string");
     enqueue(initialPageCid, "posts");
 
     return await drainQueue(processPage);

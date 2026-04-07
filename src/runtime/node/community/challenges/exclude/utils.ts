@@ -12,15 +12,15 @@ const testScore = (excludeScore: number | undefined, authorScore: number | undef
 const testFirstCommentTimestamp = (excludeTime: number | undefined, authorFirstCommentTimestamp: number | undefined) =>
     excludeTime === undefined || getTimestampSecondsAgo(excludeTime) >= (authorFirstCommentTimestamp || Infinity);
 
-const testRole = (excludeRole: CommunityRole["role"][], authorAddress: string, subplebbitRoles: CommunityIpfsType["roles"]) => {
+const testRole = (excludeRole: CommunityRole["role"][], authorAddress: string, communityRoles: CommunityIpfsType["roles"]) => {
     if (excludeRole === undefined) {
         return true; // No role exclusion rule, so this test passes
     }
-    if (subplebbitRoles === undefined) {
+    if (communityRoles === undefined) {
         return false; // Can't verify roles, so assume user doesn't have excluded role
     }
     for (const roleName of excludeRole) {
-        if (subplebbitRoles[authorAddress]?.role === roleName) {
+        if (communityRoles[authorAddress]?.role === roleName) {
             return true;
         }
     }

@@ -10,39 +10,39 @@ import { describe, it, beforeEach, afterEach } from "vitest";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
 // Type helper for accessing internal properties
-type CommentWithInternals = { _communityForUpdating?: { subplebbit?: { raw: { subplebbitIpfs: unknown } } } };
+type CommentWithInternals = { _communityForUpdating?: { community?: { raw: { communityIpfs: unknown } } } };
 
 const communityAddress = signers[0].address;
 getAvailablePKCConfigsToTestAgainst().map((config) => {
-    describe.sequential(`pkc._updatingCommunitys - ${config.name}`, async () => {
+    describe.sequential(`pkc._updatingCommunities - ${config.name}`, async () => {
         let pkc: PKC;
         beforeEach(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
         afterEach(async () => {
             await pkc.destroy();
         });
-        it(`A single community instance updating will set up pkc._updatingCommunity. Calling stop should clean up all subscriptions and remove pkc._updatingCommunitys`, async () => {
+        it(`A single community instance updating will set up pkc._updatingCommunity. Calling stop should clean up all subscriptions and remove pkc._updatingCommunities`, async () => {
             const sub = await pkc.createCommunity({ address: communityAddress });
-            expect(pkc._updatingCommunitys[communityAddress]).to.be.undefined;
+            expect(pkc._updatingCommunities[communityAddress]).to.be.undefined;
 
             await sub.update();
-            expect(pkc._updatingCommunitys[communityAddress]).to.be.a("object");
+            expect(pkc._updatingCommunities[communityAddress]).to.be.a("object");
 
             await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
-            expect(pkc._updatingCommunitys[communityAddress]).to.be.a("object");
-            expect(pkc._updatingCommunitys[communityAddress].raw.subplebbitIpfs).to.deep.equal(sub.raw.subplebbitIpfs);
+            expect(pkc._updatingCommunities[communityAddress]).to.be.a("object");
+            expect(pkc._updatingCommunities[communityAddress].raw.communityIpfs).to.deep.equal(sub.raw.communityIpfs);
             await sub.stop();
 
             await new Promise((resolve) => setTimeout(resolve, 100));
-            expect(pkc._updatingCommunitys[communityAddress]).to.be.undefined;
+            expect(pkc._updatingCommunities[communityAddress]).to.be.undefined;
         });
 
-        it("handles self-referenced _updatingCommunitys without recursion", async () => {
+        it("handles self-referenced _updatingCommunities without recursion", async () => {
             const sub = await pkc.createCommunity({ address: communityAddress });
 
-            // Simulate the case where _updatingCommunitys already points to this instance
-            pkc._updatingCommunitys[communityAddress] = sub;
+            // Simulate the case where _updatingCommunities already points to this instance
+            pkc._updatingCommunities[communityAddress] = sub;
 
             await sub.update();
 
@@ -52,14 +52,14 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             } catch (err) {
                 thrownError = err;
             } finally {
-                delete pkc._updatingCommunitys[communityAddress];
+                delete pkc._updatingCommunities[communityAddress];
                 await sub.stop();
             }
 
             expect(thrownError).to.be.undefined;
         });
 
-        it(`Multiple community instances (same address) updating. Calling stop on all of them should clean all subscriptions and remove pkc._updatingCommunitys`, async () => {
+        it(`Multiple community instances (same address) updating. Calling stop on all of them should clean all subscriptions and remove pkc._updatingCommunities`, async () => {
             const sub1 = await pkc.createCommunity({ address: communityAddress });
             const sub2 = await pkc.createCommunity({ address: communityAddress });
             const sub3 = await pkc.createCommunity({ address: communityAddress });
@@ -78,29 +78,29 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             );
 
             // all subs have received an update event now
-            expect(pkc._updatingCommunitys[communityAddress].updatedAt).to.be.a("number");
-            expect(pkc._updatingCommunitys[communityAddress].state).to.equal("updating");
+            expect(pkc._updatingCommunities[communityAddress].updatedAt).to.be.a("number");
+            expect(pkc._updatingCommunities[communityAddress].state).to.equal("updating");
 
-            // Check that pkc._updatingCommunitys has the latest updatedAt
-            expect(pkc._updatingCommunitys[communityAddress].updatedAt).to.equal(sub1.updatedAt);
-            expect(pkc._updatingCommunitys[communityAddress].updatedAt).to.equal(sub2.updatedAt);
-            expect(pkc._updatingCommunitys[communityAddress].updatedAt).to.equal(sub3.updatedAt);
+            // Check that pkc._updatingCommunities has the latest updatedAt
+            expect(pkc._updatingCommunities[communityAddress].updatedAt).to.equal(sub1.updatedAt);
+            expect(pkc._updatingCommunities[communityAddress].updatedAt).to.equal(sub2.updatedAt);
+            expect(pkc._updatingCommunities[communityAddress].updatedAt).to.equal(sub3.updatedAt);
 
-            expect(pkc._updatingCommunitys[communityAddress].listenerCount("update")).to.equal(3);
+            expect(pkc._updatingCommunities[communityAddress].listenerCount("update")).to.equal(3);
 
             await sub1.stop();
 
-            expect(pkc._updatingCommunitys[communityAddress].listenerCount("update")).to.equal(2);
+            expect(pkc._updatingCommunities[communityAddress].listenerCount("update")).to.equal(2);
 
             await sub2.stop();
 
-            expect(pkc._updatingCommunitys[communityAddress].listenerCount("update")).to.equal(1);
+            expect(pkc._updatingCommunities[communityAddress].listenerCount("update")).to.equal(1);
 
             await sub3.stop();
 
             await new Promise((resolve) => setTimeout(resolve, 100));
 
-            expect(pkc._updatingCommunitys[communityAddress]).to.be.undefined;
+            expect(pkc._updatingCommunities[communityAddress]).to.be.undefined;
         });
 
         it(`Creating a new sub instance when it's already been updating before should give us latest CommunityIpfs on the created sub instance`, async () => {
@@ -108,70 +108,70 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await sub1.update();
             await resolveWhenConditionIsTrue({ toUpdate: sub1, predicate: async () => typeof sub1.updatedAt === "number" });
 
-            // Verify that _updatingCommunitys has the same updatedAt as sub1
-            expect(pkc._updatingCommunitys[communityAddress].updatedAt).to.equal(sub1.updatedAt);
+            // Verify that _updatingCommunities has the same updatedAt as sub1
+            expect(pkc._updatingCommunities[communityAddress].updatedAt).to.equal(sub1.updatedAt);
 
-            // Verify that _updatingCommunitys has _rawCommunityIpfs if sub1 has it
+            // Verify that _updatingCommunities has _rawCommunityIpfs if sub1 has it
 
-            expect(pkc._updatingCommunitys[communityAddress].raw.subplebbitIpfs).to.deep.equal(sub1.raw.subplebbitIpfs);
+            expect(pkc._updatingCommunities[communityAddress].raw.communityIpfs).to.deep.equal(sub1.raw.communityIpfs);
 
             const sub2 = await pkc.createCommunity({ address: communityAddress });
             expect(sub2.updatedAt).to.be.a("number");
 
-            // Verify that sub2 has the same updatedAt as _updatingCommunitys
-            expect(sub2.updatedAt).to.equal(pkc._updatingCommunitys[communityAddress].updatedAt);
+            // Verify that sub2 has the same updatedAt as _updatingCommunities
+            expect(sub2.updatedAt).to.equal(pkc._updatingCommunities[communityAddress].updatedAt);
 
             expect(sub2.updatedAt).to.equal(sub1.updatedAt);
 
-            // Verify that sub2 has _rawCommunityIpfs if _updatingCommunitys has it
+            // Verify that sub2 has _rawCommunityIpfs if _updatingCommunities has it
 
-            expect(pkc._updatingCommunitys[communityAddress].raw.subplebbitIpfs).to.deep.equal(sub2.raw.subplebbitIpfs);
+            expect(pkc._updatingCommunities[communityAddress].raw.communityIpfs).to.deep.equal(sub2.raw.communityIpfs);
 
             await sub1.stop();
             await new Promise((resolve) => setTimeout(resolve, 500));
-            expect(pkc._updatingCommunitys[communityAddress]).to.be.undefined;
+            expect(pkc._updatingCommunities[communityAddress]).to.be.undefined;
         });
 
-        it(`A single instance fetched with pkc.getCommunity should not keep pkc._updatingCommunitys[address]`, async () => {
+        it(`A single instance fetched with pkc.getCommunity should not keep pkc._updatingCommunities[address]`, async () => {
             const sub = await pkc.getCommunity({ address: communityAddress });
             await new Promise((resolve) => setTimeout(resolve, 100));
             expect(sub.updatedAt).to.be.a("number");
-            expect(pkc._updatingCommunitys[communityAddress]).to.be.undefined;
+            expect(pkc._updatingCommunities[communityAddress]).to.be.undefined;
         });
 
         itSkipIfRpc(
-            `Comment instance can fetch updates from pkc._updatingCommunitys. Calling comment.stop will clean subscriptions and remove pkc._updatingCommunitys`,
+            `Comment instance can fetch updates from pkc._updatingCommunities. Calling comment.stop will clean subscriptions and remove pkc._updatingCommunities`,
             async () => {
                 const sub = await pkc.getCommunity({ address: communityAddress });
                 await new Promise((resolve) => setTimeout(resolve, 100));
-                expect(pkc._updatingCommunitys[communityAddress]).to.be.undefined;
+                expect(pkc._updatingCommunities[communityAddress]).to.be.undefined;
 
                 const commentCid = sub.posts.pages.hot.comments[0].cid;
                 const comment1 = await pkc.createComment({ cid: commentCid });
                 await comment1.update();
                 await resolveWhenConditionIsTrue({ toUpdate: comment1, predicate: async () => typeof comment1.updatedAt === "number" });
 
-                // Verify that _updatingCommunitys exists and has the expected properties
-                expect(pkc._updatingCommunitys[communityAddress]).to.exist;
-                expect(pkc._updatingCommunitys[communityAddress].listenerCount("update")).to.equal(1);
+                // Verify that _updatingCommunities exists and has the expected properties
+                expect(pkc._updatingCommunities[communityAddress]).to.exist;
+                expect(pkc._updatingCommunities[communityAddress].listenerCount("update")).to.equal(1);
 
-                // Verify that _updatingCommunitys has _rawCommunityIpfs if it should
+                // Verify that _updatingCommunities has _rawCommunityIpfs if it should
 
-                expect(pkc._updatingCommunitys[communityAddress].raw.subplebbitIpfs).to.exist;
+                expect(pkc._updatingCommunities[communityAddress].raw.communityIpfs).to.exist;
 
                 await comment1.stop();
-                const updatingSubInstance = pkc._updatingCommunitys[communityAddress];
+                const updatingSubInstance = pkc._updatingCommunities[communityAddress];
                 expect(updatingSubInstance).to.be.undefined;
             }
         );
 
         itSkipIfRpc(
-            `Multiple comment instances of the same sub updating. Calling stop on all of them should clean all subscriptions and remove pkc._updatingCommunitys`,
+            `Multiple comment instances of the same sub updating. Calling stop on all of them should clean all subscriptions and remove pkc._updatingCommunities`,
             async () => {
-                expect(pkc._updatingCommunitys[communityAddress]).to.be.undefined;
+                expect(pkc._updatingCommunities[communityAddress]).to.be.undefined;
                 const sub = await pkc.getCommunity({ address: communityAddress });
                 await new Promise((resolve) => setTimeout(resolve, 100));
-                expect(pkc._updatingCommunitys[communityAddress]).to.be.undefined;
+                expect(pkc._updatingCommunities[communityAddress]).to.be.undefined;
 
                 const commentCid = sub.posts.pages.hot.comments[0].cid;
                 const comment1 = await pkc.createComment({ cid: commentCid });
@@ -186,40 +186,40 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(updatingCommentInstance).to.exist;
                 expect(updatingCommentInstance._communityForUpdating).to.be.a("object");
 
-                // Verify that _updatingCommunitys exists and has the expected properties
-                expect(pkc._updatingCommunitys[communityAddress]).to.exist;
-                expect(pkc._updatingCommunitys[communityAddress].listenerCount("update")).to.equal(1);
+                // Verify that _updatingCommunities exists and has the expected properties
+                expect(pkc._updatingCommunities[communityAddress]).to.exist;
+                expect(pkc._updatingCommunities[communityAddress].listenerCount("update")).to.equal(1);
 
-                // Verify that _communityForUpdating.subplebbit and _updatingCommunitys[address] have the same _rawCommunityIpfs state
+                // Verify that _communityForUpdating.community and _updatingCommunities[address] have the same _rawCommunityIpfs state
 
-                expect(pkc._updatingCommunitys[communityAddress].raw.subplebbitIpfs).to.deep.equal(
-                    updatingCommentInstance._communityForUpdating?.subplebbit?.raw.subplebbitIpfs
+                expect(pkc._updatingCommunities[communityAddress].raw.communityIpfs).to.deep.equal(
+                    updatingCommentInstance._communityForUpdating?.community?.raw.communityIpfs
                 );
 
                 await comment2.update();
                 await resolveWhenConditionIsTrue({ toUpdate: comment2, predicate: async () => typeof comment2.updatedAt === "number" });
                 expect(updatingCommentInstance._communityForUpdating).to.be.a("object");
 
-                expect(pkc._updatingCommunitys[communityAddress].listenerCount("update")).to.equal(1); // should not change
+                expect(pkc._updatingCommunities[communityAddress].listenerCount("update")).to.equal(1); // should not change
 
-                expect(pkc._updatingCommunitys[communityAddress].raw.subplebbitIpfs).to.deep.equal(
-                    updatingCommentInstance._communityForUpdating?.subplebbit?.raw.subplebbitIpfs
+                expect(pkc._updatingCommunities[communityAddress].raw.communityIpfs).to.deep.equal(
+                    updatingCommentInstance._communityForUpdating?.community?.raw.communityIpfs
                 );
 
                 await comment1.stop();
 
-                expect(pkc._updatingCommunitys[communityAddress].listenerCount("update")).to.equal(1); // should not change
+                expect(pkc._updatingCommunities[communityAddress].listenerCount("update")).to.equal(1); // should not change
 
                 await comment2.stop();
 
-                expect(pkc._updatingCommunitys[communityAddress]).to.be.undefined;
+                expect(pkc._updatingCommunities[communityAddress]).to.be.undefined;
                 expect(pkc._updatingComments[comment1.cid]).to.be.undefined;
             }
         );
 
-        itSkipIfRpc(`can stop two comments in parallel and remove _updatingCommunitys entry`, async () => {
-            const post1 = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
-            const post2 = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+        itSkipIfRpc(`can stop two comments in parallel and remove _updatingCommunities entry`, async () => {
+            const post1 = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
+            const post2 = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
 
             const comment1 = await pkc.createComment({ cid: post1.cid });
             const comment2 = await pkc.createComment({ cid: post2.cid });
@@ -233,7 +233,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 )
             );
 
-            expect(pkc._updatingCommunitys[communityAddress]).to.exist;
+            expect(pkc._updatingCommunities[communityAddress]).to.exist;
 
             expect(comment1.state).to.equal("updating");
             expect(comment2.state).to.equal("updating");
@@ -241,16 +241,16 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await Promise.all([comment1.stop(), comment2.stop()]);
             await new Promise((resolve) => setTimeout(resolve, 200));
 
-            expect(pkc._updatingCommunitys[communityAddress]).to.be.undefined;
+            expect(pkc._updatingCommunities[communityAddress]).to.be.undefined;
             expect(pkc._updatingComments[comment1.cid]).to.be.undefined;
             expect(pkc._updatingComments[comment2.cid]).to.be.undefined;
         });
 
-        it(`calling pkc._updatingCommunitys[communityAddress].stop() should stop all instances listening to that instance`, async () => {
+        it(`calling pkc._updatingCommunities[communityAddress].stop() should stop all instances listening to that instance`, async () => {
             const sub1 = await pkc.createCommunity({ address: communityAddress });
             await sub1.update();
             expect(sub1.state).to.equal("updating");
-            // pkc._updatingCommunitys[communityAddress] should be defined now
+            // pkc._updatingCommunities[communityAddress] should be defined now
             const sub2 = await pkc.createCommunity({ address: communityAddress });
             await sub2.update();
             expect(sub2.state).to.equal("updating");
@@ -259,47 +259,47 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await sub3.update();
             expect(sub3.state).to.equal("updating");
 
-            // stopping pkc._updatingCommunitys should stop all of them
+            // stopping pkc._updatingCommunities should stop all of them
 
-            await pkc._updatingCommunitys[communityAddress].stop();
+            await pkc._updatingCommunities[communityAddress].stop();
             await new Promise((resolve) => setTimeout(resolve, 100)); // need to wait some time to propgate events
 
             for (const community of [sub1, sub2, sub3]) {
                 expect(community.state).to.equal("stopped");
                 expect(community.updatingState).to.equal("stopped");
             }
-            expect(pkc._updatingCommunitys[communityAddress]).to.be.undefined;
+            expect(pkc._updatingCommunities[communityAddress]).to.be.undefined;
         });
 
-        it(`Calling communityFromGetCommunity.stop() should not stop updating instance from pkc._updatingCommunitys`, async () => {
+        it(`Calling communityFromGetCommunity.stop() should not stop updating instance from pkc._updatingCommunities`, async () => {
             const sub1 = await pkc.createCommunity({ address: communityAddress });
             await sub1.update();
             expect(sub1.state).to.equal("updating");
 
-            expect(pkc._updatingCommunitys[communityAddress]).to.exist;
+            expect(pkc._updatingCommunities[communityAddress]).to.exist;
 
-            // pkc._updatingCommunitys[communityAddress] should be defined now
+            // pkc._updatingCommunities[communityAddress] should be defined now
             const sub2 = await pkc.getCommunity({ address: communityAddress });
             expect(sub2.state).to.equal("stopped");
 
-            expect(pkc._updatingCommunitys[communityAddress]).to.exist;
+            expect(pkc._updatingCommunities[communityAddress]).to.exist;
 
             try {
                 await sub2.stop();
             } catch (e) {
                 expect((e as PKCError).code).to.equal("ERR_CALLED_COMMUNITY_STOP_WITHOUT_UPDATE");
             }
-            expect(pkc._updatingCommunitys[communityAddress]).to.exist;
+            expect(pkc._updatingCommunities[communityAddress]).to.exist;
 
             expect(sub1.state).to.equal("updating");
-            expect(pkc._updatingCommunitys[communityAddress].state).to.equal("updating");
+            expect(pkc._updatingCommunities[communityAddress].state).to.equal("updating");
         });
 
         itIfRpc(`can update a local community instance over RPC connection`, async () => {
             const sub = await pkc.createCommunity(); // new sub
             const updatingSub = await pkc.createCommunity({ address: sub.address });
             await updatingSub.update();
-            expect(pkc._updatingCommunitys[sub.address]).to.exist;
+            expect(pkc._updatingCommunities[sub.address]).to.exist;
             await updatingSub.stop();
             expect(sub.state).to.equal("stopped");
         });
@@ -317,14 +317,14 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 )
             );
 
-            expect(pkc._updatingCommunitys[communityAddress]).to.exist;
-            expect(pkc._updatingCommunitys[signers[1].address]).to.exist;
+            expect(pkc._updatingCommunities[communityAddress]).to.exist;
+            expect(pkc._updatingCommunities[signers[1].address]).to.exist;
 
             await subA.stop();
             await new Promise((resolve) => setTimeout(resolve, 100));
 
-            expect(pkc._updatingCommunitys[communityAddress]).to.be.undefined;
-            expect(pkc._updatingCommunitys[signers[1].address]).to.exist;
+            expect(pkc._updatingCommunities[communityAddress]).to.be.undefined;
+            expect(pkc._updatingCommunities[signers[1].address]).to.exist;
 
             await subB.stop();
         });
@@ -335,12 +335,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
 
             const listenerCountOfSub = () => {
-                return pkc._updatingCommunitys[sub.address].listenerCount("update");
+                return pkc._updatingCommunities[sub.address].listenerCount("update");
             };
 
             const baseListenerCount = listenerCountOfSub();
 
-            const post = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            const post = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
             const comment = await pkc.createComment({ cid: post.cid });
             await comment.update();
             await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });
@@ -354,19 +354,19 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await sub.stop();
         });
 
-        itIfRpc(`Updating a comment over RPC should not populate _updatingCommunitys`, async () => {
+        itIfRpc(`Updating a comment over RPC should not populate _updatingCommunities`, async () => {
             const sub = await pkc.getCommunity({ address: communityAddress });
             const postCid = sub.posts.pages.hot.comments[0].cid;
             const comment = await pkc.createComment({ cid: postCid });
 
-            expect(Object.keys(pkc._updatingCommunitys)).to.deep.equal([]);
+            expect(Object.keys(pkc._updatingCommunities)).to.deep.equal([]);
             await comment.update();
             await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });
 
-            expect(Object.keys(pkc._updatingCommunitys)).to.deep.equal([]);
+            expect(Object.keys(pkc._updatingCommunities)).to.deep.equal([]);
 
             await comment.stop();
-            expect(Object.keys(pkc._updatingCommunitys)).to.deep.equal([]);
+            expect(Object.keys(pkc._updatingCommunities)).to.deep.equal([]);
         });
     });
 });

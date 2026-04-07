@@ -45,7 +45,7 @@ const log = Logger("pkc-js:PKCRpcClient");
 
 export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     state: "stopped" | "connecting" | "failed" | "connected";
-    subplebbits: string[];
+    communities: string[];
     settings?: PKCWsServerSettingsSerialized;
 
     private _webSocketClient: WebSocketClient;
@@ -57,15 +57,15 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     private _destroyRequested: boolean;
     constructor(rpcServerUrl: string) {
         super();
-        assert(rpcServerUrl, "plebbit.pkcRpcClientsOptions needs to be defined to create a new rpc client");
+        assert(rpcServerUrl, "pkc.pkcRpcClientsOptions needs to be defined to create a new rpc client");
 
         this._websocketServerUrl = rpcServerUrl; // default to first for now. Will change later
         this._timeoutSeconds = 20;
-        this.subplebbits = [];
+        this.communities = [];
         this._subscriptionEvents = {};
 
-        this.on("subplebbitschange", (newSubs) => {
-            this.subplebbits = newSubs;
+        this.on("communitieschange", (newSubs) => {
+            this.communities = newSubs;
         });
 
         this.on("settingschange", (newSettings) => {
@@ -273,19 +273,19 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
             typeof message === "string" && message.length > 0 ? (message as string) : "RPC server returned an unknown error";
 
         if (hasValidCode) {
-            const plebbitError = new PKCError(code as keyof typeof messages, details);
-            this._setErrorName(plebbitError, name);
-            this._assignAdditionalProps(plebbitError, rest);
-            return plebbitError;
+            const pkcError = new PKCError(code as keyof typeof messages, details);
+            this._setErrorName(pkcError, name);
+            this._assignAdditionalProps(pkcError, rest);
+            return pkcError;
         }
 
         if (typeof code === "string" && typeof name === "string" && name === "PKCError") {
-            const plebbitError = new PKCError("ERR_FAILED_TO_OPEN_CONNECTION_TO_RPC", details);
-            (<any>plebbitError).code = code;
-            (<any>plebbitError).message = serverMessage;
-            this._setErrorName(plebbitError, name);
-            this._assignAdditionalProps(plebbitError, rest);
-            return plebbitError;
+            const pkcError = new PKCError("ERR_FAILED_TO_OPEN_CONNECTION_TO_RPC", details);
+            (<any>pkcError).code = code;
+            (<any>pkcError).message = serverMessage;
+            this._setErrorName(pkcError, name);
+            this._assignAdditionalProps(pkcError, rest);
+            return pkcError;
         }
 
         const genericError = new Error(serverMessage);
@@ -351,41 +351,38 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         if (!this._pendingSubscriptionMsgs[subscriptionId]) this._pendingSubscriptionMsgs[subscriptionId] = [];
     }
 
-    async startCommunity(subplebbitAddress: CommunityAddressRpcParam) {
-        const parsedStartCommunityArgs = parseRpcCommunityAddressParam(subplebbitAddress);
+    async startCommunity(communityAddress: CommunityAddressRpcParam) {
+        const parsedStartCommunityArgs = parseRpcCommunityAddressParam(communityAddress);
         const subscriptionId = SubscriptionIdSchema.parse(await this._webSocketClient.call("startCommunity", [parsedStartCommunityArgs]));
         this._initSubscriptionEvent(subscriptionId);
         return subscriptionId;
     }
 
-    async stopCommunity(subplebbitAddress: CommunityAddressRpcParam): Promise<void> {
-        const parsedStopCommunityArgs = parseRpcCommunityAddressParam(subplebbitAddress);
+    async stopCommunity(communityAddress: CommunityAddressRpcParam): Promise<void> {
+        const parsedStopCommunityArgs = parseRpcCommunityAddressParam(communityAddress);
 
         const res = await this._webSocketClient.call("stopCommunity", [parsedStopCommunityArgs]);
         if (res !== true) throw Error("Calling RPC function should throw or return true");
     }
 
-    async editCommunity(
-        subplebbitAddress: string,
-        subplebbitEditOptions: CommunityEditOptions
-    ): Promise<RpcLocalCommunityUpdateResultType> {
-        const propsAfterReplacing = replaceXWithY(subplebbitEditOptions, undefined, null);
+    async editCommunity(communityAddress: string, communityEditOptions: CommunityEditOptions): Promise<RpcLocalCommunityUpdateResultType> {
+        const propsAfterReplacing = replaceXWithY(communityEditOptions, undefined, null);
         const rawRes = <RpcLocalCommunityUpdateResultType>(
-            await this._webSocketClient.call("editCommunity", [{ address: subplebbitAddress, editOptions: propsAfterReplacing }])
+            await this._webSocketClient.call("editCommunity", [{ address: communityAddress, editOptions: propsAfterReplacing }])
         );
         return rawRes;
     }
 
-    async deleteCommunity(subplebbitAddress: CommunityAddressRpcParam) {
-        const parsedDeleteCommunityArgs = parseRpcCommunityAddressParam(subplebbitAddress);
+    async deleteCommunity(communityAddress: CommunityAddressRpcParam) {
+        const parsedDeleteCommunityArgs = parseRpcCommunityAddressParam(communityAddress);
         const res = await this._webSocketClient.call("deleteCommunity", [parsedDeleteCommunityArgs]);
         if (res !== true) throw Error("Calling RPC function deleteCommunity should either return true or throw");
     }
 
-    async subplebbitUpdateSubscribe(subplebbitAddress: CommunityLookupRpcParam): Promise<number> {
-        const parsedCommunityUpdateArgs = parseRpcCommunityLookupParam(subplebbitAddress);
+    async communityUpdateSubscribe(communityAddress: CommunityLookupRpcParam): Promise<number> {
+        const parsedCommunityUpdateArgs = parseRpcCommunityLookupParam(communityAddress);
         const subscriptionId = SubscriptionIdSchema.parse(
-            await this._webSocketClient.call("subplebbitUpdateSubscribe", [parsedCommunityUpdateArgs])
+            await this._webSocketClient.call("communityUpdateSubscribe", [parsedCommunityUpdateArgs])
         );
         this._initSubscriptionEvent(subscriptionId);
         return subscriptionId;
@@ -415,8 +412,8 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         return publishRes;
     }
 
-    async publishCommunityEdit(subplebbitEdit: DecryptedChallengeRequest): Promise<RpcPublishResult> {
-        const publishRes = <RpcPublishResult>await this._webSocketClient.call("publishCommunityEdit", [subplebbitEdit]);
+    async publishCommunityEdit(communityEdit: DecryptedChallengeRequest): Promise<RpcPublishResult> {
+        const publishRes = <RpcPublishResult>await this._webSocketClient.call("publishCommunityEdit", [communityEdit]);
         this._initSubscriptionEvent(publishRes);
         return publishRes;
     }
@@ -445,11 +442,11 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         return res.resolvedAddress;
     }
 
-    async initalizeCommunityschangeEvent() {
-        const subscriptionId = SubscriptionIdSchema.parse(await this._webSocketClient.call("subplebbitsSubscribe", []));
+    async initalizeCommunitieschangeEvent() {
+        const subscriptionId = SubscriptionIdSchema.parse(await this._webSocketClient.call("communitiesSubscribe", []));
         this._initSubscriptionEvent(subscriptionId);
-        this.getSubscription(subscriptionId).on("subplebbitschange", (res) => {
-            this.emit("subplebbitschange", <string[]>res.params.result.subplebbits);
+        this.getSubscription(subscriptionId).on("communitieschange", (res) => {
+            this.emit("communitieschange", <string[]>res.params.result.communities);
         });
         this.emitAllPendingMessages(subscriptionId);
     }

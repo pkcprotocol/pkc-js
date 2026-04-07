@@ -11,8 +11,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC;
         let comment: Comment;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
-            comment = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
+            pkc = await config.pkcInstancePromise();
+            comment = await generateMockPost({ communityAddress: communityAddress, pkc: pkc });
         });
 
         afterAll(async () => {
@@ -34,7 +34,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`state changes to stop after finishing publishing`, async () => {
-            const newComment = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            const newComment = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
             expect(newComment.state).to.equal("stopped");
         });
 
@@ -49,7 +49,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`state changes to updating after calling .update() when publishing`, async () => {
-            const tempComment = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            const tempComment = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
             expect(tempComment.state).to.equal("stopped");
             await tempComment.update();
             expect(tempComment.state).to.equal("updating");

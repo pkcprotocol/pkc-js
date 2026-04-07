@@ -12,7 +12,7 @@ type ChallengeSubpathExports = {
     challengeInput: ChallengeInput;
     challengeResultInput: ChallengeResultInput;
     getChallengeArgsInput: GetChallengeArgsInput;
-    subplebbitChallengeSetting: CommunityChallengeSetting;
+    communityChallengeSetting: CommunityChallengeSetting;
 };
 
 const _typecheckChallengeSubpathExports: ChallengeSubpathExports | undefined = undefined;

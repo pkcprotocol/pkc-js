@@ -97,16 +97,16 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
     describeSkipIfRpc.concurrent(`reply.updatingState - ${config.name}`, async () => {
         let replyCid: string;
         beforeAll(async () => {
-            const tempPKC = await config.plebbitInstancePromise();
+            const tempPKC = await config.pkcInstancePromise();
             const sub = await tempPKC.getCommunity({ address: communityAddress });
-            const post = await publishRandomPost({ communityAddress: sub.address, plebbit: tempPKC });
-            const reply = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: tempPKC });
+            const post = await publishRandomPost({ communityAddress: sub.address, pkc: tempPKC });
+            const reply = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, pkc: tempPKC });
             replyCid = reply.cid;
             await tempPKC.destroy();
         });
 
         it.sequential(`Updating states is in correct upon updating a reply that's included in preloaded pages of its parent`, async () => {
-            const pkc = await config.plebbitInstancePromise();
+            const pkc = await config.pkcInstancePromise();
             try {
                 const sub = await pkc.getCommunity({ address: communityAddress });
                 // we don't want domain name in author addrses so its resolving doesn't get included in expected states
@@ -155,7 +155,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             }
         });
         it(`updating state of reply is set to failed if sub has an invalid Community record`, async () => {
-            const pkc = await config.plebbitInstancePromise();
+            const pkc = await config.pkcInstancePromise();
             try {
                 const { commentCid: mockedReplyCid, communityAddress: subAddress } = await createStaticCommunityRecordForComment({
                     invalidateCommunitySignature: true
@@ -199,7 +199,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
     describe.concurrent(`reply.updatingState - ${config.name}`, async () => {
         it(`updating state of reply is in correct order upon updating a reply that's included in preloaded pages of its parent`, async () => {
-            const pkc = await config.plebbitInstancePromise();
+            const pkc = await config.pkcInstancePromise();
             try {
                 const sub = await pkc.getCommunity({ address: communityAddress });
                 // we don't want domain name in author addrses so its resolving doesn't get included in expected states
@@ -231,10 +231,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         });
 
         it(`updating state of reply is set to failed if sub has an invalid Community record`, async () => {
-            const pkc = await config.plebbitInstancePromise();
+            const pkc = await config.pkcInstancePromise();
             try {
                 const { commentCid: mockedReplyCid, communityAddress: subAddress } = await createStaticCommunityRecordForComment({
-                    plebbit: pkc,
+                    pkc: pkc,
                     invalidateCommunitySignature: true,
                     commentOptions: {
                         content: `Mock reply content - ${Date.now()}`
@@ -283,7 +283,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     describeSkipIfRpc.concurrent(`reply.updatingState - ${config.name}`, async () => {
         let pkc: PKC;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {

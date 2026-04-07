@@ -39,14 +39,14 @@ export function getCommunityDomainFromWire(sub?: LooseCommunityIpfs): string | u
 }
 
 export function buildRuntimeCommunity({
-    subplebbitRecord,
+    communityRecord,
     signaturePublicKey
 }: {
-    subplebbitRecord?: LooseCommunityIpfs;
+    communityRecord?: LooseCommunityIpfs;
     signaturePublicKey: string;
 }): { address: string; publicKey: string; name?: string } {
     const publicKey = getPKCAddressFromPublicKeySync(signaturePublicKey);
-    const name = getCommunityNameFromWire(subplebbitRecord);
+    const name = getCommunityNameFromWire(communityRecord);
     return {
         ...(name ? { name } : undefined),
         address: name || publicKey,

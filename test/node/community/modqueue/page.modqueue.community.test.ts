@@ -17,16 +17,16 @@ const depthsToTest = [0, 1, 2, 3, 10, 15, 25, 35];
 const pendingApprovalCommentProps = { challengeRequest: { challengeAnswers: ["pending"] } };
 
 interface SetupResult {
-    plebbit: PKCType;
-    subplebbit: LocalCommunity | RpcLocalCommunity;
+    pkc: PKCType;
+    community: LocalCommunity | RpcLocalCommunity;
     modSigner: SignerType;
 }
 
 const setupCommunityWithModerator = async (): Promise<SetupResult> => {
-    const plebbit = await mockPKC();
-    const subplebbit = (await plebbit.createCommunity()) as LocalCommunity | RpcLocalCommunity;
-    const modSigner = await plebbit.createSigner();
-    await subplebbit.edit({
+    const pkc = await mockPKC();
+    const community = (await pkc.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+    const modSigner = await pkc.createSigner();
+    await community.edit({
         roles: {
             [modSigner.address]: { role: "moderator" }
         },
@@ -35,9 +35,9 @@ const setupCommunityWithModerator = async (): Promise<SetupResult> => {
         }
     });
 
-    await subplebbit.start();
-    await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => Boolean(subplebbit.updatedAt) });
-    return { plebbit, subplebbit, modSigner };
+    await community.start();
+    await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => Boolean(community.updatedAt) });
+    return { pkc, community, modSigner };
 };
 
 describe("Modqueue depths", () => {
@@ -51,8 +51,8 @@ describe("Modqueue depths", () => {
         describe(`Modqueue depths batch [${batch.join(",")}]`, () => {
             for (const depth of batch) {
                 it.concurrent(`should support mod queue pages with comments of the same depth, depth = ${depth}`, async () => {
-                    const { plebbit, subplebbit, modSigner } = await setupCommunityWithModerator();
-                    expect(subplebbit.lastPostCid).to.be.undefined;
+                    const { pkc, community, modSigner } = await setupCommunityWithModerator();
+                    expect(community.lastPostCid).to.be.undefined;
                     const numOfComments = 3;
                     const remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
 
@@ -60,10 +60,10 @@ describe("Modqueue depths", () => {
                         const pendingComments = await Promise.all(
                             new Array(numOfComments).fill(null).map(() =>
                                 publishToModQueueWithDepth({
-                                    subplebbit,
+                                    community,
                                     depth,
                                     modCommentProps: { signer: modSigner },
-                                    plebbit: remotePKC,
+                                    pkc: remotePKC,
                                     commentProps: pendingApprovalCommentProps
                                 })
                             )
@@ -72,10 +72,10 @@ describe("Modqueue depths", () => {
                         let modQueuePage: ModQueuePageTypeJson | undefined;
 
                         await resolveWhenConditionIsTrue({
-                            toUpdate: subplebbit,
+                            toUpdate: community,
                             predicate: async () => {
-                                if (!subplebbit.modQueue.pageCids.pendingApproval) return false;
-                                modQueuePage = await subplebbit.modQueue.getPage({ cid: subplebbit.modQueue.pageCids.pendingApproval });
+                                if (!community.modQueue.pageCids.pendingApproval) return false;
+                                modQueuePage = await community.modQueue.getPage({ cid: community.modQueue.pageCids.pendingApproval });
                                 return modQueuePage.comments.length === numOfComments;
                             }
                         });
@@ -90,12 +90,12 @@ describe("Modqueue depths", () => {
                             expect(pendingComments[i].comment.depth).to.equal(depth);
                             expect(modQueuePage!.comments[i].depth).to.equal(depth);
 
-                            testCommentFieldsInModQueuePageJson(modQueuePage!.comments[i], subplebbit.address);
+                            testCommentFieldsInModQueuePageJson(modQueuePage!.comments[i], community.address);
                         }
                     } finally {
                         await remotePKC.destroy();
-                        await subplebbit.delete();
-                        await plebbit.destroy();
+                        await community.delete();
+                        await pkc.destroy();
                     }
                 });
             }
@@ -103,7 +103,7 @@ describe("Modqueue depths", () => {
     }
 
     it.sequential("Should support modqueue pages with comments of different depths", async () => {
-        const { plebbit, subplebbit, modSigner } = await setupCommunityWithModerator();
+        const { pkc, community, modSigner } = await setupCommunityWithModerator();
         // TODO: Create a mix of top-level posts and nested replies in pending approval
         // and verify modqueue page rendering/order handles varying depths correctly
 
@@ -117,10 +117,10 @@ describe("Modqueue depths", () => {
                 const batchResults = await Promise.all(
                     batchDepths.map((depth) =>
                         publishToModQueueWithDepth({
-                            subplebbit,
+                            community,
                             depth,
                             modCommentProps: { signer: modSigner },
-                            plebbit: remotePKC,
+                            pkc: remotePKC,
                             commentProps: pendingApprovalCommentProps
                         })
                     )
@@ -133,10 +133,10 @@ describe("Modqueue depths", () => {
             let modQueuePage: ModQueuePageTypeJson | undefined;
 
             await resolveWhenConditionIsTrue({
-                toUpdate: subplebbit,
+                toUpdate: community,
                 predicate: async () => {
-                    if (!subplebbit.modQueue.pageCids.pendingApproval) return false;
-                    modQueuePage = await subplebbit.modQueue.getPage({ cid: subplebbit.modQueue.pageCids.pendingApproval });
+                    if (!community.modQueue.pageCids.pendingApproval) return false;
+                    modQueuePage = await community.modQueue.getPage({ cid: community.modQueue.pageCids.pendingApproval });
                     return modQueuePage.comments.length === pendingComments.length;
                 }
             });
@@ -148,12 +148,12 @@ describe("Modqueue depths", () => {
 
                 expect(pendingComments[i].comment.depth).to.equal(pendingInPage!.depth);
 
-                testCommentFieldsInModQueuePageJson(pendingInPage!, subplebbit.address);
+                testCommentFieldsInModQueuePageJson(pendingInPage!, community.address);
             }
         } finally {
             await remotePKC.destroy();
-            await subplebbit.delete();
-            await plebbit.destroy();
+            await community.delete();
+            await pkc.destroy();
         }
     });
 });

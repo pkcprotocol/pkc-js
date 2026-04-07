@@ -21,7 +21,7 @@ import { nonNegativeIntStringSchema } from "../schema.js";
 // Other props of Community Ipfs here
 export const CommunityEncryptionSchema = z.looseObject({
     type: z.string().min(1), // https://github.com/plebbit/plebbit-js/blob/master/docs/encryption.md
-    publicKey: SignerWithAddressPublicKeySchema.shape.publicKey // 32 bytes base64 string (same as subplebbit.signer.publicKey)
+    publicKey: SignerWithAddressPublicKeySchema.shape.publicKey // 32 bytes base64 string (same as community.signer.publicKey)
 });
 
 export const CommunityRoleNames = z.enum(["owner", "admin", "moderator"]);
@@ -53,7 +53,7 @@ export const CommunityFeaturesSchema = z.looseObject({
     noPolls: z.boolean().optional(), // Not impllemented
     noCrossposts: z.boolean().optional(), // Not implemented
     noNestedReplies: z.boolean().optional(), // No nested replies, like old school forums and 4chan. Maximum depth is 1
-    safeForWork: z.boolean().optional(), // Informational flag indicating this subplebbit is safe for work
+    safeForWork: z.boolean().optional(), // Informational flag indicating this community is safe for work
     authorFlairs: z.boolean().optional(), // Authors can choose their own author flairs (otherwise only mods can)
     requireAuthorFlairs: z.boolean().optional(), // Force authors to choose an author flair before posting
     postFlairs: z.boolean().optional(), // Authors can choose their own post flairs (otherwise only mods can)
@@ -78,7 +78,7 @@ export const CommunityFeaturesSchema = z.looseObject({
     pseudonymityMode: z.enum(["per-post", "per-reply", "per-author"]).optional() // Controls author address anonymization: per-post (new address each post), per-reply (new address each reply), per-author (consistent address)
 });
 
-// Local subplebbit challenge here (Challenges API)
+// Local community challenge here (Challenges API)
 
 export const ChallengeOptionInputSchema = z.looseObject({
     option: z.string(), // option property name, e.g. characterCount
@@ -104,7 +104,7 @@ export const ResultOfGetChallengeSchema = ChallengeFromGetChallengeSchema.or(Cha
 
 export const ChallengeExcludeCommunitySchema = z
     .object({
-        addresses: CommunityAddressSchema.array().nonempty(), // list of subplebbit addresses that can be used to exclude, plural because not a condition field like 'role'
+        addresses: CommunityAddressSchema.array().nonempty(), // list of community addresses that can be used to exclude, plural because not a condition field like 'role'
         maxCommentCids: z.number().nonnegative().int(), // maximum amount of comment cids that will be fetched to check
         postScore: z.number().int().optional(),
         replyScore: z.number().int().optional(),
@@ -145,7 +145,7 @@ export const ChallengeExcludeSchema = z.looseObject({
 
 export const CommunityChallengeSettingSchema = z
     .object({
-        // the private settings of the challenge (subplebbit.settings.challenges)
+        // the private settings of the challenge (community.settings.challenges)
         path: z.string().optional(), // (only if name is undefined) the path to the challenge js file, used to get the props ChallengeFile {optionInputs, type, getChallenge}
         name: z.string().optional(), // (only if path is undefined) the challengeName from PKC.challenges to identify it
         options: z.record(z.string(), z.string()).optional(), //{ [optionPropertyName: string]: string } the options to be used to the getChallenge function, all values must be strings for UI ease of use
@@ -160,7 +160,7 @@ export const GetChallengeArgsSchema = z.object({
     challengeSettings: CommunityChallengeSettingSchema,
     challengeRequestMessage: z.custom<DecryptedChallengeRequestMessageTypeWithCommunityAuthor>(), // no need to validate because extra props may be there
     challengeIndex: z.number().int().nonnegative(),
-    subplebbit: z.custom<LocalCommunity>()
+    community: z.custom<LocalCommunity>()
 });
 
 export const ChallengeFileSchema = z
@@ -201,7 +201,7 @@ export const CommunityIpfsSchema = z
         challenges: CommunityChallengeSchema.array(),
         signature: JsonSignatureSchema,
         encryption: CommunityEncryptionSchema,
-        name: z.string().min(1).optional(), // domain name of the subplebbit (e.g. "memes.eth"); address is now instance-only
+        name: z.string().min(1).optional(), // domain name of the community (e.g. "memes.eth"); address is now instance-only
         createdAt: PKCTimestampSchema,
         updatedAt: PKCTimestampSchema,
         pubsubTopic: PubsubTopicSchema.optional(),
@@ -222,10 +222,10 @@ export const CommunityIpfsSchema = z
 
 export const CommunitySignedPropertyNames = remeda.keys.strict(remeda.omit(CommunityIpfsSchema.shape, ["signature"]));
 
-// This is object transmitted by RPC server to RPC client when it's fetching a remote subplebbit
-// When resetInstance is true, subplebbit/updateCid are absent — the client should clear its state
+// This is object transmitted by RPC server to RPC client when it's fetching a remote community
+// When resetInstance is true, community/updateCid are absent — the client should clear its state
 export const RpcRemoteCommunityUpdateEventResultSchema = z.object({
-    subplebbit: CommunityIpfsSchema.loose().optional(),
+    community: CommunityIpfsSchema.loose().optional(),
     resetInstance: z.boolean().optional(),
     runtimeFields: z
         .object({
@@ -236,7 +236,7 @@ export const RpcRemoteCommunityUpdateEventResultSchema = z.object({
         })
         .passthrough()
 });
-// At least one of address, name, or publicKey must be provided to identify the subplebbit
+// At least one of address, name, or publicKey must be provided to identify the community
 
 export const CreateRemoteCommunityOptionsSchema = CommunityIpfsSchema.partial()
     .extend({
@@ -292,7 +292,7 @@ export const CreateNewLocalCommunityUserOptionsSchema = CommunityEditOptionsSche
     })
     .strict();
 
-// These are the options that go straight into _createLocalSub, create a new brand local sub. This is after parsing of plebbit-js
+// These are the options that go straight into _createLocalSub, create a new brand local sub. This is after parsing of pkc-js
 export const CreateNewLocalCommunityParsedOptionsSchema = CreateNewLocalCommunityUserOptionsSchema.extend({
     address: SignerWithAddressPublicKeySchema.shape.address,
     signer: SignerWithAddressPublicKeySchema
@@ -318,9 +318,9 @@ export const CreateCommunityFunctionArgumentsSchema = CreateNewLocalCommunityUse
     CreateRemoteCommunityFunctionArgumentSchema
 );
 
-// plebbit.listCommunitys()
+// pkc.listCommunities()
 
-export const ListOfCommunitysSchema = CommunityAddressSchema.array();
+export const ListOfCommunitiesSchema = CommunityAddressSchema.array();
 
 // Reserved fields
 

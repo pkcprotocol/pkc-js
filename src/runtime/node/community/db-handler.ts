@@ -46,7 +46,7 @@ import { CommentIpfsSchema, CommentUpdateSchema } from "../../../publications/co
 import { verifyCommentEdit, verifyCommentIpfs } from "../../../signer/signatures.js";
 import type { PageIpfs, RepliesPagesTypeIpfs } from "../../../pages/types.js";
 import type { CommentModerationsTableRowInsert, CommentModerationTableRow } from "../../../publications/comment-moderation/types.js";
-import { getCommunityChallengeFromCommunityChallengeSettings, plebbitJsChallenges } from "./challenges/index.js";
+import { getCommunityChallengeFromCommunityChallengeSettings, pkcJsChallenges } from "./challenges/index.js";
 import KeyvBetterSqlite3 from "./keyv-better-sqlite3.js";
 
 import { STORAGE_KEYS } from "../../../constants.js";
@@ -77,14 +77,14 @@ const TABLES = Object.freeze({
 
 export class DbHandler {
     _db!: BetterSqlite3Database;
-    private _subplebbit!: LocalCommunity;
+    private _community!: LocalCommunity;
     private _transactionDepth!: number;
     private _dbConfig!: { filename: string } & Database.Options;
     private _keyv!: KeyvBetterSqlite3;
     private _createdTables: boolean;
 
-    constructor(subplebbit: DbHandler["_subplebbit"]) {
-        this._subplebbit = subplebbit;
+    constructor(community: DbHandler["_community"]) {
+        this._community = community;
         this._transactionDepth = 0;
         this._createdTables = false;
         hideClassPrivateProps(this);
@@ -139,7 +139,7 @@ export class DbHandler {
     }
 
     async initDbConfigIfNeeded() {
-        if (!this._dbConfig) this._dbConfig = await getDefaultCommunityDbConfig(this._subplebbit.address, this._subplebbit._plebbit);
+        if (!this._dbConfig) this._dbConfig = await getDefaultCommunityDbConfig(this._community.address, this._community._pkc);
     }
 
     toJSON() {
@@ -149,8 +149,8 @@ export class DbHandler {
     async initDbIfNeeded(dbConfigOptions?: Partial<DbHandler["_dbConfig"]>) {
         const log = Logger("pkc-js:local-community:db-handler:initDbIfNeeded");
         assert(
-            typeof this._subplebbit.address === "string" && this._subplebbit.address.length > 0,
-            `DbHandler needs to be an instantiated with a Community that has a valid address, (${this._subplebbit.address}) was provided`
+            typeof this._community.address === "string" && this._community.address.length > 0,
+            `DbHandler needs to be an instantiated with a Community that has a valid address, (${this._community.address}) was provided`
         );
         await this.initDbConfigIfNeeded();
         const dbFilePath = this._dbConfig.filename;
@@ -176,7 +176,7 @@ export class DbHandler {
         } catch (e) {
             await this.initDbIfNeeded();
             log.error(
-                `Sub (${this._subplebbit.address}) failed to create/migrate tables. Current db version (${this.getDbVersion()}), latest db version (${env.DB_VERSION}). Error`,
+                `Sub (${this._community.address}) failed to create/migrate tables. Current db version (${this.getDbVersion()}), latest db version (${env.DB_VERSION}). Error`,
                 e
             );
             await this.destoryConnection();
@@ -223,7 +223,7 @@ export class DbHandler {
         this._db = this._keyv = undefined;
         this._transactionDepth = 0;
 
-        log("Destroyed DB connection to sub", this._subplebbit.address, "successfully");
+        log("Destroyed DB connection to sub", this._community.address, "successfully");
     }
 
     createTransaction(): void {
@@ -431,7 +431,7 @@ export class DbHandler {
         const newSettings = remeda.clone(oldSettings);
         if (Array.isArray(newSettings.challenges)) {
             // Filter out challenges that reference removed built-in names
-            newSettings.challenges = newSettings.challenges.filter((cs) => !cs.name || cs.path || cs.name in plebbitJsChallenges);
+            newSettings.challenges = newSettings.challenges.filter((cs) => !cs.name || cs.path || cs.name in pkcJsChallenges);
             for (const oldChallengeSetting of newSettings.challenges)
                 if (oldChallengeSetting.exclude)
                     for (const oldExcludeSetting of oldChallengeSetting.exclude)
@@ -516,8 +516,8 @@ export class DbHandler {
             this._db.pragma(`user_version = ${env.DB_VERSION}`);
             await this.initDbIfNeeded(); // to init keyv
 
-            const internalState = this.keyvHas(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_SUBPLEBBIT])
-                ? ((await this.keyvGet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_SUBPLEBBIT])) as
+            const internalState = this.keyvHas(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY])
+                ? ((await this.keyvGet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY])) as
                       | InternalCommunityRecordAfterFirstUpdateType
                       | InternalCommunityRecordBeforeFirstUpdateType)
                 : undefined;
@@ -527,7 +527,7 @@ export class DbHandler {
                     "_usingDefaultChallenge" in internalState
                         ? internalState._usingDefaultChallenge
                         : //@ts-expect-error
-                          remeda.isDeepEqual(this._subplebbit._defaultCommunityChallenges, internalState?.settings?.challenges);
+                          remeda.isDeepEqual(this._community._defaultCommunityChallenges, internalState?.settings?.challenges);
                 const updateCid: string =
                     "updateCid" in internalState && typeof internalState.updateCid === "string"
                         ? internalState.updateCid
@@ -535,12 +535,10 @@ export class DbHandler {
                 const newSettings = this._migrateOldSettings(internalState.settings);
                 const newChallenges = newSettings.challenges
                     ? await Promise.all(
-                          newSettings.challenges?.map((cs) =>
-                              getCommunityChallengeFromCommunityChallengeSettings(cs, this._subplebbit._plebbit)
-                          )
+                          newSettings.challenges?.map((cs) => getCommunityChallengeFromCommunityChallengeSettings(cs, this._community._pkc))
                       )
                     : newSettings.challenges;
-                await this._subplebbit._updateDbInternalState({
+                await this._community._updateDbInternalState({
                     posts: undefined,
                     challenges: newChallenges,
                     settings: newSettings,
@@ -843,7 +841,7 @@ export class DbHandler {
                     .all() as { cid: string }[];
                 for (const { cid } of duplicateCids) {
                     const purgedRows = this.purgeComment(cid);
-                    for (const row of purgedRows) await this._subplebbit._addAllCidsUnderPurgedCommentToBeRemoved(row);
+                    for (const row of purgedRows) await this._community._addAllCidsUnderPurgedCommentToBeRemoved(row);
                 }
                 log(`Purged ${duplicateCids.length} duplicate comment row(s) based on signature.signature with higher rowid values.`);
                 continue;
@@ -900,7 +898,7 @@ export class DbHandler {
             const validRes = await verifyCommentEdit({
                 edit: commentEditPubsub,
                 resolveAuthorNames: false,
-                clientsManager: this._subplebbit._clientsManager
+                clientsManager: this._community._clientsManager
             });
             if (!validRes.valid && validRes.reason === messages.ERR_SIGNATURE_IS_INVALID) {
                 log.error(
@@ -944,7 +942,7 @@ export class DbHandler {
                 comment: { ...commentRecord, ...commentRecord.extraProps },
                 resolveAuthorNames: false,
                 calculatedCommentCid: commentRecord.cid,
-                clientsManager: this._subplebbit._clientsManager
+                clientsManager: this._community._clientsManager
             });
             if (!validRes.valid) {
                 log.error(`Comment ${commentRecord.cid} in DB has invalid signature due to ${validRes.reason}. Will be purged.`);
@@ -1162,7 +1160,7 @@ export class DbHandler {
     }
 
     private _communityAddressClause(alias: string): { clause: string; params: string[] } {
-        const address = this._subplebbit.address;
+        const address = this._community.address;
         const addresses = getEquivalentCommunityAddresses(address);
         if (isStringDomain(address)) {
             // Domain-based: match communityName OR communityPublicKey (domain strings and IPNS keys never overlap)
@@ -1178,7 +1176,7 @@ export class DbHandler {
     }
 
     private _communityAddressClauseNamed(alias: string, paramPrefix: string): { clause: string; params: Record<string, string> } {
-        const address = this._subplebbit.address;
+        const address = this._community.address;
         const addresses = getEquivalentCommunityAddresses(address);
         if (isStringDomain(address)) {
             // Domain-based: match communityName OR communityPublicKey (domain strings and IPNS keys never overlap)
@@ -1424,7 +1422,7 @@ export class DbHandler {
 
     queryCommentsToBeUpdated(): CommentsTableRow[] {
         // TODO optimize this query in the future
-        // Make sure tests in commentsToUpdate.db.subplebbit.test.js are passing
+        // Make sure tests in commentsToUpdate.db.community.test.js are passing
         const query = `
             WITH RECURSIVE 
             direct_updates AS (
@@ -1558,7 +1556,7 @@ export class DbHandler {
     }
 
     queryCommunityStats(): CommunityStats {
-        // if you change this logic, make sure to run stats.subplebbit.test.js
+        // if you change this logic, make sure to run stats.community.test.js
         const now = timestamp(); // All timestamps are in seconds
         const { clause: commentAddrClause, params: commentAddrParams } = this._communityAddressClauseNamed("comments", "statsComments");
         const { clause: votesAddrClause, params: votesAddrParams } = this._communityAddressClauseNamed("comments_for_votes", "statsVotes");
@@ -2255,7 +2253,7 @@ export class DbHandler {
 
         const { number: commentNumber, postNumber } = this._calculateCommentNumbers(comment.cid);
 
-        if (!authorCommunity) throw Error("Failed to query author.subplebbit in queryCalculatedCommentUpdate");
+        if (!authorCommunity) throw Error("Failed to query author.community in queryCalculatedCommentUpdate");
         return {
             ...(removedFromApproved ? removedFromApproved : undefined),
             cid: comment.cid,
@@ -2265,7 +2263,7 @@ export class DbHandler {
             flairs: commentModFlairs?.flairs || authorEdit?.flairs,
             ...commentFlags,
             reason: moderatorReason?.reason,
-            author: { subplebbit: authorCommunity },
+            author: { community: authorCommunity },
             ...lastChildAndLastReplyTimestamp,
             ...(authorEdit ? { edit: authorEdit } : undefined),
             ...(isThisCommentApproved ? { approved: isThisCommentApproved.approved } : undefined)
@@ -2450,14 +2448,14 @@ export class DbHandler {
         const postScore = remeda.sumBy(authorPosts, (p) => p.upvoteCount) - remeda.sumBy(authorPosts, (p) => p.downvoteCount);
         const replyScore = remeda.sumBy(authorReplies, (r) => r.upvoteCount) - remeda.sumBy(authorReplies, (r) => r.downvoteCount);
         const lastCommentCid = remeda.maxBy(authorCommentsData, (c) => c.rowid)?.cid;
-        if (!lastCommentCid) throw Error("Failed to query subplebbitAuthor.lastCommentCid");
+        if (!lastCommentCid) throw Error("Failed to query communityAuthor.lastCommentCid");
         const firstCommentTimestamp = remeda.minBy(authorCommentsData, (c) => c.rowid)?.timestamp;
-        if (typeof firstCommentTimestamp !== "number") throw Error("Failed to query subplebbitAuthor.firstCommentTimestamp");
+        if (typeof firstCommentTimestamp !== "number") throw Error("Failed to query communityAuthor.firstCommentTimestamp");
         return { postScore, replyScore, lastCommentCid, ...modAuthorEdits, firstCommentTimestamp };
     }
 
     /**
-     * Returns author.subplebbit for CommentUpdates, respecting pseudonymity mode boundaries.
+     * Returns author.community for CommentUpdates, respecting pseudonymity mode boundaries.
      *
      * The alias address already encodes the isolation boundary:
      * - per-reply: Each reply has a unique alias, so querying by alias = that one comment's karma
@@ -2600,7 +2598,7 @@ export class DbHandler {
                     allCommentsToUpdate.push(randomComment.cid);
                     log(`Forcing update on random comment ${randomComment.cid} to ensure IPNS update after purge`);
                 } else {
-                    log(`No comments left to force update after purge - IPNS will update to show empty subplebbit`);
+                    log(`No comments left to force update after purge - IPNS will update to show empty community`);
                 }
 
                 if (allCommentsToUpdate.length > 0) {
@@ -2624,9 +2622,9 @@ export class DbHandler {
 
         this._transactionDepth = 0;
 
-        const dataPath = this._subplebbit._plebbit.dataPath!;
-        const oldPathString = path.join(dataPath, "subplebbits", oldDbName);
-        const newPathString = path.join(dataPath, "subplebbits", newDbName);
+        const dataPath = this._community._pkc.dataPath!;
+        const oldPathString = path.join(dataPath, "communities", oldDbName);
+        const newPathString = path.join(dataPath, "communities", newDbName);
         await fs.promises.mkdir(path.dirname(oldPathString), { recursive: true });
         await fs.promises.mkdir(path.dirname(newPathString), { recursive: true });
 
@@ -2640,7 +2638,7 @@ export class DbHandler {
                 const sourceDb = new Database(oldPathString, { fileMustExist: true });
                 await sourceDb.backup(newPathString); // backup is synchronous in better-sqlite3 v8+
                 sourceDb.close();
-                if (os.type() === "Windows_NT") await deleteOldCommunityInWindows(oldPathString, this._subplebbit._plebbit);
+                if (os.type() === "Windows_NT") await deleteOldCommunityInWindows(oldPathString, this._community._pkc);
                 else await fs.promises.rm(oldPathString, { force: true });
             }
         } catch (error) {
@@ -2651,21 +2649,21 @@ export class DbHandler {
         log(`Changed db path from (${oldPathString}) to (${newPathString})`);
     }
 
-    async lockSubStart(subAddress = this._subplebbit.address) {
+    async lockSubStart(subAddress = this._community.address) {
         const log = Logger("pkc-js:local-community:db-handler:lock:start");
 
-        const lockfilePath = path.join(this._subplebbit._plebbit.dataPath!, "subplebbits", `${subAddress}.start.lock`);
-        const subDbPath = path.join(this._subplebbit._plebbit.dataPath!, "subplebbits", subAddress);
+        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${subAddress}.start.lock`);
+        const subDbPath = path.join(this._community._pkc.dataPath!, "communities", subAddress);
 
         try {
             await lockfile.lock(subDbPath, {
                 lockfilePath,
                 onCompromised: () => {} // Temporary bandaid for the moment. Should be deleted later
             });
-            log(`Locked the start of subplebbit (${subAddress}) successfully`);
+            log(`Locked the start of community (${subAddress}) successfully`);
         } catch (e: unknown) {
             if (e instanceof Error && e.message === "Lock file is already being held")
-                throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { subplebbitAddress: subAddress, error: e });
+                throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { communityAddress: subAddress, error: e });
             else {
                 log(`Error while trying to lock start of sub (${subAddress}): ${e}`);
                 throw e;
@@ -2673,12 +2671,12 @@ export class DbHandler {
         }
     }
 
-    async unlockSubStart(subAddress = this._subplebbit.address) {
+    async unlockSubStart(subAddress = this._community.address) {
         const log = Logger("pkc-js:local-community:db-handler:unlock:start");
         log.trace(`Attempting to unlock the start of sub (${subAddress})`);
 
-        const lockfilePath = path.join(this._subplebbit._plebbit.dataPath!, "subplebbits", `${subAddress}.start.lock`);
-        const subDbPath = path.join(this._subplebbit._plebbit.dataPath!, "subplebbits", subAddress);
+        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${subAddress}.start.lock`);
+        const subDbPath = path.join(this._community._pkc.dataPath!, "communities", subAddress);
         if (!fs.existsSync(lockfilePath) || !fs.existsSync(subDbPath)) return;
 
         try {
@@ -2690,9 +2688,9 @@ export class DbHandler {
         }
     }
 
-    async isSubStartLocked(subAddress = this._subplebbit.address): Promise<boolean> {
-        const lockfilePath = path.join(this._subplebbit._plebbit.dataPath!, "subplebbits", `${subAddress}.start.lock`);
-        const subDbPath = path.join(this._subplebbit._plebbit.dataPath!, "subplebbits", subAddress);
+    async isSubStartLocked(subAddress = this._community.address): Promise<boolean> {
+        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${subAddress}.start.lock`);
+        const subDbPath = path.join(this._community._pkc.dataPath!, "communities", subAddress);
         const isLocked = await lockfile.check(subDbPath, { lockfilePath, realpath: false, stale: 10000 });
         return isLocked;
     }
@@ -2701,8 +2699,8 @@ export class DbHandler {
 
     async lockSubState() {
         const log = Logger("pkc-js:local-community:db-handler:lock:lockSubState");
-        const lockfilePath = path.join(this._subplebbit._plebbit.dataPath!, "subplebbits", `${this._subplebbit.address}.state.lock`);
-        const subDbPath = path.join(this._subplebbit._plebbit.dataPath!, "subplebbits", this._subplebbit.address);
+        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${this._community.address}.state.lock`);
+        const subDbPath = path.join(this._community._pkc.dataPath!, "communities", this._community.address);
         try {
             await lockfile.lock(subDbPath, {
                 lockfilePath,
@@ -2710,9 +2708,9 @@ export class DbHandler {
                 onCompromised: () => {}
             });
         } catch (e: unknown) {
-            log.error(`Error when attempting to lock sub state`, this._subplebbit.address, e);
+            log.error(`Error when attempting to lock sub state`, this._community.address, e);
             if (e instanceof Error && e.message === "Lock file is already being held")
-                throw new PKCError("ERR_COMMUNITY_STATE_LOCKED", { subplebbitAddress: this._subplebbit.address, error: e });
+                throw new PKCError("ERR_COMMUNITY_STATE_LOCKED", { communityAddress: this._community.address, error: e });
             // Not sure, do we need to throw error here
         }
     }
@@ -2720,19 +2718,19 @@ export class DbHandler {
     async unlockSubState() {
         const log = Logger("pkc-js:local-community:db-handler:lock:unlockSubState");
 
-        const lockfilePath = path.join(this._subplebbit._plebbit.dataPath!, "subplebbits", `${this._subplebbit.address}.state.lock`);
-        const subDbPath = path.join(this._subplebbit._plebbit.dataPath!, "subplebbits", this._subplebbit.address);
+        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${this._community.address}.state.lock`);
+        const subDbPath = path.join(this._community._pkc.dataPath!, "communities", this._community.address);
         if (!fs.existsSync(lockfilePath)) return;
         try {
             await lockfile.unlock(subDbPath, { lockfilePath });
         } catch (e: unknown) {
-            log.error(`Error when attempting to unlock sub state`, this._subplebbit.address, e);
+            log.error(`Error when attempting to unlock sub state`, this._community.address, e);
             if (e instanceof Error && "code" in e && e.code !== "ENOTACQUIRED") throw e;
         }
     }
 
     subDbExists() {
-        const subDbPath = path.join(this._subplebbit._plebbit.dataPath!, "subplebbits", this._subplebbit.address);
+        const subDbPath = path.join(this._community._pkc.dataPath!, "communities", this._community.address);
         return fs.existsSync(subDbPath);
     }
 

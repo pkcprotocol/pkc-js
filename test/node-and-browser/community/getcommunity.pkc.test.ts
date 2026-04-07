@@ -20,7 +20,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`pkc.getCommunity (Remote) - ${config.name}`, async () => {
         let pkc: PKCType;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -28,7 +28,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         itSkipIfRpc("calling pkc.getCommunity({address}) in parallel of the same community resolves IPNS only once", async () => {
-            const localPKC = await config.plebbitInstancePromise();
+            const localPKC = await config.pkcInstancePromise();
             const randomSub = await createMockedCommunityIpns({});
             let fetchSpy: ReturnType<typeof vi.spyOn> | undefined;
             let nameResolveSpy: ReturnType<typeof vi.spyOn> | undefined;
@@ -54,7 +54,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 } else if (shouldMockFetchForIpns) {
                     fetchSpy = vi.spyOn(globalThis, "fetch");
                 }
-                expect(localPKC._updatingCommunitys.size()).to.equal(0);
+                expect(localPKC._updatingCommunities.size()).to.equal(0);
 
                 const subInstances = await Promise.all(
                     new Array(stressCount).fill(null).map(async () => {
@@ -62,7 +62,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     })
                 );
 
-                expect(localPKC._updatingCommunitys.size()).to.equal(0);
+                expect(localPKC._updatingCommunities.size()).to.equal(0);
 
                 const resolveCallsCount = fetchSpy
                     ? fetchSpy.mock.calls.filter(([input]: [unknown]) => {
@@ -84,7 +84,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it("Can load community via IPNS address", async () => {
             const loadedCommunity = await pkc.getCommunity({ address: communitySigner.address });
-            const _subplebbitIpns = loadedCommunity.raw.subplebbitIpfs!;
+            const _subplebbitIpns = loadedCommunity.raw.communityIpfs!;
             expect(_subplebbitIpns.lastPostCid).to.be.a.string;
             expect(_subplebbitIpns.pubsubTopic).to.be.a.string;
             expect(loadedCommunity.address).to.be.a.string;
@@ -96,7 +96,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(_subplebbitIpns.signature).to.be.a("object");
             expect(_subplebbitIpns.posts).to.be.a("object");
             // Remove undefined keys from json
-            expect(deterministicStringify(loadedCommunity.raw.subplebbitIpfs!)).to.equals(deterministicStringify(_subplebbitIpns));
+            expect(deterministicStringify(loadedCommunity.raw.communityIpfs!)).to.equals(deterministicStringify(_subplebbitIpns));
         });
 
         it("can load community with ENS domain via pkc.getCommunity", async () => {
@@ -146,14 +146,14 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     expect(gatewayError.code).to.equal("ERR_INVALID_JSON");
                 } else expect(plebbitErr.code).to.equal("ERR_INVALID_JSON");
             } finally {
-                await ipnsObj.plebbit.destroy();
+                await ipnsObj.pkc.destroy();
             }
         });
 
         it(`pkc.getCommunity should throw immedietly if it loads a record with invalid signature`, async () => {
             const loadedCommunity = await pkc.getCommunity({ address: communitySigner.address });
             const ipnsObj = await createNewIpns();
-            await ipnsObj.publishToIpns(JSON.stringify({ ...loadedCommunity.raw.subplebbitIpfs, updatedAt: 12345 })); // publish invalid signature
+            await ipnsObj.publishToIpns(JSON.stringify({ ...loadedCommunity.raw.communityIpfs, updatedAt: 12345 })); // publish invalid signature
 
             try {
                 await pkc.getCommunity({ address: ipnsObj.signer.address });
@@ -164,14 +164,14 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     "ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED"
                 ]).to.include((e as { code: string }).code);
             } finally {
-                await ipnsObj.plebbit.destroy();
+                await ipnsObj.pkc.destroy();
             }
         });
 
         it(`pkc.getCommunity times out if community does not load`, async () => {
             const doesNotExistCommunityAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zx"; // random sub address, should not be able to resolve this
-            const customPKC = await config.plebbitInstancePromise();
-            customPKC._timeouts["subplebbit-ipns"] = 1 * 1000; // change timeout from 5min to 1s
+            const customPKC = await config.pkcInstancePromise();
+            customPKC._timeouts["community-ipns"] = 1 * 1000; // change timeout from 5min to 1s
 
             try {
                 await customPKC.getCommunity({ address: doesNotExistCommunityAddress });

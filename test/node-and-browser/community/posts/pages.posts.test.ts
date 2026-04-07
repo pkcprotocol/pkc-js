@@ -32,8 +32,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.sequential(`community.posts - ${config.name}`, async () => {
         let pkc: PKCType, newPost: Comment, community: RemoteCommunity;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
-            newPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc }); // After publishing this post it should appear on all pages
+            pkc = await config.pkcInstancePromise();
+            newPost = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc }); // After publishing this post it should appear on all pages
             await waitTillPostInCommunityPages(newPost as Comment & { cid: string }, pkc);
             community = await pkc.getCommunity({ address: communityAddress });
         });
@@ -101,7 +101,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         itSkipIfRpc("posts.getPage will throw a timeout error when request times out", async () => {
             // Create a pkc instance with a very short timeout for page-ipfs
-            const pkc = await config.plebbitInstancePromise();
+            const pkc = await config.pkcInstancePromise();
 
             pkc._timeouts["page-ipfs"] = 100;
 
@@ -132,7 +132,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`.getPage will throw if the first page is over 1mb`, async () => {
             const community = await pkc.getCommunity({ address: communityAddress });
-            const page = remeda.clone(community.raw.subplebbitIpfs.posts.pages.hot);
+            const page = remeda.clone(community.raw.communityIpfs.posts.pages.hot);
 
             // Make sure the page is over 1MB
             // Keep adding comments until the page exceeds 1MB
@@ -165,9 +165,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             let pkc: PKCType, community: RemoteCommunity, validPageJson: PageTypeJson, newPost: Comment;
 
             beforeAll(async () => {
-                pkc = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: false } });
-                newPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
-                await publishRandomReply({ parentComment: newPost as CommentIpfsWithCidDefined, plebbit: pkc });
+                pkc = await config.pkcInstancePromise({ pkcOptions: { validatePages: false } });
+                newPost = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
+                await publishRandomReply({ parentComment: newPost as CommentIpfsWithCidDefined, pkc: pkc });
                 await waitTillPostInCommunityPages(newPost as Comment & { cid: string }, pkc);
                 community = await pkc.getCommunity({ address: communityAddress });
                 validPageJson = remeda.clone(community.posts.pages.hot); // PageTypeJson, not PageIpfs
@@ -265,7 +265,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it(`Fails validation when a post in page has postCid defined`, async () => {
-                const validPageIpfs = community.raw.subplebbitIpfs.posts.pages.hot;
+                const validPageIpfs = community.raw.communityIpfs.posts.pages.hot;
                 const invalidPage = JSON.parse(JSON.stringify(validPageIpfs));
                 const postWithNoRepliesIndex = invalidPage.comments.findIndex(
                     (comment: { comment: { depth: number }; commentUpdate: { replies?: unknown } }) =>
@@ -334,7 +334,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
     describe.concurrent(`getPage - ${config.name}`, async () => {
         it(`.getPage will throw if retrieved page has an invalid signature `, async () => {
-            const pkc = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: true } });
+            const pkc = await config.pkcInstancePromise({ pkcOptions: { validatePages: true } });
 
             const sub = await pkc.getCommunity({ address: communityAddress });
 
@@ -364,7 +364,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
     describe.concurrent(`getPage - ${config.name}`, async () => {
         it(`.getPage will throw if retrieved page is not equivalent to its CID - IPFS Gateway`, async () => {
             const gatewayUrl = "http://localhost:13415"; // a gateway that's gonna respond with invalid content
-            const pkc = await mockGatewayPKC({ plebbitOptions: { ipfsGatewayUrls: [gatewayUrl], validatePages: true } });
+            const pkc = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [gatewayUrl], validatePages: true } });
 
             const sub = await pkc.getCommunity({ address: communityAddress });
 

@@ -22,7 +22,7 @@ describeSkipIfRpc("db-handler.queryAuthorPublicationCounts", () => {
     async function createTestDbHandler(): Promise<DbHandler> {
         communityAddress = `test-sub-${Date.now()}-${Math.random()}`;
         const fakePKC = { noData: true };
-        const fakeCommunity = { address: communityAddress, _plebbit: fakePKC };
+        const fakeCommunity = { address: communityAddress, _pkc: fakePKC };
         const handler = new DbHandler(fakeCommunity as never);
         await handler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
         await handler.createOrMigrateTablesIfNeeded();

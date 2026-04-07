@@ -8,7 +8,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     let pkc: PKCType;
     describe(`community.state - ${config.name}`, () => {
         beforeEach(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterEach(async () => {

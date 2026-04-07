@@ -27,12 +27,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let manualPageCid: string;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
 
             // Publish a domain comment (plebbit.bso → signers[3]) for reuse across tests
             const domainComment = await publishRandomPost({
                 communityAddress: communityAddress,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: {
                     author: { name: "plebbit.bso" },
                     signer: signers[3]
@@ -41,11 +41,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             domainCommentCid = domainComment.cid!;
 
             // Publish a non-domain comment for reuse
-            const noDomainComment = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            const noDomainComment = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
             noDomainCommentCid = noDomainComment.cid!;
 
             const mismatchedDomainComment = await createStaticCommunityRecordForComment({
-                plebbit: pkc,
+                pkc: pkc,
                 commentOptions: {
                     author: { name: "plebbit.bso" },
                     signer: signers[7]
@@ -55,7 +55,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             // Comment with a domain that no resolver can resolve
             const unresolvableDomainComment = await createStaticCommunityRecordForComment({
-                plebbit: pkc,
+                pkc: pkc,
                 commentOptions: {
                     author: { name: "hello.scam" },
                     signer: signers[5]
@@ -152,7 +152,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it("createComment({...publishedComment}) does not carry over author.nameResolved", async () => {
             const comment = await publishRandomPost({
                 communityAddress: communityAddress,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: {
                     author: { name: "plebbit.bso" },
                     signer: signers[3]
@@ -175,7 +175,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it("createComment(JSON.parse(JSON.stringify(publishedComment))) does not carry over author.nameResolved", async () => {
             const comment = await publishRandomPost({
                 communityAddress: communityAddress,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: {
                     author: { name: "plebbit.bso" },
                     signer: signers[3]
@@ -244,9 +244,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         itSkipIfRpc("nameResolved is undefined when resolveAuthorNames is false", async () => {
-            const noResolvePKC = await config.plebbitInstancePromise({
+            const noResolvePKC = await config.pkcInstancePromise({
                 stubStorage: false,
-                plebbitOptions: { resolveAuthorNames: false }
+                pkcOptions: { resolveAuthorNames: false }
             });
 
             const loaded = await noResolvePKC.createComment({ cid: domainCommentCid });
@@ -304,7 +304,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it("nameResolved is not present in raw CommentIpfs record", async () => {
             const comment = await publishRandomPost({
                 communityAddress: communityAddress,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: {
                     author: { name: "plebbit.bso" },
                     signer: signers[3]
@@ -458,7 +458,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             // Publish a domain-author reply to the noDomainComment post
             const reply = await publishRandomReply({
                 parentComment: parentForPublish as any,
-                plebbit: pkc,
+                pkc: pkc,
                 commentProps: {
                     author: { name: "plebbit.bso" },
                     signer: signers[3]
@@ -543,7 +543,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it("nameResolved is false when reader has no resolver for the author's TLD", async () => {
             // Create a comment with .xyz TLD using default pkc (which accepts all TLDs)
             const xyzComment = await createStaticCommunityRecordForComment({
-                plebbit: pkc,
+                pkc: pkc,
                 commentOptions: {
                     author: { name: "testuser.xyz" },
                     signer: signers[4]
@@ -552,10 +552,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             // Create a reader pkc with a restricted resolver (only .eth/.bso)
             // even for RPC servers they should not be able to resolve .xyz
-            const readerPKC = await config.plebbitInstancePromise({
+            const readerPKC = await config.pkcInstancePromise({
                 stubStorage: false,
                 mockResolve: false,
-                plebbitOptions: {
+                pkcOptions: {
                     nameResolvers: [
                         createMockNameResolver({
                             includeDefaultRecords: true,
@@ -582,7 +582,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it("nameResolved change emits a separate update event", async () => {
             // Use a fresh pkc instance so the cache is empty
-            const freshPKC = await config.plebbitInstancePromise();
+            const freshPKC = await config.pkcInstancePromise();
 
             const comment = await freshPKC.createComment({ cid: domainCommentCid });
             let updateCount = 0;

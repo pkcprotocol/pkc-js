@@ -14,15 +14,15 @@ type PKCWsServerType = Awaited<ReturnType<typeof PKCWsServer.PKCWsServer>>;
 
 // Interface for accessing private members
 interface PKCWsServerPrivateAccess {
-    _startedCommunitys: Record<string, unknown>;
-    _autoStartPreviousCommunitys: () => Promise<void>;
+    _startedCommunities: Record<string, unknown>;
+    _autoStartPreviousCommunities: () => Promise<void>;
 }
 
 const waitForSubToBeStarted = async (rpcServer: PKCWsServerType, address: string, timeout = 10000): Promise<void> => {
     const startTime = Date.now();
     while (Date.now() - startTime < timeout) {
         const privateAccess = rpcServer as unknown as PKCWsServerPrivateAccess;
-        if (address in privateAccess._startedCommunitys && privateAccess._startedCommunitys[address] !== "pending") {
+        if (address in privateAccess._startedCommunities && privateAccess._startedCommunities[address] !== "pending") {
             return;
         }
         await new Promise((resolve) => setTimeout(resolve, 100));
@@ -30,7 +30,7 @@ const waitForSubToBeStarted = async (rpcServer: PKCWsServerType, address: string
     throw new Error(`Timeout waiting for sub ${address} to be started`);
 };
 
-describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
+describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
     let basePKC: PKCType;
 
     beforeAll(async () => {
@@ -44,7 +44,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
     /**
      * Matrix Scenario Tests:
      *
-     * | # | Sub state on last RPC exit             | startStartedCommunitysOnStartup | Expected behavior        |
+     * | # | Sub state on last RPC exit             | startStartedCommunitiesOnStartup | Expected behavior        |
      * |---|----------------------------------------|----------------------------------|--------------------------|
      * | 1 | Was running (not stopped explicitly)   | true                             | Auto-start               |
      * | 2 | Was running (not stopped explicitly)   | false                            | Do nothing               |
@@ -54,28 +54,27 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
      * | 6 | Never started in this RPC session      | false                            | Do nothing               |
      */
 
-    describe("Scenario 1: Was running (not stopped explicitly) + startStartedCommunitysOnStartup=true", () => {
-        it("should auto-start the subplebbit on RPC server restart", async () => {
+    describe("Scenario 1: Was running (not stopped explicitly) + startStartedCommunitiesOnStartup=true", () => {
+        it("should auto-start the community on RPC server restart", async () => {
             const dataPath = tempy.directory();
             const rpcServerPort = 19150;
 
             // Create first RPC server and start a sub
             const options1: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
-                plebbitOptions: {
-                    kuboRpcClientsOptions:
-                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                pkcOptions: {
+                    kuboRpcClientsOptions: basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
                     httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedCommunitysOnStartup: true
+                startStartedCommunitiesOnStartup: true
             };
 
             const rpcServer1 = await PKCWsServer.PKCWsServer(options1);
             const rpcUrl = `ws://localhost:${rpcServerPort}`;
             const clientPKC1 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-            // Create and start a subplebbit
+            // Create and start a community
             const sub = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
             const subAddress = sub.address;
             await sub.start();
@@ -90,13 +89,12 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
             // Create second RPC server with auto-start enabled
             const options2: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
-                plebbitOptions: {
-                    kuboRpcClientsOptions:
-                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                pkcOptions: {
+                    kuboRpcClientsOptions: basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
                     httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedCommunitysOnStartup: true
+                startStartedCommunitiesOnStartup: true
             };
 
             const rpcServer2 = await PKCWsServer.PKCWsServer(options2);
@@ -106,7 +104,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
 
             // Verify it was auto-started
             const privateAccess = rpcServer2 as unknown as PKCWsServerPrivateAccess;
-            expect(subAddress in privateAccess._startedCommunitys).to.be.true;
+            expect(subAddress in privateAccess._startedCommunities).to.be.true;
 
             // Clean up
             const clientPKC2 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
@@ -118,28 +116,27 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
         });
     });
 
-    describe("Scenario 2: Was running (not stopped explicitly) + startStartedCommunitysOnStartup=false", () => {
-        it("should NOT auto-start the subplebbit on RPC server restart", async () => {
+    describe("Scenario 2: Was running (not stopped explicitly) + startStartedCommunitiesOnStartup=false", () => {
+        it("should NOT auto-start the community on RPC server restart", async () => {
             const dataPath = tempy.directory();
             const rpcServerPort = 19151;
 
             // Create first RPC server with auto-start enabled to create the state
             const options1: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
-                plebbitOptions: {
-                    kuboRpcClientsOptions:
-                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                pkcOptions: {
+                    kuboRpcClientsOptions: basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
                     httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedCommunitysOnStartup: true
+                startStartedCommunitiesOnStartup: true
             };
 
             const rpcServer1 = await PKCWsServer.PKCWsServer(options1);
             const rpcUrl = `ws://localhost:${rpcServerPort}`;
             const clientPKC1 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-            // Create and start a subplebbit
+            // Create and start a community
             const sub = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
             const subAddress = sub.address;
             await sub.start();
@@ -151,13 +148,12 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
             // Create second RPC server with auto-start DISABLED
             const options2: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
-                plebbitOptions: {
-                    kuboRpcClientsOptions:
-                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                pkcOptions: {
+                    kuboRpcClientsOptions: basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
                     httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedCommunitysOnStartup: false
+                startStartedCommunitiesOnStartup: false
             };
 
             const rpcServer2 = await PKCWsServer.PKCWsServer(options2);
@@ -167,7 +163,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
 
             // Verify it was NOT auto-started
             const privateAccess = rpcServer2 as unknown as PKCWsServerPrivateAccess;
-            expect(subAddress in privateAccess._startedCommunitys).to.be.false;
+            expect(subAddress in privateAccess._startedCommunities).to.be.false;
 
             // Clean up
             const clientPKC2 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
@@ -178,27 +174,26 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
         });
     });
 
-    describe("Scenario 3: Was stopped explicitly by user + startStartedCommunitysOnStartup=true", () => {
-        it("should NOT auto-start the subplebbit that was explicitly stopped", async () => {
+    describe("Scenario 3: Was stopped explicitly by user + startStartedCommunitiesOnStartup=true", () => {
+        it("should NOT auto-start the community that was explicitly stopped", async () => {
             const dataPath = tempy.directory();
             const rpcServerPort = 19152;
 
             const options1: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
-                plebbitOptions: {
-                    kuboRpcClientsOptions:
-                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                pkcOptions: {
+                    kuboRpcClientsOptions: basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
                     httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedCommunitysOnStartup: true
+                startStartedCommunitiesOnStartup: true
             };
 
             const rpcServer1 = await PKCWsServer.PKCWsServer(options1);
             const rpcUrl = `ws://localhost:${rpcServerPort}`;
             const clientPKC1 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-            // Create, start, then EXPLICITLY STOP a subplebbit
+            // Create, start, then EXPLICITLY STOP a community
             const sub = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
             const subAddress = sub.address;
             await sub.start();
@@ -210,13 +205,12 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
             // Create second RPC server with auto-start enabled
             const options2: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
-                plebbitOptions: {
-                    kuboRpcClientsOptions:
-                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                pkcOptions: {
+                    kuboRpcClientsOptions: basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
                     httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedCommunitysOnStartup: true
+                startStartedCommunitiesOnStartup: true
             };
 
             const rpcServer2 = await PKCWsServer.PKCWsServer(options2);
@@ -226,7 +220,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
 
             // Verify it was NOT auto-started (because it was explicitly stopped)
             const privateAccess = rpcServer2 as unknown as PKCWsServerPrivateAccess;
-            expect(subAddress in privateAccess._startedCommunitys).to.be.false;
+            expect(subAddress in privateAccess._startedCommunities).to.be.false;
 
             // Clean up
             const clientPKC2 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
@@ -237,20 +231,19 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
         });
     });
 
-    describe("Scenario 4: Was stopped explicitly by user + startStartedCommunitysOnStartup=false", () => {
-        it("should NOT auto-start the subplebbit", async () => {
+    describe("Scenario 4: Was stopped explicitly by user + startStartedCommunitiesOnStartup=false", () => {
+        it("should NOT auto-start the community", async () => {
             const dataPath = tempy.directory();
             const rpcServerPort = 19153;
 
             const options1: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
-                plebbitOptions: {
-                    kuboRpcClientsOptions:
-                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                pkcOptions: {
+                    kuboRpcClientsOptions: basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
                     httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedCommunitysOnStartup: false
+                startStartedCommunitiesOnStartup: false
             };
 
             const rpcServer1 = await PKCWsServer.PKCWsServer(options1);
@@ -269,13 +262,12 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
             // Create second RPC server with auto-start disabled
             const options2: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
-                plebbitOptions: {
-                    kuboRpcClientsOptions:
-                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                pkcOptions: {
+                    kuboRpcClientsOptions: basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
                     httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedCommunitysOnStartup: false
+                startStartedCommunitiesOnStartup: false
             };
 
             const rpcServer2 = await PKCWsServer.PKCWsServer(options2);
@@ -283,7 +275,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
             await new Promise((resolve) => setTimeout(resolve, 1000));
 
             const privateAccess = rpcServer2 as unknown as PKCWsServerPrivateAccess;
-            expect(subAddress in privateAccess._startedCommunitys).to.be.false;
+            expect(subAddress in privateAccess._startedCommunities).to.be.false;
 
             // Clean up
             const clientPKC2 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
@@ -294,27 +286,26 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
         });
     });
 
-    describe("Scenario 5: Never started in this RPC session + startStartedCommunitysOnStartup=true", () => {
-        it("should NOT auto-start a subplebbit that was never started", async () => {
+    describe("Scenario 5: Never started in this RPC session + startStartedCommunitiesOnStartup=true", () => {
+        it("should NOT auto-start a community that was never started", async () => {
             const dataPath = tempy.directory();
             const rpcServerPort = 19154;
 
             const options1: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
-                plebbitOptions: {
-                    kuboRpcClientsOptions:
-                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                pkcOptions: {
+                    kuboRpcClientsOptions: basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
                     httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedCommunitysOnStartup: true
+                startStartedCommunitiesOnStartup: true
             };
 
             const rpcServer1 = await PKCWsServer.PKCWsServer(options1);
             const rpcUrl = `ws://localhost:${rpcServerPort}`;
             const clientPKC1 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-            // Create a subplebbit but NEVER START IT
+            // Create a community but NEVER START IT
             const sub = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
             const subAddress = sub.address;
             // Not calling sub.start()!
@@ -325,13 +316,12 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
             // Create second RPC server
             const options2: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
-                plebbitOptions: {
-                    kuboRpcClientsOptions:
-                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                pkcOptions: {
+                    kuboRpcClientsOptions: basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
                     httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedCommunitysOnStartup: true
+                startStartedCommunitiesOnStartup: true
             };
 
             const rpcServer2 = await PKCWsServer.PKCWsServer(options2);
@@ -339,7 +329,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
             await new Promise((resolve) => setTimeout(resolve, 1000));
 
             const privateAccess = rpcServer2 as unknown as PKCWsServerPrivateAccess;
-            expect(subAddress in privateAccess._startedCommunitys).to.be.false;
+            expect(subAddress in privateAccess._startedCommunities).to.be.false;
 
             // Clean up
             const clientPKC2 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
@@ -350,27 +340,26 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
         });
     });
 
-    describe("Scenario 6: Never started in this RPC session + startStartedCommunitysOnStartup=false", () => {
-        it("should NOT auto-start a subplebbit that was never started", async () => {
+    describe("Scenario 6: Never started in this RPC session + startStartedCommunitiesOnStartup=false", () => {
+        it("should NOT auto-start a community that was never started", async () => {
             const dataPath = tempy.directory();
             const rpcServerPort = 19155;
 
             const options1: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
-                plebbitOptions: {
-                    kuboRpcClientsOptions:
-                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                pkcOptions: {
+                    kuboRpcClientsOptions: basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
                     httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedCommunitysOnStartup: false
+                startStartedCommunitiesOnStartup: false
             };
 
             const rpcServer1 = await PKCWsServer.PKCWsServer(options1);
             const rpcUrl = `ws://localhost:${rpcServerPort}`;
             const clientPKC1 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-            // Create a subplebbit but NEVER START IT
+            // Create a community but NEVER START IT
             const sub = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
             const subAddress = sub.address;
 
@@ -380,13 +369,12 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
             // Create second RPC server
             const options2: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
-                plebbitOptions: {
-                    kuboRpcClientsOptions:
-                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                pkcOptions: {
+                    kuboRpcClientsOptions: basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
                     httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedCommunitysOnStartup: false
+                startStartedCommunitiesOnStartup: false
             };
 
             const rpcServer2 = await PKCWsServer.PKCWsServer(options2);
@@ -394,7 +382,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
             await new Promise((resolve) => setTimeout(resolve, 1000));
 
             const privateAccess = rpcServer2 as unknown as PKCWsServerPrivateAccess;
-            expect(subAddress in privateAccess._startedCommunitys).to.be.false;
+            expect(subAddress in privateAccess._startedCommunities).to.be.false;
 
             // Clean up
             const clientPKC2 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
@@ -406,26 +394,25 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
     });
 
     describe("Edge cases", () => {
-        it("should handle deleted subplebbit gracefully (clean up stale state)", async () => {
+        it("should handle deleted community gracefully (clean up stale state)", async () => {
             const dataPath = tempy.directory();
             const rpcServerPort = 19156;
 
             const options1: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
-                plebbitOptions: {
-                    kuboRpcClientsOptions:
-                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                pkcOptions: {
+                    kuboRpcClientsOptions: basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
                     httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedCommunitysOnStartup: true
+                startStartedCommunitiesOnStartup: true
             };
 
             const rpcServer1 = await PKCWsServer.PKCWsServer(options1);
             const rpcUrl = `ws://localhost:${rpcServerPort}`;
             const clientPKC1 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
-            // Create and start a subplebbit
+            // Create and start a community
             const sub = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
             const subAddress = sub.address;
             await sub.start();
@@ -440,7 +427,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
             // Manually add the deleted sub address back to the SQLite DB to simulate stale state
             const dbPath = path.join(dataPath, "rpc-server", "rpc-state.db");
             const db = new Database(dbPath);
-            db.prepare("INSERT OR REPLACE INTO subplebbit_states (address, wasStarted, wasExplicitlyStopped) VALUES (?, 1, 0)").run(
+            db.prepare("INSERT OR REPLACE INTO community_states (address, wasStarted, wasExplicitlyStopped) VALUES (?, 1, 0)").run(
                 subAddress
             );
             db.close();
@@ -448,13 +435,12 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
             // Create second RPC server
             const options2: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
-                plebbitOptions: {
-                    kuboRpcClientsOptions:
-                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                pkcOptions: {
+                    kuboRpcClientsOptions: basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
                     httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedCommunitysOnStartup: true
+                startStartedCommunitiesOnStartup: true
             };
 
             const rpcServer2 = await PKCWsServer.PKCWsServer(options2);
@@ -464,11 +450,11 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
 
             // Should NOT have started the deleted sub
             const privateAccess = rpcServer2 as unknown as PKCWsServerPrivateAccess;
-            expect(subAddress in privateAccess._startedCommunitys).to.be.false;
+            expect(subAddress in privateAccess._startedCommunities).to.be.false;
 
             // Verify the stale entry was removed from state
             const dbAfter = new Database(dbPath);
-            const row = dbAfter.prepare("SELECT * FROM subplebbit_states WHERE address = ?").get(subAddress);
+            const row = dbAfter.prepare("SELECT * FROM community_states WHERE address = ?").get(subAddress);
             expect(row).to.be.undefined;
             dbAfter.close();
 
@@ -481,13 +467,12 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
 
             const options: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
-                plebbitOptions: {
-                    kuboRpcClientsOptions:
-                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                pkcOptions: {
+                    kuboRpcClientsOptions: basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
                     httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedCommunitysOnStartup: true
+                startStartedCommunitiesOnStartup: true
             };
 
             // Should not throw, should handle gracefully
@@ -511,13 +496,12 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
 
             const options: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
-                plebbitOptions: {
-                    kuboRpcClientsOptions:
-                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                pkcOptions: {
+                    kuboRpcClientsOptions: basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
                     httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedCommunitysOnStartup: true
+                startStartedCommunitiesOnStartup: true
             };
 
             // Should not throw on first run
@@ -535,7 +519,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
             await rpcServer.destroy();
         });
 
-        it("should update state DB when subplebbit address changes via edit", async () => {
+        it("should update state DB when community address changes via edit", async () => {
             // Note: This test would need domain resolution support to fully work
             // For now, we just verify the state tracking mechanism
             const dataPath = tempy.directory();
@@ -543,13 +527,12 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
 
             const options: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
-                plebbitOptions: {
-                    kuboRpcClientsOptions:
-                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                pkcOptions: {
+                    kuboRpcClientsOptions: basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
                     httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedCommunitysOnStartup: true
+                startStartedCommunitiesOnStartup: true
             };
 
             const rpcServer = await PKCWsServer.PKCWsServer(options);
@@ -563,7 +546,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
             // Verify state DB has the old address
             const dbPath = path.join(dataPath, "rpc-server", "rpc-state.db");
             const db = new Database(dbPath);
-            const row = db.prepare("SELECT * FROM subplebbit_states WHERE address = ?").get(oldAddress) as
+            const row = db.prepare("SELECT * FROM community_states WHERE address = ?").get(oldAddress) as
                 | { wasStarted: number }
                 | undefined;
             expect(row).to.exist;
@@ -582,13 +565,12 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
 
             const options: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
-                plebbitOptions: {
-                    kuboRpcClientsOptions:
-                        basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
+                pkcOptions: {
+                    kuboRpcClientsOptions: basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
                     httpRoutersOptions: basePKC.httpRoutersOptions,
                     dataPath
                 },
-                startStartedCommunitysOnStartup: false
+                startStartedCommunitiesOnStartup: false
             };
 
             const rpcServer = await PKCWsServer.PKCWsServer(options);
@@ -598,7 +580,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
             const errors: Error[] = [];
             rpcServer.on("error", (e) => errors.push(e));
 
-            // Create multiple subplebbits
+            // Create multiple communities
             const subCount = 5;
             const clientPKC = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
 
@@ -608,17 +590,17 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
                 subs.push(sub);
             }
 
-            // Start all subplebbits concurrently — each start writes to the state DB
+            // Start all communities concurrently — each start writes to the state DB
             await Promise.all(subs.map((sub) => sub.start()));
 
             // Verify state DB has all entries
             const dbPath = path.join(dataPath, "rpc-server", "rpc-state.db");
             const db = new Database(dbPath);
-            const rows = db.prepare("SELECT * FROM subplebbit_states WHERE wasStarted = 1").all() as { address: string }[];
+            const rows = db.prepare("SELECT * FROM community_states WHERE wasStarted = 1").all() as { address: string }[];
             expect(rows.length).to.equal(subCount);
 
             for (const sub of subs) {
-                const row = db.prepare("SELECT * FROM subplebbit_states WHERE address = ?").get(sub.address);
+                const row = db.prepare("SELECT * FROM community_states WHERE address = ?").get(sub.address);
                 expect(row).to.exist;
             }
 
@@ -626,7 +608,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communitys`, async () => {
             await Promise.all(subs.map((sub) => sub.stop()));
 
             // Verify all are marked as explicitly stopped
-            const stoppedRows = db.prepare("SELECT * FROM subplebbit_states WHERE wasExplicitlyStopped = 1").all() as { address: string }[];
+            const stoppedRows = db.prepare("SELECT * FROM community_states WHERE wasExplicitlyStopped = 1").all() as { address: string }[];
             expect(stoppedRows.length).to.equal(subCount);
 
             db.close();

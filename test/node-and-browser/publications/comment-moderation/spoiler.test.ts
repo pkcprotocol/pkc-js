@@ -21,8 +21,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC, randomPost: Comment;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
-            randomPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            pkc = await config.pkcInstancePromise();
+            randomPost = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
             await randomPost.update();
         });
 

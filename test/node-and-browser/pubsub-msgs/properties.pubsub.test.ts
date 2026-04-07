@@ -62,7 +62,7 @@ type ChallengeVerification = {
     encrypted?: EncryptedField;
     publication?: unknown;
     comment?: Record<string, unknown>;
-    commentUpdate?: { author: { subplebbit: unknown } };
+    commentUpdate?: { author: { community: unknown } };
     reason?: string;
     protocolVersion: string;
     signature: SignatureField;
@@ -74,17 +74,17 @@ const mathCliCommunityAddress = signers[1].address;
 
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
     describe.concurrent(`Validate props of publication Pubsub messages - ${config.name}`, async () => {
-        let plebbit: PKC;
+        let pkc: PKC;
         beforeAll(async () => {
-            plebbit = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
-            await plebbit.destroy();
+            await pkc.destroy();
         });
 
         it(`Validate props of challengerequest`, async () => {
-            const comment = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, plebbit);
+            const comment = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, pkc);
 
             const requestPromise = new Promise<ChallengeRequest>((resolve) =>
                 comment.once("challengerequest", resolve as (req: unknown) => void)
@@ -122,7 +122,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`Validate props of challenge`, async () => {
-            const comment = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, plebbit);
+            const comment = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, pkc);
 
             const challengePromise = new Promise<Challenge>((resolve) => comment.once("challenge", resolve as (msg: unknown) => void));
             await comment.publish();
@@ -160,7 +160,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`Validate props of challengeanswer`, async () => {
-            const comment = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, plebbit);
+            const comment = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, pkc);
 
             const challengeAnswerPromise = new Promise<ChallengeAnswer>((resolve) =>
                 comment.once("challengeanswer", resolve as (msg: unknown) => void)
@@ -196,7 +196,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`Validate props of challengeverification (challengeSuccess=false)`, async () => {
-            const comment = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, plebbit);
+            const comment = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, pkc);
 
             comment.removeAllListeners("challenge");
             const challengePromise = new Promise((resolve) => comment.once("challenge", resolve));
@@ -239,7 +239,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`Validate props of challengeverification (challengeSuccess=true)`, async () => {
-            const comment = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, plebbit);
+            const comment = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, pkc);
 
             const challengeVerificationPromise = new Promise<ChallengeVerification>((resolve) =>
                 comment.once("challengeverification", resolve as (msg: unknown) => void)
@@ -259,7 +259,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             expect(challengeVerifcation.publication).to.be.undefined;
             expect(challengeVerifcation.comment).to.be.a("object");
             expect(challengeVerifcation.commentUpdate).to.be.a("object");
-            expect(challengeVerifcation.commentUpdate.author.subplebbit).to.be.a("object");
+            expect(challengeVerifcation.commentUpdate.author.community).to.be.a("object");
             expect(challengeVerifcation.reason).to.be.undefined;
             expect(challengeVerifcation.protocolVersion).to.be.a("string");
             expect(challengeVerifcation.signature).to.be.a("object");

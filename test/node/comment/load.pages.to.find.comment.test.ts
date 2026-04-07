@@ -6,10 +6,10 @@ import type { RemoteCommunity } from "../../../dist/node/community/remote-commun
 
 const REPLY_DEPTHS = [1, 2, 3, 5, 10, 15];
 
-// Use PageIpfs types from plebbit-js
+// Use PageIpfs types from pkc-js
 type CommentInPage = PageIpfs["comments"][number];
 
-// Test-specific interfaces (not duplicating plebbit-js types)
+// Test-specific interfaces (not duplicating pkc-js types)
 interface TestContextOptions {
     depth: number;
     postsStorage: "pages" | "pageCids";
@@ -19,10 +19,10 @@ interface TestContextOptions {
     extraPosts?: number;
 }
 
-// Mock subplebbit shape for testing - cast to RemoteCommunity when calling loadAllPagesUnderCommunityToFindComment
+// Mock community shape for testing - cast to RemoteCommunity when calling loadAllPagesUnderCommunityToFindComment
 interface MockCommunity {
     address: string;
-    _plebbit: { getComment: (opts: { cid: string }) => Promise<unknown> };
+    _pkc: { getComment: (opts: { cid: string }) => Promise<unknown> };
     posts: {
         pages: Record<string, PageIpfs>;
         pageCids: Record<string, string>;
@@ -31,7 +31,7 @@ interface MockCommunity {
 }
 
 interface TestContext {
-    subplebbit: MockCommunity;
+    community: MockCommunity;
     targetCid: string;
     postCid: string;
     parentCid: string | undefined;
@@ -219,7 +219,7 @@ async function createTestContext({
         postsPageCids = { new: firstPageCid };
     }
 
-    const plebbitMock = {
+    const pkcMock = {
         getComment: async (cidParam: { cid: string }) => {
             const cid = cidParam.cid;
             const instance = commentInstances.get(cid);
@@ -228,9 +228,9 @@ async function createTestContext({
         }
     };
 
-    const subplebbit = {
+    const community = {
         address: "s/test",
-        _plebbit: plebbitMock,
+        _pkc: pkcMock,
         posts: {
             pages: postsPages,
             pageCids: postsPageCids,
@@ -244,7 +244,7 @@ async function createTestContext({
     };
 
     return {
-        subplebbit,
+        community,
         targetCid: targetComment.commentUpdate.cid,
         postCid,
         parentCid: depth > 0 ? commentsChain[depth - 1].commentUpdate.cid : undefined,
@@ -256,19 +256,19 @@ async function createTestContext({
 describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
     describe("posts from preloaded pages", () => {
         it("finds post on the first page", async () => {
-            const { subplebbit, targetCid } = await createTestContext({ depth: 0, postsStorage: "pages" });
+            const { community, targetCid } = await createTestContext({ depth: 0, postsStorage: "pages" });
             const found = await loadAllPagesUnderCommunityToFindComment({
                 commentCidToFind: targetCid,
-                subplebbit: subplebbit as never
+                community: community as never
             });
             expect(found?.commentUpdate.cid).to.equal(targetCid);
         });
 
         it("finds post on the second page", async () => {
-            const { subplebbit, targetCid } = await createTestContext({ depth: 0, postsStorage: "pages", targetOnSecondPostPage: true });
+            const { community, targetCid } = await createTestContext({ depth: 0, postsStorage: "pages", targetOnSecondPostPage: true });
             const found = await loadAllPagesUnderCommunityToFindComment({
                 commentCidToFind: targetCid,
-                subplebbit: subplebbit as never
+                community: community as never
             });
             expect(found?.commentUpdate.cid).to.equal(targetCid);
         });
@@ -276,23 +276,23 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
 
     describe("posts from pageCids", () => {
         it("finds post on the first page", async () => {
-            const { subplebbit, targetCid } = await createTestContext({ depth: 0, postsStorage: "pageCids" });
+            const { community, targetCid } = await createTestContext({ depth: 0, postsStorage: "pageCids" });
             const found = await loadAllPagesUnderCommunityToFindComment({
                 commentCidToFind: targetCid,
-                subplebbit: subplebbit as never
+                community: community as never
             });
             expect(found?.commentUpdate.cid).to.equal(targetCid);
         });
 
         it("finds post on the second page", async () => {
-            const { subplebbit, targetCid } = await createTestContext({
+            const { community, targetCid } = await createTestContext({
                 depth: 0,
                 postsStorage: "pageCids",
                 targetOnSecondPostPage: true
             });
             const found = await loadAllPagesUnderCommunityToFindComment({
                 commentCidToFind: targetCid,
-                subplebbit: subplebbit as never
+                community: community as never
             });
             expect(found?.commentUpdate.cid).to.equal(targetCid);
         });
@@ -301,7 +301,7 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
     describe("replies under posts pages", () => {
         REPLY_DEPTHS.forEach((depth) => {
             it(`finds depth ${depth} reply on the first replies page`, async () => {
-                const { subplebbit, targetCid } = await createTestContext({
+                const { community, targetCid } = await createTestContext({
                     depth,
                     postsStorage: "pages",
                     repliesStorage: "pages",
@@ -309,13 +309,13 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
                 });
                 const found = await loadAllPagesUnderCommunityToFindComment({
                     commentCidToFind: targetCid,
-                    subplebbit: subplebbit as never
+                    community: community as never
                 });
                 expect(found?.commentUpdate.cid).to.equal(targetCid);
             });
 
             it(`finds depth ${depth} reply on the second replies page`, async () => {
-                const { subplebbit, targetCid } = await createTestContext({
+                const { community, targetCid } = await createTestContext({
                     depth,
                     postsStorage: "pages",
                     repliesStorage: "pages",
@@ -323,7 +323,7 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
                 });
                 const found = await loadAllPagesUnderCommunityToFindComment({
                     commentCidToFind: targetCid,
-                    subplebbit: subplebbit as never
+                    community: community as never
                 });
                 expect(found?.commentUpdate.cid).to.equal(targetCid);
             });
@@ -333,7 +333,7 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
     describe("replies under posts pageCids", () => {
         REPLY_DEPTHS.forEach((depth) => {
             it(`finds depth ${depth} reply on the first replies page`, async () => {
-                const { subplebbit, targetCid } = await createTestContext({
+                const { community, targetCid } = await createTestContext({
                     depth,
                     postsStorage: "pageCids",
                     repliesStorage: "pageCids",
@@ -341,13 +341,13 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
                 });
                 const found = await loadAllPagesUnderCommunityToFindComment({
                     commentCidToFind: targetCid,
-                    subplebbit: subplebbit as never
+                    community: community as never
                 });
                 expect(found?.commentUpdate.cid).to.equal(targetCid);
             });
 
             it(`finds depth ${depth} reply on the second replies page`, async () => {
-                const { subplebbit, targetCid } = await createTestContext({
+                const { community, targetCid } = await createTestContext({
                     depth,
                     postsStorage: "pageCids",
                     repliesStorage: "pageCids",
@@ -355,7 +355,7 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
                 });
                 const found = await loadAllPagesUnderCommunityToFindComment({
                     commentCidToFind: targetCid,
-                    subplebbit: subplebbit as never
+                    community: community as never
                 });
                 expect(found?.commentUpdate.cid).to.equal(targetCid);
             });
@@ -364,7 +364,7 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
 
     describe("optimizes with hints", () => {
         it("navigates directly under the parentCid when provided", async () => {
-            const { subplebbit, targetCid, parentCid } = await createTestContext({
+            const { community, targetCid, parentCid } = await createTestContext({
                 depth: 2,
                 postsStorage: "pageCids",
                 repliesStorage: "pageCids",
@@ -372,14 +372,14 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
             });
             const found = await loadAllPagesUnderCommunityToFindComment({
                 commentCidToFind: targetCid,
-                subplebbit: subplebbit as never,
+                community: community as never,
                 parentCid
             });
             expect(found?.commentUpdate.cid).to.equal(targetCid);
         });
 
         it("locates post first when postCid is provided", async () => {
-            const { subplebbit, targetCid, postCid } = await createTestContext({
+            const { community, targetCid, postCid } = await createTestContext({
                 depth: 3,
                 postsStorage: "pageCids",
                 repliesStorage: "pageCids",
@@ -388,7 +388,7 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
             });
             const found = await loadAllPagesUnderCommunityToFindComment({
                 commentCidToFind: targetCid,
-                subplebbit: subplebbit as never,
+                community: community as never,
                 postCid
             });
             expect(found?.commentUpdate.cid).to.equal(targetCid);
@@ -405,7 +405,7 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
             });
             await loadAllPagesUnderCommunityToFindComment({
                 commentCidToFind: ctxWithoutHint.targetCid,
-                subplebbit: ctxWithoutHint.subplebbit as never
+                community: ctxWithoutHint.community as never
             });
 
             const ctxWithParentHint = await createTestContext({
@@ -418,7 +418,7 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
             });
             await loadAllPagesUnderCommunityToFindComment({
                 commentCidToFind: ctxWithParentHint.targetCid,
-                subplebbit: ctxWithParentHint.subplebbit as never,
+                community: ctxWithParentHint.community as never,
                 parentCid: ctxWithParentHint.parentCid
             });
 
@@ -440,14 +440,14 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
             const ctxWithoutPostHint = await createTestContext(baseOpts);
             const foundWithoutHint = await loadAllPagesUnderCommunityToFindComment({
                 commentCidToFind: ctxWithoutPostHint.targetCid,
-                subplebbit: ctxWithoutPostHint.subplebbit as never
+                community: ctxWithoutPostHint.community as never
             });
             expect(foundWithoutHint?.commentUpdate.cid).to.equal(ctxWithoutPostHint.targetCid);
 
             const ctxWithPostHint = await createTestContext(baseOpts);
             const foundWithPostHint = await loadAllPagesUnderCommunityToFindComment({
                 commentCidToFind: ctxWithPostHint.targetCid,
-                subplebbit: ctxWithPostHint.subplebbit as never,
+                community: ctxWithPostHint.community as never,
                 postCid: ctxWithPostHint.postCid
             });
             expect(foundWithPostHint?.commentUpdate.cid).to.equal(ctxWithPostHint.targetCid);

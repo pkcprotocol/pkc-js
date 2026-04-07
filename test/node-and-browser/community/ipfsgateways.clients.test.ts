@@ -17,7 +17,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         let gatewayPKC: PKCType;
 
         beforeAll(async () => {
-            gatewayPKC = await config.plebbitInstancePromise();
+            gatewayPKC = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -50,7 +50,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
 
         it(`Correct order of ipfsGateways state when updating a community that was created with pkc.getCommunity({address: address})`, async () => {
             const sub = await gatewayPKC.getCommunity({ address: signers[0].address });
-            await publishRandomPost({ communityAddress: sub.address, plebbit: gatewayPKC });
+            await publishRandomPost({ communityAddress: sub.address, pkc: gatewayPKC });
 
             const expectedStates = ["fetching-ipns", "stopped"];
 
@@ -84,7 +84,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             const gatewayUrl = Object.keys(sub.clients.ipfsGateways)[0];
             sub.clients.ipfsGateways[gatewayUrl].on("statechange", (newState: string) => recordedStates.push(newState));
 
-            // now gatewayPKC._updatingCommunitys will be defined
+            // now gatewayPKC._updatingCommunities will be defined
 
             const updatePromise = new Promise((resolve) => sub.once("update", resolve));
             await sub.update();

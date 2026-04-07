@@ -24,28 +24,22 @@ import type { ReplySort } from "../../../../../dist/node/pages/types.js";
 const remotePKCLoadingConfigs = getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true });
 
 interface LocalCommentWithPaginatedRepliesResult {
-    plebbit: PKCType;
-    subplebbit: LocalCommunity | RpcLocalCommunity;
+    pkc: PKCType;
+    community: LocalCommunity | RpcLocalCommunity;
     post: Comment;
     reply: Comment;
     cleanup: () => Promise<void>;
 }
 
 describeSkipIfRpc("comment.replies pagination coverage (node-only)", () => {
-    let plebbit: PKCType;
-    let subplebbit: LocalCommunity | RpcLocalCommunity;
+    let pkc: PKCType;
+    let community: LocalCommunity | RpcLocalCommunity;
     let postWithPageCids: Comment;
     let replyWithPageCids: Comment;
     let cleanup: () => Promise<void>;
 
     beforeAll(async () => {
-        ({
-            plebbit,
-            subplebbit,
-            post: postWithPageCids,
-            reply: replyWithPageCids,
-            cleanup
-        } = await createLocalCommentWithPaginatedReplies());
+        ({ pkc, community, post: postWithPageCids, reply: replyWithPageCids, cleanup } = await createLocalCommentWithPaginatedReplies());
     });
 
     afterAll(async () => {
@@ -54,14 +48,14 @@ describeSkipIfRpc("comment.replies pagination coverage (node-only)", () => {
 
     remotePKCLoadingConfigs.map((config) => {
         describe(`Loading comment.replies with config ${config.name}`, async () => {
-            let plebbit: PKCType;
+            let pkc: PKCType;
             let post: Comment;
             let reply: Comment;
 
             beforeAll(async () => {
-                plebbit = await config.plebbitInstancePromise();
-                post = await plebbit.getComment({ cid: postWithPageCids.cid! });
-                reply = await plebbit.getComment({ cid: replyWithPageCids.cid! });
+                pkc = await config.pkcInstancePromise();
+                post = await pkc.getComment({ cid: postWithPageCids.cid! });
+                reply = await pkc.getComment({ cid: replyWithPageCids.cid! });
                 await post.update();
                 await reply.update();
                 await resolveWhenConditionIsTrue({ toUpdate: post, predicate: async () => typeof post.updatedAt === "number" });
@@ -69,7 +63,7 @@ describeSkipIfRpc("comment.replies pagination coverage (node-only)", () => {
             });
 
             afterAll(async () => {
-                await plebbit.destroy();
+                await pkc.destroy();
             });
 
             describe("post.replies", () => {
@@ -108,7 +102,7 @@ describeSkipIfRpc("comment.replies pagination coverage (node-only)", () => {
                             sortName,
                             post.replies
                         )) as CommentWithinRepliesPostsPageJson[];
-                        await testPageCommentsIfSortedCorrectly(repliesUnderPost, sortName, subplebbit);
+                        await testPageCommentsIfSortedCorrectly(repliesUnderPost, sortName, community);
                     }
                 });
 
@@ -179,7 +173,7 @@ describeSkipIfRpc("comment.replies pagination coverage (node-only)", () => {
                             sortName,
                             reply.replies
                         )) as CommentWithinRepliesPostsPageJson[];
-                        await testPageCommentsIfSortedCorrectly(repliesUnderReply, sortName, subplebbit);
+                        await testPageCommentsIfSortedCorrectly(repliesUnderReply, sortName, community);
                     }
                 });
 
@@ -207,28 +201,28 @@ describeSkipIfRpc("comment.replies pagination coverage (node-only)", () => {
 });
 
 async function createLocalCommentWithPaginatedReplies(): Promise<LocalCommentWithPaginatedRepliesResult> {
-    const plebbit = await mockPKC();
-    const subplebbit = await createSubWithNoChallenge({}, plebbit);
-    await subplebbit.start();
+    const pkc = await mockPKC();
+    const community = await createSubWithNoChallenge({}, pkc);
+    await community.start();
 
     await resolveWhenConditionIsTrue({
-        toUpdate: subplebbit,
-        predicate: async () => typeof subplebbit.updatedAt === "number"
+        toUpdate: community,
+        predicate: async () => typeof community.updatedAt === "number"
     });
 
-    const post = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
+    const post = await publishRandomPost({ communityAddress: community.address, pkc: pkc });
     await forceLocalSubPagesToAlwaysGenerateMultipleChunks({
-        subplebbit,
+        community,
         parentComment: post,
         forcedPreloadedPageSizeBytes: 1,
         parentCommentReplyProps: { content: "pagination coverage reply" }
     });
 
     const replies = await Promise.all(
-        new Array(10).fill(null).map(() => publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit }))
+        new Array(10).fill(null).map(() => publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, pkc: pkc }))
     );
     await Promise.all(
-        new Array(10).fill(null).map(() => publishRandomReply({ parentComment: replies[0] as CommentIpfsWithCidDefined, plebbit: plebbit }))
+        new Array(10).fill(null).map(() => publishRandomReply({ parentComment: replies[0] as CommentIpfsWithCidDefined, pkc: pkc }))
     );
     await post.update();
 
@@ -237,16 +231,16 @@ async function createLocalCommentWithPaginatedReplies(): Promise<LocalCommentWit
         predicate: async () => Object.keys(post.replies.pageCids).length > 0
     });
 
-    const reply = await plebbit.getComment({ cid: replies[0].cid! });
+    const reply = await pkc.getComment({ cid: replies[0].cid! });
     await reply.update();
     await forceLocalSubPagesToAlwaysGenerateMultipleChunks({
-        subplebbit,
+        community,
         parentComment: reply,
         forcedPreloadedPageSizeBytes: 1,
         parentCommentReplyProps: { content: "pagination coverage nested reply" }
     });
 
-    await publishRandomReply({ parentComment: reply as CommentIpfsWithCidDefined, plebbit: plebbit }); // to force new update
+    await publishRandomReply({ parentComment: reply as CommentIpfsWithCidDefined, pkc: pkc }); // to force new update
 
     await resolveWhenConditionIsTrue({
         toUpdate: reply,
@@ -254,9 +248,9 @@ async function createLocalCommentWithPaginatedReplies(): Promise<LocalCommentWit
     });
 
     const cleanup = async () => {
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
     };
 
-    return { plebbit, subplebbit, post, reply, cleanup };
+    return { pkc, community, post, reply, cleanup };
 }

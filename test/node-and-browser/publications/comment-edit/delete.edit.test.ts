@@ -29,12 +29,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC, postToDelete: Comment, modPostToDelete: Comment, postReply: Comment;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
             [postToDelete, modPostToDelete] = await Promise.all([
-                publishRandomPost({ communityAddress: communityAddress, plebbit: pkc }),
-                publishRandomPost({ communityAddress: communityAddress, plebbit: pkc, postProps: { signer: roles[2].signer } })
+                publishRandomPost({ communityAddress: communityAddress, pkc: pkc }),
+                publishRandomPost({ communityAddress: communityAddress, pkc: pkc, postProps: { signer: roles[2].signer } })
             ]);
-            postReply = await publishRandomReply({ parentComment: postToDelete as CommentIpfsWithCidDefined, plebbit: pkc });
+            postReply = await publishRandomReply({ parentComment: postToDelete as CommentIpfsWithCidDefined, pkc: pkc });
             await postToDelete.update();
             await modPostToDelete.update();
             await postReply.update();
@@ -216,12 +216,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC, replyToDelete: Comment, post: Comment, replyUnderDeletedReply: Comment;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
-            post = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
-            replyToDelete = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc });
+            pkc = await config.pkcInstancePromise();
+            post = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
+            replyToDelete = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, pkc: pkc });
             replyUnderDeletedReply = await publishRandomReply({
                 parentComment: replyToDelete as CommentIpfsWithCidDefined,
-                plebbit: pkc
+                pkc: pkc
             });
             await Promise.all([replyToDelete.update(), post.update()]);
         });

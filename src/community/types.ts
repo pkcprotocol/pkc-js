@@ -86,11 +86,11 @@ export type CreateRemoteCommunityOptions = z.infer<typeof CreateRemoteCommunityO
 
 export type CreateNewLocalCommunityUserOptions = z.infer<typeof CreateNewLocalCommunityUserOptionsSchema>;
 
-// These are the options that go straight into _createLocalSub, create a new brand local sub. This is after parsing of plebbit-js
+// These are the options that go straight into _createLocalSub, create a new brand local sub. This is after parsing of pkc-js
 
 export type CreateNewLocalCommunityParsedOptions = z.infer<typeof CreateNewLocalCommunityParsedOptionsSchema>;
 
-// or load an already existing sub through plebbit.createCommunity
+// or load an already existing sub through pkc.createCommunity
 
 export type CreateInstanceOfLocalOrRemoteCommunityOptions = { address: string };
 
@@ -142,7 +142,7 @@ export type RpcLocalCommunityJson = JsonOfClass<RpcLocalCommunity>;
 
 export type LocalCommunityJson = JsonOfClass<LocalCommunity>;
 
-export type CommunityJson = RemoteCommunityJson | RpcRemoteCommunityJson | RpcLocalCommunityJson | LocalCommunityJson; // after calling JSON.parse(JSON.stringify(subplebbitInstance)), this should be the output
+export type CommunityJson = RemoteCommunityJson | RpcRemoteCommunityJson | RpcLocalCommunityJson | LocalCommunityJson; // after calling JSON.parse(JSON.stringify(communityInstance)), this should be the output
 
 // States here
 
@@ -160,7 +160,7 @@ export type CommunityUpdatingState =
     | "succeeded"
     | "waiting-retry"; // if we loaded a record but didn't end up using it
 
-// Internal subplebbit state (in DB)
+// Internal community state (in DB)
 
 export interface InternalCommunityRecordBeforeFirstUpdateType extends CreateNewLocalCommunityParsedOptions {
     settings: CommunitySettings;
@@ -197,9 +197,9 @@ export interface RpcInternalCommunityRecordBeforeFirstUpdateType {
         RpcLocalCommunityLocalProps;
 }
 
-// After first IPNS update: subplebbit is the signed record, localCommunity has only extras
+// After first IPNS update: community is the signed record, localCommunity has only extras
 export interface RpcInternalCommunityRecordAfterFirstUpdateType {
-    subplebbit: CommunityIpfsType;
+    community: CommunityIpfsType;
     localCommunity: RpcLocalCommunityLocalProps;
     runtimeFields: { updateCid: string; updatingState?: RpcLocalCommunity["updatingState"]; nameResolved?: boolean };
 }

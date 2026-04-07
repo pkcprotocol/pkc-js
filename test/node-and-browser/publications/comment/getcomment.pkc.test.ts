@@ -27,7 +27,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`pkc.getComment - ${config.name}`, async () => {
         let pkc: PKC;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -38,7 +38,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         itSkipIfRpc.sequential(
             "calling pkc.getCommunity({address: ) in parallel of the same subplebbit resolves IPNS only once",
             async () => {
-                const localPKC: PKC = await config.plebbitInstancePromise();
+                const localPKC: PKC = await config.pkcInstancePromise();
                 const randomCid = (await pkc.getCommunity({ address: communitySigner.address })).lastPostCid;
                 expect(randomCid).to.be.a("string");
                 const randomCidInGatewayUrl = CID.parse(randomCid).toV1().toString();
@@ -99,7 +99,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(community.lastPostCid).to.be.a("string"); // Part of setting up test-server.js to publish a test post
             const expectedPostProps = JSON.parse(await pkc.fetchCid({ cid: community.lastPostCid }));
             const loadedPost = await pkc.getComment({ cid: community.lastPostCid });
-            expect(loadedPost.author.subplebbit).to.be.undefined;
+            expect(loadedPost.author.community).to.be.undefined;
             expect(loadedPost.author.publicKey).to.be.a("string");
 
             // make sure these generated props are the same as the instance one
@@ -147,7 +147,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 shortAddress: loadedReply.author.shortAddress,
                 ...(loadedReply.author.nameResolved !== undefined ? { nameResolved: loadedReply.author.nameResolved } : {})
             };
-            if (loadedReply.author.subplebbit) delete loadedReply.author.subplebbit; // If it's running on RPC then it will fetch both CommentIpfs and CommentUpdate
+            if (loadedReply.author.community) delete loadedReply.author.community; // If it's running on RPC then it will fetch both CommentIpfs and CommentUpdate
             for (const key of Object.keys(expectedReplyProps))
                 expect(deterministicStringify(expectedReplyProps[key])).to.equal(
                     deterministicStringify((loadedReply as unknown as Record<string, unknown>)[key])
@@ -293,7 +293,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         itSkipIfRpc(`pkc.getComment times out if commentCid does not exist`, async () => {
             const commentCid = "QmbSiusGgY4Uk5LdAe91bzLkBzidyKyKHRKwhXPDz7gGzx"; // random cid doesn't exist anywhere
-            const customPKC: PKC = await config.plebbitInstancePromise();
+            const customPKC: PKC = await config.pkcInstancePromise();
             customPKC._timeouts["comment-ipfs"] = 100;
             try {
                 await customPKC.getComment({ cid: commentCid });

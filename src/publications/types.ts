@@ -12,8 +12,8 @@ import Publication from "./publication.js";
 export type PublicationPublishingState =
     | "stopped"
     | "resolving-community-name"
-    | "fetching-subplebbit-ipns"
-    | "fetching-subplebbit-ipfs"
+    | "fetching-community-ipns"
+    | "fetching-community-ipfs"
     | "publishing-challenge-request"
     | "waiting-challenge"
     | "waiting-challenge-answers"

@@ -96,7 +96,7 @@ async function createPublishingTestContext({ targetDepth }: { targetDepth: numbe
         signer,
         _pageGenerator: pageGenerator,
         _postUpdatesBuckets: [86400, 604800, 2592000, 3153600000],
-        _plebbit: { validatePages: false },
+        _pkc: { validatePages: false },
         _cidsToUnPin: new Set<string>(),
         _mfsPathsToRemove: new Set<string>(),
         _dbHandler: {
@@ -129,9 +129,9 @@ async function createPublishingTestContext({ targetDepth }: { targetDepth: numbe
 }
 
 async function createTestDbHandler(): Promise<DbHandler> {
-    const subplebbitAddress = `${SUBPLEBBIT_ADDRESS}-${Date.now()}-${Math.random()}`;
+    const communityAddress = `${SUBPLEBBIT_ADDRESS}-${Date.now()}-${Math.random()}`;
     const fakePKC = { noData: true };
-    const fakeCommunity = { address: subplebbitAddress, _plebbit: fakePKC };
+    const fakeCommunity = { address: communityAddress, _pkc: fakePKC };
     const handler = new DbHandler(fakeCommunity as never);
     await handler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
     await handler.createOrMigrateTablesIfNeeded();

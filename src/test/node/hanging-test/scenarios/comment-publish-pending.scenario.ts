@@ -9,16 +9,16 @@ import { createScenarioContext, defineHangingScenario } from "./hanging-test-uti
  */
 export default defineHangingScenario({
     id: "comment-publish-pending",
-    description: "publish a comment over pubsub without succeeding and instead hanging. Then destroy plebbit",
+    description: "publish a comment over pubsub without succeeding and instead hanging. Then destroy pkc",
     run: async ({ configCode }) => {
         const mathCliSub = "12D3KooWANwdyPERMQaCgiMnTT1t3Lr4XLFbK1z4ptFVhW2ozg1z";
-        const { plebbit, config } = await createScenarioContext(configCode);
+        const { pkc, config } = await createScenarioContext(configCode);
 
-        const post = await generateMockPost({ communityAddress: mathCliSub, plebbit });
+        const post = await generateMockPost({ communityAddress: mathCliSub, pkc });
         post.removeAllListeners("challenge");
 
         await post.publish(); // it will receive a challenge, but we won't respond because we wanna keep process hanging
 
-        await plebbit.destroy(); // destroy here should remove pubsub subscription
+        await pkc.destroy(); // destroy here should remove pubsub subscription
     }
 });

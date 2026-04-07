@@ -25,7 +25,7 @@ export const Uint8ArraySchema = z.custom<Uint8Array<ArrayBufferLike>>(
 
 const IpfsGatewayUrlSchema = z.url().startsWith("http", "IPFS gateway URL must start with http:// or https://");
 
-const RpcUrlSchema = z.url().startsWith("ws", "PKC RPC URL must start with ws:// or wss://"); // Optional websocket URLs of plebbit RPC servers, required to run a sub from a browser/electron/webview
+const RpcUrlSchema = z.url().startsWith("ws", "PKC RPC URL must start with ws:// or wss://"); // Optional websocket URLs of PKC RPC servers, required to run a sub from a browser/electron/webview
 
 const KuboRpcCreateClientOptionSchema = z.custom<KuboRpcClientCreateOption>(); // Kubo-rpc-client library will do the validation for us
 
@@ -84,8 +84,8 @@ export const PKCUserOptionBaseSchema = z.object({
     validatePages: z.boolean(), // if false, plebbit-js will not validate pages in commentUpdate/Community/getPage
     userAgent: UserAgentSchema,
     // Options for tests only. Should not be used in production
-    publishInterval: z.number().positive(), // in ms, the time to wait for subplebbit instances to publish updates. Default is 20s
-    updateInterval: z.number().positive(), // in ms, the time to wait for comment/subplebbit instances to check for updates. Default is 1min
+    publishInterval: z.number().positive(), // in ms, the time to wait for community instances to publish updates. Default is 20s
+    updateInterval: z.number().positive(), // in ms, the time to wait for comment/community instances to check for updates. Default is 1min
     noData: z.boolean(), // if true, dataPath is ignored, all database and cache data is saved in memory
     challenges: z.record(z.string(), z.custom<ChallengeFileFactoryInput>()).optional() // instance-level challenge registry, shadows built-in challenges by name
 });

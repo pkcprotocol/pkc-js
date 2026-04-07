@@ -19,7 +19,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
     describe(`comment.replies.clients.${clientFieldName} - ${config.name}`, async () => {
         let pkc: PKC;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -81,7 +81,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
     describe(`comment.replies.clients.ipfsGateways - ${config.name}`, async () => {
         let pkc: PKC;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -123,7 +123,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 "http://localhost:18080" // This one is immediate
             ];
             const multipleGatewayPKC = await mockGatewayPKC({
-                plebbitOptions: {
+                pkcOptions: {
                     ipfsGatewayUrls: gateways,
                     httpRoutersOptions: [],
                     dataPath: undefined
@@ -167,11 +167,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
 });
 
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] }).map((config) => {
-    describe(`comment.replies.clients.plebbitRpcClients - ${config.name}`, async () => {
+    describe(`comment.replies.clients.pkcRpcClients - ${config.name}`, async () => {
         let pkc: PKC;
         let commentCid: string;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
             const community = await pkc.getCommunity({ address: communityAddress });
             commentCid = community.posts.pages.hot.comments[0].cid;
             expect(commentCid).to.be.a("string");
@@ -181,12 +181,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
             await pkc.destroy();
         });
 
-        it(`comment.replies.clients.plebbitRpcClients[sortType][url] is stopped by default`, async () => {
+        it(`comment.replies.clients.pkcRpcClients[sortType][url] is stopped by default`, async () => {
             const comment = await pkc.getComment({ cid: commentCid });
-            const rpcUrl = Object.keys(comment.clients.plebbitRpcClients)[0];
+            const rpcUrl = Object.keys(comment.clients.pkcRpcClients)[0];
             // add tests here
-            expect(Object.keys(comment.replies.clients.plebbitRpcClients["new"]).length).to.equal(1);
-            expect(comment.replies.clients.plebbitRpcClients["new"][rpcUrl].state).to.equal("stopped");
+            expect(Object.keys(comment.replies.clients.pkcRpcClients["new"]).length).to.equal(1);
+            expect(comment.replies.clients.pkcRpcClients["new"][rpcUrl].state).to.equal("stopped");
         });
 
         it(`Correct state of 'new' sort is updated after fetching from comment.replies.pageCids.new`, async () => {
@@ -194,11 +194,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
             await comment.update();
             await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });
 
-            const rpcUrl = Object.keys(comment.clients.plebbitRpcClients)[0];
+            const rpcUrl = Object.keys(comment.clients.pkcRpcClients)[0];
 
             const expectedStates = ["fetching-ipfs", "stopped"];
             const actualStates: string[] = [];
-            comment.replies.clients.plebbitRpcClients["new"][rpcUrl].on("statechange", (newState: string) => {
+            comment.replies.clients.pkcRpcClients["new"][rpcUrl].on("statechange", (newState: string) => {
                 actualStates.push(newState);
             });
 

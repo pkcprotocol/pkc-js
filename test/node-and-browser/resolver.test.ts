@@ -56,7 +56,7 @@ describe("Comments with Authors as domains", async () => {
             stubStorage: false,
             remotePKC: true,
             mockResolve: false,
-            plebbitOptions: {
+            pkcOptions: {
                 nameResolvers: [createMockNameResolver({ records: { [authorAddress]: signers[6].address } })]
             }
         });
@@ -88,7 +88,7 @@ describe(`Vote with authors as domains`, async () => {
     beforeAll(async () => {
         pkc = await mockRemotePKC();
         community = await pkc.getCommunity({ address: signers[0].address });
-        comment = await publishRandomPost({ communityAddress: community.address, plebbit: pkc });
+        comment = await publishRandomPost({ communityAddress: community.address, pkc: pkc });
     });
 
     afterAll(async () => {
@@ -101,7 +101,7 @@ describe(`Vote with authors as domains`, async () => {
             stubStorage: false,
             remotePKC: true,
             mockResolve: false,
-            plebbitOptions: {
+            pkcOptions: {
                 nameResolvers: [createMockNameResolver({ records: { [authorAddress]: signers[6].address } })]
             }
         });
@@ -136,7 +136,7 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
         let receivedName: string | undefined;
 
         mockNameResolvers({
-            plebbit: pkc,
+            pkc: pkc,
             resolveFunction: async ({ name }: { name: string; provider: string }) => {
                 receivedName = name;
                 return { publicKey: expectedIpns };
@@ -159,7 +159,7 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
         const expectedAuthorAddress = "12D3KooWJJcSwMHrFvsFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
 
         mockNameResolvers({
-            plebbit: pkc,
+            pkc: pkc,
             resolveFunction: async ({ name }: { name: string; provider: string }) => {
                 if (name === "testauthor.bso") return { publicKey: expectedAuthorAddress };
                 return undefined;
@@ -245,7 +245,7 @@ describe("Comments with Authors as .bso domains", async () => {
             stubStorage: false,
             remotePKC: true,
             mockResolve: false,
-            plebbitOptions: {
+            pkcOptions: {
                 nameResolvers: [createMockNameResolver({ includeDefaultRecords: true })]
             }
         });
@@ -278,7 +278,7 @@ describeSkipIfRpc(`nameResolver canResolve filtering`, async () => {
         const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
-            plebbitOptions: {
+            pkcOptions: {
                 nameResolvers: [
                     {
                         key: "skipped-resolver",
@@ -316,7 +316,7 @@ describeSkipIfRpc(`nameResolver canResolve filtering`, async () => {
         const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
-            plebbitOptions: {
+            pkcOptions: {
                 nameResolvers: [
                     {
                         key: "eth-resolver",
@@ -355,7 +355,7 @@ describeSkipIfRpc(`nameResolver canResolve filtering`, async () => {
         const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
-            plebbitOptions: {
+            pkcOptions: {
                 nameResolvers: [
                     {
                         key: "eth-only-resolver",
@@ -382,7 +382,7 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
         const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
-            plebbitOptions: { nameResolvers: [] }
+            pkcOptions: { nameResolvers: [] }
         });
 
         try {
@@ -410,7 +410,7 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
         const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
-            plebbitOptions: {
+            pkcOptions: {
                 nameResolvers: [
                     {
                         key: "bad-resolver",
@@ -435,7 +435,7 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
         const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
-            plebbitOptions: {
+            pkcOptions: {
                 nameResolvers: [
                     {
                         key: "failing-1",
@@ -466,18 +466,18 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
         const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
-            plebbitOptions: {
+            pkcOptions: {
                 nameResolvers: [
                     {
                         key: "empty-1",
                         canResolve: () => true,
-                        resolve: async () => undefined,
+                        resolve: async (): Promise<undefined> => undefined,
                         provider: "provider-1"
                     },
                     {
                         key: "empty-2",
                         canResolve: () => true,
-                        resolve: async () => undefined,
+                        resolve: async (): Promise<undefined> => undefined,
                         provider: "provider-2"
                     }
                 ]
@@ -498,7 +498,7 @@ describeSkipIfRpc(`nameResolver provider argument passthrough`, async () => {
         const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
-            plebbitOptions: {
+            pkcOptions: {
                 nameResolvers: [
                     {
                         key: "test-resolver",
@@ -526,7 +526,7 @@ describeSkipIfRpc(`nameResolver abortSignal support`, async () => {
         const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
-            plebbitOptions: {
+            pkcOptions: {
                 nameResolvers: [
                     {
                         key: "signal-resolver",
@@ -556,7 +556,7 @@ describeSkipIfRpc(`nameResolver resolution behavior`, async () => {
         const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
-            plebbitOptions: {
+            pkcOptions: {
                 nameResolvers: [
                     {
                         key: "should-not-be-called",
@@ -582,7 +582,7 @@ describeSkipIfRpc(`nameResolver resolution behavior`, async () => {
         const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
-            plebbitOptions: {
+            pkcOptions: {
                 nameResolvers: [
                     {
                         key: "resolver",
@@ -615,7 +615,7 @@ describeSkipIfRpc(`nameResolver resolution behavior`, async () => {
             remotePKC: true,
             mockResolve: false,
             stubStorage: false,
-            plebbitOptions: {
+            pkcOptions: {
                 nameResolvers: [
                     {
                         key: "counting-resolver",
@@ -727,7 +727,7 @@ describeSkipIfRpc(`nameResolver returning extra properties`, async () => {
         const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
-            plebbitOptions: {
+            pkcOptions: {
                 nameResolvers: [
                     {
                         key: "extra-props-resolver",
@@ -759,7 +759,7 @@ describeSkipIfRpc(`nameResolver runtime modification`, async () => {
             remotePKC: true,
             mockResolve: false,
             stubStorage: false,
-            plebbitOptions: {
+            pkcOptions: {
                 nameResolvers: [
                     {
                         key: "original-resolver",
@@ -796,7 +796,7 @@ describeSkipIfRpc(`nameResolver runtime modification`, async () => {
         const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
-            plebbitOptions: {
+            pkcOptions: {
                 nameResolvers: [
                     {
                         key: "eth-resolver",
@@ -842,7 +842,7 @@ describeSkipIfRpc(`CommentEdit with author as domain`, async () => {
         // Publish a post with author.name as domain
         postToEdit = await publishRandomPost({
             communityAddress: signers[0].address,
-            plebbit: pkc,
+            pkc: pkc,
             postProps: {
                 author: { name: "plebbit.bso" },
                 signer: signers[3]

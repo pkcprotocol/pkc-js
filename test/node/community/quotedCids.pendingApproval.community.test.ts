@@ -22,45 +22,45 @@ import type { CommentIpfsWithCidDefined } from "../../../dist/node/publications/
 const pendingApprovalCommentProps = { challengeRequest: { challengeAnswers: ["pending"] } };
 
 describeSkipIfRpc("quotedCids with pending approval comments", async () => {
-    let plebbit: PKCType;
-    let subplebbit: LocalCommunity | RpcLocalCommunity;
+    let pkc: PKCType;
+    let community: LocalCommunity | RpcLocalCommunity;
     let modSigner: SignerType;
     let approvedPost: Comment;
     let approvedReply: Comment;
     let pendingReply: Comment;
 
     beforeAll(async () => {
-        plebbit = await mockPKC();
-        subplebbit = (await plebbit.createCommunity()) as LocalCommunity | RpcLocalCommunity;
-        subplebbit.setMaxListeners(100);
-        modSigner = await plebbit.createSigner();
+        pkc = await mockPKC();
+        community = (await pkc.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+        community.setMaxListeners(100);
+        modSigner = await pkc.createSigner();
 
-        await subplebbit.edit({
+        await community.edit({
             settings: { challenges: [createPendingApprovalChallenge()] },
             roles: {
                 [modSigner.address]: { role: "moderator" }
             }
         });
 
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
         // Publish an approved post (using mod signer bypasses challenge)
         approvedPost = await publishRandomPost({
-            communityAddress: subplebbit.address,
-            plebbit: plebbit,
+            communityAddress: community.address,
+            pkc: pkc,
             postProps: { signer: modSigner }
         });
 
         // Publish an approved reply under the post (mod signer bypasses challenge)
         approvedReply = await publishRandomReply({
             parentComment: approvedPost as CommentIpfsWithCidDefined,
-            plebbit: plebbit,
+            pkc: pkc,
             commentProps: { signer: modSigner }
         });
 
         // Publish a reply that goes to pending approval (under the same post)
-        const pendingReplyComment = await generateMockComment(approvedPost as CommentIpfsWithCidDefined, plebbit, false, {
+        const pendingReplyComment = await generateMockComment(approvedPost as CommentIpfsWithCidDefined, pkc, false, {
             content: "Pending reply " + Math.random(),
             ...pendingApprovalCommentProps
         });
@@ -76,8 +76,8 @@ describeSkipIfRpc("quotedCids with pending approval comments", async () => {
     });
 
     afterAll(async () => {
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
     });
 
     it("Reply quoting a pending approval comment is rejected", async () => {
@@ -85,7 +85,7 @@ describeSkipIfRpc("quotedCids with pending approval comments", async () => {
         expect(pendingReply.pendingApproval).to.be.true;
 
         // Create a reply that tries to quote the pending comment (under the same post)
-        const reply = await generateMockComment(approvedPost as CommentIpfsWithCidDefined, plebbit, false, {
+        const reply = await generateMockComment(approvedPost as CommentIpfsWithCidDefined, pkc, false, {
             signer: modSigner,
             quotedCids: [pendingReply.cid!]
         });
@@ -99,7 +99,7 @@ describeSkipIfRpc("quotedCids with pending approval comments", async () => {
 
     it("Reply quoting approved comment and pending comment is rejected", async () => {
         // Quoting both an approved reply and a pending reply should fail
-        const reply = await generateMockComment(approvedPost as CommentIpfsWithCidDefined, plebbit, false, {
+        const reply = await generateMockComment(approvedPost as CommentIpfsWithCidDefined, pkc, false, {
             signer: modSigner,
             quotedCids: [approvedReply.cid!, pendingReply.cid!]
         });
@@ -114,7 +114,7 @@ describeSkipIfRpc("quotedCids with pending approval comments", async () => {
     it("Reply quoting only approved comments succeeds", async () => {
         // Quoting only the approved post and reply should succeed
         const quotedCids = [approvedPost.cid!, approvedReply.cid!];
-        const reply = await generateMockComment(approvedPost as CommentIpfsWithCidDefined, plebbit, false, {
+        const reply = await generateMockComment(approvedPost as CommentIpfsWithCidDefined, pkc, false, {
             signer: modSigner,
             quotedCids
         });

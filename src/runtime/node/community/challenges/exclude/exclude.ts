@@ -12,12 +12,12 @@ import { derivePublicationFromChallengeRequest } from "../../../../../util.js";
 import { getPKCAddressFromPublicKeySync } from "../../../../../signer/util.js";
 
 const shouldExcludePublication = (
-    subplebbitChallenge: CommunityChallenge,
+    communityChallenge: CommunityChallenge,
     request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
-    subplebbit: LocalCommunity
+    community: LocalCommunity
 ) => {
-    if (!subplebbitChallenge) {
-        throw Error(`shouldExcludePublication invalid subplebbitChallenge argument '${subplebbitChallenge}'`);
+    if (!communityChallenge) {
+        throw Error(`shouldExcludePublication invalid communityChallenge argument '${communityChallenge}'`);
     }
     const publication = derivePublicationFromChallengeRequest(request);
     if (!publication?.author) {
@@ -25,12 +25,12 @@ const shouldExcludePublication = (
     }
     const author = publication.author;
 
-    if (!subplebbitChallenge.exclude) {
+    if (!communityChallenge.exclude) {
         return false;
     }
-    if (!Array.isArray(subplebbitChallenge.exclude)) {
+    if (!Array.isArray(communityChallenge.exclude)) {
         throw Error(
-            `shouldExcludePublication invalid subplebbitChallenge argument '${subplebbitChallenge}' subplebbitChallenge.exclude not an array`
+            `shouldExcludePublication invalid communityChallenge argument '${communityChallenge}' communityChallenge.exclude not an array`
         );
     }
 
@@ -38,7 +38,7 @@ const shouldExcludePublication = (
     let authorPublicationCounts: { postCount: number; replyCount: number } | undefined;
 
     // if match any of the exclude array, should exclude
-    for (const exclude of subplebbitChallenge.exclude) {
+    for (const exclude of communityChallenge.exclude) {
         // if doesn't have any author excludes, shouldn't exclude
         if (
             typeof exclude.postScore !== "number" &&
@@ -57,13 +57,13 @@ const shouldExcludePublication = (
         // if match all of the exclude item properties, should exclude
         // keep separated for easier debugging
         let shouldExclude = true;
-        if (!testScore(exclude.postScore, author.subplebbit?.postScore)) {
+        if (!testScore(exclude.postScore, author.community?.postScore)) {
             shouldExclude = false;
         }
-        if (!testScore(exclude.replyScore, author.subplebbit?.replyScore)) {
+        if (!testScore(exclude.replyScore, author.community?.replyScore)) {
             shouldExclude = false;
         }
-        if (!testFirstCommentTimestamp(exclude.firstCommentTimestamp, author.subplebbit?.firstCommentTimestamp)) {
+        if (!testFirstCommentTimestamp(exclude.firstCommentTimestamp, author.community?.firstCommentTimestamp)) {
             shouldExclude = false;
         }
         if (!testPublicationType(exclude.publicationType, request)) {
@@ -75,13 +75,13 @@ const shouldExcludePublication = (
         if (exclude.address && !exclude.address.includes(author.address)) {
             shouldExclude = false;
         }
-        if (Array.isArray(exclude.role) && !testRole(exclude.role, publication.author.address, subplebbit?.roles)) {
+        if (Array.isArray(exclude.role) && !testRole(exclude.role, publication.author.address, community?.roles)) {
             shouldExclude = false;
         }
         if (typeof exclude.postCount === "number" || typeof exclude.replyCount === "number") {
-            if (!authorPublicationCounts && subplebbit?._dbHandler) {
+            if (!authorPublicationCounts && community?._dbHandler) {
                 const signerAddress = getPKCAddressFromPublicKeySync(publication.signature.publicKey);
-                authorPublicationCounts = subplebbit._dbHandler.queryAuthorPublicationCounts(signerAddress);
+                authorPublicationCounts = community._dbHandler.queryAuthorPublicationCounts(signerAddress);
             }
             if (!testScore(exclude.postCount, authorPublicationCounts?.postCount)) {
                 shouldExclude = false;
@@ -100,30 +100,30 @@ const shouldExcludePublication = (
 };
 
 const shouldExcludeChallengeSuccess = (
-    subplebbitChallenge: NonNullable<CommunitySettings["challenges"]>[0],
-    subplebbitChallengeIndex: number,
+    communityChallenge: NonNullable<CommunitySettings["challenges"]>[0],
+    communityChallengeIndex: number,
     challengeResults: (Challenge | ChallengeResult)[]
 ) => {
-    if (!subplebbitChallenge) {
-        throw Error(`shouldExcludeChallengeSuccess invalid subplebbitChallenge argument '${subplebbitChallenge}'`);
+    if (!communityChallenge) {
+        throw Error(`shouldExcludeChallengeSuccess invalid communityChallenge argument '${communityChallenge}'`);
     }
     if (challengeResults && !Array.isArray(challengeResults)) {
         throw Error(`shouldExcludeChallengeSuccess invalid challengeResults argument '${challengeResults}'`);
     }
 
     // no challenge results or no exclude rules
-    if (!challengeResults?.length || !subplebbitChallenge.exclude?.length) {
+    if (!challengeResults?.length || !communityChallenge.exclude?.length) {
         return false;
     }
 
-    const challengeToExclude = challengeResults[subplebbitChallengeIndex];
+    const challengeToExclude = challengeResults[communityChallengeIndex];
     if (!challengeToExclude) {
-        throw Error(`shouldExcludeChallengeSuccess invalid subplebbitChallengeIndex '${subplebbitChallengeIndex}'`);
+        throw Error(`shouldExcludeChallengeSuccess invalid communityChallengeIndex '${communityChallengeIndex}'`);
     }
     const challengeToExcludeIsPending = "challenge" in challengeToExclude;
 
     // if match any of the exclude array, should exclude
-    for (const excludeItem of subplebbitChallenge.exclude) {
+    for (const excludeItem of communityChallenge.exclude) {
         // has no challenge success exclude rules
         if (!excludeItem.challenges?.length) {
             continue;
@@ -167,22 +167,22 @@ const commentCache = new QuickLRU<string, CommentCacheType>({
 });
 // cache for fetching comment updates, expire after 1 day
 const commentUpdateCache = new TinyCache();
-type CommentUpdateCacheType = { author: Pick<Comment["author"], "subplebbit"> };
+type CommentUpdateCacheType = { author: Pick<Comment["author"], "community"> };
 const commentUpdateCacheTime = 1000 * 60 * 60;
 const getCommentPending: Record<string, boolean> = {}; // cid -> boolean if it's loading or not
 const shouldExcludeChallengeCommentCids = async (
-    subplebbitChallenge: CommunityChallenge,
+    communityChallenge: CommunityChallenge,
     challengeRequestMessage: DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
-    plebbit: PKC
+    pkc: PKC
 ) => {
-    if (!subplebbitChallenge) {
-        throw Error(`shouldExcludeChallengeCommentCids invalid subplebbitChallenge argument '${subplebbitChallenge}'`);
+    if (!communityChallenge) {
+        throw Error(`shouldExcludeChallengeCommentCids invalid communityChallenge argument '${communityChallenge}'`);
     }
     if (!challengeRequestMessage) {
         throw Error(`shouldExcludeChallengeCommentCids invalid challengeRequestMessage argument '${challengeRequestMessage}'`);
     }
-    if (typeof plebbit?.getComment !== "function") {
-        throw Error(`shouldExcludeChallengeCommentCids invalid plebbit argument '${plebbit}'`);
+    if (typeof pkc?.getComment !== "function") {
+        throw Error(`shouldExcludeChallengeCommentCids invalid pkc argument '${pkc}'`);
     }
     const publication = derivePublicationFromChallengeRequest(challengeRequestMessage);
     const commentCids = challengeRequestMessage.challengeCommentCids;
@@ -199,14 +199,14 @@ const shouldExcludeChallengeCommentCids = async (
     const _getComment = async (
         commentCid: string,
         addressesSet: Set<string>
-    ): Promise<Pick<Comment, "communityAddress"> & { author: Pick<Comment["author"], "address" | "subplebbit"> }> => {
+    ): Promise<Pick<Comment, "communityAddress"> & { author: Pick<Comment["author"], "address" | "community"> }> => {
         // comment is cached
         let cachedComment = commentCache.get(commentCid);
 
         // comment is not cached, add to cache
         let comment: Comment | undefined;
         if (!cachedComment) {
-            comment = await plebbit.getComment({ cid: commentCid });
+            comment = await pkc.getComment({ cid: commentCid });
             // only cache useful values
             cachedComment = { communityAddress: comment.communityAddress, author: { address: comment.author.address } };
             commentCache.set(commentCid, cachedComment);
@@ -225,7 +225,7 @@ const shouldExcludeChallengeCommentCids = async (
         // comment hasn't been updated yet
         let cachedCommentUpdate = <CommentUpdateCacheType | null>commentUpdateCache.get(commentCid);
         if (!cachedCommentUpdate) {
-            const commentUpdate = comment || (await plebbit.createComment({ cid: commentCid }));
+            const commentUpdate = comment || (await pkc.createComment({ cid: commentCid }));
             const onUpdate = () => typeof commentUpdate.updatedAt === "number" && resolveUpdate(1);
             let resolveUpdate!: (value: number) => void;
             const commentUpdatePromise = new Promise<number>((resolve) => {
@@ -237,8 +237,8 @@ const shouldExcludeChallengeCommentCids = async (
             await commentUpdate.stop();
             commentUpdate.removeListener("update", onUpdate);
             // only cache useful values
-            if (commentUpdate?.author?.subplebbit) {
-                cachedCommentUpdate = { author: { subplebbit: commentUpdate?.author?.subplebbit } };
+            if (commentUpdate?.author?.community) {
+                cachedCommentUpdate = { author: { community: commentUpdate?.author?.community } };
                 commentUpdateCache.put(commentCid, cachedCommentUpdate, commentUpdateCacheTime);
             }
             commentUpdateCache._timeouts[commentCid].unref?.();
@@ -250,8 +250,7 @@ const shouldExcludeChallengeCommentCids = async (
     const getComment = async (commentCid: string, addressesSet: Set<string>) => {
         // don't fetch the same comment twice
         const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-        const pendingKey =
-            commentCid + plebbit.parsedPKCOptions?.ipfsGatewayUrls?.[0] + plebbit.parsedPKCOptions?.kuboRpcClientsOptions?.[0].url;
+        const pendingKey = commentCid + pkc.parsedPKCOptions?.ipfsGatewayUrls?.[0] + pkc.parsedPKCOptions?.kuboRpcClientsOptions?.[0].url;
         while (getCommentPending[pendingKey] === true) {
             await sleep(20);
         }
@@ -271,9 +270,9 @@ const shouldExcludeChallengeCommentCids = async (
         const comment = await getComment(commentCid, addressesSet);
         const { postScore, replyScore, firstCommentTimestamp } = exclude?.community || {};
         if (
-            testScore(postScore, comment.author?.subplebbit?.postScore) &&
-            testScore(replyScore, comment.author?.subplebbit?.replyScore) &&
-            testFirstCommentTimestamp(firstCommentTimestamp, comment.author?.subplebbit?.firstCommentTimestamp)
+            testScore(postScore, comment.author?.community?.postScore) &&
+            testScore(replyScore, comment.author?.community?.replyScore) &&
+            testFirstCommentTimestamp(firstCommentTimestamp, comment.author?.community?.firstCommentTimestamp)
         ) {
             // do nothing, comment is valid
             return;
@@ -322,7 +321,7 @@ const shouldExcludeChallengeCommentCids = async (
 
     // iterate over all excludes, and validate them async
     const validateExcludePromises = [];
-    for (const exclude of subplebbitChallenge.exclude || []) {
+    for (const exclude of communityChallenge.exclude || []) {
         validateExcludePromises.push(validateExclude(exclude));
     }
 

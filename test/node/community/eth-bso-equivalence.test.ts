@@ -17,88 +17,88 @@ import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-c
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 
 describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
-    let plebbit: PKCType;
+    let pkc: PKCType;
     let remotePKC: PKCType;
-    let subplebbit: LocalCommunity | RpcLocalCommunity;
+    let community: LocalCommunity | RpcLocalCommunity;
     let ethNameAddress: string;
     let bsoNameAddress: string;
     let postPublishedOnEth: Comment;
-    let plebbitResolverRecords: Map<string, string | undefined>;
+    let pkcResolverRecords: Map<string, string | undefined>;
     let remoteResolverRecords: Map<string, string | undefined>;
 
     beforeAll(async () => {
-        plebbitResolverRecords = new Map();
+        pkcResolverRecords = new Map();
         remoteResolverRecords = new Map();
-        plebbit = await mockPKCV2({
+        pkc = await mockPKCV2({
             stubStorage: false,
             mockResolve: false,
-            plebbitOptions: {
-                nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: plebbitResolverRecords })]
+            pkcOptions: {
+                nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: pkcResolverRecords })]
             }
         });
         remotePKC = await mockPKCV2({
             stubStorage: false,
             mockResolve: false,
             remotePKC: true,
-            plebbitOptions: {
+            pkcOptions: {
                 nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: remoteResolverRecords })]
             }
         });
 
-        subplebbit = await createSubWithNoChallenge({}, plebbit);
+        community = await createSubWithNoChallenge({}, pkc);
         const domainBase = `test-equiv-${uuidV4()}`;
         ethNameAddress = `${domainBase}.eth`;
         bsoNameAddress = `${domainBase}.bso`;
 
         // Mock both .eth and .bso domains to resolve to the same signer address
         for (const domain of [ethNameAddress, bsoNameAddress]) {
-            plebbitResolverRecords.set(domain, subplebbit.signer.address);
-            remoteResolverRecords.set(domain, subplebbit.signer.address);
+            pkcResolverRecords.set(domain, community.signer.address);
+            remoteResolverRecords.set(domain, community.signer.address);
         }
 
         // Start with .eth domain, publish a post, then transition to .bso
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
-        await subplebbit.edit({ address: ethNameAddress });
-        await new Promise((resolve) => subplebbit.once("update", resolve));
-        expect(subplebbit.address).to.equal(ethNameAddress);
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+        await community.edit({ address: ethNameAddress });
+        await new Promise((resolve) => community.once("update", resolve));
+        expect(community.address).to.equal(ethNameAddress);
 
         // Publish a post under the .eth address
-        postPublishedOnEth = await publishRandomPost({ communityAddress: ethNameAddress, plebbit: plebbit });
+        postPublishedOnEth = await publishRandomPost({ communityAddress: ethNameAddress, pkc: pkc });
         await resolveWhenConditionIsTrue({
-            toUpdate: subplebbit,
+            toUpdate: community,
             predicate: async () =>
-                Boolean(subplebbit?.posts?.pages?.hot?.comments?.some((comment) => comment.cid === postPublishedOnEth.cid))
+                Boolean(community?.posts?.pages?.hot?.comments?.some((comment) => comment.cid === postPublishedOnEth.cid))
         });
 
         // Transition to .bso
-        await subplebbit.edit({ address: bsoNameAddress });
-        await new Promise((resolve) => subplebbit.once("update", resolve));
-        expect(subplebbit.address).to.equal(bsoNameAddress);
+        await community.edit({ address: bsoNameAddress });
+        await new Promise((resolve) => community.once("update", resolve));
+        expect(community.address).to.equal(bsoNameAddress);
 
         // Wait for pages to be regenerated with the post still included
         await resolveWhenConditionIsTrue({
-            toUpdate: subplebbit,
+            toUpdate: community,
             predicate: async () =>
-                Boolean(subplebbit?.posts?.pages?.hot?.comments?.some((comment) => comment.cid === postPublishedOnEth.cid))
+                Boolean(community?.posts?.pages?.hot?.comments?.some((comment) => comment.cid === postPublishedOnEth.cid))
         });
     });
 
     afterAll(async () => {
-        await subplebbit.stop();
-        await plebbit.destroy();
+        await community.stop();
+        await pkc.destroy();
         await remotePKC.destroy();
     });
 
-    describe(`verifyCommentIpfs with cross-alias subplebbitAddress`, () => {
-        it(`accepts comment with .eth subplebbitAddress in a .bso subplebbit`, async () => {
-            const pageComment = subplebbit.posts.pages.hot!.comments.find((c) => c.cid === postPublishedOnEth.cid)!;
+    describe(`verifyCommentIpfs with cross-alias communityAddress`, () => {
+        it(`accepts comment with .eth communityAddress in a .bso community`, async () => {
+            const pageComment = community.posts.pages.hot!.comments.find((c) => c.cid === postPublishedOnEth.cid)!;
             expect(pageComment).to.not.be.undefined;
             expect(pageComment.communityAddress).to.equal(ethNameAddress);
 
             const verification = await verifyCommentIpfs({
                 comment: pageComment.raw.comment,
-                clientsManager: plebbit._clientsManager,
+                clientsManager: pkc._clientsManager,
                 resolveAuthorNames: false,
                 calculatedCommentCid: pageComment.cid!,
                 communityAddressFromInstance: bsoNameAddress
@@ -106,13 +106,13 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
             expect(verification.valid).to.be.true;
         });
 
-        it(`accepts comment with .bso subplebbitAddress in a .eth subplebbit`, async () => {
-            const pageComment = subplebbit.posts.pages.hot!.comments[0];
+        it(`accepts comment with .bso communityAddress in a .eth community`, async () => {
+            const pageComment = community.posts.pages.hot!.comments[0];
             expect(pageComment).to.not.be.undefined;
 
             const verification = await verifyCommentIpfs({
                 comment: pageComment.raw.comment,
-                clientsManager: plebbit._clientsManager,
+                clientsManager: pkc._clientsManager,
                 resolveAuthorNames: false,
                 calculatedCommentCid: pageComment.cid!,
                 communityAddressFromInstance: pageComment.communityAddress.endsWith(".eth")
@@ -123,7 +123,7 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
         });
     });
 
-    describe(`createComment with cross-alias subplebbitAddress`, () => {
+    describe(`createComment with cross-alias communityAddress`, () => {
         it(`createComment({cid, communityAddress: ".bso"}) works when comment was published under .eth`, async () => {
             const comment = await remotePKC.createComment({ cid: postPublishedOnEth.cid!, communityAddress: bsoNameAddress });
             await comment.update();
@@ -138,11 +138,11 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
         });
 
         it(`createComment({cid, communityAddress: ".eth"}) works when comment was published under .bso`, async () => {
-            expect(subplebbit.address).to.equal(bsoNameAddress);
-            const postOnBso = await publishRandomPost({ communityAddress: bsoNameAddress, plebbit: plebbit });
+            expect(community.address).to.equal(bsoNameAddress);
+            const postOnBso = await publishRandomPost({ communityAddress: bsoNameAddress, pkc: pkc });
             await resolveWhenConditionIsTrue({
-                toUpdate: subplebbit,
-                predicate: async () => Boolean(subplebbit?.posts?.pages?.hot?.comments?.some((comment) => comment.cid === postOnBso.cid))
+                toUpdate: community,
+                predicate: async () => Boolean(community?.posts?.pages?.hot?.comments?.some((comment) => comment.cid === postOnBso.cid))
             });
 
             const comment = await remotePKC.createComment({ cid: postOnBso.cid!, communityAddress: ethNameAddress });
@@ -167,8 +167,8 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
         });
 
         it(`getComment(cid) works for a comment published under .bso (after transition from .eth)`, async () => {
-            expect(subplebbit.address).to.equal(bsoNameAddress);
-            const bsoPost = subplebbit.posts!.pages.hot!.comments!.find((c) => c.communityAddress === bsoNameAddress);
+            expect(community.address).to.equal(bsoNameAddress);
+            const bsoPost = community.posts!.pages.hot!.comments!.find((c) => c.communityAddress === bsoNameAddress);
             expect(bsoPost).to.not.be.undefined;
 
             const comment = await remotePKC.getComment({ cid: bsoPost!.cid! });

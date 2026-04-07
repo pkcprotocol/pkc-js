@@ -37,8 +37,8 @@ const type: ChallengeInput["type"] = "text/plain";
 const description = "Blacklist author addresses.";
 
 class UrlsAddressesSet {
-    private subplebbits: {
-        [subplebbitAddress: string]: {
+    private communities: {
+        [communityAddress: string]: {
             urlsString: string | undefined;
             urls: string[];
             urlsSets: { [url: string]: Set<string> };
@@ -51,12 +51,12 @@ class UrlsAddressesSet {
         setInterval(() => this.refetchAndUpdateAllUrlsSets(), 1000 * 60 * 5).unref?.();
     }
 
-    async has(address?: string, subplebbitAddress?: string, urlsString?: string): Promise<boolean> {
-        if (!address || !subplebbitAddress || !urlsString) return false;
+    async has(address?: string, communityAddress?: string, urlsString?: string): Promise<boolean> {
+        if (!address || !communityAddress || !urlsString) return false;
         // update urls on first run, wait for 10s max
-        await this.setUrls(subplebbitAddress, urlsString);
-        const subplebbit = this.subplebbits[subplebbitAddress];
-        const urlsSets = subplebbit.urls.map((url) => subplebbit.urlsSets[url]).filter(Boolean);
+        await this.setUrls(communityAddress, urlsString);
+        const community = this.communities[communityAddress];
+        const urlsSets = community.urls.map((url) => community.urlsSets[url]).filter(Boolean);
         for (const urlSet of urlsSets) {
             if (urlSet.has(address)) {
                 return true;
@@ -65,12 +65,12 @@ class UrlsAddressesSet {
         return false;
     }
 
-    private async setUrls(subplebbitAddress: string, urlsString: string): Promise<void> {
-        let subplebbit = this.subplebbits[subplebbitAddress];
-        if (subplebbit && urlsString === subplebbit.urlsString) {
-            return subplebbit.setUrlsPromise;
+    private async setUrls(communityAddress: string, urlsString: string): Promise<void> {
+        let community = this.communities[communityAddress];
+        if (community && urlsString === community.urlsString) {
+            return community.setUrlsPromise;
         }
-        this.subplebbits[subplebbitAddress] = {
+        this.communities[communityAddress] = {
             urlsString,
             urls:
                 urlsString
@@ -80,37 +80,37 @@ class UrlsAddressesSet {
             urlsSets: {}
         };
         // try fetching urls before resolving
-        this.subplebbits[subplebbitAddress].setUrlsPromise = Promise.race([
-            Promise.all(this.subplebbits[subplebbitAddress].urls.map((url) => this.fetchAndUpdateUrlSet(url, [subplebbitAddress]))).then(
+        this.communities[communityAddress].setUrlsPromise = Promise.race([
+            Promise.all(this.communities[communityAddress].urls.map((url) => this.fetchAndUpdateUrlSet(url, [communityAddress]))).then(
                 () => {}
             ),
             // make sure to resolve after max 10s, or the initial urlsAddressesSet.has() could take infinite time
             new Promise<void>((resolve) => setTimeout(resolve, 10000))
         ]);
-        return this.subplebbits[subplebbitAddress].setUrlsPromise;
+        return this.communities[communityAddress].setUrlsPromise;
     }
 
-    private async fetchAndUpdateUrlSet(url: string, subplebbitAddresses: string[]): Promise<void> {
+    private async fetchAndUpdateUrlSet(url: string, communityAddresses: string[]): Promise<void> {
         try {
             const addresses: string[] = await fetch(url).then((res) => res.json() as Promise<string[]>);
-            for (const subplebbitAddress of subplebbitAddresses) {
-                this.subplebbits[subplebbitAddress].urlsSets[url] = new Set(addresses);
+            for (const communityAddress of communityAddresses) {
+                this.communities[communityAddress].urlsSets[url] = new Set(addresses);
             }
         } catch {}
     }
 
     private refetchAndUpdateAllUrlsSets(): void {
         const urlToCommunityAddresses: { [url: string]: string[] } = {};
-        for (const [subplebbitAddress, subplebbit] of Object.entries(this.subplebbits)) {
-            for (const url of subplebbit.urls) {
+        for (const [communityAddress, community] of Object.entries(this.communities)) {
+            for (const url of community.urls) {
                 if (!urlToCommunityAddresses[url]) {
                     urlToCommunityAddresses[url] = [];
                 }
-                urlToCommunityAddresses[url].push(subplebbitAddress);
+                urlToCommunityAddresses[url].push(communityAddress);
             }
         }
-        for (const [url, subplebbitAddresses] of Object.entries(urlToCommunityAddresses)) {
-            this.fetchAndUpdateUrlSet(url, subplebbitAddresses);
+        for (const [url, communityAddresses] of Object.entries(urlToCommunityAddresses)) {
+            this.fetchAndUpdateUrlSet(url, communityAddresses);
         }
     }
 }

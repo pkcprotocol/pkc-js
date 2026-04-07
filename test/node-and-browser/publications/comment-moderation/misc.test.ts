@@ -29,8 +29,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let commentToMod: Comment;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
-            commentToMod = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            pkc = await config.pkcInstancePromise();
+            commentToMod = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
         });
 
         afterAll(async () => {
@@ -121,7 +121,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -131,7 +131,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it(`A mod publishing multiple mod edit fields and they all should appear on the comment`, async () => {
             const modPost = await publishRandomPost({
                 communityAddress: communityAddress,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: { signer: roles[2].signer }
             });
             const fieldsToChange = {
@@ -178,7 +178,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -188,7 +188,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it(`As a mod`, async () => {
             const modPost = await publishRandomPost({
                 communityAddress: communityAddress,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: { signer: roles[2].signer }
             });
             const fieldsToChange = {
@@ -253,7 +253,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 reason: "Test as an author" + Date.now()
             };
 
-            const authorPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc }); // generate random signer
+            const authorPost = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc }); // generate random signer
 
             const authorEdit = await pkc.createCommentEdit({
                 ...authorFieldsToChange,
@@ -320,7 +320,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Correct value of CommentUpdate after mod edit, then author edit`, async () => {
-            const authorPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc }); // generate random signer
+            const authorPost = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc }); // generate random signer
 
             const modFieldsToChange = {
                 reason: "Test setting spoiler as mod",

@@ -6,7 +6,7 @@ import { z } from "zod";
 export type CreatePKCWsServerOptions = z.infer<typeof CreatePKCWsServerOptionsSchema>;
 
 export interface PKCWsServerClassOptions extends CreatePKCWsServerOptions {
-    plebbit: PKC;
+    pkc: PKC;
 }
 
 export type SetNewSettingsPKCWsServer = z.infer<typeof SetNewSettingsPKCWsServerSchema>;

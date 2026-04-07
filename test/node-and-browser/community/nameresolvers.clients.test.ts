@@ -43,7 +43,7 @@ function createRemotePKCWithTrackingResolver({ stubStorage = true }: { stubStora
         stubStorage,
         remotePKC: true,
         mockResolve: false,
-        plebbitOptions: {
+        pkcOptions: {
             validatePages: false,
             nameResolvers: [resolver]
         }
@@ -66,7 +66,7 @@ async function createRemotePKCWithMockResolver({
         stubStorage,
         remotePKC: true,
         mockResolve: false,
-        plebbitOptions: {
+        pkcOptions: {
             validatePages,
             nameResolvers: nameResolvers || [createMockNameResolver({ includeDefaultRecords: true, records })]
         }
@@ -134,7 +134,7 @@ async function createCommunityFixtureWithDomainAuthors() {
     const templateSub = await templatePKC.createCommunity({ address: signers[1].address });
     await templateSub.update();
     await new Promise((resolve) => templateSub.once("update", resolve));
-    const templateRecord = templateSub.raw.subplebbitIpfs!;
+    const templateRecord = templateSub.raw.communityIpfs!;
     await templateSub.stop();
     await templatePKC.destroy();
 
@@ -164,7 +164,7 @@ async function createCommunityFixtureWithDomainAuthors() {
         })
     ];
 
-    const subplebbitRecord = {
+    const communityRecord = {
         ...templateRecord,
         posts: {
             pages: {
@@ -174,9 +174,9 @@ async function createCommunityFixtureWithDomainAuthors() {
         pubsubTopic: communityAddress
     };
 
-    subplebbitRecord.signature = await signCommunity({ subplebbit: subplebbitRecord, signer: ipnsObj.signer });
-    await ipnsObj.publishToIpns(JSON.stringify(subplebbitRecord));
-    await ipnsObj.plebbit.destroy();
+    communityRecord.signature = await signCommunity({ community: communityRecord, signer: ipnsObj.signer });
+    await ipnsObj.publishToIpns(JSON.stringify(communityRecord));
+    await ipnsObj.pkc.destroy();
 
     return { communityAddress };
 }

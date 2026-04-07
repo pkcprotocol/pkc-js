@@ -29,7 +29,7 @@ export const RpcCommunityLookupParamSchema = z
     .refine((args) => args.address || args.name || args.publicKey, "At least one of address, name, or publicKey must be provided");
 export const RpcAuthorNameParamSchema = z.object({ address: AuthorAddressSchema });
 export const RpcCommunityPageParamSchema = RpcCidParamSchema.extend({
-    subplebbitAddress: CommunityAddressSchema,
+    communityAddress: CommunityAddressSchema,
     type: z.enum(["posts", "modqueue"]),
     pageMaxSize: z.number().positive().int()
 });
@@ -48,6 +48,6 @@ export const RpcUnsubscribeParamSchema = z.object({ subscriptionId: Subscription
 
 // Result schemas for events that were previously bare values
 export const RpcStateChangeEventResultSchema = z.object({ state: z.string() });
-export const RpcCommunitysChangeEventResultSchema = z.object({ subplebbits: z.array(z.string()) });
+export const RpcCommunitiesChangeEventResultSchema = z.object({ communities: z.array(z.string()) });
 export const RpcFetchCidResultSchema = z.object({ content: z.string() });
 export const RpcResolveAuthorNameResultSchema = z.object({ resolvedAddress: z.string().nullable() });

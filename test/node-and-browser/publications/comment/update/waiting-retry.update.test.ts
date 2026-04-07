@@ -13,7 +13,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             `comment.update() emits error and changes updatingState to waiting-retry and keeps retrying if CommentIpfs loading times out`,
             async () => {
                 // Create a comment with a CID that doesn't exist or will time out
-                const pkc = await config.plebbitInstancePromise();
+                const pkc = await config.pkcInstancePromise();
                 const nonExistentCid = "QmbSiusGgY4Uk5LdAe91bzLkBzidyKyKHRKwhXPDz7gGzx"; // Random CID that doesn't exist
                 const createdComment = await pkc.createComment({ cid: nonExistentCid });
 

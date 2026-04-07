@@ -84,31 +84,31 @@ const overriddenQuestionChallenge = ({ challengeSettings }: { challengeSettings:
     return { getChallenge, type, challenge: "What is the answer to life?", description };
 };
 
-describe("plebbit.settings.challenges", async () => {
-    let plebbit: PKCType;
+describe("pkc.settings.challenges", async () => {
+    let pkc: PKCType;
     let remotePKC: PKCType;
 
     beforeAll(async () => {
-        plebbit = await mockPKC();
-        // Register custom challenges on the plebbit instance
-        plebbit.settings.challenges = {
+        pkc = await mockPKC();
+        // Register custom challenges on the pkc instance
+        pkc.settings.challenges = {
             "sky-color": customSkyChallenge
         };
         remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
         await remotePKC.destroy();
     });
 
-    it(`plebbit.settings.challenges is initialized from constructor options`, async () => {
-        expect(plebbit.settings).to.be.an("object");
-        expect(plebbit.settings.challenges).to.be.an("object");
-        expect(plebbit.settings.challenges!["sky-color"]).to.equal(customSkyChallenge);
+    it(`pkc.settings.challenges is initialized from constructor options`, async () => {
+        expect(pkc.settings).to.be.an("object");
+        expect(pkc.settings.challenges).to.be.an("object");
+        expect(pkc.settings.challenges!["sky-color"]).to.equal(customSkyChallenge);
     });
 
-    it(`plebbit.settings.challenges can be modified at runtime`, async () => {
+    it(`pkc.settings.challenges can be modified at runtime`, async () => {
         const newPKC = await mockPKC();
         expect(newPKC.settings.challenges).to.be.undefined;
 
@@ -120,42 +120,42 @@ describe("plebbit.settings.challenges", async () => {
         await newPKC.destroy();
     });
 
-    itSkipIfRpc(`subplebbit can use a custom challenge from plebbit.settings.challenges`, async () => {
-        const subplebbit = (await plebbit.createCommunity({})) as LocalCommunity;
+    itSkipIfRpc(`community can use a custom challenge from pkc.settings.challenges`, async () => {
+        const community = (await pkc.createCommunity({})) as LocalCommunity;
         const challenges: CommunityChallengeSetting[] = [{ name: "sky-color" }];
-        await subplebbit.edit({ settings: { challenges } });
+        await community.edit({ settings: { challenges } });
 
-        expect(subplebbit.settings!.challenges).to.deep.equal(challenges);
+        expect(community.settings!.challenges).to.deep.equal(challenges);
 
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
-        // Verify subplebbit.challenges reflects the custom challenge
-        expect(subplebbit.challenges).to.have.length(1);
-        expect(subplebbit.challenges![0].type).to.equal("text/plain");
-        expect(subplebbit.challenges![0].description).to.equal("A custom challenge asking about the sky color.");
-        expect(subplebbit.challenges![0].challenge).to.equal("What color is the sky?");
+        // Verify community.challenges reflects the custom challenge
+        expect(community.challenges).to.have.length(1);
+        expect(community.challenges![0].type).to.equal("text/plain");
+        expect(community.challenges![0].description).to.equal("A custom challenge asking about the sky color.");
+        expect(community.challenges![0].challenge).to.equal("What color is the sky?");
 
         // Verify remote sub also sees the challenge metadata
-        const remoteSub = (await remotePKC.getCommunity({ address: subplebbit.address })) as RemoteCommunity;
+        const remoteSub = (await remotePKC.getCommunity({ address: community.address })) as RemoteCommunity;
         expect(remoteSub.challenges).to.have.length(1);
         expect(remoteSub.challenges![0].type).to.equal("text/plain");
         expect(remoteSub.challenges![0].description).to.equal("A custom challenge asking about the sky color.");
         expect(remoteSub.challenges![0].challenge).to.equal("What color is the sky?");
 
-        await subplebbit.delete();
+        await community.delete();
     });
 
     itSkipIfRpc(`custom challenge correctly verifies pre-answered challenge`, async () => {
-        const subplebbit = (await plebbit.createCommunity({})) as LocalCommunity;
-        await subplebbit.edit({ settings: { challenges: [{ name: "sky-color" }] } });
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+        const community = (await pkc.createCommunity({})) as LocalCommunity;
+        await community.edit({ settings: { challenges: [{ name: "sky-color" }] } });
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
         // Publish with correct pre-answer
         const correctPost = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: plebbit,
+            communityAddress: community.address,
+            pkc: pkc,
             postProps: {
                 challengeRequest: { challengeAnswers: ["blue"] }
             }
@@ -164,11 +164,11 @@ describe("plebbit.settings.challenges", async () => {
 
         // Publish with wrong pre-answer
         const challengeVerificationPromise = new Promise<ChallengeVerificationMessageType>((resolve) =>
-            subplebbit.once("challengeverification", resolve)
+            community.once("challengeverification", resolve)
         );
         const wrongPost = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: plebbit,
+            communityAddress: community.address,
+            pkc: pkc,
             postProps: {
                 challengeRequest: { challengeAnswers: ["red"] }
             }
@@ -178,32 +178,32 @@ describe("plebbit.settings.challenges", async () => {
         expect(verification.challengeSuccess).to.equal(false);
         expect(verification.challengeErrors?.["0"]).to.equal("Wrong color.");
 
-        await subplebbit.delete();
+        await community.delete();
     });
 
     itSkipIfRpc(`user-defined challenge shadows a built-in challenge with the same name`, async () => {
-        const plebbitWithOverride = await mockPKC();
-        plebbitWithOverride.settings.challenges = {
+        const pkcWithOverride = await mockPKC();
+        pkcWithOverride.settings.challenges = {
             question: overriddenQuestionChallenge
         };
 
-        const subplebbit = (await plebbitWithOverride.createCommunity({})) as LocalCommunity;
+        const community = (await pkcWithOverride.createCommunity({})) as LocalCommunity;
         // Use the "question" name — should resolve to the overridden version
-        await subplebbit.edit({
+        await community.edit({
             settings: { challenges: [{ name: "question", options: { answer: "42" } }] }
         });
 
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
         // The overridden challenge should be used
-        expect(subplebbit.challenges![0].description).to.equal("Overridden question challenge.");
-        expect(subplebbit.challenges![0].challenge).to.equal("What is the answer to life?");
+        expect(community.challenges![0].description).to.equal("Overridden question challenge.");
+        expect(community.challenges![0].challenge).to.equal("What is the answer to life?");
 
         // Verify correct answer works
         const correctPost = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: plebbitWithOverride,
+            communityAddress: community.address,
+            pkc: pkcWithOverride,
             postProps: {
                 challengeRequest: { challengeAnswers: ["42"] }
             }
@@ -212,11 +212,11 @@ describe("plebbit.settings.challenges", async () => {
 
         // Verify wrong answer fails
         const verificationPromise = new Promise<ChallengeVerificationMessageType>((resolve) =>
-            subplebbit.once("challengeverification", resolve)
+            community.once("challengeverification", resolve)
         );
         const wrongPost = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: plebbitWithOverride,
+            communityAddress: community.address,
+            pkc: pkcWithOverride,
             postProps: {
                 challengeRequest: { challengeAnswers: ["wrong"] }
             }
@@ -226,22 +226,22 @@ describe("plebbit.settings.challenges", async () => {
         expect(verification.challengeSuccess).to.equal(false);
         expect(verification.challengeErrors?.["0"]).to.equal("Not the answer to life.");
 
-        await subplebbit.delete();
-        await plebbitWithOverride.destroy();
+        await community.delete();
+        await pkcWithOverride.destroy();
     });
 });
 
-describeIfRpc("plebbit.settings.challenges RPC error handling", async () => {
+describeIfRpc("pkc.settings.challenges RPC error handling", async () => {
     it("RPC client throws when setting a challenge name that doesn't exist on the server", async () => {
-        const plebbit = await mockPKC();
-        const subplebbit = await plebbit.createCommunity({});
+        const pkc = await mockPKC();
+        const community = await pkc.createCommunity({});
         try {
-            await subplebbit.edit({ settings: { challenges: [{ name: "nonexistent-challenge" }] } });
+            await community.edit({ settings: { challenges: [{ name: "nonexistent-challenge" }] } });
             expect.fail("Should have thrown");
         } catch (e: any) {
             expect(e.code).to.equal("ERR_RPC_CLIENT_CHALLENGE_NAME_NOT_AVAILABLE_ON_SERVER");
         }
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
     });
 });

@@ -11,16 +11,16 @@ export const mkdir = () => {
     throw Error("mkdir should not be called in browser");
 };
 
-export const listCommunitys = () => {
-    throw Error("listCommunitys should not be called in browser");
+export const listCommunities = () => {
+    throw Error("listCommunities should not be called in browser");
 };
 
-export const listCommunitysSync = () => {
-    throw Error("listCommunitysSync should not be called in browser");
+export const listCommunitiesSync = () => {
+    throw Error("listCommunitiesSync should not be called in browser");
 };
 
-export const monitorCommunitysDirectory = () => {
-    throw Error("monitorCommunitysDirectory should not be called in browser");
+export const monitorCommunitiesDirectory = () => {
+    throw Error("monitorCommunitiesDirectory should not be called in browser");
 };
 
 export const trytoDeleteSubsThatFailedToBeDeletedBefore = () => {

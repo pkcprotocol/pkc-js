@@ -26,13 +26,13 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
         // move
         const error429Gateway = `http://localhost:13416`; // this gateway always returns 429 status code
         const normalIpfsGateway = `http://localhost:18080`;
-        const gatewayPKC = await mockGatewayPKC({ plebbitOptions: { ipfsGatewayUrls: [error429Gateway, normalIpfsGateway] } });
+        const gatewayPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [error429Gateway, normalIpfsGateway] } });
         const randomSigner = await gatewayPKC.createSigner();
         const offlineSubAddress = randomSigner.address; // offline sub
 
-        const post = await generateMockPost({ communityAddress: offlineSubAddress, plebbit: gatewayPKC });
+        const post = await generateMockPost({ communityAddress: offlineSubAddress, pkc: gatewayPKC });
 
-        gatewayPKC._timeouts["subplebbit-ipns"] = 5000; // reduce timeout or otherwise it's gonna keep retrying for 5 minutes
+        gatewayPKC._timeouts["community-ipns"] = 5000; // reduce timeout or otherwise it's gonna keep retrying for 5 minutes
 
         try {
             await post.publish();
@@ -51,7 +51,7 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
     });
     it(`Can publish a comment when all ipfs gateways are down except one`, async () => {
         const gatewayPKC = await mockGatewayPKC({
-            plebbitOptions: {
+            pkcOptions: {
                 ipfsGatewayUrls: [
                     "http://127.0.0.1:28080", // Not working
                     "http://127.0.0.1:28081", // Not working
@@ -67,7 +67,7 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
             "http://127.0.0.1:18083",
             "http://127.0.0.1:18080"
         ]);
-        const post = await generateMockPost({ communityAddress: communityAddress, plebbit: gatewayPKC });
+        const post = await generateMockPost({ communityAddress: communityAddress, pkc: gatewayPKC });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
         await gatewayPKC.destroy();
     });
@@ -92,7 +92,7 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
         };
         // Only pubsubProviders [2] is able to publish/subscribe
 
-        const post = await generateMockPost({ communityAddress: communityAddress, plebbit: tempPKC });
+        const post = await generateMockPost({ communityAddress: communityAddress, pkc: tempPKC });
         // Pre-set _subplebbit to skip the network IPNS fetch in _initCommunity(),
         // which is flaky in CI. This isolates the test to only exercise the pubsub failure path.
         (post as any)._subplebbit = {
@@ -107,7 +107,7 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
         const notRespondingPubsubUrl = "http://localhost:15005/api/v0"; // Should take msgs but not respond, never throws errors
         const upPubsubUrl = "http://localhost:15002/api/v0";
         const pkc = await mockPKCV2({
-            plebbitOptions: { pubsubKuboRpcClientsOptions: [notRespondingPubsubUrl, upPubsubUrl] },
+            pkcOptions: { pubsubKuboRpcClientsOptions: [notRespondingPubsubUrl, upPubsubUrl] },
             forceMockPubsub: true,
             remotePKC: true
         });
@@ -116,7 +116,7 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
         pkc.clients.pubsubKuboRpcClients[notRespondingPubsubUrl]._client.pubsub.publish = async () => {};
         pkc.clients.pubsubKuboRpcClients[notRespondingPubsubUrl]._client.pubsub.subscribe = async () => {};
 
-        const mockPost = await generateMockPost({ communityAddress: signers[0].address, plebbit: pkc });
+        const mockPost = await generateMockPost({ communityAddress: signers[0].address, pkc: pkc });
         // Pre-set _subplebbit to skip the network IPNS fetch in _initCommunity(),
         // which is flaky in CI. This isolates the test to only exercise the pubsub failure path.
         (mockPost as any)._subplebbit = {
@@ -149,9 +149,9 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
     it(`comment emits and throws errors if all providers fail to publish`, async () => {
         const offlinePubsubUrls = ["http://localhost:23425", "http://localhost:23426"];
         const offlinePubsubPKC = await mockRemotePKC({
-            plebbitOptions: { pubsubKuboRpcClientsOptions: offlinePubsubUrls }
+            pkcOptions: { pubsubKuboRpcClientsOptions: offlinePubsubUrls }
         });
-        const mockPost = await generateMockPost({ communityAddress: signers[1].address, plebbit: offlinePubsubPKC });
+        const mockPost = await generateMockPost({ communityAddress: signers[1].address, pkc: offlinePubsubPKC });
         // Pre-set _subplebbit to skip the network IPNS fetch in _initCommunity(),
         // which is flaky in CI. This isolates the test to only exercise the pubsub failure path.
         (mockPost as any)._subplebbit = {
@@ -184,9 +184,9 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
         const notRespondingPubsubUrl = "http://localhost:15005/api/v0"; // Should take msgs but not respond, never throws errors
         const offlinePubsubUrl = "http://localhost:23425"; // Will throw errors; can't subscribe or publish
         const offlinePubsubPKC = await mockRemotePKC({
-            plebbitOptions: { pubsubKuboRpcClientsOptions: [notRespondingPubsubUrl, offlinePubsubUrl] }
+            pkcOptions: { pubsubKuboRpcClientsOptions: [notRespondingPubsubUrl, offlinePubsubUrl] }
         });
-        const mockPost = await generateMockPost({ communityAddress: signers[1].address, plebbit: offlinePubsubPKC });
+        const mockPost = await generateMockPost({ communityAddress: signers[1].address, pkc: offlinePubsubPKC });
         // Pre-set _subplebbit to skip the network IPNS fetch in _initCommunity(),
         // which is flaky in CI. This isolates the test to only exercise the pubsub failure path.
         (mockPost as any)._subplebbit = {

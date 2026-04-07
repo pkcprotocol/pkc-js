@@ -15,9 +15,9 @@ type PKCWsServerType = Awaited<ReturnType<typeof createPKCWsServer>>;
 // Using a separate interface avoids TypeScript's intersection-with-private-members issue
 interface PKCWsServerPrivateAccess {
     _onSettingsChange: Record<string, Record<string, unknown>>;
-    _trackCommunityListener: (subplebbit: LocalCommunity, event: string, listener: () => void) => void;
+    _trackCommunityListener: (community: LocalCommunity, event: string, listener: () => void) => void;
     _trackedCommunityListeners: Map<LocalCommunity, Map<string, Set<() => void>>>;
-    _serializeSettingsFromPKC: (plebbit: PKCWsServerType["plebbit"]) => {
+    _serializeSettingsFromPKC: (pkc: PKCWsServerType["pkc"]) => {
         challenges: Record<string, { type?: string; challenge?: string; description?: string }>;
     };
 }
@@ -71,16 +71,16 @@ describeSkipIfRpc("PKCWsServer listener lifecycle", function () {
         }
     });
 
-    it("does not track listeners when creating a subplebbit", async function () {
+    it("does not track listeners when creating a community", async function () {
         rpcServer = await createPKCWsServer({ port: getTestPort() });
         mockRpcServerForTests(rpcServer);
 
-        const trackedCalls: { subplebbit: LocalCommunity; event: string; listener: () => void }[] = [];
+        const trackedCalls: { community: LocalCommunity; event: string; listener: () => void }[] = [];
         const rpcServerWithPrivate = rpcServer as unknown as PKCWsServerPrivateAccess;
         const originalTrack = rpcServerWithPrivate._trackCommunityListener;
-        rpcServerWithPrivate._trackCommunityListener = function (subplebbit: LocalCommunity, event: string, listener: () => void) {
-            trackedCalls.push({ subplebbit, event, listener });
-            return originalTrack.call(this, subplebbit, event, listener);
+        rpcServerWithPrivate._trackCommunityListener = function (community: LocalCommunity, event: string, listener: () => void) {
+            trackedCalls.push({ community, event, listener });
+            return originalTrack.call(this, community, event, listener);
         };
 
         try {
@@ -97,7 +97,7 @@ describeSkipIfRpc("PKCWsServer listener lifecycle", function () {
         mockRpcServerForTests(rpcServer);
 
         const rpcServerWithPrivate = rpcServer as unknown as PKCWsServerPrivateAccess;
-        const settings = rpcServerWithPrivate._serializeSettingsFromPKC(rpcServer.plebbit);
+        const settings = rpcServerWithPrivate._serializeSettingsFromPKC(rpcServer.pkc);
 
         expect(settings.challenges.question).to.be.an("object");
         expect(settings.challenges.question.type).to.be.a("string");
@@ -116,9 +116,9 @@ describeSkipIfRpc("PKCWsServer listener lifecycle", function () {
 
         let capturedCommunity: LocalCommunity | undefined;
         const originalSetup = rpcServer._setupStartedEvents;
-        rpcServer._setupStartedEvents = function (subplebbit: LocalCommunity, connId: string, subscriptionId: number) {
-            capturedCommunity = subplebbit;
-            return originalSetup.call(this, subplebbit, connId, subscriptionId);
+        rpcServer._setupStartedEvents = function (community: LocalCommunity, connId: string, subscriptionId: number) {
+            capturedCommunity = community;
+            return originalSetup.call(this, community, connId, subscriptionId);
         };
 
         try {
@@ -137,7 +137,7 @@ describeSkipIfRpc("PKCWsServer listener lifecycle", function () {
                 expect(listeners!.size).to.equal(1, `Expected one tracked listener for event ${event}`);
                 listeners!.forEach((listener) => {
                     const emitterListeners = capturedCommunity!.listeners(event as Parameters<typeof capturedCommunity.listeners>[0]);
-                    expect(emitterListeners).to.include(listener, `Listener for ${event} not attached to subplebbit`);
+                    expect(emitterListeners).to.include(listener, `Listener for ${event} not attached to community`);
                 });
             });
 
@@ -158,7 +158,7 @@ describeSkipIfRpc("PKCWsServer listener lifecycle", function () {
         }
     });
 
-    it("removes tracked listeners when deleting a started subplebbit", async function () {
+    it("removes tracked listeners when deleting a started community", async function () {
         rpcServer = await createPKCWsServer({ port: getTestPort() });
         mockRpcServerForTests(rpcServer);
 
@@ -171,9 +171,9 @@ describeSkipIfRpc("PKCWsServer listener lifecycle", function () {
 
         let capturedCommunity: LocalCommunity | undefined;
         const originalSetup = rpcServer._setupStartedEvents;
-        rpcServer._setupStartedEvents = function (subplebbit: LocalCommunity, connId: string, subscriptionId: number) {
-            capturedCommunity = subplebbit;
-            return originalSetup.call(this, subplebbit, connId, subscriptionId);
+        rpcServer._setupStartedEvents = function (community: LocalCommunity, connId: string, subscriptionId: number) {
+            capturedCommunity = community;
+            return originalSetup.call(this, community, connId, subscriptionId);
         };
 
         try {
@@ -190,10 +190,7 @@ describeSkipIfRpc("PKCWsServer listener lifecycle", function () {
             expect(deleteResult).to.equal(true);
 
             expect(trackedListenersMap.get(capturedCommunity!)).to.equal(undefined, "Tracked listeners should be removed after delete");
-            expect(findStartedCommunity(rpcServer.plebbit, { address })).to.equal(
-                undefined,
-                "Started sub list should not contain deleted sub"
-            );
+            expect(findStartedCommunity(rpcServer.pkc, { address })).to.equal(undefined, "Started sub list should not contain deleted sub");
 
             trackedSnapshot.forEach((listeners, event) => {
                 const emitterListeners = capturedCommunity!.listeners(event as Parameters<typeof capturedCommunity.listeners>[0]);

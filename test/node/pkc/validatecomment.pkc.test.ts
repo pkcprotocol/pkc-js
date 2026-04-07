@@ -38,9 +38,9 @@ const cloneCommentInstance = (source: Comment): Comment => {
 };
 
 getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map((config) => {
-    describeSkipIfRpc.concurrent(`plebbit.validateComment - ${config.name}`, async () => {
+    describeSkipIfRpc.concurrent(`pkc.validateComment - ${config.name}`, async () => {
         let remotePKC: PKC;
-        let subplebbit: RemoteCommunity;
+        let community: RemoteCommunity;
         let postCommentInstance: Comment;
         let postWithRepliesInstance: Comment;
         let postPageComment: CommentWithinRepliesPostsPageJson;
@@ -50,15 +50,15 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
 
         beforeAll(async () => {
             publisherEnv = await createValidateCommentTestEnvironment();
-            remotePKC = await config.plebbitInstancePromise();
-            subplebbit = (await remotePKC.getCommunity({ address: publisherEnv.communityAddress })) as RemoteCommunity;
-            await subplebbit.update();
+            remotePKC = await config.pkcInstancePromise();
+            community = (await remotePKC.getCommunity({ address: publisherEnv.communityAddress })) as RemoteCommunity;
+            await community.update();
             await resolveWhenConditionIsTrue({
-                toUpdate: subplebbit,
+                toUpdate: community,
                 predicate: async () =>
                     Boolean(
-                        subplebbit.posts.pages.hot &&
-                            subplebbit.posts.pages.hot.comments.find(
+                        community.posts.pages.hot &&
+                            community.posts.pages.hot.comments.find(
                                 (comment) => comment.cid === publisherEnv.postCid || comment.cid === publisherEnv.repliesPostCid
                             )
                     )
@@ -71,7 +71,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
                 predicate: async () => typeof postCommentInstance.updatedAt === "number"
             });
 
-            const foundPostPageComment = subplebbit.posts.pages.hot!.comments.find((c) => c.cid === postCommentInstance.cid);
+            const foundPostPageComment = community.posts.pages.hot!.comments.find((c) => c.cid === postCommentInstance.cid);
             expect(foundPostPageComment, "Failed to find the post comment in the page").to.exist;
             postPageComment = foundPostPageComment!;
 
@@ -213,13 +213,13 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
         });
 
         describe.sequential("Invalid Comments", () => {
-            let plebbit: PKC; // Use a separate plebbit instance for invalid tests to reset caches if needed
+            let pkc: PKC; // Use a separate pkc instance for invalid tests to reset caches if needed
             let sourcePostCommentInstance: Comment; // Need a valid instance for cloning/copying tests
             beforeEach(async () => {
-                plebbit = await mockRemotePKC();
-                const sub = (await plebbit.getCommunity({ address: signers[0].address })) as RemoteCommunity;
+                pkc = await mockRemotePKC();
+                const sub = (await pkc.getCommunity({ address: signers[0].address })) as RemoteCommunity;
                 await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.lastPostCid === "string" });
-                sourcePostCommentInstance = await plebbit.getComment({ cid: sub.lastPostCid! });
+                sourcePostCommentInstance = await pkc.getComment({ cid: sub.lastPostCid! });
                 await sourcePostCommentInstance.update();
                 await resolveWhenConditionIsTrue({
                     toUpdate: sourcePostCommentInstance,
@@ -231,9 +231,9 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
                     await sourcePostCommentInstance.stop?.();
                     sourcePostCommentInstance = undefined!;
                 }
-                if (plebbit) {
-                    await plebbit.destroy();
-                    plebbit = undefined!;
+                if (pkc) {
+                    await pkc.destroy();
+                    pkc = undefined!;
                 }
             });
 
@@ -241,10 +241,10 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
             it("should reject Post instance if CommentIpfs signature is invalid", async () => {
                 let invalidComment: Comment | undefined;
                 try {
-                    invalidComment = await plebbit.createComment(sourcePostCommentInstance); // Use source
+                    invalidComment = await pkc.createComment(sourcePostCommentInstance); // Use source
                     invalidComment.raw.comment = remeda.clone(invalidComment.raw.comment);
                     invalidComment.raw.comment!.signature.signature += "invalid";
-                    await plebbit.validateComment(invalidComment);
+                    await pkc.validateComment(invalidComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
                     expect(e).to.be.instanceOf(PKCError);
@@ -257,11 +257,11 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
             it("should reject Post instance if CommentUpdate signature is invalid", async () => {
                 let invalidComment: Comment | undefined;
                 try {
-                    invalidComment = await plebbit.createComment(sourcePostCommentInstance); // Use source
+                    invalidComment = await pkc.createComment(sourcePostCommentInstance); // Use source
                     const tamperedUpdate = remeda.clone(invalidComment.raw.commentUpdate);
                     tamperedUpdate!.signature.signature += "invalid"; // Tamper signature directly
                     invalidComment.raw.commentUpdate = tamperedUpdate;
-                    await plebbit.validateComment(invalidComment);
+                    await pkc.validateComment(invalidComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
                     expect(e).to.be.instanceOf(PKCError);
@@ -274,9 +274,9 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
             it("should reject Post instance if CommentIpfs data is missing", async () => {
                 let invalidComment: Comment | undefined;
                 try {
-                    invalidComment = await plebbit.createComment(remeda.clone(sourcePostCommentInstance)); // Use source
+                    invalidComment = await pkc.createComment(remeda.clone(sourcePostCommentInstance)); // Use source
                     invalidComment.raw.comment = undefined;
-                    await plebbit.validateComment(invalidComment);
+                    await pkc.validateComment(invalidComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
                     expect(e).to.be.instanceOf(PKCError);
@@ -289,9 +289,9 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
             it("should reject Post instance if CommentUpdate data is missing", async () => {
                 let invalidComment: Comment | undefined;
                 try {
-                    invalidComment = await plebbit.createComment(sourcePostCommentInstance); // Use source
+                    invalidComment = await pkc.createComment(sourcePostCommentInstance); // Use source
                     invalidComment.raw.commentUpdate = undefined;
-                    await plebbit.validateComment(invalidComment);
+                    await pkc.validateComment(invalidComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
                     expect(e).to.be.instanceOf(PKCError);
@@ -304,10 +304,10 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
             it("should reject Post instance if CID is missing", async () => {
                 let invalidComment: Comment | undefined;
                 try {
-                    invalidComment = await plebbit.createComment(sourcePostCommentInstance); // Use source
+                    invalidComment = await pkc.createComment(sourcePostCommentInstance); // Use source
                     invalidComment.cid = undefined;
                     invalidComment.raw.commentUpdate!.cid = undefined!;
-                    await plebbit.validateComment(invalidComment);
+                    await pkc.validateComment(invalidComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
                     expect(e).to.be.instanceOf(PKCError);
@@ -320,9 +320,9 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
             it("should reject Post instance if postCid is missing", async () => {
                 let invalidComment: Comment | undefined;
                 try {
-                    invalidComment = await plebbit.createComment(sourcePostCommentInstance); // Use source
+                    invalidComment = await pkc.createComment(sourcePostCommentInstance); // Use source
                     invalidComment.postCid = undefined;
-                    await plebbit.validateComment(invalidComment);
+                    await pkc.validateComment(invalidComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
                     expect(e).to.be.instanceOf(PKCError);
@@ -338,7 +338,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
                 // validateComment only accesses .raw, .cid, .postCid which are preserved.
                 const shallowCopy = { ...sourcePostCommentInstance };
                 try {
-                    await plebbit.validateComment(shallowCopy as Comment);
+                    await pkc.validateComment(shallowCopy as Comment);
                     // Expect fulfillment
                 } catch (e) {
                     expect.fail(`Expected promise to fulfill for shallow copy, but it rejected with: ${e}`);
@@ -350,7 +350,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
                 // validateComment only accesses .raw, .cid, .postCid which are preserved.
                 const deepCopy = JSON.parse(JSON.stringify(sourcePostCommentInstance));
                 try {
-                    await plebbit.validateComment(deepCopy);
+                    await pkc.validateComment(deepCopy);
                     // Expect fulfillment
                 } catch (e) {
                     expect.fail(`Expected promise to fulfill for deep copy, but it rejected with: ${e}`);
@@ -362,7 +362,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
                 try {
                     const invalidPageComment = remeda.clone(postPageComment);
                     invalidPageComment.raw.comment.signature.signature += "invalid";
-                    await plebbit.validateComment(invalidPageComment);
+                    await pkc.validateComment(invalidPageComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
                     expect(e).to.be.instanceOf(PKCError);
@@ -375,7 +375,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
                     const invalidPageComment = remeda.clone(postPageComment);
                     invalidPageComment.raw.commentUpdate = remeda.clone(invalidPageComment.raw.commentUpdate);
                     invalidPageComment.raw.commentUpdate.signature.signature += "invalid";
-                    await plebbit.validateComment(invalidPageComment);
+                    await pkc.validateComment(invalidPageComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
                     expect(e).to.be.instanceOf(PKCError);
@@ -387,7 +387,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
                 try {
                     const invalidPageComment = remeda.clone(postPageComment);
                     (invalidPageComment.raw as { comment: undefined }).comment = undefined;
-                    await plebbit.validateComment(invalidPageComment);
+                    await pkc.validateComment(invalidPageComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
                     expect(e).to.be.instanceOf(PKCError);
@@ -399,7 +399,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
                 try {
                     const invalidPageComment = remeda.clone(postPageComment);
                     (invalidPageComment.raw as { commentUpdate: undefined }).commentUpdate = undefined;
-                    await plebbit.validateComment(invalidPageComment);
+                    await pkc.validateComment(invalidPageComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
                     expect(e).to.be.instanceOf(PKCError);
@@ -412,7 +412,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
                     const invalidPageComment = remeda.clone(postPageComment);
                     invalidPageComment.raw.commentUpdate.cid = undefined!;
                     invalidPageComment.cid = undefined!;
-                    await plebbit.validateComment(invalidPageComment);
+                    await pkc.validateComment(invalidPageComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
                     expect(e).to.be.instanceOf(PKCError);
@@ -424,7 +424,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
                 try {
                     const invalidPageComment = remeda.clone(postPageComment);
                     invalidPageComment.postCid = undefined!;
-                    await plebbit.validateComment(invalidPageComment);
+                    await pkc.validateComment(invalidPageComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
                 } catch (e) {
                     expect(e).to.be.instanceOf(PKCError);
@@ -437,16 +437,16 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
 
 async function createValidateCommentTestEnvironment(): Promise<ValidateCommentTestEnvironment> {
     const publisherPKC = await mockPKC();
-    const subplebbit = (await createSubWithNoChallenge({}, publisherPKC)) as LocalCommunity;
-    await subplebbit.start();
+    const community = (await createSubWithNoChallenge({}, publisherPKC)) as LocalCommunity;
+    await community.start();
     await resolveWhenConditionIsTrue({
-        toUpdate: subplebbit,
-        predicate: async () => typeof subplebbit.updatedAt === "number"
+        toUpdate: community,
+        predicate: async () => typeof community.updatedAt === "number"
     });
 
     const postForInstance = await publishRandomPost({
-        communityAddress: subplebbit.address,
-        plebbit: publisherPKC,
+        communityAddress: community.address,
+        pkc: publisherPKC,
         postProps: {
             content: `validate-comment-post ${Date.now()}`
         }
@@ -458,8 +458,8 @@ async function createValidateCommentTestEnvironment(): Promise<ValidateCommentTe
     });
 
     const postWithReplies = await publishRandomPost({
-        communityAddress: subplebbit.address,
-        plebbit: publisherPKC,
+        communityAddress: community.address,
+        pkc: publisherPKC,
         postProps: {
             content: `validate-comment-reply-root ${Date.now()}`
         }
@@ -470,25 +470,25 @@ async function createValidateCommentTestEnvironment(): Promise<ValidateCommentTe
         predicate: async () => typeof postWithReplies.updatedAt === "number"
     });
 
-    await ensureCommentHasPaginatedReplies({ subplebbit, comment: postWithReplies });
+    await ensureCommentHasPaginatedReplies({ community, comment: postWithReplies });
 
     await postForInstance.stop();
     await postWithReplies.stop();
 
     return {
-        communityAddress: subplebbit.address,
+        communityAddress: community.address,
         postCid: postForInstance.cid!,
         repliesPostCid: postWithReplies.cid!,
         cleanup: async () => {
-            await subplebbit.delete().catch(() => {});
+            await community.delete().catch(() => {});
             await publisherPKC.destroy().catch(() => {});
         }
     };
 }
 
-async function ensureCommentHasPaginatedReplies({ subplebbit, comment }: { subplebbit: LocalCommunity; comment: Comment }): Promise<void> {
+async function ensureCommentHasPaginatedReplies({ community, comment }: { community: LocalCommunity; comment: Comment }): Promise<void> {
     const { cleanup: cleanupForcedChunking } = await forceLocalSubPagesToAlwaysGenerateMultipleChunks({
-        subplebbit,
+        community,
         parentComment: comment,
         forcedPreloadedPageSizeBytes: 512
     });

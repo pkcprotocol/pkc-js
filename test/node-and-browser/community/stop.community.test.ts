@@ -72,7 +72,7 @@ getAvailablePKCConfigsToTestAgainst()
             });
 
             it(`Remote community stop() after update() should complete within 10s`, async () => {
-                pkc = await config.plebbitInstancePromise();
+                pkc = await config.pkcInstancePromise();
                 const sub = (await pkc.createCommunity({ address: communityAddress })) as RemoteCommunity;
                 await sub.update();
                 await resolveWhenConditionIsTrue({
@@ -103,7 +103,7 @@ describeSkipIfRpc(`community.stop() aborts verification`, async () => {
         const blockedResolver = createBlockedNameResolver("sub-blocked-resolver");
         const pkc = await mockRemotePKC({
             mockResolve: false,
-            plebbitOptions: { nameResolvers: [blockedResolver.resolver] }
+            pkcOptions: { nameResolvers: [blockedResolver.resolver] }
         });
 
         try {
@@ -124,7 +124,7 @@ describeSkipIfRpc(`community.stop() aborts verification`, async () => {
             expect(sub.clients.nameResolvers["sub-blocked-resolver"].state).to.equal("stopped");
             expect(blockedResolver.getReceivedSignal()!.aborted).to.equal(true);
             expect(sub.updatedAt).to.be.undefined;
-            expect(sub.raw.subplebbitIpfs).to.be.undefined;
+            expect(sub.raw.communityIpfs).to.be.undefined;
             expect(errors).to.have.length(0);
         } finally {
             await pkc.destroy();
@@ -136,7 +136,7 @@ describeSkipIfRpc(`community.stop() aborts in-flight gateway fetches`, async () 
     it(`community.stop() aborts gateway fetch of community IPNS`, async () => {
         // Use a non-routable IP that will hang forever
         const pkc = await mockGatewayPKC({
-            plebbitOptions: {
+            pkcOptions: {
                 ipfsGatewayUrls: ["http://192.0.2.1:1"]
             }
         });

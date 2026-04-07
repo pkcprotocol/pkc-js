@@ -52,7 +52,7 @@ export type AuthorPubsubJsonType = RuntimeAuthorType & { shortAddress: string };
 
 export type AuthorWithOptionalCommentUpdateJson = RuntimeAuthorWithCommentUpdateType & { shortAddress: string };
 
-export type PublicationTypeName = keyof DecryptedChallengeRequestPublication; // Publications published by authors over pubsub, not subplebbits
+export type PublicationTypeName = keyof DecryptedChallengeRequestPublication; // Publications published by authors over pubsub, not communities
 
 export type NativeFunctions = {
     fetch: typeof fetch;
@@ -62,14 +62,14 @@ export type NativeFunctions = {
 
 export interface PKCEvents {
     error: (error: PKCError | Error) => void;
-    subplebbitschange: (listOfCommunitys: string[]) => void;
+    communitieschange: (listOfCommunities: string[]) => void;
     settingschange: (newSettings: ParsedPKCOptions) => void;
 }
 
 export interface PKCRpcClientEvents {
     statechange: (state: PKCRpcClient["state"]) => void;
     error: (error: PKCError | Error) => void;
-    subplebbitschange: (listOfCommunitys: string[]) => void;
+    communitieschange: (listOfCommunities: string[]) => void;
     settingschange: (newSettings: PKCWsServerSettingsSerialized) => void;
 }
 
@@ -123,7 +123,7 @@ export interface KuboRpcClient {
     peers: () => ReturnType<KuboRpcClient["_client"]["swarm"]["peers"]>; // https://docs.ipfs.tech/reference/kubo/rpc/#api-v0-swarm-peers
     stats?: undefined; // Should be defined, will change later
     sessionStats?: undefined; // Should be defined, will change later
-    subplebbitStats?: undefined; // Should be defined, will change later
+    communityStats?: undefined; // Should be defined, will change later
     _client: ReturnType<typeof CreateIpfsClient>; // Private API, shouldn't be used by consumers
     url: string;
     _clientOptions: IpfsHttpClientOptions;
@@ -136,7 +136,7 @@ export interface PubsubClient {
     peers: () => Promise<string[]>; // IPFS peers https://docs.ipfs.tech/reference/kubo/rpc/#api-v0-pubsub-peers
     stats?: undefined; // Should be defined, will change later
     sessionStats?: undefined; // Should be defined, will change later
-    subplebbitStats?: undefined; // Should be defined, will change later
+    communityStats?: undefined; // Should be defined, will change later
     _client: Pick<KuboRpcClient["_client"], "pubsub">; // Private API, shouldn't be used by consumers
     _clientOptions: KuboRpcClient["_clientOptions"];
     url: string;
@@ -146,7 +146,7 @@ export interface PubsubClient {
 export interface GatewayClient {
     stats?: IpfsStats; // Should be defined, will change later
     sessionStats?: IpfsStats; // Should be defined, will change later. session means in the last 1h
-    subplebbitStats?: { [subplebbitAddress: string]: IpfsCommunityStats }; // Should be defined, will change later
+    communityStats?: { [communityAddress: string]: IpfsCommunityStats }; // Should be defined, will change later
 }
 
 // Storage interface, will be used to set up storage cache using localforage (for browser) or key-v SQLite (Node)
@@ -159,12 +159,12 @@ export interface StorageInterface {
     destroy: () => Promise<void>;
 }
 
-type LRUStorageCacheNames = "plebbitjs_lrustorage_postTimestamp" | "plebbitjs_lrustorage_commentPostUpdatesParentsPath";
+type LRUStorageCacheNames = "pkcjs_lrustorage_postTimestamp" | "pkcjs_lrustorage_commentPostUpdatesParentsPath";
 
 export interface LRUStorageConstructor {
     maxItems: number; // Will start evicting after this number of items is stored
     cacheName: LRUStorageCacheNames | string; // The cache name will be used as the name of the table in sqlite. For browser it will be used as the name of the local forage instance
-    plebbit: Pick<PKC, "dataPath" | "noData">;
+    pkc: Pick<PKC, "dataPath" | "noData">;
 }
 
 export interface LRUStorageInterface {
@@ -184,15 +184,15 @@ type ExcludeMethods<T> = { [K in keyof T as T[K] extends Function ? never : K]: 
 
 export type JsonOfClass<T> = ExcludeMethods<OmitUnderscoreProps<T>>;
 
-export type ResultOfFetchingCommunity = { subplebbit: CommunityIpfsType; cid: string } | undefined;
+export type ResultOfFetchingCommunity = { community: CommunityIpfsType; cid: string } | undefined;
 
 export type PKCMemCaches = {
-    subplebbitVerificationCache: LRUCache<string, boolean>;
+    communityVerificationCache: LRUCache<string, boolean>;
     pageVerificationCache: LRUCache<string, boolean>;
     commentVerificationCache: LRUCache<string, boolean>;
     commentUpdateVerificationCache: LRUCache<string, boolean>;
     commentIpfs: LRUCache<string, CommentIpfsType>;
-    subplebbitForPublishing: LRUCache<string, NonNullable<Publication["_community"]>>;
+    communityForPublishing: LRUCache<string, NonNullable<Publication["_community"]>>;
     pageCidToSortTypes: LRUCache<NonNullable<PageIpfs["nextCid"]>, string[]>; // page cid => sort types
     pagesMaxSize: LRUCache<NonNullable<PageIpfs["nextCid"]>, number>; // page cid => max file size (number of bytes )
     nameResolvedCache: LRUCache<string, boolean>; // key: sha256(domain + signaturePublicKey), value: true|false

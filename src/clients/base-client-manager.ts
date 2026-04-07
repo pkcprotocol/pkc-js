@@ -29,7 +29,7 @@ import { convertBase58IpnsNameToBase36Cid } from "../signer/util.js";
 import pTimeout from "p-timeout";
 import { InflightResourceTypes } from "../util/inflight-fetch-manager.js";
 
-export type LoadType = "subplebbit" | "comment-update" | "comment" | "page-ipfs" | "generic-ipfs";
+export type LoadType = "community" | "comment-update" | "comment" | "page-ipfs" | "generic-ipfs";
 
 type GenericGatewayFetch = {
     [gatewayUrl: string]: {
@@ -93,13 +93,13 @@ const GATEWAYS_THAT_SUPPORT_SUBDOMAIN_RESOLUTION: Record<string, boolean> = {}; 
 export class BaseClientsManager {
     // Class that has all function but without clients field for maximum interopability
 
-    _plebbit: PKC;
+    _pkc: PKC;
     pubsubProviderSubscriptions: Record<string, string[]> = {}; // To keep track of subscriptions of each kubo pubsub provider/helia
 
-    constructor(plebbit: PKC) {
-        this._plebbit = plebbit;
-        for (const provider of remeda.keys.strict(plebbit.clients.pubsubKuboRpcClients)) this.pubsubProviderSubscriptions[provider] = [];
-        for (const provider of remeda.keys.strict(plebbit.clients.libp2pJsClients)) this.pubsubProviderSubscriptions[provider] = [];
+    constructor(pkc: PKC) {
+        this._pkc = pkc;
+        for (const provider of remeda.keys.strict(pkc.clients.pubsubKuboRpcClients)) this.pubsubProviderSubscriptions[provider] = [];
+        for (const provider of remeda.keys.strict(pkc.clients.libp2pJsClients)) this.pubsubProviderSubscriptions[provider] = [];
 
         hideClassPrivateProps(this);
     }
@@ -109,52 +109,52 @@ export class BaseClientsManager {
     }
 
     getDefaultPubsubKuboRpcClientOrHelia() {
-        const defaultPubsubProviderUrl = remeda.keys.strict(this._plebbit.clients.pubsubKuboRpcClients)[0];
-        if (defaultPubsubProviderUrl) return this._plebbit.clients.pubsubKuboRpcClients[defaultPubsubProviderUrl];
-        const defaultLibp2pJsClient = remeda.keys.strict(this._plebbit.clients.libp2pJsClients)[0];
-        if (defaultLibp2pJsClient) return this._plebbit.clients.libp2pJsClients[defaultLibp2pJsClient];
+        const defaultPubsubProviderUrl = remeda.keys.strict(this._pkc.clients.pubsubKuboRpcClients)[0];
+        if (defaultPubsubProviderUrl) return this._pkc.clients.pubsubKuboRpcClients[defaultPubsubProviderUrl];
+        const defaultLibp2pJsClient = remeda.keys.strict(this._pkc.clients.libp2pJsClients)[0];
+        if (defaultLibp2pJsClient) return this._pkc.clients.libp2pJsClients[defaultLibp2pJsClient];
         throw new PKCError("ERR_NO_DEFAULT_PUBSUB_PROVIDER", {
-            pubsubKuboRpcClients: this._plebbit.clients.pubsubKuboRpcClients,
-            libp2pJsClients: this._plebbit.clients.libp2pJsClients
+            pubsubKuboRpcClients: this._pkc.clients.pubsubKuboRpcClients,
+            libp2pJsClients: this._pkc.clients.libp2pJsClients
         });
     }
 
     getDefaultKuboRpcClientOrHelia(): PKC["clients"]["kuboRpcClients"][string] | PKC["clients"]["libp2pJsClients"][string] {
-        const defaultKuboRpcClient = remeda.keys.strict(this._plebbit.clients.kuboRpcClients)[0];
-        if (defaultKuboRpcClient) return this._plebbit.clients.kuboRpcClients[defaultKuboRpcClient];
-        const defaultLibp2pJsClient = remeda.keys.strict(this._plebbit.clients.libp2pJsClients)[0];
-        if (defaultLibp2pJsClient) return this._plebbit.clients.libp2pJsClients[defaultLibp2pJsClient];
+        const defaultKuboRpcClient = remeda.keys.strict(this._pkc.clients.kuboRpcClients)[0];
+        if (defaultKuboRpcClient) return this._pkc.clients.kuboRpcClients[defaultKuboRpcClient];
+        const defaultLibp2pJsClient = remeda.keys.strict(this._pkc.clients.libp2pJsClients)[0];
+        if (defaultLibp2pJsClient) return this._pkc.clients.libp2pJsClients[defaultLibp2pJsClient];
         throw new PKCError("ERR_NO_DEFAULT_IPFS_PROVIDER", {
-            kuboRpcClients: this._plebbit.clients.kuboRpcClients,
-            libp2pJsClients: this._plebbit.clients.libp2pJsClients
+            kuboRpcClients: this._pkc.clients.kuboRpcClients,
+            libp2pJsClients: this._pkc.clients.libp2pJsClients
         });
     }
 
     getDefaultKuboRpcClient() {
-        const defaultKuboRpcClient = remeda.keys.strict(this._plebbit.clients.kuboRpcClients)[0];
-        if (defaultKuboRpcClient) return this._plebbit.clients.kuboRpcClients[defaultKuboRpcClient];
+        const defaultKuboRpcClient = remeda.keys.strict(this._pkc.clients.kuboRpcClients)[0];
+        if (defaultKuboRpcClient) return this._pkc.clients.kuboRpcClients[defaultKuboRpcClient];
         throw new PKCError("ERR_NO_DEFAULT_KUBO_RPC_IPFS_PROVIDER", {
-            kuboRpcClients: this._plebbit.clients.kuboRpcClients,
-            libp2pJsClients: this._plebbit.clients.libp2pJsClients
+            kuboRpcClients: this._pkc.clients.kuboRpcClients,
+            libp2pJsClients: this._pkc.clients.libp2pJsClients
         });
     }
 
     getDefaultKuboPubsubClient() {
-        const defaultKuboPubsubClient = remeda.keys.strict(this._plebbit.clients.pubsubKuboRpcClients)[0];
-        if (defaultKuboPubsubClient) return this._plebbit.clients.pubsubKuboRpcClients[defaultKuboPubsubClient];
+        const defaultKuboPubsubClient = remeda.keys.strict(this._pkc.clients.pubsubKuboRpcClients)[0];
+        if (defaultKuboPubsubClient) return this._pkc.clients.pubsubKuboRpcClients[defaultKuboPubsubClient];
         throw new PKCError("ERR_NO_DEFAULT_KUBO_RPC_PUBSUB_PROVIDER", {
-            pubsubKuboRpcClients: this._plebbit.clients.pubsubKuboRpcClients
+            pubsubKuboRpcClients: this._pkc.clients.pubsubKuboRpcClients
         });
     }
 
     getIpfsClientWithKuboRpcClientFunctions() {
-        const defaultKuboRpcClient = remeda.keys.strict(this._plebbit.clients.kuboRpcClients)[0];
-        if (defaultKuboRpcClient) return this._plebbit.clients.kuboRpcClients[defaultKuboRpcClient]._client;
-        const defaultLibp2pJsClient = remeda.keys.strict(this._plebbit.clients.libp2pJsClients)[0];
-        if (defaultLibp2pJsClient) return this._plebbit.clients.libp2pJsClients[defaultLibp2pJsClient].heliaWithKuboRpcClientFunctions;
+        const defaultKuboRpcClient = remeda.keys.strict(this._pkc.clients.kuboRpcClients)[0];
+        if (defaultKuboRpcClient) return this._pkc.clients.kuboRpcClients[defaultKuboRpcClient]._client;
+        const defaultLibp2pJsClient = remeda.keys.strict(this._pkc.clients.libp2pJsClients)[0];
+        if (defaultLibp2pJsClient) return this._pkc.clients.libp2pJsClients[defaultLibp2pJsClient].heliaWithKuboRpcClientFunctions;
         throw new PKCError("ERR_NO_DEFAULT_IPFS_PROVIDER", {
-            kuboRpcClients: this._plebbit.clients.kuboRpcClients,
-            libp2pJsClients: this._plebbit.clients.libp2pJsClients
+            kuboRpcClients: this._pkc.clients.kuboRpcClients,
+            libp2pJsClients: this._pkc.clients.libp2pJsClients
         });
     }
 
@@ -164,8 +164,8 @@ export class BaseClientsManager {
         const log = Logger("pkc-js:pkc:client-manager:pubsubSubscribeOnProvider");
 
         const pubsubClient =
-            this._plebbit.clients.libp2pJsClients[kuboPubsubRpcUrlOrLibp2pJsKey]?.heliaWithKuboRpcClientFunctions ||
-            this._plebbit.clients.pubsubKuboRpcClients[kuboPubsubRpcUrlOrLibp2pJsKey]._client;
+            this._pkc.clients.libp2pJsClients[kuboPubsubRpcUrlOrLibp2pJsKey]?.heliaWithKuboRpcClientFunctions ||
+            this._pkc.clients.pubsubKuboRpcClients[kuboPubsubRpcUrlOrLibp2pJsKey]._client;
         if (!pubsubClient) throw new PKCError("ERR_INVALID_PUBSUB_PROVIDER", { pubsubProviderUrl: kuboPubsubRpcUrlOrLibp2pJsKey });
 
         const timeBefore = Date.now();
@@ -182,7 +182,7 @@ export class BaseClientsManager {
                 "Will unsubscribe and re-attempt to subscribe"
             );
 
-            await this._plebbit._stats.recordGatewayFailure(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-subscribe");
+            await this._pkc._stats.recordGatewayFailure(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-subscribe");
             try {
                 await this.pubsubUnsubscribeOnProvider(pubsubTopic, kuboPubsubRpcUrlOrLibp2pJsKey, handler);
             } catch (e) {
@@ -195,7 +195,7 @@ export class BaseClientsManager {
         try {
             await pubsubClient.pubsub.subscribe(pubsubTopic, handler, { onError: handlePubsubError });
             if (error) throw error;
-            await this._plebbit._stats.recordGatewaySuccess(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-subscribe", Date.now() - timeBefore);
+            await this._pkc._stats.recordGatewaySuccess(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-subscribe", Date.now() - timeBefore);
             this.pubsubProviderSubscriptions[kuboPubsubRpcUrlOrLibp2pJsKey].push(pubsubTopic);
         } catch (e) {
             //@ts-expect-error
@@ -204,14 +204,14 @@ export class BaseClientsManager {
                 this.pubsubProviderSubscriptions[kuboPubsubRpcUrlOrLibp2pJsKey].push(pubsubTopic);
                 return;
             }
-            await this._plebbit._stats.recordGatewayFailure(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-subscribe");
+            await this._pkc._stats.recordGatewayFailure(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-subscribe");
             log.error(`Failed to subscribe to pubsub topic (${pubsubTopic}) to (${kuboPubsubRpcUrlOrLibp2pJsKey}) due to error`, e);
             throw e;
         }
     }
 
     async pubsubSubscribe(pubsubTopic: string, handler: PubsubSubscriptionHandler) {
-        const providersSorted = await this._plebbit._stats.sortGatewaysAccordingToScore("pubsub-subscribe");
+        const providersSorted = await this._pkc._stats.sortGatewaysAccordingToScore("pubsub-subscribe");
         const providerToError: Record<string, PKCError> = {};
 
         for (let i = 0; i < providersSorted.length; i++) {
@@ -231,8 +231,8 @@ export class BaseClientsManager {
 
     async pubsubUnsubscribeOnProvider(pubsubTopic: string, kuboPubsubRpcUrlOrLibp2pJsKey: string, handler?: PubsubSubscriptionHandler) {
         const pubsubClient =
-            this._plebbit.clients.libp2pJsClients[kuboPubsubRpcUrlOrLibp2pJsKey]?.heliaWithKuboRpcClientFunctions ||
-            this._plebbit.clients.pubsubKuboRpcClients[kuboPubsubRpcUrlOrLibp2pJsKey]._client;
+            this._pkc.clients.libp2pJsClients[kuboPubsubRpcUrlOrLibp2pJsKey]?.heliaWithKuboRpcClientFunctions ||
+            this._pkc.clients.pubsubKuboRpcClients[kuboPubsubRpcUrlOrLibp2pJsKey]._client;
         if (!pubsubClient) throw new PKCError("ERR_INVALID_PUBSUB_PROVIDER", { pubsubProviderUrl: kuboPubsubRpcUrlOrLibp2pJsKey });
 
         try {
@@ -248,11 +248,11 @@ export class BaseClientsManager {
     }
 
     async pubsubUnsubscribe(pubsubTopic: string, handler?: PubsubSubscriptionHandler) {
-        for (const pubsubProviderUrl of remeda.keys.strict(this._plebbit.clients.pubsubKuboRpcClients)) {
+        for (const pubsubProviderUrl of remeda.keys.strict(this._pkc.clients.pubsubKuboRpcClients)) {
             try {
                 await this.pubsubUnsubscribeOnProvider(pubsubTopic, pubsubProviderUrl, handler);
             } catch (e) {
-                await this._plebbit._stats.recordGatewayFailure(pubsubProviderUrl, "pubsub-unsubscribe");
+                await this._pkc._stats.recordGatewayFailure(pubsubProviderUrl, "pubsub-unsubscribe");
                 //@ts-expect-error
                 e.details = { ...e.details, pubsubProviderUrl, pubsubTopic };
                 this.emitError(<PKCError>e);
@@ -263,26 +263,26 @@ export class BaseClientsManager {
     async pubsubPublishOnProvider(pubsubTopic: string, data: PubsubMessage, kuboPubsubRpcUrlOrLibp2pJsKey: string) {
         const log = Logger("pkc-js:pkc:pubsubPublish");
         const pubsubClient =
-            this._plebbit.clients.libp2pJsClients[kuboPubsubRpcUrlOrLibp2pJsKey]?.heliaWithKuboRpcClientFunctions ||
-            this._plebbit.clients.pubsubKuboRpcClients[kuboPubsubRpcUrlOrLibp2pJsKey]._client;
+            this._pkc.clients.libp2pJsClients[kuboPubsubRpcUrlOrLibp2pJsKey]?.heliaWithKuboRpcClientFunctions ||
+            this._pkc.clients.pubsubKuboRpcClients[kuboPubsubRpcUrlOrLibp2pJsKey]._client;
         if (!pubsubClient) throw new PKCError("ERR_INVALID_PUBSUB_PROVIDER", { pubsubProviderUrl: kuboPubsubRpcUrlOrLibp2pJsKey });
 
         const dataBinary = cborg.encode(data);
         const timeBefore = Date.now();
         try {
             await pubsubClient.pubsub.publish(pubsubTopic, dataBinary);
-            this._plebbit._stats.recordGatewaySuccess(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-publish", Date.now() - timeBefore); // Awaiting this statement will bug out tests
+            this._pkc._stats.recordGatewaySuccess(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-publish", Date.now() - timeBefore); // Awaiting this statement will bug out tests
         } catch (error) {
             //@ts-expect-error
             error.details = { ...error.details, pubsubProviderUrl: kuboPubsubRpcUrlOrLibp2pJsKey, pubsubTopic };
-            await this._plebbit._stats.recordGatewayFailure(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-publish");
+            await this._pkc._stats.recordGatewayFailure(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-publish");
             throw error;
         }
     }
 
     async pubsubPublish(pubsubTopic: string, data: PubsubMessage): Promise<void> {
         const log = Logger("pkc-js:pkc:client-manager:pubsubPublish");
-        const providersSorted = await this._plebbit._stats.sortGatewaysAccordingToScore("pubsub-publish");
+        const providersSorted = await this._pkc._stats.sortGatewaysAccordingToScore("pubsub-publish");
         if (providersSorted.length === 0)
             throw new PKCError("ERR_NO_PUBSUB_PROVIDERS_AVAILABLE_TO_PUBLISH_OVER_PUBSUB", { pubsubTopic, data });
         const providerToError: Record<string, PKCError> = {};
@@ -466,7 +466,7 @@ export class BaseClientsManager {
             await loadOpts.validateGatewayResponseFunc(resObj); // should throw if there's an issue
             this.postFetchGatewaySuccess(gateway, loadOpts);
 
-            this._plebbit._stats
+            this._pkc._stats
                 .recordGatewaySuccess(gateway, loadOpts.recordIpfsType, Date.now() - timeBefore)
                 .catch((err) => log.error("Failed to report gateway success", err));
             this._handleIfGatewayRedirectsToSubdomainResolution(gateway, loadOpts, resObj.res, log);
@@ -476,7 +476,7 @@ export class BaseClientsManager {
             e.details = { ...e.details, url, loadOpts, wasRequestAborted: loadOpts.abortController.signal.aborted };
 
             this.postFetchGatewayFailure(gateway, loadOpts, <PKCError>e);
-            this._plebbit._stats
+            this._pkc._stats
                 .recordGatewayFailure(gateway, loadOpts.recordIpfsType)
                 .catch((err) => log.error("failed to report gateway error", err));
             return { error: <PKCError>e };
@@ -504,9 +504,9 @@ export class BaseClientsManager {
 
         // Only sort if we have more than 3 gateways
         const gatewaysSorted =
-            remeda.keys.strict(this._plebbit.clients.ipfsGateways).length <= concurrencyLimit
-                ? remeda.keys.strict(this._plebbit.clients.ipfsGateways)
-                : await this._plebbit._stats.sortGatewaysAccordingToScore(loadOpts.recordIpfsType);
+            remeda.keys.strict(this._pkc.clients.ipfsGateways).length <= concurrencyLimit
+                ? remeda.keys.strict(this._pkc.clients.ipfsGateways)
+                : await this._pkc._stats.sortGatewaysAccordingToScore(loadOpts.recordIpfsType);
 
         const gatewayFetches: GenericGatewayFetch = {};
 
@@ -554,7 +554,7 @@ export class BaseClientsManager {
                       ? new FailedToFetchCommentUpdateFromGatewaysError({ gatewayToError, loadOpts })
                       : loadOpts.recordPKCType === "page-ipfs"
                         ? new FailedToFetchPageIpfsFromGatewaysError({ pageCid: loadOpts.root, gatewayToError, loadOpts })
-                        : loadOpts.recordPKCType === "subplebbit"
+                        : loadOpts.recordPKCType === "community"
                           ? new FailedToFetchCommunityFromGatewaysError({ ipnsName: loadOpts.root, gatewayToError, loadOpts })
                           : new FailedToFetchGenericIpfsFromGatewaysError({ cid: loadOpts.root, gatewayToError, loadOpts });
 
@@ -698,7 +698,7 @@ export class BaseClientsManager {
         abortSignal?: AbortSignal;
     }): Promise<string | null> {
         const log = Logger("pkc-js:client-manager:_resolveViaNameResolvers");
-        const nameResolvers = this._plebbit.nameResolvers;
+        const nameResolvers = this._pkc.nameResolvers;
         if (!nameResolvers || nameResolvers.length === 0) {
             throw new PKCError("ERR_NO_RESOLVER_FOR_NAME", { address });
         }
@@ -778,7 +778,7 @@ export class BaseClientsManager {
         abortSignal?: AbortSignal;
     }): void {
         const log = Logger("pkc-js:base-client-manager:resolveAuthorNamesInBackground");
-        const cache = this._plebbit._memCaches.nameResolvedCache;
+        const cache = this._pkc._memCaches.nameResolvedCache;
 
         // Deduplicate and skip already-cached entries
         const seen = new Set<string>();
@@ -825,7 +825,7 @@ export class BaseClientsManager {
 
     // Misc functions
     emitError(e: PKCError) {
-        this._plebbit.emit("error", e);
+        this._pkc.emit("error", e);
     }
 
     calculateIpfsCid(content: string) {
@@ -836,6 +836,6 @@ export class BaseClientsManager {
         subAddress: string,
         fetcher: () => Promise<ResultOfFetchingCommunity>
     ): Promise<ResultOfFetchingCommunity> {
-        return this._plebbit._inflightFetchManager.withResource(InflightResourceTypes.SUBPLEBBIT_IPNS, subAddress, fetcher);
+        return this._pkc._inflightFetchManager.withResource(InflightResourceTypes.COMMUNITY_IPNS, subAddress, fetcher);
     }
 }

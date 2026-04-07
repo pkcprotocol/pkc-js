@@ -32,9 +32,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let post: Comment, firstLevelReply: Comment, secondLevelReply: Comment, thirdLevelReply: Comment;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
             community = await pkc.getCommunity({ address: signers[0].address });
-            post = await publishRandomPost({ communityAddress: community.address, plebbit: pkc });
+            post = await publishRandomPost({ communityAddress: community.address, pkc: pkc });
             await post.update();
             await resolveWhenConditionIsTrue({ toUpdate: post, predicate: async () => typeof post.updatedAt === "number" });
         });
@@ -49,9 +49,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`If all replies fit in a single preloaded page, there should not be any pageCids on CommentUpdate`, async () => {
-            firstLevelReply = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc });
-            secondLevelReply = await publishRandomReply({ parentComment: firstLevelReply as CommentIpfsWithCidDefined, plebbit: pkc });
-            thirdLevelReply = await publishRandomReply({ parentComment: secondLevelReply as CommentIpfsWithCidDefined, plebbit: pkc });
+            firstLevelReply = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, pkc: pkc });
+            secondLevelReply = await publishRandomReply({ parentComment: firstLevelReply as CommentIpfsWithCidDefined, pkc: pkc });
+            thirdLevelReply = await publishRandomReply({ parentComment: secondLevelReply as CommentIpfsWithCidDefined, pkc: pkc });
             await waitTillReplyInParentPagesInstance(firstLevelReply as unknown as ReplyWithRequiredFields, post);
             await post.stop(); // make sure updates are stopped so it does't change props while run our expect statements
             expect(post.replies.pages.best).to.exist;
@@ -88,10 +88,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     let pkc: PKC, reply: Comment, community: RemoteCommunity;
     describe.concurrent(`reply.replies - ${config.name}`, async () => {
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
             community = await pkc.getCommunity({ address: communityAddress });
-            const post = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
-            reply = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc });
+            const post = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
+            reply = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, pkc: pkc });
             await reply.update();
         });
         afterAll(async () => {
@@ -104,7 +104,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`If all replies fit in a single preloaded page, there should not be any pageCids on CommentUpdate`, async () => {
-            const replyUnderReply = await publishRandomReply({ parentComment: reply as CommentIpfsWithCidDefined, plebbit: pkc });
+            const replyUnderReply = await publishRandomReply({ parentComment: reply as CommentIpfsWithCidDefined, pkc: pkc });
             await waitTillReplyInParentPagesInstance(replyUnderReply as unknown as ReplyWithRequiredFields, reply);
             expect(reply.replies.pages.best).to.exist;
             expect(reply.replies.pages.best.comments.length).to.equal(1);
@@ -147,8 +147,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent("comment.replies - " + config.name, async () => {
         let pkc: PKC, post: Comment;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
-            post = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            pkc = await config.pkcInstancePromise();
+            post = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
         });
 
         afterAll(async () => {
@@ -158,7 +158,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         describe.concurrent(`comment.replies.getPage - ${config.name}`, async () => {
             itSkipIfRpc("replies.getPage will throw a timeout error when request times out", async () => {
                 // Create a pkc instance with a very short timeout for page-ipfs
-                const pkc = await mockPKCV2({ plebbitOptions: { validatePages: false }, remotePKC: true });
+                const pkc = await mockPKCV2({ pkcOptions: { validatePages: false }, remotePKC: true });
 
                 pkc._timeouts["page-ipfs"] = 100;
 
@@ -192,10 +192,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC, postWithReplies: Comment;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: false } });
-            postWithReplies = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
-            const reply = await publishRandomReply({ parentComment: postWithReplies as CommentIpfsWithCidDefined, plebbit: pkc });
-            await publishRandomReply({ parentComment: reply as CommentIpfsWithCidDefined, plebbit: pkc });
+            pkc = await config.pkcInstancePromise({ pkcOptions: { validatePages: false } });
+            postWithReplies = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
+            const reply = await publishRandomReply({ parentComment: postWithReplies as CommentIpfsWithCidDefined, pkc: pkc });
+            await publishRandomReply({ parentComment: reply as CommentIpfsWithCidDefined, pkc: pkc });
 
             await postWithReplies.update();
             await waitTillReplyInParentPagesInstance(reply as unknown as ReplyWithRequiredFields, postWithReplies);
@@ -207,7 +207,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`replies.validatePage will throw if any comment is invalid`, async () => {
-            const pkc = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: false } });
+            const pkc = await config.pkcInstancePromise({ pkcOptions: { validatePages: false } });
 
             const pageWithInvalidComment = postWithReplies.replies.pages.best.nextCid
                 ? await postWithReplies.replies.getPage({ cid: postWithReplies.replies.pageCids.new })
@@ -226,7 +226,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`replies.validatePage will throw if any comment is not of the same post`, async () => {
-            const pkc = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: false } });
+            const pkc = await config.pkcInstancePromise({ pkcOptions: { validatePages: false } });
 
             const pageWithInvalidComment = postWithReplies.replies.pages.best.nextCid
                 ? await postWithReplies.replies.getPage({ cid: postWithReplies.replies.pageCids.new })
@@ -247,7 +247,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`replies.validatePage will throw if postCid not defined on the parent comment`, async () => {
-            const pkc = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: false } });
+            const pkc = await config.pkcInstancePromise({ pkcOptions: { validatePages: false } });
 
             const pageWithInvalidComment = postWithReplies.replies.pages.best.nextCid
                 ? await postWithReplies.replies.getPage({ cid: postWithReplies.replies.pageCids.new })

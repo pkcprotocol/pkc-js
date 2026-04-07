@@ -288,8 +288,8 @@ The following dependencies are in the @plebbit namespace and need separate repos
 - [x] `test/fixtures/signatures/subplebbit/` → `test/fixtures/signatures/community/`
 
 ### 3.3 Data Storage Directories (Breaking Change)
-- [ ] Default data path changes: `subplebbits/` → `communities/`
-- [ ] Note: Migration code for old paths should be implemented in user-facing clients (plebbit-cli, desktop apps), NOT in pkc-js itself
+- [x] Default data path changes: `subplebbits/` → `communities/`
+- [x] Note: Migration code for old paths should be implemented in user-facing clients (plebbit-cli, desktop apps), NOT in pkc-js itself
 
 ---
 
@@ -573,47 +573,47 @@ Add tests to verify old records with legacy field names are parsed correctly:
 ## Phase 8: API Method & Property Renaming
 
 ### 8.1 Plebbit/PKC Class Methods
-- [ ] `plebbit.createSubplebbit()` → `pkc.createCommunity()`
-- [ ] `plebbit.getSubplebbit()` → `pkc.getCommunity()`
-- [ ] `plebbit.listSubplebbits()` → `pkc.listCommunities()`
+- [x] `plebbit.createSubplebbit()` → `pkc.createCommunity()`
+- [x] `plebbit.getSubplebbit()` → `pkc.getCommunity()`
+- [x] `plebbit.listSubplebbits()` → `pkc.listCommunities()`
 
 ### 8.1.1 PlebbitWithRpcClient Internal Methods
-- [ ] `_initPlebbitRpcClients()` → `_initPKCRpcClients()`
+- [x] `_initPlebbitRpcClients()` → `_initPKCRpcClients()`
 
 ### 8.2 Plebbit/PKC Class Properties
-- [ ] `plebbit.subplebbits` → `pkc.communities`
-- [ ] `plebbit._updatingSubplebbits` → `pkc._updatingCommunities`
-- [ ] `plebbit._startedSubplebbits` → `pkc._startedCommunities`
-- [ ] `plebbit._subplebbitFsWatchAbort` → `pkc._communityFsWatchAbort`
-- [ ] `plebbit.plebbitRpcClientsOptions` → `pkc.pkcRpcClientsOptions`
-- [ ] `plebbit._plebbitRpcClient` → `pkc._pkcRpcClient`
-- [ ] `plebbit._userPlebbitOptions` → `pkc._userPKCOptions`
-- [ ] `plebbit._memCaches` (type change to PKCMemCaches)
-- [ ] `plebbit.clients.plebbitRpcClients` → `pkc.clients.pkcRpcClients`
+- [x] `plebbit.subplebbits` → `pkc.communities`
+- [x] `plebbit._updatingSubplebbits` → `pkc._updatingCommunities`
+- [x] `plebbit._startedSubplebbits` → `pkc._startedCommunities`
+- [x] `plebbit._subplebbitFsWatchAbort` → `pkc._communityFsWatchAbort`
+- [x] `plebbit.plebbitRpcClientsOptions` → `pkc.pkcRpcClientsOptions`
+- [x] `plebbit._plebbitRpcClient` → `pkc._pkcRpcClient`
+- [x] `plebbit._userPlebbitOptions` → `pkc._userPKCOptions`
+- [x] `plebbit._memCaches` (type change to PKCMemCaches)
+- [x] `plebbit.clients.plebbitRpcClients` → `pkc.clients.pkcRpcClients`
 
 ### 8.2.0 Plebbit/PKC Class Event Names
 Class-level events (not RPC — those are in Phase 9.2):
-- [ ] `"subplebbitschange"` → `"communitieschange"` (emitted by `Plebbit`/`PKC` class in `src/plebbit/plebbit.ts`)
+- [x] `"subplebbitschange"` → `"communitieschange"` (emitted by `Plebbit`/`PKC` class in `src/pkc/pkc.ts`)
 
 ### 8.2.1 PlebbitRpcClient Internal Properties
-- [ ] `PlebbitRpcClient.subplebbits` → `PKCRpcClient.communities` (array tracking subplebbit addresses received via RPC)
+- [x] `PlebbitRpcClient.subplebbits` → `PKCRpcClient.communities` (array tracking community addresses received via RPC)
 
 ### 8.2.2 Utility Functions (src/runtime/node/util.ts)
-- [ ] `getDefaultSubplebbitDbConfig()` → `getDefaultCommunityDbConfig()`
-- [ ] `deleteOldSubplebbitInWindows()` → `deleteOldCommunityInWindows()`
+- [x] `getDefaultSubplebbitDbConfig()` → `getDefaultCommunityDbConfig()`
+- [x] `deleteOldSubplebbitInWindows()` → `deleteOldCommunityInWindows()`
 
 ### 8.2.3 RPC Schema Utility Functions (src/clients/rpc-client/rpc-schema-util.ts)
-- [ ] `parseRpcSubplebbitAddressParam()` → `parseRpcCommunityAddressParam()`
-- [ ] `parseRpcSubplebbitPageParam()` → `parseRpcCommunityPageParam()`
+- [x] `parseRpcSubplebbitAddressParam()` → `parseRpcCommunityAddressParam()`
+- [x] `parseRpcSubplebbitPageParam()` → `parseRpcCommunityPageParam()`
 
 ### 8.2.4 RPC Client Types (src/clients/rpc-client/types.ts)
-- [ ] `SubplebbitAddressRpcParam` → `CommunityAddressRpcParam`
-- [ ] `SubplebbitPageRpcParam` → `CommunityPageRpcParam`
+- [x] `SubplebbitAddressRpcParam` → `CommunityAddressRpcParam`
+- [x] `SubplebbitPageRpcParam` → `CommunityPageRpcParam`
 
 ### 8.3 Publication Properties (Breaking Change)
 **See [NAMES_AND_PUBLIC_KEY_PROPOSAL.md](./NAMES_AND_PUBLIC_KEY_PROPOSAL.md) for wire format decisions.**
-- [ ] `publication.subplebbitAddress` → replace with wire fields `communityPublicKey` (optional, for backward compat) + `communityName` (optional); `communityAddress` is instance-only (computed as `communityName || communityPublicKey`)
-- [ ] `publication.shortSubplebbitAddress` → `publication.shortCommunityAddress`
+- [x] `publication.subplebbitAddress` → replace with wire fields `communityPublicKey` (optional, for backward compat) + `communityName` (optional); `communityAddress` is instance-only (computed as `communityName || communityPublicKey`)
+- [x] `publication.shortSubplebbitAddress` → `publication.shortCommunityAddress`
   - **Note:** This is a different property from `community.shortAddress` (on RemoteSubplebbit/RemoteCommunity, derived from `community.address`). `community.shortAddress` stays as `shortAddress` — no rename needed. Only the publication-level `shortSubplebbitAddress` is renamed.
 
 **Backward compatibility for old publications:**
@@ -624,7 +624,7 @@ Class-level events (not RPC — those are in Phase 9.2):
 - Old comments remain loadable.
 
 ### 8.3.1 Author Properties (Breaking Change)
-- [ ] `author.subplebbit` → `author.community` (property on AuthorIpfsSchema containing community-specific author data)
+- [x] `author.subplebbit` → `author.community` (property on AuthorIpfsSchema containing community-specific author data)
 - [x] `author.address` → changes from **required wire field** to **instance-only** (computed as `author.name || author.publicKey`). This is a breaking change.
 - [x] Add `author.name` as **wire field** in `AuthorPubsubSchema` and `AuthorIpfsSchema` — a domain name (e.g., `"vitalik.bso"`) pointing to the author's public key, same concept as `community.name`
 - [x] `author.publicKey` — **instance-only**, derived from `signature.publicKey`
@@ -646,16 +646,16 @@ Class-level events (not RPC — those are in Phase 9.2):
   - Leave `author.nameResolved` as `undefined` when there is no `author.name` claim
 - [x] RPC `challengeverification` event wraps `nameResolved` in a separate wrapper object (not injected into the pubsub message type)
 
-### 8.4 Timeout Keys (src/plebbit/plebbit.ts)
-- [ ] `"subplebbit-ipns"` → `"community-ipns"`
-- [ ] `"subplebbit-ipfs"` → `"community-ipfs"`
+### 8.4 Timeout Keys (src/pkc/pkc.ts)
+- [x] `"subplebbit-ipns"` → `"community-ipns"`
+- [x] `"subplebbit-ipfs"` → `"community-ipfs"`
 
 ### 8.5 State Machine States (Public API - affects downstream consumers)
 State strings emitted via `statechange` and `publishingstatechange` events:
-- [ ] `"resolving-subplebbit-address"` → `"resolving-community-address"` (src/publications/types.ts, src/publications/comment/types.ts)
-- [ ] `"fetching-subplebbit-ipns"` → `"fetching-community-ipns"`
-- [ ] `"fetching-subplebbit-ipfs"` → `"fetching-community-ipfs"`
-- [ ] Chain provider state: `"resolving-subplebbit-address"` → `"resolving-community-address"` (src/clients/chain-provider-client.ts)
+- [x] `"resolving-subplebbit-address"` → `"resolving-community-name"` (src/publications/types.ts, src/publications/comment/types.ts)
+- [x] `"fetching-subplebbit-ipns"` → `"fetching-community-ipns"`
+- [x] `"fetching-subplebbit-ipfs"` → `"fetching-community-ipfs"`
+- [x] Chain provider state: `"resolving-subplebbit-address"` → `"resolving-community-address"` (src/clients/chain-provider-client.ts)
 
 **Note:** The codebase has a two-level state system. The **internal** `SubplebbitUpdatingState` (in `src/subplebbit/types.ts`) uses `"resolving-address"` (no entity prefix) and stays unchanged. The **external** client-facing states listed above (mapped in `rpc-remote-subplebbit.ts` and `publication-client-manager.ts`) are the ones that get renamed. Do not rename the internal `"resolving-address"` state.
 
@@ -664,44 +664,44 @@ State strings emitted via `statechange` and `publishingstatechange` events:
 ## Phase 9: RPC Method Renaming
 
 ### 9.1 RPC Server Methods (src/rpc/src/index.ts)
-- [ ] `getSubplebbitPage` → `getCommunityPage`
-- [ ] `createSubplebbit` → `createCommunity`
-- [ ] `startSubplebbit` → `startCommunity`
-- [ ] `stopSubplebbit` → `stopCommunity`
-- [ ] `editSubplebbit` → `editCommunity`
-- [ ] `deleteSubplebbit` → `deleteCommunity`
-- [ ] `subplebbitsSubscribe` → `communitiesSubscribe`
-- [ ] `subplebbitUpdateSubscribe` → `communityUpdateSubscribe`
-- [ ] `publishSubplebbitEdit` → `publishCommunityEdit`
+- [x] `getSubplebbitPage` → `getCommunityPage`
+- [x] `createSubplebbit` → `createCommunity`
+- [x] `startSubplebbit` → `startCommunity`
+- [x] `stopSubplebbit` → `stopCommunity`
+- [x] `editSubplebbit` → `editCommunity`
+- [x] `deleteSubplebbit` → `deleteCommunity`
+- [x] `subplebbitsSubscribe` → `communitiesSubscribe`
+- [x] `subplebbitUpdateSubscribe` → `communityUpdateSubscribe`
+- [x] `publishSubplebbitEdit` → `publishCommunityEdit`
 - [x] `resolveAuthorAddress` → `resolveAuthorName` (already renamed in both RPC server `src/rpc/src/index.ts:201` and client `src/clients/rpc-client/plebbit-rpc-client.ts:434`)
 
 ### 9.2 RPC Event Names
-- [ ] `"subplebbitschange"` → `"communitieschange"`
-- [ ] `"subplebbitUpdateNotification"` → `"communityUpdateNotification"`
-- [ ] `"subplebbitsNotification"` → `"communitiesNotification"`
-- [ ] `"publishSubplebbitEditNotification"` → `"publishCommunityEditNotification"`
+- [x] `"subplebbitschange"` → `"communitieschange"`
+- [x] `"subplebbitUpdateNotification"` → `"communityUpdateNotification"`
+- [x] `"subplebbitsNotification"` → `"communitiesNotification"`
+- [x] `"publishSubplebbitEditNotification"` → `"publishCommunityEditNotification"`
 
 ### 9.3 RPC Parameter Names (Wire Protocol)
-- [ ] `RpcSubplebbitPageParamSchema.subplebbitAddress` → `communityAddress` (src/clients/rpc-client/schema.ts)
-- [ ] `getSubplebbitPage` params: `{ subplebbitAddress }` → `{ communityAddress }` (src/rpc/src/index.ts)
-- [ ] `getCommentPage` params: `{ subplebbitAddress }` → `{ communityAddress }` (src/rpc/src/index.ts)
+- [x] `RpcSubplebbitPageParamSchema.subplebbitAddress` → `communityAddress` (src/clients/rpc-client/schema.ts)
+- [x] `getSubplebbitPage` params: `{ subplebbitAddress }` → `{ communityAddress }` (src/rpc/src/index.ts)
+- [x] `getCommentPage` params: `{ subplebbitAddress }` → `{ communityAddress }` (src/rpc/src/index.ts)
 
 ### 9.4 RPC Name Resolution (Server-Side)
-- [ ] `getCommunity` / `communityUpdateSubscribe` RPC methods must accept domain names — name resolution happens server-side using the RPC server's registered `nameResolvers`
-- [ ] Add error response when server-side name resolution fails (`ERR_NAME_RESOLUTION_FAILED`)
-- [ ] RPC clients don't need `nameResolvers` config — they delegate resolution to the server
+- [x] `getCommunity` / `communityUpdateSubscribe` RPC methods must accept domain names — name resolution happens server-side using the RPC server's registered `nameResolvers`
+- [x] Add error response when server-side name resolution fails (`ERR_NAME_RESOLUTION_FAILED`)
+- [x] RPC clients don't need `nameResolvers` config — they delegate resolution to the server
 
 ---
 
 ## Phase 10: Error Messages & Logging
 
 ### 10.1 Error Classes (src/plebbit-error.ts → src/pkc-error.ts)
-- [ ] `PlebbitError` → `PKCError`
-- [ ] `FailedToFetchSubplebbitFromGatewaysError` → `FailedToFetchCommunityFromGatewaysError`
-- [ ] `FailedToFetchCommentIpfsFromGatewaysError` (keep as is - comment not subplebbit)
-- [ ] `FailedToFetchCommentUpdateFromGatewaysError` (keep as is)
-- [ ] `FailedToFetchPageIpfsFromGatewaysError` (keep as is)
-- [ ] `FailedToFetchGenericIpfsFromGatewaysError` (keep as is)
+- [x] `PlebbitError` → `PKCError`
+- [x] `FailedToFetchSubplebbitFromGatewaysError` → `FailedToFetchCommunityFromGatewaysError`
+- [x] `FailedToFetchCommentIpfsFromGatewaysError` (keep as is - comment not community)
+- [x] `FailedToFetchCommentUpdateFromGatewaysError` (keep as is)
+- [x] `FailedToFetchPageIpfsFromGatewaysError` (keep as is)
+- [x] `FailedToFetchGenericIpfsFromGatewaysError` (keep as is)
 
 ### 10.2 Error Codes (src/errors.ts)
 
@@ -803,7 +803,7 @@ State strings emitted via `statechange` and `publishingstatechange` events:
 - [x] `ERR_INVALID_CREATE_PLEBBIT_ARGS_SCHEMA` → `ERR_INVALID_CREATE_PKC_ARGS_SCHEMA`
 
 ### 10.3 Index Exports (src/index.ts)
-- [ ] `plebbitJsChallenges` export → `pkcJsChallenges`
+- [x] `plebbitJsChallenges` export → `pkcJsChallenges`
 
 ### 10.4 Logger Prefixes
 ~~Replace all logger prefixes:~~
@@ -822,8 +822,8 @@ State strings emitted via `statechange` and `publishingstatechange` events:
 - [x] `signSubplebbit` → `signCommunity`
 
 ### 11.2 Type Parameters
-- [ ] All function parameters with `plebbit: Plebbit` → `pkc: PKC`
-- [ ] All `subplebbit` parameters → `community`
+- [x] All function parameters with `plebbit: Plebbit` → `pkc: PKC`
+- [x] All `subplebbit` parameters → `community`
 
 ---
 
@@ -861,12 +861,12 @@ Rename all test files with "subplebbit" or "plebbit" in the name. Files without 
 - [x] `unique.publishing.subplebbit.test.ts` → `unique.publishing.community.test.ts`
 - [x] `garbage.collection.subplebbit.test.ts` → `garbage.collection.community.test.ts`
 - [x] `quotedCids.pendingApproval.subplebbit.test.ts` → `quotedCids.pendingApproval.community.test.ts`
-- [ ] `eth-bso-equivalence.test.ts` (content updates only — no "subplebbit" in filename)
-- [ ] `malformed-gateway-headers.test.ts` (content updates only)
-- [ ] `maximum.depth.test.ts` (content updates only)
-- [ ] `mirror-client-mismatch.test.ts` (content updates only)
-- [ ] `multiplegateways.update.test.ts` (content updates only)
-- [ ] `unsupported-tld-rejection.test.ts` (content updates only)
+- [x] `eth-bso-equivalence.test.ts` (content updates only — no "subplebbit" in filename)
+- [x] `malformed-gateway-headers.test.ts` (content updates only)
+- [x] `maximum.depth.test.ts` (content updates only)
+- [x] `mirror-client-mismatch.test.ts` (content updates only)
+- [x] `multiplegateways.update.test.ts` (content updates only)
+- [x] `unsupported-tld-rejection.test.ts` (content updates only)
 - [x] `runtime-author-fields.db.subplebbit.test.ts` → `runtime-author-fields.db.community.test.ts`
 
 **test/node/subplebbit/ipns/**
@@ -886,12 +886,12 @@ Rename all test files with "subplebbit" or "plebbit" in the name. Files without 
 - [x] `edgecases.page.generation.subplebbit.test.ts` → `edgecases.page.generation.community.test.ts`
 
 **test/node/subplebbit/challenges/** (directory moves to test/node/community/challenges/)
-- [ ] `challenges.settings.test.ts` (content updates only)
-- [ ] `path.challenge.test.ts` (content updates only)
-- [ ] `pseudonymity-challenge-exclusion.test.ts` (content updates only)
+- [x] `challenges.settings.test.ts` (content updates only)
+- [x] `path.challenge.test.ts` (content updates only)
+- [x] `pseudonymity-challenge-exclusion.test.ts` (content updates only)
 
 **test/node/subplebbit/pubsub-msgs/** (directory moves to test/node/community/pubsub-msgs/)
-- [ ] `properties.pubsub.test.ts` (content updates only)
+- [x] `properties.pubsub.test.ts` (content updates only)
 
 **test/node/subplebbit/features/** (31 files — directory moves to test/node/community/features/)
 - [x] `per-post.pseudonymityMode.subplebbit.features.test.ts` → `per-post.pseudonymityMode.community.features.test.ts`

@@ -2,22 +2,22 @@ import { it, expect } from "vitest";
 import { mockPKC, describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 
-describeSkipIfRpc(`mirror() should not crash when client URLs mismatch between subplebbit instances`, () => {
+describeSkipIfRpc(`mirror() should not crash when client URLs mismatch between community instances`, () => {
     it(`updating sub with different pubsubKuboRpcClientsOptions should not emit TypeError`, async () => {
         // PKC A: started sub uses the default mockPKC pubsub URLs
         // (http://localhost:15002, http://localhost:42234, http://localhost:42254)
-        const plebbitA = await mockPKC();
+        const pkcA = await mockPKC();
 
-        const startedSub = (await plebbitA.createCommunity()) as LocalCommunity;
+        const startedSub = (await pkcA.createCommunity()) as LocalCommunity;
         await startedSub.start();
 
         try {
-            // PKC B: uses a different pubsub URL that doesn't exist on plebbitA
-            const plebbitB = await mockPKC({
+            // PKC B: uses a different pubsub URL that doesn't exist on pkcA
+            const pkcB = await mockPKC({
                 pubsubKuboRpcClientsOptions: ["http://localhost:15001/api/v0"]
             });
 
-            const updatingSub = (await plebbitB.createCommunity({ address: startedSub.address })) as LocalCommunity;
+            const updatingSub = (await pkcB.createCommunity({ address: startedSub.address })) as LocalCommunity;
 
             // Track any errors emitted during mirroring
             const errors: Error[] = [];
@@ -37,10 +37,10 @@ describeSkipIfRpc(`mirror() should not crash when client URLs mismatch between s
             expect(typeErrors, `mirror() emitted TypeError: ${typeErrors.map((e) => e.message).join(", ")}`).to.have.lengthOf(0);
 
             await updatingSub.stop();
-            await plebbitB.destroy();
+            await pkcB.destroy();
         } finally {
             await startedSub.stop();
-            await plebbitA.destroy();
+            await pkcA.destroy();
         }
     });
 });

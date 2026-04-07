@@ -23,7 +23,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         let pkc: PKCType;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -124,7 +124,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`Correct state of 'new' sort is updated after fetching with a community created with pkc.createCommunity({address, pageCids})`, async () => {
-            const remotePKC = await config.plebbitInstancePromise();
+            const remotePKC = await config.pkcInstancePromise();
             const mockSub = await remotePKC.getCommunity({ address: communityAddress });
 
             const firstPageMocked = {

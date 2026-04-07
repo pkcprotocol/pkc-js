@@ -1,8 +1,8 @@
 import {
     getDefaultDataPath,
-    listCommunitysSync as nodeListCommunitys,
+    listCommunitiesSync as nodeListCommunities,
     createKuboRpcClient,
-    monitorCommunitysDirectory,
+    monitorCommunitiesDirectory,
     trytoDeleteSubsThatFailedToBeDeletedBefore
 } from "../runtime/node/util.js";
 import type {
@@ -133,9 +133,9 @@ import { cleanWireAuthor, normalizeCreatePublicationAuthor } from "../publicatio
 import { IndexedTrackedInstanceRegistry, TrackedInstanceRegistry } from "./tracked-instance-registry.js";
 import {
     findUpdatingCommunity,
-    listStartedCommunitys,
+    listStartedCommunities,
     listUpdatingComments,
-    listUpdatingCommunitys
+    listUpdatingCommunities
 } from "./tracked-instance-registry-util.js";
 
 export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions {
@@ -160,12 +160,12 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         ipfsGateways: { [ipfsGatewayUrl: NonNullable<ParsedPKCOptions["ipfsGatewayUrls"]>[number]]: GatewayClient };
         kuboRpcClients: { [kuboRpcClientUrl: string]: KuboRpcClient };
         pubsubKuboRpcClients: { [pubsubKuboClientUrl: string]: PubsubClient };
-        plebbitRpcClients: { [plebbitRpcUrl: NonNullable<ParsedPKCOptions["pkcRpcClientsOptions"]>[number]]: PKCRpcClient };
+        pkcRpcClients: { [pkcRpcUrl: NonNullable<ParsedPKCOptions["pkcRpcClientsOptions"]>[number]]: PKCRpcClient };
         libp2pJsClients: {
             [libp2pJsClientKey: NonNullable<ParsedPKCOptions["libp2pJsClientsOptions"]>[number]["key"]]: Libp2pJsClient;
         };
     };
-    subplebbits!: string[]; // default is [], in case of RPC it will be the aggregate of all RPC servers' subs
+    communities!: string[]; // default is [], in case of RPC it will be the aggregate of all RPC servers' subs
 
     settings: {
         challenges?: Record<string, ChallengeFileFactoryInput>;
@@ -173,33 +173,33 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
 
     // private props
 
-    _plebbitRpcClient?: PKCRpcClient; // default rpc client for now. For now we will default to clients.plebbitRpcClients[0]
+    _pkcRpcClient?: PKCRpcClient; // default rpc client for now. For now we will default to clients.pkcRpcClients[0]
     private _pubsubSubscriptions: Record<string, PubsubSubscriptionHandler> = {};
     _clientsManager!: PKCClientsManager;
     _userPKCOptions: InputPKCOptions; // this is the raw input from user
     _stats!: Stats;
     _storage!: StorageInterface;
-    _updatingCommunitys: IndexedTrackedInstanceRegistry<RemoteCommunity | RpcRemoteCommunity | RpcLocalCommunity | LocalCommunity> =
+    _updatingCommunities: IndexedTrackedInstanceRegistry<RemoteCommunity | RpcRemoteCommunity | RpcLocalCommunity | LocalCommunity> =
         new TrackedInstanceRegistry() as IndexedTrackedInstanceRegistry<
             RemoteCommunity | RpcRemoteCommunity | RpcLocalCommunity | LocalCommunity
-        >; // storing subplebbit instance that are getting updated rn
+        >; // storing community instances that are getting updated rn
     _updatingComments: IndexedTrackedInstanceRegistry<Comment> = new TrackedInstanceRegistry() as IndexedTrackedInstanceRegistry<Comment>; // storing comment instancse that are getting updated rn
-    _startedCommunitys: IndexedTrackedInstanceRegistry<LocalCommunity | RpcLocalCommunity> =
-        new TrackedInstanceRegistry() as IndexedTrackedInstanceRegistry<LocalCommunity | RpcLocalCommunity>; // storing subplebbit instance that are started rn
-    private _subplebbitFsWatchAbort?: AbortController;
+    _startedCommunities: IndexedTrackedInstanceRegistry<LocalCommunity | RpcLocalCommunity> =
+        new TrackedInstanceRegistry() as IndexedTrackedInstanceRegistry<LocalCommunity | RpcLocalCommunity>; // storing community instances that are started rn
+    private _communityFsWatchAbort?: AbortController;
 
     private _addressRewriterDestroy?: () => Promise<void>;
     private _addressRewriterSetupPromise?: Promise<void>;
     destroyed = false;
-    private _promiseToWaitForFirstCommunityschangeEvent: Promise<string[]>;
+    private _promiseToWaitForFirstCommunitieschangeEvent: Promise<string[]>;
 
     private _storageLRUs: Record<string, LRUStorageInterface> = {}; // Cache name to storage interface
     _memCaches!: PKCMemCaches;
     _inflightFetchManager: InflightFetchManager;
 
     _timeouts = {
-        "subplebbit-ipns": 5 * 60 * 1000, // 5min, for resolving subplebbit IPNS, or fetching subplebbit from gateways
-        "subplebbit-ipfs": 60 * 1000, // 1min, for fetching subplebbit cid P2P
+        "community-ipns": 5 * 60 * 1000, // 5min, for resolving community IPNS, or fetching community from gateways
+        "community-ipfs": 60 * 1000, // 1min, for fetching community cid P2P
         "comment-ipfs": 60 * 1000, // 1 min
         "comment-update-ipfs": 2 * 60 * 1000, // 2 min
         "page-ipfs": 30 * 1000, // 30s for pages
@@ -265,11 +265,11 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         };
         // nameResolvers contains functions that can't be serialized over RPC, so skip for RPC clients
         this.nameResolvers = this.pkcRpcClientsOptions ? undefined : this.parsedPKCOptions.nameResolvers;
-        this.on("subplebbitschange", (newSubs) => {
-            this.subplebbits = newSubs;
+        this.on("communitieschange", (newSubs) => {
+            this.communities = newSubs;
         });
 
-        this._promiseToWaitForFirstCommunityschangeEvent = new Promise((resolve) => this.once("subplebbitschange", resolve));
+        this._promiseToWaitForFirstCommunitieschangeEvent = new Promise((resolve) => this.once("communitieschange", resolve));
 
         //@ts-expect-error
         this.clients = {};
@@ -288,12 +288,12 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
 
     _initMemCaches() {
         this._memCaches = {
-            subplebbitVerificationCache: new LRUCache<string, boolean>({ max: 100 }),
+            communityVerificationCache: new LRUCache<string, boolean>({ max: 100 }),
             pageVerificationCache: new LRUCache<string, boolean>({ max: 1000 }),
             commentVerificationCache: new LRUCache<string, boolean>({ max: 5000 }),
             commentUpdateVerificationCache: new LRUCache<string, boolean>({ max: 100_000 }),
             commentIpfs: new LRUCache<string, CommentIpfsType>({ max: 10 }),
-            subplebbitForPublishing: new LRUCache({
+            communityForPublishing: new LRUCache({
                 max: 100,
                 ttl: 600000
             }),
@@ -353,9 +353,9 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     }
 
     private _initRpcClientsIfNeeded() {
-        this.clients.plebbitRpcClients = {};
+        this.clients.pkcRpcClients = {};
         if (!this.pkcRpcClientsOptions) return;
-        for (const rpcUrl of this.pkcRpcClientsOptions) this.clients.plebbitRpcClients[rpcUrl] = new PKCRpcClient(rpcUrl);
+        for (const rpcUrl of this.pkcRpcClientsOptions) this.clients.pkcRpcClients[rpcUrl] = new PKCRpcClient(rpcUrl);
     }
 
     private _initIpfsGatewaysIfNeeded() {
@@ -405,13 +405,13 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         this._stats = new Stats({ _storage: this._storage, clients: this.clients });
         // Init clients manager
 
-        // plebbit-with-rpc-client will subscribe to subplebbitschange and settingschange for us
+        // pkc-with-rpc-client will subscribe to communitieschange and settingschange for us
         if (this._canCreateNewLocalSub() && !this.pkcRpcClientsOptions) {
             await trytoDeleteSubsThatFailedToBeDeletedBefore(this, log);
-            this._subplebbitFsWatchAbort = await monitorCommunitysDirectory(this);
-            await this._waitForCommunitysToBeDefined();
+            this._communityFsWatchAbort = await monitorCommunitiesDirectory(this);
+            await this._waitForCommunitiesToBeDefined();
         } else {
-            this.subplebbits = []; // subplebbits = [] on browser
+            this.communities = []; // communities = [] on browser
         }
 
         await this._setupHttpRoutersWithKuboNodeInBackground();
@@ -423,13 +423,13 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
 
     async getCommunity(getCommunityArgs: CommunityLookupRpcParam) {
         const parsedArgs = parseRpcCommunityLookupParam(getCommunityArgs);
-        const subplebbit = await this.createCommunity(parsedArgs);
+        const community = await this.createCommunity(parsedArgs);
 
-        if (typeof subplebbit.createdAt === "number") return <RpcLocalCommunity | LocalCommunity>subplebbit; // It's a local sub, and alreadh has been loaded, no need to wait
-        const timeoutMs = this._timeouts["subplebbit-ipns"];
-        await waitForUpdateInSubInstanceWithErrorAndTimeout(subplebbit, timeoutMs);
+        if (typeof community.createdAt === "number") return <RpcLocalCommunity | LocalCommunity>community; // It's a local sub, and already has been loaded, no need to wait
+        const timeoutMs = this._timeouts["community-ipns"];
+        await waitForUpdateInSubInstanceWithErrorAndTimeout(community, timeoutMs);
 
-        return subplebbit;
+        return community;
     }
 
     async getComment(cid: CidRpcParam): Promise<Comment> {
@@ -449,7 +449,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
                 milliseconds: commentTimeout,
                 message:
                     lastUpdateError ||
-                    new TimeoutError(`plebbit.getComment({cid: ${parsedGetCommentArgs}}) timed out after ${commentTimeout}ms`)
+                    new TimeoutError(`pkc.getComment({cid: ${parsedGetCommentArgs}}) timed out after ${commentTimeout}ms`)
             });
             if (!comment.signature) throw Error("Failed to load CommentIpfs");
             return comment;
@@ -599,7 +599,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             });
             await commentInstance._signPublicationWithKnownCommunityFieldsIfAvailable();
         } else if ("cid" in options) {
-            // {cid: string, subplebbitAddress?: string}
+            // {cid: string, communityAddress?: string} (also accepts subplebbitAddress for backward compat)
             commentInstance.setCid(parseCidStringSchemaWithPKCErrorIfItFails(options.cid));
         } else {
             throw Error("Make sure you provided a remote comment props or signer to create a new local comment");
@@ -619,110 +619,110 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     }
 
     protected async _setCommunityIpfsOnInstanceIfPossible(
-        subplebbit: RpcRemoteCommunity | RemoteCommunity,
+        community: RpcRemoteCommunity | RemoteCommunity,
         options: CreateRemoteCommunityOptions | CommunityIpfsType | RemoteCommunityJson | RpcRemoteCommunityJson
     ) {
-        await subplebbit.initRemoteCommunityPropsNoMerge(options);
+        await community.initRemoteCommunityPropsNoMerge(options);
         const preservedRuntimeFields = extractCommunityRuntimeFieldsFromParsedPages({
-            postsPages: subplebbit.posts.pages,
-            modQueuePages: subplebbit.modQueue.pages
+            postsPages: community.posts.pages,
+            modQueuePages: community.modQueue.pages
         });
         const reapplyPreservedRuntimeFields = () => {
-            if (preservedRuntimeFields) deepMergeRuntimeFields(subplebbit, preservedRuntimeFields);
+            if (preservedRuntimeFields) deepMergeRuntimeFields(community, preservedRuntimeFields);
         };
 
-        if ("raw" in options && options.raw.subplebbitIpfs) {
-            await subplebbit.initCommunityIpfsPropsNoMerge(options.raw.subplebbitIpfs); // we're setting CommunityIpfs
+        if ("raw" in options && options.raw.communityIpfs) {
+            await community.initCommunityIpfsPropsNoMerge(options.raw.communityIpfs); // we're setting CommunityIpfs
             reapplyPreservedRuntimeFields();
         }
 
-        if ("updateCid" in options && options.updateCid) subplebbit.updateCid = options.updateCid;
-        if (!subplebbit.raw.subplebbitIpfs) {
+        if ("updateCid" in options && options.updateCid) community.updateCid = options.updateCid;
+        if (!community.raw.communityIpfs) {
             // we didn't receive options that we can parse into CommunityIpfs
-            // let's try using _updatingCommunitys
-            await subplebbit._setCommunityIpfsPropsFromUpdatingCommunitysIfPossible();
-            if (subplebbit.raw.subplebbitIpfs) reapplyPreservedRuntimeFields();
+            // let's try using _updatingCommunities
+            await community._setCommunityIpfsPropsFromUpdatingCommunitiesIfPossible();
+            if (community.raw.communityIpfs) reapplyPreservedRuntimeFields();
         }
 
-        // last resort to set subplebbit ipfs props
-        if (!subplebbit.raw.subplebbitIpfs) {
+        // last resort to set community ipfs props
+        if (!community.raw.communityIpfs) {
             if (options.signature) {
                 const resParseCommunityIpfs = CommunityIpfsSchema.loose().safeParse(
                     remeda.pick(options, <(keyof CommunityIpfsType)[]>[...options.signature.signedPropertyNames, "signature"])
                 );
                 if (resParseCommunityIpfs.success) {
                     const cleanedRecord = removeUndefinedValuesRecursively(resParseCommunityIpfs.data); // safe way to replicate JSON.stringify() which is done before adding record to ipfs
-                    await subplebbit.initCommunityIpfsPropsNoMerge(cleanedRecord);
+                    await community.initCommunityIpfsPropsNoMerge(cleanedRecord);
                     reapplyPreservedRuntimeFields();
                 }
             }
         }
     }
 
-    protected async _waitForCommunitysToBeDefined() {
-        // we're just wait until this.subplebbits is either defined, or subplebbitschange is emitted
+    protected async _waitForCommunitiesToBeDefined() {
+        // we're just wait until this.communities is either defined, or communitieschange is emitted
 
-        await this._promiseToWaitForFirstCommunityschangeEvent;
-        if (!Array.isArray(this.subplebbits)) throw Error("plebbit.subplebbits should be defined after subplebbitschange event");
+        await this._promiseToWaitForFirstCommunitieschangeEvent;
+        if (!Array.isArray(this.communities)) throw Error("pkc.communities should be defined after communitieschange event");
     }
 
-    async _awaitCommunitysToIncludeSub(subAddress: string): Promise<void> {
-        if (this.subplebbits.includes(subAddress)) return;
+    async _awaitCommunitiesToIncludeSub(subAddress: string): Promise<void> {
+        if (this.communities.includes(subAddress)) return;
         else
             await resolveWhenPredicateIsTrue({
                 toUpdate: this,
-                predicate: () => this.subplebbits.includes(subAddress),
-                eventName: "subplebbitschange"
+                predicate: () => this.communities.includes(subAddress),
+                eventName: "communitieschange"
             });
     }
 
     private async _createRemoteCommunityInstance(options: z.infer<typeof CreateRemoteCommunityFunctionArgumentSchema>) {
         const log = Logger("pkc-js:pkc:createRemoteCommunity");
 
-        log.trace("Received subplebbit options to create a remote subplebbit instance:", options);
-        const subplebbit = new RemoteCommunity(this);
-        await this._setCommunityIpfsOnInstanceIfPossible(subplebbit, options);
+        log.trace("Received community options to create a remote community instance:", options);
+        const community = new RemoteCommunity(this);
+        await this._setCommunityIpfsOnInstanceIfPossible(community, options);
 
-        log.trace(`Created remote subplebbit instance (${subplebbit.address})`);
-        return subplebbit;
+        log.trace(`Created remote community instance (${community.address})`);
+        return community;
     }
 
     private async _createLocalSub(
         options: CreateNewLocalCommunityParsedOptions | CreateInstanceOfLocalOrRemoteCommunityOptions
     ): Promise<LocalCommunity> {
         const log = Logger("pkc-js:pkc:createLocalCommunity");
-        log.trace("Received subplebbit options to create a local subplebbit instance:", options);
+        log.trace("Received community options to create a local community instance:", options);
 
         const canCreateLocalSub = this._canCreateNewLocalSub();
-        if (!canCreateLocalSub) throw new PKCError("ERR_CAN_NOT_CREATE_A_LOCAL_COMMUNITY", { plebbitOptions: this._userPKCOptions });
+        if (!canCreateLocalSub) throw new PKCError("ERR_CAN_NOT_CREATE_A_LOCAL_COMMUNITY", { pkcOptions: this._userPKCOptions });
 
-        const localSubs = await nodeListCommunitys(this);
+        const localSubs = await nodeListCommunities(this);
         const isLocalSub = localSubs.includes(options.address); // Sub exists already, only pass address so we don't override other props
-        const subplebbit = new LocalCommunity(this);
+        const community = new LocalCommunity(this);
         if (isLocalSub) {
             // If the sub is already created before, then load it with address only. We don't care about other props
-            subplebbit.setAddress(options.address);
-            await subplebbit._updateInstancePropsWithStartedSubOrDb();
-            log.trace(`Created instance of existing local subplebbit (${subplebbit.address}) with props:`);
-            subplebbit.emit("update", subplebbit);
-            return subplebbit;
+            community.setAddress(options.address);
+            await community._updateInstancePropsWithStartedSubOrDb();
+            log.trace(`Created instance of existing local community (${community.address}) with props:`);
+            community.emit("update", community);
+            return community;
         } else if ("signer" in options) {
             // This is a new sub
             const parsedOptions = <CreateNewLocalCommunityParsedOptions>options;
-            await subplebbit.initNewLocalSubPropsNoMerge(parsedOptions); // We're initializing a new local sub props here
-            await subplebbit._createNewLocalSubDb();
-            log.trace(`Created a new local subplebbit (${subplebbit.address}) with props:`);
-            subplebbit.emit("update", subplebbit);
-            await this._awaitCommunitysToIncludeSub(subplebbit.address);
-            return subplebbit;
+            await community.initNewLocalSubPropsNoMerge(parsedOptions); // We're initializing a new local sub props here
+            await community._createNewLocalSubDb();
+            log.trace(`Created a new local community (${community.address}) with props:`);
+            community.emit("update", community);
+            await this._awaitCommunitiesToIncludeSub(community.address);
+            return community;
         } else throw Error("Are you trying to create a local sub with no address or signer? This is a critical error");
     }
 
     private async _createSubInstanceFromJsonifiedSub(jsonfied: CommunityJson): ReturnType<PKC["createCommunity"]> {
-        // jsonfied = JSON.parse(JSON.stringify(subplebbitInstance))
+        // jsonfied = JSON.parse(JSON.stringify(communityInstance))
         // should probably exclude internal and instance-exclusive props like states
 
-        if (this.subplebbits.includes(jsonfied.address)) return this._createLocalSub(jsonfied);
+        if (this.communities.includes(jsonfied.address)) return this._createLocalSub(jsonfied);
         else return this._createRemoteCommunityInstance(jsonfied);
     }
 
@@ -749,14 +749,14 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         if (effectiveAddress && doesDomainAddressHaveCapitalLetter(effectiveAddress))
             throw new PKCError("ERR_COMMUNITY_NAME_HAS_CAPITAL_LETTER", { ...parsedOptions });
 
-        // Creating a subplebbit when we're connected to RPC will be handled in plebbit-with-rpc-client
+        // Creating a community when we're connected to RPC will be handled in pkc-with-rpc-client
         // Code below is for NodeJS and browser using IPFS-P2P/gateway
 
         const canCreateLocalSub = this._canCreateNewLocalSub(); // this is true if we're on NodeJS and have a dataPath
 
         if (hasSigner && !canCreateLocalSub)
             throw new PKCError("ERR_CAN_NOT_CREATE_A_LOCAL_COMMUNITY", {
-                plebbitOptions: this._userPKCOptions,
+                pkcOptions: this._userPKCOptions,
                 isEnvNode: Boolean(process),
                 hasDataPath: Boolean(this.dataPath)
             });
@@ -769,7 +769,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
 
         if (hasIdentifier && !hasSigner) {
             // sub is already created, need to check if it's local or remote
-            const localSubs = await nodeListCommunitys(this);
+            const localSubs = await nodeListCommunities(this);
             // Check for exact match or .eth/.bso alias match
             const localSubAddress = localSubs.find((localAddr) => areEquivalentCommunityAddresses(localAddr, effectiveAddress!));
             if (localSubAddress) return this._createLocalSub({ address: localSubAddress });
@@ -934,11 +934,11 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     }
 
     async _createCommunityEditInstanceFromJsonfiedCommunityEdit(jsonfied: CommunityEditJson) {
-        const subplebbitEditInstance = new CommunityEdit(this);
+        const communityEditInstance = new CommunityEdit(this);
         const unsignedOpts = (jsonfied.raw as { unsignedPublicationOptions?: CreatePublicationOptions }).unsignedPublicationOptions;
         if (jsonfied.raw.pubsubMessageToPublish)
-            subplebbitEditInstance._initLocalProps({
-                subplebbitEdit: jsonfied.raw.pubsubMessageToPublish,
+            communityEditInstance._initLocalProps({
+                communityEdit: jsonfied.raw.pubsubMessageToPublish,
                 signer: jsonfied.signer,
                 challengeRequest: jsonfied.challengeRequest
             });
@@ -947,13 +947,13 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             const finalOptions = <CommunityEditPublicationOptionsToSign>(
                 await this._initMissingFieldsOfPublicationBeforeSigning({ ...unsignedOpts, signer: jsonfied.signer }, log)
             );
-            subplebbitEditInstance._initUnsignedLocalProps({
+            communityEditInstance._initUnsignedLocalProps({
                 unsignedOptions: finalOptions,
                 challengeRequest: jsonfied.challengeRequest
             });
-            await subplebbitEditInstance._signPublicationWithKnownCommunityFieldsIfAvailable();
+            await communityEditInstance._signPublicationWithKnownCommunityFieldsIfAvailable();
         }
-        return subplebbitEditInstance;
+        return communityEditInstance;
     }
 
     async createCommunityEdit(
@@ -961,23 +961,23 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     ): Promise<CommunityEdit> {
         const log = Logger("pkc-js:pkc:createCommunityEdit");
         if ("clients" in options) return this._createCommunityEditInstanceFromJsonfiedCommunityEdit(options);
-        const subplebbitEditInstance = new CommunityEdit(this);
+        const communityEditInstance = new CommunityEdit(this);
 
         if ("signature" in options) {
             const parsedOptions = parseCommunityEditPubsubMessagePublicationSchemaWithPKCErrorIfItFails(options);
-            subplebbitEditInstance._initRemoteProps(parsedOptions);
+            communityEditInstance._initRemoteProps(parsedOptions);
         } else {
             const parsedOptions = parseCreateCommunityEditPublicationOptionsSchemaWithPKCErrorIfItFails(options);
             const finalOptions = <CommunityEditPublicationOptionsToSign>(
                 await this._initMissingFieldsOfPublicationBeforeSigning(parsedOptions, log)
             );
-            subplebbitEditInstance._initUnsignedLocalProps({
+            communityEditInstance._initUnsignedLocalProps({
                 unsignedOptions: finalOptions,
                 challengeRequest: parsedOptions.challengeRequest
             });
-            await subplebbitEditInstance._signPublicationWithKnownCommunityFieldsIfAvailable();
+            await communityEditInstance._signPublicationWithKnownCommunityFieldsIfAvailable();
         }
-        return subplebbitEditInstance;
+        return communityEditInstance;
     }
 
     createSigner(createSignerOptions?: CreateSignerOptions) {
@@ -985,7 +985,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     }
 
     async fetchCid(fetchCidArgs: CidRpcParam): Promise<string> {
-        // plebbit-with-rpc-client will handle if user is connected to rpc client
+        // pkc-with-rpc-client will handle if user is connected to rpc client
 
         const parsedArgs = parseRpcCidParam(fetchCidArgs);
         return this._clientsManager.fetchCid(parsedArgs.cid);
@@ -1036,15 +1036,15 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
                 commentIpfsValidity
             });
 
-        const subplebbitIpfs = findUpdatingCommunity(this, { address: comment.communityAddress })?.raw?.subplebbitIpfs;
-        const subplebbit: { address: string; signature?: CommunityIpfsType["signature"] } = subplebbitIpfs
-            ? { address: comment.communityAddress, signature: subplebbitIpfs.signature }
+        const communityIpfs = findUpdatingCommunity(this, { address: comment.communityAddress })?.raw?.communityIpfs;
+        const community: { address: string; signature?: CommunityIpfsType["signature"] } = communityIpfs
+            ? { address: comment.communityAddress, signature: communityIpfs.signature }
             : { address: comment.communityAddress };
         const commentUpdateVerificationOpts = {
             update: commentUpdate,
             resolveAuthorNames: this.resolveAuthorNames,
             clientsManager: this._clientsManager,
-            subplebbit,
+            community,
             validatePages: typeof opts?.validateReplies === "boolean" ? opts.validateReplies : this.validatePages,
             comment: { ...commentIpfs, cid: commentCid, postCid },
             validateUpdateSignature: true
@@ -1057,10 +1057,10 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             });
     }
 
-    async _createStorageLRU(opts: Omit<LRUStorageConstructor, "plebbit">) {
-        // should add the storage LRU to an array, so we can destroy all of them on plebbit.destroy
+    async _createStorageLRU(opts: Omit<LRUStorageConstructor, "pkc">) {
+        // should add the storage LRU to an array, so we can destroy all of them on pkc.destroy
         if (!this._storageLRUs[opts.cacheName]) {
-            this._storageLRUs[opts.cacheName] = new LRUStorage({ ...opts, plebbit: this });
+            this._storageLRUs[opts.cacheName] = new LRUStorage({ ...opts, pkc: this });
             await this._storageLRUs[opts.cacheName].init();
         }
         return this._storageLRUs[opts.cacheName];
@@ -1074,11 +1074,11 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
 
         for (const comment of listUpdatingComments(this)) await comment.stop();
 
-        for (const subplebbit of listUpdatingCommunitys(this)) await subplebbit.stop();
+        for (const community of listUpdatingCommunities(this)) await community.stop();
 
-        await Promise.all(listStartedCommunitys(this).map((sub) => sub.stop()));
+        await Promise.all(listStartedCommunities(this).map((sub) => sub.stop()));
 
-        if (this._subplebbitFsWatchAbort) this._subplebbitFsWatchAbort.abort();
+        if (this._communityFsWatchAbort) this._communityFsWatchAbort.abort();
 
         if (this._addressRewriterSetupPromise) {
             await this._addressRewriterSetupPromise;
@@ -1112,7 +1112,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
 
         await Promise.all(Object.values(this.clients.libp2pJsClients).map((client) => client.heliaWithKuboRpcClientFunctions.stop()));
 
-        await Promise.all(Object.values(this.clients.plebbitRpcClients).map((client) => client.destroy()));
+        await Promise.all(Object.values(this.clients.pkcRpcClients).map((client) => client.destroy()));
 
         // Get all methods on the instance and override them to throw errors if used after destruction
         Object.getOwnPropertyNames(Object.getPrototypeOf(this))
@@ -1122,6 +1122,6 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
                     throw new PKCError("ERR_PKC_IS_DESTROYED");
                 };
             });
-        log("Destroyed plebbit instance");
+        log("Destroyed pkc instance");
     }
 }

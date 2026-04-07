@@ -72,7 +72,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     challenges?: CommunityIpfsType["challenges"];
     postUpdates?: CommunityIpfsType["postUpdates"];
 
-    // to be overridden by local subplebbit classes
+    // to be overridden by local community classes
     startedState?: "stopped" | CommunityStartedState = "stopped";
     started?: boolean;
     signer?: SignerWithPublicKeyAddress | RpcLocalCommunityLocalProps["signer"];
@@ -85,17 +85,17 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     updateCid?: string;
     declare ipnsName?: string;
     declare ipnsPubsubTopic?: string; // ipns over pubsub topic
-    declare ipnsPubsubTopicRoutingCid?: string; // peers of subplebbit.ipnsPubsubTopic, use this cid with http routers to find peers of ipns-over-pubsub
-    pubsubTopicRoutingCid?: string; // peers of subplebbit.pubsubTopic, use this cid with http routers to find peers of subplebbit.pubsubTopic
+    declare ipnsPubsubTopicRoutingCid?: string; // peers of community.ipnsPubsubTopic, use this cid with http routers to find peers of ipns-over-pubsub
+    pubsubTopicRoutingCid?: string; // peers of community.pubsubTopic, use this cid with http routers to find peers of community.pubsubTopic
 
     // should be used internally
-    _plebbit: PKC;
+    _pkc: PKC;
     _clientsManager: CommunityClientsManager;
-    raw: { subplebbitIpfs?: CommunityIpfsType; runtimeFieldsFromRpc?: Record<string, any> } = {};
-    _updatingSubInstanceWithListeners?: { subplebbit: RemoteCommunity } & Pick<
+    raw: { communityIpfs?: CommunityIpfsType; runtimeFieldsFromRpc?: Record<string, any> } = {};
+    _updatingCommunityInstanceWithListeners?: { community: RemoteCommunity } & Pick<
         CommunityEvents,
         "error" | "updatingstatechange" | "update" | "statechange"
-    > = undefined; // The plebbit._updatingCommunitys we're subscribed to
+    > = undefined; // The pkc._updatingCommunities we're subscribed to
     _numOfListenersForUpdatingInstance = 0;
     protected _ipnsName?: string;
     protected _ipnsPubsubTopic?: string;
@@ -105,9 +105,9 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     // Add a private property to store the actual updatingState value
     protected _updatingState!: CommunityUpdatingState;
 
-    constructor(plebbit: PKC) {
+    constructor(pkc: PKC) {
         super();
-        this._plebbit = plebbit;
+        this._pkc = pkc;
         this._setState("stopped");
         this._updatingState = "stopped";
         this._defineIpnsAccessorProps();
@@ -117,7 +117,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         this.update = this.update.bind(this);
         this.stop = this.stop.bind(this);
 
-        this.on("error", (...args) => this.listenerCount("error") === 1 && this._plebbit.emit("error", ...args)); // only bubble up to plebbit if no other listeners are attached
+        this.on("error", (...args) => this.listenerCount("error") === 1 && this._pkc.emit("error", ...args)); // only bubble up to pkc if no other listeners are attached
 
         this._clientsManager = new CommunityClientsManager(this);
         this.clients = this._clientsManager.clients;
@@ -125,10 +125,10 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         this.posts = new PostsPages({
             pageCids: {},
             pages: {},
-            plebbit: this._plebbit,
-            subplebbit: this
+            pkc: this._pkc,
+            community: this
         });
-        this.modQueue = new ModQueuePages({ pageCids: {}, plebbit: this._plebbit, subplebbit: this, pages: {} });
+        this.modQueue = new ModQueuePages({ pageCids: {}, pkc: this._pkc, community: this, pages: {} });
         hideClassPrivateProps(this);
     }
 
@@ -197,7 +197,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     ) {
         const log = Logger("pkc-js:remote-community:_updateLocalPostsInstanceIfNeeded");
         const postsPagesCreationTimestamp = this.updatedAt;
-        this.posts._subplebbit = this;
+        this.posts._community = this;
         if (!newPosts)
             // The sub has changed its address, need to reset the posts
             this.posts.resetPages();
@@ -209,7 +209,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
             // only pageCids is provided (or pages is empty)
             this.posts.updateProps({
                 pageCids: newPosts.pageCids,
-                subplebbit: this,
+                community: this,
                 pages: {}
             });
         } else if (
@@ -219,11 +219,11 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
             Object.keys(newPosts.pages).length > 0
         ) {
             // was only provided with a single preloaded page, no page cids
-            if (typeof postsPagesCreationTimestamp !== "number") throw Error("subplebbit.updatedAt should be defined when updating posts");
+            if (typeof postsPagesCreationTimestamp !== "number") throw Error("community.updatedAt should be defined when updating posts");
             const parsedPages = parseRawPages(newPosts);
             this.posts.updateProps({
                 ...parsedPages,
-                subplebbit: this,
+                community: this,
                 pageCids: {}
             });
         } else if (
@@ -236,12 +236,12 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         ) {
             // both pageCids and pages are provided
 
-            log.trace(`Updating the props of subplebbit (${this.address}) posts`);
-            if (typeof postsPagesCreationTimestamp !== "number") throw Error("subplebbit.updatedAt should be defined when updating posts");
+            log.trace(`Updating the props of community (${this.address}) posts`);
+            if (typeof postsPagesCreationTimestamp !== "number") throw Error("community.updatedAt should be defined when updating posts");
             const parsedPages = <Pick<PostsPages, "pages"> & { pagesIpfs: PostsPagesTypeIpfs | undefined }>parseRawPages(newPosts);
             this.posts.updateProps({
                 ...parsedPages,
-                subplebbit: this,
+                community: this,
                 pageCids: newPosts?.pageCids || {}
             });
         }
@@ -253,7 +253,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
             | CommunityJson["modQueue"]
             | Pick<NonNullable<CommunityIpfsType["modQueue"]>, "pageCids">
     ) {
-        this.modQueue._subplebbit = this;
+        this.modQueue._community = this;
         if (!newModQueue)
             // The sub has changed its address, need to reset the posts
             this.modQueue.resetPages();
@@ -261,7 +261,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
             // only pageCids is provided
             this.modQueue.updateProps({
                 pageCids: newModQueue.pageCids,
-                subplebbit: this,
+                community: this,
                 pages: {}
             });
         }
@@ -269,12 +269,12 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
 
     initCommunityIpfsPropsNoMerge(newProps: CommunityIpfsType) {
         const log = Logger("pkc-js:remote-community:initCommunityIpfsPropsNoMerge");
-        this.raw.subplebbitIpfs = newProps;
+        this.raw.communityIpfs = newProps;
         this.initRemoteCommunityPropsNoMerge(newProps);
-        const unknownProps = remeda.difference(remeda.keys.strict(this.raw.subplebbitIpfs), remeda.keys.strict(CommunityIpfsSchema.shape));
+        const unknownProps = remeda.difference(remeda.keys.strict(this.raw.communityIpfs), remeda.keys.strict(CommunityIpfsSchema.shape));
         if (unknownProps.length > 0) {
-            log(`Found unknown props on subplebbit (${this.address}) ipfs record`, unknownProps);
-            Object.assign(this, remeda.pick(this.raw.subplebbitIpfs, unknownProps));
+            log(`Found unknown props on community (${this.address}) ipfs record`, unknownProps);
+            Object.assign(this, remeda.pick(this.raw.communityIpfs, unknownProps));
         }
     }
 
@@ -296,7 +296,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         }
         if (!this.pubsubTopicRoutingCid) {
             if ("pubsubTopicRoutingCid" in newProps) this.pubsubTopicRoutingCid = newProps.pubsubTopicRoutingCid;
-            else if (this.raw.subplebbitIpfs)
+            else if (this.raw.communityIpfs)
                 this.pubsubTopicRoutingCid = pubsubTopicToDhtKey(
                     newProps.pubsubTopic ||
                         this.pubsubTopic ||
@@ -355,7 +355,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
             if (derivedAddress) this.setAddress(derivedAddress);
         } else {
             // Address already set -- refresh tracking aliases without changing address
-            refreshTrackedCommunityAliases(this._plebbit, this);
+            refreshTrackedCommunityAliases(this._pkc, this);
         }
 
         this._updateLocalPostsInstance(newProps.posts);
@@ -369,22 +369,22 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         // check if domain or ipns
         // else, throw an error
         if (doesDomainAddressHaveCapitalLetter(newAddress))
-            throw new PKCError("ERR_COMMUNITY_NAME_HAS_CAPITAL_LETTER", { subplebbitAddress: newAddress });
+            throw new PKCError("ERR_COMMUNITY_NAME_HAS_CAPITAL_LETTER", { communityAddress: newAddress });
         const isDomain = newAddress.includes(".");
         if (!isDomain && !isIpns(newAddress))
-            throw new PKCError("ERR_INVALID_COMMUNITY_ADDRESS_SCHEMA", { subplebbitAddress: newAddress, isDomain, isIpns: false });
+            throw new PKCError("ERR_INVALID_COMMUNITY_ADDRESS_SCHEMA", { communityAddress: newAddress, isDomain, isIpns: false });
 
         this.address = newAddress;
         this.shortAddress = shortifyAddress(this.address);
         // Sync wire-format name field: domains go into `name`, non-domains clear it
         this.name = isStringDomain(newAddress) ? newAddress : undefined;
-        this.posts._subplebbit = this;
-        this.modQueue._subplebbit = this;
-        refreshTrackedCommunityAliases(this._plebbit, this);
+        this.posts._community = this;
+        this.modQueue._community = this;
+        refreshTrackedCommunityAliases(this._pkc, this);
     }
 
     _clearDataForKeyMigration(newPublicKey: string) {
-        this.raw.subplebbitIpfs = undefined;
+        this.raw.communityIpfs = undefined;
         this.updateCid = undefined;
         // Clear all display fields via initRemoteCommunityPropsNoMerge with empty props.
         // Address immutability in initRemoteCommunityPropsNoMerge ensures address won't change.
@@ -398,12 +398,12 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     }
 
     protected _toJSONIpfsBaseNoPosts() {
-        const subplebbitIpfsKeys = remeda.keys.strict(remeda.omit(CommunityIpfsSchema.shape, ["posts", "modQueue"]));
-        return remeda.pick(this, subplebbitIpfsKeys);
+        const communityIpfsKeys = remeda.keys.strict(remeda.omit(CommunityIpfsSchema.shape, ["posts", "modQueue"]));
+        return remeda.pick(this, communityIpfsKeys);
     }
 
     toJSONRpcRemote(): RpcRemoteCommunityType {
-        if (!this.updateCid || !this.raw.subplebbitIpfs) {
+        if (!this.updateCid || !this.raw.communityIpfs) {
             // Post key-migration cleared state — tell client to reset its instance
             return {
                 resetInstance: true,
@@ -415,7 +415,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
             };
         }
         return {
-            subplebbit: this.raw.subplebbitIpfs,
+            community: this.raw.communityIpfs,
             runtimeFields: {
                 updateCid: this.updateCid,
                 updatingState: this.updatingState,
@@ -425,13 +425,13 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     }
 
     get updatingState(): CommunityUpdatingState {
-        if (this._updatingSubInstanceWithListeners) {
-            return this._updatingSubInstanceWithListeners.subplebbit.updatingState;
+        if (this._updatingCommunityInstanceWithListeners) {
+            return this._updatingCommunityInstanceWithListeners.community.updatingState;
         } else return this._updatingState;
     }
 
     protected _getIpnsName(): string | undefined {
-        return this._updatingSubInstanceWithListeners?.subplebbit.ipnsName ?? this._ipnsName;
+        return this._updatingCommunityInstanceWithListeners?.community.ipnsName ?? this._ipnsName;
     }
 
     protected _setIpnsName(value: string | undefined) {
@@ -439,7 +439,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     }
 
     protected _getIpnsPubsubTopic(): string | undefined {
-        return this._updatingSubInstanceWithListeners?.subplebbit.ipnsPubsubTopic ?? this._ipnsPubsubTopic;
+        return this._updatingCommunityInstanceWithListeners?.community.ipnsPubsubTopic ?? this._ipnsPubsubTopic;
     }
 
     protected _setIpnsPubsubTopic(value: string | undefined) {
@@ -447,7 +447,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     }
 
     protected _getIpnsPubsubTopicRoutingCid(): string | undefined {
-        return this._updatingSubInstanceWithListeners?.subplebbit.ipnsPubsubTopicRoutingCid ?? this._ipnsPubsubTopicRoutingCid;
+        return this._updatingCommunityInstanceWithListeners?.community.ipnsPubsubTopicRoutingCid ?? this._ipnsPubsubTopicRoutingCid;
     }
 
     protected _setIpnsPubsubTopicRoutingCid(value: string | undefined) {
@@ -472,7 +472,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         newStartedState?: RemoteCommunity["startedState"];
     }) {
         // this code block is only called on a sub whose update loop is already started
-        // never called in a subplebbit that's mirroring a subplebbit with an update loop
+        // never called in a community that's mirroring a community with an update loop
         const shouldEmitStateChange = opts.newState && opts.newState !== this.state;
         const shouldEmitUpdatingStateChange = opts.newUpdatingState && opts.newUpdatingState !== this.updatingState;
         const shouldEmitStartedStateChange = opts.newStartedState && opts.newStartedState !== this.startedState;
@@ -532,16 +532,16 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         return true;
     }
 
-    _setCommunityIpfsPropsFromUpdatingCommunitysIfPossible() {
-        const log = Logger("pkc-js:comment:_setCommunityIpfsPropsFromUpdatingCommunitysIfPossible");
-        const updatingSub = findUpdatingCommunity(this._plebbit, { address: this.address });
-        if (updatingSub?.raw?.subplebbitIpfs && (this.updatedAt || 0) < updatingSub.raw.subplebbitIpfs.updatedAt) {
-            this.initCommunityIpfsPropsNoMerge(updatingSub.raw.subplebbitIpfs);
+    _setCommunityIpfsPropsFromUpdatingCommunitiesIfPossible() {
+        const log = Logger("pkc-js:comment:_setCommunityIpfsPropsFromUpdatingCommunitiesIfPossible");
+        const updatingSub = findUpdatingCommunity(this._pkc, { address: this.address });
+        if (updatingSub?.raw?.communityIpfs && (this.updatedAt || 0) < updatingSub.raw.communityIpfs.updatedAt) {
+            this.initCommunityIpfsPropsNoMerge(updatingSub.raw.communityIpfs);
             this.updateCid = updatingSub.updateCid;
             log.trace(
                 `New Remote Community instance`,
                 this.address,
-                `will use CommunityIpfs from plebbit._updatingCommunitys[${this.address}] with updatedAt`,
+                `will use CommunityIpfs from pkc._updatingCommunities[${this.address}] with updatedAt`,
                 this.updatedAt,
                 "that's",
                 timestamp() - this.updatedAt!,
@@ -552,24 +552,24 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     }
 
     private async _initSubInstanceWithListeners() {
-        const trackedUpdatingSub = findUpdatingCommunity(this._plebbit, { address: this.address });
+        const trackedUpdatingSub = findUpdatingCommunity(this._pkc, { address: this.address });
         if (!trackedUpdatingSub) throw Error("should be defined at this stage");
         const log = Logger("pkc-js:remote-community:update");
         const subInstance = trackedUpdatingSub;
-        return <NonNullable<this["_updatingSubInstanceWithListeners"]>>{
-            subplebbit: subInstance,
+        return <NonNullable<this["_updatingCommunityInstanceWithListeners"]>>{
+            community: subInstance,
             update: () => {
-                if (!subInstance.raw.subplebbitIpfs || !subInstance.updateCid) {
+                if (!subInstance.raw.communityIpfs || !subInstance.updateCid) {
                     if (subInstance.publicKey) this._clearDataForKeyMigration(subInstance.publicKey);
                 } else {
-                    this.initCommunityIpfsPropsNoMerge(subInstance.raw.subplebbitIpfs);
+                    this.initCommunityIpfsPropsNoMerge(subInstance.raw.communityIpfs);
                     this.updateCid = subInstance.updateCid;
                 }
                 if (typeof subInstance.nameResolved === "boolean") this.nameResolved = subInstance.nameResolved;
                 log(
                     `Remote Community instance`,
                     this.address,
-                    `received update event from plebbit._updatingCommunitys[${this.address}] with updatedAt`,
+                    `received update event from pkc._updatingCommunities[${this.address}] with updatedAt`,
                     this.updatedAt,
                     "that's",
                     timestamp() - this.updatedAt!,
@@ -592,81 +592,87 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     private async fetchLatestSubOrSubscribeToEvent() {
         const log = Logger("pkc-js:remote-community:update:updateOnce");
 
-        if (!findUpdatingCommunity(this._plebbit, { address: this.address })) {
+        if (!findUpdatingCommunity(this._pkc, { address: this.address })) {
             // Pass publicKey alongside name/address so the updating sub can use publicKey fallback
             const createOpts =
                 this.publicKey && isStringDomain(this.address)
                     ? { name: this.address, publicKey: this.publicKey }
                     : { address: this.address };
-            const updatingSub = await this._plebbit.createCommunity(createOpts);
-            trackUpdatingCommunity(this._plebbit, updatingSub);
-            log("Creating a new entry for this._plebbit._updatingCommunitys", this.address);
+            const updatingSub = await this._pkc.createCommunity(createOpts);
+            trackUpdatingCommunity(this._pkc, updatingSub);
+            log("Creating a new entry for this._pkc._updatingCommunities", this.address);
         }
 
-        const subInstance = findUpdatingCommunity(this._plebbit, { address: this.address });
+        const subInstance = findUpdatingCommunity(this._pkc, { address: this.address });
         if (!subInstance) throw Error("should be defined at this stage");
         if (subInstance === this) {
             // Already tracking this instance; start the loop directly without mirroring to itself
-            this._clientsManager.startUpdatingLoop().catch((err) => log.error("Failed to start update loop of subplebbit", err));
+            this._clientsManager.startUpdatingLoop().catch((err) => log.error("Failed to start update loop of community", err));
             return;
         }
 
-        this._updatingSubInstanceWithListeners = await this._initSubInstanceWithListeners();
-        this._updatingSubInstanceWithListeners.subplebbit.on("update", this._updatingSubInstanceWithListeners.update);
+        this._updatingCommunityInstanceWithListeners = await this._initSubInstanceWithListeners();
+        this._updatingCommunityInstanceWithListeners.community.on("update", this._updatingCommunityInstanceWithListeners.update);
 
-        this._updatingSubInstanceWithListeners.subplebbit.on(
+        this._updatingCommunityInstanceWithListeners.community.on(
             "updatingstatechange",
-            this._updatingSubInstanceWithListeners.updatingstatechange
+            this._updatingCommunityInstanceWithListeners.updatingstatechange
         );
-        this._updatingSubInstanceWithListeners.subplebbit.on("error", this._updatingSubInstanceWithListeners.error);
-        this._updatingSubInstanceWithListeners.subplebbit.on("statechange", this._updatingSubInstanceWithListeners.statechange);
+        this._updatingCommunityInstanceWithListeners.community.on("error", this._updatingCommunityInstanceWithListeners.error);
+        this._updatingCommunityInstanceWithListeners.community.on("statechange", this._updatingCommunityInstanceWithListeners.statechange);
 
         const clientKeys = remeda.keys.strict(this.clients);
         for (const clientType of clientKeys)
             if (this.clients[clientType])
                 for (const clientUrl of Object.keys(this.clients[clientType]))
                     this.clients[clientType][clientUrl].mirror(
-                        this._updatingSubInstanceWithListeners.subplebbit.clients[clientType][clientUrl]
+                        this._updatingCommunityInstanceWithListeners.community.clients[clientType][clientUrl]
                     );
-        this._updatingSubInstanceWithListeners.subplebbit._numOfListenersForUpdatingInstance++;
-        if (this._updatingSubInstanceWithListeners.subplebbit.state === "stopped") {
-            this._updatingSubInstanceWithListeners.subplebbit._setState("updating");
-            this._updatingSubInstanceWithListeners.subplebbit._clientsManager
+        this._updatingCommunityInstanceWithListeners.community._numOfListenersForUpdatingInstance++;
+        if (this._updatingCommunityInstanceWithListeners.community.state === "stopped") {
+            this._updatingCommunityInstanceWithListeners.community._setState("updating");
+            this._updatingCommunityInstanceWithListeners.community._clientsManager
                 .startUpdatingLoop()
-                .catch((err) => log.error("Failed to start update loop of subplebbit", err));
+                .catch((err) => log.error("Failed to start update loop of community", err));
         }
     }
 
     async update() {
-        if (this.state !== "stopped") return; // No need to do anything if subplebbit is already updating
+        if (this.state !== "stopped") return; // No need to do anything if community is already updating
 
         const log = Logger("pkc-js:remote-community:update");
 
         this._setState("updating");
 
         await this.fetchLatestSubOrSubscribeToEvent();
-        if (this.raw.subplebbitIpfs) this.emit("update", this);
+        if (this.raw.communityIpfs) this.emit("update", this);
     }
 
     private async _cleanUpUpdatingSubInstanceWithListeners() {
-        if (!this._updatingSubInstanceWithListeners) throw Error("should be defined at this stage");
+        if (!this._updatingCommunityInstanceWithListeners) throw Error("should be defined at this stage");
 
         const log = Logger("pkc-js:remote-community:stop:cleanUpUpdatingSubInstanceWithListeners");
-        const updatingCommunity = this._updatingSubInstanceWithListeners.subplebbit;
+        const updatingCommunity = this._updatingCommunityInstanceWithListeners.community;
         if (typeof updatingCommunity.ipnsName === "string") this._ipnsName = updatingCommunity.ipnsName;
         if (typeof updatingCommunity.ipnsPubsubTopic === "string") this._ipnsPubsubTopic = updatingCommunity.ipnsPubsubTopic;
         if (typeof updatingCommunity.ipnsPubsubTopicRoutingCid === "string")
             this._ipnsPubsubTopicRoutingCid = updatingCommunity.ipnsPubsubTopicRoutingCid;
-        this._updatingState = this._updatingSubInstanceWithListeners.subplebbit.updatingState; // need to capture latest updating state before removing listeners
-        // this instance is subscribed to plebbit._updatingCommunity[address]
-        // removing listeners should reset plebbit._updatingCommunity by itself when there are no subscribers
-        this._updatingSubInstanceWithListeners.subplebbit.removeListener("statechange", this._updatingSubInstanceWithListeners.statechange);
-        this._updatingSubInstanceWithListeners.subplebbit.removeListener("update", this._updatingSubInstanceWithListeners.update);
-        this._updatingSubInstanceWithListeners.subplebbit.removeListener(
-            "updatingstatechange",
-            this._updatingSubInstanceWithListeners.updatingstatechange
+        this._updatingState = this._updatingCommunityInstanceWithListeners.community.updatingState; // need to capture latest updating state before removing listeners
+        // this instance is subscribed to pkc._updatingCommunity[address]
+        // removing listeners should reset pkc._updatingCommunity by itself when there are no subscribers
+        this._updatingCommunityInstanceWithListeners.community.removeListener(
+            "statechange",
+            this._updatingCommunityInstanceWithListeners.statechange
         );
-        this._updatingSubInstanceWithListeners.subplebbit.removeListener("error", this._updatingSubInstanceWithListeners.error);
+        this._updatingCommunityInstanceWithListeners.community.removeListener(
+            "update",
+            this._updatingCommunityInstanceWithListeners.update
+        );
+        this._updatingCommunityInstanceWithListeners.community.removeListener(
+            "updatingstatechange",
+            this._updatingCommunityInstanceWithListeners.updatingstatechange
+        );
+        this._updatingCommunityInstanceWithListeners.community.removeListener("error", this._updatingCommunityInstanceWithListeners.error);
 
         const clientKeys = remeda.keys.strict(this.clients);
 
@@ -674,15 +680,15 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
             if (this.clients[clientType])
                 for (const clientUrl of Object.keys(this.clients[clientType])) this.clients[clientType][clientUrl].unmirror();
 
-        this._updatingSubInstanceWithListeners.subplebbit._numOfListenersForUpdatingInstance--;
+        this._updatingCommunityInstanceWithListeners.community._numOfListenersForUpdatingInstance--;
         if (
-            this._updatingSubInstanceWithListeners.subplebbit._numOfListenersForUpdatingInstance === 0 &&
-            this._updatingSubInstanceWithListeners.subplebbit.state !== "stopped"
+            this._updatingCommunityInstanceWithListeners.community._numOfListenersForUpdatingInstance === 0 &&
+            this._updatingCommunityInstanceWithListeners.community.state !== "stopped"
         ) {
-            log("Cleaning up plebbit._updatingCommunitys", this.address, "There are no subplebbits using it for updates");
-            await this._updatingSubInstanceWithListeners.subplebbit.stop();
+            log("Cleaning up pkc._updatingCommunities", this.address, "There are no communities using it for updates");
+            await this._updatingCommunityInstanceWithListeners.community.stop();
         }
-        this._updatingSubInstanceWithListeners = undefined;
+        this._updatingCommunityInstanceWithListeners = undefined;
     }
 
     async stop() {
@@ -690,13 +696,13 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         if (this.state !== "updating") throw new PKCError("ERR_CALLED_COMMUNITY_STOP_WITHOUT_UPDATE", { address: this.address });
 
         const log = Logger("pkc-js:remote-community:stop");
-        this._abortStopOperations(`Aborting subplebbit operations for ${this.address} because subplebbit.stop() was called`);
+        this._abortStopOperations(`Aborting community operations for ${this.address} because community.stop() was called`);
 
-        if (this._updatingSubInstanceWithListeners) await this._cleanUpUpdatingSubInstanceWithListeners();
+        if (this._updatingCommunityInstanceWithListeners) await this._cleanUpUpdatingSubInstanceWithListeners();
         else {
-            // this instance is plebbit._updatingCommunity[address] itself
+            // this instance is pkc._updatingCommunity[address] itself
             await this._clientsManager.stopUpdatingLoop();
-            untrackUpdatingCommunity(this._plebbit, this);
+            untrackUpdatingCommunity(this._pkc, this);
         }
         this._setUpdatingStateWithEventEmissionIfNewState("stopped");
         this._setState("stopped");
@@ -704,17 +710,17 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         this.modQueue._stop();
     }
 
-    // functions to be overridden in local subplebbit classes
+    // functions to be overridden in local community classes
 
     async edit(options: CommunityEditOptions): Promise<any> {
-        throw Error("Can't edit a remote subplebbit");
+        throw Error("Can't edit a remote community");
     }
 
     async delete() {
-        throw Error("Can't delete a remote subplebbit");
+        throw Error("Can't delete a remote community");
     }
 
     async start() {
-        throw Error("Can't start a remote subplebbit");
+        throw Error("Can't start a remote community");
     }
 }

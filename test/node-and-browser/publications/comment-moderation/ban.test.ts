@@ -25,8 +25,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC, commentToBeBanned: Comment, authorBanExpiresAt: number, reasonOfBan: string;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
-            commentToBeBanned = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            pkc = await config.pkcInstancePromise();
+            commentToBeBanned = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
             await commentToBeBanned.update();
             authorBanExpiresAt = timestamp() + 10; // Ban stays for 10 seconds
             reasonOfBan = "Just so " + Date.now();
@@ -53,7 +53,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it(`Banned author can't publish`, async () => {
             const newCommentByBannedAuthor = await generateMockPost({
                 communityAddress: commentToBeBanned.communityAddress,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: {
                     signer: commentToBeBanned.signer
                 }
@@ -68,9 +68,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it.sequential(`A new CommentUpdate with comment.author.banExpiresAt is published`, async () => {
             await resolveWhenConditionIsTrue({
                 toUpdate: commentToBeBanned,
-                predicate: async () => typeof commentToBeBanned.author.subplebbit?.banExpiresAt === "number"
+                predicate: async () => typeof commentToBeBanned.author.community?.banExpiresAt === "number"
             });
-            expect(commentToBeBanned.author.subplebbit.banExpiresAt).to.equals(authorBanExpiresAt);
+            expect(commentToBeBanned.author.community.banExpiresAt).to.equals(authorBanExpiresAt);
             expect(commentToBeBanned.reason).to.equal(reasonOfBan);
         });
 
@@ -82,12 +82,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 predicate: async () => typeof sub.updatedAt === "number"
             });
             const postInCommunityPage = await iterateThroughPagesToFindCommentInParentPagesInstance(commentToBeBanned.cid, sub.posts);
-            expect(postInCommunityPage.author.subplebbit.banExpiresAt).to.be.a("number");
+            expect(postInCommunityPage.author.community.banExpiresAt).to.be.a("number");
             await sub.stop();
         });
 
         it(`Regular author can't ban another author`, async () => {
-            const tryToBanComment = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            const tryToBanComment = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
 
             const banCommentEdit = await pkc.createCommentModeration({
                 communityAddress: tryToBanComment.communityAddress,
@@ -107,7 +107,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(timestamp()).to.be.greaterThan(authorBanExpiresAt);
             const newCommentByBannedAuthor = await generateMockPost({
                 communityAddress: commentToBeBanned.communityAddress,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: {
                     signer: commentToBeBanned.signer
                 }

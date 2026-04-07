@@ -38,7 +38,7 @@ const verifyPageJsonAlongWithObject = async (
         page: JSON.parse(JSON.stringify(pageJson)),
         resolveAuthorNames: pkc.resolveAuthorNames,
         clientsManager: pkc._clientsManager,
-        subplebbit: community,
+        community: community,
         parentComment,
         validatePages: true,
         validateUpdateSignature: true
@@ -49,7 +49,7 @@ const verifyPageJsonAlongWithObject = async (
         page: pageJson,
         resolveAuthorNames: pkc.resolveAuthorNames,
         clientsManager: pkc._clientsManager,
-        subplebbit: community,
+        community: community,
         parentComment,
         validatePages: true,
         validateUpdateSignature: true
@@ -73,7 +73,7 @@ describeSkipIfRpc(`verify pages`, async () => {
     });
 
     it(`Can validate page from live community`, async () => {
-        const page = community.raw.subplebbitIpfs.posts.pages.hot;
+        const page = community.raw.communityIpfs.posts.pages.hot;
         const pageVerification = await verifyPageJsonAlongWithObject(page, pkc, community, undefined);
         expect(pageVerification).to.deep.equal({ valid: true });
     });
@@ -96,7 +96,7 @@ describeSkipIfRpc(`verify pages`, async () => {
 
         const tempPKC: PKCType = await mockRemotePKC({
             mockResolve: false,
-            plebbitOptions: {
+            pkcOptions: {
                 nameResolvers: [
                     createMockNameResolver({
                         records: new Map([[domainName, signers[3].address]]), // Resolve to wrong address intentionally

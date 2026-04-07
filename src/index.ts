@@ -7,15 +7,15 @@ import { setNativeFunctions as utilSetNativeFunctions } from "./runtime/node/uti
 import nodeNativeFunctions from "./runtime/node/native-functions.js";
 import browserNativeFunctions from "./runtime/browser/native-functions.js";
 import { shortifyAddress, shortifyCid } from "./util.js";
-import { plebbitJsChallenges } from "./runtime/node/community/challenges/index.js";
+import { pkcJsChallenges } from "./runtime/node/community/challenges/index.js";
 import { PKCWithRpcClient } from "./pkc/pkc-with-rpc-client.js";
 import type { AuthorNameRpcParam, CidRpcParam } from "./clients/rpc-client/types.js";
 import { parseRpcAuthorNameParam, parseRpcCidParam } from "./clients/rpc-client/rpc-schema-util.js";
 
-const PKC = async function PKC(plebbitOptions: InputPKCOptions = {}): Promise<PKCClass.PKC> {
-    const plebbit = plebbitOptions.pkcRpcClientsOptions ? new PKCWithRpcClient(plebbitOptions) : new PKCClass.PKC(plebbitOptions);
-    await plebbit._init();
-    return plebbit;
+const PKC = async function PKC(pkcOptions: InputPKCOptions = {}): Promise<PKCClass.PKC> {
+    const pkc = pkcOptions.pkcRpcClientsOptions ? new PKCWithRpcClient(pkcOptions) : new PKCClass.PKC(pkcOptions);
+    await pkc._init();
+    return pkc;
 };
 
 const getShortAddressValue = (params: AuthorNameRpcParam) => {
@@ -31,7 +31,7 @@ PKC.setNativeFunctions = utilSetNativeFunctions;
 PKC.nativeFunctions = { node: nodeNativeFunctions, browser: browserNativeFunctions };
 PKC.getShortCid = getShortCidValue;
 PKC.getShortAddress = getShortAddressValue;
-PKC.challenges = plebbitJsChallenges;
+PKC.challenges = pkcJsChallenges;
 export default PKC;
 export const setNativeFunctions = PKC.setNativeFunctions;
 export const nativeFunctions = PKC.nativeFunctions;

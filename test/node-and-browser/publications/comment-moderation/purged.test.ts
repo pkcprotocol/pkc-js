@@ -44,10 +44,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             let remotePKCIpfs: PKC;
             let updateCidOfCommunityWithPurgedComment: string;
             beforeAll(async () => {
-                pkc = await config.plebbitInstancePromise();
+                pkc = await config.pkcInstancePromise();
                 remotePKCIpfs = await mockPKCNoDataPathWithOnlyKuboClientNoAdd(); // this instance is connected to the same IPFS node as the sub
                 const community = await pkc.getCommunity({ address: communityAddress });
-                const commentToPurgeTemp = await publishCommentWithDepth({ depth: commentDepth, subplebbit: community }); // reason why we publish in a different plebbit instance so it doesn't get added to local kubo node
+                const commentToPurgeTemp = await publishCommentWithDepth({ depth: commentDepth, community: community }); // reason why we publish in a different plebbit instance so it doesn't get added to local kubo node
                 commentToPurge = await pkc.createComment({ cid: commentToPurgeTemp.cid });
                 await commentToPurge.update();
                 await resolveWhenConditionIsTrue({
@@ -57,13 +57,13 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
                 replyOfCommentToPurge = await publishRandomReply({
                     parentComment: commentToPurge as CommentIpfsWithCidDefined,
-                    plebbit: pkc
+                    pkc: pkc
                 });
                 await replyOfCommentToPurge.update();
 
                 replyUnderReplyOfCommentToPurge = await publishRandomReply({
                     parentComment: replyOfCommentToPurge as CommentIpfsWithCidDefined,
-                    plebbit: pkc
+                    pkc: pkc
                 });
                 await replyUnderReplyOfCommentToPurge.update();
                 await waitTillReplyInParentPages(replyUnderReplyOfCommentToPurge as ReplyWithRequiredFields, pkc);
@@ -211,7 +211,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             it(`Author of comment with depth ${commentDepth} can't purge their own comment`, async () => {
                 const community = await pkc.getCommunity({ address: communityAddress });
-                const commentToAttemptToPurge = await publishCommentWithDepth({ depth: commentDepth, subplebbit: community });
+                const commentToAttemptToPurge = await publishCommentWithDepth({ depth: commentDepth, community: community });
                 const purgeCommentModeration = await pkc.createCommentModeration({
                     communityAddress: commentToAttemptToPurge.communityAddress,
                     commentCid: commentToAttemptToPurge.cid,
@@ -240,7 +240,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it(`Purged comment with depth ${commentDepth} don't show in community.posts`, async () => {
-                const pkc = await config.plebbitInstancePromise();
+                const pkc = await config.pkcInstancePromise();
                 const sub = await pkc.createCommunity({ address: commentToPurge.communityAddress });
 
                 await sub.update();

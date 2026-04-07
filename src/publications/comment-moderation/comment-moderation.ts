@@ -16,8 +16,8 @@ export class CommentModeration extends Publication implements CommentModerationP
     override raw: { pubsubMessageToPublish?: CommentModerationPubsubMessagePublication } = {};
     override challengeRequest?: CreateCommentModerationOptions["challengeRequest"];
 
-    constructor(plebbit: PKC) {
-        super(plebbit);
+    constructor(pkc: PKC) {
+        super(pkc);
 
         // public method should be bound
         this.publish = this.publish.bind(this);
@@ -53,7 +53,7 @@ export class CommentModeration extends Publication implements CommentModerationP
     protected override async _signPublicationOptionsToPublish(
         cleanedPublication: unknown
     ): Promise<CommentModerationPubsubMessagePublication["signature"]> {
-        return signCommentModeration({ commentMod: cleanedPublication as CommentModerationOptionsToSign, plebbit: this._plebbit });
+        return signCommentModeration({ commentMod: cleanedPublication as CommentModerationOptionsToSign, pkc: this._pkc });
     }
 
     _initPubsubPublication(pubsubMsgPub: CommentModerationPubsubMessagePublication) {
@@ -71,7 +71,7 @@ export class CommentModeration extends Publication implements CommentModerationP
         const editObj = JSON.parse(JSON.stringify(this.raw.pubsubMessageToPublish!));
         const signatureValidity = await verifyCommentModeration({
             moderation: editObj,
-            resolveAuthorNames: this._plebbit.resolveAuthorNames,
+            resolveAuthorNames: this._pkc.resolveAuthorNames,
             clientsManager: this._clientsManager
         });
         if (!signatureValidity.valid) throw new PKCError("ERR_SIGNATURE_IS_INVALID", { signatureValidity });

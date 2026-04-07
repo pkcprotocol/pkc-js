@@ -23,8 +23,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let commentToEdit: Comment;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
-            commentToEdit = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            pkc = await config.pkcInstancePromise();
+            commentToEdit = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
             expect(commentToEdit.cid).to.be.a("string");
         });
 
@@ -117,7 +117,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -125,7 +125,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`An author publishing multiple author edit fields`, async () => {
-            const authorPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc }); // random signer
+            const authorPost = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc }); // random signer
 
             const fieldsToChange = {
                 deleted: true,
@@ -168,7 +168,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -183,7 +183,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 reason: "Test as an author" + Date.now()
             };
 
-            const authorPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc }); // generate random signer
+            const authorPost = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc }); // generate random signer
 
             const edit1 = await pkc.createCommentEdit({
                 ...firstEditProps,

@@ -25,7 +25,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -36,23 +36,23 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const description = "New description" + Math.random();
             const signer = await pkc.createSigner();
             const subplebbitEdit = await pkc.createCommunityEdit({
-                subplebbitEdit: { description },
+                communityEdit: { description },
                 communityAddress: communityAddress,
                 signer
             });
 
-            expect(subplebbitEdit.subplebbitEdit.description).to.equal(description);
+            expect(subplebbitEdit.communityEdit.description).to.equal(description);
             expect(subplebbitEdit.communityAddress).to.equal(communityAddress);
             expect(subplebbitEdit.author.address).to.equal(signer.address);
             expect(subplebbitEdit.raw.pubsubMessageToPublish).to.exist;
             expect(subplebbitEdit.toJSONPubsubRequestToEncrypt().subplebbitEdit).to.deep.equal(subplebbitEdit.raw.pubsubMessageToPublish);
         });
 
-        it(`(subplebbitEdit: CommunityEdit) === pkc.createCommunityEdit(JSON.parse(JSON.stringify(subplebbitEdit)))`, async () => {
+        it(`(communityEdit: CommunityEdit) === pkc.createCommunityEdit(JSON.parse(JSON.stringify(subplebbitEdit)))`, async () => {
             const description = "New description" + Math.random();
             const signer = await pkc.createSigner();
             const subplebbitEdit = await pkc.createCommunityEdit({
-                subplebbitEdit: { description },
+                communityEdit: { description },
                 communityAddress: communityAddress,
                 signer
             });
@@ -72,7 +72,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const description = "New description" + Math.random();
             const ownerSigner = await pkc.createSigner(roles[0].signer);
             const subplebbitEdit = await pkc.createCommunityEdit({
-                subplebbitEdit: { description },
+                communityEdit: { description },
                 communityAddress: communityAddress,
                 signer: ownerSigner
             });
@@ -93,7 +93,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -103,7 +103,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it(`A moderator publishing a CommunityEdit should fail`, async () => {
             const signer = await pkc.createSigner(roles[2].signer);
             const subplebbitEdit = await pkc.createCommunityEdit({
-                subplebbitEdit: { description: "Test desc from " + Math.random() },
+                communityEdit: { description: "Test desc from " + Math.random() },
                 communityAddress: communityAddress,
                 signer
             });
@@ -117,7 +117,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it(`A random author publishing a CommunityEdit should fail`, async () => {
             const signer = await pkc.createSigner();
             const subplebbitEdit = await pkc.createCommunityEdit({
-                subplebbitEdit: { description: "Test 12" + Math.random() },
+                communityEdit: { description: "Test 12" + Math.random() },
                 communityAddress: communityAddress,
                 signer
             });
@@ -135,7 +135,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let editProps: Record<string, unknown>;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -147,7 +147,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const authorAddress = (await pkc.createSigner()).address;
             editProps = { description: "Test" + Math.random(), roles: { [authorAddress]: { role: "admin" } } };
             const subplebbitEdit = await pkc.createCommunityEdit({
-                subplebbitEdit: editProps,
+                communityEdit: editProps,
                 communityAddress: communityAddress,
                 signer: adminSigner
             });
@@ -162,7 +162,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const adminSigner = await pkc.createSigner(roles[1].signer);
             editProps = { description: "Test" + Math.random(), address: "newaddress.eth" };
             const subplebbitEdit = await pkc.createCommunityEdit({
-                subplebbitEdit: editProps,
+                communityEdit: editProps,
                 communityAddress: communityAddress,
                 signer: adminSigner
             });
@@ -177,7 +177,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const adminSigner = await pkc.createSigner(roles[1].signer);
             const editProps = { description: "Test" + Math.random(), settings: { fetchThumbnailUrls: true } };
             const subplebbitEdit = await pkc.createCommunityEdit({
-                subplebbitEdit: editProps,
+                communityEdit: editProps,
                 communityAddress: communityAddress,
                 signer: adminSigner
             });
@@ -192,7 +192,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const adminSigner = await pkc.createSigner(roles[1].signer);
             editProps = { description: "Test" + Math.random() };
             const subplebbitEdit = await pkc.createCommunityEdit({
-                subplebbitEdit: editProps,
+                communityEdit: editProps,
                 communityAddress: communityAddress,
                 signer: adminSigner
             });
@@ -217,7 +217,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let editProps: Record<string, unknown> = {};
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -228,7 +228,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const ownerSigner = await pkc.createSigner(roles[0].signer);
             const sub = await pkc.getCommunity({ address: communityAddress });
             const subplebbitEdit = await pkc.createCommunityEdit({
-                subplebbitEdit: { address: sub.address }, // we're not changing the address because it's a sub used by other tests as well. But if the test pass it means {address} was passed over to sub.edit which is enough for our testing
+                communityEdit: { address: sub.address }, // we're not changing the address because it's a sub used by other tests as well. But if the test pass it means {address} was passed over to sub.edit which is enough for our testing
                 communityAddress: communityAddress,
                 signer: ownerSigner
             });
@@ -239,7 +239,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             newRoleAddress = (await pkc.createSigner()).address;
             editProps = { ...editProps, description: "Test" + Math.random(), roles: { [newRoleAddress]: { role: "admin" } } };
             const subplebbitEdit = await pkc.createCommunityEdit({
-                subplebbitEdit: editProps,
+                communityEdit: editProps,
                 communityAddress: communityAddress,
                 signer: ownerSigner
             });
@@ -250,7 +250,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const modSigner = await pkc.createSigner(roles[0].signer);
             const editProps = { description: "Test" + Math.random(), settings: { fetchThumbnailUrls: true } };
             const subplebbitEdit = await pkc.createCommunityEdit({
-                subplebbitEdit: editProps,
+                communityEdit: editProps,
                 communityAddress: communityAddress,
                 signer: modSigner
             });

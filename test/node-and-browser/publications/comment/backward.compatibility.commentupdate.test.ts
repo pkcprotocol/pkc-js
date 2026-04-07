@@ -40,10 +40,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         const extraProps = { extraPropUpdate: "1234" };
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
             community = await pkc.getCommunity({ address: communityAddress });
 
-            post = await publishRandomPost({ communityAddress: community.address, plebbit: pkc });
+            post = await publishRandomPost({ communityAddress: community.address, pkc: pkc });
             await post.update();
             await resolveWhenConditionIsTrue({ toUpdate: post, predicate: async () => typeof post.updatedAt === "number" });
             await post.stop();
@@ -173,7 +173,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 log
             );
 
-            const pageIpfs = community.raw.subplebbitIpfs.posts.pages.hot;
+            const pageIpfs = community.raw.communityIpfs.posts.pages.hot;
 
             pageIpfs.comments.push({
                 comment: post.raw.comment,
@@ -235,7 +235,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Extra props in decryptedChallengeVerification.commentUpdate - ${config.name}`, async () => {
         let pkc: PKC;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -243,7 +243,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Extra props in decryptedVerification.commentUpdate should fail if they're not part of commentUpdate.signature.signedPropertyNames`, async () => {
-            const post = await generateMockPost({ communityAddress: subWithNoResponseSigner.address, plebbit: pkc });
+            const post = await generateMockPost({ communityAddress: subWithNoResponseSigner.address, pkc: pkc });
 
             const commentUpdate = JSON.parse(JSON.stringify(validCommentUpdateFixture));
             const extraProps = { extraProp: 1234 };
@@ -268,7 +268,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await post.stop();
         });
         it(`Extra props in decryptedVerification.commentUpdate should be accepted if they're part of commentUpdate.signature.signedPropertyNames`, async () => {
-            const post = await generateMockPost({ communityAddress: subWithNoResponseSigner.address, plebbit: pkc });
+            const post = await generateMockPost({ communityAddress: subWithNoResponseSigner.address, pkc: pkc });
 
             const challengeRequestPromise = new Promise((resolve) => post.once("challengerequest", resolve));
             await post.publish();
@@ -305,7 +305,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Extra props in decryptedVerification.commentUpdate.author should be accepted`, async () => {
-            const post = await generateMockPost({ communityAddress: subWithNoResponseSigner.address, plebbit: pkc });
+            const post = await generateMockPost({ communityAddress: subWithNoResponseSigner.address, pkc: pkc });
 
             const challengeRequestPromise = new Promise((resolve) => post.once("challengerequest", resolve));
             await post.publish();

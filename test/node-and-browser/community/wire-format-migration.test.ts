@@ -21,7 +21,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKCType;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -68,7 +68,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 describe.concurrent("Wire format migration — helper functions", async () => {
     it(`buildRuntimeCommunity computes address from name`, () => {
         const result = buildRuntimeCommunity({
-            subplebbitRecord: { name: "memes.eth" } as Record<string, unknown>,
+            communityRecord: { name: "memes.eth" } as Record<string, unknown>,
             signaturePublicKey: signers[0].publicKey
         });
         expect(result.address).to.equal("memes.eth");
@@ -78,7 +78,7 @@ describe.concurrent("Wire format migration — helper functions", async () => {
 
     it(`buildRuntimeCommunity falls back to publicKey when no name`, () => {
         const result = buildRuntimeCommunity({
-            subplebbitRecord: {} as Record<string, unknown>,
+            communityRecord: {} as Record<string, unknown>,
             signaturePublicKey: signers[0].publicKey
         });
         expect(result.address).to.equal(signers[0].address);
@@ -126,7 +126,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKCType;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {

@@ -74,7 +74,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
         let pkc: PKC;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -82,7 +82,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
         });
 
         it(`comment.stop() after update() should complete within 10s`, async () => {
-            const post = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            const post = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
 
             const recreatedPost = await pkc.createComment({ cid: post.cid });
             await recreatedPost.update();
@@ -104,17 +104,17 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         describe(`comment.stop() aborts verification - ${config.name}`, async () => {
             it(`comment.stop() aborts background author resolution and clears cache`, async () => {
                 const blockedResolver = createBlockedNameResolver("bg-abort-resolver");
-                const publisher = await config.plebbitInstancePromise();
-                const reader = await config.plebbitInstancePromise({
+                const publisher = await config.pkcInstancePromise();
+                const reader = await config.pkcInstancePromise({
                     mockResolve: false,
                     stubStorage: false,
-                    plebbitOptions: { nameResolvers: [blockedResolver.resolver] }
+                    pkcOptions: { nameResolvers: [blockedResolver.resolver] }
                 });
 
                 try {
                     const publishedComment = await publishRandomPost({
                         communityAddress: communityAddress,
-                        plebbit: publisher,
+                        pkc: publisher,
                         postProps: {
                             author: { name: "plebbit.bso" },
                             signer: signers[3]
@@ -148,17 +148,17 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
             it(`comment.stop() aborts update-time author resolution without emitting a failure`, async () => {
                 const blockedResolver = createBlockedNameResolver("update-blocked-resolver");
-                const publisher = await config.plebbitInstancePromise();
-                const reader = await config.plebbitInstancePromise({
+                const publisher = await config.pkcInstancePromise();
+                const reader = await config.pkcInstancePromise({
                     mockResolve: false,
                     stubStorage: false,
-                    plebbitOptions: { nameResolvers: [blockedResolver.resolver] }
+                    pkcOptions: { nameResolvers: [blockedResolver.resolver] }
                 });
 
                 try {
                     const publishedComment = await publishRandomPost({
                         communityAddress: communityAddress,
-                        plebbit: publisher,
+                        pkc: publisher,
                         postProps: {
                             author: { name: "plebbit.bso" },
                             signer: signers[3]
@@ -191,17 +191,17 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
             it(`comment.stop() recreates the stop abort signal for a later update cycle`, async () => {
                 const blockedResolver = createBlockedNameResolver("restarted-update-blocked-resolver", "plebbit.bso");
-                const publisher = await config.plebbitInstancePromise();
-                const reader = await config.plebbitInstancePromise({
+                const publisher = await config.pkcInstancePromise();
+                const reader = await config.pkcInstancePromise({
                     mockResolve: false,
                     stubStorage: false,
-                    plebbitOptions: { nameResolvers: [blockedResolver.resolver] }
+                    pkcOptions: { nameResolvers: [blockedResolver.resolver] }
                 });
 
                 try {
                     const publishedComment = await publishRandomPost({
                         communityAddress: communityAddress,
-                        plebbit: publisher,
+                        pkc: publisher,
                         postProps: {
                             author: { name: "plebbit.bso" },
                             signer: signers[3]
@@ -260,14 +260,14 @@ describeSkipIfRpc(`comment.stop() aborts in-flight gateway fetches`, async () =>
     it(`comment.stop() aborts gateway fetch of commentIpfs`, async () => {
         // Use a non-routable IP that will hang forever
         const pkc = await mockGatewayPKC({
-            plebbitOptions: {
+            pkcOptions: {
                 ipfsGatewayUrls: ["http://192.0.2.1:1"]
             }
         });
 
         try {
             const publisher = await mockRemotePKC();
-            const post = await publishRandomPost({ communityAddress: communityAddress, plebbit: publisher });
+            const post = await publishRandomPost({ communityAddress: communityAddress, pkc: publisher });
             await publisher.destroy();
 
             const comment = await pkc.createComment({ cid: post.cid });

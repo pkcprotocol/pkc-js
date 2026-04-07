@@ -10,7 +10,7 @@ import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 
 const SUB_EDIT_FIELDS = {
     extraSignedPropertyNames: ["subplebbitEdit"],
-    extraFields: { subplebbitEdit: { description: "test edit" } }
+    extraFields: { communityEdit: { description: "test edit" } }
 };
 
 describe("CommunityEdit - community fields", () => {
@@ -28,7 +28,7 @@ describe("CommunityEdit - community fields", () => {
         const signer = await pkc.createSigner();
         const subEdit = await pkc.createCommunityEdit({
             communityAddress: "test.eth",
-            subplebbitEdit: { description: "test" },
+            communityEdit: { description: "test" },
             signer
         });
         expect(subEdit.communityAddress).to.equal("test.eth");
@@ -42,7 +42,7 @@ describe("CommunityEdit - community fields", () => {
         const subEdit = await pkc.createCommunityEdit({
             communityAddress: "myforum.eth",
             communityPublicKey: signers[0].address,
-            subplebbitEdit: { description: "test" },
+            communityEdit: { description: "test" },
             signer
         });
         expect(subEdit.communityAddress).to.equal("myforum.eth");
@@ -60,7 +60,7 @@ describe("CommunityEdit - community fields", () => {
         const signer = await pkc.createSigner();
         const subEdit = await pkc.createCommunityEdit({
             communityAddress: signers[0].address,
-            subplebbitEdit: { description: "test" },
+            communityEdit: { description: "test" },
             signer
         });
         expect(subEdit.communityAddress).to.equal(signers[0].address);

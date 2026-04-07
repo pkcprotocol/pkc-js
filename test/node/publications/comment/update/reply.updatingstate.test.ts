@@ -22,7 +22,7 @@ interface ReplyParentPagesTestContext {
     cleanup: () => Promise<void>;
 }
 
-const plebbitConfigs = getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true });
+const pkcConfigs = getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true });
 const replyDepthsToTest = [1, 2, 3, 5, 15, 30];
 
 describeSkipIfRpc("reply.updatingState via parent pageCIDs (node)", () => {
@@ -39,15 +39,15 @@ describeSkipIfRpc("reply.updatingState via parent pageCIDs (node)", () => {
                 await context.cleanup();
             });
 
-            plebbitConfigs.forEach((config) => {
+            pkcConfigs.forEach((config) => {
                 it(`loads reply updates from parent pageCIDs and emits expected state transitions - ${config.name}`, async () => {
                     if (!context) throw new Error("Test context was not initialized");
-                    const plebbit = await config.plebbitInstancePromise();
+                    const pkc = await config.pkcInstancePromise();
 
                     const recordedStates: CommentUpdatingState[] = [];
                     let reply: Comment | undefined;
                     try {
-                        reply = await plebbit.createComment({ cid: context.replyCid });
+                        reply = await pkc.createComment({ cid: context.replyCid });
 
                         expect(reply.content).to.be.undefined;
                         expect(reply.updatedAt).to.be.undefined;
@@ -75,7 +75,7 @@ describeSkipIfRpc("reply.updatingState via parent pageCIDs (node)", () => {
                             predicate: async () => typeof reply!.updatedAt === "number"
                         });
 
-                        const updatingMockReply = plebbit._updatingComments[reply.cid!];
+                        const updatingMockReply = pkc._updatingComments[reply.cid!];
                         expect(updatingMockReply).to.exist;
                         const numOfUpdates = recordedStates.filter((state) => state === "succeeded").length - 1;
                         expect(numOfUpdates).to.be.greaterThan(0);
@@ -97,7 +97,7 @@ describeSkipIfRpc("reply.updatingState via parent pageCIDs (node)", () => {
                         expect(filteredRecordedStates[filteredRecordedStates.length - 1]).to.equal("stopped");
                     } finally {
                         await reply?.stop();
-                        await plebbit.destroy();
+                        await pkc.destroy();
                     }
                 });
             });
@@ -106,14 +106,14 @@ describeSkipIfRpc("reply.updatingState via parent pageCIDs (node)", () => {
 });
 
 describeSkipIfRpc.concurrent("reply.updatingState regression (node)", () => {
-    plebbitConfigs.forEach((config) => {
+    pkcConfigs.forEach((config) => {
         it.concurrent(`does not recurse when reply is already the updating instance - ${config.name}`, async () => {
-            const plebbit = await config.plebbitInstancePromise();
+            const pkc = await config.pkcInstancePromise();
             const replyCid = "QmUrxBiaphUt3K6qDs2JspQJAgm34sKQaa5YaRmyAWXN4D";
-            const reply = await plebbit.createComment({ cid: replyCid });
+            const reply = await pkc.createComment({ cid: replyCid });
 
             // Force the same instance to be treated as the updating instance to mirror the recursion bug
-            plebbit._updatingComments[replyCid] = reply;
+            pkc._updatingComments[replyCid] = reply;
 
             try {
                 await reply.update(); // sets _updatingCommentInstance to itself
@@ -123,7 +123,7 @@ describeSkipIfRpc.concurrent("reply.updatingState regression (node)", () => {
                 expect(readUpdatingState()).to.equal("fetching-ipfs");
             } finally {
                 await reply.stop();
-                await plebbit.destroy();
+                await pkc.destroy();
             }
         });
     });
@@ -134,13 +134,13 @@ async function createReplyParentPagesTestEnvironment({ replyDepth }: { replyDept
     if (replyDepth < 1) throw new Error("replyDepth must be at least 1");
 
     const publisherPKC = await mockPKC();
-    const subplebbit = (await createSubWithNoChallenge({}, publisherPKC)) as LocalCommunity | RpcLocalCommunity;
+    const community = (await createSubWithNoChallenge({}, publisherPKC)) as LocalCommunity | RpcLocalCommunity;
 
     try {
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
-        const reply = await publishCommentWithDepth({ depth: replyDepth, subplebbit });
+        const reply = await publishCommentWithDepth({ depth: replyDepth, community });
         const parentComment = await publisherPKC.getComment({ cid: reply.parentCid! });
 
         await parentComment.update();
@@ -149,19 +149,19 @@ async function createReplyParentPagesTestEnvironment({ replyDepth }: { replyDept
             predicate: async () => typeof parentComment.updatedAt === "number"
         });
 
-        const { cleanup: preloadCleanup } = disablePreloadPagesOnSub({ subplebbit: subplebbit as LocalCommunity });
+        const { cleanup: preloadCleanup } = disablePreloadPagesOnSub({ community: community as LocalCommunity });
 
-        await publishRandomReply({ parentComment: parentComment as CommentIpfsWithCidDefined, plebbit: publisherPKC }); // to force an update
+        await publishRandomReply({ parentComment: parentComment as CommentIpfsWithCidDefined, pkc: publisherPKC }); // to force an update
         // below could timeout
         await resolveWhenConditionIsTrue({
             toUpdate: parentComment,
             predicate: async () => Object.keys(parentComment.replies.pageCids).length > 0
         });
-        expect(subplebbit.posts.pages.hot.comments.length).to.equal(0);
+        expect(community.posts.pages.hot.comments.length).to.equal(0);
 
         const cleanup = async () => {
             preloadCleanup();
-            await subplebbit.delete();
+            await community.delete();
             await publisherPKC.destroy();
         };
 
@@ -171,19 +171,19 @@ async function createReplyParentPagesTestEnvironment({ replyDepth }: { replyDept
             cleanup
         };
     } catch (error) {
-        await subplebbit.delete();
+        await community.delete();
         await publisherPKC.destroy();
         throw error;
     }
 }
 
 function getExpectedStatesForConfig(configCode: string): CommentUpdatingState[] {
-    if (!configCode) throw new Error("plebbit config code is required");
+    if (!configCode) throw new Error("pkc config code is required");
     const normalizedCode = configCode.toLowerCase();
     const base: CommentUpdatingState[] = ["fetching-ipfs", "succeeded"];
 
     if (normalizedCode === "remote-ipfs-gateway") {
-        return cleanupStateArray([...base, "fetching-subplebbit-ipns", "fetching-update-ipfs", "succeeded", "stopped"]);
+        return cleanupStateArray([...base, "fetching-community-ipns", "fetching-update-ipfs", "succeeded", "stopped"]);
     }
 
     if (normalizedCode === "local-kubo-rpc") {
@@ -193,8 +193,8 @@ function getExpectedStatesForConfig(configCode: string): CommentUpdatingState[] 
     if (normalizedCode === "remote-libp2pjs") {
         return cleanupStateArray([
             ...base,
-            "fetching-subplebbit-ipns",
-            "fetching-subplebbit-ipfs",
+            "fetching-community-ipns",
+            "fetching-community-ipfs",
             "fetching-update-ipfs",
             "succeeded",
             "stopped"
@@ -204,8 +204,8 @@ function getExpectedStatesForConfig(configCode: string): CommentUpdatingState[] 
     // default (e.g. remote Kubo without datapath)
     return cleanupStateArray([
         ...base,
-        "fetching-subplebbit-ipns",
-        "fetching-subplebbit-ipfs",
+        "fetching-community-ipns",
+        "fetching-community-ipfs",
         "fetching-update-ipfs",
         "succeeded",
         "stopped"
@@ -229,8 +229,8 @@ const cleanupStateArray = (states: CommentUpdatingState[]): CommentUpdatingState
         }
     }
 
-    const patternA: CommentUpdatingState = "fetching-subplebbit-ipns";
-    const patternB: CommentUpdatingState = "fetching-subplebbit-ipfs";
+    const patternA: CommentUpdatingState = "fetching-community-ipns";
+    const patternB: CommentUpdatingState = "fetching-community-ipfs";
     for (let i = 0; i <= filteredStates.length - 4; i++) {
         if (
             filteredStates[i] === patternA &&

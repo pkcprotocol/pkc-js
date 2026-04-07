@@ -35,11 +35,11 @@ export const testCommentFieldsInPageJson = (
 
     // Verify CommentUpdate fields
     expect(comment.updatedAt).to.be.a("number");
-    expect(comment.author.subplebbit).to.be.a("object");
-    expect(comment.author.subplebbit.postScore).to.be.a("number");
-    expect(comment.author.subplebbit.replyScore).to.be.a("number");
-    expect(comment.author.subplebbit.firstCommentTimestamp).to.be.a("number");
-    expect(comment.author.subplebbit.lastCommentCid).to.be.a("string");
+    expect(comment.author.community).to.be.a("object");
+    expect(comment.author.community.postScore).to.be.a("number");
+    expect(comment.author.community.replyScore).to.be.a("number");
+    expect(comment.author.community.firstCommentTimestamp).to.be.a("number");
+    expect(comment.author.community.lastCommentCid).to.be.a("string");
     expect(comment.author.shortAddress).to.be.a("string");
 
     expect(comment.downvoteCount).to.be.a("number");
@@ -95,11 +95,11 @@ export const testCommentFieldsInModQueuePageJson = (comment: Record<string, any>
 
     // Verify CommentUpdate fields
     expect(comment.updatedAt).to.be.undefined; // may change later
-    expect(comment.author.subplebbit).to.be.a("object");
-    expect(comment.author.subplebbit.postScore).to.be.a("number");
-    expect(comment.author.subplebbit.replyScore).to.be.a("number");
-    expect(comment.author.subplebbit.firstCommentTimestamp).to.be.a("number");
-    expect(comment.author.subplebbit.lastCommentCid).to.be.a("string");
+    expect(comment.author.community).to.be.a("object");
+    expect(comment.author.community.postScore).to.be.a("number");
+    expect(comment.author.community.replyScore).to.be.a("number");
+    expect(comment.author.community.firstCommentTimestamp).to.be.a("number");
+    expect(comment.author.community.lastCommentCid).to.be.a("string");
     expect(comment.author.shortAddress).to.be.a("string");
 
     expect(comment.downvoteCount).to.be.undefined;
@@ -170,8 +170,8 @@ export const testPageCommentsIfSortedCorrectly = async (
         const sort = { ...POSTS_SORT_TYPES, ...POST_REPLIES_SORT_TYPES }[sortName];
         let scoreA: number, scoreB: number;
         if (sortName === "active") {
-            scoreA = await activeScore(sortedComments[j], (community as any)._plebbit);
-            scoreB = await activeScore(sortedComments[j + 1], (community as any)._plebbit);
+            scoreA = await activeScore(sortedComments[j], (community as any)._pkc);
+            scoreB = await activeScore(sortedComments[j + 1], (community as any)._pkc);
         } else {
             scoreA = sort.score(sortedComments[j].raw);
             scoreB = sort.score(sortedComments[j + 1].raw);

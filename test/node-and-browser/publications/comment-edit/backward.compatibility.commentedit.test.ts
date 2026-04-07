@@ -17,7 +17,7 @@ type ChallengeRequestWithEdit = {
         extraProp?: string;
         insertedAt?: string;
         author?: {
-            subplebbit?: string;
+            community?: string;
             extraProp?: string;
         };
     };
@@ -37,8 +37,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC;
         let commentToEdit: Comment;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
-            commentToEdit = await publishRandomPost({ communityAddress: signers[0].address, plebbit: pkc });
+            pkc = await config.pkcInstancePromise();
+            commentToEdit = await publishRandomPost({ communityAddress: signers[0].address, pkc: pkc });
             await commentToEdit.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: commentToEdit,
@@ -135,7 +135,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                         author: {
                             ...(commentEdit.raw.pubsubMessageToPublish?.author ??
                                 (commentEdit.raw as any).unsignedPublicationOptions?.author),
-                            subplebbit: "random"
+                            community: "random"
                         }
                     },
                     true
@@ -151,7 +151,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     expectedReason: messages.ERR_PUBLICATION_AUTHOR_HAS_RESERVED_FIELD
                 });
                 const challengerequest = await challengeRequestPromise;
-                expect(challengerequest.commentEdit.author.subplebbit).to.equal("random");
+                expect(challengerequest.commentEdit.author.community).to.equal("random");
             });
             it.sequential(`Publishing with extra prop for author should succeed`, async () => {
                 const commentEdit = await pkc.createCommentEdit({

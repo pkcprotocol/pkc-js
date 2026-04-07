@@ -6,17 +6,17 @@ import type { LocalCommunity } from "../../../dist/node/runtime/node/community/l
 import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 
 describe.concurrent(`Community.updateCid`, async () => {
-    let plebbit: PKCType;
+    let pkc: PKCType;
     beforeAll(async () => {
-        plebbit = await mockPKC();
+        pkc = await mockPKC();
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
-    it(`subplebbit.updateCid gets updated when local-subplebbit publishes a new record`, async () => {
-        const sub = (await plebbit.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
+    it(`community.updateCid gets updated when local-community publishes a new record`, async () => {
+        const sub = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
         expect(sub.updateCid).to.be.undefined;
 
         await sub.start();
@@ -25,22 +25,22 @@ describe.concurrent(`Community.updateCid`, async () => {
 
         await sub.delete();
     });
-    it(`subplebbit.updateCid is defined when creating an instance of an existing local subplebbit`, async () => {
-        const sub = (await plebbit.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
+    it(`community.updateCid is defined when creating an instance of an existing local community`, async () => {
+        const sub = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
         expect(sub.updateCid).to.be.undefined;
 
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" }); // wait until we publish a new record
         expect(sub.updateCid).to.be.a("string");
 
-        const recreatedSub = (await plebbit.createCommunity({ address: sub.address })) as LocalCommunity | RpcLocalCommunity;
+        const recreatedSub = (await pkc.createCommunity({ address: sub.address })) as LocalCommunity | RpcLocalCommunity;
         expect(recreatedSub.updateCid).to.equal(sub.updateCid);
 
         await sub.delete();
     });
 
-    it(`subplebbit.updateCid is part of subplebbit.toJSON()`, async () => {
-        const sub = (await plebbit.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
+    it(`community.updateCid is part of community.toJSON()`, async () => {
+        const sub = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
         expect(sub.updateCid).to.be.undefined;
 
         await sub.start();

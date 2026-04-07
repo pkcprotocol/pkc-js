@@ -12,38 +12,36 @@ import type { LocalCommunity } from "../../../dist/node/runtime/node/community/l
 import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 import type { CommunityUpdatingState } from "../../../dist/node/community/types.js";
 
-describe.concurrent(`subplebbit.updatingState from a local subplebbit`, async () => {
-    let plebbit: PKC;
+describe.concurrent(`community.updatingState from a local community`, async () => {
+    let pkc: PKC;
     beforeAll(async () => {
-        plebbit = await mockPKC();
+        pkc = await mockPKC();
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
-    it(`subplebbit.updatingState defaults to stopped`, async () => {
-        const createdCommunity = (await plebbit.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+    it(`community.updatingState defaults to stopped`, async () => {
+        const createdCommunity = (await pkc.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         await createdCommunity.start();
         await resolveWhenConditionIsTrue({
             toUpdate: createdCommunity,
             predicate: async () => typeof createdCommunity.updatedAt === "number"
         });
-        const subplebbit = await plebbit.getCommunity({ address: createdCommunity.address });
-        expect(subplebbit.updatingState).to.equal("stopped");
+        const community = await pkc.getCommunity({ address: createdCommunity.address });
+        expect(community.updatingState).to.equal("stopped");
     });
 
-    itSkipIfRpc(`subplebbit.updatingState emits 'succceeded' when a new update from local sub is retrieved`, async () => {
-        const startedCommunity = await createSubWithNoChallenge({}, plebbit);
+    itSkipIfRpc(`community.updatingState emits 'succceeded' when a new update from local sub is retrieved`, async () => {
+        const startedCommunity = await createSubWithNoChallenge({}, pkc);
         await startedCommunity.start();
         await resolveWhenConditionIsTrue({
             toUpdate: startedCommunity,
             predicate: async () => typeof startedCommunity.updatedAt === "number"
         });
 
-        const localUpdatingSub = (await plebbit.createCommunity({ address: startedCommunity.address })) as
-            | LocalCommunity
-            | RpcLocalCommunity;
+        const localUpdatingSub = (await pkc.createCommunity({ address: startedCommunity.address })) as LocalCommunity | RpcLocalCommunity;
         const expectedStates: CommunityUpdatingState[] = ["publishing-ipns", "succeeded", "stopped"];
         const recordedStates: CommunityUpdatingState[] = [];
 
@@ -52,7 +50,7 @@ describe.concurrent(`subplebbit.updatingState from a local subplebbit`, async ()
         await localUpdatingSub.update();
         const updatePromise = new Promise((resolve) => localUpdatingSub.once("update", resolve));
 
-        await publishRandomPost({ communityAddress: localUpdatingSub.address, plebbit: plebbit });
+        await publishRandomPost({ communityAddress: localUpdatingSub.address, pkc: pkc });
         await updatePromise;
         await localUpdatingSub.stop();
         await startedCommunity.delete();
@@ -60,9 +58,9 @@ describe.concurrent(`subplebbit.updatingState from a local subplebbit`, async ()
     });
 
     itIfRpc(`localCommunity.updatingState is copied from startedState if we're updating a local sub via rpc`, async () => {
-        const startedSub = await createSubWithNoChallenge({}, plebbit);
+        const startedSub = await createSubWithNoChallenge({}, pkc);
 
-        const updatingSub = (await plebbit.createCommunity({ address: startedSub.address })) as LocalCommunity | RpcLocalCommunity;
+        const updatingSub = (await pkc.createCommunity({ address: startedSub.address })) as LocalCommunity | RpcLocalCommunity;
 
         const startedInstanceStartedStates: string[] = [];
         startedSub.on("startedstatechange", () => startedInstanceStartedStates.push(startedSub.startedState));
@@ -78,9 +76,9 @@ describe.concurrent(`subplebbit.updatingState from a local subplebbit`, async ()
 
         await updatingSub.update();
 
-        await publishRandomPost({ communityAddress: startedSub.address, plebbit: plebbit }); // to trigger an update
+        await publishRandomPost({ communityAddress: startedSub.address, pkc: pkc }); // to trigger an update
         await new Promise((resolve) => setTimeout(resolve, 1000));
-        await publishRandomPost({ communityAddress: startedSub.address, plebbit: plebbit });
+        await publishRandomPost({ communityAddress: startedSub.address, pkc: pkc });
 
         await resolveWhenConditionIsTrue({ toUpdate: updatingSub, predicate: async () => updates.length >= 2 });
         await startedSub.delete();

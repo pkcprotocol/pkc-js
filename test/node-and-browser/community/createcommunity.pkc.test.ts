@@ -28,7 +28,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
         let pkc: PKCType;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -107,7 +107,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
         };
 
         it.sequential("createCommunity from a spread community does not restore top-level runtime-only nameResolved", async () => {
-            const testPKC = await config.plebbitInstancePromise();
+            const testPKC = await config.pkcInstancePromise();
             try {
                 const loadedCommunity = await loadCommunityWithResolvedName(testPKC);
                 const spread = { ...loadedCommunity };
@@ -119,7 +119,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
                 expect(recreatedCommunity.address).to.equal(loadedCommunity.address);
                 expect(recreatedCommunity.name).to.equal(loadedCommunity.name);
                 expect(recreatedCommunity.publicKey).to.equal(loadedCommunity.publicKey);
-                expect(recreatedCommunity.raw.subplebbitIpfs).to.deep.equal(loadedCommunity.raw.subplebbitIpfs);
+                expect(recreatedCommunity.raw.communityIpfs).to.deep.equal(loadedCommunity.raw.communityIpfs);
             } finally {
                 await testPKC.destroy();
             }
@@ -128,7 +128,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
         it.sequential(
             "createCommunity from a JSON-stringified community does not restore top-level runtime-only nameResolved",
             async () => {
-                const testPKC = await config.plebbitInstancePromise();
+                const testPKC = await config.pkcInstancePromise();
                 try {
                     const loadedCommunity = await loadCommunityWithResolvedName(testPKC);
                     const json = JSON.parse(JSON.stringify(loadedCommunity));
@@ -140,7 +140,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
                     expect(recreatedCommunity.address).to.equal(loadedCommunity.address);
                     expect(recreatedCommunity.name).to.equal(loadedCommunity.name);
                     expect(recreatedCommunity.publicKey).to.equal(loadedCommunity.publicKey);
-                    expect(recreatedCommunity.raw.subplebbitIpfs).to.deep.equal(loadedCommunity.raw.subplebbitIpfs);
+                    expect(recreatedCommunity.raw.communityIpfs).to.deep.equal(loadedCommunity.raw.communityIpfs);
                 } finally {
                     await testPKC.destroy();
                 }

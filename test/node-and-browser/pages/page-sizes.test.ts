@@ -73,7 +73,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let mockCommunity: RemoteCommunity;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -110,17 +110,13 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const loadedFirstPage = await mockCommunity.posts.getPage({ cid: firstPageCid }); // just to set the expectation for second page
 
             // Verify the size expectation for the second page is set correctly
-            expect(mockCommunity._plebbit._memCaches.pagesMaxSize.get(sha256(mockCommunity.address + secondPageCid))).to.equal(
-                secondPageSize
-            );
+            expect(mockCommunity._pkc._memCaches.pagesMaxSize.get(sha256(mockCommunity.address + secondPageCid))).to.equal(secondPageSize);
 
             // Load the second page
             const loadedSecondPage = await mockCommunity.posts.getPage({ cid: secondPageCid });
 
             // Verify the size expectation for the third page is set correctly
-            expect(mockCommunity._plebbit._memCaches.pagesMaxSize.get(sha256(mockCommunity.address + thirdPageCid))).to.equal(
-                thirdPageSize
-            );
+            expect(mockCommunity._pkc._memCaches.pagesMaxSize.get(sha256(mockCommunity.address + thirdPageCid))).to.equal(thirdPageSize);
 
             // Load the third page
             const loadedThirdPage = await mockCommunity.posts.getPage({ cid: thirdPageCid });
@@ -154,7 +150,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             // Verify the size expectation for the second page is set correctly
 
-            expect(mockCommunity._plebbit._memCaches.pagesMaxSize.get(sha256(mockCommunity.address + oversizedSecondPageCid))).to.equal(
+            expect(mockCommunity._pkc._memCaches.pagesMaxSize.get(sha256(mockCommunity.address + oversizedSecondPageCid))).to.equal(
                 secondPageSize
             );
 

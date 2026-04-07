@@ -17,8 +17,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.sequential(`Authors can set flairs on their own comment - ${config.name}`, async () => {
         let pkc: PKC, authorPost: Comment;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
-            authorPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            pkc = await config.pkcInstancePromise();
+            authorPost = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
             expect(authorPost.flairs).to.be.undefined;
             await authorPost.update();
             await resolveWhenConditionIsTrue({ toUpdate: authorPost, predicate: async () => typeof authorPost.updatedAt === "number" });

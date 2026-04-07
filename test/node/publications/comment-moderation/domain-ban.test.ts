@@ -25,40 +25,40 @@ async function createPKCWithMockResolver(records: Map<string, string | undefined
     return mockPKCV2({
         stubStorage: false,
         mockResolve: false,
-        plebbitOptions: {
+        pkcOptions: {
             nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records })]
         }
     });
 }
 
 describeSkipIfRpc("Domain-based author bans", () => {
-    let plebbit: PKC;
-    let subplebbit: LocalCommunity;
+    let pkc: PKC;
+    let community: LocalCommunity;
     let moderatorSigner: SignerType;
     let resolverRecords: Map<string, string | undefined>;
 
     beforeAll(async () => {
         resolverRecords = new Map();
-        plebbit = await createPKCWithMockResolver(resolverRecords);
-        subplebbit = (await createSubWithNoChallenge({}, plebbit)) as LocalCommunity;
-        await subplebbit.start();
+        pkc = await createPKCWithMockResolver(resolverRecords);
+        community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
+        await community.start();
         await resolveWhenConditionIsTrue({
-            toUpdate: subplebbit,
-            predicate: async () => typeof subplebbit.updatedAt === "number"
+            toUpdate: community,
+            predicate: async () => typeof community.updatedAt === "number"
         });
 
-        moderatorSigner = await plebbit.createSigner();
+        moderatorSigner = await pkc.createSigner();
 
-        await subplebbit.edit({ roles: { [moderatorSigner.address]: { role: "moderator" } } });
+        await community.edit({ roles: { [moderatorSigner.address]: { role: "moderator" } } });
         await resolveWhenConditionIsTrue({
-            toUpdate: subplebbit,
-            predicate: async () => subplebbit.roles?.[moderatorSigner.address]?.role === "moderator"
+            toUpdate: community,
+            predicate: async () => community.roles?.[moderatorSigner.address]?.role === "moderator"
         });
     });
 
     afterAll(async () => {
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
     });
 
     describe("Banning an author who uses a domain address", () => {
@@ -78,8 +78,8 @@ describeSkipIfRpc("Domain-based author bans", () => {
         it.sequential("should store targetAuthorDomain when banning an author who used a domain address", async () => {
             // Publish a comment with domain address
             commentWithDomain = await generateMockPost({
-                communityAddress: subplebbit.address,
-                plebbit: plebbit,
+                communityAddress: community.address,
+                pkc: pkc,
                 postProps: {
                     author: { address: testDomain },
                     signer: domainAuthorSigner
@@ -92,8 +92,8 @@ describeSkipIfRpc("Domain-based author bans", () => {
 
             // Ban the author
             authorBanExpiresAt = timestamp() + 300;
-            const banMod = await plebbit.createCommentModeration({
-                communityAddress: subplebbit.address,
+            const banMod = await pkc.createCommentModeration({
+                communityAddress: community.address,
                 commentCid: commentWithDomain.cid,
                 commentModeration: {
                     author: { banExpiresAt: authorBanExpiresAt },
@@ -104,7 +104,7 @@ describeSkipIfRpc("Domain-based author bans", () => {
             await publishWithExpectedResult({ publication: banMod, expectedChallengeSuccess: true });
 
             // Verify targetAuthorDomain is stored in the database
-            const moderation = subplebbit._dbHandler._db
+            const moderation = community._dbHandler._db
                 .prepare(
                     `SELECT targetAuthorSignerAddress, targetAuthorDomain FROM commentModerations
                      WHERE commentCid = ? AND json_extract(commentModeration, '$.author.banExpiresAt') IS NOT NULL`
@@ -119,8 +119,8 @@ describeSkipIfRpc("Domain-based author bans", () => {
         it.sequential("banned author can't publish with same signer", async () => {
             // Try to publish with the same signer - should fail due to public key ban
             const newComment = await generateMockPost({
-                communityAddress: subplebbit.address,
-                plebbit: plebbit,
+                communityAddress: community.address,
+                pkc: pkc,
                 postProps: {
                     signer: domainAuthorSigner
                 }
@@ -134,15 +134,15 @@ describeSkipIfRpc("Domain-based author bans", () => {
 
         it.sequential("banned author can't publish with same domain but different signer", async () => {
             // Create a new signer
-            const newSigner = await plebbit.createSigner();
+            const newSigner = await pkc.createSigner();
 
             // Mock the domain to now resolve to the new signer's address
             resolverRecords.set(testDomain, newSigner.address);
 
             // Try to publish with the new signer but same domain - should fail due to domain ban
             const newComment = await generateMockPost({
-                communityAddress: subplebbit.address,
-                plebbit: plebbit,
+                communityAddress: community.address,
+                pkc: pkc,
                 postProps: {
                     author: { address: testDomain },
                     signer: newSigner
@@ -161,12 +161,12 @@ describeSkipIfRpc("Domain-based author bans", () => {
         let commentWithDerivedAddress: Comment;
 
         it.sequential("should not store targetAuthorDomain when author uses derived address", async () => {
-            regularAuthorSigner = await plebbit.createSigner();
+            regularAuthorSigner = await pkc.createSigner();
 
             // Publish a comment with derived address (no domain)
             commentWithDerivedAddress = await generateMockPost({
-                communityAddress: subplebbit.address,
-                plebbit: plebbit,
+                communityAddress: community.address,
+                pkc: pkc,
                 postProps: {
                     signer: regularAuthorSigner
                 }
@@ -179,8 +179,8 @@ describeSkipIfRpc("Domain-based author bans", () => {
 
             // Ban the author
             const authorBanExpiresAt = timestamp() + 300;
-            const banMod = await plebbit.createCommentModeration({
-                communityAddress: subplebbit.address,
+            const banMod = await pkc.createCommentModeration({
+                communityAddress: community.address,
                 commentCid: commentWithDerivedAddress.cid,
                 commentModeration: {
                     author: { banExpiresAt: authorBanExpiresAt },
@@ -191,7 +191,7 @@ describeSkipIfRpc("Domain-based author bans", () => {
             await publishWithExpectedResult({ publication: banMod, expectedChallengeSuccess: true });
 
             // Verify targetAuthorDomain is NULL in the database
-            const moderation = subplebbit._dbHandler._db
+            const moderation = community._dbHandler._db
                 .prepare(
                     `SELECT targetAuthorSignerAddress, targetAuthorDomain FROM commentModerations
                      WHERE commentCid = ? AND json_extract(commentModeration, '$.author.banExpiresAt') IS NOT NULL`
@@ -211,8 +211,8 @@ describeSkipIfRpc("Domain-based author bans", () => {
 
             // Try to publish with domain - should fail because public key is banned
             const newComment = await generateMockPost({
-                communityAddress: subplebbit.address,
-                plebbit: plebbit,
+                communityAddress: community.address,
+                pkc: pkc,
                 postProps: {
                     author: { address: newDomain },
                     signer: regularAuthorSigner
@@ -228,8 +228,8 @@ describeSkipIfRpc("Domain-based author bans", () => {
 });
 
 describeSkipIfRpc("Domain bans with pseudonymity mode", () => {
-    let plebbit: PKC;
-    let subplebbit: LocalCommunity;
+    let pkc: PKC;
+    let community: LocalCommunity;
     let moderatorSigner: SignerType;
     const testDomain = "pseudonymuser.bso";
     let domainAuthorSigner: SignerType;
@@ -237,22 +237,22 @@ describeSkipIfRpc("Domain bans with pseudonymity mode", () => {
 
     beforeAll(async () => {
         resolverRecords = new Map();
-        plebbit = await createPKCWithMockResolver(resolverRecords);
-        subplebbit = (await createSubWithNoChallenge({}, plebbit)) as LocalCommunity;
+        pkc = await createPKCWithMockResolver(resolverRecords);
+        community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
 
         // Enable per-post pseudonymity mode
-        await subplebbit.edit({ features: { pseudonymityMode: "per-post" } });
-        await subplebbit.start();
+        await community.edit({ features: { pseudonymityMode: "per-post" } });
+        await community.start();
         await resolveWhenConditionIsTrue({
-            toUpdate: subplebbit,
-            predicate: async () => typeof subplebbit.updatedAt === "number"
+            toUpdate: community,
+            predicate: async () => typeof community.updatedAt === "number"
         });
 
-        moderatorSigner = await plebbit.createSigner();
-        await subplebbit.edit({ roles: { [moderatorSigner.address]: { role: "moderator" } } });
+        moderatorSigner = await pkc.createSigner();
+        await community.edit({ roles: { [moderatorSigner.address]: { role: "moderator" } } });
         await resolveWhenConditionIsTrue({
-            toUpdate: subplebbit,
-            predicate: async () => subplebbit.roles?.[moderatorSigner.address]?.role === "moderator"
+            toUpdate: community,
+            predicate: async () => community.roles?.[moderatorSigner.address]?.role === "moderator"
         });
 
         // Use signers[6] for domain tests
@@ -263,15 +263,15 @@ describeSkipIfRpc("Domain bans with pseudonymity mode", () => {
     });
 
     afterAll(async () => {
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
     });
 
     it.sequential("should store originalAuthorDomain in pseudonymityAliases when author uses domain", async () => {
         // Publish a comment with domain address
         const commentWithDomain = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: plebbit,
+            communityAddress: community.address,
+            pkc: pkc,
             postProps: {
                 author: { address: testDomain },
                 signer: domainAuthorSigner
@@ -280,7 +280,7 @@ describeSkipIfRpc("Domain bans with pseudonymity mode", () => {
         await publishWithExpectedResult({ publication: commentWithDomain, expectedChallengeSuccess: true });
 
         // Verify the pseudonymity alias stores the original author's domain
-        const aliasRow = subplebbit._dbHandler.queryPseudonymityAliasByCommentCid(commentWithDomain.cid);
+        const aliasRow = community._dbHandler.queryPseudonymityAliasByCommentCid(commentWithDomain.cid);
         expect(aliasRow).to.exist;
         expect(aliasRow!.originalAuthorSignerPublicKey).to.equal(domainAuthorSigner.publicKey);
         expect(aliasRow!.originalAuthorDomain).to.equal(testDomain);
@@ -289,8 +289,8 @@ describeSkipIfRpc("Domain bans with pseudonymity mode", () => {
     it.sequential("banning via pseudonymous comment should store original author's domain", async () => {
         // Create another comment to ban
         const commentToBan = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: plebbit,
+            communityAddress: community.address,
+            pkc: pkc,
             postProps: {
                 author: { address: testDomain },
                 signer: domainAuthorSigner
@@ -299,13 +299,13 @@ describeSkipIfRpc("Domain bans with pseudonymity mode", () => {
         await publishWithExpectedResult({ publication: commentToBan, expectedChallengeSuccess: true });
 
         // Verify comment was published with alias (pseudonymity mode)
-        const aliasRow = subplebbit._dbHandler.queryPseudonymityAliasByCommentCid(commentToBan.cid);
+        const aliasRow = community._dbHandler.queryPseudonymityAliasByCommentCid(commentToBan.cid);
         expect(aliasRow).to.exist;
 
         // Ban the author via the pseudonymous comment
         const authorBanExpiresAt = timestamp() + 300;
-        const banMod = await plebbit.createCommentModeration({
-            communityAddress: subplebbit.address,
+        const banMod = await pkc.createCommentModeration({
+            communityAddress: community.address,
             commentCid: commentToBan.cid,
             commentModeration: {
                 author: { banExpiresAt: authorBanExpiresAt },
@@ -316,7 +316,7 @@ describeSkipIfRpc("Domain bans with pseudonymity mode", () => {
         await publishWithExpectedResult({ publication: banMod, expectedChallengeSuccess: true });
 
         // Verify the moderation stores the original author's domain (not the alias)
-        const moderation = subplebbit._dbHandler._db
+        const moderation = community._dbHandler._db
             .prepare(
                 `SELECT targetAuthorSignerAddress, targetAuthorDomain FROM commentModerations
                  WHERE commentCid = ? AND json_extract(commentModeration, '$.author.banExpiresAt') IS NOT NULL`
@@ -329,8 +329,8 @@ describeSkipIfRpc("Domain bans with pseudonymity mode", () => {
 
         // Verify ban works with original signer
         const newComment = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: plebbit,
+            communityAddress: community.address,
+            pkc: pkc,
             postProps: {
                 signer: domainAuthorSigner
             }

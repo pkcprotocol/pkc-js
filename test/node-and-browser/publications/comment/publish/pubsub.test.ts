@@ -70,13 +70,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"]
     describe.concurrent(`Pubsub timeout and subscription bugs - ${config.name}`, async () => {
         describe.concurrent("Bug #1: Incomplete Control Flow in _handleNotReceivingResponseToChallengeRequest", async () => {
             it("should properly handle when publication state becomes 'stopped' during timeout", async () => {
-                const testPKC = await config.plebbitInstancePromise({
-                    plebbitOptions: { pubsubKuboRpcClientsOptions: [notRespondingPubsubUrl] },
+                const testPKC = await config.pkcInstancePromise({
+                    pkcOptions: { pubsubKuboRpcClientsOptions: [notRespondingPubsubUrl] },
                     forceMockPubsub: true,
                     remotePKC: true
                 });
 
-                const mockPost = await generateMockPost({ communityAddress: communityWithMathCliChallenge, plebbit: testPKC });
+                const mockPost = await generateMockPost({ communityAddress: communityWithMathCliChallenge, pkc: testPKC });
                 (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 2; // Speed up test
                 (mockPost as unknown as CommentWithInternals)._setProviderFailureThresholdSeconds = 5; // Speed up test
 
@@ -111,12 +111,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"]
         });
 
         it(`Should handle a single provider timing out  without recieving challenge or challenge verification using stop() by cleaning up resources`, async () => {
-            const testPKC = await config.plebbitInstancePromise({
-                plebbitOptions: { pubsubKuboRpcClientsOptions: [notRespondingPubsubUrl] },
+            const testPKC = await config.pkcInstancePromise({
+                pkcOptions: { pubsubKuboRpcClientsOptions: [notRespondingPubsubUrl] },
                 remotePKC: true
             });
 
-            const mockPost = await generateMockPost({ communityAddress: communityWithNoChallenge, plebbit: testPKC });
+            const mockPost = await generateMockPost({ communityAddress: communityWithNoChallenge, pkc: testPKC });
             (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 2; // Speed up test
             (mockPost as unknown as CommentWithInternals)._setProviderFailureThresholdSeconds = 5; // Speed up test
 
@@ -157,8 +157,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"]
         describe.concurrent("Bug #3: Race Condition in Challenge Exchange Handling", async () => {
             it.sequential(`It should emit a single Challenge per challenge request maximum`, async () => {
                 // this test should be for both kubo and helia
-                const testPKC = await config.plebbitInstancePromise({
-                    plebbitOptions: {
+                const testPKC = await config.pkcInstancePromise({
+                    pkcOptions: {
                         pubsubKuboRpcClientsOptions: [workingPubsubUrl, notRespondingPubsubUrl]
                     },
                     forceMockPubsub: true,
@@ -183,8 +183,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"]
             });
 
             it("should handle concurrent timeout and challenge response without race conditions", async () => {
-                const testPKC = await config.plebbitInstancePromise({
-                    plebbitOptions: {
+                const testPKC = await config.pkcInstancePromise({
+                    pkcOptions: {
                         pubsubKuboRpcClientsOptions: [workingPubsubUrl, notRespondingPubsubUrl]
                     },
                     forceMockPubsub: true,
@@ -233,8 +233,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"]
 
         describe.concurrent("Bug #4: Provider Index Management Issue", async () => {
             it("should handle provider index correctly in finally blocks", async () => {
-                const testPKC = await config.plebbitInstancePromise({
-                    plebbitOptions: {
+                const testPKC = await config.pkcInstancePromise({
+                    pkcOptions: {
                         pubsubKuboRpcClientsOptions: [workingPubsubUrl, notRespondingPubsubUrl]
                     },
                     forceMockPubsub: true,
@@ -270,8 +270,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"]
             it.sequential(
                 `Should handle a single provider succeeding to subscribe in first attempt, but failing to publish. It should not throw when it retries`,
                 async () => {
-                    const testPKC = await config.plebbitInstancePromise({
-                        plebbitOptions: { pubsubKuboRpcClientsOptions: [workingPubsubUrl] },
+                    const testPKC = await config.pkcInstancePromise({
+                        pkcOptions: { pubsubKuboRpcClientsOptions: [workingPubsubUrl] },
                         forceMockPubsub: true,
                         remotePKC: true
                     });
@@ -318,11 +318,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"]
 
         describe.concurrent("Pubsub Resource Leak Detection", async () => {
             it("should properly clean up pubsub subscriptions when it throws on publish((", async () => {
-                const testPKC = await config.plebbitInstancePromise({
-                    plebbitOptions: { pubsubKuboRpcClientsOptions: [offlinePubsubUrl] }
+                const testPKC = await config.pkcInstancePromise({
+                    pkcOptions: { pubsubKuboRpcClientsOptions: [offlinePubsubUrl] }
                 });
 
-                const mockPost = await generateMockPost({ communityAddress: communityWithNoChallenge, plebbit: testPKC });
+                const mockPost = await generateMockPost({ communityAddress: communityWithNoChallenge, pkc: testPKC });
 
                 // Track subscription state
                 const numOfPubsubProvidersBefore = Object.keys(
@@ -377,11 +377,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"]
                 // this mocked pubsub server emits an error onError only once
                 // so subscription count should be 2
                 const pubsubMockedWithError = "http://localhost:30001/api/v0";
-                const testPKC = await config.plebbitInstancePromise({
-                    plebbitOptions: { pubsubKuboRpcClientsOptions: [pubsubMockedWithError] }
+                const testPKC = await config.pkcInstancePromise({
+                    pkcOptions: { pubsubKuboRpcClientsOptions: [pubsubMockedWithError] }
                 });
 
-                const mockPost = await generateMockPost({ communityAddress: communityWithNoChallenge, plebbit: testPKC });
+                const mockPost = await generateMockPost({ communityAddress: communityWithNoChallenge, pkc: testPKC });
 
                 const errors = [];
 

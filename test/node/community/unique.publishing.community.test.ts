@@ -32,8 +32,8 @@ class InMemoryDbHandlerMock {
     commentEdits: CommentEditsTableRowInsert[] = [];
     commentModerations: CommentModerationsTableRowInsert[] = [];
     votes: VotesTableRowInsert[] = [];
-    subplebbitAuthors: Map<string, { firstCommentTimestamp: number; lastCommentCid: string }> = new Map();
-    _keyv: Map<string, Record<string, number | string | boolean>> = new Map([["INTERNAL_SUBPLEBBIT", {}]]);
+    communityAuthors: Map<string, { firstCommentTimestamp: number; lastCommentCid: string }> = new Map();
+    _keyv: Map<string, Record<string, number | string | boolean>> = new Map([["INTERNAL_COMMUNITY", {}]]);
 
     // transaction helpers used by LocalCommunity
     createTransaction(): void {}
@@ -140,7 +140,7 @@ class InMemoryDbHandlerMock {
         comments.forEach((comment) => {
             this.comments.push(comment);
             if (comment.authorSignerAddress)
-                this.subplebbitAuthors.set(comment.authorSignerAddress, {
+                this.communityAuthors.set(comment.authorSignerAddress, {
                     firstCommentTimestamp: comment.timestamp,
                     lastCommentCid: comment.cid
                 });
@@ -198,7 +198,7 @@ class InMemoryDbHandlerMock {
     }
 
     queryCommunityAuthor(address: string): { firstCommentTimestamp: number; lastCommentCid: string } | undefined {
-        return this.subplebbitAuthors.get(address);
+        return this.communityAuthors.get(address);
     }
 }
 
@@ -218,13 +218,13 @@ interface MockChallengeRequest {
     commentEdit?: CommentEditPubsubMessagePublication;
     commentModeration?: CommentModerationPubsubMessagePublication;
     vote?: VotePubsubMessagePublication;
-    subplebbitEdit?: CommunityEditPubsubMessagePublication;
+    communityEdit?: CommunityEditPubsubMessagePublication;
     [key: string]: bigint | { publicKey: Uint8Array } | PublicationType | undefined;
 }
 
 describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", function () {
-    let plebbit: PKCType;
-    let subplebbit: LocalCommunity;
+    let pkc: PKCType;
+    let community: LocalCommunity;
     let dbMock: InMemoryDbHandlerMock;
     let originalEdit: LocalCommunity["edit"];
     const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -289,9 +289,9 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
 
         publicationMutable.publish = async () => {
             const challengeVerificationPromise = new Promise<DecryptedChallengeVerificationMessageType>((resolve) =>
-                subplebbit.once("challengeverification", resolve)
+                community.once("challengeverification", resolve)
             );
-            await publishChallengeVerification(subplebbit, { challengeSuccess: true, challengeErrors: undefined }, request, false);
+            await publishChallengeVerification(community, { challengeSuccess: true, challengeErrors: undefined }, request, false);
             const verification = await challengeVerificationPromise;
             (publication as any).emit("challengeverification", verification);
         };
@@ -320,23 +320,23 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
     };
 
     beforeAll(async () => {
-        plebbit = await mockPKC();
-        subplebbit = (await plebbit.createCommunity()) as LocalCommunity;
-        originalEdit = subplebbit.edit;
+        pkc = await mockPKC();
+        community = (await pkc.createCommunity()) as LocalCommunity;
+        originalEdit = community.edit;
     });
 
     beforeEach(() => {
         dbMock = new InMemoryDbHandlerMock();
-        setDbHandler(subplebbit, dbMock);
-        subplebbit.settings = subplebbit.settings || {};
-        subplebbit.features = subplebbit.features || {};
-        subplebbit.roles = {};
+        setDbHandler(community, dbMock);
+        community.settings = community.settings || {};
+        community.features = community.features || {};
+        community.roles = {};
         // use a lightweight stub to avoid real DB work during these unit tests
-        subplebbit.edit = async (newProps) => {
-            Object.assign(subplebbit, newProps);
-            return subplebbit;
+        community.edit = async (newProps) => {
+            Object.assign(community, newProps);
+            return community;
         };
-        setInternalMaps(subplebbit);
+        setInternalMaps(community);
     });
 
     afterEach(() => {
@@ -344,8 +344,8 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
     });
 
     afterAll(async () => {
-        if (subplebbit) await subplebbit.delete();
-        if (plebbit) await plebbit.destroy();
+        if (community) await community.delete();
+        if (pkc) await pkc.destroy();
     });
 
     const makeCommentRequest = (commentPublication: CommentPubsubMessagePublication, requestId: number): MockChallengeRequest => ({
@@ -379,12 +379,12 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
     });
 
     const makeCommunityEditRequest = (
-        subplebbitEditPublication: CommunityEditPubsubMessagePublication,
+        communityEditPublication: CommunityEditPubsubMessagePublication,
         requestId: number
     ): MockChallengeRequest => ({
         challengeRequestId: BigInt(requestId),
-        signature: { publicKey: toPublicKeyBuffer(subplebbitEditPublication.signature.publicKey) },
-        subplebbitEdit: clone(subplebbitEditPublication)
+        signature: { publicKey: toPublicKeyBuffer(communityEditPublication.signature.publicKey) },
+        communityEdit: clone(communityEditPublication)
     });
 
     const captureChallengeVerifications = (): {
@@ -395,10 +395,10 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
         const handler = (msg: DecryptedChallengeVerificationMessageType): void => {
             challengeVerifications.push(msg);
         };
-        subplebbit.on("challengeverification", handler);
+        community.on("challengeverification", handler);
         return {
             challengeVerifications,
-            dispose: () => subplebbit.off("challengeverification", handler)
+            dispose: () => community.off("challengeverification", handler)
         };
     };
 
@@ -420,7 +420,7 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
             "Stored comment signature should match the publication signature"
         );
 
-        const duplicateCommentInstance = await plebbit.createComment(clone(commentPub));
+        const duplicateCommentInstance = await pkc.createComment(clone(commentPub));
         const duplicateRequest = makeCommentRequest(clone(commentPub), 2);
         await publishViaMockedSubAndAssert({
             publication: duplicateCommentInstance,
@@ -442,17 +442,17 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
     it("rejects duplicate comment edits", async () => {
         const { signer: originalCommentSigner, publication: commentPub } = await createCommentPublicationInstanceWithSignature();
         const commentRequest = makeCommentRequest(commentPub, 10);
-        await publishChallengeVerification(subplebbit, { challengeSuccess: true, challengeErrors: undefined }, commentRequest, false);
+        await publishChallengeVerification(community, { challengeSuccess: true, challengeErrors: undefined }, commentRequest, false);
 
         const storedComment = dbMock.comments[0];
 
-        const editInstance = await plebbit.createCommentEdit({
-            communityAddress: subplebbit.address,
+        const editInstance = await pkc.createCommentEdit({
+            communityAddress: community.address,
             commentCid: storedComment.cid,
             content: "Edited content",
             signer: originalCommentSigner
         });
-        await ensurePublicationIsSigned(editInstance, subplebbit);
+        await ensurePublicationIsSigned(editInstance, community);
         const editPublication = editInstance.raw.pubsubMessageToPublish!;
 
         const { challengeVerifications, dispose } = captureChallengeVerifications();
@@ -466,7 +466,7 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
         expect(challengeVerifications.length).to.equal(1);
         expect(challengeVerifications[0].challengeSuccess).to.be.true;
 
-        const duplicateEditInstance = await plebbit.createCommentEdit(clone(editPublication));
+        const duplicateEditInstance = await pkc.createCommentEdit(clone(editPublication));
         const duplicateEditRequest = makeCommentEditRequest(clone(editPublication), 12);
         await publishViaMockedSubAndAssert({
             publication: duplicateEditInstance,
@@ -485,19 +485,19 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
     it("rejects duplicate comment moderations", async () => {
         const { publication: commentPub } = await createCommentPublicationInstanceWithSignature();
         const commentRequest = makeCommentRequest(commentPub, 20);
-        await publishChallengeVerification(subplebbit, { challengeSuccess: true, challengeErrors: undefined }, commentRequest, false);
+        await publishChallengeVerification(community, { challengeSuccess: true, challengeErrors: undefined }, commentRequest, false);
 
         const storedComment = dbMock.comments[0];
-        const modSigner = await plebbit.createSigner();
-        subplebbit.roles = { [modSigner.address]: { role: "moderator" } };
+        const modSigner = await pkc.createSigner();
+        community.roles = { [modSigner.address]: { role: "moderator" } };
 
-        const moderationInstance = await plebbit.createCommentModeration({
-            communityAddress: subplebbit.address,
+        const moderationInstance = await pkc.createCommentModeration({
+            communityAddress: community.address,
             commentCid: storedComment.cid,
             commentModeration: { removed: true },
             signer: modSigner
         });
-        await ensurePublicationIsSigned(moderationInstance, subplebbit);
+        await ensurePublicationIsSigned(moderationInstance, community);
         const moderationPublication = moderationInstance.raw.pubsubMessageToPublish!;
 
         const { challengeVerifications, dispose } = captureChallengeVerifications();
@@ -511,7 +511,7 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
         expect(challengeVerifications.length).to.equal(1);
         expect(challengeVerifications[0].challengeSuccess).to.be.true;
 
-        const duplicateModerationInstance = await plebbit.createCommentModeration(clone(moderationPublication));
+        const duplicateModerationInstance = await pkc.createCommentModeration(clone(moderationPublication));
         const duplicateModRequest = makeCommentModerationRequest(clone(moderationPublication), 22);
         await publishViaMockedSubAndAssert({
             publication: duplicateModerationInstance,
@@ -530,18 +530,18 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
     it("rejects duplicate votes", async () => {
         const { publication: commentPub } = await createCommentPublicationInstanceWithSignature();
         const commentRequest = makeCommentRequest(commentPub, 30);
-        await publishChallengeVerification(subplebbit, { challengeSuccess: true, challengeErrors: undefined }, commentRequest, false);
+        await publishChallengeVerification(community, { challengeSuccess: true, challengeErrors: undefined }, commentRequest, false);
 
         const storedComment = dbMock.comments[0];
-        const signer = await plebbit.createSigner();
+        const signer = await pkc.createSigner();
 
-        const voteInstance = await plebbit.createVote({
-            communityAddress: subplebbit.address,
+        const voteInstance = await pkc.createVote({
+            communityAddress: community.address,
             commentCid: storedComment.cid,
             vote: 1,
             signer
         });
-        await ensurePublicationIsSigned(voteInstance, subplebbit);
+        await ensurePublicationIsSigned(voteInstance, community);
         const votePublication = voteInstance.raw.pubsubMessageToPublish!;
 
         const { challengeVerifications, dispose } = captureChallengeVerifications();
@@ -555,7 +555,7 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
         expect(challengeVerifications.length).to.equal(1);
         expect(challengeVerifications[0].challengeSuccess).to.be.true;
 
-        const duplicateVoteInstance = await plebbit.createVote(clone(votePublication));
+        const duplicateVoteInstance = await pkc.createVote(clone(votePublication));
         const duplicateVoteRequest = makeVoteRequest(clone(votePublication), 32);
         await publishViaMockedSubAndAssert({
             publication: duplicateVoteInstance,
@@ -568,17 +568,17 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
         dispose();
     });
 
-    it("records duplicate subplebbit edits behaviour", async () => {
+    it("records duplicate community edits behaviour", async () => {
         await createCommentPublicationInstanceWithSignature();
-        const signer = await plebbit.createSigner();
-        subplebbit.roles = { [signer.address]: { role: "owner" } };
+        const signer = await pkc.createSigner();
+        community.roles = { [signer.address]: { role: "owner" } };
 
-        const editInstance = await plebbit.createCommunityEdit({
-            communityAddress: subplebbit.address,
-            subplebbitEdit: { description: "Updated description" },
+        const editInstance = await pkc.createCommunityEdit({
+            communityAddress: community.address,
+            communityEdit: { description: "Updated description" },
             signer
         });
-        await ensurePublicationIsSigned(editInstance, subplebbit);
+        await ensurePublicationIsSigned(editInstance, community);
         const editPublication = editInstance.raw.pubsubMessageToPublish!;
 
         const { challengeVerifications, dispose } = captureChallengeVerifications();
@@ -592,7 +592,7 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
         expect(challengeVerifications.length).to.equal(1);
         expect(challengeVerifications[0].challengeSuccess).to.be.true;
 
-        const duplicateCommunityEditInstance = await plebbit.createCommunityEdit(clone(editPublication));
+        const duplicateCommunityEditInstance = await pkc.createCommunityEdit(clone(editPublication));
         const duplicateEditRequest = makeCommunityEditRequest(clone(editPublication), 42);
         await publishViaMockedSubAndAssert({
             publication: duplicateCommunityEditInstance,
@@ -615,7 +615,7 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
             _checkPublicationValidity(
                 request: MockChallengeRequest,
                 publication: { signature: { publicKey: string; signature: string } },
-                subplebbitAuthor: unknown
+                communityAuthor: unknown
             ): Promise<string | undefined>;
         };
         return s._checkPublicationValidity(request, publication, undefined);
@@ -662,11 +662,11 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
 
         // Duplicate attempt 1 should return success via idempotent handler
         const dupRequest = makeCommentRequest(clone(commentPub), 101);
-        const reason = await checkPublicationValidity(subplebbit, dupRequest, commentPub);
+        const reason = await checkPublicationValidity(community, dupRequest, commentPub);
         expect(reason).to.equal(messages.ERR_DUPLICATE_COMMENT);
 
-        await publishIdempotentDuplicateVerification(subplebbit, dupRequest, BigInt(101), messages.ERR_DUPLICATE_COMMENT);
-        setDuplicateAttempts(subplebbit, commentPub.signature.signature, 1);
+        await publishIdempotentDuplicateVerification(community, dupRequest, BigInt(101), messages.ERR_DUPLICATE_COMMENT);
+        setDuplicateAttempts(community, commentPub.signature.signature, 1);
 
         // Should have 2 verifications total: 1 original + 1 idempotent
         expect(challengeVerifications.length).to.equal(2);
@@ -676,14 +676,14 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
         expect(dbMock.comments.length).to.equal(1);
 
         // 2nd duplicate attempt should be rejected (spam)
-        setDuplicateAttempts(subplebbit, commentPub.signature.signature, 1);
+        setDuplicateAttempts(community, commentPub.signature.signature, 1);
         const spamRequest = makeCommentRequest(clone(commentPub), 102);
-        const spamReason = await checkPublicationValidity(subplebbit, spamRequest, commentPub);
+        const spamReason = await checkPublicationValidity(community, spamRequest, commentPub);
         expect(spamReason).to.equal(messages.ERR_DUPLICATE_COMMENT);
 
         // Simulate the handleChallengeRequest logic: attempts > 1 → reject
-        const attempts = getDuplicateAttempts(subplebbit, commentPub.signature.signature) + 1;
-        setDuplicateAttempts(subplebbit, commentPub.signature.signature, attempts);
+        const attempts = getDuplicateAttempts(community, commentPub.signature.signature) + 1;
+        setDuplicateAttempts(community, commentPub.signature.signature, attempts);
         expect(attempts).to.be.greaterThan(1);
 
         dispose();
@@ -692,16 +692,16 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
     it("returns idempotent success for duplicate comment edit up to 1 time, then rejects", async () => {
         const { signer: originalCommentSigner, publication: commentPub } = await createCommentPublicationInstanceWithSignature();
         const commentRequest = makeCommentRequest(commentPub, 110);
-        await publishChallengeVerification(subplebbit, { challengeSuccess: true, challengeErrors: undefined }, commentRequest, false);
+        await publishChallengeVerification(community, { challengeSuccess: true, challengeErrors: undefined }, commentRequest, false);
 
         const storedComment = dbMock.comments[0];
-        const editInstance = await plebbit.createCommentEdit({
-            communityAddress: subplebbit.address,
+        const editInstance = await pkc.createCommentEdit({
+            communityAddress: community.address,
             commentCid: storedComment.cid,
             content: "Edited content",
             signer: originalCommentSigner
         });
-        await ensurePublicationIsSigned(editInstance, subplebbit);
+        await ensurePublicationIsSigned(editInstance, community);
         const editPublication = editInstance.raw.pubsubMessageToPublish!;
 
         const { challengeVerifications, dispose } = captureChallengeVerifications();
@@ -717,20 +717,20 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
 
         // Duplicate edit attempt 1 should succeed via idempotent handler
         const dupRequest = makeCommentEditRequest(clone(editPublication), 112);
-        const reason = await checkPublicationValidity(subplebbit, dupRequest, editPublication);
+        const reason = await checkPublicationValidity(community, dupRequest, editPublication);
         expect(reason).to.equal(messages.ERR_DUPLICATE_COMMENT_EDIT);
 
-        await publishIdempotentDuplicateVerification(subplebbit, dupRequest, BigInt(112), messages.ERR_DUPLICATE_COMMENT_EDIT);
-        setDuplicateAttempts(subplebbit, editPublication.signature.signature, 1);
+        await publishIdempotentDuplicateVerification(community, dupRequest, BigInt(112), messages.ERR_DUPLICATE_COMMENT_EDIT);
+        setDuplicateAttempts(community, editPublication.signature.signature, 1);
 
         expect(challengeVerifications.length).to.equal(2);
         expect(challengeVerifications[1].challengeSuccess).to.be.true;
         expect(dbMock.commentEdits.length).to.equal(1);
 
         // 2nd attempt rejected
-        setDuplicateAttempts(subplebbit, editPublication.signature.signature, 1);
-        const attempts = getDuplicateAttempts(subplebbit, editPublication.signature.signature) + 1;
-        setDuplicateAttempts(subplebbit, editPublication.signature.signature, attempts);
+        setDuplicateAttempts(community, editPublication.signature.signature, 1);
+        const attempts = getDuplicateAttempts(community, editPublication.signature.signature) + 1;
+        setDuplicateAttempts(community, editPublication.signature.signature, attempts);
         expect(attempts).to.be.greaterThan(1);
 
         dispose();
@@ -739,19 +739,19 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
     it("returns idempotent success for duplicate comment moderation up to 1 time, then rejects", async () => {
         const { publication: commentPub } = await createCommentPublicationInstanceWithSignature();
         const commentRequest = makeCommentRequest(commentPub, 120);
-        await publishChallengeVerification(subplebbit, { challengeSuccess: true, challengeErrors: undefined }, commentRequest, false);
+        await publishChallengeVerification(community, { challengeSuccess: true, challengeErrors: undefined }, commentRequest, false);
 
         const storedComment = dbMock.comments[0];
-        const modSigner = await plebbit.createSigner();
-        subplebbit.roles = { [modSigner.address]: { role: "moderator" } };
+        const modSigner = await pkc.createSigner();
+        community.roles = { [modSigner.address]: { role: "moderator" } };
 
-        const moderationInstance = await plebbit.createCommentModeration({
-            communityAddress: subplebbit.address,
+        const moderationInstance = await pkc.createCommentModeration({
+            communityAddress: community.address,
             commentCid: storedComment.cid,
             commentModeration: { removed: true },
             signer: modSigner
         });
-        await ensurePublicationIsSigned(moderationInstance, subplebbit);
+        await ensurePublicationIsSigned(moderationInstance, community);
         const moderationPublication = moderationInstance.raw.pubsubMessageToPublish!;
 
         const { challengeVerifications, dispose } = captureChallengeVerifications();
@@ -767,20 +767,20 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
 
         // Duplicate moderation attempt 1 should succeed via idempotent handler
         const dupRequest = makeCommentModerationRequest(clone(moderationPublication), 122);
-        const reason = await checkPublicationValidity(subplebbit, dupRequest, moderationPublication);
+        const reason = await checkPublicationValidity(community, dupRequest, moderationPublication);
         expect(reason).to.equal(messages.ERR_DUPLICATE_COMMENT_MODERATION);
 
-        await publishIdempotentDuplicateVerification(subplebbit, dupRequest, BigInt(122), messages.ERR_DUPLICATE_COMMENT_MODERATION);
-        setDuplicateAttempts(subplebbit, moderationPublication.signature.signature, 1);
+        await publishIdempotentDuplicateVerification(community, dupRequest, BigInt(122), messages.ERR_DUPLICATE_COMMENT_MODERATION);
+        setDuplicateAttempts(community, moderationPublication.signature.signature, 1);
 
         expect(challengeVerifications.length).to.equal(2);
         expect(challengeVerifications[1].challengeSuccess).to.be.true;
         expect(dbMock.commentModerations.length).to.equal(1);
 
         // 2nd attempt rejected
-        setDuplicateAttempts(subplebbit, moderationPublication.signature.signature, 1);
-        const attempts = getDuplicateAttempts(subplebbit, moderationPublication.signature.signature) + 1;
-        setDuplicateAttempts(subplebbit, moderationPublication.signature.signature, attempts);
+        setDuplicateAttempts(community, moderationPublication.signature.signature, 1);
+        const attempts = getDuplicateAttempts(community, moderationPublication.signature.signature) + 1;
+        setDuplicateAttempts(community, moderationPublication.signature.signature, attempts);
         expect(attempts).to.be.greaterThan(1);
 
         dispose();
@@ -791,9 +791,9 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
         publication: CommentPubsubMessagePublication;
         instance: Publication;
     }> {
-        const signer = await plebbit.createSigner();
-        const commentInstance = await generateMockPost({ communityAddress: subplebbit.address, plebbit: plebbit, postProps: { signer } });
-        await ensurePublicationIsSigned(commentInstance, subplebbit);
+        const signer = await pkc.createSigner();
+        const commentInstance = await generateMockPost({ communityAddress: community.address, pkc: pkc, postProps: { signer } });
+        await ensurePublicationIsSigned(commentInstance, community);
         const publication = commentInstance.raw.pubsubMessageToPublish!;
         return { signer, publication, instance: commentInstance as unknown as Publication };
     }

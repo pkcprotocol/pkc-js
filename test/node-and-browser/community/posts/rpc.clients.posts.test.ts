@@ -6,23 +6,23 @@ import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 const communityAddress = signers[0].address;
 
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] }).map((config) => {
-    describe(`community.posts.clients.plebbitRpcClients - ${config.name}`, async () => {
+    describe(`community.posts.clients.pkcRpcClients - ${config.name}`, async () => {
         let pkc: PKCType;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
             await pkc.destroy();
         });
 
-        it(`community.posts.clients.plebbitRpcClients[sortType][url] is stopped by default`, async () => {
+        it(`community.posts.clients.pkcRpcClients[sortType][url] is stopped by default`, async () => {
             const mockSub = await pkc.getCommunity({ address: communityAddress });
-            const rpcUrl = Object.keys(mockSub.clients.plebbitRpcClients)[0];
+            const rpcUrl = Object.keys(mockSub.clients.pkcRpcClients)[0];
             // add tests here
-            expect(Object.keys(mockSub.posts.clients.plebbitRpcClients["new"]).length).to.equal(1);
-            expect(mockSub.posts.clients.plebbitRpcClients["new"][rpcUrl].state).to.equal("stopped");
+            expect(Object.keys(mockSub.posts.clients.pkcRpcClients["new"]).length).to.equal(1);
+            expect(mockSub.posts.clients.pkcRpcClients["new"][rpcUrl].state).to.equal("stopped");
         });
 
         it(`Correct state of 'new' sort is updated after fetching from community.posts.pageCids.new`, async () => {
@@ -32,11 +32,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
             };
             const firstPageMockedCid = await addStringToIpfs(JSON.stringify(firstPageMocked));
             mockSub.posts.pageCids.new = firstPageMockedCid;
-            const rpcUrl = Object.keys(mockSub.clients.plebbitRpcClients)[0];
+            const rpcUrl = Object.keys(mockSub.clients.pkcRpcClients)[0];
 
             const expectedStates = ["fetching-ipfs", "stopped"];
             const actualStates: string[] = [];
-            mockSub.posts.clients.plebbitRpcClients["new"][rpcUrl].on("statechange", (newState: string) => {
+            mockSub.posts.clients.pkcRpcClients["new"][rpcUrl].on("statechange", (newState: string) => {
                 actualStates.push(newState);
             });
 

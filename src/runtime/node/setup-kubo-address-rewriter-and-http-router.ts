@@ -104,7 +104,7 @@ async function _setHttpRouterOptionsOnKuboNode(kuboClient: PKC["clients"]["kuboR
         log(
             "Config on kubo node has been changed. PKC-js will send shutdown command to node",
             kuboClient._clientOptions.url,
-            "Clients of plebbit-js should restart ipfs node"
+            "Clients of pkc-js should restart ipfs node"
         );
         const shutdownUrl = `${kuboClient._clientOptions.url}/shutdown`;
         try {
@@ -121,37 +121,36 @@ async function _setHttpRouterOptionsOnKuboNode(kuboClient: PKC["clients"]["kuboR
     }
 }
 
-async function _getStartedProxyUrl(plebbit: PKC, httpRouterUrl: string) {
-    if (plebbit.destroyed) return undefined;
+async function _getStartedProxyUrl(pkc: PKC, httpRouterUrl: string) {
+    if (pkc.destroyed) return undefined;
     const mappingKeyName = `httprouter_proxy_${httpRouterUrl}`;
     try {
-        const urlOfProxyOfHttpRouter = <string | undefined>await plebbit._storage.getItem(mappingKeyName);
-        if (plebbit.destroyed) return undefined;
+        const urlOfProxyOfHttpRouter = <string | undefined>await pkc._storage.getItem(mappingKeyName);
+        if (pkc.destroyed) return undefined;
         if (urlOfProxyOfHttpRouter) {
             const proxyHttpUrl = new URL(urlOfProxyOfHttpRouter);
             if (await tcpPortUsed.check(Number(proxyHttpUrl.port), "127.0.0.1")) return urlOfProxyOfHttpRouter;
-            if (plebbit.destroyed) return undefined;
-            await plebbit._storage.removeItem(mappingKeyName);
+            if (pkc.destroyed) return undefined;
+            await pkc._storage.removeItem(mappingKeyName);
         }
         return undefined;
     } catch (error) {
-        if (plebbit.destroyed && error instanceof Error && error.message.includes("database connection is not open")) {
+        if (pkc.destroyed && error instanceof Error && error.message.includes("database connection is not open")) {
             return undefined;
         }
         throw error;
     }
 }
 
-export async function setupKuboAddressesRewriterAndHttpRouters(plebbit: PKC): Promise<{ destroy: () => Promise<void> }> {
-    if (plebbit.destroyed) {
+export async function setupKuboAddressesRewriterAndHttpRouters(pkc: PKC): Promise<{ destroy: () => Promise<void> }> {
+    if (pkc.destroyed) {
         return {
             destroy: async () => {}
         };
     }
-    if (!Array.isArray(plebbit.kuboRpcClientsOptions) || plebbit.kuboRpcClientsOptions.length <= 0)
+    if (!Array.isArray(pkc.kuboRpcClientsOptions) || pkc.kuboRpcClientsOptions.length <= 0)
         throw Error("need ipfs http client to be defined");
-    if (!Array.isArray(plebbit.httpRoutersOptions) || plebbit.httpRoutersOptions.length <= 0)
-        throw Error("Need http router options to defined");
+    if (!Array.isArray(pkc.httpRoutersOptions) || pkc.httpRoutersOptions.length <= 0) throw Error("Need http router options to defined");
 
     const log = Logger("pkc-js:node:setupKuboAddressesRewriterAndHttpRouters");
     // Set up http proxies first to rewrite addresses
@@ -159,9 +158,9 @@ export async function setupKuboAddressesRewriterAndHttpRouters(plebbit: PKC): Pr
     const httpRouterProxyUrls: string[] = [];
     const proxyServers: AddressesRewriterProxyServer[] = [];
     let addressesRewriterStartPort = 19575; // use port 19575 as first port, looks like IPRTR (IPFS ROUTER)
-    for (const httpRouter of plebbit.httpRoutersOptions) {
-        if (plebbit.destroyed) break;
-        const startedProxyUrl = await _getStartedProxyUrl(plebbit, httpRouter);
+    for (const httpRouter of pkc.httpRoutersOptions) {
+        if (pkc.destroyed) break;
+        const startedProxyUrl = await _getStartedProxyUrl(pkc, httpRouter);
         if (startedProxyUrl) {
             httpRouterProxyUrls.push(startedProxyUrl);
             continue;
@@ -175,14 +174,14 @@ export async function setupKuboAddressesRewriterAndHttpRouters(plebbit: PKC): Pr
             port++;
 
         const addressesRewriterProxyServer = new AddressesRewriterProxyServer({
-            kuboClients: Object.values(plebbit.clients.kuboRpcClients).map((kubo) => kubo._client),
+            kuboClients: Object.values(pkc.clients.kuboRpcClients).map((kubo) => kubo._client),
             port,
             hostname,
             proxyTargetUrl: httpRouter,
-            plebbit
+            pkc
         });
         await addressesRewriterProxyServer.listen();
-        if (plebbit.destroyed) {
+        if (pkc.destroyed) {
             await addressesRewriterProxyServer.destroy();
             break;
         }
@@ -196,7 +195,7 @@ export async function setupKuboAddressesRewriterAndHttpRouters(plebbit: PKC): Pr
     httpRouterProxyUrls.sort(); // make sure it's always the same order
 
     // Set up http routers to use proxies
-    const kuboClients = plebbit.clients.kuboRpcClients;
+    const kuboClients = pkc.clients.kuboRpcClients;
     const httpRoutersConfig: any = {
         HttpRoutersParallel: { Type: "parallel", Parameters: { Routers: [] } },
         HttpRouterNotSupported: { Type: "http", Parameters: { Endpoint: "http://kubohttprouternotsupported" } }
@@ -219,7 +218,7 @@ export async function setupKuboAddressesRewriterAndHttpRouters(plebbit: PKC): Pr
     const httpRoutersMethodsConfig = {
         "find-providers": { RouterName: "HttpRoutersParallel" },
         provide: { RouterName: "HttpRoutersParallel" },
-        // not supported by plebbit trackers
+        // not supported by pkc trackers
         "find-peers": { RouterName: "HttpRouterNotSupported" },
         "get-ipns": { RouterName: "HttpRouterNotSupported" },
         "put-ipns": { RouterName: "HttpRouterNotSupported" }

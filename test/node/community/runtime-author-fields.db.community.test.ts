@@ -17,7 +17,7 @@ type JsonSignature = z.infer<typeof JsonSignatureSchema>;
 
 const PROTOCOL_VERSION = "1.0.0";
 
-const runtimeOnlyAuthorFields = ["address", "publicKey", "shortAddress", "subplebbit", "nameResolved"] as const;
+const runtimeOnlyAuthorFields = ["address", "publicKey", "shortAddress", "community", "nameResolved"] as const;
 
 function buildSignature(): JsonSignature {
     return {
@@ -39,7 +39,7 @@ function buildAuthorWithRuntimeFields() {
         publicKey: "12D3KooWFakePublicKey",
         shortAddress: "12D3KooWFake",
         nameResolved: true,
-        subplebbit: {
+        community: {
             postScore: 5,
             replyScore: 3,
             firstCommentTimestamp: 1700000000,
@@ -55,7 +55,7 @@ describeSkipIfRpc("runtime author fields must not be stored in DB", () => {
     async function createTestDbHandler(): Promise<DbHandler> {
         communityAddress = `test-sub-${Date.now()}-${Math.random()}`;
         const fakePKC = { noData: true };
-        const fakeCommunity = { address: communityAddress, _plebbit: fakePKC };
+        const fakeCommunity = { address: communityAddress, _pkc: fakePKC };
         const handler = new DbHandler(fakeCommunity as never);
         await handler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
         await handler.createOrMigrateTablesIfNeeded();
@@ -101,7 +101,7 @@ describeSkipIfRpc("runtime author fields must not be stored in DB", () => {
                 depth: 0
             };
 
-            // Same stripping as local-subplebbit.ts storeComment (line 1266-1267)
+            // Same stripping as local-community.ts storeComment (line 1266-1267)
             const strippedOutCommentIpfs = CommentIpfsSchema.strip().parse(commentIpfs);
             strippedOutCommentIpfs.author = cleanWireAuthor(strippedOutCommentIpfs.author);
 
@@ -158,7 +158,7 @@ describeSkipIfRpc("runtime author fields must not be stored in DB", () => {
                 protocolVersion: PROTOCOL_VERSION
             };
 
-            // Same stripping as local-subplebbit.ts storeCommentEdit (line 924-925)
+            // Same stripping as local-community.ts storeCommentEdit (line 924-925)
             const strippedOutEditPublication = CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema.strip().parse(commentEditRaw);
             strippedOutEditPublication.author = cleanWireAuthor(strippedOutEditPublication.author);
 
@@ -213,7 +213,7 @@ describeSkipIfRpc("runtime author fields must not be stored in DB", () => {
                 protocolVersion: PROTOCOL_VERSION
             };
 
-            // Same stripping as local-subplebbit.ts storeCommentModeration (line 961-962)
+            // Same stripping as local-community.ts storeCommentModeration (line 961-962)
             const strippedOutModPublication = CommentModerationPubsubMessagePublicationSchema.strip().parse(commentModRaw);
             strippedOutModPublication.author = cleanWireAuthor(strippedOutModPublication.author);
 

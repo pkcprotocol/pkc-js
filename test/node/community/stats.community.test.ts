@@ -41,7 +41,7 @@ const postCountKeys: (keyof CommunityStats)[] = [
     "hourPostCount"
 ];
 
-// Type aliases derived from plebbit-js types
+// Type aliases derived from pkc-js types
 type InsertedComment = Pick<CommentsTableRow, "cid" | "depth" | "parentCid" | "postCid" | "timestamp" | "authorSignerAddress">;
 
 type InsertCommentOptions = Partial<
@@ -75,16 +75,16 @@ function createMockEdit(comment: InsertedComment, subAddress: string, deleted: b
 }
 
 async function createTestDbHandler(): Promise<{ dbHandler: DbHandler; communityAddress: string }> {
-    const subplebbitAddress = `test-sub-${Date.now()}-${Math.random()}`;
+    const communityAddress = `test-sub-${Date.now()}-${Math.random()}`;
     const fakePKC = { noData: true };
-    const fakeCommunity = { address: subplebbitAddress, _plebbit: fakePKC };
-    const handler = new DbHandler(fakeCommunity as DbHandler extends { _subplebbit: infer T } ? T : never);
+    const fakeCommunity = { address: communityAddress, _pkc: fakePKC };
+    const handler = new DbHandler(fakeCommunity as DbHandler extends { _community: infer T } ? T : never);
     await handler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
     await handler.createOrMigrateTablesIfNeeded();
-    return { dbHandler: handler, communityAddress: subplebbitAddress };
+    return { dbHandler: handler, communityAddress: communityAddress };
 }
 
-describe(`subplebbit.statsCid`, function () {
+describe(`community.statsCid`, function () {
     let dbHandler: DbHandler | undefined;
     let communityAddress: string;
     let cidCounter = 0;
@@ -202,7 +202,7 @@ describe(`subplebbit.statsCid`, function () {
                 signedPropertyNames: []
             },
             author: {
-                subplebbit: {
+                community: {
                     postScore: 0,
                     replyScore: 0,
                     lastCommentCid: comment.cid,
@@ -269,14 +269,14 @@ describe(`subplebbit.statsCid`, function () {
         }
     });
 
-    it(`stats of subplebbit is all zeros by default`, () => {
+    it(`stats of community is all zeros by default`, () => {
         const stats = queryStats();
         const expectedKeys = activeUserCountKeys.concat(...replyCountKeys).concat(...postCountKeys);
         expect(Object.keys(stats).sort()).to.deep.equal(expectedKeys.sort());
         expectedKeys.forEach((key) => expect(stats[key]).to.equal(0));
     });
 
-    describe(`subplebbit.stats.ActiveUserCount`, () => {
+    describe(`community.stats.ActiveUserCount`, () => {
         it(`ActiveUserCount should increase by 1 for new post author`, () => {
             const statsBefore = queryStats();
             insertPost({ authorSignerAddress: "author-new-post" });
@@ -418,7 +418,7 @@ describe(`subplebbit.statsCid`, function () {
         });
     });
 
-    describe(`subplebbit.stats.postCount`, () => {
+    describe(`community.stats.postCount`, () => {
         it(`PostCount should increase by 1 for new post`, () => {
             const statsBefore = queryStats();
             insertPost({ authorSignerAddress: "post-author-1" });
@@ -444,7 +444,7 @@ describe(`subplebbit.statsCid`, function () {
         });
     });
 
-    describe(`subplebbit.stats.replyCount`, () => {
+    describe(`community.stats.replyCount`, () => {
         it(`replyCount should increase by 1 for new reply`, () => {
             const post = insertPost({ authorSignerAddress: "post-author" });
             const statsBefore = queryStats();
@@ -471,12 +471,12 @@ describe(`subplebbit.statsCid`, function () {
         });
     });
 
-    describe(`subplebbit.stats filters ineligible comments`, () => {
-        it(`ignores comments stored under different subplebbit address`, () => {
+    describe(`community.stats filters ineligible comments`, () => {
+        it(`ignores comments stored under different community address`, () => {
             const statsBefore = queryStats();
             insertPost({
                 authorSignerAddress: "foreign-author",
-                overrides: { communityPublicKey: "other-subplebbit" }
+                overrides: { communityPublicKey: "other-community" }
             });
             const statsAfter = queryStats();
             expectDelta(activeUserCountKeys, statsBefore, statsAfter, 0);
@@ -524,7 +524,7 @@ describe(`subplebbit.statsCid`, function () {
             expectDelta(activeUserCountKeys, statsBefore, statsAfter, 0);
         });
 
-        it(`ignores votes tied to comments under different subplebbit address`, () => {
+        it(`ignores votes tied to comments under different community address`, () => {
             const statsBefore = queryStats();
             const foreignPost = insertPost({
                 authorSignerAddress: "foreign-post-vote",

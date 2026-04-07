@@ -8,18 +8,18 @@ import { createScenarioContext, defineHangingScenario } from "./hanging-test-uti
  * so the destroy call can flush everything properly.
  */
 export default defineHangingScenario({
-    id: "subplebbit-start",
-    description: "start a subplebbit and destroy plebbit",
+    id: "community-start",
+    description: "start a community and destroy pkc",
     run: async ({ configCode }) => {
         const allowedConfigCodes = ["local-kubo-rpc", "remote-pkc-rpc"];
         if (!allowedConfigCodes.includes(configCode)) return;
-        const { plebbit, config } = await createScenarioContext(configCode);
+        const { pkc, config } = await createScenarioContext(configCode);
 
-        const subplebbit = await plebbit.createCommunity();
+        const community = await pkc.createCommunity();
 
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
-        await plebbit.destroy();
+        await pkc.destroy();
     }
 });

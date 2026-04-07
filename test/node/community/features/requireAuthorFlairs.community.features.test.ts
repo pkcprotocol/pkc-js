@@ -15,30 +15,30 @@ import type { LocalCommunity } from "../../../../dist/node/runtime/node/communit
 import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 
-describe(`subplebbit.features.requireAuthorFlairs`, async () => {
-    let plebbit: PKC;
+describe(`community.features.requireAuthorFlairs`, async () => {
+    let pkc: PKC;
     let remotePKC: PKC;
-    let subplebbit: LocalCommunity | RpcLocalCommunity;
+    let community: LocalCommunity | RpcLocalCommunity;
     let publishedPost: CommentIpfsWithCidDefined;
     const validAuthorFlair = { text: "Verified", backgroundColor: "#00ff00", textColor: "#000000" };
 
     beforeAll(async () => {
-        plebbit = await mockPKC();
+        pkc = await mockPKC();
         remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
-        subplebbit = await createSubWithNoChallenge({}, plebbit);
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+        community = await createSubWithNoChallenge({}, pkc);
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
         // Set up allowed author flairs and enable authorFlairs feature first
-        await subplebbit.edit({
+        await community.edit({
             flairs: { author: [validAuthorFlair] },
             features: { authorFlairs: true }
         });
 
         // Publish a post before enabling requireAuthorFlairs (with author flair since authorFlairs is enabled)
         publishedPost = (await publishRandomPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: {
                 author: { displayName: "Test", flairs: [validAuthorFlair] }
             }
@@ -46,18 +46,18 @@ describe(`subplebbit.features.requireAuthorFlairs`, async () => {
     });
 
     afterAll(async () => {
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
         await remotePKC.destroy();
     });
 
     it.sequential(`Feature is updated correctly in props`, async () => {
-        await subplebbit.edit({ features: { ...subplebbit.features, requireAuthorFlairs: true } });
-        expect(subplebbit.features?.requireAuthorFlairs).to.be.true;
+        await community.edit({ features: { ...community.features, requireAuthorFlairs: true } });
+        expect(community.features?.requireAuthorFlairs).to.be.true;
     });
 
     it(`Can't publish a post without author flairs`, async () => {
-        const post = await generateMockPost({ communityAddress: subplebbit.address, plebbit: remotePKC });
+        const post = await generateMockPost({ communityAddress: community.address, pkc: remotePKC });
         await publishWithExpectedResult({
             publication: post,
             expectedChallengeSuccess: false,
@@ -76,8 +76,8 @@ describe(`subplebbit.features.requireAuthorFlairs`, async () => {
 
     it(`Can publish a post with valid author flair`, async () => {
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: {
                 author: { displayName: "Test", flairs: [validAuthorFlair] }
             }
@@ -95,8 +95,8 @@ describe(`subplebbit.features.requireAuthorFlairs`, async () => {
     it(`Can't publish a post with invalid author flair even when required`, async () => {
         const invalidFlair = { text: "Invalid", backgroundColor: "#ff0000" };
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: {
                 author: { displayName: "Test", flairs: [invalidFlair] }
             }

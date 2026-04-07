@@ -28,12 +28,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         `community.{ipnsName, ipnsPubsubTopic, ipnsPubsubTopicRoutingCid} with domain that fails IPNS loading - ${config.name}`,
         async () => {
             it(`Domain resolves to b58 IPNS but IPNS record doesn't exist - should still set ipnsPubsubTopic and ipnsPubsubTopicRoutingCid`, async () => {
-                const pkc = await config.plebbitInstancePromise({ stubStorage: false });
+                const pkc = await config.pkcInstancePromise({ stubStorage: false });
                 const testDomain = "test-domain-no-ipns-record.eth";
                 const nonExistantIpnsAddress = (await pkc.createSigner()).address; // a random b58 address that's not loadable
                 const expectedIpnsPubsubTopicForNonExistent = ipnsNameToIpnsOverPubsubTopic(nonExistantIpnsAddress);
                 const expectedIpnsPubsubTopicRoutingCidForNonExistent = pubsubTopicToDhtKey(expectedIpnsPubsubTopicForNonExistent);
-                pkc._timeouts["subplebbit-ipns"] = 1000;
+                pkc._timeouts["community-ipns"] = 1000;
 
                 setMockResolverRecords(pkc, new Map([[testDomain, nonExistantIpnsAddress]]));
 
@@ -86,12 +86,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describeSkipIfRpc(`community.ipns accessors persist after first resolve - ${config.name}`, async () => {
         it(`keeps ipns accessors defined after stop`, async () => {
-            const pkc = await config.plebbitInstancePromise({ stubStorage: false });
+            const pkc = await config.pkcInstancePromise({ stubStorage: false });
             const testDomain = `test-domain-ipns-accessors-${config.testConfigCode}.eth`;
             const nonExistantIpnsAddress = (await pkc.createSigner()).address; // a random b58 address that's not loadable
             const expectedIpnsPubsubTopicForNonExistent = ipnsNameToIpnsOverPubsubTopic(nonExistantIpnsAddress);
             const expectedIpnsPubsubTopicRoutingCidForNonExistent = pubsubTopicToDhtKey(expectedIpnsPubsubTopicForNonExistent);
-            pkc._timeouts["subplebbit-ipns"] = 1000;
+            pkc._timeouts["community-ipns"] = 1000;
 
             setMockResolverRecords(pkc, new Map([[testDomain, nonExistantIpnsAddress]]));
 
@@ -126,12 +126,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describeSkipIfRpc(`community.ipns accessors mirror updating community - ${config.name}`, async () => {
         it(`mirrors ipns accessors when update fails before record is loaded`, async () => {
-            const pkc = await config.plebbitInstancePromise({ stubStorage: false });
+            const pkc = await config.pkcInstancePromise({ stubStorage: false });
             const testDomain = `test-domain-ipns-mirror-${config.testConfigCode}.eth`;
             const nonExistantIpnsAddress = (await pkc.createSigner()).address; // a random b58 address that's not loadable
             const expectedIpnsPubsubTopicForNonExistent = ipnsNameToIpnsOverPubsubTopic(nonExistantIpnsAddress);
             const expectedIpnsPubsubTopicRoutingCidForNonExistent = pubsubTopicToDhtKey(expectedIpnsPubsubTopicForNonExistent);
-            pkc._timeouts["subplebbit-ipns"] = 1000;
+            pkc._timeouts["community-ipns"] = 1000;
 
             setMockResolverRecords(pkc, new Map([[testDomain, nonExistantIpnsAddress]]));
 
@@ -169,7 +169,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe(`community.ipns accessors persist after successful update - ${config.name}`, async () => {
         it(`keeps ipns accessors defined after stop`, async () => {
-            const pkc = await config.plebbitInstancePromise();
+            const pkc = await config.pkcInstancePromise();
             const community = await pkc.createCommunity({ address: ipnsB58 });
 
             expect(community.ipnsName).to.equal(ipnsB58);
@@ -194,7 +194,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKCType;
         let community: RemoteCommunity;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
             community = await pkc.createCommunity({ address: ipnsB58 });
             expect(community.updatedAt).to.be.undefined;
         });
@@ -214,7 +214,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKCType;
         let community: RemoteCommunity;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
             community = await pkc.createCommunity({ address: ipnsB58 });
 
             await community.update();

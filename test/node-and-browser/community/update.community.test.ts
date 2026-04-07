@@ -26,7 +26,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent("community.update (remote) - " + config.name, async () => {
         let pkc: PKCType;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -35,7 +35,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         // Cannot run under RPC: test spies on name.resolve/fetch which happen server-side, not observable from the client
         itSkipIfRpc("calling update() on many instances of the same community resolves IPNS only once", async () => {
-            const localPKC = await config.plebbitInstancePromise();
+            const localPKC = await config.pkcInstancePromise();
             const randomSub = await createMockedCommunityIpns({});
             let fetchSpy: ReturnType<typeof vi.spyOn> | undefined;
             let nameResolveSpy: ReturnType<typeof vi.spyOn> | undefined;
@@ -69,7 +69,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     })
                 );
 
-                expect(localPKC._updatingCommunitys.size()).to.equal(0);
+                expect(localPKC._updatingCommunities.size()).to.equal(0);
 
                 await Promise.all(subInstances.map((sub) => sub.update()));
                 await Promise.all(
@@ -101,7 +101,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(community.address).to.equal("plebbit.bso");
             const oldUpdatedAt = remeda.clone(community.updatedAt);
             await community.update();
-            await publishRandomPost({ communityAddress: community.address, plebbit: pkc }); // Invoke an update
+            await publishRandomPost({ communityAddress: community.address, pkc: pkc }); // Invoke an update
             await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => oldUpdatedAt !== community.updatedAt });
             expect(oldUpdatedAt).to.not.equal(community.updatedAt);
             expect(community.address).to.equal("plebbit.bso");
@@ -143,7 +143,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const { communityAddress: ipnsKey } = await createMockedCommunityIpns({ name: "migration-test.bso" });
             const differentKey = signers[0].address;
 
-            const testPKC = await config.plebbitInstancePromise();
+            const testPKC = await config.pkcInstancePromise();
 
             try {
                 const sub = await testPKC.createCommunity({ address: ipnsKey });
@@ -178,7 +178,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 await clearedUpdatePromise;
                 // Data should be cleared
                 expect(sub.updatedAt).to.be.undefined;
-                expect(sub.raw.subplebbitIpfs).to.be.undefined;
+                expect(sub.raw.communityIpfs).to.be.undefined;
                 // publicKey updated to new key
                 expect(sub.publicKey).to.equal(differentKey);
                 // address stays immutable
@@ -194,9 +194,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it(`community loaded by raw IPNS key sets nameResolved=false when record's name cannot be resolved`, async () => {
             const { communityAddress: ipnsKey } = await createMockedCommunityIpns({ name: "unresolvable-name.bso" });
 
-            const testPKC = await config.plebbitInstancePromise({
+            const testPKC = await config.pkcInstancePromise({
                 mockResolve: false,
-                plebbitOptions: {
+                pkcOptions: {
                     nameResolvers: [
                         createMockNameResolver({
                             // "unresolvable-name.bso" returns undefined (no TXT record)
@@ -250,9 +250,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             // Publish a valid record signed with ipnsObj.signer first, then corrupt a signed field.
             // We cannot just copy signers[0]'s record because its publicKey would mismatch the IPNS address,
             // causing ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED instead of ERR_COMMUNITY_SIGNATURE_IS_INVALID.
-            const { subplebbitRecord, ipnsObj } = await publishCommunityRecordWithExtraProp();
-            (subplebbitRecord as Record<string, unknown>).updatedAt = (subplebbitRecord.updatedAt || 0) + 9999; // corrupt a signed field
-            await ipnsObj.publishToIpns(JSON.stringify(subplebbitRecord));
+            const { communityRecord, ipnsObj } = await publishCommunityRecordWithExtraProp();
+            (communityRecord as Record<string, unknown>).updatedAt = (communityRecord.updatedAt || 0) + 9999; // corrupt a signed field
+            await ipnsObj.publishToIpns(JSON.stringify(communityRecord));
             const tempCommunity = await pkc.createCommunity({ address: ipnsObj.signer.address });
 
             const errorPromise = new Promise<void>((resolve) => {
@@ -274,11 +274,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await tempCommunity.update();
             await errorPromise;
             await tempCommunity.stop();
-            await ipnsObj.plebbit.destroy();
+            await ipnsObj.pkc.destroy();
         });
 
         it(`community.update emits error if schema of community is invalid `, async () => {
-            const rawCommunityJson = (await pkc.getCommunity({ address: signers[0].address })).raw.subplebbitIpfs!;
+            const rawCommunityJson = (await pkc.getCommunity({ address: signers[0].address })).raw.communityIpfs!;
             (rawCommunityJson as Record<string, unknown>).lastPostCid = 12345; // This will make schema invalid
 
             const ipnsObj = await createNewIpns();
@@ -304,7 +304,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await errorPromise;
 
             await tempCommunity.stop();
-            await ipnsObj.plebbit.destroy();
+            await ipnsObj.pkc.destroy();
         });
 
         it(`community.update emits error if community record is invalid json`, async () => {
@@ -331,7 +331,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await errorPromise;
 
             await tempCommunity.stop();
-            await ipnsObj.plebbit.destroy();
+            await ipnsObj.pkc.destroy();
         });
 
         it(`community.update emits error and keeps retrying if address is name and name address has no community-address text record`, async () => {
@@ -356,7 +356,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`community.stop() stops community updates`, async () => {
-            const remotePKC = await config.plebbitInstancePromise();
+            const remotePKC = await config.pkcInstancePromise();
             const community = await remotePKC.createCommunity({ address: "plebbit.bso" }); // 'plebbit.eth' is part of test-server.js
             await community.update();
             await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
@@ -387,7 +387,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             await community.update();
 
-            await publishRandomPost({ communityAddress: community.address, plebbit: pkc });
+            await publishRandomPost({ communityAddress: community.address, pkc: pkc });
             await new Promise((resolve) => community.once("update", resolve));
             await community.stop();
         });
@@ -399,7 +399,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const { communityAddress: oldPublicKey } = await createMockedCommunityIpns({});
             const newPublicKey = signers[0].address; // domain will resolve to this different key
 
-            const testPKC = await config.plebbitInstancePromise();
+            const testPKC = await config.pkcInstancePromise();
 
             try {
                 const sub = await testPKC.createCommunity({ address: "migrating.bso", publicKey: oldPublicKey });
@@ -435,7 +435,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(sub.updatedAt).to.be.undefined;
                 expect(sub.title).to.be.undefined;
                 expect(sub.signature).to.be.undefined;
-                expect(sub.raw.subplebbitIpfs).to.be.undefined;
+                expect(sub.raw.communityIpfs).to.be.undefined;
                 expect(sub.updateCid).to.be.undefined;
 
                 // address stays immutable
@@ -465,7 +465,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it(`community.update() rejects record when record name differs from loaded domain address`, async () => {
             // "wrong-name.bso" is in defaultMockResolverRecords → signers[3].address
             // signers[3]'s record has name: "plebbit.bso", so "wrong-name.bso" ≠ "plebbit.bso" → rejection
-            const testPKC = await config.plebbitInstancePromise();
+            const testPKC = await config.pkcInstancePromise();
 
             try {
                 const sub = await testPKC.createCommunity({ address: "wrong-name.bso" });
@@ -498,7 +498,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             // Default mock resolver can't resolve "unresolvable.bso" (not in default records) → falls back to publicKey
             const { communityAddress: publicKey } = await createMockedCommunityIpns({});
 
-            const testPKC = await config.plebbitInstancePromise();
+            const testPKC = await config.pkcInstancePromise();
 
             try {
                 const sub = await testPKC.createCommunity({ address: "unresolvable.bso", publicKey });
@@ -575,7 +575,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(sub.lastPostCid).to.be.undefined;
             expect(sub.lastCommentCid).to.be.undefined;
             expect(sub.protocolVersion).to.be.undefined;
-            expect(sub.raw.subplebbitIpfs).to.be.undefined;
+            expect(sub.raw.communityIpfs).to.be.undefined;
             expect(sub.updateCid).to.be.undefined;
 
             // Address stays unchanged (immutable)
@@ -612,11 +612,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 for (const gatewayUrl of Object.keys(tempCommunity.clients.ipfsGateways))
                     expect((err.details.gatewayToError[gatewayUrl] as PKCError).code).to.equal("ERR_OVER_DOWNLOAD_LIMIT");
             } else expect(err.code).to.equal("ERR_OVER_DOWNLOAD_LIMIT");
-            await ipnsObj.plebbit.destroy();
+            await ipnsObj.pkc.destroy();
         });
 
-        // Verify that background name resolution emits "update" independently of subplebbitIpfs changes
-        it(`background name resolution emits update with nameResolved=true without a new subplebbitIpfs record`, async () => {
+        // Verify that background name resolution emits "update" independently of communityIpfs changes
+        it(`background name resolution emits update with nameResolved=true without a new communityIpfs record`, async () => {
             const sub = await pkc.createCommunity({ address: nameCommunitySigner.address });
             await sub.update();
             // Wait for the initial record to load
@@ -633,7 +633,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 toUpdate: sub,
                 predicate: async () => sub.nameResolved === true
             });
-            // The subplebbitIpfs record should be unchanged — update was triggered solely by nameResolved
+            // The communityIpfs record should be unchanged — update was triggered solely by nameResolved
             expect(sub.updatedAt).to.equal(updatedAtBeforeNameResolved);
             expect(sub.updateCid).to.equal(updateCidBeforeNameResolved);
             expect(sub.nameResolved).to.equal(true);
@@ -641,12 +641,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await sub.stop();
         });
 
-        it(`background name resolution emits update with nameResolved=false without a new subplebbitIpfs record`, async () => {
+        it(`background name resolution emits update with nameResolved=false without a new communityIpfs record`, async () => {
             const { communityAddress: ipnsKey } = await createMockedCommunityIpns({ name: "unresolvable-name-independent.bso" });
 
-            const testPKC = await config.plebbitInstancePromise({
+            const testPKC = await config.pkcInstancePromise({
                 mockResolve: false,
-                plebbitOptions: {
+                pkcOptions: {
                     nameResolvers: [
                         createMockNameResolver({
                             records: new Map([["unresolvable-name-independent.bso", undefined]])
@@ -673,7 +673,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     toUpdate: sub,
                     predicate: async () => sub.nameResolved === false
                 });
-                // The subplebbitIpfs record should be unchanged — update was triggered solely by nameResolved
+                // The communityIpfs record should be unchanged — update was triggered solely by nameResolved
                 expect(sub.updatedAt).to.equal(updatedAtBeforeNameResolved);
                 expect(sub.updateCid).to.equal(updateCidBeforeNameResolved);
                 expect(sub.nameResolved).to.equal(false);

@@ -22,18 +22,18 @@ import type { CommentIpfsWithCidDefined } from "../../../dist/node/publications/
 
 const depthsToTest = [1, 2, 3, 5, 15, 30];
 
-describeSkipIfRpc("subplebbit.postUpdates", async () => {
-    let plebbit: PKC;
-    let subplebbit: LocalCommunity | RpcLocalCommunity;
+describeSkipIfRpc("community.postUpdates", async () => {
+    let pkc: PKC;
+    let community: LocalCommunity | RpcLocalCommunity;
     let remotePKC: PKC;
     const replyCidByDepth: Record<number, string> = {};
 
     beforeAll(async () => {
-        plebbit = await mockPKC();
-        subplebbit = await createSubWithNoChallenge({}, plebbit);
-        subplebbit.setMaxListeners(200);
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+        pkc = await mockPKC();
+        community = await createSubWithNoChallenge({}, pkc);
+        community.setMaxListeners(200);
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
     });
 
     beforeEach(async () => {
@@ -44,17 +44,17 @@ describeSkipIfRpc("subplebbit.postUpdates", async () => {
     });
 
     afterAll(async () => {
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
         for (const depth of Object.keys(replyCidByDepth)) delete replyCidByDepth[Number(depth)];
     });
 
-    it(`subplebbit.postUpdates is undefined if there are no comments`, async () => {
-        expect(subplebbit.postUpdates).to.be.undefined;
+    it(`community.postUpdates is undefined if there are no comments`, async () => {
+        expect(community.postUpdates).to.be.undefined;
     });
 
-    it(`subplebbit.postUpdates = {86400} when a post is published`, async () => {
-        const post = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: remotePKC });
+    it(`community.postUpdates = {86400} when a post is published`, async () => {
+        const post = await publishRandomPost({ communityAddress: community.address, pkc: remotePKC });
         await waitTillPostInCommunityPages(post as Comment & { cid: string }, remotePKC);
 
         const postRecreated = await remotePKC.createComment({ cid: post.cid });
@@ -62,13 +62,13 @@ describeSkipIfRpc("subplebbit.postUpdates", async () => {
         mockCommentToNotUsePagesForUpdates(postRecreated);
 
         await resolveWhenConditionIsTrue({ toUpdate: postRecreated, predicate: async () => typeof postRecreated.updatedAt === "number" });
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => Boolean(subplebbit.postUpdates) });
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => Boolean(community.postUpdates) });
 
         expect(postRecreated._commentUpdateIpfsPath?.endsWith("/update")).to.be.true; // should fetch from post updates directory
         expect(postRecreated.updatedAt).to.be.a("number"); // check for commentUpdate props
         expect(postRecreated.content).to.be.a("string"); // check for CommentIpfs props
-        expect(subplebbit.postUpdates).to.exist;
-        expect(Object.keys(subplebbit.postUpdates!)).to.deep.equal(["86400"]);
+        expect(community.postUpdates).to.exist;
+        expect(Object.keys(community.postUpdates!)).to.deep.equal(["86400"]);
         await postRecreated.stop();
     });
 
@@ -77,7 +77,7 @@ describeSkipIfRpc("subplebbit.postUpdates", async () => {
             const log = Logger("pkc-js:test:community:postUpdates:publishReplyWithDepth");
 
             // is it possibly only failing when reply is fetched using pages?
-            const parentCommentInstance = await publishCommentWithDepth({ depth: depth - 1, subplebbit });
+            const parentCommentInstance = await publishCommentWithDepth({ depth: depth - 1, community });
 
             await parentCommentInstance.update();
             await resolveWhenConditionIsTrue({
@@ -89,10 +89,10 @@ describeSkipIfRpc("subplebbit.postUpdates", async () => {
 
             const reply = await publishRandomReply({
                 parentComment: parentCommentInstance as CommentIpfsWithCidDefined,
-                plebbit: remotePKC
+                pkc: remotePKC
             });
             const { cleanup } = await forceLocalSubPagesToAlwaysGenerateMultipleChunks({
-                subplebbit,
+                community,
                 parentComment: parentCommentInstance
             });
 
@@ -100,8 +100,8 @@ describeSkipIfRpc("subplebbit.postUpdates", async () => {
             expect(reply.depth).to.equal(depth);
             replyCidByDepth[depth] = reply.cid!;
 
-            // is it possible that local subplebbit is publishing a parent comment with outdated pageCids
-            // maybe we should have a setInterval printing pageCids of parent comment, with local plebbit
+            // is it possible that local community is publishing a parent comment with outdated pageCids
+            // maybe we should have a setInterval printing pageCids of parent comment, with local pkc
 
             log("Creating and updating reply", reply.cid, "and depth", reply.depth);
             const replyRecreated = await remotePKC.createComment({ cid: reply.cid });
@@ -119,11 +119,11 @@ describeSkipIfRpc("subplebbit.postUpdates", async () => {
 
             // Access private properties for testing
             const replyPrivate = replyRecreated as never as Record<string, { _updatingComments: Record<string, Comment> }>;
-            const updatingReply = replyPrivate._plebbit._updatingComments[replyRecreated.cid!];
+            const updatingReply = replyPrivate._pkc._updatingComments[replyRecreated.cid!];
             const updatingReplyPrivate = updatingReply as never as Record<string, { _parentFirstPageCidsAlreadyLoaded: Set<string> }>;
             expect(updatingReplyPrivate._clientsManager._parentFirstPageCidsAlreadyLoaded.size).to.be.greaterThan(0);
 
-            expect(Object.keys(subplebbit.postUpdates!)).to.deep.equal(["86400"]);
+            expect(Object.keys(community.postUpdates!)).to.deep.equal(["86400"]);
 
             await replyRecreated.stop();
             await parentCommentInstance.stop();
@@ -131,22 +131,22 @@ describeSkipIfRpc("subplebbit.postUpdates", async () => {
         });
     });
 
-    it(`subplebbit.postUpdates moves posts from bucket to more accurate bucket`, async () => {
+    it(`community.postUpdates moves posts from bucket to more accurate bucket`, async () => {
         // For example, we have a bucket 86400 which is for the last 24 hours,
         // But if we have a new bucket, 43200 for the last 12 hours, the post from previous tests should be moved to it
-        const subPrivate = subplebbit as never as Record<string, number[]>;
+        const subPrivate = community as never as Record<string, number[]>;
         const currentBuckets = subPrivate._postUpdatesBuckets;
         subPrivate._postUpdatesBuckets = [43200, ...currentBuckets];
         await resolveWhenConditionIsTrue({
-            toUpdate: subplebbit,
+            toUpdate: community,
             predicate: async () =>
-                Object.keys(subplebbit.postUpdates || {}).length === 1 && Object.keys(subplebbit.postUpdates!)[0] === "43200"
+                Object.keys(community.postUpdates || {}).length === 1 && Object.keys(community.postUpdates!)[0] === "43200"
         });
-        expect(Object.keys(subplebbit.postUpdates!)).to.deep.equal(["43200"]);
+        expect(Object.keys(community.postUpdates!)).to.deep.equal(["43200"]);
     });
 
     it(`Can fetch post updates with new bucket`, async () => {
-        const postCid = subplebbit.posts.pages.hot!.comments[0].cid;
+        const postCid = community.posts.pages.hot!.comments[0].cid;
         const post = await remotePKC.createComment({ cid: postCid });
         await post.update();
         mockCommentToNotUsePagesForUpdates(post);

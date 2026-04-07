@@ -64,8 +64,8 @@ function persistAliases<T extends object>(target: T, aliases: string[]): string[
     return [...aliasHistory];
 }
 
-export function getCommunityRegistryAliases(subplebbit: CommunityWithAliases): string[] {
-    const aliases = dedupeAliases([subplebbit.address, subplebbit.name, subplebbit.publicKey, subplebbit.signer?.address]);
+export function getCommunityRegistryAliases(community: CommunityWithAliases): string[] {
+    const aliases = dedupeAliases([community.address, community.name, community.publicKey, community.signer?.address]);
 
     return dedupeAliases(
         aliases.flatMap((alias) => {
@@ -79,8 +79,8 @@ export function getCommentRegistryAliases(comment: CommentLookup): string[] {
     return dedupeAliases([comment.cid]);
 }
 
-export function syncCommunityRegistryEntry<T extends CommunityWithAliases>(registry: TrackedInstanceRegistry<T>, subplebbit: T): T {
-    return registry.track({ value: subplebbit, aliases: persistAliases(subplebbit, getCommunityRegistryAliases(subplebbit)) });
+export function syncCommunityRegistryEntry<T extends CommunityWithAliases>(registry: TrackedInstanceRegistry<T>, community: T): T {
+    return registry.track({ value: community, aliases: persistAliases(community, getCommunityRegistryAliases(community)) });
 }
 
 export function syncCommentRegistryEntry<T extends CommentLookup>(registry: TrackedInstanceRegistry<T>, comment: T): T {
@@ -102,60 +102,60 @@ export function listRegistryValues<T extends object>(registry: TrackedInstanceRe
     return registry.values();
 }
 
-export function trackUpdatingCommunity(plebbit: PKC, subplebbit: TrackedCommunity): TrackedCommunity {
-    return syncCommunityRegistryEntry(plebbit._updatingCommunitys, subplebbit);
+export function trackUpdatingCommunity(pkc: PKC, community: TrackedCommunity): TrackedCommunity {
+    return syncCommunityRegistryEntry(pkc._updatingCommunities, community);
 }
 
-export function trackStartedCommunity(plebbit: PKC, subplebbit: StartedCommunity): StartedCommunity {
-    return syncCommunityRegistryEntry(plebbit._startedCommunitys, subplebbit);
+export function trackStartedCommunity(pkc: PKC, community: StartedCommunity): StartedCommunity {
+    return syncCommunityRegistryEntry(pkc._startedCommunities, community);
 }
 
-export function trackUpdatingComment(plebbit: PKC, comment: Comment): Comment {
-    return syncCommentRegistryEntry(plebbit._updatingComments, comment);
+export function trackUpdatingComment(pkc: PKC, comment: Comment): Comment {
+    return syncCommentRegistryEntry(pkc._updatingComments, comment);
 }
 
-export function untrackUpdatingCommunity(plebbit: PKC, subplebbit: TrackedCommunity): void {
-    plebbit._updatingCommunitys.untrack(subplebbit);
+export function untrackUpdatingCommunity(pkc: PKC, community: TrackedCommunity): void {
+    pkc._updatingCommunities.untrack(community);
 }
 
-export function untrackStartedCommunity(plebbit: PKC, subplebbit: StartedCommunity): void {
-    plebbit._startedCommunitys.untrack(subplebbit);
+export function untrackStartedCommunity(pkc: PKC, community: StartedCommunity): void {
+    pkc._startedCommunities.untrack(community);
 }
 
-export function untrackUpdatingComment(plebbit: PKC, comment: Comment): void {
-    plebbit._updatingComments.untrack(comment);
+export function untrackUpdatingComment(pkc: PKC, comment: Comment): void {
+    pkc._updatingComments.untrack(comment);
 }
 
-export function refreshTrackedCommunityAliases(plebbit: PKC, subplebbit: TrackedCommunity): void {
-    if (plebbit._updatingCommunitys.has(subplebbit)) syncCommunityRegistryEntry(plebbit._updatingCommunitys, subplebbit);
-    if (plebbit._startedCommunitys.has(subplebbit as StartedCommunity))
-        syncCommunityRegistryEntry(plebbit._startedCommunitys, subplebbit as StartedCommunity);
+export function refreshTrackedCommunityAliases(pkc: PKC, community: TrackedCommunity): void {
+    if (pkc._updatingCommunities.has(community)) syncCommunityRegistryEntry(pkc._updatingCommunities, community);
+    if (pkc._startedCommunities.has(community as StartedCommunity))
+        syncCommunityRegistryEntry(pkc._startedCommunities, community as StartedCommunity);
 }
 
-export function refreshTrackedCommentAliases(plebbit: PKC, comment: Comment): void {
-    if (plebbit._updatingComments.has(comment)) syncCommentRegistryEntry(plebbit._updatingComments, comment);
+export function refreshTrackedCommentAliases(pkc: PKC, comment: Comment): void {
+    if (pkc._updatingComments.has(comment)) syncCommentRegistryEntry(pkc._updatingComments, comment);
 }
 
-export function findUpdatingCommunity(plebbit: PKC, lookup: CommunityLookup): TrackedCommunity | undefined {
-    return findCommunityInRegistry(plebbit._updatingCommunitys, lookup);
+export function findUpdatingCommunity(pkc: PKC, lookup: CommunityLookup): TrackedCommunity | undefined {
+    return findCommunityInRegistry(pkc._updatingCommunities, lookup);
 }
 
-export function findStartedCommunity(plebbit: PKC, lookup: CommunityLookup): StartedCommunity | undefined {
-    return findCommunityInRegistry(plebbit._startedCommunitys, lookup);
+export function findStartedCommunity(pkc: PKC, lookup: CommunityLookup): StartedCommunity | undefined {
+    return findCommunityInRegistry(pkc._startedCommunities, lookup);
 }
 
-export function findUpdatingComment(plebbit: PKC, lookup: CommentLookup): Comment | undefined {
-    return findCommentInRegistry(plebbit._updatingComments, lookup);
+export function findUpdatingComment(pkc: PKC, lookup: CommentLookup): Comment | undefined {
+    return findCommentInRegistry(pkc._updatingComments, lookup);
 }
 
-export function listUpdatingCommunitys(plebbit: PKC): TrackedCommunity[] {
-    return listRegistryValues(plebbit._updatingCommunitys);
+export function listUpdatingCommunities(pkc: PKC): TrackedCommunity[] {
+    return listRegistryValues(pkc._updatingCommunities);
 }
 
-export function listStartedCommunitys(plebbit: PKC): StartedCommunity[] {
-    return listRegistryValues(plebbit._startedCommunitys);
+export function listStartedCommunities(pkc: PKC): StartedCommunity[] {
+    return listRegistryValues(pkc._startedCommunities);
 }
 
-export function listUpdatingComments(plebbit: PKC): Comment[] {
-    return listRegistryValues(plebbit._updatingComments);
+export function listUpdatingComments(pkc: PKC): Comment[] {
+    return listRegistryValues(pkc._updatingComments);
 }

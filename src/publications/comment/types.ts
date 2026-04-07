@@ -68,7 +68,7 @@ export interface CommentIpfsWithCidPostCidDefined extends CommentIpfsWithCidDefi
     postCid: string;
 }
 
-// subplebbit.posts.pages.hot.comments[0] will have this shape
+// community.posts.pages.hot.comments[0] will have this shape
 export interface CommentWithinRepliesPostsPageJson extends CommentIpfsWithCidPostCidDefined, Omit<CommentUpdateType, "replies"> {
     communityAddress: string;
     shortCid: string;
@@ -98,8 +98,8 @@ export type CommentUpdatingState =
     | "fetching-ipfs"
     | "fetching-update-ipfs"
     | "resolving-community-name"
-    | "fetching-subplebbit-ipns"
-    | "fetching-subplebbit-ipfs"
+    | "fetching-community-ipns"
+    | "fetching-community-ipfs"
     | "failed"
     | "succeeded"
     | "waiting-retry";

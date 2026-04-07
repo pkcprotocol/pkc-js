@@ -56,7 +56,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let fixturePostSigner: SignerType;
 
         beforeAll(async () => {
-            fixturePKC = await config.plebbitInstancePromise();
+            fixturePKC = await config.pkcInstancePromise();
             fixturePostSigner = await fixturePKC.createSigner();
             fixturePost = await fixturePKC.createComment({
                 communityAddress: communityName,
@@ -79,9 +79,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it("Comment publish succeeds with community publicKey fallback", async () => {
             // Create pkc with resolver that only handles .eth (not .bso)
             // For RPC, resolver options are stripped but the server still resolves .bso normally
-            const pkc = await config.plebbitInstancePromise({
+            const pkc = await config.pkcInstancePromise({
                 mockResolve: false,
-                plebbitOptions: {
+                pkcOptions: {
                     nameResolvers: [
                         createMockNameResolver({
                             includeDefaultRecords: true,
@@ -115,9 +115,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it("Vote publish succeeds with community publicKey fallback", async () => {
-            const pkc = await config.plebbitInstancePromise({
+            const pkc = await config.pkcInstancePromise({
                 mockResolve: false,
-                plebbitOptions: {
+                pkcOptions: {
                     nameResolvers: [
                         createMockNameResolver({
                             includeDefaultRecords: true,
@@ -149,9 +149,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it("CommentEdit publish succeeds with community publicKey fallback", async () => {
-            const pkc = await config.plebbitInstancePromise({
+            const pkc = await config.pkcInstancePromise({
                 mockResolve: false,
-                plebbitOptions: {
+                pkcOptions: {
                     nameResolvers: [
                         createMockNameResolver({
                             includeDefaultRecords: true,
@@ -183,9 +183,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it("CommentModeration publish succeeds with community publicKey fallback", async () => {
-            const pkc = await config.plebbitInstancePromise({
+            const pkc = await config.pkcInstancePromise({
                 mockResolve: false,
-                plebbitOptions: {
+                pkcOptions: {
                     nameResolvers: [
                         createMockNameResolver({
                             includeDefaultRecords: true,
@@ -220,9 +220,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it("CommunityEdit publish succeeds with community publicKey fallback", async () => {
-            const pkc = await config.plebbitInstancePromise({
+            const pkc = await config.pkcInstancePromise({
                 mockResolve: false,
-                plebbitOptions: {
+                pkcOptions: {
                     nameResolvers: [
                         createMockNameResolver({
                             includeDefaultRecords: true,
@@ -234,7 +234,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const publication = await pkc.createCommunityEdit({
                 communityAddress: communityName,
                 communityPublicKey,
-                subplebbitEdit: {
+                communityEdit: {
                     description: `Community edit fallback ${Date.now()}`
                 },
                 signer: await pkc.createSigner(signers[1])

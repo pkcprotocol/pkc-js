@@ -33,7 +33,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC, sub: RemoteCommunity;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
             sub = (await pkc.createCommunity({ address: communityAddress })) as RemoteCommunity;
             await sub.update();
         });
@@ -44,7 +44,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it("Can publish a post", async () => {
             const title = "Test of ability to publish posts" + Date.now();
-            const post = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc, postProps: { title } });
+            const post = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc, postProps: { title } });
             expect(post.depth).to.equal(0);
             expect(post.title).to.equal(title);
             await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, sub);
@@ -54,7 +54,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`Can Publish a post with only link`, async () => {
             const link = "https://demo.plebbit.eth.limo";
-            const post = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc, postProps: { link } });
+            const post = await generateMockPost({ communityAddress: communityAddress, pkc: pkc, postProps: { link } });
             expect(post.link).to.equal(link);
             await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
             await waitTillPostInCommunityInstancePages(post as Comment & { cid: string }, sub);
@@ -74,7 +74,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 emojiContents.map(async (content) => {
                     const publishedPostWithEmojiContent = await publishRandomPost({
                         communityAddress: communityAddress,
-                        plebbit: pkc,
+                        pkc: pkc,
                         postProps: {
                             content,
                             title: content
@@ -102,7 +102,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`post.author.shortAddress is defined throughout publishing`, async () => {
-            const post = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
+            const post = await generateMockPost({ communityAddress: communityAddress, pkc: pkc });
             expect(post.author.shortAddress).to.be.a("string").with.length.above(0);
             expect(JSON.parse(JSON.stringify(post)).author.shortAddress)
                 .to.be.a("string")
@@ -158,7 +158,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 spoilerValues.map(async (spoilerValue) => {
                     const post = await generateMockPost({
                         communityAddress: communityAddress,
-                        plebbit: pkc,
+                        pkc: pkc,
                         postProps: { spoiler: spoilerValue }
                     });
 
@@ -183,7 +183,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 nsfwValues.map(async (nsfwValue) => {
                     const post = await generateMockPost({
                         communityAddress: communityAddress,
-                        plebbit: pkc,
+                        pkc: pkc,
                         postProps: { nsfw: nsfwValue }
                     });
 
@@ -211,7 +211,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             };
             const post = await generateMockPost({
                 communityAddress: communityAddress,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: { author: { wallets } }
             });
             expect(post.author.wallets).to.deep.equal(wallets);
@@ -223,7 +223,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can publish a post that was created from another comment instance`, async () => {
-            const comment1 = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
+            const comment1 = await generateMockPost({ communityAddress: communityAddress, pkc: pkc });
             const commentToPublish = await pkc.createComment(comment1);
             await publishWithExpectedResult({ publication: commentToPublish, expectedChallengeSuccess: true });
             // Ensure comment1 has a signed pubsub message for comparison.
@@ -235,7 +235,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can publish a post that was created from jsonfied comment instance`, async () => {
-            const comment1 = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
+            const comment1 = await generateMockPost({ communityAddress: communityAddress, pkc: pkc });
             const commentToPublish = await pkc.createComment(JSON.parse(JSON.stringify(comment1)));
             await publishWithExpectedResult({ publication: commentToPublish, expectedChallengeSuccess: true });
             // Ensure comment1 has a signed pubsub message for comparison.
@@ -250,7 +250,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it(`Can publish a post with linkHtmlTagName defined`, async () => {
             const post = await generateMockPost({
                 communityAddress: communityAddress,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: {
                     linkHtmlTagName: "img",
                     link: "https://google.com"
@@ -271,7 +271,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it(`A post with author.wallet = {} doesn't cause issues with pages or signatures`, async () => {
             const post = await generateMockPost({
                 communityAddress: communityAddress,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: { author: { wallets: {} } }
             });
             // pkc.createComment will remove empty {}, so author.wallets will be undefined
@@ -290,8 +290,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         itSkipIfRpc(`publish() can be caught if community failed to load`, async () => {
             const randomSigner = await pkc.createSigner();
             const downCommunityAddress = randomSigner.address; // an offline sub
-            const post = await generateMockPost({ communityAddress: downCommunityAddress, plebbit: pkc });
-            pkc._timeouts["subplebbit-ipns"] = 100; // need to change time out from 5 minutes to 100ms
+            const post = await generateMockPost({ communityAddress: downCommunityAddress, pkc: pkc });
+            pkc._timeouts["community-ipns"] = 100; // need to change time out from 5 minutes to 100ms
 
             try {
                 await post.publish();
@@ -328,7 +328,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 content: "Mock content - 1690130836.1711266" + Math.random(),
                 title: "Mock Post - 1690130836.1711266" + Math.random()
             };
-            const signature = await signComment({ comment: { ...propsToSign, signer }, plebbit: pkc });
+            const signature = await signComment({ comment: { ...propsToSign, signer }, pkc: pkc });
             const post = await pkc.createComment({
                 communityPublicKey,
                 timestamp: propsToSign.timestamp,
@@ -348,7 +348,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => await pkc.destroy());
@@ -357,11 +357,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const title = `Test title on Comment ${Date.now()} ${Math.random()}`;
             const content = "Random Content" + Math.random();
             const link = "https://pkc.com";
-            const post = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            const post = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
             await post.update();
             const reply = await publishRandomReply({
                 parentComment: post as CommentIpfsWithCidDefined,
-                plebbit: pkc,
+                pkc: pkc,
                 commentProps: {
                     title,
                     content,
@@ -382,7 +382,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         [2, 3, 10, 30].map((depth) =>
             it(`Can publish reply with depth = ${depth}`, async () => {
                 const community = await pkc.getCommunity({ address: communityAddress });
-                const reply = await publishCommentWithDepth({ depth, subplebbit: community });
+                const reply = await publishCommentWithDepth({ depth, community: community });
                 expect(reply.depth).to.be.equal(depth);
 
                 const parentComment = await pkc.getComment({ cid: reply.parentCid });

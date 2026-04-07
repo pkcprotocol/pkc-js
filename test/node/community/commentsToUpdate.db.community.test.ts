@@ -33,7 +33,7 @@ interface InsertCommentUpdateOptions
             | "insertedAt"
         >
     > {
-    // These fields differ from plebbit-js types: booleans stored as numbers, objects as JSON strings
+    // These fields differ from pkc-js types: booleans stored as numbers, objects as JSON strings
     publishedToPostUpdatesMFS?: number;
     removed?: number | null;
     approved?: number | null;
@@ -62,8 +62,8 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
     async function createTestDbHandler(): Promise<DbHandler> {
         communityAddress = `test-sub-${Date.now()}-${Math.random()}`;
         const fakePKC = { noData: true };
-        const fakeCommunity = { address: communityAddress, _plebbit: fakePKC };
-        const handler = new DbHandler(fakeCommunity as DbHandler["_subplebbit"]);
+        const fakeCommunity = { address: communityAddress, _pkc: fakePKC };
+        const handler = new DbHandler(fakeCommunity as DbHandler["_community"]);
         await handler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
         await handler.createOrMigrateTablesIfNeeded();
         return handler;
@@ -132,7 +132,7 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
                 updatedAt,
                 protocolVersion,
                 signature: "sig",
-                author: { subplebbit: { firstCommentTimestamp: comment.timestamp, lastCommentCid: comment.cid } },
+                author: { community: { firstCommentTimestamp: comment.timestamp, lastCommentCid: comment.cid } },
                 replies,
                 lastChildCid,
                 lastReplyTimestamp,
@@ -414,7 +414,7 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
                                 childCount: 0,
                                 updatedAt: currentTimestamp(),
                                 protocolVersion,
-                                author: { subplebbit: { firstCommentTimestamp: currentTimestamp(), lastCommentCid: staleChildCid } }
+                                author: { community: { firstCommentTimestamp: currentTimestamp(), lastCommentCid: staleChildCid } }
                             }
                         }
                     ]
@@ -483,7 +483,7 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
                                 updatedAt: childInitialUpdatedAt,
                                 protocolVersion,
                                 author: {
-                                    subplebbit: {
+                                    community: {
                                         firstCommentTimestamp: child.timestamp,
                                         lastCommentCid: child.cid
                                     }
@@ -674,7 +674,7 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
                                 updatedAt: childUpdatedAt,
                                 protocolVersion,
                                 author: {
-                                    subplebbit: {
+                                    community: {
                                         firstCommentTimestamp: child.timestamp,
                                         lastCommentCid: child.cid
                                     }
@@ -738,7 +738,7 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
                                 updatedAt: childUpdatedAt,
                                 protocolVersion,
                                 author: {
-                                    subplebbit: {
+                                    community: {
                                         firstCommentTimestamp: child.timestamp,
                                         lastCommentCid: child.cid
                                     }
@@ -807,7 +807,7 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
                                 updatedAt: childUpdatedAt,
                                 protocolVersion,
                                 author: {
-                                    subplebbit: {
+                                    community: {
                                         firstCommentTimestamp: child.timestamp,
                                         lastCommentCid: child.cid
                                     }
@@ -881,7 +881,7 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
                                 updatedAt: childUpdatedAt,
                                 protocolVersion,
                                 author: {
-                                    subplebbit: {
+                                    community: {
                                         firstCommentTimestamp: pendingChild.timestamp,
                                         lastCommentCid: pendingChild.cid
                                     }
@@ -996,7 +996,7 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
         expect(cids).to.include(replyA1.cid, "replyA1 should be included because it has a new vote");
 
         // replyA2 should be included (same author as replyA1)
-        expect(cids).to.include(replyA2.cid, "replyA2 should be included because author A needs author.subplebbit update");
+        expect(cids).to.include(replyA2.cid, "replyA2 should be included because author A needs author.community update");
 
         // postByB should be included (parent of replyA1 which is in base_updates via vote)
         expect(cids).to.include(postByB.cid, "postByB should be included as parent of replyA1");
@@ -1343,7 +1343,7 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
                                 updatedAt: childInitialUpdatedAt,
                                 protocolVersion,
                                 author: {
-                                    subplebbit: {
+                                    community: {
                                         firstCommentTimestamp: child.timestamp,
                                         lastCommentCid: child.cid
                                     }

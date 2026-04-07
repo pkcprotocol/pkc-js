@@ -31,27 +31,27 @@ const getLanIpV4Address = (): string | undefined => {
 };
 
 describeSkipIfRpc(`Setting up rpc server`, async () => {
-    let plebbit: PKCType;
+    let pkc: PKCType;
 
     const lanAddress = getLanIpV4Address(); // LAN address (non-internal)
     beforeAll(async () => {
-        plebbit = await mockPKC();
-        expect(plebbit.dataPath).to.be.a("string");
+        pkc = await mockPKC();
+        expect(pkc.dataPath).to.be.a("string");
         expect(lanAddress).to.be.a("string");
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`Rpc server emits an error is rpc port is already taken`, async () => {
         const rpcServerPort = 19138;
         const options: CreatePKCWsServerOptions = {
             port: rpcServerPort,
-            plebbitOptions: {
-                kuboRpcClientsOptions: plebbit.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                httpRoutersOptions: plebbit.httpRoutersOptions,
-                dataPath: plebbit.dataPath
+            pkcOptions: {
+                kuboRpcClientsOptions: pkc.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
+                httpRoutersOptions: pkc.httpRoutersOptions,
+                dataPath: pkc.dataPath
             }
         };
         const rpcServer = await PKCWsServer.PKCWsServer(options); // was able to create an rpc server
@@ -71,10 +71,10 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
         const options: CreatePKCWsServerOptions = {
             port: rpcServerPort,
             authKey,
-            plebbitOptions: {
-                kuboRpcClientsOptions: plebbit.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                httpRoutersOptions: plebbit.httpRoutersOptions,
-                dataPath: plebbit.dataPath
+            pkcOptions: {
+                kuboRpcClientsOptions: pkc.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
+                httpRoutersOptions: pkc.httpRoutersOptions,
+                dataPath: pkc.dataPath
             }
         };
         const rpcServer = await PKCWsServer.PKCWsServer(options); // was able to create an rpc server
@@ -84,7 +84,7 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
 
         const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
         expect(sub.address).to.exist; // should be able to create a sub successfully over RPC
-        expect(clientPKC.subplebbits).to.include(sub.address);
+        expect(clientPKC.communities).to.include(sub.address);
 
         await clientPKC.destroy();
         await rpcServer.destroy();
@@ -96,10 +96,10 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
         const options: CreatePKCWsServerOptions = {
             port: rpcServerPort,
             authKey,
-            plebbitOptions: {
-                kuboRpcClientsOptions: plebbit.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                httpRoutersOptions: plebbit.httpRoutersOptions,
-                dataPath: plebbit.dataPath
+            pkcOptions: {
+                kuboRpcClientsOptions: pkc.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
+                httpRoutersOptions: pkc.httpRoutersOptions,
+                dataPath: pkc.dataPath
             }
         };
         const rpcServer = await PKCWsServer.PKCWsServer(options); // was able to create an rpc server
@@ -109,7 +109,7 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
 
         const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
         expect(sub.address).to.exist; // should be able to create a sub successfully over RPC
-        expect(clientPKC.subplebbits).to.include(sub.address);
+        expect(clientPKC.communities).to.include(sub.address);
 
         await clientPKC.destroy();
         await rpcServer.destroy();
@@ -121,10 +121,10 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
         const options: CreatePKCWsServerOptions = {
             port: rpcServerPort,
             authKey,
-            plebbitOptions: {
-                kuboRpcClientsOptions: plebbit.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                httpRoutersOptions: plebbit.httpRoutersOptions,
-                dataPath: plebbit.dataPath
+            pkcOptions: {
+                kuboRpcClientsOptions: pkc.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
+                httpRoutersOptions: pkc.httpRoutersOptions,
+                dataPath: pkc.dataPath
             }
         };
         const rpcServer = await PKCWsServer.PKCWsServer(options); // was able to create an rpc server
@@ -134,7 +134,7 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
 
         const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
         expect(sub.address).to.exist; // should be able to create a sub successfully over RPC
-        expect(clientPKC.subplebbits).to.include(sub.address);
+        expect(clientPKC.communities).to.include(sub.address);
 
         await clientPKC.destroy();
         await rpcServer.destroy();
@@ -146,10 +146,10 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
         const options: CreatePKCWsServerOptions = {
             port: rpcServerPort,
             authKey,
-            plebbitOptions: {
-                kuboRpcClientsOptions: plebbit.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                httpRoutersOptions: plebbit.httpRoutersOptions,
-                dataPath: plebbit.dataPath
+            pkcOptions: {
+                kuboRpcClientsOptions: pkc.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
+                httpRoutersOptions: pkc.httpRoutersOptions,
+                dataPath: pkc.dataPath
             }
         };
         const rpcServer = await PKCWsServer.PKCWsServer(options); // was able to create an rpc server
@@ -159,7 +159,7 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
 
         const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
         expect(sub.address).to.exist; // should be able to create a sub successfully over RPC
-        expect(clientPKC.subplebbits).to.include(sub.address);
+        expect(clientPKC.communities).to.include(sub.address);
 
         await clientPKC.destroy();
         await rpcServer.destroy();
@@ -171,10 +171,10 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
         const options: CreatePKCWsServerOptions = {
             port: rpcServerPort,
             authKey,
-            plebbitOptions: {
-                kuboRpcClientsOptions: plebbit.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                httpRoutersOptions: plebbit.httpRoutersOptions,
-                dataPath: plebbit.dataPath
+            pkcOptions: {
+                kuboRpcClientsOptions: pkc.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
+                httpRoutersOptions: pkc.httpRoutersOptions,
+                dataPath: pkc.dataPath
             }
         };
         const rpcServer = await PKCWsServer.PKCWsServer(options); // was able to create an rpc server
@@ -204,10 +204,10 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
         const options: CreatePKCWsServerOptions = {
             port: rpcServerPort,
             authKey,
-            plebbitOptions: {
-                kuboRpcClientsOptions: plebbit.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                httpRoutersOptions: plebbit.httpRoutersOptions,
-                dataPath: plebbit.dataPath
+            pkcOptions: {
+                kuboRpcClientsOptions: pkc.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
+                httpRoutersOptions: pkc.httpRoutersOptions,
+                dataPath: pkc.dataPath
             }
         };
         const rpcServer = await PKCWsServer.PKCWsServer(options);
@@ -237,10 +237,10 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
         const options: CreatePKCWsServerOptions = {
             port: rpcServerPort,
             authKey,
-            plebbitOptions: {
-                kuboRpcClientsOptions: plebbit.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                httpRoutersOptions: plebbit.httpRoutersOptions,
-                dataPath: plebbit.dataPath
+            pkcOptions: {
+                kuboRpcClientsOptions: pkc.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
+                httpRoutersOptions: pkc.httpRoutersOptions,
+                dataPath: pkc.dataPath
             }
         };
         const rpcServer = await PKCWsServer.PKCWsServer(options); // was able to create an rpc server
@@ -252,7 +252,7 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
 
         const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
         expect(sub.address).to.exist; // should be able to create a sub successfully over RPC
-        expect(clientPKC.subplebbits).to.include(sub.address);
+        expect(clientPKC.communities).to.include(sub.address);
 
         await clientPKC.destroy();
         await rpcServer.destroy();
@@ -264,10 +264,10 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
         const options: CreatePKCWsServerOptions = {
             port: rpcServerPort,
             authKey,
-            plebbitOptions: {
-                kuboRpcClientsOptions: plebbit.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                httpRoutersOptions: plebbit.httpRoutersOptions,
-                dataPath: plebbit.dataPath
+            pkcOptions: {
+                kuboRpcClientsOptions: pkc.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
+                httpRoutersOptions: pkc.httpRoutersOptions,
+                dataPath: pkc.dataPath
             }
         };
         const rpcServer = await PKCWsServer.PKCWsServer(options); // was able to create an rpc server
@@ -277,7 +277,7 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
 
         const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
         expect(sub.address).to.exist; // should be able to create a sub successfully over RPC
-        expect(clientPKC.subplebbits).to.include(sub.address);
+        expect(clientPKC.communities).to.include(sub.address);
 
         await clientPKC.destroy();
         await rpcServer.destroy();
@@ -289,10 +289,10 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
         const options: CreatePKCWsServerOptions = {
             port: rpcServerPort,
             authKey,
-            plebbitOptions: {
-                kuboRpcClientsOptions: plebbit.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                httpRoutersOptions: plebbit.httpRoutersOptions,
-                dataPath: plebbit.dataPath
+            pkcOptions: {
+                kuboRpcClientsOptions: pkc.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
+                httpRoutersOptions: pkc.httpRoutersOptions,
+                dataPath: pkc.dataPath
             }
         };
         const rpcServer = await PKCWsServer.PKCWsServer(options); // was able to create an rpc server
@@ -302,21 +302,20 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
 
         const sub = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
         expect(sub.address).to.exist; // should be able to create a sub successfully over RPC
-        expect(clientPKC.subplebbits).to.include(sub.address);
+        expect(clientPKC.communities).to.include(sub.address);
 
         await clientPKC.destroy();
         await rpcServer.destroy();
     });
 
-    describe(`RPC server subplebbit edit error handling`, () => {
+    describe(`RPC server community edit error handling`, () => {
         it(`Returns domain mismatch errors to RPC clients without crashing the server`, async () => {
             const rpcServerPort = 19145;
             const options: CreatePKCWsServerOptions = {
                 port: rpcServerPort,
-                plebbitOptions: {
-                    kuboRpcClientsOptions:
-                        plebbit.kuboRpcClientsOptions as CreatePKCWsServerOptions["plebbitOptions"]["kuboRpcClientsOptions"],
-                    httpRoutersOptions: plebbit.httpRoutersOptions,
+                pkcOptions: {
+                    kuboRpcClientsOptions: pkc.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
+                    httpRoutersOptions: pkc.httpRoutersOptions,
                     dataPath: tempy.directory()
                 }
             };

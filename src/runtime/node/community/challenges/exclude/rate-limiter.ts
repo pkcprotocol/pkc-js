@@ -152,32 +152,32 @@ const getRateLimitersToAddTo = (
 };
 
 const addToRateLimiter = (
-    subplebbitChallenges: NonNullable<CommunitySettings["challenges"]>,
+    communityChallenges: NonNullable<CommunitySettings["challenges"]>,
     request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
     challengeSuccess: ChallengeResult["success"]
 ) => {
-    if (!subplebbitChallenges) {
-        // subplebbit has no challenges, no need to rate limit
+    if (!communityChallenges) {
+        // community has no challenges, no need to rate limit
         return;
     }
-    if (!Array.isArray(subplebbitChallenges)) {
-        throw Error(`addToRateLimiter invalid argument subplebbitChallenges '${subplebbitChallenges}' not an array`);
+    if (!Array.isArray(communityChallenges)) {
+        throw Error(`addToRateLimiter invalid argument communityChallenges '${communityChallenges}' not an array`);
     }
 
     if (typeof challengeSuccess !== "boolean") {
         throw Error(`addToRateLimiter invalid argument challengeSuccess '${challengeSuccess}' not a boolean`);
     }
 
-    // get all exclude items from all subplebbit challenges
+    // get all exclude items from all community challenges
     const excludeArray = [];
-    for (const subplebbitChallenge of subplebbitChallenges) {
-        for (const exclude of subplebbitChallenge?.exclude || []) {
+    for (const communityChallenge of communityChallenges) {
+        for (const exclude of communityChallenge?.exclude || []) {
             excludeArray.push(exclude);
         }
     }
 
     if (!excludeArray.length) {
-        // no need to add to rate limiter if the subplebbit has no exclude rules in any challenges
+        // no need to add to rate limiter if the community has no exclude rules in any challenges
         return;
     }
 

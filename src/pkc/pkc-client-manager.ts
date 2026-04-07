@@ -21,14 +21,14 @@ export class PKCClientsManager extends BaseClientsManager {
     clients: {
         ipfsGateways: { [ipfsGatewayUrl: string]: PKCIpfsGatewayClient };
         kuboRpcClients: { [kuboRpcClientUrl: string]: PKCKuboRpcClient };
-        pubsubKuboRpcClients: { [pubsubKuboClientUrl: string]: GenericStateClient<string> }; // plebbit will never use this, but we're keeping it for compatibility
+        pubsubKuboRpcClients: { [pubsubKuboClientUrl: string]: GenericStateClient<string> }; // pkc will never use this, but we're keeping it for compatibility
         libp2pJsClients: { [libp2pJsClientKey: string]: PKCLibp2pJsClient };
         nameResolvers: { [resolverKey: string]: NameResolverClient };
     };
 
-    constructor(plebbit: PKC) {
-        super(plebbit);
-        this._plebbit = plebbit;
+    constructor(pkc: PKC) {
+        super(pkc);
+        this._pkc = pkc;
         //@ts-expect-error
         this.clients = {};
         this._initIpfsGateways();
@@ -41,19 +41,19 @@ export class PKCClientsManager extends BaseClientsManager {
 
     protected _initIpfsGateways() {
         this.clients.ipfsGateways = {};
-        for (const gatewayUrl of remeda.keys.strict(this._plebbit.clients.ipfsGateways))
+        for (const gatewayUrl of remeda.keys.strict(this._pkc.clients.ipfsGateways))
             this.clients.ipfsGateways = { ...this.clients.ipfsGateways, [gatewayUrl]: new PKCIpfsGatewayClient("stopped") };
     }
 
     protected _initKuboRpcClients() {
         this.clients.kuboRpcClients = {};
-        for (const kuboRpcUrl of remeda.keys.strict(this._plebbit.clients.kuboRpcClients))
+        for (const kuboRpcUrl of remeda.keys.strict(this._pkc.clients.kuboRpcClients))
             this.clients.kuboRpcClients = { ...this.clients.kuboRpcClients, [kuboRpcUrl]: new PKCKuboRpcClient("stopped") };
     }
 
     protected _initPubsubKuboRpcClients() {
         this.clients.pubsubKuboRpcClients = {};
-        for (const pubsubUrl of remeda.keys.strict(this._plebbit.clients.pubsubKuboRpcClients))
+        for (const pubsubUrl of remeda.keys.strict(this._pkc.clients.pubsubKuboRpcClients))
             this.clients.pubsubKuboRpcClients = {
                 ...this.clients.pubsubKuboRpcClients,
                 [pubsubUrl]: new GenericStateClient<string>("stopped")
@@ -62,14 +62,14 @@ export class PKCClientsManager extends BaseClientsManager {
 
     protected _initLibp2pJsClients() {
         this.clients.libp2pJsClients = {};
-        for (const libp2pJsClientKey of remeda.keys.strict(this._plebbit.clients.libp2pJsClients))
+        for (const libp2pJsClientKey of remeda.keys.strict(this._pkc.clients.libp2pJsClients))
             this.clients.libp2pJsClients = { ...this.clients.libp2pJsClients, [libp2pJsClientKey]: new PKCLibp2pJsClient("stopped") };
     }
 
     protected _initNameResolvers() {
         this.clients.nameResolvers = {};
-        if (this._plebbit.nameResolvers) {
-            for (const resolver of this._plebbit.nameResolvers) {
+        if (this._pkc.nameResolvers) {
+            for (const resolver of this._pkc.nameResolvers) {
                 this.clients.nameResolvers[resolver.key] = new NameResolverClient("stopped");
             }
         }
@@ -79,7 +79,7 @@ export class PKCClientsManager extends BaseClientsManager {
 
     override preFetchGateway(gatewayUrl: string, loadOpts: OptionsToLoadFromGateway): void {
         const gatewayState =
-            loadOpts.recordPKCType === "subplebbit"
+            loadOpts.recordPKCType === "community"
                 ? this._getStatePriorToResolvingCommunityIpns()
                 : loadOpts.recordPKCType === "comment-update"
                   ? "fetching-update-ipfs"
@@ -162,7 +162,7 @@ export class PKCClientsManager extends BaseClientsManager {
         let finalCid = remeda.clone(cid);
         if (!isIpfsCid(finalCid) && isIpfsPath(finalCid)) finalCid = finalCid.split("/")[2];
         if (!isIpfsCid(finalCid)) throw new PKCError("ERR_CID_IS_INVALID", { cid });
-        const timeoutMs = this._plebbit._timeouts["generic-ipfs"];
+        const timeoutMs = this._pkc._timeouts["generic-ipfs"];
         if (Object.keys(this.clients.kuboRpcClients).length > 0 || Object.keys(this.clients.libp2pJsClients).length > 0)
             return this._fetchCidP2P(cid, { maxFileSizeBytes: 1024 * 1024, timeoutMs });
         else {
@@ -182,7 +182,7 @@ export class PKCClientsManager extends BaseClientsManager {
 
     // fetchCommunity should be here
 
-    protected _getStatePriorToResolvingCommunityIpns(): "fetching-subplebbit-ipns" | "fetching-ipns" {
-        return "fetching-subplebbit-ipns";
+    protected _getStatePriorToResolvingCommunityIpns(): "fetching-community-ipns" | "fetching-ipns" {
+        return "fetching-community-ipns";
     }
 }

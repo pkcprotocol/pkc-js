@@ -83,7 +83,7 @@ import last from "it-last";
 import { buildRuntimeAuthor } from "../publications/publication-author.js";
 
 interface MockPKCOptions {
-    plebbitOptions?: InputPKCOptions;
+    pkcOptions?: InputPKCOptions;
     forceMockPubsub?: boolean;
     stubStorage?: boolean;
     mockResolve?: boolean;
@@ -173,18 +173,18 @@ function generateRandomTimestamp(parentTimestamp?: number): number {
 
 export async function generateMockPost({
     communityAddress,
-    plebbit,
+    pkc,
     randomTimestamp = false,
     postProps = {}
 }: {
     communityAddress: string;
-    plebbit: PKC;
+    pkc: PKC;
     randomTimestamp?: boolean;
     postProps?: Partial<CreateCommentOptions>;
 }): Promise<Comment> {
     const postTimestamp = (randomTimestamp && generateRandomTimestamp()) || timestamp();
     const postStartTestTime = Date.now() / 1000 + Math.random();
-    const signer = postProps?.signer || (await plebbit.createSigner());
+    const signer = postProps?.signer || (await pkc.createSigner());
 
     const baseProps = <CreateCommentOptions>{
         communityAddress,
@@ -196,7 +196,7 @@ export async function generateMockPost({
     };
 
     const finalPostProps = <CreateCommentOptions>remeda.mergeDeep(baseProps, postProps);
-    const post = await plebbit.createComment(finalPostProps);
+    const post = await pkc.createComment(finalPostProps);
 
     return post;
 }
@@ -204,14 +204,14 @@ export async function generateMockPost({
 // TODO rework this
 export async function generateMockComment(
     parentPostOrComment: CommentIpfsWithCidDefined,
-    plebbit: PKC,
+    pkc: PKC,
     randomTimestamp = false,
     commentProps: Partial<CreateCommentOptions> = {}
 ): Promise<Comment> {
     const commentTimestamp = (randomTimestamp && generateRandomTimestamp(parentPostOrComment.timestamp)) || timestamp();
     const commentTime = Date.now() / 1000 + Math.random();
-    const signer = commentProps?.signer || (await plebbit.createSigner());
-    const comment: Comment = await plebbit.createComment({
+    const signer = commentProps?.signer || (await pkc.createSigner());
+    const comment: Comment = await pkc.createComment({
         author: { displayName: `Mock Author - ${commentTime}` },
         signer: signer,
         content: `Mock comment - ${commentTime}`,
@@ -228,15 +228,15 @@ export async function generateMockComment(
 export async function generateMockVote(
     parentPostOrComment: CommentIpfsWithCidDefined,
     vote: -1 | 0 | 1,
-    plebbit: PKC,
+    pkc: PKC,
     signer?: SignerType
 ): Promise<Vote> {
     const voteTime = Date.now() / 1000;
     const commentCid = parentPostOrComment.cid;
     if (typeof commentCid !== "string") throw Error(`generateMockVote: commentCid (${commentCid}) is not a valid CID`);
 
-    signer = signer || (await plebbit.createSigner());
-    const voteObj = await plebbit.createVote({
+    signer = signer || (await pkc.createSigner());
+    const voteObj = await pkc.createVote({
         author: { displayName: `Mock Author - ${voteTime}` },
         signer: signer,
         commentCid,
@@ -274,17 +274,16 @@ export async function loadAllPagesBySortName(pageSortName: string, pagesInstance
     return sortedComments;
 }
 
-export async function loadAllUniquePostsUnderCommunity(subplebbit: RemoteCommunity) {
-    if (Object.keys(subplebbit.posts.pageCids).length === 0 && Object.keys(subplebbit.posts.pages).length === 0) return [];
-    const allCommentsInPreloadedPages =
-        Object.keys(subplebbit.posts.pageCids).length === 0 && Object.keys(subplebbit.posts.pages).length > 0;
+export async function loadAllUniquePostsUnderCommunity(community: RemoteCommunity) {
+    if (Object.keys(community.posts.pageCids).length === 0 && Object.keys(community.posts.pages).length === 0) return [];
+    const allCommentsInPreloadedPages = Object.keys(community.posts.pageCids).length === 0 && Object.keys(community.posts.pages).length > 0;
     if (allCommentsInPreloadedPages) {
-        const allComments = subplebbit.posts.pages.hot?.comments;
-        if (!allComments) throw Error("No comments found under subplebbit.posts.pages.hot");
+        const allComments = community.posts.pages.hot?.comments;
+        if (!allComments) throw Error("No comments found under community.posts.pages.hot");
         return allComments;
     } else {
         // we have multiple pages, need to load all pages and merge them
-        return loadAllPages(subplebbit.posts.pageCids.new, subplebbit.posts);
+        return loadAllPages(community.posts.pageCids.new, community.posts);
     }
 }
 
@@ -302,49 +301,49 @@ export async function loadAllUniqueCommentsUnderCommentInstance(comment: Comment
     }
 }
 
-async function _mockCommunityPKC(signer: SignerType[], plebbitOptions: InputPKCOptions) {
-    const plebbit = await mockPKC({ ...plebbitOptions, pubsubKuboRpcClientsOptions: ["http://localhost:15002/api/v0"] }, true);
+async function _mockCommunityPKC(signer: SignerType[], pkcOptions: InputPKCOptions) {
+    const pkc = await mockPKC({ ...pkcOptions, pubsubKuboRpcClientsOptions: ["http://localhost:15002/api/v0"] }, true);
 
-    return plebbit;
+    return pkc;
 }
 
-async function _startMathCliCommunity(signer: SignerType, plebbit: PKC): Promise<LocalCommunity> {
-    const subplebbit = <LocalCommunity>await plebbit.createCommunity({ signer });
+async function _startMathCliCommunity(signer: SignerType, pkc: PKC): Promise<LocalCommunity> {
+    const community = <LocalCommunity>await pkc.createCommunity({ signer });
 
-    await subplebbit.edit({ settings: { challenges: [{ name: "question", options: { question: "1+1=?", answer: "2" } }] } });
+    await community.edit({ settings: { challenges: [{ name: "question", options: { question: "1+1=?", answer: "2" } }] } });
 
-    await subplebbit.start();
-    return subplebbit;
+    await community.start();
+    return community;
 }
 
-async function _startEnsCommunity(signers: SignerType[], plebbit: PKC): Promise<LocalCommunity> {
-    const signer = await plebbit.createSigner(signers[3]);
-    const subplebbit = (await createSubWithNoChallenge({ signer }, plebbit)) as LocalCommunity;
-    await subplebbit.edit({
+async function _startEnsCommunity(signers: SignerType[], pkc: PKC): Promise<LocalCommunity> {
+    const signer = await pkc.createSigner(signers[3]);
+    const community = (await createSubWithNoChallenge({ signer }, pkc)) as LocalCommunity;
+    await community.edit({
         roles: {
             [signers[1].address]: { role: "owner" },
             [signers[2].address]: { role: "admin" },
             [signers[3].address]: { role: "moderator" }
         }
     });
-    await subplebbit.start();
-    await subplebbit.edit({ address: "plebbit.bso" });
-    assert.equal(subplebbit.address, "plebbit.bso");
-    return subplebbit;
+    await community.start();
+    await community.edit({ address: "plebbit.bso" });
+    assert.equal(community.address, "plebbit.bso");
+    return community;
 }
 
-async function _publishPosts(communityAddress: string, numOfPosts: number, plebbit: PKC) {
-    return Promise.all(new Array(numOfPosts).fill(null).map(() => publishRandomPost({ communityAddress, plebbit })));
+async function _publishPosts(communityAddress: string, numOfPosts: number, pkc: PKC) {
+    return Promise.all(new Array(numOfPosts).fill(null).map(() => publishRandomPost({ communityAddress, pkc })));
 }
 
-async function _publishReplies(parentComment: CommentIpfsWithCidDefined, numOfReplies: number, plebbit: PKC) {
-    return Promise.all(new Array(numOfReplies).fill(null).map(() => publishRandomReply({ parentComment, plebbit })));
+async function _publishReplies(parentComment: CommentIpfsWithCidDefined, numOfReplies: number, pkc: PKC) {
+    return Promise.all(new Array(numOfReplies).fill(null).map(() => publishRandomReply({ parentComment, pkc })));
 }
 
 async function _publishVotesOnOneComment(
     comment: Pick<CommentIpfsWithCidDefined, "cid"> & { communityAddress: string },
     votesPerCommentToPublish: number,
-    plebbit: PKC
+    pkc: PKC
 ) {
     return Promise.all(
         new Array(votesPerCommentToPublish).fill(null).map(() =>
@@ -352,7 +351,7 @@ async function _publishVotesOnOneComment(
                 commentCid: comment.cid,
                 communityAddress: comment.communityAddress,
                 vote: Math.random() > 0.5 ? 1 : -1,
-                plebbit
+                pkc
             })
         )
     );
@@ -361,10 +360,10 @@ async function _publishVotesOnOneComment(
 async function _publishVotes(
     comments: (Pick<CommentIpfsWithCidDefined, "cid" | "depth"> & { communityAddress: string })[],
     votesPerCommentToPublish: number,
-    plebbit: PKC
+    pkc: PKC
 ) {
     const votes: Vote[] = remeda.flattenDeep(
-        await Promise.all(comments.map((comment) => _publishVotesOnOneComment(comment, votesPerCommentToPublish, plebbit)))
+        await Promise.all(comments.map((comment) => _publishVotesOnOneComment(comment, votesPerCommentToPublish, pkc)))
     );
 
     assert.equal(votes.length, votesPerCommentToPublish * comments.length);
@@ -373,7 +372,7 @@ async function _publishVotes(
 }
 
 async function _populateCommunity(
-    subplebbit: LocalCommunity | RpcLocalCommunity,
+    community: LocalCommunity | RpcLocalCommunity,
     props: {
         signers: SignerType[];
         votesPerCommentToPublish: number;
@@ -381,7 +380,7 @@ async function _populateCommunity(
         numOfPostsToPublish: number;
     }
 ) {
-    await subplebbit.edit({
+    await community.edit({
         roles: {
             [props.signers[1].address]: { role: "owner" },
             [props.signers[2].address]: { role: "admin" },
@@ -389,22 +388,22 @@ async function _populateCommunity(
         }
     });
     if (props.numOfPostsToPublish === 0) return;
-    await new Promise((resolve) => subplebbit.once("update", resolve));
-    const posts = await _publishPosts(subplebbit.address, props.numOfPostsToPublish, subplebbit._plebbit); // If no comment[] is provided, we publish posts
+    await new Promise((resolve) => community.once("update", resolve));
+    const posts = await _publishPosts(community.address, props.numOfPostsToPublish, community._pkc); // If no comment[] is provided, we publish posts
     console.log(`Have successfully published ${posts.length} posts`);
-    const replies = await _publishReplies(<CommentIpfsWithCidDefined>posts[0], props.numOfCommentsToPublish, subplebbit._plebbit);
+    const replies = await _publishReplies(<CommentIpfsWithCidDefined>posts[0], props.numOfCommentsToPublish, community._pkc);
     console.log(`Have sucessfully published ${replies.length} replies`);
     const postVotes = await _publishVotes(
         posts as unknown as (Pick<CommentIpfsWithCidDefined, "cid" | "depth"> & { communityAddress: string })[],
         props.votesPerCommentToPublish,
-        subplebbit._plebbit
+        community._pkc
     );
     console.log(`Have sucessfully published ${postVotes.length} votes on ${posts.length} posts`);
 
     const repliesVotes = await _publishVotes(
         replies as unknown as (Pick<CommentIpfsWithCidDefined, "cid" | "depth"> & { communityAddress: string })[],
         props.votesPerCommentToPublish,
-        subplebbit._plebbit
+        community._pkc
     );
     console.log(`Have successfully published ${repliesVotes.length} votes on ${replies.length} replies`);
 }
@@ -441,7 +440,7 @@ export async function startOnlineCommunity() {
     return onlineSub;
 }
 
-export async function startCommunitys(props: {
+export async function startCommunities(props: {
     signers: SignerType[];
     noData?: boolean;
     dataPath?: string;
@@ -450,12 +449,12 @@ export async function startCommunitys(props: {
     numOfPostsToPublish: number;
     startOnlineSub: boolean;
 }): Promise<TestServerSubs> {
-    const plebbit = await _mockCommunityPKC(props.signers, {
+    const pkc = await _mockCommunityPKC(props.signers, {
         ...remeda.pick(props, ["noData", "dataPath"]),
         publishInterval: 1000,
         updateInterval: 1000
     });
-    const mainSub = (await createSubWithNoChallenge({ signer: props.signers[0] }, plebbit)) as LocalCommunity; // most publications will be on this sub
+    const mainSub = (await createSubWithNoChallenge({ signer: props.signers[0] }, pkc)) as LocalCommunity; // most publications will be on this sub
 
     // Enable flair features and set allowed flairs for flair tests
     await mainSub.edit({
@@ -467,8 +466,8 @@ export async function startCommunitys(props: {
 
     await mainSub.start();
 
-    const mathSub = await _startMathCliCommunity(props.signers[1], plebbit);
-    const ensSub = await _startEnsCommunity(props.signers, plebbit);
+    const mathSub = await _startMathCliCommunity(props.signers[1], pkc);
+    const ensSub = await _startEnsCommunity(props.signers, pkc);
     console.time("populate");
 
     await _populateCommunity(mainSub, props);
@@ -476,24 +475,24 @@ export async function startCommunitys(props: {
 
     let onlineSub;
     if (props.startOnlineSub) onlineSub = await startOnlineCommunity();
-    console.log("All subplebbits and ipfs nodes have been started. You are ready to run the tests");
+    console.log("All communities and ipfs nodes have been started. You are ready to run the tests");
 
-    const subWithNoResponse = (await createSubWithNoChallenge({ signer: props.signers[4] }, plebbit)) as LocalCommunity;
+    const subWithNoResponse = (await createSubWithNoChallenge({ signer: props.signers[4] }, pkc)) as LocalCommunity;
     await subWithNoResponse.start();
 
     await new Promise((resolve) => subWithNoResponse.once("update", resolve));
     await subWithNoResponse.stop();
 
-    const plebbitNoMockedSub = await mockPKC(
+    const pkcNoMockedSub = await mockPKC(
         { kuboRpcClientsOptions: ["http://localhost:15002/api/v0"], pubsubKuboRpcClientsOptions: ["http://localhost:15002/api/v0"] },
         false,
         true,
         true
     );
-    const mathCliSubWithNoMockedPubsub = await _startMathCliCommunity(props.signers[5], plebbitNoMockedSub);
+    const mathCliSubWithNoMockedPubsub = await _startMathCliCommunity(props.signers[5], pkcNoMockedSub);
     await new Promise((resolve) => mathCliSubWithNoMockedPubsub.once("update", resolve));
 
-    const subForPurge = (await createSubWithNoChallenge({ signer: props.signers[6] }, plebbit)) as LocalCommunity;
+    const subForPurge = (await createSubWithNoChallenge({ signer: props.signers[6] }, pkc)) as LocalCommunity;
     await subForPurge.edit({
         roles: {
             [props.signers[1].address]: { role: "owner" },
@@ -504,7 +503,7 @@ export async function startCommunitys(props: {
     await subForPurge.start();
     await new Promise((resolve) => subForPurge.once("update", resolve));
 
-    const subForRemove = (await createSubWithNoChallenge({ signer: props.signers[7] }, plebbit)) as LocalCommunity;
+    const subForRemove = (await createSubWithNoChallenge({ signer: props.signers[7] }, pkc)) as LocalCommunity;
     await subForRemove.edit({
         roles: {
             [props.signers[1].address]: { role: "owner" },
@@ -515,7 +514,7 @@ export async function startCommunitys(props: {
     await subForRemove.start();
     await new Promise((resolve) => subForRemove.once("update", resolve));
 
-    const subForDelete = (await createSubWithNoChallenge({ signer: props.signers[8] }, plebbit)) as LocalCommunity;
+    const subForDelete = (await createSubWithNoChallenge({ signer: props.signers[8] }, pkc)) as LocalCommunity;
     await subForDelete.edit({
         roles: {
             [props.signers[1].address]: { role: "owner" },
@@ -526,11 +525,11 @@ export async function startCommunitys(props: {
     await subForDelete.start();
     await new Promise((resolve) => subForDelete.once("update", resolve));
 
-    const subForChainProviders = (await createSubWithNoChallenge({ signer: props.signers[9] }, plebbit)) as LocalCommunity;
+    const subForChainProviders = (await createSubWithNoChallenge({ signer: props.signers[9] }, pkc)) as LocalCommunity;
     await subForChainProviders.start();
     await new Promise((resolve) => subForChainProviders.once("update", resolve));
 
-    const subForEditContent = (await createSubWithNoChallenge({ signer: props.signers[10] }, plebbit)) as LocalCommunity;
+    const subForEditContent = (await createSubWithNoChallenge({ signer: props.signers[10] }, pkc)) as LocalCommunity;
     await subForEditContent.edit({
         roles: {
             [props.signers[1].address]: { role: "owner" },
@@ -541,7 +540,7 @@ export async function startCommunitys(props: {
     await subForEditContent.start();
     await new Promise((resolve) => subForEditContent.once("update", resolve));
 
-    const subForLocked = (await createSubWithNoChallenge({ signer: props.signers[11] }, plebbit)) as LocalCommunity;
+    const subForLocked = (await createSubWithNoChallenge({ signer: props.signers[11] }, pkc)) as LocalCommunity;
     await subForLocked.edit({
         roles: {
             [props.signers[1].address]: { role: "owner" },
@@ -592,161 +591,161 @@ export function mockDefaultOptionsForNodeAndBrowserTests(): Pick<
             httpRoutersOptions: []
         };
 }
-export async function mockPKCV2({ plebbitOptions, forceMockPubsub, stubStorage, mockResolve, remotePKC }: MockPKCOptions = {}) {
-    if (remotePKC) plebbitOptions = { dataPath: undefined, ...plebbitOptions };
-    const plebbit = await mockPKC(plebbitOptions, forceMockPubsub, stubStorage, mockResolve);
-    return plebbit;
+export async function mockPKCV2({ pkcOptions, forceMockPubsub, stubStorage, mockResolve, remotePKC }: MockPKCOptions = {}) {
+    if (remotePKC) pkcOptions = { dataPath: undefined, ...pkcOptions };
+    const pkc = await mockPKC(pkcOptions, forceMockPubsub, stubStorage, mockResolve);
+    return pkc;
 }
 
-export async function mockPKC(plebbitOptions?: InputPKCOptions, forceMockPubsub = false, stubStorage = true, mockResolve = true) {
+export async function mockPKC(pkcOptions?: InputPKCOptions, forceMockPubsub = false, stubStorage = true, mockResolve = true) {
     const log = Logger("pkc-js:test-util:mockPKC");
-    if (plebbitOptions?.pkcRpcClientsOptions && plebbitOptions?.kuboRpcClientsOptions)
+    if (pkcOptions?.pkcRpcClientsOptions && pkcOptions?.kuboRpcClientsOptions)
         throw Error("Can't have both kubo and RPC config. Is this a mistake?");
-    if (plebbitOptions?.pkcRpcClientsOptions && plebbitOptions?.libp2pJsClientsOptions)
+    if (pkcOptions?.pkcRpcClientsOptions && pkcOptions?.libp2pJsClientsOptions)
         throw Error("Can't have both libp2p and RPC config. Is this a mistake?");
 
     const mockNameResolvers = mockResolve ? [createMockNameResolver({ includeDefaultRecords: true })] : undefined;
-    const plebbit = await PKCIndex({
+    const pkc = await PKCIndex({
         ...mockDefaultOptionsForNodeAndBrowserTests(),
         resolveAuthorNames: true,
         publishInterval: 1000,
         validatePages: false,
         updateInterval: 500,
         nameResolvers: mockNameResolvers,
-        ...plebbitOptions
+        ...pkcOptions
     });
 
     if (stubStorage) {
-        plebbit._storage.getItem = async () => undefined;
-        plebbit._storage.setItem = async () => undefined;
+        pkc._storage.getItem = async () => undefined;
+        pkc._storage.setItem = async () => undefined;
     }
 
     // TODO should have multiple pubsub providers here to emulate a real browser/mobile environment
-    if (!plebbitOptions?.pubsubKuboRpcClientsOptions || forceMockPubsub)
-        for (const pubsubUrl of remeda.keys.strict(plebbit.clients.pubsubKuboRpcClients)) {
+    if (!pkcOptions?.pubsubKuboRpcClientsOptions || forceMockPubsub)
+        for (const pubsubUrl of remeda.keys.strict(pkc.clients.pubsubKuboRpcClients)) {
             const mockClient = createMockPubsubClient();
-            plebbit.clients.pubsubKuboRpcClients[pubsubUrl]._client = mockClient;
-            plebbit.clients.pubsubKuboRpcClients[pubsubUrl].destroy = mockClient.destroy.bind(mockClient);
+            pkc.clients.pubsubKuboRpcClients[pubsubUrl]._client = mockClient;
+            pkc.clients.pubsubKuboRpcClients[pubsubUrl].destroy = mockClient.destroy.bind(mockClient);
         }
 
-    plebbit.on("error", (e) => {
+    pkc.on("error", (e) => {
         log.error("PKC error", e);
     });
 
-    return plebbit;
+    return pkc;
 }
 
 // name should be changed to mockBrowserPKC
 export async function mockRemotePKC(opts?: MockPKCOptions) {
     // Mock browser environment
-    const plebbit = await mockPKCV2({ ...opts, plebbitOptions: { dataPath: undefined, ...opts?.plebbitOptions } });
-    plebbit._canCreateNewLocalSub = () => false;
-    return plebbit;
+    const pkc = await mockPKCV2({ ...opts, pkcOptions: { dataPath: undefined, ...opts?.pkcOptions } });
+    pkc._canCreateNewLocalSub = () => false;
+    return pkc;
 }
 
-export async function createOnlinePKC(plebbitOptions?: InputPKCOptions) {
-    const plebbit = await PKCIndex({
+export async function createOnlinePKC(pkcOptions?: InputPKCOptions) {
+    const pkc = await PKCIndex({
         kuboRpcClientsOptions: ["http://localhost:15003/api/v0"],
         pubsubKuboRpcClientsOptions: ["http://localhost:15003/api/v0"],
-        ...plebbitOptions
+        ...pkcOptions
     }); // use online ipfs node
-    return plebbit;
+    return pkc;
 }
 
 export async function mockPKCNoDataPathWithOnlyKuboClient(opts?: MockPKCOptions) {
-    const plebbit = await mockPKCV2({
+    const pkc = await mockPKCV2({
         ...opts,
-        plebbitOptions: {
+        pkcOptions: {
             kuboRpcClientsOptions: ["http://localhost:15001/api/v0"],
             pkcRpcClientsOptions: undefined,
             dataPath: undefined,
-            ...opts?.plebbitOptions
+            ...opts?.pkcOptions
         }
     });
-    return plebbit;
+    return pkc;
 }
 
 export async function mockPKCNoDataPathWithOnlyKuboClientNoAdd(opts?: MockPKCOptions) {
-    const plebbit = await mockPKCV2({
+    const pkc = await mockPKCV2({
         ...opts,
-        plebbitOptions: {
+        pkcOptions: {
             kuboRpcClientsOptions: ["http://localhost:15001/api/v0"],
             pkcRpcClientsOptions: undefined,
             dataPath: undefined,
-            ...opts?.plebbitOptions
+            ...opts?.pkcOptions
         }
     });
 
-    Object.values(plebbit.clients.kuboRpcClients)[0]._client.add = () => {
+    Object.values(pkc.clients.kuboRpcClients)[0]._client.add = () => {
         throw Error("Add is not supported");
     };
-    return plebbit;
+    return pkc;
 }
 
-export async function mockRpcServerPKC(plebbitOptions?: InputPKCOptions) {
-    const plebbit = await mockPKCV2({
-        plebbitOptions: {
+export async function mockRpcServerPKC(pkcOptions?: InputPKCOptions) {
+    const pkc = await mockPKCV2({
+        pkcOptions: {
             kuboRpcClientsOptions: ["http://localhost:15001/api/v0"],
-            ...plebbitOptions,
+            ...pkcOptions,
             pkcRpcClientsOptions: undefined
         },
         mockResolve: true,
         forceMockPubsub: true,
         remotePKC: false,
-        stubStorage: true // we want storage to force new resolve-subplebbit-address states
+        stubStorage: true // we want storage to force new resolve-community-address states
     });
-    plebbit.removeAllListeners("error"); // for rpc server, we want to test the error handling
-    return plebbit;
+    pkc.removeAllListeners("error"); // for rpc server, we want to test the error handling
+    return pkc;
 }
 
 export async function mockRpcRemotePKC(opts?: MockPKCOptions) {
     if (!isRpcFlagOn()) throw Error("This function should only be used when the rpc flag is on");
     // This instance will connect to an rpc server that has no local subs
-    const plebbit = await mockPKCV2({
+    const pkc = await mockPKCV2({
         ...opts,
-        plebbitOptions: {
+        pkcOptions: {
             pkcRpcClientsOptions: ["ws://localhost:39653"],
             dataPath: undefined,
-            ...opts?.plebbitOptions
+            ...opts?.pkcOptions
         }
     });
-    return plebbit;
+    return pkc;
 }
 
-export async function mockRPCLocalPKC(plebbitOptions?: InputPKCOptions) {
+export async function mockRPCLocalPKC(pkcOptions?: InputPKCOptions) {
     if (!isRpcFlagOn()) throw Error("This function should only be used when the rpc flag is on");
     // This instance will connect to an rpc server that local subs
 
-    return mockPKC({ pkcRpcClientsOptions: ["ws://localhost:39652"], ...plebbitOptions });
+    return mockPKC({ pkcRpcClientsOptions: ["ws://localhost:39652"], ...pkcOptions });
 }
 
 export async function mockGatewayPKC(opts?: MockPKCOptions) {
     // Keep only pubsub and gateway
-    const plebbit = await mockPKCV2({
+    const pkc = await mockPKCV2({
         ...opts,
-        plebbitOptions: {
+        pkcOptions: {
             ipfsGatewayUrls: ["http://localhost:18080"],
             pkcRpcClientsOptions: undefined,
             kuboRpcClientsOptions: undefined,
             pubsubKuboRpcClientsOptions: undefined,
             libp2pJsClientsOptions: undefined,
-            ...opts?.plebbitOptions
+            ...opts?.pkcOptions
         },
         remotePKC: true
     });
-    return plebbit;
+    return pkc;
 }
 
 export async function publishRandomReply({
     parentComment,
-    plebbit,
+    pkc,
     commentProps
 }: {
     parentComment: CommentIpfsWithCidDefined;
-    plebbit: PKC;
+    pkc: PKC;
     commentProps?: Partial<CreateCommentOptions>;
 }): Promise<Comment> {
-    const reply = await generateMockComment(parentComment, plebbit, false, {
+    const reply = await generateMockComment(parentComment, pkc, false, {
         content: `Content ${uuidv4()}`,
         ...commentProps
     });
@@ -756,16 +755,16 @@ export async function publishRandomReply({
 
 export async function publishRandomPost({
     communityAddress,
-    plebbit,
+    pkc,
     postProps
 }: {
     communityAddress: string;
-    plebbit: PKC;
+    pkc: PKC;
     postProps?: Partial<CreateCommentOptions>;
 }) {
     const post = await generateMockPost({
         communityAddress,
-        plebbit,
+        pkc,
         postProps: {
             content: `Random post Content ${uuidv4()}`,
             title: `Random post Title ${uuidv4()}`,
@@ -780,20 +779,20 @@ export async function publishVote({
     commentCid,
     communityAddress,
     vote,
-    plebbit,
+    pkc,
     voteProps
 }: {
     commentCid: string;
     communityAddress: string;
     vote: 1 | 0 | -1;
-    plebbit: PKC;
+    pkc: PKC;
     voteProps?: Partial<CreateVoteOptions>;
 }) {
-    const voteObj = await plebbit.createVote({
+    const voteObj = await pkc.createVote({
         commentCid,
         vote,
         communityAddress,
-        signer: voteProps?.signer || (await plebbit.createSigner()),
+        signer: voteProps?.signer || (await pkc.createSigner()),
         ...voteProps
     });
     await publishWithExpectedResult({ publication: voteObj, expectedChallengeSuccess: true });
@@ -918,7 +917,7 @@ export async function findCommentInCommunityInstancePagesPreloadedAndPageCids(op
     comment: Required<Pick<CommentIpfsWithCidDefined, "cid"> & { communityAddress: string }>;
     sub: RemoteCommunity;
 }): Promise<CommentWithinRepliesPostsPageJson | undefined> {
-    // TODO need to handle, what if the comment is nested deep down the subplebbit.posts tree and doesn't appear in preloaded page
+    // TODO need to handle, what if the comment is nested deep down the community.posts tree and doesn't appear in preloaded page
     // code below doesn't handle it
     const { sub, comment } = opts;
     if (!sub) throw Error("Failed to provide opts.sub");
@@ -993,9 +992,9 @@ export async function waitTillPostInCommunityInstancePages(
 
 export async function waitTillPostInCommunityPages(
     post: Required<Pick<CommentIpfsWithCidDefined, "cid"> & { communityAddress: string }>,
-    plebbit: PKC
+    pkc: PKC
 ) {
-    const sub = await plebbit.createCommunity({ address: post.communityAddress });
+    const sub = await pkc.createCommunity({ address: post.communityAddress });
     await waitTillPostInCommunityInstancePages(post, sub);
     await sub.stop();
 }
@@ -1029,9 +1028,9 @@ export async function waitTillReplyInParentPagesInstance(
 
 export async function waitTillReplyInParentPages(
     reply: Required<Pick<CommentIpfsWithCidDefined, "cid" | "parentCid"> & { communityAddress: string }>,
-    plebbit: PKC
+    pkc: PKC
 ) {
-    const parentComment = await plebbit.createComment({ cid: reply.parentCid });
+    const parentComment = await pkc.createComment({ cid: reply.parentCid });
     await parentComment.update();
     await waitTillReplyInParentPagesInstance(reply, parentComment);
     await parentComment.stop();
@@ -1039,18 +1038,18 @@ export async function waitTillReplyInParentPages(
 
 export async function createSubWithNoChallenge(
     props: CreateNewLocalCommunityUserOptions,
-    plebbit: PKC
+    pkc: PKC
 ): Promise<LocalCommunity | RpcLocalCommunity> {
-    const sub = <LocalCommunity | RpcLocalCommunity>await plebbit.createCommunity(props);
+    const sub = <LocalCommunity | RpcLocalCommunity>await pkc.createCommunity(props);
     await sub.edit({ settings: { challenges: [] } }); // No challenge
     return sub;
 }
 
 export async function generatePostToAnswerMathQuestion(
     props: Partial<CreateCommentOptions> & Pick<CreateCommentOptions, "communityAddress">,
-    plebbit: PKC
+    pkc: PKC
 ) {
-    const mockPost = await generateMockPost({ communityAddress: props.communityAddress, plebbit, postProps: props });
+    const mockPost = await generateMockPost({ communityAddress: props.communityAddress, pkc, postProps: props });
     mockPost.removeAllListeners("challenge");
     mockPost.once("challenge", (challengeMessage) => {
         mockPost.publishChallengeAnswers(["2"]);
@@ -1148,7 +1147,7 @@ export async function overrideCommentInstancePropsAndSign(comment: Comment, prop
             signer: comment.signer,
             communityAddress: comment.communityAddress
         }),
-        plebbit: comment._plebbit
+        pkc: comment._pkc
     });
 
     comment.raw.pubsubMessageToPublish = pubsubPublication;
@@ -1167,7 +1166,7 @@ export async function overrideCommentEditInstancePropsAndSign(commentEdit: Comme
             signer: commentEdit.signer,
             communityAddress: commentEdit.communityAddress
         }),
-        plebbit: commentEdit._plebbit
+        pkc: commentEdit._pkc
     });
 
     disableValidationOfSignatureBeforePublishing(commentEdit);
@@ -1366,7 +1365,7 @@ export async function publishChallengeAnswerMessageWithExtraProps({
         type: "CHALLENGEANSWER",
         challengeRequestId: Object.values(publication._challengeExchanges)[0].challengeRequest.challengeRequestId,
         encrypted: encryptedChallengeAnswers,
-        userAgent: publication._plebbit.userAgent,
+        userAgent: publication._pkc.userAgent,
         protocolVersion: env.PROTOCOL_VERSION,
         timestamp: timestamp()
     });
@@ -1404,7 +1403,7 @@ export async function publishChallengeMessageWithExtraProps({
         type: "CHALLENGE",
         challengeRequestId: Object.values(publication._challengeExchanges)[0].challengeRequest.challengeRequestId,
         encrypted: encryptedChallenges,
-        userAgent: publication._plebbit.userAgent,
+        userAgent: publication._pkc.userAgent,
         protocolVersion: env.PROTOCOL_VERSION,
         timestamp: timestamp()
     });
@@ -1442,7 +1441,7 @@ export async function publishChallengeVerificationMessageWithExtraProps({
         challengeRequestId: Object.values(publication._challengeExchanges)[0].challengeRequest.challengeRequestId,
         challengeSuccess: false,
         reason: "Random reason",
-        userAgent: publication._plebbit.userAgent,
+        userAgent: publication._pkc.userAgent,
         protocolVersion: env.PROTOCOL_VERSION,
         timestamp: timestamp()
     });
@@ -1475,7 +1474,7 @@ export async function publishChallengeVerificationMessageWithEncryption(
         type: "CHALLENGEVERIFICATION",
         challengeRequestId: challengeRequest.challengeRequestId,
         challengeSuccess: true,
-        userAgent: publication._plebbit.userAgent,
+        userAgent: publication._pkc.userAgent,
         protocolVersion: env.PROTOCOL_VERSION,
         timestamp: timestamp(),
         ...verificationProps
@@ -1492,17 +1491,17 @@ export async function publishChallengeVerificationMessageWithEncryption(
 }
 
 export async function addStringToIpfs(content: string): Promise<string> {
-    const plebbit = await mockPKCNoDataPathWithOnlyKuboClient();
-    const ipfsClient = plebbit._clientsManager.getDefaultKuboRpcClient();
+    const pkc = await mockPKCNoDataPathWithOnlyKuboClient();
+    const ipfsClient = pkc._clientsManager.getDefaultKuboRpcClient();
     const cid = (await retryKuboIpfsAdd({ content, ipfsClient: ipfsClient._client, log: Logger("pkc-js:test-util:addStringToIpfs") })).path;
-    await plebbit.destroy();
+    await pkc.destroy();
     return cid;
 }
 
 export async function publishOverPubsub(pubsubTopic: string, jsonToPublish: PubsubMessage) {
-    const plebbit = await mockPKCNoDataPathWithOnlyKuboClient();
-    await plebbit._clientsManager.pubsubPublish(pubsubTopic, jsonToPublish);
-    await plebbit.destroy();
+    const pkc = await mockPKCNoDataPathWithOnlyKuboClient();
+    await pkc._clientsManager.pubsubPublish(pubsubTopic, jsonToPublish);
+    await pkc.destroy();
 }
 
 export async function mockPKCWithHeliaConfig(opts?: MockPKCOptions) {
@@ -1511,14 +1510,14 @@ export async function mockPKCWithHeliaConfig(opts?: MockPKCOptions) {
     const heliaPKC = await mockPKCV2({
         forceMockPubsub,
         ...opts,
-        plebbitOptions: {
+        pkcOptions: {
             libp2pJsClientsOptions: [{ key, libp2pOptions: { connectionGater: { denyDialMultiaddr: async () => false } } }],
             pubsubKuboRpcClientsOptions: [],
             kuboRpcClientsOptions: [],
             pkcRpcClientsOptions: undefined,
             httpRoutersOptions: ["http://localhost:20001"], // this http router transmits the addresses of kubo node of test-server.js
             dataPath: undefined,
-            ...opts?.plebbitOptions
+            ...opts?.pkcOptions
         }
     });
 
@@ -1540,32 +1539,32 @@ type PKCTestConfigCode = "remote-kubo-rpc" | "remote-ipfs-gateway" | "remote-pkc
 
 type PKCConfigWithName = {
     name: string;
-    plebbitInstancePromise: (args?: MockPKCOptions) => Promise<PKC>;
+    pkcInstancePromise: (args?: MockPKCOptions) => Promise<PKC>;
     testConfigCode: PKCTestConfigCode;
 };
 
 const testConfigCodeToPKCInstanceWithHumanName: Record<PKCTestConfigCode, PKCConfigWithName> = {
     "remote-kubo-rpc": {
-        plebbitInstancePromise: (args?: MockPKCOptions) => mockPKCNoDataPathWithOnlyKuboClient(args),
+        pkcInstancePromise: (args?: MockPKCOptions) => mockPKCNoDataPathWithOnlyKuboClient(args),
         name: "Kubo Node with no datapath (remote)",
         testConfigCode: "remote-kubo-rpc"
     },
     "remote-ipfs-gateway": {
-        plebbitInstancePromise: (args?: MockPKCOptions) => mockGatewayPKC(args),
+        pkcInstancePromise: (args?: MockPKCOptions) => mockGatewayPKC(args),
         name: "IPFS Gateway",
         testConfigCode: "remote-ipfs-gateway"
     },
     "remote-pkc-rpc": {
-        plebbitInstancePromise: (args?: MockPKCOptions) => mockRpcRemotePKC(args),
+        pkcInstancePromise: (args?: MockPKCOptions) => mockRpcRemotePKC(args),
         name: "PKC RPC Remote",
         testConfigCode: "remote-pkc-rpc"
     },
     "local-kubo-rpc": {
-        plebbitInstancePromise: (args?: MockPKCOptions) =>
+        pkcInstancePromise: (args?: MockPKCOptions) =>
             mockPKCV2({
                 ...args,
-                plebbitOptions: {
-                    ...args?.plebbitOptions,
+                pkcOptions: {
+                    ...args?.pkcOptions,
                     pkcRpcClientsOptions: undefined,
                     kuboRpcClientsOptions: ["http://localhost:15001/api/v0"],
                     pubsubKuboRpcClientsOptions: ["http://localhost:15001/api/v0"],
@@ -1576,13 +1575,13 @@ const testConfigCodeToPKCInstanceWithHumanName: Record<PKCTestConfigCode, PKCCon
         testConfigCode: "local-kubo-rpc"
     },
     "remote-libp2pjs": {
-        plebbitInstancePromise: (args?: MockPKCOptions) => mockPKCWithHeliaConfig(args),
+        pkcInstancePromise: (args?: MockPKCOptions) => mockPKCWithHeliaConfig(args),
         name: "Libp2pJS client with no datapath (remote)",
         testConfigCode: "remote-libp2pjs"
     }
 };
 
-let plebbitConfigs: PKCConfigWithName[] = [];
+let pkcConfigs: PKCConfigWithName[] = [];
 
 export function setPKCConfigs(configs: PKCTestConfigCode[]) {
     if (configs.length === 0) throw Error("No configs were provided");
@@ -1594,7 +1593,7 @@ export function setPKCConfigs(configs: PKCTestConfigCode[]) {
                 `Config "${config}" does not exist in the mapper. Available configs are: ${Object.keys(testConfigCodeToPKCInstanceWithHumanName)}`
             );
 
-    plebbitConfigs = configs.map((config) => testConfigCodeToPKCInstanceWithHumanName[config]);
+    pkcConfigs = configs.map((config) => testConfigCodeToPKCInstanceWithHumanName[config]);
 
     if ((globalThis as any).window) {
         (globalThis as any).window.addEventListener("uncaughtException", (err: any) => {
@@ -1623,37 +1622,36 @@ export function getAvailablePKCConfigsToTestAgainst(opts?: {
         // if browser, ["remote-kubo-rpc", "remote-ipfs-gateway"]
         // NOTE: "remote-libp2pjs" is temporarily disabled due to stability issues
         const isBrowser = isRunningInBrowser();
-        const plebbitConfigCodes: PKCTestConfigCode[] = isBrowser
+        const pkcConfigCodes: PKCTestConfigCode[] = isBrowser
             ? ["remote-kubo-rpc", "remote-ipfs-gateway"]
             : ["local-kubo-rpc", "remote-kubo-rpc", "remote-ipfs-gateway"];
-        if (!isBrowser && isRpcFlagOn()) plebbitConfigCodes.push("remote-pkc-rpc");
-        const availableConfigs = remeda.pick(testConfigCodeToPKCInstanceWithHumanName, plebbitConfigCodes);
+        if (!isBrowser && isRpcFlagOn()) pkcConfigCodes.push("remote-pkc-rpc");
+        const availableConfigs = remeda.pick(testConfigCodeToPKCInstanceWithHumanName, pkcConfigCodes);
         if (opts.includeOnlyTheseTests?.length) {
             return Object.values(remeda.pick(availableConfigs, opts.includeOnlyTheseTests));
         }
         return Object.values(availableConfigs);
     }
     // Check if configs are passed via environment variable
-    const plebbitConfigsFromEnv = process?.env?.PLEBBIT_CONFIGS;
-    if (plebbitConfigsFromEnv) {
-        const configs = plebbitConfigsFromEnv.split(",") as PKCTestConfigCode[];
+    const pkcConfigsFromEnv = process?.env?.PLEBBIT_CONFIGS;
+    if (pkcConfigsFromEnv) {
+        const configs = pkcConfigsFromEnv.split(",") as PKCTestConfigCode[];
         // Set the configs if they're coming from the environment variable
         setPKCConfigs(configs);
     }
     //@ts-expect-error
-    const plebbitConfigsFromWindow = <string | undefined>globalThis["window"]?.["PLEBBIT_CONFIGS"];
-    if (plebbitConfigsFromWindow) {
-        const configs = plebbitConfigsFromWindow.split(",") as PKCTestConfigCode[];
+    const pkcConfigsFromWindow = <string | undefined>globalThis["window"]?.["PLEBBIT_CONFIGS"];
+    if (pkcConfigsFromWindow) {
+        const configs = pkcConfigsFromWindow.split(",") as PKCTestConfigCode[];
         // Set the configs if they're coming from the environment variable
         setPKCConfigs(configs);
     }
-    if (plebbitConfigs.length === 0)
-        throw Error("No remote plebbit configs set, " + plebbitConfigsFromEnv + " " + plebbitConfigsFromWindow);
+    if (pkcConfigs.length === 0) throw Error("No remote pkc configs set, " + pkcConfigsFromEnv + " " + pkcConfigsFromWindow);
     if (opts?.includeOnlyTheseTests) {
         opts.includeOnlyTheseTests.forEach((config) => {
             if (!testConfigCodeToPKCInstanceWithHumanName[config])
                 throw new Error(
-                    `Config "${config}" does not exist in the mapper. Available configs are: ${plebbitConfigs.map((c) => c.name).join(", ")}`
+                    `Config "${config}" does not exist in the mapper. Available configs are: ${pkcConfigs.map((c) => c.name).join(", ")}`
                 );
         });
         const filteredKeys = remeda.keys
@@ -1661,23 +1659,23 @@ export function getAvailablePKCConfigsToTestAgainst(opts?: {
             .filter(
                 (config) =>
                     opts.includeOnlyTheseTests!.includes(config) &&
-                    plebbitConfigs.find((c) => c.name === testConfigCodeToPKCInstanceWithHumanName[config].name)
+                    pkcConfigs.find((c) => c.name === testConfigCodeToPKCInstanceWithHumanName[config].name)
             );
         const configs = filteredKeys.map((config) => testConfigCodeToPKCInstanceWithHumanName[config]);
         return configs;
     }
-    return plebbitConfigs;
+    return pkcConfigs;
 }
 
 export async function createNewIpns() {
-    const plebbit = await mockPKCNoDataPathWithOnlyKuboClient({});
-    const ipfsClient = plebbit._clientsManager.getDefaultKuboRpcClient();
-    const signer = await plebbit.createSigner();
+    const pkc = await mockPKCNoDataPathWithOnlyKuboClient({});
+    const ipfsClient = pkc._clientsManager.getDefaultKuboRpcClient();
+    const signer = await pkc.createSigner();
     signer.ipfsKey = new Uint8Array(await getIpfsKeyFromPrivateKey(signer.privateKey));
 
     await importSignerIntoKuboNode(signer.address, signer.ipfsKey, {
-        url: plebbit.kuboRpcClientsOptions![0].url!.toString(),
-        headers: plebbit.kuboRpcClientsOptions![0].headers
+        url: pkc.kuboRpcClientsOptions![0].url!.toString(),
+        headers: pkc.kuboRpcClientsOptions![0].headers
     });
 
     const publishToIpns = async (content: string) => {
@@ -1704,85 +1702,85 @@ export async function createNewIpns() {
     return {
         signer,
         publishToIpns,
-        plebbit
+        pkc
     };
 }
 
-async function getTemplateCommunityRecord(plebbit: PKC): Promise<CommunityIpfsType> {
-    const sub = await plebbit.createCommunity({ address: "12D3KooWANwdyPERMQaCgiMnTT1t3Lr4XLFbK1z4ptFVhW2ozg1z" });
+async function getTemplateCommunityRecord(pkc: PKC): Promise<CommunityIpfsType> {
+    const sub = await pkc.createCommunity({ address: "12D3KooWANwdyPERMQaCgiMnTT1t3Lr4XLFbK1z4ptFVhW2ozg1z" });
     await sub.update();
     await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
-    const result = sub.raw.subplebbitIpfs!;
+    const result = sub.raw.communityIpfs!;
     await sub.stop();
     return result;
 }
 
 export async function publishCommunityRecordWithExtraProp(opts?: { includeExtraPropInSignedPropertyNames: boolean; extraProps: Object }) {
     const ipnsObj = await createNewIpns();
-    const subplebbitRecord = JSON.parse(JSON.stringify(await getTemplateCommunityRecord(ipnsObj.plebbit)));
-    subplebbitRecord.pubsubTopic = ipnsObj.signer.address;
-    delete subplebbitRecord.posts;
-    if (opts?.extraProps) Object.assign(subplebbitRecord, opts.extraProps);
-    const signedPropertyNames = subplebbitRecord.signature.signedPropertyNames;
+    const communityRecord = JSON.parse(JSON.stringify(await getTemplateCommunityRecord(ipnsObj.pkc)));
+    communityRecord.pubsubTopic = ipnsObj.signer.address;
+    delete communityRecord.posts;
+    if (opts?.extraProps) Object.assign(communityRecord, opts.extraProps);
+    const signedPropertyNames = communityRecord.signature.signedPropertyNames;
     if (opts?.includeExtraPropInSignedPropertyNames) signedPropertyNames.push("extraProp");
-    subplebbitRecord.signature = await _signJson(
+    communityRecord.signature = await _signJson(
         signedPropertyNames,
-        subplebbitRecord,
+        communityRecord,
         ipnsObj.signer,
         Logger("pkc-js:test-util:publishCommunityRecordWithExtraProp")
     );
 
-    await ipnsObj.publishToIpns(JSON.stringify(subplebbitRecord));
+    await ipnsObj.publishToIpns(JSON.stringify(communityRecord));
 
-    return { subplebbitRecord, ipnsObj };
+    return { communityRecord, ipnsObj };
 }
 
-export async function createMockedCommunityIpns(subplebbitOpts: CreateNewLocalCommunityUserOptions) {
+export async function createMockedCommunityIpns(communityOpts: CreateNewLocalCommunityUserOptions) {
     const ipnsObj = await createNewIpns();
-    const subplebbitAddress = ipnsObj.signer.address;
-    const subplebbitRecord = <CommunityIpfsType>{
-        ...(await getTemplateCommunityRecord(ipnsObj.plebbit)),
+    const communityAddress = ipnsObj.signer.address;
+    const communityRecord = <CommunityIpfsType>{
+        ...(await getTemplateCommunityRecord(ipnsObj.pkc)),
         posts: undefined,
-        pubsubTopic: subplebbitAddress,
-        ...subplebbitOpts
+        pubsubTopic: communityAddress,
+        ...communityOpts
     }; // default sub, will be using its props
-    if (!subplebbitRecord.posts) delete subplebbitRecord.posts;
+    if (!communityRecord.posts) delete communityRecord.posts;
 
-    subplebbitRecord.signature = await signCommunity({ subplebbit: subplebbitRecord, signer: ipnsObj.signer });
-    await ipnsObj.publishToIpns(JSON.stringify(subplebbitRecord));
+    communityRecord.signature = await signCommunity({ community: communityRecord, signer: ipnsObj.signer });
+    await ipnsObj.publishToIpns(JSON.stringify(communityRecord));
 
-    await ipnsObj.plebbit.destroy();
+    await ipnsObj.pkc.destroy();
 
-    return { subplebbitRecord, subplebbitAddress, communityAddress: subplebbitAddress, ipnsObj };
+    return { communityRecord, communityAddress, ipnsObj };
 }
 
 export async function createStaticCommunityRecordForComment(opts?: {
-    plebbit?: PKC;
+    pkc?: PKC;
     commentOptions?: Partial<CreateCommentOptions & { depth?: number }>;
     invalidateCommunitySignature?: boolean;
 }) {
-    const { plebbit, commentOptions = {}, invalidateCommunitySignature = false } = opts || {};
+    const { pkc, commentOptions = {}, invalidateCommunitySignature = false } = opts || {};
     if (commentOptions.parentCid && !commentOptions.postCid) throw Error("postCid must be provided when parentCid is supplied for a reply");
 
     const ipnsObj = await createNewIpns();
-    const subplebbitAddress = ipnsObj.signer.address;
-    const commentPKC = plebbit || (await mockPKCNoDataPathWithOnlyKuboClient());
-    const shouldDestroyCommentPKC = !plebbit;
+    const communityAddress = ipnsObj.signer.address;
+    const commentPKC = pkc || (await mockPKCNoDataPathWithOnlyKuboClient());
+    const shouldDestroyCommentPKC = !pkc;
     try {
-        const subplebbitRecord = <CommunityIpfsType>{
-            ...(await getTemplateCommunityRecord(ipnsObj.plebbit)),
+        const communityRecord = <CommunityIpfsType>{
+            ...(await getTemplateCommunityRecord(ipnsObj.pkc)),
             posts: undefined,
-            pubsubTopic: subplebbitAddress
+            pubsubTopic: communityAddress
         };
-        if (!subplebbitRecord.posts) delete subplebbitRecord.posts;
+        if (!communityRecord.posts) delete communityRecord.posts;
         // Always publish a valid record first so the IPNS key is established for gateway discovery
-        subplebbitRecord.signature = await signCommunity({ subplebbit: subplebbitRecord, signer: ipnsObj.signer });
-        await ipnsObj.publishToIpns(JSON.stringify(subplebbitRecord));
+        communityRecord.signature = await signCommunity({ community: communityRecord, signer: ipnsObj.signer });
+        await ipnsObj.publishToIpns(JSON.stringify(communityRecord));
 
         const commentToPublish = await commentPKC.createComment({
             ...commentOptions,
             signer: commentOptions.signer || (await commentPKC.createSigner()),
-            communityAddress: subplebbitAddress,
+            communityAddress: communityAddress,
             title: commentOptions.title ?? `Mock Post - ${Date.now()}`,
             content: commentOptions.content ?? `Mock content - ${Date.now()}`
         });
@@ -1791,14 +1789,14 @@ export async function createStaticCommunityRecordForComment(opts?: {
 
         if (!commentToPublish.raw.pubsubMessageToPublish) {
             // Directly set _community from in-memory data to avoid fetching from the gateway.
-            // This prevents caching the valid subplebbit record in dedicatedPKC's memory,
+            // This prevents caching the valid community record in dedicatedPKC's memory,
             // which would otherwise cause the subsequent update() to get the cached valid record
             // instead of fetching the (possibly invalid) record from the gateway.
             (commentToPublish as unknown as Record<string, unknown>)["_community"] = {
-                address: subplebbitAddress,
-                publicKey: getPKCAddressFromPublicKeySync(subplebbitRecord.signature.publicKey),
-                encryption: subplebbitRecord.encryption,
-                pubsubTopic: subplebbitRecord.pubsubTopic
+                address: communityAddress,
+                publicKey: getPKCAddressFromPublicKeySync(communityRecord.signature.publicKey),
+                encryption: communityRecord.encryption,
+                pubsubTopic: communityRecord.pubsubTopic
             };
             await commentToPublish._signPublicationWithCommunityFields();
         }
@@ -1813,13 +1811,13 @@ export async function createStaticCommunityRecordForComment(opts?: {
 
         // Optionally re-publish with invalid signature after comment is already created
         if (invalidateCommunitySignature) {
-            subplebbitRecord.updatedAt = (subplebbitRecord.updatedAt || timestamp()) + 1234;
-            await ipnsObj.publishToIpns(JSON.stringify(subplebbitRecord));
+            communityRecord.updatedAt = (communityRecord.updatedAt || timestamp()) + 1234;
+            await ipnsObj.publishToIpns(JSON.stringify(communityRecord));
         }
 
-        return { commentCid, communityAddress: subplebbitAddress };
+        return { commentCid, communityAddress: communityAddress };
     } finally {
-        await ipnsObj.plebbit.destroy();
+        await ipnsObj.pkc.destroy();
         if (shouldDestroyCommentPKC) await commentPKC.destroy();
     }
 }
@@ -1863,19 +1861,17 @@ export function jsonifyCommentAndRemoveInstanceProps(comment: Comment) {
     return remeda.omit(jsonfied, ["clients", "state", "updatingState", "state", "publishingState", "raw"]);
 }
 
-export async function waitUntilPKCCommunitysIncludeSubAddress(plebbit: PKC, subAddress: string) {
-    return plebbit._awaitCommunitysToIncludeSub(subAddress);
+export async function waitUntilPKCCommunitiesIncludeSubAddress(pkc: PKC, subAddress: string) {
+    return pkc._awaitCommunitiesToIncludeSub(subAddress);
 }
 
-export function isPKCFetchingUsingGateways(plebbit: PKC): boolean {
+export function isPKCFetchingUsingGateways(pkc: PKC): boolean {
     return (
-        !plebbit._plebbitRpcClient &&
-        Object.keys(plebbit.clients.kuboRpcClients).length === 0 &&
-        Object.keys(plebbit.clients.libp2pJsClients).length === 0
+        !pkc._pkcRpcClient && Object.keys(pkc.clients.kuboRpcClients).length === 0 && Object.keys(pkc.clients.libp2pJsClients).length === 0
     );
 }
 
-export function mockRpcServerForTests(plebbitWs: any) {
+export function mockRpcServerForTests(pkcWs: any) {
     const functionsToBind = [
         "_createCommentModerationInstanceFromPublishCommentModerationParams",
         "_createCommentEditInstanceFromPublishCommentEditParams",
@@ -1888,8 +1884,8 @@ export function mockRpcServerForTests(plebbitWs: any) {
     // reduce threshold for publishing
 
     for (const funcBind of functionsToBind) {
-        const originalFunc = plebbitWs[funcBind].bind(plebbitWs);
-        plebbitWs[funcBind] = async (...args: any[]) => {
+        const originalFunc = pkcWs[funcBind].bind(pkcWs);
+        pkcWs[funcBind] = async (...args: any[]) => {
             const pubInstance = await originalFunc(...args);
             disableValidationOfSignatureBeforePublishing(pubInstance);
             pubInstance._publishToDifferentProviderThresholdSeconds = 5;
@@ -1899,11 +1895,11 @@ export function mockRpcServerForTests(plebbitWs: any) {
     }
 }
 
-export function disablePreloadPagesOnSub({ subplebbit }: { subplebbit: LocalCommunity }) {
-    if (!(subplebbit instanceof LocalCommunity)) throw Error("You need to provide LocalCommunity instance");
+export function disablePreloadPagesOnSub({ community }: { community: LocalCommunity }) {
+    if (!(community instanceof LocalCommunity)) throw Error("You need to provide LocalCommunity instance");
 
     //@ts-expect-error
-    const pageGenerator = subplebbit._pageGenerator;
+    const pageGenerator = community._pageGenerator;
 
     const originalCommunityPostsFunc = pageGenerator.generateCommunityPosts.bind(pageGenerator);
     const originalPostRepliesFunc = pageGenerator.generatePostPages.bind(pageGenerator);
@@ -1939,22 +1935,21 @@ export function disablePreloadPagesOnSub({ subplebbit }: { subplebbit: LocalComm
 }
 
 export function mockPostToReturnSpecificCommentUpdate(commentToBeMocked: Comment, commentUpdateRecordString: string) {
-    const updatingPostComment = findUpdatingComment(commentToBeMocked._plebbit, { cid: commentToBeMocked.cid! });
+    const updatingPostComment = findUpdatingComment(commentToBeMocked._pkc, { cid: commentToBeMocked.cid! });
     if (!updatingPostComment) throw Error("Post should be updating before starting to mock");
-    if (commentToBeMocked._plebbit._plebbitRpcClient)
-        throw Error("Can't mock Post to return specific CommentUpdate record when plebbit is using RPC");
+    if (commentToBeMocked._pkc._pkcRpcClient) throw Error("Can't mock Post to return specific CommentUpdate record when pkc is using RPC");
 
     delete updatingPostComment.updatedAt;
     delete updatingPostComment.raw.commentUpdate;
     //@ts-expect-error
-    delete updatingPostComment._subplebbitForUpdating?.subplebbit?.updateCid;
+    delete updatingPostComment._communityForUpdating?.community?.updateCid;
     //@ts-expect-error
-    if (updatingPostComment._subplebbitForUpdating?.subplebbit?._clientsManager?._updateCidsAlreadyLoaded)
+    if (updatingPostComment._communityForUpdating?.community?._clientsManager?._updateCidsAlreadyLoaded)
         //@ts-expect-error
-        updatingPostComment._subplebbitForUpdating.subplebbit._clientsManager._updateCidsAlreadyLoaded = new Set();
+        updatingPostComment._communityForUpdating.community._clientsManager._updateCidsAlreadyLoaded = new Set();
 
     mockCommentToNotUsePagesForUpdates(commentToBeMocked);
-    if (isPKCFetchingUsingGateways(updatingPostComment._plebbit)) {
+    if (isPKCFetchingUsingGateways(updatingPostComment._pkc)) {
         const originalFetch = updatingPostComment._clientsManager.fetchFromMultipleGateways.bind(updatingPostComment._clientsManager);
 
         updatingPostComment._clientsManager.fetchFromMultipleGateways = async (...args) => {
@@ -1980,10 +1975,9 @@ export function mockPostToReturnSpecificCommentUpdate(commentToBeMocked: Comment
 }
 
 export function mockPostToFailToLoadFromPostUpdates(postToBeMocked: Comment) {
-    const updatingPostComment = findUpdatingComment(postToBeMocked._plebbit, { cid: postToBeMocked.cid! });
+    const updatingPostComment = findUpdatingComment(postToBeMocked._pkc, { cid: postToBeMocked.cid! });
     if (!updatingPostComment) throw Error("Post should be updating before starting to mock");
-    if (postToBeMocked._plebbit._plebbitRpcClient)
-        throw Error("Can't mock Post to to fail loading post from postUpdates when plebbit is using RPC");
+    if (postToBeMocked._pkc._pkcRpcClient) throw Error("Can't mock Post to to fail loading post from postUpdates when pkc is using RPC");
 
     mockCommentToNotUsePagesForUpdates(postToBeMocked);
     updatingPostComment._clientsManager._fetchPostCommentUpdateIpfsP2P =
@@ -1993,26 +1987,25 @@ export function mockPostToFailToLoadFromPostUpdates(postToBeMocked: Comment) {
 }
 
 export function mockPostToHaveCommunityWithNoPostUpdates(postToBeMocked: Comment) {
-    const updatingPostComment = findUpdatingComment(postToBeMocked._plebbit, { cid: postToBeMocked.cid! });
+    const updatingPostComment = findUpdatingComment(postToBeMocked._pkc, { cid: postToBeMocked.cid! });
     if (!updatingPostComment) throw Error("Post should be updating before starting to mock");
-    if (postToBeMocked._plebbit._plebbitRpcClient)
-        throw Error("Can't mock Post to to fail loading post from postUpdates when plebbit is using RPC");
+    if (postToBeMocked._pkc._pkcRpcClient) throw Error("Can't mock Post to to fail loading post from postUpdates when pkc is using RPC");
 
     mockCommentToNotUsePagesForUpdates(postToBeMocked);
     const originalCommunityUpdateHandle = updatingPostComment._clientsManager.handleUpdateEventFromSub.bind(
         updatingPostComment._clientsManager
     );
-    updatingPostComment._clientsManager.handleUpdateEventFromSub = (subplebbit: RemoteCommunity) => {
-        delete subplebbit.postUpdates;
-        delete subplebbit.raw.subplebbitIpfs!.postUpdates;
-        return originalCommunityUpdateHandle(subplebbit);
+    updatingPostComment._clientsManager.handleUpdateEventFromSub = (community: RemoteCommunity) => {
+        delete community.postUpdates;
+        delete community.raw.communityIpfs!.postUpdates;
+        return originalCommunityUpdateHandle(community);
     };
 }
 
 export async function createCommentUpdateWithInvalidSignature(commentCid: string) {
-    const plebbit = await mockPKCNoDataPathWithOnlyKuboClient({});
+    const pkc = await mockPKCNoDataPathWithOnlyKuboClient({});
 
-    const comment = await plebbit.getComment({ cid: commentCid });
+    const comment = await pkc.getComment({ cid: commentCid });
 
     await comment.update();
 
@@ -2026,13 +2019,13 @@ export async function createCommentUpdateWithInvalidSignature(commentCid: string
     return invalidCommentUpdateJson;
 }
 
-export function mockPKCToTimeoutFetchingCid(plebbit: PKC) {
-    const originalFetch = plebbit._clientsManager._fetchCidP2P;
+export function mockPKCToTimeoutFetchingCid(pkc: PKC) {
+    const originalFetch = pkc._clientsManager._fetchCidP2P;
     const restoreFns: Array<() => void> = [];
-    for (const ipfsClient of Object.values(plebbit.clients.kuboRpcClients)) {
+    for (const ipfsClient of Object.values(pkc.clients.kuboRpcClients)) {
         const originalCat = ipfsClient._client.cat;
         ipfsClient._client.cat = async function* (ipfsPath, options) {
-            await new Promise((resolve) => setTimeout(resolve, plebbit._timeouts["subplebbit-ipfs"] * 2));
+            await new Promise((resolve) => setTimeout(resolve, pkc._timeouts["community-ipfs"] * 2));
             return undefined;
         };
         restoreFns.push(() => {
@@ -2040,10 +2033,10 @@ export function mockPKCToTimeoutFetchingCid(plebbit: PKC) {
         });
     }
 
-    for (const libp2pJsClient of Object.values(plebbit.clients.libp2pJsClients)) {
+    for (const libp2pJsClient of Object.values(pkc.clients.libp2pJsClients)) {
         const originalCat = libp2pJsClient.heliaWithKuboRpcClientFunctions.cat;
         libp2pJsClient.heliaWithKuboRpcClientFunctions.cat = async function* (ipfsPath, options) {
-            await new Promise((resolve) => setTimeout(resolve, plebbit._timeouts["subplebbit-ipfs"] * 2));
+            await new Promise((resolve) => setTimeout(resolve, pkc._timeouts["community-ipfs"] * 2));
             return undefined;
         };
         restoreFns.push(() => {
@@ -2052,64 +2045,63 @@ export function mockPKCToTimeoutFetchingCid(plebbit: PKC) {
     }
 
     // TODO mock for gateway
-    // plebbit._clientsManager._fetchCidP2P = async (...args) => {
-    //     await new Promise((resolve) => setTimeout(resolve, plebbit._timeouts["subplebbit-ipfs"] * 2));
+    // pkc._clientsManager._fetchCidP2P = async (...args) => {
+    //     await new Promise((resolve) => setTimeout(resolve, pkc._timeouts["community-ipfs"] * 2));
     //     return undefined;
     // };
 
     return {
         cleanUp: () => {
-            plebbit._clientsManager._fetchCidP2P = originalFetch;
+            pkc._clientsManager._fetchCidP2P = originalFetch;
             for (const restore of restoreFns) restore();
         }
     };
 }
 
 export function mockCommentToNotUsePagesForUpdates(comment: Comment) {
-    const updatingComment = findUpdatingComment(comment._plebbit, { cid: comment.cid! });
+    const updatingComment = findUpdatingComment(comment._pkc, { cid: comment.cid! });
     if (!updatingComment) throw Error("Comment should be updating before starting to mock");
 
-    if (comment._plebbit._plebbitRpcClient)
-        throw Error("Can't mock comment  _findCommentInPagesOfUpdatingCommentsCommunity with plebbit rpc clients");
+    if (comment._pkc._pkcRpcClient) throw Error("Can't mock comment  _findCommentInPagesOfUpdatingCommentsCommunity with pkc rpc clients");
 
     delete updatingComment.raw.commentUpdate;
     delete updatingComment.updatedAt;
     updatingComment._clientsManager._findCommentInPagesOfUpdatingCommentsOrCommunity = () => undefined;
 }
 
-const FORCE_SUBPLEBBIT_MIN_POST_CONTENT_BYTES = 30 * 1024;
+const FORCE_COMMUNITY_MIN_POST_CONTENT_BYTES = 30 * 1024;
 
 function ensureLocalCommunityForForcedChunking(
-    subplebbit?: LocalCommunity | RpcLocalCommunity | RemoteCommunity
-): asserts subplebbit is LocalCommunity {
-    if (!subplebbit) throw Error("Local subplebbit instance is required to force reply pages to use page cids");
-    if (!(subplebbit instanceof LocalCommunity)) throw Error("Forcing reply page chunking is only supported when using a LocalCommunity");
+    community?: LocalCommunity | RpcLocalCommunity | RemoteCommunity
+): asserts community is LocalCommunity {
+    if (!community) throw Error("Local community instance is required to force reply pages to use page cids");
+    if (!(community instanceof LocalCommunity)) throw Error("Forcing reply page chunking is only supported when using a LocalCommunity");
 }
 
 export async function forceLocalSubPagesToAlwaysGenerateMultipleChunks({
-    subplebbit,
+    community,
     parentComment,
     forcedPreloadedPageSizeBytes = 1,
     parentCommentReplyProps,
-    subplebbitPostsCommentProps
+    communityPostsCommentProps
 }: {
-    subplebbit: LocalCommunity | RemoteCommunity;
+    community: LocalCommunity | RemoteCommunity;
     parentComment?: Comment;
     forcedPreloadedPageSizeBytes?: number;
     parentCommentReplyProps?: Partial<CreateCommentOptions>;
-    subplebbitPostsCommentProps?: CreateCommentOptions;
+    communityPostsCommentProps?: CreateCommentOptions;
 }): Promise<{ cleanup: () => void }> {
     if (!parentComment) {
-        await forceCommunityToGenerateAllPostsPages(subplebbit as RemoteCommunity, subplebbitPostsCommentProps);
+        await forceCommunityToGenerateAllPostsPages(community as RemoteCommunity, communityPostsCommentProps);
         return { cleanup: () => {} };
     }
 
-    ensureLocalCommunityForForcedChunking(subplebbit);
+    ensureLocalCommunityForForcedChunking(community);
     const parentCid = parentComment.cid;
     if (!parentCid) throw Error("parent comment cid is required to force chunking to multiple pages");
-    const localCommunity = subplebbit as LocalCommunity;
-    const subplebbitWithGenerator = localCommunity as LocalCommunity & { [key: string]: unknown };
-    const pageGenerator = subplebbitWithGenerator["_pageGenerator"] as
+    const localCommunity = community as LocalCommunity;
+    const communityWithGenerator = localCommunity as LocalCommunity & { [key: string]: unknown };
+    const pageGenerator = communityWithGenerator["_pageGenerator"] as
         | {
               generateReplyPages?: (
                   comment: Pick<CommentsTableRow, "cid" | "depth">,
@@ -2123,7 +2115,7 @@ export async function forceLocalSubPagesToAlwaysGenerateMultipleChunks({
               ) => Promise<any>;
           }
         | undefined;
-    if (!pageGenerator) throw Error("Local subplebbit page generator is not initialized");
+    if (!pageGenerator) throw Error("Local community page generator is not initialized");
 
     const isPost = parentComment.depth === 0;
     const originalGenerateReplyPages = pageGenerator.generateReplyPages;
@@ -2158,7 +2150,7 @@ export async function forceLocalSubPagesToAlwaysGenerateMultipleChunks({
         if (Object.keys(parentComment.replies.pageCids).length === 0)
             await ensureParentCommentHasPageCidsForChunking(parentComment, {
                 commentProps: parentCommentReplyProps,
-                publishWithPKC: localCommunity._plebbit
+                publishWithPKC: localCommunity._pkc
             });
     } catch (err) {
         cleanup();
@@ -2184,10 +2176,10 @@ async function ensureParentCommentHasPageCidsForChunking(
             ...commentProps,
             content: commentProps?.content ?? `force pagination reply ${i} ${Date.now()}`
         };
-        const publishingPKC = publishWithPKC ?? parentComment._plebbit;
+        const publishingPKC = publishWithPKC ?? parentComment._pkc;
         await publishRandomReply({
             parentComment: parentComment as CommentIpfsWithCidDefined,
-            plebbit: publishingPKC,
+            pkc: publishingPKC,
             commentProps: replyProps
         });
         await parentComment.update();
@@ -2202,31 +2194,31 @@ async function ensureParentCommentHasPageCidsForChunking(
 
 export async function findOrPublishCommentWithDepth({
     depth,
-    subplebbit,
-    plebbit
+    community,
+    pkc
 }: {
     depth: number;
-    subplebbit: RemoteCommunity;
-    plebbit?: PKC;
+    community: RemoteCommunity;
+    pkc?: PKC;
 }): Promise<Comment> {
-    const plebbitWithDefault = plebbit || subplebbit._plebbit;
+    const pkcWithDefault = pkc || community._pkc;
     let commentFromPreloadedPages: PageTypeJson["comments"][0] | undefined;
-    if (subplebbit.posts.pages.hot) {
-        processAllCommentsRecursively(subplebbit.posts.pages.hot.comments, (comment) => {
+    if (community.posts.pages.hot) {
+        processAllCommentsRecursively(community.posts.pages.hot.comments, (comment) => {
             if (comment.depth === depth) {
                 commentFromPreloadedPages = comment as PageTypeJson["comments"][0];
             }
         });
     }
 
-    if (commentFromPreloadedPages) return plebbitWithDefault.createComment(commentFromPreloadedPages);
+    if (commentFromPreloadedPages) return pkcWithDefault.createComment(commentFromPreloadedPages);
 
     let curComment: Comment;
     let closestCommentFromHot: PageTypeJson["comments"][0] | undefined;
 
-    if (subplebbit.posts.pages.hot) {
+    if (community.posts.pages.hot) {
         let maxDepthFound = -1;
-        processAllCommentsRecursively(subplebbit.posts.pages.hot.comments, (comment) => {
+        processAllCommentsRecursively(community.posts.pages.hot.comments, (comment) => {
             const commentDepth = comment.depth ?? 0;
             if (commentDepth <= depth && commentDepth > maxDepthFound) {
                 maxDepthFound = commentDepth;
@@ -2236,15 +2228,15 @@ export async function findOrPublishCommentWithDepth({
     }
 
     if (closestCommentFromHot) {
-        curComment = await plebbitWithDefault.createComment(closestCommentFromHot);
+        curComment = await pkcWithDefault.createComment(closestCommentFromHot);
     } else {
-        curComment = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbitWithDefault });
+        curComment = await publishRandomPost({ communityAddress: community.address, pkc: pkcWithDefault });
     }
 
     if (curComment.depth === depth) return curComment;
 
     while (curComment.depth! < depth) {
-        curComment = await publishRandomReply({ parentComment: curComment as CommentIpfsWithCidDefined, plebbit: plebbitWithDefault });
+        curComment = await publishRandomReply({ parentComment: curComment as CommentIpfsWithCidDefined, pkc: pkcWithDefault });
         if (curComment.depth === depth) return curComment;
     }
     throw Error("Failed to find or publish comment with depth");
@@ -2252,79 +2244,79 @@ export async function findOrPublishCommentWithDepth({
 
 export async function findOrPublishCommentWithDepthWithHttpServerShortcut({
     depth,
-    subplebbit,
-    plebbit
+    community,
+    pkc
 }: {
     depth: number;
-    subplebbit: RemoteCommunity;
-    plebbit?: PKC;
+    community: RemoteCommunity;
+    pkc?: PKC;
 }): Promise<Comment> {
-    const plebbitWithDefault = plebbit || subplebbit._plebbit;
+    const pkcWithDefault = pkc || community._pkc;
 
-    const queryUrl = `http://localhost:14953/find-comment-with-depth?subAddress=${subplebbit.address}&commentDepth=${depth}`;
+    const queryUrl = `http://localhost:14953/find-comment-with-depth?subAddress=${community.address}&commentDepth=${depth}`;
 
     const commentWithSameDepthOrClosest: CommentsTableRow = <any>await (await fetch(queryUrl)).json();
 
     if (commentWithSameDepthOrClosest.depth === depth) {
-        return plebbitWithDefault.createComment(commentWithSameDepthOrClosest);
+        return pkcWithDefault.createComment(commentWithSameDepthOrClosest);
     }
 
-    let curComment = await publishRandomReply({ parentComment: commentWithSameDepthOrClosest, plebbit: plebbitWithDefault });
+    let curComment = await publishRandomReply({ parentComment: commentWithSameDepthOrClosest, pkc: pkcWithDefault });
     while (curComment.depth! < depth) {
-        curComment = await publishRandomReply({ parentComment: curComment as CommentIpfsWithCidDefined, plebbit: plebbitWithDefault });
+        curComment = await publishRandomReply({ parentComment: curComment as CommentIpfsWithCidDefined, pkc: pkcWithDefault });
         if (curComment.depth === depth) return curComment;
     }
     throw Error("Failed to find or publish comment with depth");
 }
 
-export async function publishCommentWithDepth({ depth, subplebbit }: { depth: number; subplebbit: RemoteCommunity }): Promise<Comment> {
+export async function publishCommentWithDepth({ depth, community }: { depth: number; community: RemoteCommunity }): Promise<Comment> {
     if (depth === 0) {
-        return publishRandomPost({ communityAddress: subplebbit.address, plebbit: subplebbit._plebbit });
+        return publishRandomPost({ communityAddress: community.address, pkc: community._pkc });
     } else {
-        const parentComment = await publishCommentWithDepth({ depth: depth - 1, subplebbit });
+        const parentComment = await publishCommentWithDepth({ depth: depth - 1, community });
         let curComment = await publishRandomReply({
             parentComment: parentComment as CommentIpfsWithCidDefined,
-            plebbit: subplebbit._plebbit
+            pkc: community._pkc
         });
         if (curComment.depth === depth) return curComment;
         while (curComment.depth! < depth) {
-            curComment = await publishRandomReply({ parentComment: curComment as CommentIpfsWithCidDefined, plebbit: subplebbit._plebbit });
+            curComment = await publishRandomReply({ parentComment: curComment as CommentIpfsWithCidDefined, pkc: community._pkc });
             if (curComment.depth === depth) return curComment;
         }
         throw Error("Failed to publish comment with depth");
     }
 }
 
-export async function getCommentWithCommentUpdateProps({ cid, plebbit }: { cid: string; plebbit: PKC }) {
-    const comment = await plebbit.createComment({ cid });
+export async function getCommentWithCommentUpdateProps({ cid, pkc }: { cid: string; pkc: PKC }) {
+    const comment = await pkc.createComment({ cid });
     await comment.update();
     await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => Boolean(comment.updatedAt) });
     return comment;
 }
 
 export async function publishCommentToModQueue({
-    subplebbit,
-    plebbit,
+    community,
+    pkc,
     parentComment,
     commentProps
 }: {
-    subplebbit: RemoteCommunity;
-    plebbit?: PKC;
+    community: RemoteCommunity;
+    pkc?: PKC;
     parentComment?: Comment;
     commentProps?: Partial<CreateCommentOptions>;
 }): Promise<{ comment: Comment; challengeVerification: DecryptedChallengeVerificationMessageType }> {
     if (!commentProps?.challengeRequest?.challengeAnswers)
         throw Error("You need to challengeRequest.challengeAnswers to pass the challenge and get to pending approval");
 
-    const remotePKC = plebbit || (await mockGatewayPKC({ forceMockPubsub: true, remotePKC: true })); // this plebbit is not connected to kubo rpc client of subplebbit
+    const remotePKC = pkc || (await mockGatewayPKC({ forceMockPubsub: true, remotePKC: true })); // this pkc is not connected to kubo rpc client of community
     const pendingComment = parentComment
         ? await generateMockComment(parentComment as CommentIpfsWithCidDefined, remotePKC, false, {
               content: "Pending reply" + " " + Math.random(),
               ...commentProps
           })
         : await generateMockPost({
-              communityAddress: subplebbit.address,
-              plebbit: remotePKC,
+              communityAddress: community.address,
+              pkc: remotePKC,
               postProps: {
                   content: "Pending post" + " " + Math.random(),
                   ...commentProps
@@ -2347,32 +2339,32 @@ export async function publishCommentToModQueue({
 }
 
 export async function publishToModQueueWithDepth({
-    subplebbit,
+    community,
     depth,
-    plebbit,
+    pkc,
     modCommentProps,
     commentProps
 }: {
-    subplebbit: RemoteCommunity;
-    plebbit: PKC;
+    community: RemoteCommunity;
+    pkc: PKC;
     depth: number;
     modCommentProps?: Partial<CreateCommentOptions>;
     commentProps?: Partial<CreateCommentOptions>;
 }) {
     if (!commentProps?.challengeRequest?.challengeAnswers)
         throw Error("You need to challengeRequest.challengeAnswers to pass the challenge and get to pending approval");
-    if (depth === 0) return publishCommentToModQueue({ subplebbit, plebbit, commentProps });
+    if (depth === 0) return publishCommentToModQueue({ community, pkc, commentProps });
     else {
         // we assume mod can publish comments without mod queue
-        const remotePKC = plebbit || subplebbit._plebbit;
+        const remotePKC = pkc || community._pkc;
         const commentsPublishedByMod = [
-            await publishRandomPost({ communityAddress: subplebbit.address, plebbit: remotePKC, postProps: modCommentProps })
+            await publishRandomPost({ communityAddress: community.address, pkc: remotePKC, postProps: modCommentProps })
         ];
         for (let i = 1; i < depth; i++) {
             commentsPublishedByMod.push(
                 await publishRandomReply({
                     parentComment: commentsPublishedByMod[i - 1] as CommentIpfsWithCidDefined,
-                    plebbit: remotePKC,
+                    pkc: remotePKC,
                     commentProps: modCommentProps
                 })
             );
@@ -2402,35 +2394,35 @@ export async function publishToModQueueWithDepth({
 }
 
 // This may not be needed
-export async function forceCommunityToGenerateAllPostsPages(subplebbit: RemoteCommunity, commentProps?: CreateCommentOptions) {
+export async function forceCommunityToGenerateAllPostsPages(community: RemoteCommunity, commentProps?: CreateCommentOptions) {
     // max comment size is 40kb = 40000
-    const rawCommunityRecord = subplebbit.raw.subplebbitIpfs;
+    const rawCommunityRecord = community.raw.communityIpfs;
     if (!rawCommunityRecord) throw Error("Community should be updating before forcing to generate all pages");
 
-    subplebbit.setMaxListeners(100);
-    if (Object.keys(subplebbit.posts.pageCids).length > 0) return;
+    community.setMaxListeners(100);
+    if (Object.keys(community.posts.pageCids).length > 0) return;
     const curRecordSize = await calculateStringSizeSameAsIpfsAddCidV0(JSON.stringify(rawCommunityRecord));
 
     const maxCommentSize = 30000;
-    const defaultContent = "x".repeat(FORCE_SUBPLEBBIT_MIN_POST_CONTENT_BYTES); // 30kb
+    const defaultContent = "x".repeat(FORCE_COMMUNITY_MIN_POST_CONTENT_BYTES); // 30kb
     const paddedContent =
         typeof commentProps?.content === "string"
-            ? commentProps.content.padEnd(FORCE_SUBPLEBBIT_MIN_POST_CONTENT_BYTES, "x")
+            ? commentProps.content.padEnd(FORCE_COMMUNITY_MIN_POST_CONTENT_BYTES, "x")
             : defaultContent;
     const estimatedCommentSize = Math.max(maxCommentSize, Buffer.byteLength(paddedContent, "utf8"));
     const adjustedCommentProps = { ...commentProps, content: paddedContent };
     const numOfCommentsToPublish = Math.round((1024 * 1024 - curRecordSize) / estimatedCommentSize) + 1;
 
     let lastPublishedPost: Comment = await publishRandomPost({
-        communityAddress: subplebbit.address,
-        plebbit: subplebbit._plebbit,
+        communityAddress: community.address,
+        pkc: community._pkc,
         postProps: adjustedCommentProps
     });
     await Promise.all(
         new Array(numOfCommentsToPublish).fill(null).map(async () => {
             const post = await publishRandomPost({
-                communityAddress: subplebbit.address,
-                plebbit: subplebbit._plebbit,
+                communityAddress: community.address,
+                pkc: community._pkc,
                 postProps: adjustedCommentProps
             });
             lastPublishedPost = post;
@@ -2439,17 +2431,17 @@ export async function forceCommunityToGenerateAllPostsPages(subplebbit: RemoteCo
 
     await waitTillPostInCommunityPages(
         lastPublishedPost as unknown as Required<Pick<CommentIpfsWithCidDefined, "cid"> & { communityAddress: string }>,
-        subplebbit._plebbit
+        community._pkc
     );
-    const newCommunity = await subplebbit._plebbit.createCommunity({ address: subplebbit.address });
+    const newCommunity = await community._pkc.createCommunity({ address: community.address });
     await newCommunity.update();
     await resolveWhenConditionIsTrue({ toUpdate: newCommunity, predicate: async () => typeof newCommunity.updatedAt === "number" });
-    if (Object.keys(newCommunity.posts.pageCids).length === 0) throw Error("Failed to force the subplebbit to load all pages");
+    if (Object.keys(newCommunity.posts.pageCids).length === 0) throw Error("Failed to force the community to load all pages");
     await newCommunity.stop();
 }
 
 export function mockReplyToUseParentPagesForUpdates(reply: Comment) {
-    const updatingComment = findUpdatingComment(reply._plebbit, { cid: reply.cid! });
+    const updatingComment = findUpdatingComment(reply._pkc, { cid: reply.cid! });
     if (!updatingComment) throw Error("Reply should be updating before starting to mock");
     if (updatingComment.depth === 0) throw Error("Should not call this function on a post");
     delete updatingComment.raw.commentUpdate;
@@ -2462,9 +2454,9 @@ export function mockReplyToUseParentPagesForUpdates(reply: Comment) {
     );
 
     updatingComment._clientsManager.handleUpdateEventFromPostToFetchReplyCommentUpdate = (postInstance) => {
-        // this should stop plebbit-js from assuming the post replies is a single preloaded page
-        const updatingSubInstance = findUpdatingCommunity(reply._plebbit, { address: postInstance.communityAddress });
-        const updatingParentInstance = findUpdatingComment(reply._plebbit, { cid: reply.parentCid! });
+        // this should stop pkc-js from assuming the post replies is a single preloaded page
+        const updatingSubInstance = findUpdatingCommunity(reply._pkc, { address: postInstance.communityAddress });
+        const updatingParentInstance = findUpdatingComment(reply._pkc, { cid: reply.parentCid! });
 
         if (postInstance.replies.pages)
             Object.keys(postInstance.replies.pages).forEach((preloadedPageKey) => {
@@ -2490,15 +2482,15 @@ export function mockUpdatingCommentResolvingAuthor(
     comment: Comment,
     mockFunction: Comment["_clientsManager"]["resolveAuthorNameIfNeeded"]
 ) {
-    const updatingComment = findUpdatingComment(comment._plebbit, { cid: comment.cid! });
+    const updatingComment = findUpdatingComment(comment._pkc, { cid: comment.cid! });
     if (!updatingComment) throw Error("Comment should be updating before starting to mock");
 
-    if (comment._plebbit._plebbitRpcClient) throw Error("Can't mock cache with plebbit rpc clients");
+    if (comment._pkc._pkcRpcClient) throw Error("Can't mock cache with pkc rpc clients");
     updatingComment._clientsManager.resolveAuthorNameIfNeeded = mockFunction;
 }
 
-export async function getRandomPostCidFromSub(subplebbitAddress: string, plebbit: PKC) {
-    const sub = await plebbit.createCommunity({ address: subplebbitAddress });
+export async function getRandomPostCidFromSub(communityAddress: string, pkc: PKC) {
+    const sub = await pkc.createCommunity({ address: communityAddress });
     await sub.update();
     await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
     const lastPostCid = sub.lastPostCid;
@@ -2523,14 +2515,14 @@ export const itSkipIfRpc = globalThis["it"]?.runIf(!isRpcFlagOn());
 export const itIfRpc = globalThis["it"]?.runIf(isRpcFlagOn());
 
 export function mockNameResolvers<T extends { name: string; provider: string }>({
-    plebbit,
+    pkc,
     resolveFunction
 }: {
-    plebbit: PKC;
+    pkc: PKC;
     resolveFunction: (opts: T) => Promise<{ publicKey: string; [key: string]: string } | undefined>;
 }) {
-    if (plebbit._plebbitRpcClient) throw Error("Can't mock name resolvers with plebbit rpc clients");
-    plebbit.nameResolvers = [createMockNameResolver({ resolveFunction: (opts) => resolveFunction(opts as T) })];
+    if (pkc._pkcRpcClient) throw Error("Can't mock name resolvers with pkc rpc clients");
+    pkc.nameResolvers = [createMockNameResolver({ resolveFunction: (opts) => resolveFunction(opts as T) })];
 }
 
 export function processAllCommentsRecursively(

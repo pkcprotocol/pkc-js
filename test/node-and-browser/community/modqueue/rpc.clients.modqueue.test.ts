@@ -9,22 +9,22 @@ const communityAddress = signers[0].address;
 const cloneModQueuePage = () => JSON.parse(JSON.stringify(validModQueuePage));
 
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] }).map((config) => {
-    describe(`community.modQueue.clients.plebbitRpcClients - ${config.name}`, async () => {
+    describe(`community.modQueue.clients.pkcRpcClients - ${config.name}`, async () => {
         let pkc: PKCType;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
             await pkc.destroy();
         });
 
-        it(`community.modQueue.clients.plebbitRpcClients[sortType][url] is stopped by default`, async () => {
+        it(`community.modQueue.clients.pkcRpcClients[sortType][url] is stopped by default`, async () => {
             const sub = await pkc.getCommunity({ address: communityAddress });
-            const rpcUrl = Object.keys(sub.clients.plebbitRpcClients)[0];
-            expect(Object.keys(sub.modQueue.clients.plebbitRpcClients.pendingApproval).length).to.equal(1);
-            expect(sub.modQueue.clients.plebbitRpcClients.pendingApproval[rpcUrl].state).to.equal("stopped");
+            const rpcUrl = Object.keys(sub.clients.pkcRpcClients)[0];
+            expect(Object.keys(sub.modQueue.clients.pkcRpcClients.pendingApproval).length).to.equal(1);
+            expect(sub.modQueue.clients.pkcRpcClients.pendingApproval[rpcUrl].state).to.equal("stopped");
         });
 
         it(`Correct state of 'pendingApproval' sort is updated after fetching from community.modQueue.pageCids.pendingApproval`, async () => {
@@ -32,11 +32,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
             const page = cloneModQueuePage();
             const pageCid = await addStringToIpfs(JSON.stringify(page));
             sub.modQueue.pageCids.pendingApproval = pageCid;
-            const rpcUrl = Object.keys(sub.clients.plebbitRpcClients)[0];
+            const rpcUrl = Object.keys(sub.clients.pkcRpcClients)[0];
 
             const expectedStates = ["fetching-ipfs", "stopped"];
             const actualStates: string[] = [];
-            sub.modQueue.clients.plebbitRpcClients.pendingApproval[rpcUrl].on("statechange", (newState: string) => {
+            sub.modQueue.clients.pkcRpcClients.pendingApproval[rpcUrl].on("statechange", (newState: string) => {
                 actualStates.push(newState);
             });
 

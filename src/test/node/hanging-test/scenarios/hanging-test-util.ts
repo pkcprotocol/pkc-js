@@ -13,10 +13,10 @@ export interface HangingScenarioArgs {
 /**
  * Resolved context after looking up the config and instantiating a PKC
  * instance. Scenarios should call `createScenarioContext` and make sure to
- * `await plebbit.destroy()` in a finally block once their work is done.
+ * `await pkc.destroy()` in a finally block once their work is done.
  */
 export interface HangingScenarioContext {
-    plebbit: PKC;
+    pkc: PKC;
     config: {
         name: string;
         testConfigCode: string;
@@ -75,9 +75,9 @@ export async function createScenarioContext(configCode: string): Promise<Hanging
         throw new Error(`Unknown PKC config code "${configCode}". Available configs: ${available}`);
     }
 
-    const plebbit = await config.plebbitInstancePromise({ forceMockPubsub: true });
+    const pkc = await config.pkcInstancePromise({ forceMockPubsub: true });
     return {
-        plebbit,
+        pkc,
         config: {
             name: config.name,
             testConfigCode: config.testConfigCode

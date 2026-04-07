@@ -2,9 +2,9 @@ const getPendingChallengesOrChallengeVerification = {};
 const getChallengeVerificationFromChallengeAnswers = {};
 const getChallengeVerification = {};
 const getCommunityChallengeFromCommunityChallengeSettings = {};
-const plebbitJsChallenges = {};
+const pkcJsChallenges = {};
 export {
-    plebbitJsChallenges,
+    pkcJsChallenges,
     getPendingChallengesOrChallengeVerification,
     getChallengeVerificationFromChallengeAnswers,
     getChallengeVerification,

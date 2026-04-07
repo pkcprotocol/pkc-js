@@ -10,54 +10,54 @@ import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 
-describe(`subplebbit.startedState`, async () => {
-    let plebbit: PKC;
-    let subplebbit: LocalCommunity | RpcLocalCommunity;
+describe(`community.startedState`, async () => {
+    let pkc: PKC;
+    let community: LocalCommunity | RpcLocalCommunity;
     beforeAll(async () => {
-        plebbit = await mockPKC();
-        subplebbit = await createSubWithNoChallenge({}, plebbit);
+        pkc = await mockPKC();
+        community = await createSubWithNoChallenge({}, pkc);
     });
 
     afterAll(async () => {
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
     });
 
-    it(`subplebbit.startedState defaults to stopped`, async () => {
-        expect(subplebbit.startedState).to.equal("stopped");
+    it(`community.startedState defaults to stopped`, async () => {
+        expect(community.startedState).to.equal("stopped");
     });
 
-    it(`subplebbit.startedState is in correct order up to publishing a new IPNS`, async () => {
+    it(`community.startedState is in correct order up to publishing a new IPNS`, async () => {
         const expectedStates = ["publishing-ipns", "succeeded"];
         const recordedStates: string[] = [];
-        subplebbit.on("startedstatechange", (newState) => recordedStates.push(newState));
+        community.on("startedstatechange", (newState) => recordedStates.push(newState));
 
-        await subplebbit.start();
+        await community.start();
 
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => Boolean(subplebbit.updatedAt) });
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => Boolean(community.updatedAt) });
         await resolveWhenConditionIsTrue({
-            toUpdate: subplebbit,
+            toUpdate: community,
             predicate: async () => recordedStates.length === 2,
             eventName: "startedstatechange"
         });
         expect(recordedStates).to.deep.equal(expectedStates);
     });
 
-    itSkipIfRpc(`subplebbit.startedState = failed if a failure occurs`, async () => {
-        const localSub = subplebbit as LocalCommunity;
+    itSkipIfRpc(`community.startedState = failed if a failure occurs`, async () => {
+        const localSub = community as LocalCommunity;
         // @ts-expect-error _getDbInternalState is private but we need to mock it for testing
         const originalFunction = localSub._getDbInternalState.bind(localSub);
         // @ts-expect-error _getDbInternalState is private but we need to mock it for testing
         localSub._getDbInternalState = async () => {
             throw Error("Failed to load sub from db ");
         };
-        await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit });
+        await publishRandomPost({ communityAddress: community.address, pkc: pkc });
         await resolveWhenConditionIsTrue({
-            toUpdate: subplebbit,
-            predicate: async () => subplebbit.startedState === "failed",
+            toUpdate: community,
+            predicate: async () => community.startedState === "failed",
             eventName: "startedstatechange"
         });
-        expect(subplebbit.startedState).to.equal("failed");
+        expect(community.startedState).to.equal("failed");
         // @ts-expect-error _getDbInternalState is private but we need to restore it for testing
         localSub._getDbInternalState = originalFunction;
     });

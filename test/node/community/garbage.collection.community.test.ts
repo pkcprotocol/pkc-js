@@ -45,13 +45,13 @@ type TestPurgedCommentTableRows = {
     commentUpdateTableRow?: Pick<CommentUpdatesRow, "postUpdatesBucket" | "replies">;
 };
 
-// Use a permissive type for the test subplebbit mock since we're mocking internal/private properties
+// Use a permissive type for the test community mock since we're mocking internal/private properties
 interface TestLocalCommunity {
     address: string;
     _cidsToUnPin: Set<string>;
     _mfsPathsToRemove: Set<string>;
     _blocksToRm: string[];
-    _subplebbitUpdateTrigger: boolean;
+    _communityUpdateTrigger: boolean;
     updateCid?: string;
     statsCid?: string;
     settings: CommunitySettings;
@@ -115,25 +115,25 @@ function createStubKuboClient(): StubKuboClient {
     return kuboClient;
 }
 
-function createTestCommunity(overrides: { address?: string } = {}): { subplebbit: TestLocalCommunity; kuboClient: StubKuboClient } {
+function createTestCommunity(overrides: { address?: string } = {}): { community: TestLocalCommunity; kuboClient: StubKuboClient } {
     const kuboClient = createStubKuboClient();
 
-    const subplebbit = Object.assign(Object.create(LocalCommunityClass.prototype), {
+    const community = Object.assign(Object.create(LocalCommunityClass.prototype), {
         address: overrides.address || "test-address",
         _cidsToUnPin: new Set<string>(),
         _mfsPathsToRemove: new Set<string>(),
         _blocksToRm: [] as string[],
         _pendingEditProps: [],
-        _subplebbitUpdateTrigger: true,
+        _communityUpdateTrigger: true,
         _firstUpdateAfterStart: false,
-        _plebbit: {
+        _pkc: {
             publishInterval: 20,
             _timeouts: { "page-ipfs": 1000 },
-            _startedCommunitys: new TrackedInstanceRegistry(),
-            _updatingCommunitys: new TrackedInstanceRegistry(),
+            _startedCommunities: new TrackedInstanceRegistry(),
+            _updatingCommunities: new TrackedInstanceRegistry(),
             _updatingComments: new TrackedInstanceRegistry()
         },
-        raw: { subplebbitIpfs: {} },
+        raw: { communityIpfs: {} },
         modQueue: { resetPages: vi.fn() },
         settings: { challenges: [] } as CommunitySettings,
         lastPostCid: undefined,
@@ -165,7 +165,7 @@ function createTestCommunity(overrides: { address?: string } = {}): { subplebbit
             type: "ed25519" as const
         },
         _calculateLatestUpdateTrigger: vi.fn(function (this: TestLocalCommunity) {
-            this._subplebbitUpdateTrigger = true;
+            this._communityUpdateTrigger = true;
         }),
         _toJSONIpfsBaseNoPosts: vi.fn(() => ({
             address: overrides.address || "test-address",
@@ -189,7 +189,7 @@ function createTestCommunity(overrides: { address?: string } = {}): { subplebbit
         _changeStateEmitEventEmitStateChangeEvent: vi.fn()
     }) as TestLocalCommunity;
 
-    return { subplebbit, kuboClient };
+    return { community, kuboClient };
 }
 
 function createMockAddResult(cidStr: string, size: number): AddResult {
@@ -200,7 +200,7 @@ function createMockAddResult(cidStr: string, size: number): AddResult {
     };
 }
 
-describe("local subplebbit garbage collection", () => {
+describe("local community garbage collection", () => {
     beforeAll(async () => {
         ({ LocalCommunity: LocalCommunityClass } = await import("../../../dist/node/runtime/node/community/local-community.js"));
     });
@@ -210,12 +210,12 @@ describe("local subplebbit garbage collection", () => {
     });
 
     it("collects purged comment tree cids, mfs paths, and blocks for cleanup", async () => {
-        const { subplebbit } = createTestCommunity();
+        const { community } = createTestCommunity();
         const purgeCid = VALID_CID_A;
         const replyCids = [VALID_CID_B, "QmReplyExtraCid11111111111111111111111111111111111"];
         const iterateSpy = vi.spyOn(pagesUtil, "iterateOverPageCidsToFindAllCids").mockResolvedValue(replyCids);
 
-        await subplebbit._addAllCidsUnderPurgedCommentToBeRemoved({
+        await community._addAllCidsUnderPurgedCommentToBeRemoved({
             commentTableRow: { cid: purgeCid },
             commentUpdateTableRow: {
                 postUpdatesBucket: 86400,
@@ -223,16 +223,16 @@ describe("local subplebbit garbage collection", () => {
             }
         });
 
-        expect(Array.from(subplebbit._cidsToUnPin)).to.include.members([purgeCid, ...replyCids]);
-        expect(subplebbit._blocksToRm).to.include.members([purgeCid, ...replyCids]);
-        expect(subplebbit._mfsPathsToRemove.has(`/${subplebbit.address}/postUpdates/86400/${purgeCid}/update`)).to.equal(true);
+        expect(Array.from(community._cidsToUnPin)).to.include.members([purgeCid, ...replyCids]);
+        expect(community._blocksToRm).to.include.members([purgeCid, ...replyCids]);
+        expect(community._mfsPathsToRemove.has(`/${community.address}/postUpdates/86400/${purgeCid}/update`)).to.equal(true);
         expect(iterateSpy.mock.calls.length).to.equal(1);
     });
 
     it("unpins stale cids and clears the queue even when pins are already removed", async () => {
-        const { subplebbit, kuboClient } = createTestCommunity();
+        const { community, kuboClient } = createTestCommunity();
         const cidsToUnpin = [VALID_CID_A, VALID_CID_B];
-        subplebbit._cidsToUnPin = new Set(cidsToUnpin);
+        community._cidsToUnPin = new Set(cidsToUnpin);
 
         kuboClient._client.pin.rm = vi.fn(async (cid: string) => {
             if (cid === VALID_CID_B) {
@@ -241,39 +241,39 @@ describe("local subplebbit garbage collection", () => {
             }
         });
 
-        await subplebbit._unpinStaleCids();
+        await community._unpinStaleCids();
 
         expect(kuboClient._client.pin.rm.mock.calls.length).to.equal(2);
-        expect(subplebbit._cidsToUnPin.size).to.equal(0);
+        expect(community._cidsToUnPin.size).to.equal(0);
     });
 
     it("removes queued MFS paths and keeps pending ones when files are missing", async () => {
-        const { subplebbit, kuboClient } = createTestCommunity();
+        const { community, kuboClient } = createTestCommunity();
         const toDelete = ["/sub/remove/first", "/sub/remove/second"];
-        subplebbit._mfsPathsToRemove = new Set(toDelete);
+        community._mfsPathsToRemove = new Set(toDelete);
 
         const removeSpy = vi.spyOn(util, "removeMfsFilesSafely").mockResolvedValue() as MockInstance<typeof util.removeMfsFilesSafely>;
-        const removed = await subplebbit._rmUnneededMfsPaths();
+        const removed = await community._rmUnneededMfsPaths();
 
         expect(removeSpy.mock.calls[0][0].paths).to.deep.equal(toDelete);
         expect(removed).to.have.members(toDelete);
-        expect(subplebbit._mfsPathsToRemove.size).to.equal(0);
+        expect(community._mfsPathsToRemove.size).to.equal(0);
 
         const missingError = new Error("file does not exist");
         removeSpy.mockRejectedValueOnce(missingError);
-        subplebbit._mfsPathsToRemove = new Set(toDelete);
+        community._mfsPathsToRemove = new Set(toDelete);
 
-        const missingResult = await subplebbit._rmUnneededMfsPaths();
+        const missingResult = await community._rmUnneededMfsPaths();
 
         expect(missingResult).to.have.members(toDelete);
         expect(removeSpy.mock.calls.length).to.equal(2);
-        expect(subplebbit._mfsPathsToRemove.size).to.equal(toDelete.length);
+        expect(community._mfsPathsToRemove.size).to.equal(toDelete.length);
         expect(kuboClient._client.files.rm.mock.calls.length).to.equal(0);
     });
 
     it("clears block removal queue during an IPNS update", async () => {
-        const { subplebbit } = createTestCommunity();
-        subplebbit._blocksToRm = [VALID_CID_A, VALID_CID_B];
+        const { community } = createTestCommunity();
+        community._blocksToRm = [VALID_CID_A, VALID_CID_B];
 
         const retrySpy = vi.spyOn(util, "retryKuboIpfsAddAndProvide");
         retrySpy.mockResolvedValueOnce(createMockAddResult(VALID_CID_C, 5));
@@ -288,15 +288,15 @@ describe("local subplebbit garbage collection", () => {
 
         const removeBlocksSpy = vi.spyOn(util, "removeBlocksFromKuboNode");
 
-        await subplebbit.updateCommunityIpnsIfNeeded({ commentUpdateRowsToPublishToIpfs: [] });
+        await community.updateCommunityIpnsIfNeeded({ commentUpdateRowsToPublishToIpfs: [] });
 
         expect(removeBlocksSpy.mock.calls.length).to.equal(1);
-        expect(subplebbit._blocksToRm).to.deep.equal([]);
-        expect(subplebbit.updateCid).to.equal(VALID_CID_D);
-        expect(subplebbit._subplebbitUpdateTrigger).to.equal(false);
+        expect(community._blocksToRm).to.deep.equal([]);
+        expect(community.updateCid).to.equal(VALID_CID_D);
+        expect(community._communityUpdateTrigger).to.equal(false);
     });
 
-    it("delete() unpins all tracked cids and removes the subplebbit MFS path", async () => {
+    it("delete() unpins all tracked cids and removes the community MFS path", async () => {
         const pinRmCalls: string[] = [];
         const kuboClient = {
             _client: {
@@ -311,20 +311,20 @@ describe("local subplebbit garbage collection", () => {
         const runtimeNodeUtil = await import("../../../dist/node/runtime/node/util.js");
         const moveDbSpy = runtimeNodeUtil.moveCommunityDbToDeletedDirectory as Mock;
 
-        const subplebbit = Object.assign(Object.create(LocalCommunityClass.prototype), {
+        const community = Object.assign(Object.create(LocalCommunityClass.prototype), {
             address: "test-sub-delete",
             state: "stopped",
             signer: { ipnsKeyName: "key-name", address: "12D3KooMock" },
-            _plebbit: {
-                _startedCommunitys: new TrackedInstanceRegistry(),
-                _updatingCommunitys: new TrackedInstanceRegistry(),
+            _pkc: {
+                _startedCommunities: new TrackedInstanceRegistry(),
+                _updatingCommunities: new TrackedInstanceRegistry(),
                 _updatingComments: new TrackedInstanceRegistry()
             },
             _clientsManager: { getDefaultKuboRpcClient: vi.fn(() => kuboClient) },
             _cidsToUnPin: new Set<string>(),
             _mfsPathsToRemove: new Set<string>(),
             _blocksToRm: [] as string[],
-            raw: { subplebbitIpfs: { posts: { pageCids: { hot: "QmPostsPage" }, pages: {} } } },
+            raw: { communityIpfs: { posts: { pageCids: { hot: "QmPostsPage" }, pages: {} } } },
             statsCid: "QmStatsCid",
             updateCid: "QmUpdateCid",
             stop: vi.fn(),
@@ -344,12 +344,12 @@ describe("local subplebbit garbage collection", () => {
             _setState: vi.fn()
         }) as TestLocalCommunity;
 
-        await subplebbit.delete();
+        await community.delete();
 
         const expectedCids = ["QmPostsPage", "QmReplyPage", "QmComment1", "QmComment2", "QmUpdateCid", "QmStatsCid"];
         expect(new Set(pinRmCalls)).to.deep.equal(new Set(expectedCids));
-        expect(subplebbit._cidsToUnPin.size).to.equal(0);
-        expect(removeMfsSpy.mock.calls[0][0].paths).to.deep.equal([`/${subplebbit.address}`]);
+        expect(community._cidsToUnPin.size).to.equal(0);
+        expect(removeMfsSpy.mock.calls[0][0].paths).to.deep.equal([`/${community.address}`]);
         expect(moveDbSpy.mock.calls.length).to.equal(1);
     });
 });

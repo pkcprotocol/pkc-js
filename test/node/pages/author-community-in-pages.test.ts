@@ -3,7 +3,7 @@ import "../../../dist/node/test/test-util.js"; // must import first to avoid cir
 import { mapPageIpfsCommentToPageJsonComment, mapModqueuePageIpfsCommentToModQueuePageJsonComment } from "../../../dist/node/pages/util.js";
 import type { PageIpfs, ModQueuePageIpfs } from "../../../dist/node/pages/types.js";
 
-// Minimal page comment fixture with author.subplebbit in commentUpdate
+// Minimal page comment fixture with author.community in commentUpdate
 function makePageIpfsComment(extraCommentUpdateAuthorFields?: Record<string, unknown>): PageIpfs["comments"][0] {
     return {
         comment: {
@@ -23,7 +23,7 @@ function makePageIpfsComment(extraCommentUpdateAuthorFields?: Record<string, unk
         },
         commentUpdate: {
             author: {
-                subplebbit: {
+                community: {
                     firstCommentTimestamp: 1725537080,
                     lastCommentCid: "Qmc93vcfpHhcscUMvXaJJTpk9CxCyMniAtxCmREF8LSBbS",
                     postScore: 5,
@@ -48,15 +48,15 @@ function makePageIpfsComment(extraCommentUpdateAuthorFields?: Record<string, unk
 }
 
 describe("commentUpdate.author fields are preserved in page mapping", () => {
-    it("mapPageIpfsCommentToPageJsonComment preserves author.subplebbit from commentUpdate", () => {
+    it("mapPageIpfsCommentToPageJsonComment preserves author.community from commentUpdate", () => {
         const pageComment = makePageIpfsComment();
         const result = mapPageIpfsCommentToPageJsonComment(pageComment);
 
-        expect(result.author.subplebbit).to.be.an("object");
-        expect(result.author.subplebbit.postScore).to.equal(5);
-        expect(result.author.subplebbit.replyScore).to.equal(10);
-        expect(result.author.subplebbit.firstCommentTimestamp).to.equal(1725537080);
-        expect(result.author.subplebbit.lastCommentCid).to.equal("Qmc93vcfpHhcscUMvXaJJTpk9CxCyMniAtxCmREF8LSBbS");
+        expect(result.author.community).to.be.an("object");
+        expect(result.author.community.postScore).to.equal(5);
+        expect(result.author.community.replyScore).to.equal(10);
+        expect(result.author.community.firstCommentTimestamp).to.equal(1725537080);
+        expect(result.author.community.lastCommentCid).to.equal("Qmc93vcfpHhcscUMvXaJJTpk9CxCyMniAtxCmREF8LSBbS");
     });
 
     it("mapPageIpfsCommentToPageJsonComment preserves arbitrary commentUpdate.author fields", () => {
@@ -64,12 +64,12 @@ describe("commentUpdate.author fields are preserved in page mapping", () => {
         const result = mapPageIpfsCommentToPageJsonComment(pageComment);
 
         expect((result.author as any).someFutureField).to.deep.equal({ score: 42 });
-        // subplebbit should still be present too
-        expect(result.author.subplebbit).to.be.an("object");
-        expect(result.author.subplebbit.postScore).to.equal(5);
+        // community should still be present too
+        expect(result.author.community).to.be.an("object");
+        expect(result.author.community.postScore).to.equal(5);
     });
 
-    it("mapModqueuePageIpfsCommentToModQueuePageJsonComment preserves author.subplebbit from commentUpdate", () => {
+    it("mapModqueuePageIpfsCommentToModQueuePageJsonComment preserves author.community from commentUpdate", () => {
         const pageComment = makePageIpfsComment();
         const modqueueComment = {
             comment: pageComment.comment,
@@ -81,11 +81,11 @@ describe("commentUpdate.author fields are preserved in page mapping", () => {
 
         const result = mapModqueuePageIpfsCommentToModQueuePageJsonComment(modqueueComment);
 
-        expect(result.author.subplebbit).to.be.an("object");
-        expect(result.author.subplebbit.postScore).to.equal(5);
-        expect(result.author.subplebbit.replyScore).to.equal(10);
-        expect(result.author.subplebbit.firstCommentTimestamp).to.equal(1725537080);
-        expect(result.author.subplebbit.lastCommentCid).to.equal("Qmc93vcfpHhcscUMvXaJJTpk9CxCyMniAtxCmREF8LSBbS");
+        expect(result.author.community).to.be.an("object");
+        expect(result.author.community.postScore).to.equal(5);
+        expect(result.author.community.replyScore).to.equal(10);
+        expect(result.author.community.firstCommentTimestamp).to.equal(1725537080);
+        expect(result.author.community.lastCommentCid).to.equal("Qmc93vcfpHhcscUMvXaJJTpk9CxCyMniAtxCmREF8LSBbS");
     });
 
     it("mapModqueuePageIpfsCommentToModQueuePageJsonComment preserves arbitrary commentUpdate.author fields", () => {
@@ -101,7 +101,7 @@ describe("commentUpdate.author fields are preserved in page mapping", () => {
         const result = mapModqueuePageIpfsCommentToModQueuePageJsonComment(modqueueComment);
 
         expect((result.author as any).someFutureField).to.deep.equal({ score: 42 });
-        expect(result.author.subplebbit).to.be.an("object");
-        expect(result.author.subplebbit.postScore).to.equal(5);
+        expect(result.author.community).to.be.an("object");
+        expect(result.author.community.postScore).to.equal(5);
     });
 });

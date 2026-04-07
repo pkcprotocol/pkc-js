@@ -178,7 +178,7 @@ import type {
 import { CommunityEditPublicationPubsubReservedFields } from "../../../publications/community-edit/schema.js";
 import type { CommunityEditPubsubMessagePublication } from "../../../publications/community-edit/types.js";
 import { default as lodashDeepMerge } from "lodash.merge"; // Importing only the `merge` function
-import { MAX_FILE_SIZE_BYTES_FOR_SUBPLEBBIT_IPFS } from "../../../community/community-client-manager.js";
+import { MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS } from "../../../community/community-client-manager.js";
 import { RemoteCommunity } from "../../../community/remote-community.js";
 import pLimit from "p-limit";
 import { sha256 } from "js-sha256";
@@ -201,7 +201,7 @@ type CommentUpdateToWriteToDbAndPublishToIpfs = {
     localMfsPath: string | undefined;
     pendingApproval: CommentsTableRow["pendingApproval"];
 };
-const processStartedCommunitys = new TrackedInstanceRegistry<LocalCommunity>(); // A global registry on process level to track started subplebbits
+const processStartedCommunities = new TrackedInstanceRegistry<LocalCommunity>(); // A global registry on process level to track started communities
 
 const DUPLICATE_PUBLICATION_ERRORS = new Set([
     messages.ERR_DUPLICATE_COMMENT,
@@ -209,7 +209,7 @@ const DUPLICATE_PUBLICATION_ERRORS = new Set([
     messages.ERR_DUPLICATE_COMMENT_MODERATION
 ]);
 
-// This is a sub we have locally in our plebbit datapath, in a NodeJS environment
+// This is a sub we have locally in our pkc datapath, in a NodeJS environment
 export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalCommunityParsedOptions {
     override signer!: SignerWithPublicKeyAddress;
     override raw: RpcLocalCommunity["raw"] = {};
@@ -238,7 +238,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
     _cidsToUnPin: Set<string> = new Set<string>();
     _mfsPathsToRemove: Set<string> = new Set<string>();
-    private _subplebbitUpdateTrigger: boolean = false;
+    private _communityUpdateTrigger: boolean = false;
     private _combinedHashOfPendingCommentsCids: string = sha256("");
 
     private _pageGenerator!: PageGenerator;
@@ -250,7 +250,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     private _firstUpdateAfterStart: boolean = true;
     private _internalStateUpdateId: InternalCommunityRecordBeforeFirstUpdateType["_internalStateUpdateId"] = "";
     private _lastPubsubTopicRoutingProvideAt?: number = undefined;
-    private _mirroredStartedOrUpdatingCommunity?: { subplebbit: LocalCommunity } & Pick<
+    private _mirroredStartedOrUpdatingCommunity?: { community: LocalCommunity } & Pick<
         CommunityEvents,
         | "error"
         | "updatingstatechange"
@@ -261,12 +261,12 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         | "challengeverification"
         | "challenge"
         | "challengeanswer"
-    > = undefined; // The plebbit._startedCommunitys we're subscribed to
+    > = undefined; // The pkc._startedCommunities we're subscribed to
     private _pendingEditProps: Partial<ParsedCommunityEditOptions & { editId: string }>[] = [];
     _blocksToRm: string[] = [];
 
-    constructor(plebbit: PKC) {
-        super(plebbit);
+    constructor(pkc: PKC) {
+        super(pkc);
         this.handleChallengeExchange = this.handleChallengeExchange.bind(this);
         this._setState("stopped");
         this.started = false;
@@ -297,7 +297,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     toJSONInternalAfterFirstUpdate(): InternalCommunityRecordAfterFirstUpdateType {
         const rpcJson = this.toJSONInternalRpcAfterFirstUpdate();
         return {
-            ...rpcJson.subplebbit,
+            ...rpcJson.community,
             ...remeda.omit(rpcJson.localCommunity, ["started", "startedState"]),
             updateCid: rpcJson.runtimeFields.updateCid,
             signer: remeda.pick(this.signer, ["privateKey", "type", "address", "shortAddress", "publicKey"]),
@@ -360,7 +360,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     async initInternalCommunityAfterFirstUpdateNoMerge(newProps: InternalCommunityRecordAfterFirstUpdateType) {
         const keysOfCommunityIpfs = <(keyof CommunityIpfsType)[]>[...CommunitySignedPropertyNames, "signature"];
         this.initRpcInternalCommunityAfterFirstUpdateNoMerge({
-            subplebbit: remeda.pick(newProps, keysOfCommunityIpfs) as CommunityIpfsType,
+            community: remeda.pick(newProps, keysOfCommunityIpfs) as CommunityIpfsType,
             localCommunity: {
                 signer: remeda.pick(newProps.signer as SignerWithPublicKeyAddress, ["publicKey", "address", "shortAddress", "type"]),
                 settings: newProps.settings,
@@ -376,7 +376,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         if (Array.isArray(newProps._cidsToUnPin)) newProps._cidsToUnPin.forEach((cid) => this._cidsToUnPin.add(cid));
         if (Array.isArray(newProps._mfsPathsToRemove)) newProps._mfsPathsToRemove.forEach((path) => this._mfsPathsToRemove.add(path));
         this._updateIpnsPubsubPropsIfNeeded(newProps);
-        if (processStartedCommunitys.has(this)) syncCommunityRegistryEntry(processStartedCommunitys, this);
+        if (processStartedCommunities.has(this)) syncCommunityRegistryEntry(processStartedCommunities, this);
         if (this.updateCid) this.raw.localCommunity = this.toJSONInternalRpcAfterFirstUpdate();
     }
 
@@ -395,7 +395,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         this.ipnsName = newProps.signer.address;
         this.ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(this.ipnsName);
         this.ipnsPubsubTopicRoutingCid = pubsubTopicToDhtKey(this.ipnsPubsubTopic);
-        if (processStartedCommunitys.has(this)) syncCommunityRegistryEntry(processStartedCommunitys, this);
+        if (processStartedCommunities.has(this)) syncCommunityRegistryEntry(processStartedCommunities, this);
         this.raw.localCommunity = this.toJSONInternalRpcBeforeFirstUpdate();
     }
 
@@ -408,17 +408,17 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     }
 
     async _updateInstancePropsWithStartedSubOrDb() {
-        // if it's started in the same plebbit instance, we will load it from the started subplebbit instance
+        // if it's started in the same pkc instance, we will load it from the started community instance
         // if it's started in another process, we will throw an error
         // if sub is not started, load the InternalCommunity props from the local db
 
         const log = Logger("pkc-js:local-community:_updateInstancePropsWithStartedSubOrDb");
         const startedCommunity = <LocalCommunity | undefined>(
-            (findStartedCommunity(this._plebbit, { address: this.address }) ||
-                findCommunityInRegistry(processStartedCommunitys, { address: this.address }))
+            (findStartedCommunity(this._pkc, { address: this.address }) ||
+                findCommunityInRegistry(processStartedCommunities, { address: this.address }))
         );
         if (startedCommunity) {
-            log("Loading local subplebbit", this.address, "from started subplebbit instance");
+            log("Loading local community", this.address, "from started community instance");
             if (startedCommunity.updatedAt)
                 await this.initInternalCommunityAfterFirstUpdateNoMerge(startedCommunity.toJSONInternalAfterFirstUpdate());
             else await this.initInternalCommunityBeforeFirstUpdateNoMerge(startedCommunity.toJSONInternalBeforeFirstUpdate());
@@ -432,7 +432,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 if (!subDbExists)
                     throw new PKCError("CAN_NOT_LOAD_LOCAL_COMMUNITY_IF_DB_DOES_NOT_EXIST", {
                         address: this.address,
-                        dataPath: this._plebbit.dataPath
+                        dataPath: this._pkc.dataPath
                     });
 
                 const dbConfig = this.state === "updating" ? { readonly: true } : undefined;
@@ -442,7 +442,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 if (!this.signer) throw new PKCError("ERR_LOCAL_COMMUNITY_HAS_NO_SIGNER_IN_INTERNAL_STATE", { address: this.address });
 
                 await this._updateStartedValue();
-                log("Loaded local subplebbit", this.address, "from db");
+                log("Loaded local community", this.address, "from db");
             } catch (e) {
                 throw e;
             } finally {
@@ -451,28 +451,28 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         }
 
         // need to validate schema of Community IPFS
-        if (this.raw.subplebbitIpfs)
+        if (this.raw.communityIpfs)
             try {
-                parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(this.raw.subplebbitIpfs);
+                parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(this.raw.communityIpfs);
             } catch (e) {
                 if (e instanceof Error) {
                     log(
-                        "Local subplebbit",
+                        "Local community",
                         this.address,
-                        "has an invalid subplebbitIpfs schema from DB, clearing for re-generation after migration:",
+                        "has an invalid communityIpfs schema from DB, clearing for re-generation after migration:",
                         e.message
                     );
-                    this.raw.subplebbitIpfs = undefined;
+                    this.raw.communityIpfs = undefined;
                 }
             }
     }
     private async _importCommunitySignerIntoIpfsIfNeeded() {
-        if (!this.signer.ipnsKeyName) throw Error("subplebbit.signer.ipnsKeyName is not defined");
-        if (!this.signer.ipfsKey) throw Error("subplebbit.signer.ipfsKey is not defined");
+        if (!this.signer.ipnsKeyName) throw Error("community.signer.ipnsKeyName is not defined");
+        if (!this.signer.ipfsKey) throw Error("community.signer.ipfsKey is not defined");
 
         await importSignerIntoKuboNode(this.signer.ipnsKeyName, this.signer.ipfsKey, {
-            url: this._plebbit.kuboRpcClientsOptions![0].url!.toString(),
-            headers: this._plebbit.kuboRpcClientsOptions![0].headers
+            url: this._pkc.kuboRpcClientsOptions![0].url!.toString(),
+            headers: this._pkc.kuboRpcClientsOptions![0].headers
         });
     }
 
@@ -490,10 +490,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             lockedIt = true;
             const internalStateBefore = await this._getDbInternalState(false);
             const mergedInternalState = { ...internalStateBefore, ...props };
-            await this._dbHandler.keyvSet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_SUBPLEBBIT], mergedInternalState);
+            await this._dbHandler.keyvSet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY], mergedInternalState);
             this._internalStateUpdateId = props._internalStateUpdateId;
             log.trace("Updated sub", this.address, "internal state in db with new props", Object.keys(props));
-            if (this.updateCid && this.raw.subplebbitIpfs) {
+            if (this.updateCid && this.raw.communityIpfs) {
                 this.raw.localCommunity = this.toJSONInternalRpcAfterFirstUpdate();
             } else if (this.settings) {
                 this.raw.localCommunity = this.toJSONInternalRpcBeforeFirstUpdate();
@@ -511,17 +511,17 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         lock: boolean
     ): Promise<InternalCommunityRecordAfterFirstUpdateType | InternalCommunityRecordBeforeFirstUpdateType> {
         const log = Logger("pkc-js:local-community:_getDbInternalState");
-        if (!this._dbHandler.keyvHas(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_SUBPLEBBIT]))
-            throw new PKCError("ERR_COMMUNITY_HAS_NO_INTERNAL_STATE", { address: this.address, dataPath: this._plebbit.dataPath });
+        if (!this._dbHandler.keyvHas(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY]))
+            throw new PKCError("ERR_COMMUNITY_HAS_NO_INTERNAL_STATE", { address: this.address, dataPath: this._pkc.dataPath });
         let lockedIt = false;
         try {
             if (lock) {
                 await this._dbHandler.lockSubState();
                 lockedIt = true;
             }
-            const internalState = await this._dbHandler.keyvGet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_SUBPLEBBIT]);
+            const internalState = await this._dbHandler.keyvGet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY]);
             if (!internalState)
-                throw new PKCError("ERR_COMMUNITY_HAS_NO_INTERNAL_STATE", { address: this.address, dataPath: this._plebbit.dataPath });
+                throw new PKCError("ERR_COMMUNITY_HAS_NO_INTERNAL_STATE", { address: this.address, dataPath: this._pkc.dataPath });
             return internalState as InternalCommunityRecordAfterFirstUpdateType | InternalCommunityRecordBeforeFirstUpdateType;
         } catch (e) {
             log.error("Failed to get sub", this.address, "internal state from db", e);
@@ -547,12 +547,12 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             this._usingDefaultChallenge = true;
         if (this._usingDefaultChallenge && !remeda.isDeepEqual(this.settings?.challenges, this._defaultCommunityChallenges)) {
             await this.edit({ settings: { ...this.settings, challenges: this._defaultCommunityChallenges } });
-            log(`Defaulted the challenges of subplebbit (${this.address}) to`, this._defaultCommunityChallenges);
+            log(`Defaulted the challenges of community (${this.address}) to`, this._defaultCommunityChallenges);
         }
     }
 
     async _createNewLocalSubDb() {
-        // We're creating a totally new subplebbit here with a new db
+        // We're creating a totally new community here with a new db
         // This function should be called only once per sub
         const log = Logger("pkc-js:local-community:_createNewLocalSubDb");
         await this.initDbHandlerIfNeeded();
@@ -567,19 +567,19 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         if (!this.settings?.challenges) {
             this.settings = { ...this.settings, challenges: this._defaultCommunityChallenges };
             this._usingDefaultChallenge = true;
-            log(`Defaulted the challenges of subplebbit (${this.address}) to`, this._defaultCommunityChallenges);
+            log(`Defaulted the challenges of community (${this.address}) to`, this._defaultCommunityChallenges);
         }
         if (typeof this.settings?.purgeDisapprovedCommentsOlderThan !== "number") {
             this.settings = { ...this.settings, purgeDisapprovedCommentsOlderThan: 1.21e6 }; // two weeks
         }
 
         this.challenges = await Promise.all(
-            this.settings.challenges!.map((cs) => getCommunityChallengeFromCommunityChallengeSettings(cs, this._plebbit))
+            this.settings.challenges!.map((cs) => getCommunityChallengeFromCommunityChallengeSettings(cs, this._pkc))
         );
 
-        if (this._dbHandler.keyvHas(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_SUBPLEBBIT])) throw Error("Internal state exists already");
+        if (this._dbHandler.keyvHas(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY])) throw Error("Internal state exists already");
 
-        await this._dbHandler.keyvSet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_SUBPLEBBIT], this.toJSONInternalBeforeFirstUpdate());
+        await this._dbHandler.keyvSet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY], this.toJSONInternalBeforeFirstUpdate());
 
         await this._updateStartedValue();
 
@@ -604,14 +604,14 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     }
 
     private _calculateLatestUpdateTrigger() {
-        const lastPublishTooOld = (this.updatedAt || 0) < timestamp() - 60 * 15; // Publish a subplebbit record every 15 minutes at least
+        const lastPublishTooOld = (this.updatedAt || 0) < timestamp() - 60 * 15; // Publish a community record every 15 minutes at least
 
         // these two checks below are for rare cases where a purged comments or post is not forcing sub for a new update
         const lastPostCidChanged = this.lastPostCid !== this._dbHandler.queryLatestPostCid()?.cid;
         const lastCommentCidChanged = this.lastCommentCid !== this._dbHandler.queryLatestCommentCid()?.cid;
 
-        this._subplebbitUpdateTrigger =
-            this._subplebbitUpdateTrigger ||
+        this._communityUpdateTrigger =
+            this._communityUpdateTrigger ||
             lastPublishTooOld ||
             this._pendingEditProps.length > 0 ||
             this._blocksToRm.length > 0 ||
@@ -622,7 +622,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     private _requireCommunityUpdateIfModQueueChanged() {
         const combinedHashOfAllQueuedComments = this._dbHandler.queryCombinedHashOfPendingComments();
 
-        if (this._combinedHashOfPendingCommentsCids !== combinedHashOfAllQueuedComments) this._subplebbitUpdateTrigger = true;
+        if (this._combinedHashOfPendingCommentsCids !== combinedHashOfAllQueuedComments) this._communityUpdateTrigger = true;
     }
 
     async _resolveIpnsAndLogIfPotentialProblematicSequence() {
@@ -635,7 +635,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
             if (ipnsCid && this.updateCid && ipnsCid !== this.updateCid) {
                 log.error(
-                    "subplebbit",
+                    "community",
                     this.address,
                     "IPNS key",
                     this.signer.ipnsKeyName,
@@ -647,7 +647,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 );
             }
         } catch (e) {
-            log.trace("Failed to resolve subplebbit before publishing", this.address, "IPNS key", this.signer.ipnsKeyName, e);
+            log.trace("Failed to resolve community before publishing", this.address, "IPNS key", this.signer.ipnsKeyName, e);
         }
     }
 
@@ -658,7 +658,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     ) {
         if (!curPages && !newPages) return;
         else if (curPages && !newPages) {
-            // we had to reset our sub pages, maybe because we purged all comments or changed subplebbit address
+            // we had to reset our sub pages, maybe because we purged all comments or changed community address
             const allPageCidsUnderCurPages = await iterateOverPageCidsToFindAllCids({
                 pages: curPages,
                 clientManager: this._clientsManager
@@ -690,7 +690,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         this._calculateLatestUpdateTrigger();
 
-        if (!this._subplebbitUpdateTrigger) return; // No reason to update
+        if (!this._communityUpdateTrigger) return; // No reason to update
 
         this._dbHandler.createTransaction();
         const latestPost = this._dbHandler.queryLatestPostCid();
@@ -740,15 +740,15 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         };
 
         const preloadedPostsPages = "hot";
-        // Calculate size taken by subplebbit without posts and signature
-        const subplebbitWithoutPostsSignatureSize = Buffer.byteLength(JSON.stringify(newIpns), "utf8");
+        // Calculate size taken by community without posts and signature
+        const communityWithoutPostsSignatureSize = Buffer.byteLength(JSON.stringify(newIpns), "utf8");
 
         // Calculate expected signature size
         const expectedSignatureSize = calculateExpectedSignatureSize(newIpns);
 
         // Calculate remaining space for posts
         const availablePostsSize =
-            MAX_FILE_SIZE_BYTES_FOR_SUBPLEBBIT_IPFS - subplebbitWithoutPostsSignatureSize - expectedSignatureSize - 1000;
+            MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS - communityWithoutPostsSignatureSize - expectedSignatureSize - 1000;
 
         const generatedPosts = await this._pageGenerator.generateCommunityPosts(preloadedPostsPages, availablePostsSize);
 
@@ -768,8 +768,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             // TODO make sure to capture this.posts cids to unpin
         }
 
-        this._addOldPageCidsToCidsToUnpin(this.raw.subplebbitIpfs?.posts, newIpns.posts).catch((err) =>
-            log.error("Failed to add old page cids of subplebbit.posts to _cidsToUnpin", err)
+        this._addOldPageCidsToCidsToUnpin(this.raw.communityIpfs?.posts, newIpns.posts).catch((err) =>
+            log.error("Failed to add old page cids of community.posts to _cidsToUnpin", err)
         );
 
         if (newModQueue) {
@@ -779,7 +779,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             this.modQueue.resetPages();
         }
 
-        const signature = await signCommunity({ subplebbit: newIpns, signer: this.signer });
+        const signature = await signCommunity({ community: newIpns, signer: this.signer });
         const newCommunityRecord = <CommunityIpfsType>{ ...newIpns, signature };
 
         await this._validateSubSizeSchemaAndSignatureBeforePublishing(newCommunityRecord);
@@ -794,13 +794,13 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             provideInBackground: false
         });
         log(
-            `Published subplebbit record. Kubo CID: ${file.path}. updatedAt: ${newCommunityRecord.updatedAt}. ` +
+            `Published community record. Kubo CID: ${file.path}. updatedAt: ${newCommunityRecord.updatedAt}. ` +
                 `Content length: ${contentToPublish.length}`
         );
-        if (file.size > MAX_FILE_SIZE_BYTES_FOR_SUBPLEBBIT_IPFS) {
+        if (file.size > MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS) {
             throw new PKCError("ERR_LOCAL_COMMUNITY_RECORD_TOO_LARGE", {
                 calculatedSizeOfNewCommunityRecord: file.size,
-                maxSize: MAX_FILE_SIZE_BYTES_FOR_SUBPLEBBIT_IPFS,
+                maxSize: MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS,
                 newCommunityRecord,
                 address: this.address
             });
@@ -809,7 +809,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         if (!this.signer.ipnsKeyName) throw Error("IPNS key name is not defined");
         // after kubo 0.40 implements fetching IPNS record from local blockstore, we don't need line below anymore
         if (this._firstUpdateAfterStart) await this._resolveIpnsAndLogIfPotentialProblematicSequence();
-        const ttl = `${this._plebbit.publishInterval * 3}ms`; // default publish interval is 20s, so default ttl is 60s
+        const ttl = `${this._pkc.publishInterval * 3}ms`; // default publish interval is 20s, so default ttl is 60s
         const lastPublishedIpnsRecordData = <any | undefined>await this._dbHandler.keyvGet(STORAGE_KEYS[STORAGE_KEYS.LAST_IPNS_RECORD]);
         const decodedIpnsRecord: any | undefined = lastPublishedIpnsRecordData
             ? cborg.decode(new Uint8Array(Object.values(lastPublishedIpnsRecordData)))
@@ -828,8 +828,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         );
 
         this._clientsManager.updateKuboRpcState("stopped", kuboRpcClient.url);
-        this._addOldPageCidsToCidsToUnpin(this.raw.subplebbitIpfs?.modQueue, newIpns.modQueue).catch((err) =>
-            log.error("Failed to add old page cids of subplebbit.modQueue to _cidsToUnpin", err)
+        this._addOldPageCidsToCidsToUnpin(this.raw.communityIpfs?.modQueue, newIpns.modQueue).catch((err) =>
+            log.error("Failed to add old page cids of community.modQueue to _cidsToUnpin", err)
         );
         await this._unpinStaleCids();
         if (this._blocksToRm.length > 0) {
@@ -842,7 +842,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             log("Removed blocks", removedBlocks, "from kubo node");
             this._blocksToRm = this._blocksToRm.filter((blockCid) => !removedBlocks.includes(blockCid));
         }
-        if (this.updateCid) this._cidsToUnPin.add(this.updateCid); // add old cid of subplebbit to be unpinned
+        if (this.updateCid) this._cidsToUnPin.add(this.updateCid); // add old cid of community to be unpinned
         this.initCommunityIpfsPropsNoMerge(newCommunityRecord);
         this.updateCid = file.path;
         this._pendingEditProps = this._pendingEditProps.filter((editProps) => !editIdsToIncludeInNextUpdate.includes(editProps.editId));
@@ -859,7 +859,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             Object.assign(this, remainingEditProps);
         }
 
-        this._subplebbitUpdateTrigger = false;
+        this._communityUpdateTrigger = false;
         this._firstUpdateAfterStart = false;
 
         try {
@@ -896,16 +896,16 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         const stringifiedNewCommunityRecord = deterministicStringify(recordToPublishRaw);
         const calculatedSizeOfNewCommunityRecord = await calculateStringSizeSameAsIpfsAddCidV0(stringifiedNewCommunityRecord);
 
-        // Check if the subplebbit record size is less than 1MB
-        if (calculatedSizeOfNewCommunityRecord > MAX_FILE_SIZE_BYTES_FOR_SUBPLEBBIT_IPFS) {
+        // Check if the community record size is less than 1MB
+        if (calculatedSizeOfNewCommunityRecord > MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS) {
             const error = new PKCError("ERR_LOCAL_COMMUNITY_RECORD_TOO_LARGE", {
                 calculatedSizeOfNewCommunityRecord,
-                maxSize: MAX_FILE_SIZE_BYTES_FOR_SUBPLEBBIT_IPFS,
+                maxSize: MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS,
                 recordToPublishRaw,
                 address: this.address
             });
             log.error(
-                `Local subplebbit (${this.address}) produced a record that is too large (${calculatedSizeOfNewCommunityRecord.toFixed(2)} bytes). Maximum size is ${MAX_FILE_SIZE_BYTES_FOR_SUBPLEBBIT_IPFS} bytes.`,
+                `Local community (${this.address}) produced a record that is too large (${calculatedSizeOfNewCommunityRecord.toFixed(2)} bytes). Maximum size is ${MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS} bytes.`,
                 error
             );
             throw error;
@@ -917,13 +917,13 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 invalidRecord: recordToPublishRaw,
                 err: parseRes.error
             });
-            log.error(`Local subplebbit (${this.address}) produced an invalid CommunityIpfs schema`, error);
+            log.error(`Local community (${this.address}) produced an invalid CommunityIpfs schema`, error);
             throw error;
         }
 
         const verificationOpts = {
-            subplebbit: recordToPublishRaw,
-            subplebbitIpnsName: this.signer.address,
+            community: recordToPublishRaw,
+            communityIpnsName: this.signer.address,
             resolveAuthorNames: false,
             clientsManager: this._clientsManager,
             validatePages: true,
@@ -938,11 +938,11 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 });
             }
         } catch (e) {
-            log.error(`Local subplebbit (${this.address}) produced an invalid signature`, e);
+            log.error(`Local community (${this.address}) produced an invalid signature`, e);
             throw e;
         }
 
-        verificationOpts.subplebbit = JSON.parse(stringifiedNewCommunityRecord); // let's stringify and parse again to make sure we're not using any invalid data
+        verificationOpts.community = JSON.parse(stringifiedNewCommunityRecord); // let's stringify and parse again to make sure we're not using any invalid data
         try {
             const validation = await verifyCommunity(verificationOpts);
             if (!validation.valid) {
@@ -953,7 +953,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             }
         } catch (e) {
             log.error(
-                `Local subplebbit (${this.address}) produced an invalid signature after stringifying and parsing again. This is a critical bug.`,
+                `Local community (${this.address}) produced an invalid signature after stringifying and parsing again. This is a critical bug.`,
                 e
             );
             throw e;
@@ -998,7 +998,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         const extraPropsInEdit = remeda
             .difference(remeda.keys.strict(commentEditRaw), remeda.keys.strict(CommentEditPubsubMessagePublicationSchema.shape))
-            .filter((key) => (key as string) !== "subplebbitAddress"); // subplebbitAddress is excluded because it's been converted to communityPublicKey/communityName above
+            .filter((key) => (key as string) !== "communityAddress"); // communityAddress is excluded because it's been converted to communityPublicKey/communityName above
         if (extraPropsInEdit.length > 0) {
             log("Found extra props on CommentEdit", extraPropsInEdit, "Will be adding them to extraProps column");
             editTableRow.extraProps = remeda.pick(commentEditRaw, extraPropsInEdit);
@@ -1020,7 +1020,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             if (isPending || isDisapproved) {
                 log("Author deleted a pending/disapproved comment, purging immediately", commentEditRaw.commentCid);
                 this._dbHandler.purgeComment(commentEditRaw.commentCid);
-                this._subplebbitUpdateTrigger = true;
+                this._communityUpdateTrigger = true;
             }
         }
     }
@@ -1072,7 +1072,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         const extraPropsInMod = remeda
             .difference(remeda.keys.strict(commentModRaw), remeda.keys.strict(CommentModerationPubsubMessagePublicationSchema.shape))
-            .filter((key) => (key as string) !== "subplebbitAddress"); // subplebbitAddress is excluded because it's been converted to communityPublicKey/communityName above
+            .filter((key) => (key as string) !== "communityAddress"); // communityAddress is excluded because it's been converted to communityPublicKey/communityName above
         if (extraPropsInMod.length > 0) {
             log("Found extra props on CommentModeration", extraPropsInMod, "Will be adding them to extraProps column");
             modTableRow.extraProps = remeda.pick(commentModRaw, extraPropsInMod);
@@ -1125,7 +1125,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 else this._dbHandler.removeCommentFromPendingApproval({ cid: modTableRow.commentCid });
             }
         }
-        this._subplebbitUpdateTrigger = true;
+        this._communityUpdateTrigger = true;
         this._dbHandler.insertCommentModerations([modTableRow]);
         log("Inserted comment moderation", "of comment", modTableRow.commentCid, "into db", "with props", modTableRow);
     }
@@ -1166,8 +1166,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         const authorSignerAddress = await getPKCAddressFromPublicKey(editProps.signature.publicKey);
         const authorIdentity = getAuthorNameFromWire(editProps.author) || authorSignerAddress;
         log(
-            "Received subplebbit edit",
-            editProps.subplebbitEdit,
+            "Received community edit",
+            editProps.communityEdit,
             "from author",
             authorIdentity,
             "with signer address",
@@ -1175,9 +1175,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             "Will be using these props to edit the sub props"
         );
 
-        const propsAfterEdit = remeda.pick(this, remeda.keys.strict(editProps.subplebbitEdit));
+        const propsAfterEdit = remeda.pick(this, remeda.keys.strict(editProps.communityEdit));
         log("Current props from sub edit (not edited yet)", propsAfterEdit);
-        lodashDeepMerge(propsAfterEdit, editProps.subplebbitEdit);
+        lodashDeepMerge(propsAfterEdit, editProps.communityEdit);
         await this.edit(propsAfterEdit);
         return undefined;
     }
@@ -1234,14 +1234,14 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 const existing = this._dbHandler.queryPseudonymityAliasForPost(opts.originalAuthorSignerPublicKey, opts.postCid);
                 if (existing?.aliasPrivateKey) return existing.aliasPrivateKey;
             }
-            return (await this._plebbit.createSigner()).privateKey;
+            return (await this._pkc.createSigner()).privateKey;
         } else if (opts.mode === "per-reply") {
-            const signer = await this._plebbit.createSigner();
+            const signer = await this._pkc.createSigner();
             return signer.privateKey;
         } else if (opts.mode === "per-author") {
             const existing = this._dbHandler.queryPseudonymityAliasForAuthor(opts.originalAuthorSignerPublicKey);
             if (existing?.aliasPrivateKey) return existing.aliasPrivateKey;
-            const signer = await this._plebbit.createSigner();
+            const signer = await this._pkc.createSigner();
             return signer.privateKey;
         } else throw Error(`Unsupported pseudonymityMode (${opts.mode})`);
     }
@@ -1269,7 +1269,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             originalAuthorSignerPublicKey,
             postCid
         });
-        const aliasSigner = await this._plebbit.createSigner({ privateKey: aliasPrivateKey, type: "ed25519" });
+        const aliasSigner = await this._pkc.createSigner({ privateKey: aliasPrivateKey, type: "ed25519" });
         const displayName = originalComment.author?.displayName;
         const sanitizedAuthor = cleanWireAuthor(displayName !== undefined ? { displayName } : undefined);
 
@@ -1282,7 +1282,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         }
         anonymizedComment.signature = await signComment({
             comment: { ...anonymizedComment, signer: aliasSigner, communityAddress: this.address },
-            plebbit: this._plebbit
+            pkc: this._pkc
         });
 
         return {
@@ -1300,7 +1300,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         const aliasSignerOfComment = this._dbHandler.queryPseudonymityAliasByCommentCid(originalEdit.commentCid);
         if (!aliasSignerOfComment) return originalEdit;
 
-        const aliasSigner = await this._plebbit.createSigner({
+        const aliasSigner = await this._pkc.createSigner({
             privateKey: aliasSignerOfComment.aliasPrivateKey,
             type: "ed25519"
         });
@@ -1308,7 +1308,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         delete commentEditSignedByAlias.author;
         commentEditSignedByAlias.signature = await signCommentEdit({
             edit: { ...commentEditSignedByAlias, signer: aliasSigner, communityAddress: this.address },
-            plebbit: this._plebbit
+            pkc: this._pkc
         });
 
         return commentEditSignedByAlias;
@@ -1331,10 +1331,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             ...(pseudonymityMode ? { pseudonymityMode } : {})
         };
 
-        // Normalize to new wire format: ensure communityPublicKey/communityName, remove old subplebbitAddress
+        // Normalize to new wire format: ensure communityPublicKey/communityName, remove old communityAddress
         commentIpfs.communityPublicKey = this.signer.address;
         if (isStringDomain(this.address)) commentIpfs.communityName = this.address;
-        delete (commentIpfs as Record<string, unknown>).subplebbitAddress;
+        delete (commentIpfs as Record<string, unknown>).communityAddress;
 
         // Strip runtime-only author fields (nameResolved, address, publicKey, etc.) before IPFS storage
         commentIpfs.author = cleanWireAuthor(commentIpfs.author);
@@ -1383,7 +1383,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         const unknownProps = remeda
             .difference(remeda.keys.strict(commentPubsub), remeda.keys.strict(CommentPubsubMessagePublicationSchema.shape))
-            .filter((key) => (key as string) !== "subplebbitAddress"); // subplebbitAddress is excluded because it's been converted to communityPublicKey/communityName above
+            .filter((key) => (key as string) !== "communityAddress"); // communityAddress is excluded because it's been converted to communityPublicKey/communityName above
 
         if (unknownProps.length > 0) {
             log("Found extra props on Comment", unknownProps, "Will be adding them to extraProps column");
@@ -1465,31 +1465,31 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         if (request.comment)
             validity = await verifyCommentPubsubMessage({
                 comment: request.comment,
-                resolveAuthorNames: this._plebbit.resolveAuthorNames,
+                resolveAuthorNames: this._pkc.resolveAuthorNames,
                 clientsManager: this._clientsManager
             });
         else if (request.commentEdit)
             validity = await verifyCommentEdit({
                 edit: request.commentEdit,
-                resolveAuthorNames: this._plebbit.resolveAuthorNames,
+                resolveAuthorNames: this._pkc.resolveAuthorNames,
                 clientsManager: this._clientsManager
             });
         else if (request.vote)
             validity = await verifyVote({
                 vote: request.vote,
-                resolveAuthorNames: this._plebbit.resolveAuthorNames,
+                resolveAuthorNames: this._pkc.resolveAuthorNames,
                 clientsManager: this._clientsManager
             });
         else if (request.commentModeration)
             validity = await verifyCommentModeration({
                 moderation: request.commentModeration,
-                resolveAuthorNames: this._plebbit.resolveAuthorNames,
+                resolveAuthorNames: this._pkc.resolveAuthorNames,
                 clientsManager: this._clientsManager
             });
         else if (request.subplebbitEdit)
             validity = await verifyCommunityEdit({
-                subplebbitEdit: request.subplebbitEdit,
-                resolveAuthorNames: this._plebbit.resolveAuthorNames,
+                communityEdit: request.subplebbitEdit,
+                resolveAuthorNames: this._pkc.resolveAuthorNames,
                 clientsManager: this._clientsManager
             });
         else throw Error("Can't detect the type of publication");
@@ -1509,7 +1509,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         const toSignChallenge: Omit<ChallengeMessageType, "signature"> = cleanUpBeforePublishing({
             type: "CHALLENGE",
             protocolVersion: env.PROTOCOL_VERSION,
-            userAgent: this._plebbit.userAgent,
+            userAgent: this._pkc.userAgent,
             challengeRequestId: request.challengeRequestId,
             encrypted: await encryptEd25519AesGcmPublicKeyBuffer(
                 deterministicStringify(toEncryptChallenge),
@@ -1555,7 +1555,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             challengeSuccess: false,
             challengeErrors: result.challengeErrors,
             reason: result.reason,
-            userAgent: this._plebbit.userAgent,
+            userAgent: this._pkc.userAgent,
             protocolVersion: env.PROTOCOL_VERSION,
             timestamp: timestamp()
         });
@@ -1568,7 +1568,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         const pubsubClient = this._clientsManager.getDefaultKuboPubsubClient();
         this._clientsManager.updateKuboRpcPubsubState("publishing-challenge-verification", pubsubClient.url);
         log(
-            `Will publish ${challengeVerification.type} over pubsub topic ${this.pubsubTopicWithfallback()} on subplebbit ${this.address}:`,
+            `Will publish ${challengeVerification.type} over pubsub topic ${this.pubsubTopicWithfallback()} on community ${this.address}:`,
             remeda.omit(toSignVerification, ["challengeRequestId"])
         );
 
@@ -1609,7 +1609,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             const commentNumberPostNumber = this._dbHandler._assignNumbersForComment(existingComment.cid);
 
             const commentUpdateNoSig = <Omit<DecryptedChallengeVerification["commentUpdate"], "signature">>cleanUpBeforePublishing({
-                author: { subplebbit: authorCommunity },
+                author: { community: authorCommunity },
                 cid: existingComment.cid,
                 protocolVersion: env.PROTOCOL_VERSION,
                 ...commentNumberPostNumber
@@ -1640,7 +1640,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             encrypted,
             challengeSuccess: true,
             reason: undefined,
-            userAgent: this._plebbit.userAgent,
+            userAgent: this._pkc.userAgent,
             protocolVersion: env.PROTOCOL_VERSION,
             timestamp: timestamp()
         });
@@ -1672,12 +1672,12 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         const authorDomain = getAuthorDomainFromWire(commentAfterAddingToIpfs.comment.author);
 
         const authorCommunity = this._dbHandler.queryCommunityAuthor(authorSignerAddress, authorDomain);
-        if (!authorCommunity) throw Error("author.subplebbit can never be undefined after adding a comment");
+        if (!authorCommunity) throw Error("author.community can never be undefined after adding a comment");
         const commentNumberPostNumber = this._dbHandler._assignNumbersForComment(commentAfterAddingToIpfs.cid);
 
         const commentUpdateOfVerificationNoSignature = <Omit<DecryptedChallengeVerification["commentUpdate"], "signature">>(
             cleanUpBeforePublishing({
-                author: { subplebbit: authorCommunity },
+                author: { community: authorCommunity },
                 cid: commentAfterAddingToIpfs.cid,
                 protocolVersion: env.PROTOCOL_VERSION,
                 pendingApproval,
@@ -1730,7 +1730,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 challengeRequestId: request.challengeRequestId,
                 encrypted: toEncrypt?.encrypted, // could be undefined
                 challengeErrors: challengeResult.challengeErrors,
-                userAgent: this._plebbit.userAgent,
+                userAgent: this._pkc.userAgent,
                 protocolVersion: env.PROTOCOL_VERSION,
                 timestamp: timestamp(),
                 ...(failureReason ? { reason: failureReason, challengeSuccess: false } : { challengeSuccess: true, reason: undefined })
@@ -1773,8 +1773,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         const authorName = getAuthorNameFromWire(publication.author);
         if (typeof authorName === "string") {
             if (rolesToCheckAgainst.includes(this.roles[authorName]?.role as CommunityRoleNameUnion)) return true;
-            if (this._plebbit.resolveAuthorNames && isStringDomain(authorName)) {
-                const resolvedSignerAddress = await this._plebbit.resolveAuthorName({ address: authorName });
+            if (this._pkc.resolveAuthorNames && isStringDomain(authorName)) {
+                const resolvedSignerAddress = await this._pkc.resolveAuthorName({ address: authorName });
                 if (resolvedSignerAddress !== signerAddress) return false;
                 if (rolesToCheckAgainst.includes(this.roles[resolvedSignerAddress]?.role as CommunityRoleNameUnion)) return true;
             }
@@ -1785,19 +1785,19 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     private async _checkPublicationValidity(
         request: DecryptedChallengeRequestMessageType,
         publication: PublicationFromDecryptedChallengeRequest,
-        authorCommunity?: PublicationWithCommunityAuthorFromDecryptedChallengeRequest["author"]["subplebbit"]
+        authorCommunity?: PublicationWithCommunityAuthorFromDecryptedChallengeRequest["author"]["community"]
     ): Promise<messages | undefined> {
         const log = Logger("pkc-js:local-community:handleChallengeRequest:checkPublicationValidity");
 
         // Reject deprecated old wire format field
-        if ("subplebbitAddress" in publication) return messages.ERR_PUBLICATION_USES_DEPRECATED_SUBPLEBBIT_ADDRESS;
+        if ("communityAddress" in publication) return messages.ERR_PUBLICATION_USES_DEPRECATED_SUBPLEBBIT_ADDRESS;
 
-        // communityPublicKey must be present and match this subplebbit's IPNS key
+        // communityPublicKey must be present and match this community's IPNS key
         const pubCommunityPublicKey = getCommunityPublicKeyFromWire(publication as Record<string, unknown>);
         if (!pubCommunityPublicKey || pubCommunityPublicKey !== this.signer.address)
             return messages.ERR_PUBLICATION_INVALID_COMMUNITY_PUBLIC_KEY;
 
-        // communityName, if present, must match this subplebbit's address
+        // communityName, if present, must match this community's address
         const pubCommunityName = getCommunityNameFromWire(publication as Record<string, unknown>);
         if (pubCommunityName && pubCommunityName !== this.address) return messages.ERR_PUBLICATION_INVALID_COMMUNITY_NAME;
 
@@ -1818,7 +1818,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         }
 
         // Reject publications with author domains that can't be resolved or don't match the signer
-        if (authorName && isStringDomain(authorName) && this._plebbit.resolveAuthorNames) {
+        if (authorName && isStringDomain(authorName) && this._pkc.resolveAuthorNames) {
             let resolvedAddress: string | null;
             try {
                 resolvedAddress = await this._clientsManager.resolveAuthorNameIfNeeded({ authorAddress: authorName });
@@ -2115,22 +2115,22 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             if ("approved" in commentModerationPublication.commentModeration && !commentToBeEdited.pendingApproval)
                 return messages.ERR_MOD_ATTEMPTING_TO_APPROVE_OR_DISAPPROVE_COMMENT_THAT_IS_NOT_PENDING;
         } else if (request.subplebbitEdit) {
-            const subplebbitEdit = request.subplebbitEdit;
-            if (remeda.intersection(CommunityEditPublicationPubsubReservedFields, remeda.keys.strict(subplebbitEdit)).length > 0)
+            const communityEdit = request.subplebbitEdit;
+            if (remeda.intersection(CommunityEditPublicationPubsubReservedFields, remeda.keys.strict(communityEdit)).length > 0)
                 return messages.ERR_COMMUNITY_EDIT_HAS_RESERVED_FIELD;
 
-            if (subplebbitEdit.subplebbitEdit.roles || subplebbitEdit.subplebbitEdit.address) {
-                const isAuthorOwner = await this._isPublicationAuthorPartOfRoles(subplebbitEdit, ["owner"]);
+            if (communityEdit.communityEdit.roles || communityEdit.communityEdit.address) {
+                const isAuthorOwner = await this._isPublicationAuthorPartOfRoles(communityEdit, ["owner"]);
                 if (!isAuthorOwner) return messages.ERR_COMMUNITY_EDIT_ATTEMPTED_TO_MODIFY_OWNER_EXCLUSIVE_PROPS;
             }
 
-            const isAuthorOwnerOrAdmin = await this._isPublicationAuthorPartOfRoles(subplebbitEdit, ["owner", "admin"]);
+            const isAuthorOwnerOrAdmin = await this._isPublicationAuthorPartOfRoles(communityEdit, ["owner", "admin"]);
             if (!isAuthorOwnerOrAdmin) {
                 return messages.ERR_COMMUNITY_EDIT_ATTEMPTED_TO_MODIFY_COMMUNITY_WITHOUT_BEING_OWNER_OR_ADMIN;
             }
 
             const allowedCommunityEditKeys = [...remeda.keys.strict(CommunityIpfsSchema.shape), "address"] as string[];
-            if (remeda.difference(remeda.keys.strict(subplebbitEdit.subplebbitEdit), allowedCommunityEditKeys).length > 0) {
+            if (remeda.difference(remeda.keys.strict(communityEdit.communityEdit), allowedCommunityEditKeys).length > 0) {
                 // should only be allowed to modify public props from CommunityIpfs
                 // shouldn't be able to modify settings for example
                 return messages.ERR_COMMUNITY_EDIT_ATTEMPTED_TO_NON_PUBLIC_PROPS;
@@ -2239,14 +2239,14 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         authorCommunity
     }: {
         publication: PublicationFromDecryptedChallengeRequest;
-        authorCommunity?: PublicationWithCommunityAuthorFromDecryptedChallengeRequest["author"]["subplebbit"];
+        authorCommunity?: PublicationWithCommunityAuthorFromDecryptedChallengeRequest["author"]["community"];
     }): PublicationWithCommunityAuthorFromDecryptedChallengeRequest {
         return {
             ...publication,
             author: buildRuntimeAuthor({
                 author: publication.author,
                 signaturePublicKey: publication.signature.publicKey,
-                subplebbit: authorCommunity
+                community: authorCommunity
             })
         };
     }
@@ -2256,7 +2256,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         authorCommunity
     }: {
         request: DecryptedChallengeRequestMessageType;
-        authorCommunity?: PublicationWithCommunityAuthorFromDecryptedChallengeRequest["author"]["subplebbit"];
+        authorCommunity?: PublicationWithCommunityAuthorFromDecryptedChallengeRequest["author"]["community"];
     }): DecryptedChallengeRequestMessageTypeWithCommunityAuthor {
         // This function needs to be updated everytime we add a new publication type
         const runtimeRequest = remeda.clone(request) as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
@@ -2337,11 +2337,11 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         const authorDomain = getAuthorDomainFromWire(publication.author);
 
         // Check publication props validity
-        const subplebbitAuthor = this._dbHandler.queryCommunityAuthor(authorSignerAddress, authorDomain);
+        const communityAuthor = this._dbHandler.queryCommunityAuthor(authorSignerAddress, authorDomain);
         const decryptedRequestMsg = <DecryptedChallengeRequestMessageType>{ ...request, ...decryptedRequest };
         const decryptedRequestWithCommunityAuthor = this._buildRuntimeChallengeRequest({
             request: decryptedRequestMsg,
-            authorCommunity: subplebbitAuthor
+            authorCommunity: communityAuthor
         });
 
         try {
@@ -2359,7 +2359,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         this.emit("challengerequest", decryptedRequestWithCommunityAuthor);
 
-        const publicationInvalidityReason = await this._checkPublicationValidity(decryptedRequestMsg, publication, subplebbitAuthor);
+        const publicationInvalidityReason = await this._checkPublicationValidity(decryptedRequestMsg, publication, communityAuthor);
         if (publicationInvalidityReason) {
             if (DUPLICATE_PUBLICATION_ERRORS.has(publicationInvalidityReason)) {
                 const sig = publication.signature.signature;
@@ -2379,8 +2379,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         const answerPromiseKey = decryptedRequestWithCommunityAuthor.challengeRequestId.toString();
         const getChallengeAnswers: GetChallengeAnswers = async (challenges) => {
             // ...get challenge answers from user. e.g.:
-            // step 1. subplebbit publishes challenge pubsub message with `challenges` provided in argument of `getChallengeAnswers`
-            // step 2. subplebbit waits for challenge answer pubsub message with `challengeAnswers` and then returns `challengeAnswers`
+            // step 1. community publishes challenge pubsub message with `challenges` provided in argument of `getChallengeAnswers`
+            // step 2. community waits for challenge answer pubsub message with `challengeAnswers` and then returns `challengeAnswers`
             await this._publishChallenges(challenges, decryptedRequestWithCommunityAuthor);
             const challengeAnswerPromise = new Promise<DecryptedChallengeAnswer["challengeAnswers"]>((resolve, reject) =>
                 this._challengeAnswerResolveReject.set(answerPromiseKey, { resolve, reject })
@@ -2402,10 +2402,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             log.error("getChallenge failed, the sub owner needs to check the challenge code. The error is: ", e);
             this.emit("error", <PKCError>e);
 
-            // notify the author that his publication wasn't published because the subplebbit is misconfigured
+            // notify the author that his publication wasn't published because the community is misconfigured
             challengeVerification = {
                 challengeSuccess: false,
-                reason: `One of the subplebbit challenges is misconfigured: ${(<Error>e).message}`
+                reason: `One of the community challenges is misconfigured: ${(<Error>e).message}`
             };
         }
 
@@ -2555,17 +2555,17 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         const log = Logger("pkc-js:local-community:_calculateNewCommentUpdate");
 
         // If we're here that means we're gonna calculate the new update and publish it
-        log.trace(`Attempting to calculate new CommentUpdate for comment (${comment.cid}) on subplebbit`, this.address);
+        log.trace(`Attempting to calculate new CommentUpdate for comment (${comment.cid}) on community`, this.address);
 
         // This comment will have the local new CommentUpdate, which we will publish to IPFS fiels
-        // It includes new author.subplebbit as well as updated values in CommentUpdate (except for replies field)
+        // It includes new author.community as well as updated values in CommentUpdate (except for replies field)
         const storedCommentUpdate = this._dbHandler.queryStoredCommentUpdate(comment);
         const authorDomain = getAuthorDomainFromWire(comment.author);
         const calculatedCommentUpdate = this._dbHandler.queryCalculatedCommentUpdate({ comment, authorDomain });
         log.trace(
             "Calculated comment update for comment",
             comment.cid,
-            "on subplebbit",
+            "on community",
             this.address,
             "with reply count",
             calculatedCommentUpdate.replyCount
@@ -2660,9 +2660,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             update: newCommentUpdate,
             resolveAuthorNames: false,
             clientsManager: this._clientsManager,
-            subplebbit: this,
+            community: this,
             comment,
-            validatePages: this._plebbit.validatePages,
+            validatePages: this._pkc.validatePages,
             validateUpdateSignature: true
         };
         const validation = await verifyCommentUpdate(verificationOpts);
@@ -2674,7 +2674,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
     private async _listenToIncomingRequests() {
         const log = Logger("pkc-js:local-community:sync:_listenToIncomingRequests");
-        // Make sure subplebbit listens to pubsub topic
+        // Make sure community listens to pubsub topic
         // Code below is to handle in case the ipfs node restarted and the subscription got lost or something
         const pubsubClient = this._clientsManager.getDefaultKuboPubsubClient();
         const subscribedTopics = await pubsubClient._client.pubsub.ls();
@@ -2707,8 +2707,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         if (commentsToUpdate.length === 0) return [];
 
-        this._subplebbitUpdateTrigger = true;
-        log(`Will update ${commentsToUpdate.length} comments in this update loop for subplebbit (${this.address})`);
+        this._communityUpdateTrigger = true;
+        log(`Will update ${commentsToUpdate.length} comments in this update loop for community (${this.address})`);
 
         // Group by postCid
         const commentsByPostCid = remeda.groupBy.strict(commentsToUpdate, (x) => x.postCid);
@@ -2786,7 +2786,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             provideInBackground: false
         });
         if (addRes.path !== unpinnedCommentRow.cid) throw Error("Unable to recreate the CommentIpfs. This is a critical error");
-        log.trace("Pinned comment", unpinnedCommentRow.cid, "of subplebbit", this.address, "to IPFS node");
+        log.trace("Pinned comment", unpinnedCommentRow.cid, "of community", this.address, "to IPFS node");
     }
 
     private async _repinCommentsIPFSIfNeeded() {
@@ -2801,10 +2801,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             if (!(<Error>e).message.includes("is not pinned")) throw e;
         }
 
-        log(
-            "The latest comment is not pinned in the ipfs node, plebbit-js will repin all existing comment ipfs for subplebbit",
-            this.address
-        );
+        log("The latest comment is not pinned in the ipfs node, pkc-js will repin all existing comment ipfs for community", this.address);
 
         // latestCommentCid should be the last in unpinnedCommentsFromDb array, in case we throw an error on a comment before it, it does not get pinned
         const unpinnedCommentsFromDb = this._dbHandler.queryAllCommentsOrderedByIdAsc(); // we assume all comments are unpinned if latest comment is not pinned
@@ -2823,7 +2820,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         await Promise.all(pinningPromises);
 
-        this._dbHandler.forceUpdateOnAllComments(); // force plebbit-js to republish all comment updates
+        this._dbHandler.forceUpdateOnAllComments(); // force pkc-js to republish all comment updates
 
         log(`${unpinnedCommentsFromDb.length} comments' IPFS have been repinned`);
     }
@@ -2850,14 +2847,14 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                             if (error.message.startsWith("not pinned")) {
                                 this._cidsToUnPin.delete(cid);
                             } else {
-                                log.trace("Failed to unpin cid", cid, "on subplebbit", this.address, "due to error", error);
+                                log.trace("Failed to unpin cid", cid, "on community", this.address, "due to error", error);
                             }
                         }
                     })
                 )
             );
 
-            log(`unpinned ${sizeBefore - this._cidsToUnPin.size} stale cids from ipfs node for subplebbit (${this.address})`);
+            log(`unpinned ${sizeBefore - this._cidsToUnPin.size} stale cids from ipfs node for community (${this.address})`);
         }
     }
 
@@ -2908,7 +2905,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         log(`CommentUpdate directory`, this.address, "will republish all comment updates");
 
-        this._dbHandler.forceUpdateOnAllComments(); // plebbit-js will recalculate and publish all comment updates
+        this._dbHandler.forceUpdateOnAllComments(); // pkc-js will recalculate and publish all comment updates
     }
 
     private async _syncPostUpdatesWithIpfs(commentUpdateRowsToPublishToIpfs: CommentUpdateToWriteToDbAndPublishToIpfs[]) {
@@ -3088,7 +3085,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             await this._cleanUpIpfsRepoRarely();
         } catch (e) {
             //@ts-expect-error
-            e.details = { ...e.details, subplebbitAddress: this.address };
+            e.details = { ...e.details, communityAddress: this.address };
             const errorTyped = <Error>e;
             this._setStartedStateWithEmission("failed");
             this._clientsManager.updateKuboRpcState("stopped", kuboRpc.url);
@@ -3150,8 +3147,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             await new Promise((resolve) => {
                 const checkInterval = setInterval(() => {
                     const syncIntervalMsPassedSinceDoneWithLoop = Date.now() - doneWithLoopTime >= syncIntervalMs;
-                    this._calculateLatestUpdateTrigger(); // will update this._subplebbitUpdateTrigger
-                    if (this._subplebbitUpdateTrigger || shouldStopPublishLoop() || syncIntervalMsPassedSinceDoneWithLoop) {
+                    this._calculateLatestUpdateTrigger(); // will update this._communityUpdateTrigger
+                    if (this._communityUpdateTrigger || shouldStopPublishLoop() || syncIntervalMsPassedSinceDoneWithLoop) {
                         clearInterval(checkInterval);
                         resolve(1);
                     }
@@ -3168,7 +3165,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 await waitUntilNextSync();
             }
         }
-        log("Stopping the publishing loop of subplebbit", this.address);
+        log("Stopping the publishing loop of community", this.address);
     }
 
     private async _initBeforeStarting() {
@@ -3223,7 +3220,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     ): Promise<NonNullable<Pick<InternalCommunityRecordAfterFirstUpdateType, "challenges" | "_usingDefaultChallenge">>> {
         return {
             challenges: await Promise.all(
-                newChallengeSettings.map((cs) => getCommunityChallengeFromCommunityChallengeSettings(cs, this._plebbit))
+                newChallengeSettings.map((cs) => getCommunityChallengeFromCommunityChallengeSettings(cs, this._pkc))
             ),
             _usingDefaultChallenge: remeda.isDeepEqual(newChallengeSettings, this._defaultCommunityChallenges)
         };
@@ -3231,17 +3228,17 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
     async _validateNewAddressBeforeEditing(newAddress: string, log: Logger) {
         if (doesDomainAddressHaveCapitalLetter(newAddress))
-            throw new PKCError("ERR_COMMUNITY_NAME_HAS_CAPITAL_LETTER", { subplebbitAddress: newAddress });
+            throw new PKCError("ERR_COMMUNITY_NAME_HAS_CAPITAL_LETTER", { communityAddress: newAddress });
         // Check if any existing sub (other than this one) already has an equivalent address
         // This handles both exact matches and .eth/.bso alias equivalence
-        const existingEquivalent = this._plebbit.subplebbits.find(
+        const existingEquivalent = this._pkc.communities.find(
             (existing) => areEquivalentCommunityAddresses(existing, newAddress) && !areEquivalentCommunityAddresses(existing, this.address)
         );
         if (existingEquivalent)
             throw new PKCError("ERR_COMMUNITY_OWNER_ATTEMPTED_EDIT_NEW_ADDRESS_THAT_ALREADY_EXISTS", {
                 currentCommunityAddress: this.address,
                 newCommunityAddress: newAddress,
-                currentSubs: this._plebbit.subplebbits
+                currentSubs: this._pkc.communities
             });
         this._assertDomainResolvesCorrectly(newAddress).catch((err: PKCError) => {
             log.error(err);
@@ -3250,14 +3247,14 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     }
 
     async _editPropsOnStartedCommunity(parsedEditOptions: ParsedCommunityEditOptions): Promise<typeof this> {
-        // 'this' is the started subplebbit with state="started"
-        // this._plebbit._startedCommunitys[this.address] === this
+        // 'this' is the started community with state="started"
+        // this._pkc._startedCommunities[this.address] === this
         const log = Logger("pkc-js:local-community:start:editPropsOnStartedCommunity");
         const oldAddress = remeda.clone(this.address);
         if (typeof parsedEditOptions.address === "string" && this.address !== parsedEditOptions.address) {
             await this._validateNewAddressBeforeEditing(parsedEditOptions.address, log);
 
-            log(`Attempting to edit subplebbit.address from ${oldAddress} to ${parsedEditOptions.address}. We will stop sub first`);
+            log(`Attempting to edit community.address from ${oldAddress} to ${parsedEditOptions.address}. We will stop sub first`);
             await this.stop();
             await this._dbHandler.changeDbFilename(oldAddress, parsedEditOptions.address);
             this.setAddress(parsedEditOptions.address);
@@ -3281,15 +3278,15 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 ...parsedEditOptions,
                 _internalStateUpdateId: uniqueEditId
             });
-        this._subplebbitUpdateTrigger = true;
+        this._communityUpdateTrigger = true;
         log(
             `Community (${this.address}) props (${remeda.keys.strict(parsedEditOptions)}) has been edited. Will be including edited props in next update: `,
             remeda.pick(this, remeda.keys.strict(parsedEditOptions))
         );
         this.emit("update", this);
         if (this.address !== oldAddress) {
-            trackStartedCommunity(this._plebbit, this);
-            syncCommunityRegistryEntry(processStartedCommunitys, this);
+            trackStartedCommunity(this._pkc, this);
+            syncCommunityRegistryEntry(processStartedCommunities, this);
         }
         return this;
     }
@@ -3303,10 +3300,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         if (typeof parsedEditOptions.address === "string" && this.address !== parsedEditOptions.address) {
             await this._validateNewAddressBeforeEditing(parsedEditOptions.address, log);
 
-            log(`Attempting to edit subplebbit.address from ${oldAddress} to ${parsedEditOptions.address}`);
+            log(`Attempting to edit community.address from ${oldAddress} to ${parsedEditOptions.address}`);
 
-            // in this sceneario we're editing a subplebbit that's not started anywhere
-            log("will rename the subplebbit", this.address, "db in edit() because the subplebbit is not being ran anywhere else");
+            // in this sceneario we're editing a community that's not started anywhere
+            log("will rename the community", this.address, "db in edit() because the community is not being ran anywhere else");
             await this._movePostUpdatesFolderToNewAddress(this.address, parsedEditOptions.address);
             this._dbHandler.destoryConnection();
             await this._dbHandler.changeDbFilename(this.address, parsedEditOptions.address);
@@ -3325,14 +3322,14 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
     override async edit(newCommunityOptions: CommunityEditOptions): Promise<typeof this> {
         // scenearios
-        // 1 - calling edit() on a subplebbit instance that's not running, but the it's started in plebbit._startedCommunitys (should edit the started subplebbit)
-        // 2 - calling edit() on a subplebbit that's started in another process (should throw)
-        // 3 - calling edit() on a subplebbit that's not started (should load db and edit it)
-        // 4 - calling edit() on the subplebbit that's started (should edit the started subplebbit)
+        // 1 - calling edit() on a community instance that's not running, but the it's started in pkc._startedCommunities (should edit the started community)
+        // 2 - calling edit() on a community that's started in another process (should throw)
+        // 3 - calling edit() on a community that's not started (should load db and edit it)
+        // 4 - calling edit() on the community that's started (should edit the started community)
 
         const startedCommunity = <LocalCommunity | undefined>(
-            (findStartedCommunity(this._plebbit, { address: this.address }) ||
-                findCommunityInRegistry(processStartedCommunitys, { address: this.address }))
+            (findStartedCommunity(this._pkc, { address: this.address }) ||
+                findCommunityInRegistry(processStartedCommunities, { address: this.address }))
         );
         if (startedCommunity && this.state !== "started") {
             // sceneario 1
@@ -3350,7 +3347,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             this._dbHandler.destoryConnection();
             throw new PKCError("ERR_CAN_NOT_EDIT_A_LOCAL_COMMUNITY_THAT_IS_ALREADY_STARTED_IN_ANOTHER_PROCESS", {
                 address: this.address,
-                dataPath: this._plebbit.dataPath
+                dataPath: this._pkc.dataPath
             });
         }
 
@@ -3379,11 +3376,11 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             return this._editPropsOnNotStartedCommunity(newProps);
         }
 
-        if (findStartedCommunity(this._plebbit, { address: this.address }) === this) {
+        if (findStartedCommunity(this._pkc, { address: this.address }) === this) {
             // sceneario 4
             return this._editPropsOnStartedCommunity(newProps);
         }
-        throw new Error("Can't edit a subplebbit that's started in another process");
+        throw new Error("Can't edit a community that's started in another process");
     }
 
     override async start() {
@@ -3392,13 +3389,13 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         this._stopHasBeenCalled = false;
         this._firstUpdateAfterStart = true;
         if (!this._clientsManager.getDefaultKuboRpcClientOrHelia())
-            throw Error("You need to define an IPFS client in your plebbit instance to be able to start a local sub");
+            throw Error("You need to define an IPFS client in your pkc instance to be able to start a local sub");
         await this.initDbHandlerIfNeeded();
         await this._updateStartedValue();
         if (
             this.started ||
-            findStartedCommunity(this._plebbit, { address: this.address }) ||
-            findCommunityInRegistry(processStartedCommunitys, { address: this.address })
+            findStartedCommunity(this._pkc, { address: this.address }) ||
+            findCommunityInRegistry(processStartedCommunities, { address: this.address })
         )
             throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: this.address });
         try {
@@ -3407,26 +3404,26 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             this._setState("started");
             await this._updateStartedValue();
             await this._dbHandler.lockSubStart(); // Will throw if sub is locked already
-            trackStartedCommunity(this._plebbit, this);
-            syncCommunityRegistryEntry(processStartedCommunitys, this);
+            trackStartedCommunity(this._pkc, this);
+            syncCommunityRegistryEntry(processStartedCommunities, this);
             await this._updateStartedValue();
             await this._dbHandler.initDbIfNeeded();
             await this._dbHandler.createOrMigrateTablesIfNeeded();
             await this._updateInstanceStateWithDbState(); // sync in-memory state after potential migration
 
             await this._setChallengesToDefaultIfNotDefined(log);
-            // Import subplebbit keys onto ipfs node
+            // Import community keys onto ipfs node
             await this._importCommunitySignerIntoIpfsIfNeeded();
             await this._providePubsubTopicRoutingCidsIfNeeded(true);
 
-            this._subplebbitUpdateTrigger = true;
+            this._communityUpdateTrigger = true;
             this._setStartedStateWithEmission("publishing-ipns");
             await this._repinCommentsIPFSIfNeeded();
             await this._repinCommentUpdateIfNeeded();
             await this._listenToIncomingRequests();
             this.challenges = await Promise.all(
-                this.settings.challenges!.map((cs) => getCommunityChallengeFromCommunityChallengeSettings(cs, this._plebbit))
-            ); // make sure subplebbit.challenges is using latest props from settings.challenges
+                this.settings.challenges!.map((cs) => getCommunityChallengeFromCommunityChallengeSettings(cs, this._pkc))
+            ); // make sure community.challenges is using latest props from settings.challenges
         } catch (e) {
             await this.stop(); // Make sure to reset the sub state
             //@ts-expect-error
@@ -3434,7 +3431,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             throw e;
         }
 
-        this._publishLoopPromise = this._publishLoop(this._plebbit.publishInterval).catch((err) => {
+        this._publishLoopPromise = this._publishLoop(this._pkc.publishInterval).catch((err) => {
             log.error(err);
             this.emit("error", err);
         });
@@ -3459,12 +3456,12 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             this.emit("update", this);
         };
         const stateChangeListener = async (newState: CommunityState) => {
-            // plebbit._startedCommunitys[address].stop() has been called, we need to stop mirroring
-            // or plebbit._updatingCommunitys[address].stop(), we need to stop mirroring
+            // pkc._startedCommunities[address].stop() has been called, we need to stop mirroring
+            // or pkc._updatingCommunities[address].stop(), we need to stop mirroring
             if (newState === "stopped") await this._cleanUpMirroredStartedOrUpdatingCommunity();
         };
         this._mirroredStartedOrUpdatingCommunity = {
-            subplebbit: startedCommunity,
+            community: startedCommunity,
             updatingstatechange: updatingStateChangeListener,
             update: updateListener,
             statechange: stateChangeListener,
@@ -3476,35 +3473,35 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             challenge: (challenge) => this.emit("challenge", challenge)
         };
 
-        this._mirroredStartedOrUpdatingCommunity.subplebbit.on("update", this._mirroredStartedOrUpdatingCommunity.update);
-        this._mirroredStartedOrUpdatingCommunity.subplebbit.on(
+        this._mirroredStartedOrUpdatingCommunity.community.on("update", this._mirroredStartedOrUpdatingCommunity.update);
+        this._mirroredStartedOrUpdatingCommunity.community.on(
             "startedstatechange",
             this._mirroredStartedOrUpdatingCommunity.startedstatechange
         );
-        this._mirroredStartedOrUpdatingCommunity.subplebbit.on(
+        this._mirroredStartedOrUpdatingCommunity.community.on(
             "updatingstatechange",
             this._mirroredStartedOrUpdatingCommunity.updatingstatechange
         );
-        this._mirroredStartedOrUpdatingCommunity.subplebbit.on("statechange", this._mirroredStartedOrUpdatingCommunity.statechange);
-        this._mirroredStartedOrUpdatingCommunity.subplebbit.on("error", this._mirroredStartedOrUpdatingCommunity.error);
-        this._mirroredStartedOrUpdatingCommunity.subplebbit.on(
+        this._mirroredStartedOrUpdatingCommunity.community.on("statechange", this._mirroredStartedOrUpdatingCommunity.statechange);
+        this._mirroredStartedOrUpdatingCommunity.community.on("error", this._mirroredStartedOrUpdatingCommunity.error);
+        this._mirroredStartedOrUpdatingCommunity.community.on(
             "challengerequest",
             this._mirroredStartedOrUpdatingCommunity.challengerequest
         );
-        this._mirroredStartedOrUpdatingCommunity.subplebbit.on(
+        this._mirroredStartedOrUpdatingCommunity.community.on(
             "challengeverification",
             this._mirroredStartedOrUpdatingCommunity.challengeverification
         );
-        this._mirroredStartedOrUpdatingCommunity.subplebbit.on("challengeanswer", this._mirroredStartedOrUpdatingCommunity.challengeanswer);
-        this._mirroredStartedOrUpdatingCommunity.subplebbit.on("challenge", this._mirroredStartedOrUpdatingCommunity.challenge);
+        this._mirroredStartedOrUpdatingCommunity.community.on("challengeanswer", this._mirroredStartedOrUpdatingCommunity.challengeanswer);
+        this._mirroredStartedOrUpdatingCommunity.community.on("challenge", this._mirroredStartedOrUpdatingCommunity.challenge);
 
         const clientKeys = remeda.keys.strict(this.clients);
         for (const clientType of clientKeys)
             if (this.clients[clientType])
                 for (const clientUrl of Object.keys(this.clients[clientType]))
-                    if (clientUrl in this._mirroredStartedOrUpdatingCommunity.subplebbit.clients[clientType])
+                    if (clientUrl in this._mirroredStartedOrUpdatingCommunity.community.clients[clientType])
                         this.clients[clientType][clientUrl].mirror(
-                            this._mirroredStartedOrUpdatingCommunity.subplebbit.clients[clientType][clientUrl]
+                            this._mirroredStartedOrUpdatingCommunity.community.clients[clientType][clientUrl]
                         );
         if (startedCommunity.updateCid)
             await this.initInternalCommunityAfterFirstUpdateNoMerge(startedCommunity.toJSONInternalAfterFirstUpdate());
@@ -3514,34 +3511,34 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
     private async _cleanUpMirroredStartedOrUpdatingCommunity() {
         if (!this._mirroredStartedOrUpdatingCommunity) return;
-        this._mirroredStartedOrUpdatingCommunity.subplebbit.removeListener("update", this._mirroredStartedOrUpdatingCommunity.update);
-        this._mirroredStartedOrUpdatingCommunity.subplebbit.removeListener(
+        this._mirroredStartedOrUpdatingCommunity.community.removeListener("update", this._mirroredStartedOrUpdatingCommunity.update);
+        this._mirroredStartedOrUpdatingCommunity.community.removeListener(
             "updatingstatechange",
             this._mirroredStartedOrUpdatingCommunity.updatingstatechange
         );
 
-        this._mirroredStartedOrUpdatingCommunity.subplebbit.removeListener(
+        this._mirroredStartedOrUpdatingCommunity.community.removeListener(
             "startedstatechange",
             this._mirroredStartedOrUpdatingCommunity.startedstatechange
         );
-        this._mirroredStartedOrUpdatingCommunity.subplebbit.removeListener(
+        this._mirroredStartedOrUpdatingCommunity.community.removeListener(
             "statechange",
             this._mirroredStartedOrUpdatingCommunity.statechange
         );
-        this._mirroredStartedOrUpdatingCommunity.subplebbit.removeListener("error", this._mirroredStartedOrUpdatingCommunity.error);
-        this._mirroredStartedOrUpdatingCommunity.subplebbit.removeListener(
+        this._mirroredStartedOrUpdatingCommunity.community.removeListener("error", this._mirroredStartedOrUpdatingCommunity.error);
+        this._mirroredStartedOrUpdatingCommunity.community.removeListener(
             "challengerequest",
             this._mirroredStartedOrUpdatingCommunity.challengerequest
         );
-        this._mirroredStartedOrUpdatingCommunity.subplebbit.removeListener(
+        this._mirroredStartedOrUpdatingCommunity.community.removeListener(
             "challengeverification",
             this._mirroredStartedOrUpdatingCommunity.challengeverification
         );
-        this._mirroredStartedOrUpdatingCommunity.subplebbit.removeListener(
+        this._mirroredStartedOrUpdatingCommunity.community.removeListener(
             "challengeanswer",
             this._mirroredStartedOrUpdatingCommunity.challengeanswer
         );
-        this._mirroredStartedOrUpdatingCommunity.subplebbit.removeListener("challenge", this._mirroredStartedOrUpdatingCommunity.challenge);
+        this._mirroredStartedOrUpdatingCommunity.community.removeListener("challenge", this._mirroredStartedOrUpdatingCommunity.challenge);
 
         const clientKeys = remeda.keys.strict(this.clients);
 
@@ -3557,25 +3554,25 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         await this.initDbHandlerIfNeeded();
         await this._updateStartedValue();
         const startedCommunity = <LocalCommunity | undefined>(
-            (findStartedCommunity(this._plebbit, { address: this.address }) ||
-                findCommunityInRegistry(processStartedCommunitys, { address: this.address }))
+            (findStartedCommunity(this._pkc, { address: this.address }) ||
+                findCommunityInRegistry(processStartedCommunities, { address: this.address }))
         );
         if (this._mirroredStartedOrUpdatingCommunity)
-            return; // we're already mirroring a started or updating subplebbit
+            return; // we're already mirroring a started or updating community
         else if (startedCommunity) {
-            // let's mirror the started subplebbit in this process
+            // let's mirror the started community in this process
             await this._initMirroringStartedOrUpdatingCommunity(startedCommunity);
-            untrackUpdatingCommunity(this._plebbit, this);
+            untrackUpdatingCommunity(this._pkc, this);
             return;
         } else {
-            const updatingCommunity = findUpdatingCommunity(this._plebbit, { address: this.address });
+            const updatingCommunity = findUpdatingCommunity(this._pkc, { address: this.address });
             if (updatingCommunity instanceof LocalCommunity && updatingCommunity !== this) {
                 // different instance is updating, let's mirror it
                 await this._initMirroringStartedOrUpdatingCommunity(updatingCommunity as LocalCommunity);
                 return;
             }
             // this sub is not started or updated anywhere, but maybe another process will call edit() on it
-            trackUpdatingCommunity(this._plebbit, this);
+            trackUpdatingCommunity(this._pkc, this);
             const oldUpdateId = remeda.clone(this._internalStateUpdateId);
             await this._updateInstancePropsWithStartedSubOrDb(); // will update this instance props with DB
             if (this._internalStateUpdateId !== oldUpdateId) {
@@ -3602,7 +3599,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             } finally {
                 await new Promise<void>((resolve) => {
                     if (this._updateLoopAbortController?.signal.aborted) return resolve();
-                    const timer = setTimeout(resolve, this._plebbit.updateInterval);
+                    const timer = setTimeout(resolve, this._pkc.updateInterval);
                     this._updateLoopAbortController?.signal.addEventListener(
                         "abort",
                         () => {
@@ -3640,17 +3637,17 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         this.posts._stop();
 
         if (this.state === "started") {
-            log("Stopping running subplebbit", this.address);
+            log("Stopping running community", this.address);
             try {
                 await this._clientsManager.pubsubUnsubscribe(this.pubsubTopicWithfallback(), this.handleChallengeExchange);
             } catch (e) {
-                log.error("Failed to unsubscribe from challenge exchange pubsub when stopping subplebbit", e);
+                log.error("Failed to unsubscribe from challenge exchange pubsub when stopping community", e);
             }
             if (this._publishLoopPromise) {
                 try {
                     await this._publishLoopPromise;
                 } catch (e) {
-                    log.error(`Failed to stop subplebbit publish loop`, e);
+                    log.error(`Failed to stop community publish loop`, e);
                 }
                 this._publishLoopPromise = undefined;
             }
@@ -3678,8 +3675,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             const pubsubClient = this._clientsManager.getDefaultKuboPubsubClient();
 
             this._setStartedStateWithEmission("stopped");
-            untrackStartedCommunity(this._plebbit, this);
-            processStartedCommunitys.untrack(this);
+            untrackStartedCommunity(this._pkc, this);
+            processStartedCommunities.untrack(this);
             this._duplicatePublicationAttempts?.clear();
             await this._dbHandler.rollbackAllTransactions();
             await this._dbHandler.unlockSubState();
@@ -3687,7 +3684,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             this._clientsManager.updateKuboRpcState("stopped", kuboRpcClient.url);
             this._clientsManager.updateKuboRpcPubsubState("stopped", pubsubClient.url);
             if (this._dbHandler) this._dbHandler.destoryConnection();
-            log(`Stopped the running of local subplebbit (${this.address})`);
+            log(`Stopped the running of local community (${this.address})`);
             this._setState("stopped");
         } else if (this.state === "updating") {
             if (this._updateLoopPromise) {
@@ -3697,20 +3694,20 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             this._updateLoopAbortController = undefined;
             if (this._dbHandler) this._dbHandler.destoryConnection();
             if (this._mirroredStartedOrUpdatingCommunity) await this._cleanUpMirroredStartedOrUpdatingCommunity();
-            if (findUpdatingCommunity(this._plebbit, { address: this.address }) === this) untrackUpdatingCommunity(this._plebbit, this);
+            if (findUpdatingCommunity(this._pkc, { address: this.address }) === this) untrackUpdatingCommunity(this._pkc, this);
             this._setUpdatingStateWithEventEmissionIfNewState("stopped");
-            log(`Stopped the updating of local subplebbit (${this.address})`);
+            log(`Stopped the updating of local community (${this.address})`);
             this._setState("stopped");
         }
     }
 
     override async delete() {
         const log = Logger("pkc-js:local-community:delete");
-        log.trace(`Attempting to stop the subplebbit (${this.address}) before deleting, if needed`);
+        log.trace(`Attempting to stop the community (${this.address}) before deleting, if needed`);
 
         const startedCommunity = <LocalCommunity | undefined>(
-            (findStartedCommunity(this._plebbit, { address: this.address }) ||
-                findCommunityInRegistry(processStartedCommunitys, { address: this.address }))
+            (findStartedCommunity(this._pkc, { address: this.address }) ||
+                findCommunityInRegistry(processStartedCommunities, { address: this.address }))
         );
         if (startedCommunity && startedCommunity !== this) {
             await startedCommunity.delete();
@@ -3734,17 +3731,17 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         try {
             await removeMfsFilesSafely({ kuboRpcClient: kuboClient, paths: ["/" + this.address], log });
         } catch (e) {
-            log.error("Failed to delete subplebbit mfs folder", "/" + this.address, e);
+            log.error("Failed to delete community mfs folder", "/" + this.address, e);
         }
-        // sceneario 1: we call delete() on a subplebbit that is not started or updating
-        // scenario 2: we call delete() on a subplebbit that is updating
-        // scenario 3: we call delete() on a subplebbit that is started
-        // scenario 4: we call delete() on a subplebbit that is not started, but the same sub is started in plebbit._startedCommunitys[address]
+        // sceneario 1: we call delete() on a community that is not started or updating
+        // scenario 2: we call delete() on a community that is updating
+        // scenario 3: we call delete() on a community that is started
+        // scenario 4: we call delete() on a community that is not started, but the same sub is started in pkc._startedCommunities[address]
 
         try {
-            await this._addOldPageCidsToCidsToUnpin(this.raw?.subplebbitIpfs?.posts, undefined);
+            await this._addOldPageCidsToCidsToUnpin(this.raw?.communityIpfs?.posts, undefined);
         } catch (e) {
-            log.error("Failed to add old page cids from subplebbit.posts to be unpinned", e);
+            log.error("Failed to add old page cids from community.posts to be unpinned", e);
         }
         if (this.ipnsPubsubTopicRoutingCid) this._cidsToUnPin.add(this.ipnsPubsubTopicRoutingCid);
         if (this.pubsubTopicRoutingCid) this._cidsToUnPin.add(this.pubsubTopicRoutingCid);
@@ -3761,7 +3758,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                     })
             );
         } catch (e) {
-            log.error("Failed to query all cids under this subplebbit to delete them", e);
+            log.error("Failed to query all cids under this community to delete them", e);
         }
         if (this.updateCid) this._cidsToUnPin.add(this.updateCid);
         if (this.statsCid) this._cidsToUnPin.add(this.statsCid);
@@ -3782,8 +3779,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             this._dbHandler.destoryConnection();
         }
 
-        await moveCommunityDbToDeletedDirectory(this.address, this._plebbit);
+        await moveCommunityDbToDeletedDirectory(this.address, this._pkc);
 
-        log(`Deleted subplebbit (${this.address}) successfully`);
+        log(`Deleted community (${this.address}) successfully`);
     }
 }

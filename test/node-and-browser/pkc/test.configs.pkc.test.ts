@@ -28,7 +28,7 @@ describe.concurrent("getAvailablePKCConfigsToTestAgainst", () => {
             let pkc: PKC;
 
             beforeAll(async () => {
-                pkc = await config.plebbitInstancePromise();
+                pkc = await config.pkcInstancePromise();
             });
 
             afterAll(async () => {
@@ -46,7 +46,7 @@ describe.concurrent("getAvailablePKCConfigsToTestAgainst", () => {
                         expect(pkc.dataPath).to.be.a("string");
                         expect(pkc.dataPath).to.match(/\.plebbit$/);
 
-                        expect(Object.keys(pkc.clients.plebbitRpcClients)).to.deep.equal([]);
+                        expect(Object.keys(pkc.clients.pkcRpcClients)).to.deep.equal([]);
                         expect(Object.keys(pkc.clients.kuboRpcClients)).to.deep.equal([DEFAULT_LOCAL_KUBO_RPC_URL]);
                         expect(Object.keys(pkc.clients.pubsubKuboRpcClients)).to.have.members([DEFAULT_LOCAL_KUBO_RPC_URL]);
                         expect(Object.keys(pkc.clients.libp2pJsClients)).to.deep.equal([]);
@@ -67,7 +67,7 @@ describe.concurrent("getAvailablePKCConfigsToTestAgainst", () => {
                         expect(pkc.libp2pJsClientsOptions).to.be.undefined;
                         expect(pkc.dataPath).to.be.undefined;
 
-                        expect(Object.keys(pkc.clients.plebbitRpcClients)).to.deep.equal([]);
+                        expect(Object.keys(pkc.clients.pkcRpcClients)).to.deep.equal([]);
                         expect(Object.keys(pkc.clients.kuboRpcClients)).to.deep.equal([DEFAULT_LOCAL_KUBO_RPC_URL]);
                         if (!isRpcFlagOn())
                             expect(Object.keys(pkc.clients.pubsubKuboRpcClients)).to.have.members(DEFAULT_LOCAL_PUBSUB_URLS);
@@ -89,7 +89,7 @@ describe.concurrent("getAvailablePKCConfigsToTestAgainst", () => {
                         expect(libp2pClientKeys).to.have.lengthOf(1);
                         expect(libp2pClientKeys[0].startsWith(HELIA_KEY_PREFIX)).to.be.true;
 
-                        expect(Object.keys(pkc.clients.plebbitRpcClients)).to.deep.equal([]);
+                        expect(Object.keys(pkc.clients.pkcRpcClients)).to.deep.equal([]);
                         expect(Object.keys(pkc.clients.kuboRpcClients)).to.deep.equal([]);
                         expect(Object.keys(pkc.clients.pubsubKuboRpcClients)).to.deep.equal([]);
                         expect(Object.keys(pkc.clients.ipfsGateways)).to.have.members(DEFAULT_IPFS_GATEWAYS);
@@ -103,7 +103,7 @@ describe.concurrent("getAvailablePKCConfigsToTestAgainst", () => {
                         expect(pkc.libp2pJsClientsOptions).to.be.undefined;
                         expect(pkc.dataPath).to.be.undefined;
 
-                        expect(Object.keys(pkc.clients.plebbitRpcClients)).to.deep.equal([]);
+                        expect(Object.keys(pkc.clients.pkcRpcClients)).to.deep.equal([]);
                         expect(Object.keys(pkc.clients.kuboRpcClients)).to.deep.equal([]);
                         expect(Object.keys(pkc.clients.pubsubKuboRpcClients)).to.have.members(DEFAULT_REMOTE_PUBSUB_URLS);
                         expect(Object.keys(pkc.clients.libp2pJsClients)).to.deep.equal([]);
@@ -119,7 +119,7 @@ describe.concurrent("getAvailablePKCConfigsToTestAgainst", () => {
                         expect(pkc.libp2pJsClientsOptions).to.be.undefined;
                         expect(pkc.dataPath).to.be.undefined;
 
-                        expect(Object.keys(pkc.clients.plebbitRpcClients)).to.deep.equal(["ws://localhost:39653"]);
+                        expect(Object.keys(pkc.clients.pkcRpcClients)).to.deep.equal(["ws://localhost:39653"]);
                         expect(Object.keys(pkc.clients.kuboRpcClients)).to.deep.equal([]);
                         expect(Object.keys(pkc.clients.pubsubKuboRpcClients)).to.deep.equal([]);
                         expect(Object.keys(pkc.clients.libp2pJsClients)).to.deep.equal([]);

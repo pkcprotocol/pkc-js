@@ -16,7 +16,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`pkc.fetchCid - ${config.name}`, async () => {
         let pkc: PKCType;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -85,7 +85,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             const cids = await Promise.all([fileString1, fileString2].map((file) => addStringToIpfs(file)));
 
             const plebbitWithMaliciousGateway = await mockGatewayPKC({
-                plebbitOptions: {
+                pkcOptions: {
                     ipfsGatewayUrls: ["http://127.0.0.1:13415"],
                     httpRoutersOptions: [],
                     dataPath: undefined

@@ -2,9 +2,9 @@ import { GenericStateClient } from "../generic-state-client.js";
 import { CommentIpfsState, CommentLibp2pJsClient } from "./comment/comment-clients.js";
 import type { NameResolverClient } from "../clients/name-resolver-client.js";
 
-type PublicationGatewayState = "stopped" | "fetching-subplebbit-ipns";
+type PublicationGatewayState = "stopped" | "fetching-community-ipns";
 
-type PublicationIpfsState = "stopped" | "fetching-subplebbit-ipns" | "fetching-subplebbit-ipfs";
+type PublicationIpfsState = "stopped" | "fetching-community-ipns" | "fetching-community-ipfs";
 
 type PublicationPubsubState =
     | "stopped"

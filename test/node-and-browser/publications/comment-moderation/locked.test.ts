@@ -32,17 +32,17 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             pkc = await mockRemotePKC();
             sub = await pkc.getCommunity({ address: communityAddress });
             await sub.update();
-            postToBeLocked = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            postToBeLocked = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
             modPost = await publishRandomPost({
                 communityAddress: communityAddress,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: { signer: roles[2].signer }
             });
 
             await postToBeLocked.update();
             replyUnderPostToBeLocked = await publishRandomReply({
                 parentComment: postToBeLocked as CommentIpfsWithCidDefined,
-                plebbit: pkc
+                pkc: pkc
             });
             await modPost.update();
         });

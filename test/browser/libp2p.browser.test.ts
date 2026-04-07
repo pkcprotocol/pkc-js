@@ -13,18 +13,18 @@ import type { PKC as PKCType } from "../../dist/node/pkc/pkc.js";
 // example of browser only tests
 
 // No need to test this in production
-describe.skip("plebbit.browserLibp2pJsPublish", () => {
+describe.skip("pkc.browserLibp2pJsPublish", () => {
     let subs: Awaited<ReturnType<typeof fetchTestServerSubs>>;
     beforeAll(async () => {
         subs = await fetchTestServerSubs();
     });
     it("Can set browserLibp2pJsPublish in PKC correctly", async () => {
-        const plebbit = await PKC({ browserLibp2pJsPublish: true } as any);
-        expect((plebbit as any).browserLibp2pJsPublish).to.be.true;
-        expect(Object.keys(plebbit.clients.pubsubKuboRpcClients)).to.deep.equal(["browser-libp2p-pubsub"]);
-        expect(plebbit.clients.pubsubKuboRpcClients["browser-libp2p-pubsub"]).to.deep.equal({}); // should not be initialized yet, only when we pubsub publish or subscribe
+        const pkc = await PKC({ browserLibp2pJsPublish: true } as any);
+        expect((pkc as any).browserLibp2pJsPublish).to.be.true;
+        expect(Object.keys(pkc.clients.pubsubKuboRpcClients)).to.deep.equal(["browser-libp2p-pubsub"]);
+        expect(pkc.clients.pubsubKuboRpcClients["browser-libp2p-pubsub"]).to.deep.equal({}); // should not be initialized yet, only when we pubsub publish or subscribe
 
-        JSON.stringify(plebbit); // Will throw an error if circular json
+        JSON.stringify(pkc); // Will throw an error if circular json
     });
 
     it.skip(`Can publish a post to online sub and complete a challenge exchange`, async () => {

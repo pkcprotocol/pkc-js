@@ -9,17 +9,17 @@ import type {
 } from "../../../dist/node/community/types.js";
 
 describe(`raw.localCommunity is populated`, async () => {
-    let plebbit: PKC;
+    let pkc: PKC;
     let sub: LocalCommunity | RpcLocalCommunity;
 
     beforeAll(async () => {
-        plebbit = await mockPKC();
-        sub = await createSubWithNoChallenge({}, plebbit);
+        pkc = await mockPKC();
+        sub = await createSubWithNoChallenge({}, pkc);
     });
 
     afterAll(async () => {
         await sub.delete();
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`raw.localCommunity is defined before first IPNS update`, async () => {
@@ -34,8 +34,8 @@ describe(`raw.localCommunity is populated`, async () => {
         expect(record.localCommunity.signer.publicKey).to.be.a("string").that.is.not.empty;
         // signer must NOT have privateKey
         expect((record.localCommunity.signer as any).privateKey).to.be.undefined;
-        // no subplebbitIpfs key
-        expect((record as any).subplebbitIpfs).to.be.undefined;
+        // no communityIpfs key
+        expect((record as any).communityIpfs).to.be.undefined;
     });
 
     it(`raw.localCommunity is updated after first IPNS update`, async () => {
@@ -45,10 +45,10 @@ describe(`raw.localCommunity is populated`, async () => {
 
         expect(sub.raw.localCommunity).to.not.be.undefined;
         const record = sub.raw.localCommunity as RpcInternalCommunityRecordAfterFirstUpdateType;
-        // after-first-update shape: has subplebbit and runtimeFields
-        expect(record.subplebbit).to.not.be.undefined;
-        expect(record.subplebbit.updatedAt).to.be.a("number");
-        expect(record.subplebbit.signature).to.not.be.undefined;
+        // after-first-update shape: has community and runtimeFields
+        expect(record.community).to.not.be.undefined;
+        expect(record.community.updatedAt).to.be.a("number");
+        expect(record.community.signature).to.not.be.undefined;
         expect(record.localCommunity).to.not.be.undefined;
         expect(record.localCommunity.address).to.equal(sub.address);
         expect(record.localCommunity.settings).to.not.be.undefined;
@@ -61,12 +61,12 @@ describe(`raw.localCommunity is populated`, async () => {
 });
 
 describe(`createCommunity reconstructs from raw.localCommunity`, async () => {
-    let plebbit: PKC;
+    let pkc: PKC;
     let sub: LocalCommunity | RpcLocalCommunity;
 
     beforeAll(async () => {
-        plebbit = await mockPKC();
-        sub = await createSubWithNoChallenge({}, plebbit);
+        pkc = await mockPKC();
+        sub = await createSubWithNoChallenge({}, pkc);
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
         await sub.stop();
@@ -74,18 +74,18 @@ describe(`createCommunity reconstructs from raw.localCommunity`, async () => {
 
     afterAll(async () => {
         await sub.delete();
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`createCommunity with spread instance creates a new instance`, async () => {
-        const sub2 = (await plebbit.createCommunity({ ...sub })) as LocalCommunity | RpcLocalCommunity;
+        const sub2 = (await pkc.createCommunity({ ...sub })) as LocalCommunity | RpcLocalCommunity;
         expect(sub2).to.not.equal(sub);
         expect(sub2.address).to.equal(sub.address);
     });
 
     it(`createCommunity with JSON'd instance restores settings and signer`, async () => {
         const jsonified = JSON.parse(JSON.stringify(sub)) as LocalCommunity | RpcLocalCommunity;
-        const sub2 = (await plebbit.createCommunity(jsonified)) as LocalCommunity | RpcLocalCommunity;
+        const sub2 = (await pkc.createCommunity(jsonified)) as LocalCommunity | RpcLocalCommunity;
         expect(sub2).to.not.equal(sub);
         expect(sub2.address).to.equal(sub.address);
         // For RPC subs, check that raw.localCommunity was used to restore settings
@@ -102,7 +102,7 @@ describe(`createCommunity reconstructs from raw.localCommunity`, async () => {
     });
 
     it(`createCommunity with actual instance creates a new instance`, async () => {
-        const sub2 = (await plebbit.createCommunity(sub)) as LocalCommunity | RpcLocalCommunity;
+        const sub2 = (await pkc.createCommunity(sub)) as LocalCommunity | RpcLocalCommunity;
         expect(sub2).to.not.equal(sub);
         expect(sub2.address).to.equal(sub.address);
     });

@@ -27,7 +27,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
     describe(`comment.clients.${clientFieldName} - ${config.name}`, async () => {
         let pkc: PKC;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -36,13 +36,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
         it(`comment.clients.${clientFieldName} is undefined for gateway plebbit`, async () => {
             const gatewayPKC = await mockGatewayPKC();
-            const mockPost = await generateMockPost({ communityAddress: communityAddress, plebbit: gatewayPKC });
+            const mockPost = await generateMockPost({ communityAddress: communityAddress, pkc: gatewayPKC });
             expect((mockPost.clients as Record<string, unknown>)[clientFieldName]).to.be.undefined;
             await gatewayPKC.destroy();
         });
 
         it(`comment.clients.${clientFieldName}[key] is stopped by default`, async () => {
-            const mockPost = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
+            const mockPost = await generateMockPost({ communityAddress: communityAddress, pkc: pkc });
             expect(Object.keys(mockPost.clients[clientFieldName as keyof typeof mockPost.clients]).length).to.equal(1);
             expect(
                 (Object.values(mockPost.clients[clientFieldName as keyof typeof mockPost.clients])[0] as { state: string }).state
@@ -82,7 +82,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`Correct order of ${clientFieldName} state when updating a reply that was created with pkc.createComment({cid}) and the post has a single preloaded page`, async () => {
-            const plebbit: PKC = await config.plebbitInstancePromise();
+            const pkc: PKC = await config.pkcInstancePromise();
             const sub = await pkc.getCommunity({ address: signers[0].address });
             const replyCid = sub.posts.pages.hot.comments.find((post) => post.replies).replies.pages.best.comments[0].cid;
             const reply = await pkc.createComment({ cid: replyCid });
@@ -144,7 +144,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         it(`Correct order of ${clientFieldName} state when updating a reply that was created with pkc.getComment({cid: cid})`);
 
         it(`Correct order of ${clientFieldName} state when publishing a comment (uncached)`, async () => {
-            const mockPost = await generateMockPost({ communityAddress: signers[0].address, plebbit: pkc });
+            const mockPost = await generateMockPost({ communityAddress: signers[0].address, pkc: pkc });
             mockPost._getCommunityCache = (): ReturnType<typeof mockPost._getCommunityCache> => undefined;
             const expectedStates = ["fetching-community-ipns", "fetching-community-ipfs", "stopped"];
 
@@ -162,7 +162,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`Correct order of ${clientFieldName} state when publishing a comment (cached)`, async () => {
-            const mockPost = await generateMockPost({ communityAddress: signers[0].address, plebbit: pkc });
+            const mockPost = await generateMockPost({ communityAddress: signers[0].address, pkc: pkc });
 
             const actualStates: string[] = [];
 
@@ -184,17 +184,17 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`Correct order of ${clientFieldName} when we update a post but its community is not publishing new community records`, async () => {
-            const customPKC = await config.plebbitInstancePromise();
+            const customPKC = await config.pkcInstancePromise();
 
             const sub = await customPKC.createCommunity({ address: signers[0].address });
 
-            // now pkc._updatingCommunitys will be defined
+            // now pkc._updatingCommunities will be defined
 
             const updatePromise = new Promise((resolve) => sub.once("update", resolve));
             await sub.update();
             await updatePromise;
 
-            const updatingSubInstance = customPKC._updatingCommunitys[sub.address];
+            const updatingSubInstance = customPKC._updatingCommunities[sub.address];
 
             updatingSubInstance._clientsManager.resolveIpnsToCidP2P = async () => sub.updateCid!; // stop it from loading new IPNS
 
@@ -233,7 +233,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`Correct order of ${clientFieldName} when we update a post but its commentupdate is an invalid record (bad signature/schema/etc)`, async () => {
-            const plebbit: PKC = await config.plebbitInstancePromise();
+            const pkc: PKC = await config.pkcInstancePromise();
 
             const sub = await pkc.getCommunity({ address: signers[0].address });
 

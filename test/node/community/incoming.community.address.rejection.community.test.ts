@@ -22,46 +22,45 @@ import type { SignerType } from "../../../dist/node/signer/types.js";
 type PublicationWithSigner = Publication & { signer?: SignerType };
 
 describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong community address", async () => {
-    let plebbit: PKC;
-    let subplebbit: LocalCommunity | RpcLocalCommunity;
+    let pkc: PKC;
+    let community: LocalCommunity | RpcLocalCommunity;
     let targetPost: Comment;
     let moderatorSigner: SignerType;
 
     beforeAll(async () => {
-        plebbit = await mockPKC();
-        subplebbit = await createSubWithNoChallenge({}, plebbit);
+        pkc = await mockPKC();
+        community = await createSubWithNoChallenge({}, pkc);
 
-        await subplebbit.start();
+        await community.start();
         await resolveWhenConditionIsTrue({
-            toUpdate: subplebbit,
-            predicate: async () => typeof subplebbit.updatedAt === "number"
+            toUpdate: community,
+            predicate: async () => typeof community.updatedAt === "number"
         });
 
-        targetPost = await publishRandomPost({ communityAddress: subplebbit.address, plebbit });
+        targetPost = await publishRandomPost({ communityAddress: community.address, pkc });
 
-        moderatorSigner = await plebbit.createSigner();
-        const ownerSigner = subplebbit.signer;
+        moderatorSigner = await pkc.createSigner();
+        const ownerSigner = community.signer;
         if (!ownerSigner?.address || !("privateKey" in ownerSigner) || typeof ownerSigner.privateKey !== "string")
-            throw Error("Expected local subplebbit to have an owner signer with a private key");
+            throw Error("Expected local community to have an owner signer with a private key");
 
-        await subplebbit.edit({
+        await community.edit({
             roles: {
-                ...(subplebbit.roles || {}),
+                ...(community.roles || {}),
                 [moderatorSigner.address]: { role: "moderator" },
                 [ownerSigner.address]: { role: "owner" }
             }
         });
         await resolveWhenConditionIsTrue({
-            toUpdate: subplebbit,
+            toUpdate: community,
             predicate: async () =>
-                subplebbit.roles?.[moderatorSigner.address]?.role === "moderator" &&
-                subplebbit.roles?.[ownerSigner.address]?.role === "owner"
+                community.roles?.[moderatorSigner.address]?.role === "moderator" && community.roles?.[ownerSigner.address]?.role === "owner"
         });
     });
 
     afterAll(async () => {
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
     });
 
     // --- helpers ---
@@ -69,13 +68,13 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
     async function injectWrongCommunityAddress(publication: PublicationWithSigner) {
         const log = Logger("pkc-js:test:injectWrongCommunityAddress");
         if (!publication.signer) throw Error("Expected publication to have a signer");
-        await ensurePublicationIsSigned(publication, subplebbit);
+        await ensurePublicationIsSigned(publication, community);
 
         const orig = publication.raw.pubsubMessageToPublish!;
         const modified = { ...orig } as Record<string, unknown>;
         delete modified.communityPublicKey;
         delete modified.communityName;
-        modified.subplebbitAddress = "QmSomeWrongCommunityAddress";
+        modified.communityAddress = "QmSomeWrongCommunityAddress";
 
         const newSignedProps = [
             ...orig.signature.signedPropertyNames.filter((k) => k !== "communityPublicKey" && k !== "communityName"),
@@ -90,7 +89,7 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
     async function injectWrongCommunityPublicKey(publication: PublicationWithSigner) {
         const log = Logger("pkc-js:test:injectWrongCommunityPublicKey");
         if (!publication.signer) throw Error("Expected publication to have a signer");
-        await ensurePublicationIsSigned(publication, subplebbit);
+        await ensurePublicationIsSigned(publication, community);
 
         const orig = publication.raw.pubsubMessageToPublish!;
         const modified = { ...orig, communityPublicKey: "QmFakeWrongCommunityPublicKey" } as Record<string, unknown>;
@@ -103,12 +102,12 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
 
     // --- comment ---
 
-    it("rejects a comment with deprecated subplebbitAddress field", async () => {
-        const comment = await plebbit.createComment({
-            communityAddress: subplebbit.address,
-            title: `Deprecated subplebbitAddress comment ${Date.now()}`,
+    it("rejects a comment with deprecated communityAddress field", async () => {
+        const comment = await pkc.createComment({
+            communityAddress: community.address,
+            title: `Deprecated communityAddress comment ${Date.now()}`,
             content: `Content ${Date.now()}`,
-            signer: await plebbit.createSigner()
+            signer: await pkc.createSigner()
         });
         await injectWrongCommunityAddress(comment);
         await publishWithExpectedResult({
@@ -119,11 +118,11 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
     });
 
     it("rejects a comment with wrong communityPublicKey", async () => {
-        const comment = await plebbit.createComment({
-            communityAddress: subplebbit.address,
+        const comment = await pkc.createComment({
+            communityAddress: community.address,
             title: `Wrong communityPublicKey comment ${Date.now()}`,
             content: `Content ${Date.now()}`,
-            signer: await plebbit.createSigner()
+            signer: await pkc.createSigner()
         });
         await injectWrongCommunityPublicKey(comment);
         await publishWithExpectedResult({
@@ -134,12 +133,12 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
     });
 
     it("rejects a comment with wrong communityName", async () => {
-        const comment = await plebbit.createComment({
+        const comment = await pkc.createComment({
             communityAddress: "wrong-community.eth",
-            communityPublicKey: subplebbit.address,
+            communityPublicKey: community.address,
             title: `Wrong communityName comment ${Date.now()}`,
             content: `Content ${Date.now()}`,
-            signer: await plebbit.createSigner()
+            signer: await pkc.createSigner()
         });
         await publishWithExpectedResult({
             publication: comment,
@@ -150,13 +149,13 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
 
     // --- vote ---
 
-    it("rejects a vote with deprecated subplebbitAddress field", async () => {
+    it("rejects a vote with deprecated communityAddress field", async () => {
         if (!targetPost.cid) throw Error("Expected target post to have a CID");
-        const vote = await plebbit.createVote({
+        const vote = await pkc.createVote({
             commentCid: targetPost.cid,
             vote: 1,
-            communityAddress: subplebbit.address,
-            signer: await plebbit.createSigner()
+            communityAddress: community.address,
+            signer: await pkc.createSigner()
         });
         await injectWrongCommunityAddress(vote);
         await publishWithExpectedResult({
@@ -168,11 +167,11 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
 
     it("rejects a vote with wrong communityPublicKey", async () => {
         if (!targetPost.cid) throw Error("Expected target post to have a CID");
-        const vote = await plebbit.createVote({
+        const vote = await pkc.createVote({
             commentCid: targetPost.cid,
             vote: 1,
-            communityAddress: subplebbit.address,
-            signer: await plebbit.createSigner()
+            communityAddress: community.address,
+            signer: await pkc.createSigner()
         });
         await injectWrongCommunityPublicKey(vote);
         await publishWithExpectedResult({
@@ -184,12 +183,12 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
 
     it("rejects a vote with wrong communityName", async () => {
         if (!targetPost.cid) throw Error("Expected target post to have a CID");
-        const vote = await plebbit.createVote({
+        const vote = await pkc.createVote({
             commentCid: targetPost.cid,
             vote: 1,
             communityAddress: "wrong-community.eth",
-            communityPublicKey: subplebbit.address,
-            signer: await plebbit.createSigner()
+            communityPublicKey: community.address,
+            signer: await pkc.createSigner()
         });
         await publishWithExpectedResult({
             publication: vote,
@@ -200,13 +199,13 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
 
     // --- commentEdit ---
 
-    it("rejects a commentEdit with deprecated subplebbitAddress field", async () => {
+    it("rejects a commentEdit with deprecated communityAddress field", async () => {
         if (!targetPost.cid) throw Error("Expected target post to have a CID");
         if (!targetPost.signer) throw Error("Expected target post instance to retain its signer");
-        const commentEdit = await plebbit.createCommentEdit({
+        const commentEdit = await pkc.createCommentEdit({
             commentCid: targetPost.cid,
-            content: `Deprecated subplebbitAddress edit ${Date.now()}`,
-            communityAddress: subplebbit.address,
+            content: `Deprecated communityAddress edit ${Date.now()}`,
+            communityAddress: community.address,
             signer: targetPost.signer
         });
         await injectWrongCommunityAddress(commentEdit);
@@ -220,10 +219,10 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
     it("rejects a commentEdit with wrong communityPublicKey", async () => {
         if (!targetPost.cid) throw Error("Expected target post to have a CID");
         if (!targetPost.signer) throw Error("Expected target post instance to retain its signer");
-        const commentEdit = await plebbit.createCommentEdit({
+        const commentEdit = await pkc.createCommentEdit({
             commentCid: targetPost.cid,
             content: `Wrong communityPublicKey edit ${Date.now()}`,
-            communityAddress: subplebbit.address,
+            communityAddress: community.address,
             signer: targetPost.signer
         });
         await injectWrongCommunityPublicKey(commentEdit);
@@ -237,11 +236,11 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
     it("rejects a commentEdit with wrong communityName", async () => {
         if (!targetPost.cid) throw Error("Expected target post to have a CID");
         if (!targetPost.signer) throw Error("Expected target post instance to retain its signer");
-        const commentEdit = await plebbit.createCommentEdit({
+        const commentEdit = await pkc.createCommentEdit({
             commentCid: targetPost.cid,
             content: `Wrong communityName edit ${Date.now()}`,
             communityAddress: "wrong-community.eth",
-            communityPublicKey: subplebbit.address,
+            communityPublicKey: community.address,
             signer: targetPost.signer
         });
         await publishWithExpectedResult({
@@ -253,12 +252,12 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
 
     // --- commentModeration ---
 
-    it("rejects a commentModeration with deprecated subplebbitAddress field", async () => {
+    it("rejects a commentModeration with deprecated communityAddress field", async () => {
         if (!targetPost.cid) throw Error("Expected target post to have a CID");
-        const commentModeration = await plebbit.createCommentModeration({
-            communityAddress: subplebbit.address,
+        const commentModeration = await pkc.createCommentModeration({
+            communityAddress: community.address,
             commentCid: targetPost.cid,
-            commentModeration: { reason: `Deprecated subplebbitAddress mod ${Date.now()}`, spoiler: true },
+            commentModeration: { reason: `Deprecated communityAddress mod ${Date.now()}`, spoiler: true },
             signer: moderatorSigner
         });
         await injectWrongCommunityAddress(commentModeration);
@@ -271,8 +270,8 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
 
     it("rejects a commentModeration with wrong communityPublicKey", async () => {
         if (!targetPost.cid) throw Error("Expected target post to have a CID");
-        const commentModeration = await plebbit.createCommentModeration({
-            communityAddress: subplebbit.address,
+        const commentModeration = await pkc.createCommentModeration({
+            communityAddress: community.address,
             commentCid: targetPost.cid,
             commentModeration: { reason: `Wrong communityPublicKey mod ${Date.now()}`, spoiler: true },
             signer: moderatorSigner
@@ -287,9 +286,9 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
 
     it("rejects a commentModeration with wrong communityName", async () => {
         if (!targetPost.cid) throw Error("Expected target post to have a CID");
-        const commentModeration = await plebbit.createCommentModeration({
+        const commentModeration = await pkc.createCommentModeration({
             communityAddress: "wrong-community.eth",
-            communityPublicKey: subplebbit.address,
+            communityPublicKey: community.address,
             commentCid: targetPost.cid,
             commentModeration: { reason: `Wrong communityName mod ${Date.now()}`, spoiler: true },
             signer: moderatorSigner
@@ -301,51 +300,51 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
         });
     });
 
-    // --- subplebbitEdit ---
+    // --- communityEdit ---
 
-    it("rejects a subplebbitEdit with deprecated subplebbitAddress field", async () => {
-        if (!subplebbit.signer || !("privateKey" in subplebbit.signer) || typeof subplebbit.signer.privateKey !== "string")
-            throw Error("Expected local subplebbit to expose its owner signer with a private key");
-        const subplebbitEdit = await plebbit.createCommunityEdit({
-            communityAddress: subplebbit.address,
-            subplebbitEdit: { description: `Deprecated subplebbitAddress sub edit ${Date.now()}` },
-            signer: subplebbit.signer as SignerType
+    it("rejects a communityEdit with deprecated communityAddress field", async () => {
+        if (!community.signer || !("privateKey" in community.signer) || typeof community.signer.privateKey !== "string")
+            throw Error("Expected local community to expose its owner signer with a private key");
+        const communityEdit = await pkc.createCommunityEdit({
+            communityAddress: community.address,
+            communityEdit: { description: `Deprecated communityAddress sub edit ${Date.now()}` },
+            signer: community.signer as SignerType
         });
-        await injectWrongCommunityAddress(subplebbitEdit);
+        await injectWrongCommunityAddress(communityEdit);
         await publishWithExpectedResult({
-            publication: subplebbitEdit,
+            publication: communityEdit,
             expectedChallengeSuccess: false,
             expectedReason: messages.ERR_PUBLICATION_USES_DEPRECATED_SUBPLEBBIT_ADDRESS
         });
     });
 
-    it("rejects a subplebbitEdit with wrong communityPublicKey", async () => {
-        if (!subplebbit.signer || !("privateKey" in subplebbit.signer) || typeof subplebbit.signer.privateKey !== "string")
-            throw Error("Expected local subplebbit to expose its owner signer with a private key");
-        const subplebbitEdit = await plebbit.createCommunityEdit({
-            communityAddress: subplebbit.address,
-            subplebbitEdit: { description: `Wrong communityPublicKey sub edit ${Date.now()}` },
-            signer: subplebbit.signer as SignerType
+    it("rejects a communityEdit with wrong communityPublicKey", async () => {
+        if (!community.signer || !("privateKey" in community.signer) || typeof community.signer.privateKey !== "string")
+            throw Error("Expected local community to expose its owner signer with a private key");
+        const communityEdit = await pkc.createCommunityEdit({
+            communityAddress: community.address,
+            communityEdit: { description: `Wrong communityPublicKey sub edit ${Date.now()}` },
+            signer: community.signer as SignerType
         });
-        await injectWrongCommunityPublicKey(subplebbitEdit);
+        await injectWrongCommunityPublicKey(communityEdit);
         await publishWithExpectedResult({
-            publication: subplebbitEdit,
+            publication: communityEdit,
             expectedChallengeSuccess: false,
             expectedReason: messages.ERR_PUBLICATION_INVALID_COMMUNITY_PUBLIC_KEY
         });
     });
 
-    it("rejects a subplebbitEdit with wrong communityName", async () => {
-        if (!subplebbit.signer || !("privateKey" in subplebbit.signer) || typeof subplebbit.signer.privateKey !== "string")
-            throw Error("Expected local subplebbit to expose its owner signer with a private key");
-        const subplebbitEdit = await plebbit.createCommunityEdit({
+    it("rejects a communityEdit with wrong communityName", async () => {
+        if (!community.signer || !("privateKey" in community.signer) || typeof community.signer.privateKey !== "string")
+            throw Error("Expected local community to expose its owner signer with a private key");
+        const communityEdit = await pkc.createCommunityEdit({
             communityAddress: "wrong-community.eth",
-            communityPublicKey: subplebbit.address,
-            subplebbitEdit: { description: `Wrong communityName sub edit ${Date.now()}` },
-            signer: subplebbit.signer as SignerType
+            communityPublicKey: community.address,
+            communityEdit: { description: `Wrong communityName sub edit ${Date.now()}` },
+            signer: community.signer as SignerType
         });
         await publishWithExpectedResult({
-            publication: subplebbitEdit,
+            publication: communityEdit,
             expectedChallengeSuccess: false,
             expectedReason: messages.ERR_PUBLICATION_INVALID_COMMUNITY_NAME
         });

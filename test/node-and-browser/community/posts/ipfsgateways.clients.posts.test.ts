@@ -10,7 +10,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
     describe(`community.posts.clients.ipfsGateways - ${config.name}`, async () => {
         let gatewayPKC: PKCType;
         beforeAll(async () => {
-            gatewayPKC = await config.plebbitInstancePromise();
+            gatewayPKC = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {

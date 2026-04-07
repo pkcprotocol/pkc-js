@@ -24,7 +24,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         let pkc: PKCType;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -76,7 +76,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
         it(`Correct order of ${clientFieldName} state when updating a community that was created with pkc.getCommunity({address: address})`, async () => {
             const sub = await pkc.getCommunity({ address: signers[0].address });
-            delete sub.raw.subplebbitIpfs;
+            delete sub.raw.communityIpfs;
             delete sub.updateCid;
             const expectedStates = ["fetching-ipns", "fetching-ipfs", "stopped"];
 
@@ -91,7 +91,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
             const updatePromise = new Promise((resolve) => sub.once("update", resolve));
             await sub.update();
-            await publishRandomPost({ communityAddress: sub.address, plebbit: pkc }); // force an update
+            await publishRandomPost({ communityAddress: sub.address, pkc: pkc }); // force an update
             await updatePromise;
             await sub.stop();
 
@@ -110,7 +110,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 (newState: string) => recordedStates.push(newState)
             );
 
-            // now pkc._updatingCommunitys will be defined
+            // now pkc._updatingCommunities will be defined
 
             const updatePromise = new Promise((resolve) => sub.once("update", resolve));
             await sub.update();

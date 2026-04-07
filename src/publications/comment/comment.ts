@@ -53,9 +53,9 @@ import {
     findStartedCommunity,
     findUpdatingComment,
     findUpdatingCommunity,
-    listStartedCommunitys,
+    listStartedCommunities,
     listUpdatingComments,
-    listUpdatingCommunitys,
+    listUpdatingCommunities,
     refreshTrackedCommentAliases,
     trackUpdatingComment,
     untrackUpdatingComment
@@ -124,7 +124,7 @@ export class Comment
 
     // private
     override raw: CommentRawField = {};
-    _commentUpdateIpfsPath?: string = undefined; // its IPFS path derived from subplebbit.postUpdates.
+    _commentUpdateIpfsPath?: string = undefined; // its IPFS path derived from community.postUpdates.
     _invalidCommentUpdateMfsPaths: Set<string> = new Set<string>();
     private _commentIpfsloadingOperation?: RetryOperation = undefined;
     override _clientsManager!: CommentClientsManager;
@@ -140,8 +140,8 @@ export class Comment
 
     _updatingCommentInstance?: { comment: Comment } & Pick<PublicationEvents, "error" | "updatingstatechange" | "update" | "statechange"> =
         undefined; // the comment instance we're mirroing
-    constructor(plebbit: PKC) {
-        super(plebbit);
+    constructor(pkc: PKC) {
+        super(pkc);
         this._setUpdatingStateWithEmissionIfNewState("stopped");
         // these functions might get separated from their `this` when used
         this.publish = this.publish.bind(this);
@@ -151,8 +151,8 @@ export class Comment
         this.replies = new RepliesPages({
             pages: {},
             pageCids: {},
-            plebbit: this._plebbit,
-            subplebbit: { address: this.communityAddress },
+            pkc: this._pkc,
+            community: { address: this.communityAddress },
             parentComment: this
         });
 
@@ -223,7 +223,7 @@ export class Comment
     protected override async _signPublicationOptionsToPublish(
         cleanedPublication: unknown
     ): Promise<CommentPubsubMessagePublication["signature"]> {
-        return signComment({ comment: cleanedPublication as CommentOptionsToSign, plebbit: this._plebbit });
+        return signComment({ comment: cleanedPublication as CommentOptionsToSign, pkc: this._pkc });
     }
 
     _initPubsubMessageProps(props: CommentPubsubMessagePublication) {
@@ -248,7 +248,7 @@ export class Comment
     private _setAuthorNameResolvedFromCache() {
         const domain = getAuthorDomainFromRuntime(this.author);
         if (!domain) return; // no domain → nameResolved stays undefined
-        const cached = this._plebbit._memCaches.nameResolvedCache.get(sha256(domain + this.signature.publicKey));
+        const cached = this._pkc._memCaches.nameResolvedCache.get(sha256(domain + this.signature.publicKey));
         if (typeof cached === "boolean") this.author.nameResolved = cached;
     }
 
@@ -257,7 +257,7 @@ export class Comment
     }
 
     _resolveAuthorNamesInBackground() {
-        if (!this._plebbit.resolveAuthorNames) return;
+        if (!this._pkc.resolveAuthorNames) return;
 
         // Collect comment's own author if nameResolved is not yet set
         const domain = getAuthorDomainFromRuntime(this.author);
@@ -301,9 +301,9 @@ export class Comment
         if (ownAuthor.length > 0) {
             this._clientsManager.resolveAuthorNamesInBackground({ authors: ownAuthor, onResolved, abortSignal });
         }
-        // Resolve reply page authors through plebbit-level manager (no state changes on this comment)
+        // Resolve reply page authors through pkc-level manager (no state changes on this comment)
         if (replyAuthors.length > 0) {
-            this._plebbit._clientsManager.resolveAuthorNamesInBackground({ authors: replyAuthors, onResolved, abortSignal });
+            this._pkc._clientsManager.resolveAuthorNamesInBackground({ authors: replyAuthors, onResolved, abortSignal });
         }
     }
 
@@ -335,7 +335,7 @@ export class Comment
         }
     }
 
-    _initCommentUpdate(props: CommentUpdateType | CommentWithinRepliesPostsPageJson, subplebbit?: Pick<CommunityIpfsType, "signature">) {
+    _initCommentUpdate(props: CommentUpdateType | CommentWithinRepliesPostsPageJson, community?: Pick<CommunityIpfsType, "signature">) {
         const log = Logger("pkc-js:comment:_initCommentUpdate");
         if ("depth" in props) {
             // CommentWithinPageJson — no extra setup needed
@@ -377,11 +377,11 @@ export class Comment
         if (props.edit?.content) this.content = props.edit.content;
         // TODO flairs merging strategy will likely change — currently first-defined wins (mod > author edit > existing)
         this.flairs = props.flairs || props.edit?.flairs || this.flairs;
-        this.author.flairs = props.author?.subplebbit?.flairs || props.edit?.author?.flairs || this.author?.flairs;
+        this.author.flairs = props.author?.community?.flairs || props.edit?.author?.flairs || this.author?.flairs;
         this.lastChildCid = props.lastChildCid;
         this.lastReplyTimestamp = props.lastReplyTimestamp;
 
-        this._updateRepliesPostsInstance(props.replies, subplebbit);
+        this._updateRepliesPostsInstance(props.replies, community);
         if (typeof this.pendingApproval === "boolean" || "pendingApproval" in props)
             this.pendingApproval = Boolean("pendingApproval" in props && props.pendingApproval); // revert pendingApproval if we just received a CommentUpdate
         else if ("approved" in props && typeof props.approved === "boolean") {
@@ -395,22 +395,22 @@ export class Comment
 
     _updateRepliesPostsInstance(
         newReplies: CommentUpdateType["replies"] | CommentWithinRepliesPostsPageJson["replies"] | Pick<RepliesPagesTypeIpfs, "pageCids">,
-        subplebbit?: Pick<CommunityIpfsType, "signature">
+        community?: Pick<CommunityIpfsType, "signature">
     ) {
         assert(this.cid, "Can't update comment.replies without comment.cid being defined");
         const log = Logger("pkc-js:comment:_updateRepliesPostsInstanceIfNeeded");
-        const subplebbitSignature = subplebbit?.signature || this.replies._subplebbit.signature;
+        const communitySignature = community?.signature || this.replies._community.signature;
         const repliesCreationTimestamp = this.updatedAt;
         if (typeof repliesCreationTimestamp !== "number") throw Error("comment.updatedAt should be defined when updating replies");
 
-        this.replies._subplebbit.signature = subplebbitSignature;
-        const repliesCommunity = { address: this.communityAddress, signature: subplebbitSignature };
+        this.replies._community.signature = communitySignature;
+        const repliesCommunity = { address: this.communityAddress, signature: communitySignature };
         if (!newReplies) {
             this.replies.resetPages();
         } else if (!("pages" in newReplies) && newReplies.pageCids) {
             // only pageCids is provided
             this.replies.updateProps({
-                subplebbit: repliesCommunity,
+                community: repliesCommunity,
                 pageCids: newReplies.pageCids,
                 pages: {}
             });
@@ -418,7 +418,7 @@ export class Comment
             // only pages is provided
             this.replies.updateProps({
                 ...parseRawPages(newReplies),
-                subplebbit: this.replies._subplebbit,
+                community: this.replies._community,
                 pageCids: {}
             });
         } else if ("pages" in newReplies && newReplies.pages && "pageCids" in newReplies && newReplies.pageCids) {
@@ -432,7 +432,7 @@ export class Comment
                 );
                 this.replies.updateProps({
                     ...parsedPages,
-                    subplebbit: repliesCommunity,
+                    community: repliesCommunity,
                     pageCids: newReplies.pageCids
                 });
             }
@@ -446,7 +446,7 @@ export class Comment
 
         if (!this.raw.pubsubMessageToPublish) throw Error("comment._pubsubMsgToPublish should be defined at this point");
         // verify that the sub did not change any props that we published
-        const keysToCompare = remeda.keys.strict(remeda.omit(this.raw.pubsubMessageToPublish, ["signature", "author"])); // we're omitting these two because that would fail because of anonymity features in subplebbit
+        const keysToCompare = remeda.keys.strict(remeda.omit(this.raw.pubsubMessageToPublish, ["signature", "author"])); // we're omitting these two because that would fail because of anonymity features in community
         const pubsubMsgFromCommentIpfs = remeda.pick(decryptedVerification.comment, keysToCompare);
         const pubsubMsgFromPublishedPubsubMsg = remeda.pick(this.raw.pubsubMessageToPublish, keysToCompare);
 
@@ -466,13 +466,13 @@ export class Comment
 
         if (!postCid) {
             throw Error(
-                "Unable to calculate postCid after receiving challengeVerification for comment. This is either a critical error in plebbit-js or the sub did not include postCid in replies"
+                "Unable to calculate postCid after receiving challengeVerification for comment. This is either a critical error in pkc-js or the sub did not include postCid in replies"
             );
         }
 
         const commentIpfsValidity = await verifyCommentIpfs({
             comment: decryptedVerification.comment,
-            resolveAuthorNames: this._plebbit.resolveAuthorNames,
+            resolveAuthorNames: this._pkc.resolveAuthorNames,
             clientsManager: this._clientsManager,
             calculatedCommentCid: calculatedCid
         });
@@ -489,8 +489,8 @@ export class Comment
             update: decryptedVerification.commentUpdate,
             clientsManager: this._clientsManager,
             comment: { ...decryptedVerification.comment, cid: calculatedCid, postCid },
-            subplebbit: this._community!,
-            resolveAuthorNames: this._plebbit.resolveAuthorNames,
+            community: this._community!,
+            resolveAuthorNames: this._pkc.resolveAuthorNames,
             validateUpdateSignature: true,
             validatePages: true
         });
@@ -522,7 +522,7 @@ export class Comment
 
         const log = Logger("pkc-js:comment:publish:_addOwnCommentToIpfsIfConnectedToIpfsClient");
         if (!this.raw.comment) throw Error("comment.raw.commentIpfs should be defined after challenge verification");
-        if (Object.keys(this._plebbit.clients.kuboRpcClients).length === 0) {
+        if (Object.keys(this._pkc.clients.kuboRpcClients).length === 0) {
             log("No kubo rpc client found, will not add newly published comment", this.cid, "to ipfs");
             return;
         }
@@ -582,7 +582,7 @@ export class Comment
         }
         this.emit("update", this);
         // RPC clients rely on the server for name resolution (sent via runtimeFields)
-        if (!this._plebbit._plebbitRpcClient) {
+        if (!this._pkc._pkcRpcClient) {
             this._resolveAuthorNamesInBackground();
         }
     }
@@ -593,11 +593,11 @@ export class Comment
         // We're gonna update Comment instance with DecryptedChallengeVerification.{comment, commentUpdate}
         const log = Logger("pkc-js:comment:publish:_verifyDecryptedChallengeVerificationAndUpdateCommentProps");
         log(
-            "Received update props from subplebbit after succcessful challenge exchange. Will attempt to validate if not connected to RPC",
+            "Received update props from community after succcessful challenge exchange. Will attempt to validate if not connected to RPC",
             decryptedVerification
         );
 
-        if (!this._plebbit._plebbitRpcClient) {
+        if (!this._pkc._pkcRpcClient) {
             // no need to validate if RPC
             const errorInVerificationProps = await this._verifyChallengeVerificationCommentProps(decryptedVerification);
             if (errorInVerificationProps) return;
@@ -606,7 +606,7 @@ export class Comment
         await this._updateCommentPropsFromDecryptedChallengeVerification(decryptedVerification);
 
         // Add the comment to IPFS network in the background
-        if (Object.keys(this._plebbit.clients.kuboRpcClients).length > 0 || Object.keys(this._plebbit.clients.libp2pJsClients).length > 0)
+        if (Object.keys(this._pkc.clients.kuboRpcClients).length > 0 || Object.keys(this._pkc.clients.libp2pJsClients).length > 0)
             this._addOwnCommentToIpfsIfConnectedToIpfsClient(decryptedVerification).catch((err) =>
                 log.error(`Failed to add the file of comment ipfs`, this.cid, "to ipfs network due to error", err)
             );
@@ -619,12 +619,12 @@ export class Comment
     setCid(newCid: string) {
         this.cid = newCid;
         this.shortCid = shortifyCid(this.cid);
-        refreshTrackedCommentAliases(this._plebbit, this);
+        refreshTrackedCommentAliases(this._pkc, this);
     }
 
     override setCommunityAddress(newCommunityAddress: string) {
         super.setCommunityAddress(newCommunityAddress);
-        this.replies._subplebbit.address = newCommunityAddress;
+        this.replies._community.address = newCommunityAddress;
     }
 
     private _isCommentIpfsErrorRetriable(err: PKCError | Error): boolean {
@@ -677,7 +677,7 @@ export class Comment
                         });
 
                         if (curAttempt === 1 && this.communityAddress) {
-                            log("Failed the first time in loading comment", this.cid, "will try to load from subplebbit pages");
+                            log("Failed the first time in loading comment", this.cid, "will try to load from community pages");
                             // if we fail for second time, start trying to find CommentIpfs using pages instead of comment.cid
                             await this._clientsManager._fetchCommentIpfsFromPages();
                         }
@@ -694,7 +694,7 @@ export class Comment
 
     async _attemptToFetchCommentIpfsIfNeeded(log: Logger) {
         if (this.cid && !this.raw.comment) {
-            // User may have attempted to call plebbit.createComment({cid}).update
+            // User may have attempted to call pkc.createComment({cid}).update
             const newCommentIpfsOrNonRetriableError = await this._retryLoadingCommentIpfs(this.cid, log); // Will keep retrying to load until comment.stop() is called
 
             if (newCommentIpfsOrNonRetriableError instanceof Error) {
@@ -740,12 +740,12 @@ export class Comment
                 this._communityForUpdating = await this._clientsManager._createSubInstanceWithStateTranslation();
 
             if (this.state !== "updating") return; // there are cases where stop() is called in parallel
-            if (this._communityForUpdating.subplebbit.state === "stopped") {
-                await this._communityForUpdating!.subplebbit.update(); // BUG: calling this resets this._communityForUpdating to undefined
+            if (this._communityForUpdating.community.state === "stopped") {
+                await this._communityForUpdating!.community.update(); // BUG: calling this resets this._communityForUpdating to undefined
             }
             if (this.state !== "updating") return; // there are cases where stop() is called in parallel
-            if (this._communityForUpdating.subplebbit.raw.subplebbitIpfs)
-                await this._communityForUpdating.update(this._communityForUpdating.subplebbit);
+            if (this._communityForUpdating.community.raw.communityIpfs)
+                await this._communityForUpdating.update(this._communityForUpdating.community);
         } else {
             if (!this._postForUpdating) this._postForUpdating = await this._clientsManager._createPostInstanceWithStateTranslation();
             if (this.state !== "updating") return; // there are cases where stop() is called in parallel
@@ -769,7 +769,7 @@ export class Comment
             await this.startCommentUpdateCommunitySubscription(); // can only proceed if commentIpfs has been loaded successfully
         } catch (e) {
             if (isAbortError(e) && (this.state === "stopped" || this._isStopAbortRequested())) return;
-            log.error("Failed to start comment update subscription to subplebbit", e);
+            log.error("Failed to start comment update subscription to community", e);
         }
     }
 
@@ -810,23 +810,23 @@ export class Comment
         this._updatingState = newState;
         this.emit("updatingstatechange", this._updatingState);
     }
-    protected override _setRpcClientState(newState: Comment["clients"]["plebbitRpcClients"][""]["state"]) {
-        const currentRpcUrl = remeda.keys.strict(this.clients.plebbitRpcClients)[0];
-        if (newState === this.clients.plebbitRpcClients[currentRpcUrl].state) return;
-        this.clients.plebbitRpcClients[currentRpcUrl].state = newState;
-        this.clients.plebbitRpcClients[currentRpcUrl].emit("statechange", newState);
+    protected override _setRpcClientState(newState: Comment["clients"]["pkcRpcClients"][""]["state"]) {
+        const currentRpcUrl = remeda.keys.strict(this.clients.pkcRpcClients)[0];
+        if (newState === this.clients.pkcRpcClients[currentRpcUrl].state) return;
+        this.clients.pkcRpcClients[currentRpcUrl].state = newState;
+        this.clients.pkcRpcClients[currentRpcUrl].emit("statechange", newState);
     }
 
     protected _updateRpcClientStateFromUpdatingState(updatingState: Comment["updatingState"]) {
         // We're deriving the the rpc state from publishing state
 
-        const mapper: Record<Comment["updatingState"], Comment["clients"]["plebbitRpcClients"][number]["state"]> = {
+        const mapper: Record<Comment["updatingState"], Comment["clients"]["pkcRpcClients"][number]["state"]> = {
             failed: "stopped",
             succeeded: "stopped",
             "fetching-ipfs": "fetching-ipfs",
             "waiting-retry": "stopped",
-            "fetching-subplebbit-ipfs": "fetching-subplebbit-ipfs",
-            "fetching-subplebbit-ipns": "fetching-subplebbit-ipns",
+            "fetching-community-ipfs": "fetching-community-ipfs",
+            "fetching-community-ipns": "fetching-community-ipns",
             "fetching-update-ipfs": "fetching-update-ipfs",
             "resolving-author-name": "resolving-author-name",
             "resolving-community-name": "resolving-community-name",
@@ -886,7 +886,7 @@ export class Comment
             this.emit("update", this);
             // RPC clients rely on the server for name resolution (sent via runtimeFields);
             // client-side resolution would incorrectly set nameResolved=false since nameResolvers is undefined
-            if (!this._plebbit._plebbitRpcClient) {
+            if (!this._pkc._pkcRpcClient) {
                 this._resolveAuthorNamesInBackground();
             }
         }
@@ -930,11 +930,11 @@ export class Comment
     private async _updateViaRpc() {
         const log = Logger("pkc-js:comment:update:_updateViaRpc");
 
-        const rpcUrl = this._plebbit.pkcRpcClientsOptions![0];
+        const rpcUrl = this._pkc.pkcRpcClientsOptions![0];
         if (!rpcUrl) throw Error("Failed to get rpc url");
         if (!this.cid) throw Error("Can't start updating comment without defining this.cid");
         try {
-            this._updateRpcSubscriptionId = await this._plebbit._plebbitRpcClient!.commentUpdateSubscribe({
+            this._updateRpcSubscriptionId = await this._pkc._pkcRpcClient!.commentUpdateSubscribe({
                 cid: this.cid,
                 raw: this.raw,
                 communityAddress: this.communityAddress,
@@ -950,8 +950,8 @@ export class Comment
         }
         this._setStateWithEmission("updating");
 
-        this._plebbit
-            ._plebbitRpcClient!.getSubscription(this._updateRpcSubscriptionId)
+        this._pkc
+            ._pkcRpcClient!.getSubscription(this._updateRpcSubscriptionId)
             .on("update", this._handleUpdateEventFromRpc.bind(this))
             .on("comment", this._handleCommentEventFromRpc.bind(this))
             .on("runtimeupdate", this._handleRuntimeUpdateEventFromRpc.bind(this))
@@ -959,14 +959,14 @@ export class Comment
             .on("statechange", this._handleStateChangeFromRpc.bind(this))
             .on("error", this._handleErrorEventFromRpc.bind(this));
 
-        this._plebbit._plebbitRpcClient!.emitAllPendingMessages(this._updateRpcSubscriptionId);
+        this._pkc._pkcRpcClient!.emitAllPendingMessages(this._updateRpcSubscriptionId);
     }
 
     _useUpdatePropsFromUpdatingStartedCommunityIfPossible() {
         if (!this.cid) throw Error("Need to have comment.cid defined");
         if (!this.communityAddress) {
-            // try to find cid in all _updatingCommunitys
-            for (const updatingCommunity of [...listUpdatingCommunitys(this._plebbit), ...listStartedCommunitys(this._plebbit)]) {
+            // try to find cid in all _updatingCommunities
+            for (const updatingCommunity of [...listUpdatingCommunities(this._pkc), ...listStartedCommunities(this._pkc)]) {
                 const commentInCommunityPosts = findCommentInPageInstanceRecursively(updatingCommunity.posts, this.cid);
                 if (commentInCommunityPosts) {
                     const addr = getCommunityAddressFromRecord(commentInCommunityPosts.comment as unknown as Record<string, unknown>);
@@ -977,10 +977,10 @@ export class Comment
             if (!this.communityAddress) return;
         }
         const updatingCommunityInstance =
-            findUpdatingCommunity(this._plebbit, { address: this.communityAddress }) ||
-            this._communityForUpdating?.subplebbit ||
-            findStartedCommunity(this._plebbit, { address: this.communityAddress });
-        if (updatingCommunityInstance?.raw?.subplebbitIpfs && this.cid) {
+            findUpdatingCommunity(this._pkc, { address: this.communityAddress }) ||
+            this._communityForUpdating?.community ||
+            findStartedCommunity(this._pkc, { address: this.communityAddress });
+        if (updatingCommunityInstance?.raw?.communityIpfs && this.cid) {
             const commentInCommunityPosts = findCommentInPageInstanceRecursively(updatingCommunityInstance.posts, this.cid);
             if (commentInCommunityPosts) {
                 if (!this.raw.comment) {
@@ -990,7 +990,7 @@ export class Comment
                     // before the stop abort controller exists. Resolution is handled by the update loop.
                 }
                 if ((this.updatedAt || 0) < commentInCommunityPosts.commentUpdate.updatedAt) {
-                    this._initCommentUpdate(commentInCommunityPosts.commentUpdate, updatingCommunityInstance.raw.subplebbitIpfs);
+                    this._initCommentUpdate(commentInCommunityPosts.commentUpdate, updatingCommunityInstance.raw.communityIpfs);
                     this.emit("update", this);
                 }
             }
@@ -999,7 +999,7 @@ export class Comment
 
     _useUpdatePropsFromUpdatingCommentIfPossible() {
         if (!this.cid) throw Error("should have cid at this point");
-        const updatingCommentInstance = findUpdatingComment(this._plebbit, { cid: this.cid }) || this._updatingCommentInstance?.comment;
+        const updatingCommentInstance = findUpdatingComment(this._pkc, { cid: this.cid }) || this._updatingCommentInstance?.comment;
         if (updatingCommentInstance) {
             // TODO maybe we should just copy props with Object.assign? not sure
             if (!this.raw.comment && updatingCommentInstance.raw.comment) {
@@ -1012,7 +1012,7 @@ export class Comment
             if (updatingCommentInstance.raw.commentUpdate && (this.updatedAt || 0) < updatingCommentInstance.raw.commentUpdate.updatedAt) {
                 this._initCommentUpdate(
                     updatingCommentInstance.raw.commentUpdate,
-                    updatingCommentInstance._communityForUpdating?.subplebbit?.raw.subplebbitIpfs
+                    updatingCommentInstance._communityForUpdating?.community?.raw.communityIpfs
                 );
                 this._commentUpdateIpfsPath = updatingCommentInstance._commentUpdateIpfsPath;
                 this._copyNameResolvedFromComment(updatingCommentInstance);
@@ -1033,11 +1033,11 @@ export class Comment
             const ancestorAndUpdatingCids = [
                 this.postCid,
                 this.parentCid,
-                ...listUpdatingComments(this._plebbit).map((comment) => comment.cid)
+                ...listUpdatingComments(this._pkc).map((comment) => comment.cid)
             ];
             for (const ancestorCid of ancestorAndUpdatingCids) {
                 if (!ancestorCid) continue;
-                const updatingCommentInstanceOfAncestor = findUpdatingComment(this._plebbit, { cid: ancestorCid });
+                const updatingCommentInstanceOfAncestor = findUpdatingComment(this._pkc, { cid: ancestorCid });
                 if (updatingCommentInstanceOfAncestor) {
                     const commentInAncestor = findCommentInPageInstanceRecursively(updatingCommentInstanceOfAncestor.replies, this.cid!);
                     if (commentInAncestor) {
@@ -1048,7 +1048,7 @@ export class Comment
                         if ((this.updatedAt || 0) < commentInAncestor.commentUpdate.updatedAt) {
                             this._initCommentUpdate(
                                 commentInAncestor.commentUpdate,
-                                findUpdatingCommunity(this._plebbit, { address: this.communityAddress })?.raw?.subplebbitIpfs
+                                findUpdatingCommunity(this._pkc, { address: this.communityAddress })?.raw?.communityIpfs
                             );
                             this.emit("update", this);
                         }
@@ -1065,7 +1065,7 @@ export class Comment
             comment: updatingCommentInstance,
             statechange: async (newState) => {
                 if (newState === "stopped" && this.state === "updating")
-                    // plebbit._updatingComments[this.cid].stop() has been called
+                    // pkc._updatingComments[this.cid].stop() has been called
                     await this.stop();
             },
             update: () => this._useUpdatePropsFromUpdatingCommentIfPossible(),
@@ -1097,17 +1097,17 @@ export class Comment
     }
 
     async _setUpNewUpdatingCommentInstance() {
-        // create a new plebbit._updatingComments[this.cid]
+        // create a new pkc._updatingComments[this.cid]
         const log = Logger("pkc-js:comment:update:_setUpNewUpdatingCommentInstance");
 
-        const updatingCommentInstance = await this._plebbit.createComment(this);
+        const updatingCommentInstance = await this._pkc.createComment(this);
 
-        trackUpdatingComment(this._plebbit, updatingCommentInstance);
+        trackUpdatingComment(this._pkc, updatingCommentInstance);
 
         this._useUpdatingCommentFromPKC(updatingCommentInstance);
         updatingCommentInstance._setStateWithEmission("updating");
 
-        if (this._plebbit._plebbitRpcClient) {
+        if (this._pkc._pkcRpcClient) {
             await updatingCommentInstance._updateViaRpc();
         } else {
             updatingCommentInstance
@@ -1123,17 +1123,17 @@ export class Comment
         if (!this.cid) throw Error("Can't call comment.update() without defining cid");
         this._setStateWithEmission("updating");
 
-        const existingUpdatingComment = findUpdatingComment(this._plebbit, { cid: this.cid });
+        const existingUpdatingComment = findUpdatingComment(this._pkc, { cid: this.cid });
         if (existingUpdatingComment) {
             if (existingUpdatingComment === this) {
                 // This instance is already tracked; start the update loop without mirroring to itself
-                if (this._plebbit._plebbitRpcClient) {
+                if (this._pkc._pkcRpcClient) {
                     await this._updateViaRpc();
                 } else {
                     this.loadCommentIpfsAndStartCommentUpdateSubscription().catch((e) => log.error("Failed to update comment", e));
                 }
-            } else this._useUpdatingCommentFromPKC(existingUpdatingComment); // this comment instance will be mirroring this._plebbit._updatingComments[this.cid]
-        } else await this._setUpNewUpdatingCommentInstance(); // Create a this._plebbit._updatingComments[this.cid], then mirror it
+            } else this._useUpdatingCommentFromPKC(existingUpdatingComment); // this comment instance will be mirroring this._pkc._updatingComments[this.cid]
+        } else await this._setUpNewUpdatingCommentInstance(); // Create a this._pkc._updatingComments[this.cid], then mirror it
 
         if (this.raw.comment || this.raw.commentUpdate) this.emit("update", this);
     }
@@ -1144,13 +1144,13 @@ export class Comment
         this._commentIpfsloadingOperation?.stop();
         if (this._updateRpcSubscriptionId) {
             try {
-                await this._plebbit._plebbitRpcClient!.unsubscribe(this._updateRpcSubscriptionId);
+                await this._pkc._pkcRpcClient!.unsubscribe(this._updateRpcSubscriptionId);
             } catch (e) {
                 log.error("Failed to unsubscribe from commentUpdate", e);
             }
             this._updateRpcSubscriptionId = undefined;
             this._setRpcClientState("stopped");
-            untrackUpdatingComment(this._plebbit, this);
+            untrackUpdatingComment(this._pkc, this);
         }
 
         // what if it didn't have enough time to set up _communityForUpdating and _postForUpdating? These are defined after loading CommentIpfs
@@ -1159,18 +1159,18 @@ export class Comment
             !this._postForUpdating &&
             !this._communityForUpdating &&
             !this._updatingCommentInstance &&
-            findUpdatingComment(this._plebbit, { cid: this.cid }) === this
+            findUpdatingComment(this._pkc, { cid: this.cid }) === this
         ) {
-            // comment.stop got called before updating subplebbit or post instance was created
-            untrackUpdatingComment(this._plebbit, this);
+            // comment.stop got called before updating community or post instance was created
+            untrackUpdatingComment(this._pkc, this);
         }
         // clean up _communityForUpdating subscriptions
         if (this._communityForUpdating) {
-            // this post instance is plebbit._updatingComments[cid] and it's updating
+            // this post instance is pkc._updatingComments[cid] and it's updating
 
             await this._clientsManager.cleanUpUpdatingSubInstance();
             this._communityForUpdating = undefined;
-            untrackUpdatingComment(this._plebbit, this);
+            untrackUpdatingComment(this._pkc, this);
             this._invalidCommentUpdateMfsPaths.clear();
         }
 
@@ -1178,11 +1178,11 @@ export class Comment
             // this reply instance is subscribed to an updating post
             await this._clientsManager.cleanUpUpdatingPostInstance();
             this._postForUpdating = undefined;
-            untrackUpdatingComment(this._plebbit, this);
+            untrackUpdatingComment(this._pkc, this);
         }
 
         if (this._updatingCommentInstance) {
-            // this post|reply instance is subscribed to plebbit._updatingComments[cid]
+            // this post|reply instance is subscribed to pkc._updatingComments[cid]
 
             this._updatingState = this._updatingCommentInstance.comment.updatingState; // need to capture the last updating state before stopping
             this._updatingCommentInstance.comment.removeListener("statechange", this._updatingCommentInstance.statechange);
@@ -1201,15 +1201,15 @@ export class Comment
                 this._updatingCommentInstance.comment._numOfListenersForUpdatingInstance === 0 &&
                 this._updatingCommentInstance.comment.state !== "stopped"
             ) {
-                log("Cleaning up plebbit._updatingComments", this.cid, "There are no comments using it for updates");
+                log("Cleaning up pkc._updatingComments", this.cid, "There are no comments using it for updates");
                 await this._updatingCommentInstance.comment.stop();
             } else if (
                 this._updatingCommentInstance.comment._numOfListenersForUpdatingInstance === 0 &&
                 this._updatingCommentInstance.comment.state === "stopped" &&
-                findUpdatingComment(this._plebbit, { cid: this.cid }) === this._updatingCommentInstance.comment
+                findUpdatingComment(this._pkc, { cid: this.cid }) === this._updatingCommentInstance.comment
             ) {
                 // No listeners left and the updating comment is already stopped; remove the stale entry
-                untrackUpdatingComment(this._plebbit, this._updatingCommentInstance.comment);
+                untrackUpdatingComment(this._pkc, this._updatingCommentInstance.comment);
             }
             this._updatingCommentInstance = undefined;
         }
@@ -1233,7 +1233,7 @@ export class Comment
         try {
             const signatureValidity = await verifyCommentPubsubMessage({
                 comment: commentObj,
-                resolveAuthorNames: this._plebbit.resolveAuthorNames,
+                resolveAuthorNames: this._pkc.resolveAuthorNames,
                 clientsManager: this._clientsManager,
                 abortSignal: stopAbortController.signal
             });

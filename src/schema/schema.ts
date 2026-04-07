@@ -113,42 +113,42 @@ export const PublicationBaseBeforeSigning = z.object({
     protocolVersion: ProtocolVersionSchema
 });
 
-// We need testing if `challengerequest` in LocalCommunity emits the actual publication values including `author.subplebbit` values without anonymization
+// We need testing if `challengerequest` in LocalCommunity emits the actual publication values including `author.community` values without anonymization
 
-// `author.subplebbit.lastCommentCid` should be set to comment.timestamp always if `anonMode=per-reply`
-// `author.subplebbit.lastCommentCid` should be the last comment the anon author made inside the post if `anonMode=per-post`
-// `author.subplebbit.lastCommentCid` should operate regularly for `anonMode=per-author`, that is to say it will be equal to the last comment cid the author made in the subplebbit
+// `author.community.lastCommentCid` should be set to comment.timestamp always if `anonMode=per-reply`
+// `author.community.lastCommentCid` should be the last comment the anon author made inside the post if `anonMode=per-post`
+// `author.community.lastCommentCid` should operate regularly for `anonMode=per-author`, that is to say it will be equal to the last comment cid the author made in the community
 
-// `author.subplebbit.banExpiresAt` should be effective in rejecting publication regardless of anon mode (needs to be tested), but in terms of calculating the field value:
-// - `anonMode=per-reply` = it should show `author.subplebbit.banExpiresAt` only if the author got banned on that specific comment, but it should not show on their other comments
-// - `anonMode=per-post` = it should show `author.subplebbit.banExpiresAt` only on the author's replies and post inside their post
-// - `anonMode=per-author` = it should should `author.subplebbit.banExpiresAt` on all  the author's comments in the sub
+// `author.community.banExpiresAt` should be effective in rejecting publication regardless of anon mode (needs to be tested), but in terms of calculating the field value:
+// - `anonMode=per-reply` = it should show `author.community.banExpiresAt` only if the author got banned on that specific comment, but it should not show on their other comments
+// - `anonMode=per-post` = it should show `author.community.banExpiresAt` only on the author's replies and post inside their post
+// - `anonMode=per-author` = it should show `author.community.banExpiresAt` on all the author's comments in the sub
 
-// anonMode=per-reply, `author.subplebbit.postScore` should be 0
-// anonMode=per-post, `author.subplebbit.postScore` should be total post karma (upvotes - downvotes) of the post if it's published by author
-// anonMode=per-author, `author.subplebbit.postScore` it should use the value of total post karma in the subplebbit.
+// anonMode=per-reply, `author.community.postScore` should be 0
+// anonMode=per-post, `author.community.postScore` should be total post karma (upvotes - downvotes) of the post if it's published by author
+// anonMode=per-author, `author.community.postScore` it should use the value of total post karma in the community.
 
-// anonMode=per-reply, `author.subplebbit.replyScore` should be karma of that single reply if it's published by author
-// anonMode=per-post, `author.subplebbit.replyScore` should be total replies karma (upvotes - downvotes) of inside the post
-// anonMode=per-author, `author.subplebbit.replyScore` it should use the value of total reply karma in the subplebbit.
+// anonMode=per-reply, `author.community.replyScore` should be karma of that single reply if it's published by author
+// anonMode=per-post, `author.community.replyScore` should be total replies karma (upvotes - downvotes) of inside the post
+// anonMode=per-author, `author.community.replyScore` it should use the value of total reply karma in the community.
 
-// anonMode=per-reply, `author.subplebbit.firstCommentTimestamp` should be timestamp of the comment itself
-// anonMode=per-post, `author.subplebbit.firstCommentTimestamp` should be first timestamp of the author's comment inside the post
-// anonMode=per-author, `author.subplebbit.firstCommentTimestamp` should use the value of timestamp of the first comment by the author in the subplebbit.
+// anonMode=per-reply, `author.community.firstCommentTimestamp` should be timestamp of the comment itself
+// anonMode=per-post, `author.community.firstCommentTimestamp` should be first timestamp of the author's comment inside the post
+// anonMode=per-author, `author.community.firstCommentTimestamp` should use the value of timestamp of the first comment by the author in the community.
 
 // values below are added by the sub, not the author
 export const CommunityAuthorSchema = z.looseObject({
-    postScore: z.number(), // total post karma in the subplebbit
-    replyScore: z.number(), // total reply karma in the subplebbit
+    postScore: z.number(), // total post karma in the community
+    replyScore: z.number(), // total reply karma in the community
     banExpiresAt: PKCTimestampSchema.optional(), // timestamp in second, if defined the author was banned for this comment
     flairs: FlairSchema.array().optional(), // not part of the signature, mod can edit it after comment is published
-    firstCommentTimestamp: PKCTimestampSchema, // timestamp of the first comment by the author in the subplebbit, used for account age based challenges
-    lastCommentCid: CidStringSchema // last comment by the author in the subplebbit, can be used with author.previousCommentCid to get a recent author comment history in all subplebbits
+    firstCommentTimestamp: PKCTimestampSchema, // timestamp of the first comment by the author in the community, used for account age based challenges
+    lastCommentCid: CidStringSchema // last comment by the author in the community, can be used with author.previousCommentCid to get a recent author comment history in all communities
 });
 export const CommentAuthorSchema = CommunityAuthorSchema.pick({ banExpiresAt: true, flairs: true });
 
 export const AuthorWithOptionalCommentUpdateSchema = AuthorPubsubSchema.extend({
-    subplebbit: CommunityAuthorSchema.optional() // (added by CommentUpdate) up to date author properties specific to the subplebbit it's in
+    community: CommunityAuthorSchema.optional() // (added by CommentUpdate) up to date author properties specific to the community it's in
 });
 
 export const AuthorReservedFields = remeda.difference(

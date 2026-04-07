@@ -15,12 +15,12 @@ import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-c
 import type { CommentIpfsWithCidDefined } from "../../../dist/node/publications/comment/types.js";
 
 describe("Community rejects publications with unsupported author TLDs", () => {
-    let plebbit: PKC;
-    let subplebbit: LocalCommunity | RpcLocalCommunity;
+    let pkc: PKC;
+    let community: LocalCommunity | RpcLocalCommunity;
     let validPost: CommentIpfsWithCidDefined;
 
     beforeAll(async () => {
-        plebbit = await mockPKC(
+        pkc = await mockPKC(
             {
                 nameResolvers: [
                     createMockNameResolver({
@@ -33,33 +33,33 @@ describe("Community rejects publications with unsupported author TLDs", () => {
             undefined,
             false // mockResolve=false since we're providing our own nameResolvers
         );
-        subplebbit = await createSubWithNoChallenge({}, plebbit);
-        await subplebbit.start();
+        community = await createSubWithNoChallenge({}, pkc);
+        await community.start();
         await resolveWhenConditionIsTrue({
-            toUpdate: subplebbit,
-            predicate: async () => typeof subplebbit.updatedAt === "number"
+            toUpdate: community,
+            predicate: async () => typeof community.updatedAt === "number"
         });
         // Publish a valid post for Vote/CommentEdit/CommentModeration tests
-        validPost = (await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit })) as CommentIpfsWithCidDefined;
+        validPost = (await publishRandomPost({ communityAddress: community.address, pkc: pkc })) as CommentIpfsWithCidDefined;
     });
 
     afterAll(async () => {
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
     });
 
     it("rejects Comment with unsupported TLD (.xyz)", async () => {
         const unsupportedTldAddress = "user.xyz";
-        const signer = await plebbit.createSigner();
+        const signer = await pkc.createSigner();
 
         // even we as a rpc client, the rpc server shouldn't refuse to publish it even if it doesn't have .xyz resolver
         // rpc server should just trust the rpc client and publish it, the sub owner will take care of validation
-        const comment = await plebbit.createComment({
+        const comment = await pkc.createComment({
             author: { address: unsupportedTldAddress },
             signer,
             title: "Test post with unsupported TLD",
             content: "This should be rejected",
-            communityAddress: subplebbit.address
+            communityAddress: community.address
         });
 
         await publishWithExpectedResult({
@@ -74,14 +74,14 @@ describe("Community rejects publications with unsupported author TLDs", () => {
         // rpc server should just trust the rpc client and publish it, the sub owner will take care of validation
 
         const unsupportedTldAddress = "voter.xyz";
-        const signer = await plebbit.createSigner();
+        const signer = await pkc.createSigner();
 
-        const vote = await plebbit.createVote({
+        const vote = await pkc.createVote({
             author: { address: unsupportedTldAddress },
             signer,
             commentCid: validPost.cid,
             vote: 1,
-            communityAddress: subplebbit.address
+            communityAddress: community.address
         });
 
         await publishWithExpectedResult({
@@ -96,14 +96,14 @@ describe("Community rejects publications with unsupported author TLDs", () => {
         // rpc server should just trust the rpc client and publish it, the sub owner will take care of validation
 
         const unsupportedTldAddress = "editor.xyz";
-        const signer = await plebbit.createSigner();
+        const signer = await pkc.createSigner();
 
-        const commentEdit = await plebbit.createCommentEdit({
+        const commentEdit = await pkc.createCommentEdit({
             author: { address: unsupportedTldAddress },
             signer,
             commentCid: validPost.cid,
             content: "Edited content from unsupported TLD",
-            communityAddress: subplebbit.address
+            communityAddress: community.address
         });
 
         await publishWithExpectedResult({
@@ -116,11 +116,11 @@ describe("Community rejects publications with unsupported author TLDs", () => {
     it("rejects setting a role with unsupported TLD (.xyz) during edit", async () => {
         const unsupportedTldAddress = "moderator.xyz";
 
-        // subplebbit.edit() should reject unsupported TLD domain in roles
+        // community.edit() should reject unsupported TLD domain in roles
         await expect(
-            subplebbit.edit({
+            community.edit({
                 roles: {
-                    ...subplebbit.roles,
+                    ...community.roles,
                     [unsupportedTldAddress]: { role: "moderator" }
                 }
             })

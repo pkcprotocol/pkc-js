@@ -4,30 +4,30 @@ import * as remeda from "remeda";
 import { keysToOmitFromSignedPropertyNames } from "../../signer/constants.js";
 
 export const CreateCommunityEditPublicationOptionsSchema = CreatePublicationUserOptionsSchema.extend({
-    subplebbitEdit: CommunityEditOptionsSchema.strict()
+    communityEdit: CommunityEditOptionsSchema.strict()
 }).strict();
 
 export const CommunityEditPublicationSignedPropertyNames = remeda.keys.strict(
     remeda.omit(CreateCommunityEditPublicationOptionsSchema.shape, keysToOmitFromSignedPropertyNames)
 );
 
-const subplebbitEditPublicationPickOptions = <Record<(typeof CommunityEditPublicationSignedPropertyNames)[number] | "signature", true>>(
+const communityEditPublicationPickOptions = <Record<(typeof CommunityEditPublicationSignedPropertyNames)[number] | "signature", true>>(
     remeda.mapToObj([...CommunityEditPublicationSignedPropertyNames, "signature"], (x) => [x, true])
 );
 
-// Will be used by the sub when parsing request.subplebbitEdit
+// Will be used by the sub when parsing request.communityEdit
 export const CommunityEditPubsubMessagePublicationSchema = CreateCommunityEditPublicationOptionsSchema.merge(PublicationBaseBeforeSigning)
     .extend({
         signature: JsonSignatureSchema,
         author: PublicationBaseBeforeSigning.shape.author.unwrap().loose().optional()
     })
-    .pick(subplebbitEditPublicationPickOptions)
+    .pick(communityEditPublicationPickOptions)
     .strict();
 
 export const CommunityEditPublicationChallengeRequestToEncryptSchema = CreateCommunityEditPublicationOptionsSchema.shape.challengeRequest
     .unwrap()
     .extend({
-        subplebbitEdit: CommunityEditPubsubMessagePublicationSchema.loose()
+        communityEdit: CommunityEditPubsubMessagePublicationSchema.loose()
     });
 
 export const CommunityEditPublicationPubsubReservedFields = remeda.difference(

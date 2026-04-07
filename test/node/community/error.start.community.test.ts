@@ -13,18 +13,18 @@ import type { LocalCommunity } from "../../../dist/node/runtime/node/community/l
 import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
 
-describeSkipIfRpc(`Local subplebbit emits errors properly in the publish loop`, async () => {
-    let plebbit: PKCType;
+describeSkipIfRpc(`Local community emits errors properly in the publish loop`, async () => {
+    let pkc: PKCType;
     beforeAll(async () => {
-        plebbit = await mockPKC();
+        pkc = await mockPKC();
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
-    it(`subplebbit.start() emits errors and recovers if the sync loop crashes once`, async () => {
-        const sub = (await createSubWithNoChallenge({}, plebbit)) as LocalCommunity;
+    it(`community.start() emits errors and recovers if the sync loop crashes once`, async () => {
+        const sub = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
         const errors: PKCError[] = [];
@@ -36,7 +36,7 @@ describeSkipIfRpc(`Local subplebbit emits errors properly in the publish loop`, 
             throw Error("Failed to load sub from db");
         };
         try {
-            await publishRandomPost({ communityAddress: sub.address, plebbit: plebbit });
+            await publishRandomPost({ communityAddress: sub.address, pkc: pkc });
         } catch {}
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => errors.length >= 3, eventName: "error" });
 
@@ -48,8 +48,8 @@ describeSkipIfRpc(`Local subplebbit emits errors properly in the publish loop`, 
         }
     });
 
-    it(`subplebbit.start() emits errors if kubo API call  fails`, async () => {
-        const sub = (await createSubWithNoChallenge({}, plebbit)) as LocalCommunity;
+    it(`community.start() emits errors if kubo API call  fails`, async () => {
+        const sub = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
         const errors: PKCError[] = [];
@@ -63,7 +63,7 @@ describeSkipIfRpc(`Local subplebbit emits errors properly in the publish loop`, 
         ipfsClient.files.write = () => {
             throw Error("Failed to copy a file");
         };
-        await publishRandomPost({ communityAddress: sub.address, plebbit: plebbit });
+        await publishRandomPost({ communityAddress: sub.address, pkc: pkc });
 
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => errors.length === 3, eventName: "error" });
 
@@ -76,8 +76,8 @@ describeSkipIfRpc(`Local subplebbit emits errors properly in the publish loop`, 
         }
     });
 
-    it(`subplebbit.start can recover if pubsub.ls() fails`, async () => {
-        const sub = (await createSubWithNoChallenge({}, plebbit)) as LocalCommunity | RpcLocalCommunity;
+    it(`community.start can recover if pubsub.ls() fails`, async () => {
+        const sub = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity | RpcLocalCommunity;
         await sub.start();
         await resolveWhenConditionIsTrue({ toUpdate: sub, predicate: async () => typeof sub.updatedAt === "number" });
         const errors: PKCError[] = [];
@@ -85,7 +85,7 @@ describeSkipIfRpc(`Local subplebbit emits errors properly in the publish loop`, 
             errors.push(err as PKCError);
         });
 
-        const pubsubClient = Object.values(plebbit.clients.pubsubKuboRpcClients)[0]._client;
+        const pubsubClient = Object.values(pkc.clients.pubsubKuboRpcClients)[0]._client;
 
         const originalPubsub = pubsubClient.pubsub.ls.bind(pubsubClient.pubsub);
         pubsubClient.pubsub.ls = () => {
@@ -97,7 +97,7 @@ describeSkipIfRpc(`Local subplebbit emits errors properly in the publish loop`, 
         pubsubClient.pubsub.ls = originalPubsub;
 
         const remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
-        await publishRandomPost({ communityAddress: sub.address, plebbit: remotePKC }); // pubsub topic is working
+        await publishRandomPost({ communityAddress: sub.address, pkc: remotePKC }); // pubsub topic is working
         await remotePKC.destroy();
 
         await sub.delete();

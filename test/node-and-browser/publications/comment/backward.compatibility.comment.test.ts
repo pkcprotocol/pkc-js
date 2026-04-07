@@ -29,7 +29,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.sequential(`Comments with extra props - ${config.name}`, async () => {
         let pkc: PKC;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
         afterAll(async () => {
             await pkc.destroy();
@@ -37,7 +37,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         describe(`Comments with extra props in challengeRequest.encrypted - ${config.name}`, async () => {
             it(`An extra prop in challengeRequest.encrypted should be accepted by the sub`, async () => {
-                const comment = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
+                const comment = await generateMockPost({ communityAddress: communityAddress, pkc: pkc });
                 (comment as Comment & { challengeRequest: { extraProp: string } }).challengeRequest = { extraProp: "1234" };
                 const challengeRequestPromise = new Promise((resolve) => comment.once("challengerequest", resolve));
 
@@ -50,7 +50,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         describe.sequential(`Publishing comments with extra props - ${config.name}`, async () => {
             it(`A CommentPubsub with a field not included in signature.signedPropertyNames will be rejected`, async () => {
                 // Skip for rpc because it's gonna throw due to invalid signature
-                const post = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
+                const post = await generateMockPost({ communityAddress: communityAddress, pkc: pkc });
                 const extraProps = { extraProp: "1234" };
                 await setExtraPropOnCommentAndSign(post, extraProps, false);
 
@@ -65,7 +65,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it(`A CommentPubsub with an extra field as a reserved field name will be rejected`, async () => {
-                const post = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
+                const post = await generateMockPost({ communityAddress: communityAddress, pkc: pkc });
                 const extraProps = { cid: "1234" };
                 await setExtraPropOnCommentAndSign(post, extraProps, true);
 
@@ -81,7 +81,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it(`A CommentPubsub with an extra field included in signature.signedPropertyNames will be accepted`, async () => {
-                const post = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
+                const post = await generateMockPost({ communityAddress: communityAddress, pkc: pkc });
                 const extraProps = { extraProp: "1234" };
                 await setExtraPropOnCommentAndSign(post, extraProps, true);
 
@@ -103,7 +103,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             let extraProps: { extraProp: string };
 
             beforeAll(async () => {
-                commentWithExtraProps = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
+                commentWithExtraProps = await generateMockPost({ communityAddress: communityAddress, pkc: pkc });
                 extraProps = { extraProp: "1234" };
                 await setExtraPropOnCommentAndSign(commentWithExtraProps, extraProps, true);
                 await publishWithExpectedResult({ publication: commentWithExtraProps, expectedChallengeSuccess: true });
@@ -158,20 +158,20 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.sequential(`Comments with extra props in author`, async () => {
         let pkc: PKC;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
         afterAll(async () => {
             await pkc.destroy();
         });
         describe.sequential(`Publishing comment with extra props in author field - ${config.name}`, async () => {
             it(`Publishing with extra prop for author should fail if it's a reserved field`, async () => {
-                const post = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
+                const post = await generateMockPost({ communityAddress: communityAddress, pkc: pkc });
                 await setExtraPropOnCommentAndSign(
                     post,
                     {
                         author: {
                             ...(post.raw.pubsubMessageToPublish?.author ?? (post.raw as any).unsignedPublicationOptions?.author),
-                            subplebbit: "random"
+                            community: "random"
                         }
                     },
                     true
@@ -184,11 +184,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     expectedChallengeSuccess: false,
                     expectedReason: messages.ERR_PUBLICATION_AUTHOR_HAS_RESERVED_FIELD
                 });
-                const challengeRequest = (await challengeRequestPromise) as { comment?: { author?: { subplebbit?: string } } };
-                expect(challengeRequest.comment?.author?.subplebbit).to.equal("random");
+                const challengeRequest = (await challengeRequestPromise) as { comment?: { author?: { community?: string } } };
+                expect(challengeRequest.comment?.author?.community).to.equal("random");
             });
             it(`Publishing with extra prop for author should succeed`, async () => {
-                const post = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
+                const post = await generateMockPost({ communityAddress: communityAddress, pkc: pkc });
                 const extraProps = { extraProp: "1234" };
                 await setExtraPropOnCommentAndSign(
                     post,
@@ -215,7 +215,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const extraProps = { extraProp: "1234" };
 
             beforeAll(async () => {
-                postWithExtraAuthorProp = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
+                postWithExtraAuthorProp = await generateMockPost({ communityAddress: communityAddress, pkc: pkc });
                 await setExtraPropOnCommentAndSign(
                     postWithExtraAuthorProp,
                     {
@@ -287,7 +287,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -330,10 +330,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let validCommentIpfsRaw: Record<string, unknown>;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
 
             // Publish a normal comment to get a valid CommentIpfs
-            const post = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
+            const post = await generateMockPost({ communityAddress: communityAddress, pkc: pkc });
             await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
 
             const loadedComment = await pkc.getComment({ cid: post.cid });

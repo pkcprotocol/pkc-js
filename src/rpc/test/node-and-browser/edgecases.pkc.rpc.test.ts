@@ -7,15 +7,15 @@ import {
 } from "../../../../dist/node/test/test-util.js";
 
 const depthsToTest = [0, 1, 2, 3, 10, 15];
-const subplebbitAddress = signers[0].address;
+const communityAddress = signers[0].address;
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] }).map((config) => {
     depthsToTest.forEach((depthToTest) => {
-        describe.concurrent("publish then update with plebbit rpc client and depth=" + depthToTest + " - " + config.name, async () => {
+        describe.concurrent("publish then update with pkc rpc client and depth=" + depthToTest + " - " + config.name, async () => {
             it("Should be able to fetch updates after publishing", async () => {
-                const plebbit = await config.plebbitInstancePromise();
+                const pkc = await config.pkcInstancePromise();
                 const comment = await publishCommentWithDepth({
                     depth: depthToTest,
-                    subplebbit: await plebbit.getCommunity({ address: subplebbitAddress })
+                    community: await pkc.getCommunity({ address: communityAddress })
                 });
 
                 expect(comment.cid).to.be.a("string");

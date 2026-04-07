@@ -28,7 +28,7 @@ describe.concurrent("Sign Vote", async () => {
             vote: 1,
             protocolVersion: "1.0.0"
         };
-        voteSignature = await signVote({ vote: { ...voteProps, signer: signers[7] }, plebbit: pkc });
+        voteSignature = await signVote({ vote: { ...voteProps, signer: signers[7] }, pkc: pkc });
     });
 
     afterAll(async () => {
@@ -48,7 +48,7 @@ describe.concurrent("Sign Vote", async () => {
         const cloneVote = remeda.clone(voteProps);
         cloneVote.author = { name: "gibbreish" };
         try {
-            await signVote({ vote: { ...cloneVote, signer: signers[7] }, plebbit: pkc });
+            await signVote({ vote: { ...cloneVote, signer: signers[7] }, pkc: pkc });
             expect.fail("Should have thrown");
         } catch (e) {
             expect((e as { code: string }).code).to.equal("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58");
@@ -57,7 +57,7 @@ describe.concurrent("Sign Vote", async () => {
     it(`signVote allows author to be omitted`, async () => {
         const signature = await signVote({
             vote: { ...remeda.omit(voteProps, ["author"]), signer: signers[7] } as VoteOptionsToSign,
-            plebbit: pkc
+            pkc: pkc
         });
         expect(signature.publicKey).to.equal(signers[7].publicKey);
     });
@@ -118,7 +118,7 @@ describeSkipIfRpc.concurrent("Verify vote", async () => {
         };
         const vote: VotePubsubMessagePublication = {
             ...remeda.omit(voteToSign, ["signer", "communityAddress"]),
-            signature: await signVote({ vote: voteToSign, plebbit: pkc })
+            signature: await signVote({ vote: voteToSign, pkc: pkc })
         };
         const verification = await verifyVote({
             vote,

@@ -13,7 +13,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
         let subAddress: string;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
             const ipnsObj = await createMockedCommunityIpns({});
             subAddress = ipnsObj.communityAddress;
         });

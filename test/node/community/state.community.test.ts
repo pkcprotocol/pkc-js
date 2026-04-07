@@ -5,57 +5,57 @@ import type { LocalCommunity } from "../../../dist/node/runtime/node/community/l
 import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
 
-describe(`subplebbit.state`, async () => {
-    let plebbit: PKC;
-    let subplebbit: LocalCommunity | RpcLocalCommunity;
+describe(`community.state`, async () => {
+    let pkc: PKC;
+    let community: LocalCommunity | RpcLocalCommunity;
     beforeAll(async () => {
-        plebbit = await mockPKC();
-        subplebbit = await createSubWithNoChallenge({}, plebbit);
+        pkc = await mockPKC();
+        community = await createSubWithNoChallenge({}, pkc);
     });
 
     afterAll(async () => {
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
     });
 
-    it(`subplebbit.state defaults to "stopped" if not updating or started`, async () => {
-        expect(subplebbit.state).to.equal("stopped");
+    it(`community.state defaults to "stopped" if not updating or started`, async () => {
+        expect(community.state).to.equal("stopped");
     });
 
-    it(`subplebbit.state = started if calling start()`, async () => {
+    it(`community.state = started if calling start()`, async () => {
         let eventFired = false;
-        subplebbit.on("statechange", (newState) => {
+        community.on("statechange", (newState) => {
             if (newState === "started") eventFired = true;
         });
-        await subplebbit.start();
-        expect(subplebbit.state).to.equal("started");
+        await community.start();
+        expect(community.state).to.equal("started");
         expect(eventFired).to.be.true;
     });
 
-    it(`subplebbit.state = stopped after calling stop()`, async () => {
+    it(`community.state = stopped after calling stop()`, async () => {
         let eventFired = false;
-        subplebbit.once("statechange", (newState) => {
+        community.once("statechange", (newState) => {
             expect(newState).to.equal("stopped");
             eventFired = true;
         });
-        await subplebbit.stop();
-        expect(subplebbit.state).to.equal("stopped");
+        await community.stop();
+        expect(community.state).to.equal("stopped");
         expect(eventFired).to.be.true;
     });
 
-    it(`subplebbit.state = updating after calling update()`, async () => {
+    it(`community.state = updating after calling update()`, async () => {
         let eventFired = false;
-        subplebbit.once("statechange", (newState) => {
+        community.once("statechange", (newState) => {
             expect(newState).to.equal("updating");
             eventFired = true;
         });
-        await subplebbit.update();
-        expect(subplebbit.state).to.equal("updating");
+        await community.update();
+        expect(community.state).to.equal("updating");
         expect(eventFired).to.be.true;
     });
 
-    it(`calling update() on a started subplebbit will throw`, async () => {
-        const startedCommunity = (await plebbit.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+    it(`calling update() on a started community will throw`, async () => {
+        const startedCommunity = (await pkc.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         await startedCommunity.start();
         try {
             await startedCommunity.update();

@@ -38,8 +38,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC;
         let commentToMod: Comment;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
-            commentToMod = await publishRandomPost({ communityAddress: signers[0].address, plebbit: pkc });
+            pkc = await config.pkcInstancePromise();
+            commentToMod = await publishRandomPost({ communityAddress: signers[0].address, pkc: pkc });
             await commentToMod.update();
             await resolveWhenConditionIsTrue({ toUpdate: commentToMod, predicate: async () => typeof commentToMod.updatedAt === "number" });
         });
@@ -177,7 +177,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 it(`Publishing commentModerationPublication.commentModeration.author.extraProp`, async () => {
                     const commentToModWithAuthor = await publishRandomPost({
                         communityAddress: commentToMod.communityAddress,
-                        plebbit: pkc
+                        pkc: pkc
                     });
                     const commentModeration = await pkc.createCommentModeration({
                         commentCid: commentToModWithAuthor.cid,
@@ -203,8 +203,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                         toUpdate: commentToModWithAuthor,
                         predicate: async () => commentToModWithAuthor.removed === true
                     });
-                    expect(commentToModWithAuthor.author.subplebbit.extraProp).to.be.undefined;
-                    expect(commentToModWithAuthor.raw.commentUpdate.author.subplebbit.extraProp).to.be.undefined;
+                    expect(commentToModWithAuthor.author.community.extraProp).to.be.undefined;
+                    expect(commentToModWithAuthor.raw.commentUpdate.author.community.extraProp).to.be.undefined;
                     expect(commentToModWithAuthor.raw.commentUpdate.author.extraProp).to.be.undefined;
 
                     await commentToModWithAuthor.stop();

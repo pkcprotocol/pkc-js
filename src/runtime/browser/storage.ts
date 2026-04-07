@@ -6,10 +6,10 @@ import { hideClassPrivateProps } from "../../util.js";
 
 // Storage is for long term items, no eviction based on ttl or anything like that
 export default class Storage implements StorageInterface {
-    private _plebbit: Pick<PKC, "dataPath" | "noData">;
+    private _pkc: Pick<PKC, "dataPath" | "noData">;
     private _store!: LocalForage;
-    constructor(plebbit: Storage["_plebbit"]) {
-        this._plebbit = plebbit;
+    constructor(pkc: Storage["_pkc"]) {
+        this._pkc = pkc;
         hideClassPrivateProps(this);
     }
 
@@ -18,7 +18,7 @@ export default class Storage implements StorageInterface {
     }
 
     async init() {
-        const storageName = this._plebbit.noData ? `Browser-storage-no-data-${uuidV4()}` : "plebbitjs_storage";
+        const storageName = this._pkc.noData ? `Browser-storage-no-data-${uuidV4()}` : "pkcjs_storage";
         this._store = localForage.createInstance({
             name: storageName
         });

@@ -22,8 +22,8 @@ export class CommentEdit extends Publication implements CommentEditPubsubMessage
     override raw: { pubsubMessageToPublish?: CommentEditPubsubMessagePublication } = {};
     override challengeRequest?: CreateCommentEditOptions["challengeRequest"];
 
-    constructor(plebbit: PKC) {
-        super(plebbit);
+    constructor(pkc: PKC) {
+        super(pkc);
 
         // public method should be bound
         this.publish = this.publish.bind(this);
@@ -64,7 +64,7 @@ export class CommentEdit extends Publication implements CommentEditPubsubMessage
     protected override async _signPublicationOptionsToPublish(
         cleanedPublication: unknown
     ): Promise<CommentEditPubsubMessagePublication["signature"]> {
-        return signCommentEdit({ edit: cleanedPublication as CommentEditOptionsToSign, plebbit: this._plebbit });
+        return signCommentEdit({ edit: cleanedPublication as CommentEditOptionsToSign, pkc: this._pkc });
     }
 
     _initPubsubPublicationProps(props: CommentEditPubsubMessagePublication): void {
@@ -87,7 +87,7 @@ export class CommentEdit extends Publication implements CommentEditPubsubMessage
         const editObj = JSON.parse(JSON.stringify(this.raw.pubsubMessageToPublish!));
         const signatureValidity = await verifyCommentEdit({
             edit: editObj,
-            resolveAuthorNames: this._plebbit.resolveAuthorNames,
+            resolveAuthorNames: this._pkc.resolveAuthorNames,
             clientsManager: this._clientsManager
         });
 

@@ -17,7 +17,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
     describe.concurrent(`community.updatingState (node/browser - remote sub) - ${config.name}`, async () => {
         let pkc: PKCType;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
         afterAll(async () => {
             await pkc.destroy();
@@ -51,7 +51,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             const expectedStates = ["fetching-ipns", "fetching-ipfs", "succeeded", "stopped"];
             community.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
 
-            await publishRandomPost({ communityAddress: community.address, plebbit: pkc });
+            await publishRandomPost({ communityAddress: community.address, pkc: pkc });
             await community.update();
             await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => Number(community.updatedAt) > oldUpdatedAt });
             await community.stop();
@@ -171,7 +171,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe(`community.updatingState (node/browser - remote sub) - ${config.name}`, async () => {
         let pkc: PKCType;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
         afterAll(async () => {
             await pkc.destroy();
@@ -248,7 +248,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await errorPromise;
 
             await community.stop();
-            await ipnsObj.plebbit.destroy();
+            await ipnsObj.pkc.destroy();
         });
     });
 });
@@ -257,7 +257,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
     describe(`community.updatingState (node/browser - remote sub) - ${config.name}`, async () => {
         let pkc: PKCType;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
         afterAll(async () => {
             await pkc.destroy();

@@ -16,35 +16,35 @@ import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-loca
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 
-describe.concurrent(`subplebbit.features.noAudio`, async () => {
-    let plebbit: PKC;
+describe.concurrent(`community.features.noAudio`, async () => {
+    let pkc: PKC;
     let remotePKC: PKC;
-    let subplebbit: LocalCommunity | RpcLocalCommunity;
+    let community: LocalCommunity | RpcLocalCommunity;
     let publishedPost: Comment;
 
     beforeAll(async () => {
-        plebbit = await mockPKC();
+        pkc = await mockPKC();
         remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
-        subplebbit = await createSubWithNoChallenge({}, plebbit);
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+        community = await createSubWithNoChallenge({}, pkc);
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
         // Publish a post first (before enabling the feature)
-        publishedPost = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: remotePKC });
+        publishedPost = await publishRandomPost({ communityAddress: community.address, pkc: remotePKC });
     });
 
     afterAll(async () => {
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
         await remotePKC.destroy();
     });
 
     it.sequential(`Feature is updated correctly in props`, async () => {
-        expect(subplebbit.features).to.be.undefined;
-        await subplebbit.edit({ features: { ...subplebbit.features, noAudio: true } });
-        expect(subplebbit.features?.noAudio).to.be.true;
+        expect(community.features).to.be.undefined;
+        await community.edit({ features: { ...community.features, noAudio: true } });
+        expect(community.features?.noAudio).to.be.true;
 
-        const remoteSub = await remotePKC.getCommunity({ address: subplebbit.address });
+        const remoteSub = await remotePKC.getCommunity({ address: community.address });
         await remoteSub.update();
         await resolveWhenConditionIsTrue({ toUpdate: remoteSub, predicate: async () => remoteSub.features?.noAudio === true });
         expect(remoteSub.features?.noAudio).to.be.true;
@@ -53,8 +53,8 @@ describe.concurrent(`subplebbit.features.noAudio`, async () => {
 
     it(`Can't publish a post with audio link (.mp3)`, async () => {
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: {
                 link: "https://example.com/song.mp3",
                 content: "Just text"
@@ -80,8 +80,8 @@ describe.concurrent(`subplebbit.features.noAudio`, async () => {
 
     it(`Can publish a post with image link (noAudio doesn't block images)`, async () => {
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: {
                 link: "https://example.com/image.png",
                 content: "Just text"
@@ -92,8 +92,8 @@ describe.concurrent(`subplebbit.features.noAudio`, async () => {
 
     it(`Can publish a post with video link (noAudio doesn't block videos)`, async () => {
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: {
                 link: "https://example.com/video.mp4",
                 content: "Just text"
@@ -104,8 +104,8 @@ describe.concurrent(`subplebbit.features.noAudio`, async () => {
 
     it(`Can publish a post with plain content (no link)`, async () => {
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: {
                 content: "Just plain text"
             }

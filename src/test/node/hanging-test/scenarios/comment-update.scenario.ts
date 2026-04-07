@@ -9,17 +9,17 @@ import { createScenarioContext, defineHangingScenario } from "./hanging-test-uti
  */
 export default defineHangingScenario({
     id: "comment-update",
-    description: "Fetch subplebbit, update a comment and destroy plebbit",
+    description: "Fetch community, update a comment and destroy pkc",
     run: async ({ configCode }) => {
-        const subplebbitAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
-        const { plebbit, config } = await createScenarioContext(configCode);
+        const communityAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
+        const { pkc, config } = await createScenarioContext(configCode);
 
-        const subplebbit = await plebbit.getCommunity({ address: subplebbitAddress });
+        const community = await pkc.getCommunity({ address: communityAddress });
 
-        const post = await plebbit.createComment({ cid: subplebbit.lastPostCid! });
+        const post = await pkc.createComment({ cid: community.lastPostCid! });
         await post.update();
         await resolveWhenConditionIsTrue({ toUpdate: post, predicate: async () => typeof post.updatedAt === "number" });
 
-        await plebbit.destroy();
+        await pkc.destroy();
     }
 });

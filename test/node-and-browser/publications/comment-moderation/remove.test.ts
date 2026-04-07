@@ -28,16 +28,16 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Removing post - ${config.name}`, async () => {
         let pkc: PKC, postToRemove: Comment, postReply: Comment;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
             postToRemove = await publishRandomPost({
                 communityAddress: communityAddress,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: { content: "Post to be removed" }
             });
             postToRemove.on("updatingstatechange", console.log);
             postReply = await publishRandomReply({
                 parentComment: postToRemove as CommentIpfsWithCidDefined,
-                plebbit: pkc,
+                pkc: pkc,
                 commentProps: {
                     content: "reply under removed post"
                 }
@@ -128,7 +128,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Author of post can't remove it`, async () => {
-            const postToBeRemoved = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            const postToBeRemoved = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
             const removeEdit = await pkc.createCommentModeration({
                 communityAddress: postToBeRemoved.communityAddress,
                 commentCid: postToBeRemoved.cid,
@@ -188,10 +188,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC, modPost: Comment;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
             modPost = await publishRandomPost({
                 communityAddress: communityAddress,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: {
                     signer: roles[2].signer,
                     content: "mod removing their own post"
@@ -227,20 +227,20 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`Removing reply`, async () => {
         let pkc: PKC, post: Comment, replyToBeRemoved: Comment, replyUnderRemovedReply: Comment;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
             post = await publishRandomPost({
                 communityAddress: communityAddress,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: { content: "Post with removed reply under it" }
             });
             replyToBeRemoved = await publishRandomReply({
                 parentComment: post as CommentIpfsWithCidDefined,
-                plebbit: pkc,
+                pkc: pkc,
                 commentProps: { content: "reply to be removed" }
             });
             replyUnderRemovedReply = await publishRandomReply({
                 parentComment: replyToBeRemoved as CommentIpfsWithCidDefined,
-                plebbit: pkc,
+                pkc: pkc,
                 commentProps: {
                     content: "reply under removed reply"
                 }

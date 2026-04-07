@@ -77,7 +77,7 @@ describe("PKC options", async () => {
         const pkc = await PKC({ pkcRpcClientsOptions: [rpcUrl], httpRoutersOptions: [] });
         pkc.on("error", () => {}); // so it doesn't throw when we destroy
         expect(pkc.pkcRpcClientsOptions).to.deep.equal([rpcUrl]);
-        expect(Object.keys(pkc.clients.plebbitRpcClients)).to.deep.equal([rpcUrl]);
+        expect(Object.keys(pkc.clients.pkcRpcClients)).to.deep.equal([rpcUrl]);
         expect(pkc.pubsubKuboRpcClientsOptions).to.be.undefined;
         expect(pkc.nameResolvers).to.be.undefined;
         expect(pkc.clients.kuboRpcClients).to.deep.equal({});
@@ -95,7 +95,7 @@ describe("PKC options", async () => {
     });
 
     itIfRpc("Error is thrown if RPC is down", async () => {
-        const pkc = await mockRpcRemotePKC({ plebbitOptions: { pkcRpcClientsOptions: ["ws://localhost:39650"] } }); // Already has RPC config
+        const pkc = await mockRpcRemotePKC({ pkcOptions: { pkcRpcClientsOptions: ["ws://localhost:39650"] } }); // Already has RPC config
         // pkc.subplebbits will take 20s to timeout and throw this error
         try {
             await pkc.fetchCid({ cid: "QmYHzA8euDgUpNy3fh7JRwpPwt6jCgF35YTutYkyGGyr8f" }); // random cid
@@ -154,7 +154,7 @@ describe("PKC options", async () => {
             pubsubKuboRpcClientsOptions: []
         });
         expect(Object.keys(pkc.clients.libp2pJsClients).sort()).to.deep.equal(["random"]);
-        expect(Object.keys(pkc.clients.plebbitRpcClients)).to.deep.equal([]);
+        expect(Object.keys(pkc.clients.pkcRpcClients)).to.deep.equal([]);
         expect(pkc.clients.kuboRpcClients).to.deep.equal({});
         expect(pkc.clients.pubsubKuboRpcClients).to.deep.equal({});
         JSON.stringify(pkc); // Will throw an error if circular json
@@ -168,7 +168,7 @@ describe("PKC options", async () => {
             dataPath: undefined
         });
         expect(Object.keys(pkc.clients.libp2pJsClients).sort()).to.deep.equal(["random"]);
-        expect(Object.keys(pkc.clients.plebbitRpcClients)).to.deep.equal([]);
+        expect(Object.keys(pkc.clients.pkcRpcClients)).to.deep.equal([]);
         expect(pkc.clients.kuboRpcClients).to.deep.equal({});
         expect(pkc.clients.pubsubKuboRpcClients).to.deep.equal({});
         JSON.stringify(pkc); // Will throw an error if circular json
@@ -244,7 +244,7 @@ describe(`pkc.destroy`, async () => {
 
         await pkc.destroy(); // should not fail
         expect(pkc._updatingComments[commentCid]).to.not.exist;
-        expect(pkc._updatingCommunitys[comment.communityAddress]).to.not.exist;
+        expect(pkc._updatingCommunities[comment.communityAddress]).to.not.exist;
         expect(comment.state).to.equal("stopped");
     });
 
@@ -275,23 +275,23 @@ describe(`pkc.destroy`, async () => {
         }
     });
 
-    it(`pkc.destroy() should not throw if _updatingCommunitys contains a community with state "stopped"`, async () => {
-        // Reproduces a race condition where a community is stored in _updatingCommunitys
+    it(`pkc.destroy() should not throw if _updatingCommunities contains a community with state "stopped"`, async () => {
+        // Reproduces a race condition where a community is stored in _updatingCommunities
         // but hasn't transitioned to "updating" state yet (e.g. during fetchLatestSubOrSubscribeToEvent)
         const pkc = await mockPKCNoDataPathWithOnlyKuboClient();
         const sub = await pkc.createCommunity({ address: fixtureSigner.address });
         expect(sub.state).to.equal("stopped");
         // Simulate the race: sub is in the map but still in "stopped" state
-        pkc._updatingCommunitys[sub.address] = sub;
+        pkc._updatingCommunities[sub.address] = sub;
         await pkc.destroy(); // should not throw
         expect(sub.state).to.equal("stopped");
     });
 });
 
-describeIfRpc(`pkc.clients.plebbitRpcClients`, async () => {
-    it(`pkc.clients.plebbitRpcClients.state`, async () => {
+describeIfRpc(`pkc.clients.pkcRpcClients`, async () => {
+    it(`pkc.clients.pkcRpcClients.state`, async () => {
         const pkc = await mockRpcRemotePKC();
-        const rpcClient = pkc.clients.plebbitRpcClients[Object.keys(pkc.clients.plebbitRpcClients)[0]];
+        const rpcClient = pkc.clients.pkcRpcClients[Object.keys(pkc.clients.pkcRpcClients)[0]];
 
         const rpcStates: string[] = [];
 
@@ -304,10 +304,10 @@ describeIfRpc(`pkc.clients.plebbitRpcClients`, async () => {
 
         await pkc.destroy();
     });
-    it(`pkc.clients.plebbitRpcClients.rpcCall`);
-    it(`pkc.clients.plebbitRpcClients.setSettings`, async () => {
+    it(`pkc.clients.pkcRpcClients.rpcCall`);
+    it(`pkc.clients.pkcRpcClients.setSettings`, async () => {
         const pkc = await mockRpcRemotePKC();
-        const rpcClient = pkc.clients.plebbitRpcClients[Object.keys(pkc.clients.plebbitRpcClients)[0]];
+        const rpcClient = pkc.clients.pkcRpcClients[Object.keys(pkc.clients.pkcRpcClients)[0]];
         const settingsPromise = new Promise((resolve) => rpcClient.once("settingschange", resolve));
         const allSettings: unknown[] = [];
         rpcClient.on("settingschange", (newSettings) => allSettings.push(newSettings));
@@ -317,7 +317,7 @@ describeIfRpc(`pkc.clients.plebbitRpcClients`, async () => {
         // change settings here, and await for a new settingschange to be emitted
         const newSettings = {
             ...rpcClient.settings,
-            plebbitOptions: { ...rpcClient.settings!.plebbitOptions, userAgent: "test-agent" + Date.now() }
+            pkcOptions: { ...rpcClient.settings!.pkcOptions, userAgent: "test-agent" + Date.now() }
         };
         const editedSettingsPromise = new Promise((resolve) => rpcClient.once("settingschange", resolve));
         await rpcClient.setSettings(newSettings as unknown as Parameters<typeof rpcClient.setSettings>[0]);
@@ -326,11 +326,11 @@ describeIfRpc(`pkc.clients.plebbitRpcClients`, async () => {
         expect(allSettings[allSettings.length - 1]).to.deep.equal(newSettings);
         await pkc.destroy();
     });
-    it(`pkc.clients.plebbitRpcClients.settings is defined after awaiting settingschange`, async () => {
+    it(`pkc.clients.pkcRpcClients.settings is defined after awaiting settingschange`, async () => {
         const pkc = await mockRpcRemotePKC();
-        const rpcClient = pkc.clients.plebbitRpcClients[Object.keys(pkc.clients.plebbitRpcClients)[0]];
+        const rpcClient = pkc.clients.pkcRpcClients[Object.keys(pkc.clients.pkcRpcClients)[0]];
         if (!rpcClient.settings) await new Promise((resolve) => rpcClient.once("settingschange", resolve));
-        expect(rpcClient.settings.plebbitOptions).to.be.a("object");
+        expect(rpcClient.settings.pkcOptions).to.be.a("object");
         expect(rpcClient.settings.challenges).to.be.a("object");
         await pkc.destroy();
     });

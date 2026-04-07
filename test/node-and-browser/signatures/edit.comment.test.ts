@@ -52,7 +52,7 @@ describe("Sign commentedit", async () => {
         const cloneEdit = remeda.clone(editProps);
         cloneEdit.author = { name: "gibbreish" };
         try {
-            await signCommentEdit({ edit: { ...cloneEdit, signer: signers[7] }, plebbit: pkc });
+            await signCommentEdit({ edit: { ...cloneEdit, signer: signers[7] }, pkc: pkc });
             expect.fail("Should have thrown");
         } catch (e) {
             expect((e as { code: string }).code).to.equal("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58");
@@ -61,7 +61,7 @@ describe("Sign commentedit", async () => {
     it(`signCommentEdit allows author to be omitted`, async () => {
         const signature = await signCommentEdit({
             edit: { ...remeda.omit(editProps, ["author"]), signer: signers[7] } as CommentEditOptionsToSign,
-            plebbit: pkc
+            pkc: pkc
         });
         expect(signature.publicKey).to.equal(signers[7].publicKey);
     });

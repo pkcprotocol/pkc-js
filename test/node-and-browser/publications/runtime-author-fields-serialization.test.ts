@@ -36,7 +36,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let signer: SignerWithPublicKeyAddress;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
             signer = await pkc.createSigner();
         });
 
@@ -177,7 +177,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 const subEdit = await pkc.createCommunityEdit({
                     communityAddress: communityAddress,
                     signer,
-                    subplebbitEdit: { description: "new description" }
+                    communityEdit: { description: "new description" }
                 });
                 assertRuntimeAuthorFields(subEdit.author, "CommunityEdit");
             });
@@ -186,7 +186,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 const subEdit = await pkc.createCommunityEdit({
                     communityAddress: communityAddress,
                     signer,
-                    subplebbitEdit: { description: "new description" }
+                    communityEdit: { description: "new description" }
                 });
                 assertRuntimeAuthorFieldsSurviveSpread(subEdit, "CommunityEdit");
             });
@@ -195,7 +195,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 const subEdit = await pkc.createCommunityEdit({
                     communityAddress: communityAddress,
                     signer,
-                    subplebbitEdit: { description: "new description" }
+                    communityEdit: { description: "new description" }
                 });
                 assertRuntimeAuthorFieldsSurviveStringify(subEdit, "CommunityEdit");
             });

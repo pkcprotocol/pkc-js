@@ -18,7 +18,7 @@ import {
     findUpdatingComment,
     findUpdatingCommunity,
     listUpdatingComments,
-    listUpdatingCommunitys
+    listUpdatingCommunities
 } from "../../../dist/node/pkc/tracked-instance-registry-util.js";
 
 const communityAddress = signers[0].address;
@@ -30,18 +30,18 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let sub: RemoteCommunity;
 
         beforeEach(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
         afterEach(async () => {
             await pkc.destroy();
         });
         beforeAll(async () => {
-            const pkc = await config.plebbitInstancePromise();
+            const pkc = await config.pkcInstancePromise();
             sub = await pkc.getCommunity({ address: communityAddress });
 
-            const replyWithDepth1Cid = await findOrPublishCommentWithDepth({ depth: 1, subplebbit: sub });
-            const replyWithDepth2Cid = await findOrPublishCommentWithDepth({ depth: 2, subplebbit: sub });
-            const replyWithDepth3Cid = await findOrPublishCommentWithDepth({ depth: 3, subplebbit: sub });
+            const replyWithDepth1Cid = await findOrPublishCommentWithDepth({ depth: 1, community: sub });
+            const replyWithDepth2Cid = await findOrPublishCommentWithDepth({ depth: 2, community: sub });
+            const replyWithDepth3Cid = await findOrPublishCommentWithDepth({ depth: 3, community: sub });
 
             const replyPostConfigs = [
                 { commentType: "post (depth 0)", cid: sub.posts.pages.hot.comments[0].cid },
@@ -76,7 +76,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             let pkc: PKC;
 
             beforeEach(async () => {
-                pkc = await config.plebbitInstancePromise();
+                pkc = await config.pkcInstancePromise();
             });
             afterEach(async () => {
                 try {
@@ -267,10 +267,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         itSkipIfRpc(
-            `Stopping the first updating comment shouldn't tear down _updatingCommunitys while another comment from the same sub is still updating`,
+            `Stopping the first updating comment shouldn't tear down _updatingCommunities while another comment from the same sub is still updating`,
             async () => {
-                const firstPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
-                const secondPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+                const firstPost = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
+                const secondPost = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
 
                 const firstComment = await pkc.createComment({ cid: firstPost.cid });
                 const secondComment = await pkc.createComment({ cid: secondPost.cid });
@@ -306,8 +306,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         );
 
         it(`doesn't resurrect _updatingComments after stop() when the community record is invalid`, async () => {
-            const { subplebbitRecord, communityAddress: communityAddress, ipnsObj } = await createMockedCommunityIpns({});
-            const invalidCommunityRecord = { ...subplebbitRecord, updatedAt: subplebbitRecord.updatedAt + 9999 };
+            const { communityRecord, communityAddress: communityAddress, ipnsObj } = await createMockedCommunityIpns({});
+            const invalidCommunityRecord = { ...communityRecord, updatedAt: communityRecord.updatedAt + 9999 };
             await ipnsObj.publishToIpns(JSON.stringify(invalidCommunityRecord));
 
             const postToPublish = await pkc.createComment({
@@ -331,11 +331,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await post.stop();
 
             expect(listUpdatingComments(pkc)).to.deep.equal([]);
-            expect(listUpdatingCommunitys(pkc)).to.deep.equal([]);
+            expect(listUpdatingCommunities(pkc)).to.deep.equal([]);
         });
 
         it(`Calling comment.stop() and update() should behave as normal with pkc._updatingComments`, async () => {
-            const comment = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            const comment = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
             const postCommentCid = comment.cid;
 
             const postComment1 = await pkc.createComment({ cid: postCommentCid });
@@ -356,7 +356,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             const initialReplyCount = postComment2.replyCount;
 
-            await publishRandomReply({ parentComment: postComment2 as CommentIpfsWithCidDefined, plebbit: pkc });
+            await publishRandomReply({ parentComment: postComment2 as CommentIpfsWithCidDefined, pkc: pkc });
 
             // we don't know if another test might publish a reply to postComment2, so we wait until we see a reply count increase
             await resolveWhenConditionIsTrue({
@@ -374,7 +374,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it("fails (for now) when an updating comment mirrors itself from _updatingComments", async () => {
-            const post = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            const post = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
             const selfUpdatingComment = await pkc.createComment({ cid: post.cid });
 
             // Simulate the CI case where _updatingComments already holds the same instance before update()
@@ -432,7 +432,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         // with rpc clients we don't create a community instance, the rpc server does it for us
         itSkipIfRpc(
-            `Updating a post should create a new entry in _updatingCommunitys if we haven't been updating the sub already`,
+            `Updating a post should create a new entry in _updatingCommunities if we haven't been updating the sub already`,
             async () => {
                 const community = await pkc.getCommunity({ address: signers[0].address });
                 const commentCid = community.posts.pages.hot.comments[0].cid;
@@ -454,7 +454,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             }
         );
 
-        itSkipIfRpc(`Updating a post should use entry in _updatingCommunitys if it's already updating`, async () => {
+        itSkipIfRpc(`Updating a post should use entry in _updatingCommunities if it's already updating`, async () => {
             const community = await pkc.getCommunity({ address: signers[0].address });
             await community.update();
             const commentCid = community.posts.pages.hot.comments[0].cid;

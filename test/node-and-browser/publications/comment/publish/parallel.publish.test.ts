@@ -60,7 +60,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                     throw new Error(`Mock pubsub server is not reachable: ${error?.message || error}`);
                 });
 
-                const pkc = await config.plebbitInstancePromise(); // this is using mocked pubsub/ipfs client to publish
+                const pkc = await config.pkcInstancePromise(); // this is using mocked pubsub/ipfs client to publish
                 pkc.on("error", console.error);
 
                 const stressPublishCount = 100;
@@ -146,7 +146,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             });
 
             it("resolves the community IPNS record only once when multiple publishes start in parallel", async () => {
-                const localPKC = await config.plebbitInstancePromise({});
+                const localPKC = await config.pkcInstancePromise({});
                 localPKC.on("error", console.error);
                 const stressPublishCount = typeof globalThis.window !== "undefined" ? 20 : 350;
                 const randomSub = await createMockedCommunityIpns({}); // sub has a reachable IPNS but is not online
@@ -175,7 +175,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 }
 
                 try {
-                    expect(localPKC._updatingCommunitys.size()).to.equal(0);
+                    expect(localPKC._updatingCommunities.size()).to.equal(0);
 
                     const comments = await Promise.all(
                         new Array(stressPublishCount).fill(null).map(async (_, index) =>
@@ -192,7 +192,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
 
                     await new Promise((resolve) => setTimeout(resolve, 5000));
 
-                    expect(localPKC._updatingCommunitys.size()).to.equal(0);
+                    expect(localPKC._updatingCommunities.size()).to.equal(0);
 
                     const resolveCallsCount = fetchSpy
                         ? fetchSpy.mock.calls.filter(([input]: unknown[]) => {

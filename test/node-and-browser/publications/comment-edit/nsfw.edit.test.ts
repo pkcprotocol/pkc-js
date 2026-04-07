@@ -24,8 +24,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe(`Authors can mark their own comment as nsfw - ${config.name}`, async () => {
         let pkc: PKC, authorPost: Comment;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
-            authorPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            pkc = await config.pkcInstancePromise();
+            authorPost = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
             await authorPost.update();
         });
 
@@ -112,7 +112,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 update: recreatedPost.raw.commentUpdate,
                 resolveAuthorNames: true,
                 clientsManager: recreatedPost._clientsManager,
-                subplebbit: { address: recreatedPost.communityAddress },
+                community: { address: recreatedPost.communityAddress },
                 comment: recreatedPost as unknown as Pick<CommentIpfsWithCidPostCidDefined, "signature" | "cid" | "depth" | "postCid">,
                 validatePages: true,
                 validateUpdateSignature: true
@@ -165,10 +165,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC, modPost: Comment;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
             modPost = await publishRandomPost({
                 communityAddress: communityAddress,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: { signer: roles[2].signer }
             });
             await modPost.update();

@@ -9,8 +9,8 @@ export default defineHangingScenario({
     id: "destroy-only",
     description: "instantiate a PKC client and destroy it",
     run: async ({ configCode }) => {
-        const { plebbit } = await createScenarioContext(configCode);
+        const { pkc } = await createScenarioContext(configCode);
 
-        await plebbit.destroy();
+        await pkc.destroy();
     }
 });

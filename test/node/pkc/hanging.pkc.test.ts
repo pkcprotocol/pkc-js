@@ -41,7 +41,7 @@ beforeAll(async () => {
     ({ runHangingScenarioInChildProcess } = await import("../../../dist/node/runtime/node/test/helpers/run-hanging-node.js"));
 });
 
-// TODO we may need extra method for cleaning up after each sceneario, maybe make sure plebbit is destroyed?
+// TODO we may need extra method for cleaning up after each sceneario, maybe make sure pkc is destroyed?
 
 for (const scenario of scenarioDefinitions) {
     describe.sequential(`[Scenario: ${scenario.description}]`, () => {

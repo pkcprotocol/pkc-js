@@ -22,8 +22,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC, randomPost: Comment;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
-            randomPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            pkc = await config.pkcInstancePromise();
+            randomPost = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
             await randomPost.update();
         });
 
@@ -75,8 +75,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC, randomPost: Comment;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
-            randomPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            pkc = await config.pkcInstancePromise();
+            randomPost = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
             await randomPost.update();
         });
 
@@ -123,11 +123,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC, authorPost: Comment;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
             // Author publishes post with flairs
             authorPost = await publishRandomPost({
                 communityAddress: communityAddress,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: {
                     flairs: [{ text: "Author Flair" }]
                 }

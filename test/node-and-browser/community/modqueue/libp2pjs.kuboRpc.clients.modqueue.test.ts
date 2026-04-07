@@ -25,7 +25,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         let pkc: PKCType;
 
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -121,7 +121,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`Correct state of 'pendingApproval' sort is updated after fetching with a community created with pkc.createCommunity({address, modQueue})`, async () => {
-            const remotePKC: PKCType = await config.plebbitInstancePromise();
+            const remotePKC: PKCType = await config.pkcInstancePromise();
             const sub = await remotePKC.getCommunity({ address: communityAddress });
 
             const firstPage = cloneModQueuePage();

@@ -1,5 +1,5 @@
 // comment.pendingApproval should not appear in postUpdates
-// comments with pendingApproval should not show up in comment.replies, post.replies, subplebbit.posts
+// comments with pendingApproval should not show up in comment.replies, post.replies, community.posts
 
 import {
     mockPKC,
@@ -34,44 +34,44 @@ const pendingApprovalCommentProps = { challengeRequest: { challengeAnswers: ["pe
 for (const commentInPendingApprovalDepth of depthsToTest) {
     // made it sequential because maybe it can stop failing in CI
     describeSkipIfRpc.sequential(`Pending approval of comments with depth ` + commentInPendingApprovalDepth, async () => {
-        let plebbit: PKCType;
+        let pkc: PKCType;
         let remotePKC: PKCType;
         let commentInPendingApproval: Comment;
         let modSigner: SignerType;
-        let subplebbit: LocalCommunity | RpcLocalCommunity;
+        let community: LocalCommunity | RpcLocalCommunity;
 
         beforeAll(async () => {
-            plebbit = await mockPKC();
+            pkc = await mockPKC();
             remotePKC = await mockGatewayPKC();
-            subplebbit = (await plebbit.createCommunity()) as LocalCommunity | RpcLocalCommunity;
-            subplebbit.setMaxListeners(100);
-            modSigner = await plebbit.createSigner();
-            await subplebbit.edit({
+            community = (await pkc.createCommunity()) as LocalCommunity | RpcLocalCommunity;
+            community.setMaxListeners(100);
+            modSigner = await pkc.createSigner();
+            await community.edit({
                 settings: { challenges: [createPendingApprovalChallenge()] },
                 roles: {
                     [modSigner.address]: { role: "moderator" }
                 }
             });
 
-            await subplebbit.start();
+            await community.start();
 
-            await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+            await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
         });
 
         afterAll(async () => {
-            await subplebbit.delete();
-            await plebbit.destroy();
+            await community.delete();
+            await pkc.destroy();
             await remotePKC.destroy();
         });
 
         it.sequential("Should put failed comment in pending approval queue when challenge has pendingApproval: true", async () => {
             // TODO: Test that when a challenge with pendingApproval fails,
             // the publication goes to pending approval instead of being rejected
-            await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+            await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
             const { comment, challengeVerification } = await publishToModQueueWithDepth({
-                subplebbit,
-                plebbit: remotePKC,
+                community,
+                pkc: remotePKC,
                 depth: commentInPendingApprovalDepth,
                 modCommentProps: { signer: modSigner },
                 commentProps: pendingApprovalCommentProps
@@ -97,13 +97,13 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
             ]);
         });
 
-        it.sequential("Should store pending approval comments in subplebbit.modQueue.pageCids.pendingApproval", async () => {
+        it.sequential("Should store pending approval comments in community.modQueue.pageCids.pendingApproval", async () => {
             // TODO: Test that pending comments are stored in correct location
             await resolveWhenConditionIsTrue({
-                toUpdate: subplebbit,
-                predicate: async () => Boolean(subplebbit.modQueue.pageCids?.pendingApproval)
+                toUpdate: community,
+                predicate: async () => Boolean(community.modQueue.pageCids?.pendingApproval)
             });
-            const page = await subplebbit.modQueue.getPage({ cid: subplebbit.modQueue.pageCids.pendingApproval! });
+            const page = await community.modQueue.getPage({ cid: community.modQueue.pageCids.pendingApproval! });
             expect(page.comments.length).to.equal(1);
             const commentInPendingApprovalInPage = page.comments[0];
             expect(commentInPendingApprovalInPage.cid).to.equal(commentInPendingApproval.cid);
@@ -114,27 +114,27 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
 
         if (commentInPendingApprovalDepth === 0)
             it(`pending post should not have postCid defined at its pages`, async () => {
-                const pageRaw = JSON.parse(await plebbit.fetchCid({ cid: subplebbit.modQueue.pageCids?.pendingApproval! }));
+                const pageRaw = JSON.parse(await pkc.fetchCid({ cid: community.modQueue.pageCids?.pendingApproval! }));
                 expect(pageRaw.comments[0].comment.postCid).to.be.undefined;
             });
 
-        it(`pending comment should not appear in subplebbit.lastPostCid or subplebbit.lastCommentCid`, async () => {
-            expect(subplebbit.lastPostCid).to.not.equal(commentInPendingApproval.cid);
-            expect(subplebbit.lastCommentCid).to.not.equal(commentInPendingApproval.cid);
+        it(`pending comment should not appear in community.lastPostCid or community.lastCommentCid`, async () => {
+            expect(community.lastPostCid).to.not.equal(commentInPendingApproval.cid);
+            expect(community.lastCommentCid).to.not.equal(commentInPendingApproval.cid);
         });
 
         if (commentInPendingApprovalDepth === 0)
-            it(`pending post should not appear in subplebbit.postUpdates`, async () => {
-                expect(subplebbit.postUpdates).to.be.undefined;
+            it(`pending post should not appear in community.postUpdates`, async () => {
+                expect(community.postUpdates).to.be.undefined;
             });
 
         it.sequential("pending approval comments do not affect number/postNumber for later approved posts", async () => {
             const approvedPost = await publishRandomPost({
-                communityAddress: subplebbit.address,
-                plebbit: remotePKC,
+                communityAddress: community.address,
+                pkc: remotePKC,
                 postProps: { signer: modSigner }
             });
-            const approvedPostWithUpdate = await getCommentWithCommentUpdateProps({ cid: approvedPost.cid!, plebbit });
+            const approvedPostWithUpdate = await getCommentWithCommentUpdateProps({ cid: approvedPost.cid!, pkc });
             const expectedCommentNumber = commentInPendingApprovalDepth + 1;
             const expectedPostNumber = commentInPendingApprovalDepth === 0 ? 1 : 2;
 
@@ -143,7 +143,7 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
         });
 
         it(`Should not be able to publish a vote under a pending comment`, async () => {
-            const vote = await generateMockVote(commentInPendingApproval as CommentIpfsWithCidDefined, 1, plebbit);
+            const vote = await generateMockVote(commentInPendingApproval as CommentIpfsWithCidDefined, 1, pkc);
             await publishWithExpectedResult({
                 publication: vote,
                 expectedChallengeSuccess: false,
@@ -151,7 +151,7 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
             });
         });
         it(`should not be able to publish a non-delete CommentEdit under a pending comment`, async () => {
-            const edit = await plebbit.createCommentEdit({
+            const edit = await pkc.createCommentEdit({
                 communityAddress: commentInPendingApproval.communityAddress,
                 commentCid: commentInPendingApproval.cid!,
                 reason: "random reason should fail",
@@ -165,7 +165,7 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
             });
         });
         it(`Should not be able to publish a reply under a pending comment`, async () => {
-            const reply = await generateMockComment(commentInPendingApproval as CommentIpfsWithCidDefined, plebbit, false);
+            const reply = await generateMockComment(commentInPendingApproval as CommentIpfsWithCidDefined, pkc, false);
             await publishWithExpectedResult({
                 publication: reply,
                 expectedChallengeSuccess: false,
@@ -174,7 +174,7 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
         });
 
         itSkipIfRpc(`Pending comment should not be pinned in ipfs node`, async () => {
-            const kuboRpc = Object.values(plebbit.clients.kuboRpcClients)[0]._client;
+            const kuboRpc = Object.values(pkc.clients.kuboRpcClients)[0]._client;
 
             // Collect all pinned CIDs
             for await (const pin of kuboRpc.pin.ls()) {
@@ -184,38 +184,34 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
 
         if (commentInPendingApprovalDepth > 0) {
             it.sequential(`pending approval reply does not show up in parentComment.replyCount`, async () => {
-                expect((await getCommentWithCommentUpdateProps({ cid: commentInPendingApproval.parentCid!, plebbit })).replyCount).to.equal(
-                    0
-                );
+                expect((await getCommentWithCommentUpdateProps({ cid: commentInPendingApproval.parentCid!, pkc })).replyCount).to.equal(0);
             });
 
             it.sequential(`pending approval reply does not show up in parentComment.childCount`, async () => {
-                expect((await getCommentWithCommentUpdateProps({ cid: commentInPendingApproval.parentCid!, plebbit })).childCount).to.equal(
-                    0
-                );
+                expect((await getCommentWithCommentUpdateProps({ cid: commentInPendingApproval.parentCid!, pkc })).childCount).to.equal(0);
             });
 
             it.sequential(`pending approval reply does not show up in parentComment.lastChildCid`, async () => {
-                expect((await getCommentWithCommentUpdateProps({ cid: commentInPendingApproval.parentCid!, plebbit })).lastChildCid).to.be
+                expect((await getCommentWithCommentUpdateProps({ cid: commentInPendingApproval.parentCid!, pkc })).lastChildCid).to.be
                     .undefined;
             });
             it.sequential(`pending approval reply does not show up in parentComment.lastReplyTimestamp`, async () => {
-                expect((await getCommentWithCommentUpdateProps({ cid: commentInPendingApproval.parentCid!, plebbit })).lastReplyTimestamp)
-                    .to.be.undefined;
+                expect((await getCommentWithCommentUpdateProps({ cid: commentInPendingApproval.parentCid!, pkc })).lastReplyTimestamp).to.be
+                    .undefined;
             });
         }
         if (commentInPendingApprovalDepth === 0)
-            it.sequential(`pending approval post does not show up in subplebbit.lastPostCid`, async () => {
-                expect(subplebbit.lastPostCid).to.not.equal(commentInPendingApproval.cid);
+            it.sequential(`pending approval post does not show up in community.lastPostCid`, async () => {
+                expect(community.lastPostCid).to.not.equal(commentInPendingApproval.cid);
             });
 
-        it.sequential(`pending approval comment does not show up in subplebbit.lastCommentCid`, async () => {
-            expect(subplebbit.lastCommentCid).to.not.equal(commentInPendingApproval.cid);
+        it.sequential(`pending approval comment does not show up in community.lastCommentCid`, async () => {
+            expect(community.lastCommentCid).to.not.equal(commentInPendingApproval.cid);
         });
 
-        it.sequential(`A pending approval comment will not show up in subplebbit.posts`, async () => {
+        it.sequential(`A pending approval comment will not show up in community.posts`, async () => {
             let foundInPosts = false;
-            processAllCommentsRecursively(subplebbit.posts.pages.hot?.comments || [], (comment) => {
+            processAllCommentsRecursively(community.posts.pages.hot?.comments || [], (comment) => {
                 if (comment.cid === commentInPendingApproval.cid) {
                     foundInPosts = true;
                     return;
@@ -224,14 +220,14 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
             expect(foundInPosts).to.be.false;
 
             await forceLocalSubPagesToAlwaysGenerateMultipleChunks({
-                subplebbit,
-                subplebbitPostsCommentProps: { signer: modSigner, communityAddress: subplebbit.address }
-            }); // the goal of this is to force the subplebbit.posts to have all pages and page.cids
+                community,
+                communityPostsCommentProps: { signer: modSigner, communityAddress: community.address }
+            }); // the goal of this is to force the community.posts to have all pages and page.cids
 
-            expect(subplebbit.posts.pageCids).to.not.deep.equal({}); // should not be empty
+            expect(community.posts.pageCids).to.not.deep.equal({}); // should not be empty
 
-            for (const pageCid of Object.values(subplebbit.posts.pageCids)) {
-                const pageComments = await loadAllPages(pageCid, subplebbit.posts);
+            for (const pageCid of Object.values(community.posts.pageCids)) {
+                const pageComments = await loadAllPages(pageCid, community.posts);
                 expect(pageComments.length).to.be.greaterThan(0);
 
                 processAllCommentsRecursively(pageComments, (comment) => {
@@ -246,7 +242,7 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
 
         if (commentInPendingApprovalDepth > 0)
             itSkipIfRpc.sequential("A pending approval comment will not show up in parentComment.replies", async () => {
-                const parentComment = await plebbit.getComment({ cid: commentInPendingApproval.parentCid! });
+                const parentComment = await pkc.getComment({ cid: commentInPendingApproval.parentCid! });
                 await parentComment.update();
                 await resolveWhenConditionIsTrue({ toUpdate: parentComment, predicate: async () => Boolean(parentComment.updatedAt) });
                 let foundInReplies = false;
@@ -259,7 +255,7 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
                 expect(foundInReplies).to.be.false;
 
                 const { cleanup } = await forceLocalSubPagesToAlwaysGenerateMultipleChunks({
-                    subplebbit,
+                    community,
                     parentComment,
                     parentCommentReplyProps: { signer: modSigner }
                 });
@@ -285,11 +281,11 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
             });
         if (commentInPendingApprovalDepth > 0)
             itSkipIfRpc.sequential(`A pending approval comment will not show up in flat pages of post`, async () => {
-                const postComment = await plebbit.getComment({ cid: commentInPendingApproval.postCid! });
+                const postComment = await pkc.getComment({ cid: commentInPendingApproval.postCid! });
                 await postComment.update();
                 await resolveWhenConditionIsTrue({ toUpdate: postComment, predicate: async () => Boolean(postComment.updatedAt) });
                 const { cleanup } = await forceLocalSubPagesToAlwaysGenerateMultipleChunks({
-                    subplebbit,
+                    community,
                     parentComment: postComment,
                     parentCommentReplyProps: { signer: modSigner }
                 });
@@ -322,7 +318,7 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
         });
 
         it.sequential(`Author should be able to delete own pending comment and it should be purged immediately`, async () => {
-            const deleteEdit = await plebbit.createCommentEdit({
+            const deleteEdit = await pkc.createCommentEdit({
                 communityAddress: commentInPendingApproval.communityAddress,
                 commentCid: commentInPendingApproval.cid!,
                 deleted: true,
@@ -336,10 +332,10 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
 
             // Verify the comment has been purged from the mod queue
             await resolveWhenConditionIsTrue({
-                toUpdate: subplebbit,
-                predicate: async () => !subplebbit.modQueue.pageCids?.pendingApproval
+                toUpdate: community,
+                predicate: async () => !community.modQueue.pageCids?.pendingApproval
             });
-            expect(subplebbit.modQueue.pageCids?.pendingApproval).to.be.undefined;
+            expect(community.modQueue.pageCids?.pendingApproval).to.be.undefined;
         });
     });
 }

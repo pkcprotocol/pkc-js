@@ -17,7 +17,7 @@ describeSkipIfRpc(`nameResolver abortSignal support`, async () => {
         const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
-            plebbitOptions: {
+            pkcOptions: {
                 nameResolvers: [
                     {
                         key: "signal-resolver",

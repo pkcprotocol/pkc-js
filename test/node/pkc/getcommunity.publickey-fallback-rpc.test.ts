@@ -15,7 +15,7 @@ import type { InputPKCOptions } from "../../../dist/node/types.js";
 
 type PKCWsServerType = Awaited<ReturnType<typeof PKCWsServer.PKCWsServer>>;
 
-const RPC_AUTH_KEY = "test-getsubplebbit-publickey-fallback";
+const RPC_AUTH_KEY = "test-getcommunity-publickey-fallback";
 
 const getAvailablePort = async (): Promise<number> =>
     new Promise<number>((resolve, reject) => {
@@ -38,7 +38,7 @@ const createResolverLimitedNameResolvers = () => [
     })
 ];
 
-describe("plebbit.getCommunity publicKey fallback over RPC", () => {
+describe("pkc.getCommunity publicKey fallback over RPC", () => {
     let rpcServer: PKCWsServerType;
     let serverPKC: PKCType;
     let rpcUrl: string;
@@ -47,7 +47,7 @@ describe("plebbit.getCommunity publicKey fallback over RPC", () => {
     beforeAll(async () => {
         dataPath = path.join(
             process.cwd(),
-            `.plebbit-rpc-getsubplebbit-publickey-fallback-test-${Date.now()}-${Math.floor(Math.random() * 100000)}`
+            `.pkc-rpc-getcommunity-publickey-fallback-test-${Date.now()}-${Math.floor(Math.random() * 100000)}`
         );
         serverPKC = await mockRpcServerPKC({
             dataPath,
@@ -60,7 +60,7 @@ describe("plebbit.getCommunity publicKey fallback over RPC", () => {
         rpcServer = await PKCWsServer.PKCWsServer({
             port: rpcPort,
             authKey: RPC_AUTH_KEY,
-            plebbitOptions: {
+            pkcOptions: {
                 kuboRpcClientsOptions: ["http://localhost:15001/api/v0"],
                 httpRoutersOptions: [],
                 dataPath: serverPKC.dataPath
@@ -92,11 +92,11 @@ describe("plebbit.getCommunity publicKey fallback over RPC", () => {
         clientPKC.on("error", () => {});
 
         try {
-            const { communityAddress: subplebbitAddress } = await createMockedCommunityIpns({});
-            const sub = await clientPKC.getCommunity({ name: "test.sol", publicKey: subplebbitAddress });
+            const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
+            const sub = await clientPKC.getCommunity({ name: "test.sol", publicKey: communityAddress });
 
             expect(sub.address).to.equal("test.sol");
-            expect(sub.publicKey).to.equal(subplebbitAddress);
+            expect(sub.publicKey).to.equal(communityAddress);
             expect(sub.updatedAt).to.be.a("number");
             expect(sub.nameResolved).to.equal(false);
             expect(sub.state).to.equal("stopped");

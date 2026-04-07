@@ -27,7 +27,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         it(`modQueue.getPage will throw if retrieved page is not equivalent to its CID - IPFS Gateway`, async () => {
             const gatewayUrl = "http://localhost:13415"; // a gateway that's gonna respond with invalid content
             const pkc: PKCType = await mockGatewayPKC({
-                plebbitOptions: { ipfsGatewayUrls: [gatewayUrl], validatePages: true }
+                pkcOptions: { ipfsGatewayUrls: [gatewayUrl], validatePages: true }
             });
 
             try {
@@ -51,7 +51,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent("modQueue.getPage - " + config.name, () => {
         itSkipIfRpc(`community.modQueue.getPage will throw if retrieved page has a comment with an signature `, async () => {
-            const pkc: PKCType = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: true } });
+            const pkc: PKCType = await config.pkcInstancePromise({ pkcOptions: { validatePages: true } });
 
             try {
                 const sub = await pkc.createCommunity({ address: communityAddressOfFixture });
@@ -77,7 +77,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         itSkipIfRpc("Should fail getPage if a modqueue comment belongs to a different sub", async () => {
             // TODO: Ensure cross-sub comments cannot appear under another sub's modqueue
             // and that the operation fails or rejects with an appropriate error
-            const pkc: PKCType = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: true } });
+            const pkc: PKCType = await config.pkcInstancePromise({ pkcOptions: { validatePages: true } });
 
             try {
                 const sub = await pkc.createCommunity({ address: communityAddressOfFixture });
@@ -100,7 +100,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         itSkipIfRpc("fails validation when calculated CID of CommentIpfs doesn't match commentUpdate.cid", async () => {
-            const pkc: PKCType = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: true } });
+            const pkc: PKCType = await config.pkcInstancePromise({ pkcOptions: { validatePages: true } });
 
             try {
                 const sub = await pkc.createCommunity({ address: communityAddressOfFixture });
@@ -123,7 +123,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         itSkipIfRpc("fails validation when a post has parentCid defined", async () => {
-            const pkc: PKCType = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: true } });
+            const pkc: PKCType = await config.pkcInstancePromise({ pkcOptions: { validatePages: true } });
 
             try {
                 const invalidPage = JSON.parse(JSON.stringify(validModQueuePage));
@@ -158,7 +158,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         itSkipIfRpc(`Fails validation when pending posts have postCid defined`, async () => {
-            const pkc: PKCType = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: true } });
+            const pkc: PKCType = await config.pkcInstancePromise({ pkcOptions: { validatePages: true } });
 
             try {
                 const invalidPage = JSON.parse(JSON.stringify(validModQueuePage));
@@ -190,7 +190,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         itSkipIfRpc(`modQueue.getPage will throw if the first page is over 1mb`, async () => {
-            const pkc: PKCType = await config.plebbitInstancePromise({ plebbitOptions: { validatePages: true } });
+            const pkc: PKCType = await config.pkcInstancePromise({ pkcOptions: { validatePages: true } });
 
             try {
                 const community = await pkc.createCommunity({ address: communityAddressOfFixture });
@@ -226,7 +226,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         itSkipIfRpc("modQueue.getPage will throw a timeout error when request times out", async () => {
             // Create a pkc instance with a very short timeout for page-ipfs
-            const pkc: PKCType = await config.plebbitInstancePromise();
+            const pkc: PKCType = await config.pkcInstancePromise();
 
             try {
                 pkc._timeouts["page-ipfs"] = 100;

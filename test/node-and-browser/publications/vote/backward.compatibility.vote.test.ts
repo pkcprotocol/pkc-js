@@ -25,8 +25,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let pkc: PKC;
         let commentToVoteOn: Comment;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
-            commentToVoteOn = await publishRandomPost({ communityAddress: signers[0].address, plebbit: pkc });
+            pkc = await config.pkcInstancePromise();
+            commentToVoteOn = await publishRandomPost({ communityAddress: signers[0].address, pkc: pkc });
         });
 
         afterAll(async () => {
@@ -122,7 +122,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     {
                         author: {
                             ...(vote.raw.pubsubMessageToPublish?.author ?? (vote.raw as any).unsignedPublicationOptions?.author),
-                            subplebbit: "random"
+                            community: "random"
                         }
                     },
                     true
@@ -138,7 +138,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     expectedReason: messages.ERR_PUBLICATION_AUTHOR_HAS_RESERVED_FIELD
                 });
                 const challengeRequest = await challengeRequestPromise;
-                expect(challengeRequest.vote.author.subplebbit).to.equal("random");
+                expect(challengeRequest.vote.author.community).to.equal("random");
             });
             it(`Publishing with extra prop for author should succeed`, async () => {
                 const vote = await generateMockVote(commentToVoteOn as unknown as CommentIpfsWithCidDefined, 1, pkc);

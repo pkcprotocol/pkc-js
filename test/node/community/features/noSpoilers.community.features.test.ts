@@ -16,35 +16,35 @@ import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-loca
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 
-describe.concurrent(`subplebbit.features.noSpoilers`, async () => {
-    let plebbit: PKC;
+describe.concurrent(`community.features.noSpoilers`, async () => {
+    let pkc: PKC;
     let remotePKC: PKC;
-    let subplebbit: LocalCommunity | RpcLocalCommunity;
+    let community: LocalCommunity | RpcLocalCommunity;
     let publishedPost: Comment;
 
     beforeAll(async () => {
-        plebbit = await mockPKC();
+        pkc = await mockPKC();
         remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
-        subplebbit = await createSubWithNoChallenge({}, plebbit);
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+        community = await createSubWithNoChallenge({}, pkc);
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
         // Publish a post first (before enabling the feature)
-        publishedPost = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: remotePKC });
+        publishedPost = await publishRandomPost({ communityAddress: community.address, pkc: remotePKC });
     });
 
     afterAll(async () => {
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
         await remotePKC.destroy();
     });
 
     it.sequential(`Feature is updated correctly in props`, async () => {
-        expect(subplebbit.features).to.be.undefined;
-        await subplebbit.edit({ features: { ...subplebbit.features, noSpoilers: true } });
-        expect(subplebbit.features?.noSpoilers).to.be.true;
+        expect(community.features).to.be.undefined;
+        await community.edit({ features: { ...community.features, noSpoilers: true } });
+        expect(community.features?.noSpoilers).to.be.true;
 
-        const remoteSub = await remotePKC.getCommunity({ address: subplebbit.address });
+        const remoteSub = await remotePKC.getCommunity({ address: community.address });
         await remoteSub.update();
         await resolveWhenConditionIsTrue({ toUpdate: remoteSub, predicate: async () => remoteSub.features?.noSpoilers === true });
         expect(remoteSub.features?.noSpoilers).to.be.true;
@@ -53,8 +53,8 @@ describe.concurrent(`subplebbit.features.noSpoilers`, async () => {
 
     it(`Can't publish a post with spoiler=true`, async () => {
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: {
                 content: "Spoiler content",
                 spoiler: true
@@ -81,8 +81,8 @@ describe.concurrent(`subplebbit.features.noSpoilers`, async () => {
 
     it(`Can publish a post without spoiler`, async () => {
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: {
                 content: "Normal content"
             }
@@ -92,8 +92,8 @@ describe.concurrent(`subplebbit.features.noSpoilers`, async () => {
 
     it(`Can publish a post with spoiler=false`, async () => {
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: {
                 content: "Normal content",
                 spoiler: false
@@ -106,7 +106,7 @@ describe.concurrent(`subplebbit.features.noSpoilers`, async () => {
         const commentEdit = await remotePKC.createCommentEdit({
             commentCid: publishedPost.cid!,
             spoiler: true,
-            communityAddress: subplebbit.address,
+            communityAddress: community.address,
             signer: publishedPost.signer
         });
         await publishWithExpectedResult({

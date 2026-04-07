@@ -32,7 +32,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`pkc.createComment - Remote (${config.name})`, async () => {
         let pkc: PKC;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
@@ -65,7 +65,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can recreate a stringifed local Comment instance before publishing with pkc.createComment`, async () => {
-            const localComment = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
+            const localComment = await generateMockPost({ communityAddress: communityAddress, pkc: pkc });
             const commentClone = await pkc.createComment(JSON.parse(JSON.stringify(localComment)));
             const commentCloneJson = jsonifyCommentAndRemoveInstanceProps(commentClone);
             const localCommentJson = jsonifyCommentAndRemoveInstanceProps(localComment);
@@ -97,10 +97,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can recreate a stringifed local Comment instance after publishing with pkc.createComment`, async () => {
-            const localComment = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
-            expect(localComment.author.subplebbit).to.be.a("object"); // should get it from subplebbit
+            const localComment = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
+            expect(localComment.author.community).to.be.a("object"); // should get it from subplebbit
             const commentClone = await pkc.createComment(JSON.parse(JSON.stringify(localComment)));
-            expect(commentClone.author.subplebbit).to.be.a("object"); // should get it from subplebbit
+            expect(commentClone.author.community).to.be.a("object"); // should get it from subplebbit
             const commentCloneJson = jsonifyCommentAndRemoveInstanceProps(commentClone);
             const localCommentJson = jsonifyCommentAndRemoveInstanceProps(localComment);
 
@@ -108,7 +108,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can recreate a stringified local comment instance after comment.update() with pkc.createComment`, async () => {
-            const localComment = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            const localComment = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
             await localComment.update();
             await resolveWhenConditionIsTrue({ toUpdate: localComment, predicate: async () => typeof localComment.updatedAt === "number" });
             await localComment.stop();
@@ -218,7 +218,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can recreate a stringified Post instance with pkc.createComment`, async () => {
-            const post = await generateMockPost({ communityAddress: communityAddress, plebbit: pkc });
+            const post = await generateMockPost({ communityAddress: communityAddress, pkc: pkc });
             const postFromStringifiedPost = await pkc.createComment(JSON.parse(JSON.stringify(post)));
             const postJson = jsonifyCommentAndRemoveInstanceProps(post);
             const postFromStringifiedPostJson = jsonifyCommentAndRemoveInstanceProps(postFromStringifiedPost);
@@ -226,9 +226,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential("comment instance created with {communityAddress, cid, depth, postCid} prop can call getPage", async () => {
-            const post = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+            const post = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
             expect(post.replies).to.be.a("object");
-            await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: pkc });
+            await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, pkc: pkc });
             await post.update();
             await resolveWhenConditionIsTrue({ toUpdate: post, predicate: async () => post.replyCount >= 1 });
             expect(post.content).to.be.a("string");
@@ -261,7 +261,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             // it should delete author.shortAddress before publishing however
             const comment = await generateMockPost({
                 communityAddress: communityAddress,
-                plebbit: pkc,
+                pkc: pkc,
                 postProps: { author: { shortAddress: "12345" } }
             });
             expect(comment.author.shortAddress).to.be.a("string").and.not.equal("12345");
@@ -275,14 +275,14 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             // it should delete author.sublebbit before publishing however
             const comment = await generateMockPost({
                 communityAddress: communityAddress,
-                plebbit: pkc,
-                postProps: { author: { subplebbit: { postScore: 100 } } }
+                pkc: pkc,
+                postProps: { author: { community: { postScore: 100 } } }
             });
-            expect(comment.author.subplebbit).to.be.undefined;
+            expect(comment.author.community).to.be.undefined;
             await publishWithExpectedResult({ publication: comment, expectedChallengeSuccess: true });
 
             const commentLoaded = await pkc.getComment({ cid: comment.cid });
-            expect(commentLoaded.author.subplebbit).to.be.undefined;
+            expect(commentLoaded.author.community).to.be.undefined;
         });
 
         it(`Can create comment with {communityAddress: string, cid: string}`, async () => {
@@ -362,7 +362,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await community.update();
             await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
-            expect(pkc._updatingCommunitys[community.address]).to.be.ok;
+            expect(pkc._updatingCommunities[community.address]).to.be.ok;
 
             const postCid = community.posts.pages.hot.comments[0].cid;
 
@@ -381,7 +381,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     // TODO how do you guarantee reply with this depth will be there?
 
                     const parentComment = await findOrPublishCommentWithDepth({
-                        subplebbit: await pkc.getCommunity({ address: communityAddress }),
+                        community: await pkc.getCommunity({ address: communityAddress }),
                         depth: replyDepth - 1
                     });
                     await parentComment.update();
@@ -392,7 +392,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
                     expect(pkc._updatingComments[parentComment.cid!]).to.be.ok;
 
-                    const reply = await publishRandomReply({ parentComment: parentComment as CommentIpfsWithCidDefined, plebbit: pkc });
+                    const reply = await publishRandomReply({ parentComment: parentComment as CommentIpfsWithCidDefined, pkc: pkc });
 
                     await waitTillReplyInParentPages(reply as CommentWithRequiredFields, pkc);
                     const replyInPage = await findReplyInParentCommentPagesInstancePreloadedAndPageCids({

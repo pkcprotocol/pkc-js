@@ -217,7 +217,7 @@ export function doesDomainAddressHaveCapitalLetter(domainAddress: string) {
 }
 
 export function getPostUpdateTimestampRange(postUpdates: CommunityIpfsType["postUpdates"], postTimestamp: number) {
-    if (!postUpdates) throw Error("subplebbit has no post updates");
+    if (!postUpdates) throw Error("community has no post updates");
     if (!postTimestamp) throw Error("post has no timestamp");
     return (
         remeda.keys
@@ -553,52 +553,52 @@ export async function resolveWhenPredicateIsTrue(options: {
     });
 }
 
-export async function waitForUpdateInSubInstanceWithErrorAndTimeout(subplebbit: RemoteCommunity, timeoutMs: number) {
-    const wasUpdating = subplebbit.state === "updating";
+export async function waitForUpdateInSubInstanceWithErrorAndTimeout(community: RemoteCommunity, timeoutMs: number) {
+    const wasUpdating = community.state === "updating";
     const updatingStates: RemoteCommunity["updatingState"][] = [];
     const updatingStateChangeListener = (state: RemoteCommunity["updatingState"]) => updatingStates.push(state);
-    subplebbit.on("updatingstatechange", updatingStateChangeListener);
-    // Wait specifically for subplebbitIpfs to be defined — intermediate "update" events
+    community.on("updatingstatechange", updatingStateChangeListener);
+    // Wait specifically for communityIpfs to be defined — intermediate "update" events
     // (e.g. resetInstance, toJSONInternalRpcBeforeFirstUpdate) may fire without it
     let updateListener: (() => void) | undefined;
     const updatePromise = new Promise<void>((resolve) => {
         updateListener = () => {
-            if (subplebbit.raw.subplebbitIpfs) {
-                subplebbit.removeListener("update", updateListener!);
+            if (community.raw.communityIpfs) {
+                community.removeListener("update", updateListener!);
                 resolve();
             }
         };
-        subplebbit.on("update", updateListener);
+        community.on("update", updateListener);
     });
     let updateError: PKCError | Error | undefined;
     const errorListener = (err: PKCError | Error) => (updateError = err);
-    subplebbit.on("error", errorListener);
+    community.on("error", errorListener);
     try {
-        if (subplebbit.state !== "started") await subplebbit.update();
-        await pTimeout(Promise.race([updatePromise, new Promise((resolve) => subplebbit.once("error", resolve))]), {
+        if (community.state !== "started") await community.update();
+        await pTimeout(Promise.race([updatePromise, new Promise((resolve) => community.once("error", resolve))]), {
             milliseconds: timeoutMs,
             message:
                 updateError ||
                 new PKCError("ERR_GET_COMMUNITY_TIMED_OUT", {
-                    subplebbitAddress: subplebbit.address,
+                    communityAddress: community.address,
                     timeoutMs,
                     error: updateError,
                     updatingStates,
-                    subplebbit
+                    community
                 })
         });
         if (updateError) throw updateError;
     } catch (e) {
         if (updateError) throw updateError;
-        const updatingCommunity = findUpdatingCommunity(subplebbit._plebbit, { address: subplebbit.address });
+        const updatingCommunity = findUpdatingCommunity(community._pkc, { address: community.address });
         if (updatingCommunity?._clientsManager._ipnsLoadingOperation?.mainError())
             throw updatingCommunity._clientsManager._ipnsLoadingOperation.mainError();
         throw e;
     } finally {
-        if (updateListener) subplebbit.removeListener("update", updateListener);
-        subplebbit.removeListener("error", errorListener);
-        subplebbit.removeListener("updatingstatechange", updatingStateChangeListener);
-        if (!wasUpdating && subplebbit.state !== "started") await subplebbit.stop();
+        if (updateListener) community.removeListener("update", updateListener);
+        community.removeListener("error", errorListener);
+        community.removeListener("updatingstatechange", updatingStateChangeListener);
+        if (!wasUpdating && community.state !== "started") await community.stop();
     }
 }
 

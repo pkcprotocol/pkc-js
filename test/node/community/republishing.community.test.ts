@@ -22,44 +22,44 @@ import type { Comment } from "../../../dist/node/publications/comment/comment.js
 import type { CommentIpfsWithCidDefined } from "../../../dist/node/publications/comment/types.js";
 import type { CreateNewLocalCommunityUserOptions } from "../../../dist/node/community/types.js";
 
-// This test file will be focused on republishing of comments/subplebbit/commentupdate/pages to the network
+// This test file will be focused on republishing of comments/community/commentupdate/pages to the network
 // if the ipfs repo is lost, the sub should re-publish everything again
 // Part of that is re-constructing commentIpfs which is something will we will be testing for
 
 describeSkipIfRpc(`Migration to a new IPFS repo`, async () => {
     let subBeforeMigration: LocalCommunity | RpcLocalCommunity;
     let subAfterMigration: LocalCommunity | RpcLocalCommunity;
-    let plebbitDifferentIpfs: PKCType;
+    let pkcDifferentIpfs: PKCType;
     let remotePKC: PKCType;
     let postWithExtraProps: Comment;
     beforeAll(async () => {
-        const plebbit = await mockPKC();
-        subBeforeMigration = await createSubWithNoChallenge({}, plebbit);
+        const pkc = await mockPKC();
+        subBeforeMigration = await createSubWithNoChallenge({}, pkc);
         await subBeforeMigration.start();
         await resolveWhenConditionIsTrue({
             toUpdate: subBeforeMigration,
             predicate: async () => typeof subBeforeMigration.updatedAt === "number"
         });
-        const post = await publishRandomPost({ communityAddress: subBeforeMigration.address, plebbit: plebbit });
-        await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, plebbit: plebbit });
+        const post = await publishRandomPost({ communityAddress: subBeforeMigration.address, pkc: pkc });
+        await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, pkc: pkc });
         // publish a post with extra prop here
-        postWithExtraProps = await generateMockPost({ communityAddress: subBeforeMigration.address, plebbit: plebbit });
+        postWithExtraProps = await generateMockPost({ communityAddress: subBeforeMigration.address, pkc: pkc });
         const extraProps = { extraProp: "1234" };
         await setExtraPropOnCommentAndSign(postWithExtraProps, extraProps, true);
 
         await publishWithExpectedResult({ publication: postWithExtraProps, expectedChallengeSuccess: true });
         const replyOfPostWithExtraProps = await publishRandomReply({
             parentComment: postWithExtraProps as CommentIpfsWithCidDefined,
-            plebbit: plebbit
+            pkc: pkc
         });
 
         await subBeforeMigration.stop();
 
-        plebbitDifferentIpfs = await mockPKC({ kuboRpcClientsOptions: ["http://localhost:15004/api/v0"] }); // Different IPFS repo
+        pkcDifferentIpfs = await mockPKC({ kuboRpcClientsOptions: ["http://localhost:15004/api/v0"] }); // Different IPFS repo
 
         subAfterMigration = await createSubWithNoChallenge(
             { address: subBeforeMigration.address } as CreateNewLocalCommunityUserOptions,
-            plebbitDifferentIpfs
+            pkcDifferentIpfs
         );
         expect(subAfterMigration.updatedAt).to.equal(subBeforeMigration.updatedAt);
         await subAfterMigration.start(); // should migrate everything here
@@ -71,11 +71,11 @@ describeSkipIfRpc(`Migration to a new IPFS repo`, async () => {
         expect(subAfterMigration.lastPostCid).to.equal(postWithExtraProps.cid);
         expect(subAfterMigration.lastCommentCid).to.equal(replyOfPostWithExtraProps.cid);
 
-        // remote plebbit has to be the same repo otherwise it won't find the new IPNS record
+        // remote pkc has to be the same repo otherwise it won't find the new IPNS record
         remotePKC = await mockPKCNoDataPathWithOnlyKuboClient({
-            plebbitOptions: { kuboRpcClientsOptions: ["http://localhost:15004/api/v0"] }
+            pkcOptions: { kuboRpcClientsOptions: ["http://localhost:15004/api/v0"] }
         });
-        // remote plebbit is connected to the old ipfs repo and has the old IPNS record, not sure how to force it to load the new one
+        // remote pkc is connected to the old ipfs repo and has the old IPNS record, not sure how to force it to load the new one
 
         const remoteCommunity = await remotePKC.getCommunity({ address: subAfterMigration.address });
         expect(remoteCommunity.lastPostCid).to.equal(postWithExtraProps.cid);
@@ -86,7 +86,7 @@ describeSkipIfRpc(`Migration to a new IPFS repo`, async () => {
 
     afterAll(async () => {
         await subAfterMigration.delete();
-        await plebbitDifferentIpfs.destroy();
+        await pkcDifferentIpfs.destroy();
         await remotePKC.destroy();
     });
 
@@ -94,7 +94,7 @@ describeSkipIfRpc(`Migration to a new IPFS repo`, async () => {
         const subLoaded = await remotePKC.getCommunity({ address: subAfterMigration.address });
         expect(subLoaded).to.be.a("object");
         expect(subLoaded.posts).to.be.a("object");
-        // If we can load the subplebbit IPNS that means it has been republished by the new IPFS repo
+        // If we can load the community IPNS that means it has been republished by the new IPFS repo
     });
 
     it(`Posts' IPFS are repinned`, async () => {

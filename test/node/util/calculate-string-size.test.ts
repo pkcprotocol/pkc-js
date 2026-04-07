@@ -49,16 +49,16 @@ function generateRandomUtf8String(): string {
 }
 
 describeSkipIfRpc("calculateStringSize matches kubo add sizes", function () {
-    let plebbit: PKC;
+    let pkc: PKC;
     let kuboClient: KuboRpcClient["_client"];
 
     beforeAll(async () => {
-        plebbit = await mockPKCNoDataPathWithOnlyKuboClient();
-        kuboClient = plebbit._clientsManager.getDefaultKuboRpcClient()!._client;
+        pkc = await mockPKCNoDataPathWithOnlyKuboClient();
+        kuboClient = pkc._clientsManager.getDefaultKuboRpcClient()!._client;
     });
 
     afterAll(async () => {
-        if (plebbit) await plebbit.destroy();
+        if (pkc) await pkc.destroy();
     });
 
     it("matches kubo's /api/v0/add sizes for deterministic edge cases and 20 random strings", async () => {

@@ -13,31 +13,31 @@ import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
 
-describe.concurrent(`subplebbit.features.requirePostLinkIsMedia (with requirePostLink=true)`, async () => {
-    let plebbit: PKC;
+describe.concurrent(`community.features.requirePostLinkIsMedia (with requirePostLink=true)`, async () => {
+    let pkc: PKC;
     let remotePKC: PKC;
-    let subplebbit: LocalCommunity | RpcLocalCommunity;
+    let community: LocalCommunity | RpcLocalCommunity;
     beforeAll(async () => {
-        plebbit = await mockPKC();
+        pkc = await mockPKC();
         remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
-        subplebbit = await createSubWithNoChallenge({}, plebbit);
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+        community = await createSubWithNoChallenge({}, pkc);
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
     });
 
     afterAll(async () => {
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
         await remotePKC.destroy();
     });
 
     it.sequential(`Feature is updated correctly in props`, async () => {
-        expect(subplebbit.features).to.be.undefined;
-        await subplebbit.edit({ features: { ...subplebbit.features, requirePostLink: true, requirePostLinkIsMedia: true } });
+        expect(community.features).to.be.undefined;
+        await community.edit({ features: { ...community.features, requirePostLink: true, requirePostLinkIsMedia: true } });
 
-        expect(subplebbit.features?.requirePostLinkIsMedia).to.be.true;
-        expect(subplebbit.features?.requirePostLink).to.be.true;
-        const remoteSub = await remotePKC.getCommunity({ address: subplebbit.address });
+        expect(community.features?.requirePostLinkIsMedia).to.be.true;
+        expect(community.features?.requirePostLink).to.be.true;
+        const remoteSub = await remotePKC.getCommunity({ address: community.address });
         await remoteSub.update();
         await resolveWhenConditionIsTrue({
             toUpdate: remoteSub,
@@ -50,7 +50,7 @@ describe.concurrent(`subplebbit.features.requirePostLinkIsMedia (with requirePos
 
     it(`Can't publish a post with invalid link`, async () => {
         const invalidUrl = "test.com"; // invalid because it has no protocol
-        const post = await generateMockPost({ communityAddress: subplebbit.address, plebbit: remotePKC });
+        const post = await generateMockPost({ communityAddress: community.address, pkc: remotePKC });
         await overrideCommentInstancePropsAndSign(post, { link: invalidUrl } as Parameters<typeof overrideCommentInstancePropsAndSign>[1]);
         expect(post.link).to.equal(invalidUrl);
         await publishWithExpectedResult({
@@ -63,8 +63,8 @@ describe.concurrent(`subplebbit.features.requirePostLinkIsMedia (with requirePos
     it(`Can't publish a post with link that isn't of a media`, async () => {
         const urlOfNotMedia = "https://google.com";
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: { link: urlOfNotMedia }
         });
         expect(post.link).to.equal(urlOfNotMedia);
@@ -77,8 +77,8 @@ describe.concurrent(`subplebbit.features.requirePostLinkIsMedia (with requirePos
     it(`Can publish a post with valid media link`, async () => {
         const validUrl = "https://img1.wsimg.com/isteam/ip/eb02f20b-e787-4a02-b188-d0fcbc250ba1/blob-6af1ead.png";
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: { link: validUrl }
         });
         expect(post.link).to.equal(validUrl);
@@ -87,42 +87,42 @@ describe.concurrent(`subplebbit.features.requirePostLinkIsMedia (with requirePos
     });
 });
 
-describe.concurrent(`subplebbit.features.requirePostLinkIsMedia (without requirePostLink)`, async () => {
-    let plebbit: PKC;
+describe.concurrent(`community.features.requirePostLinkIsMedia (without requirePostLink)`, async () => {
+    let pkc: PKC;
     let remotePKC: PKC;
-    let subplebbit: LocalCommunity | RpcLocalCommunity;
+    let community: LocalCommunity | RpcLocalCommunity;
     beforeAll(async () => {
-        plebbit = await mockPKC();
+        pkc = await mockPKC();
         remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
-        subplebbit = await createSubWithNoChallenge({}, plebbit);
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+        community = await createSubWithNoChallenge({}, pkc);
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
     });
 
     afterAll(async () => {
-        await subplebbit.delete();
-        await plebbit.destroy();
+        await community.delete();
+        await pkc.destroy();
         await remotePKC.destroy();
     });
 
     it.sequential(`Feature is updated correctly in props`, async () => {
-        expect(subplebbit.features).to.be.undefined;
-        await subplebbit.edit({ features: { ...subplebbit.features, requirePostLinkIsMedia: true } });
+        expect(community.features).to.be.undefined;
+        await community.edit({ features: { ...community.features, requirePostLinkIsMedia: true } });
 
-        expect(subplebbit.features?.requirePostLinkIsMedia).to.be.true;
-        expect(subplebbit.features?.requirePostLink).to.be.undefined;
+        expect(community.features?.requirePostLinkIsMedia).to.be.true;
+        expect(community.features?.requirePostLink).to.be.undefined;
     });
 
     it(`Can publish a post without a link`, async () => {
-        const post = await generateMockPost({ communityAddress: subplebbit.address, plebbit: remotePKC });
+        const post = await generateMockPost({ communityAddress: community.address, pkc: remotePKC });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
     });
 
     it(`Can't publish a post with non-media link`, async () => {
         const urlOfNotMedia = "https://google.com";
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: { link: urlOfNotMedia }
         });
         await publishWithExpectedResult({
@@ -135,8 +135,8 @@ describe.concurrent(`subplebbit.features.requirePostLinkIsMedia (without require
     it(`Can publish a post with valid media link`, async () => {
         const validUrl = "https://img1.wsimg.com/isteam/ip/eb02f20b-e787-4a02-b188-d0fcbc250ba1/blob-6af1ead.png";
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: { link: validUrl }
         });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });

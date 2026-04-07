@@ -18,8 +18,8 @@ import type { ChallengeVerificationMessageType, DecryptedChallengeMessageType } 
 import type { CommunityChallengeSetting } from "../../../../dist/node/community/types.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 
-describe.concurrent(`subplebbit.settings.challenges`, async () => {
-    let plebbit: PKCType;
+describe.concurrent(`community.settings.challenges`, async () => {
+    let pkc: PKCType;
     let remotePKC: PKCType;
     const defaultSettingsChallenges: CommunityChallengeSetting[] = [
         {
@@ -34,51 +34,51 @@ describe.concurrent(`subplebbit.settings.challenges`, async () => {
     const defaultChallengeTypes = ["text/plain"];
 
     beforeAll(async () => {
-        plebbit = await mockPKC();
+        pkc = await mockPKC();
         remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
         await remotePKC.destroy();
     });
 
-    it(`default challenges are configured on new subplebbit`, async () => {
-        // Should be set to default on subplebbit.start()
-        const subplebbit = (await plebbit.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
-        // subplebbit?.settings?.challenges should be set to defaultSettingsChallenges
-        // also subplebbit.challenges should reflect subplebbit.settings.challenges
-        expect(subplebbit?.settings?.challenges).to.deep.equal(defaultSettingsChallenges);
+    it(`default challenges are configured on new community`, async () => {
+        // Should be set to default on community.start()
+        const community = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
+        // community?.settings?.challenges should be set to defaultSettingsChallenges
+        // also community.challenges should reflect community.settings.challenges
+        expect(community?.settings?.challenges).to.deep.equal(defaultSettingsChallenges);
 
-        expect(subplebbit._usingDefaultChallenge).to.be.true;
+        expect(community._usingDefaultChallenge).to.be.true;
 
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
-        const remoteSub = (await remotePKC.getCommunity({ address: subplebbit.address })) as RemoteCommunity;
-        for (const _subplebbit of [subplebbit, remoteSub]) {
-            expect(_subplebbit.challenges!.length).to.equal(defaultSettingsChallenges.length);
-            _subplebbit.challenges!.forEach((challenge, index) => {
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+        const remoteSub = (await remotePKC.getCommunity({ address: community.address })) as RemoteCommunity;
+        for (const _community of [community, remoteSub]) {
+            expect(_community.challenges!.length).to.equal(defaultSettingsChallenges.length);
+            _community.challenges!.forEach((challenge, index) => {
                 expect(challenge.type).to.equal(defaultChallengeTypes[index]);
                 expect(challenge.description).to.equal(defaultChallengeDescriptions[index]);
                 expect(challenge.exclude).to.deep.equal(defaultSettingsChallenges[index].exclude);
             });
-            expect(_subplebbit.challenges![0].challenge).to.equal(defaultSettingsChallenges[0].options!.question);
+            expect(_community.challenges![0].challenge).to.equal(defaultSettingsChallenges[0].options!.question);
         }
         // clean up
-        await subplebbit.delete();
+        await community.delete();
     });
 
     it(`Default challenges reject authors with wrong answer`, async () => {
-        const subplebbit = (await plebbit.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+        const community = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
         const challengeVerificationPromise = new Promise<ChallengeVerificationMessageType>((resolve) =>
-            subplebbit.once("challengeverification", resolve)
+            community.once("challengeverification", resolve)
         );
         const post = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: remotePKC,
+            communityAddress: community.address,
+            pkc: remotePKC,
             postProps: { challengeRequest: { challengeAnswers: ["wrong answer"] } }
         });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: false });
@@ -87,62 +87,62 @@ describe.concurrent(`subplebbit.settings.challenges`, async () => {
         expect(challengeVerification.challengeErrors).to.not.equal(undefined);
         expect(Object.keys(challengeVerification.challengeErrors!)).to.have.members(["0"]);
         expect(challengeVerification.challengeErrors?.["0"]).to.equal("Wrong answer.");
-        await subplebbit.delete();
+        await community.delete();
     });
 
     it(`settings.challenges=[] means sub won't send a challenge`, async () => {
-        const subplebbit = (await plebbit.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
-        await subplebbit.edit({ settings: { challenges: [] } });
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
-        const post = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit }); // won't get a challenge
-        await waitTillPostInCommunityPages(post as Comment & { cid: string }, plebbit);
+        const community = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
+        await community.edit({ settings: { challenges: [] } });
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+        const post = await publishRandomPost({ communityAddress: community.address, pkc: pkc }); // won't get a challenge
+        await waitTillPostInCommunityPages(post as Comment & { cid: string }, pkc);
 
-        await subplebbit.delete();
+        await community.delete();
     });
 
-    itSkipIfRpc(`plebbit-js will upgrade default challenge if there is a new one`, async () => {
-        const subplebbit = (await plebbit.createCommunity({})) as LocalCommunity;
-        expect(subplebbit?.settings?.challenges).to.deep.equal(defaultSettingsChallenges);
-        expect(subplebbit._usingDefaultChallenge).to.be.true;
+    itSkipIfRpc(`pkc-js will upgrade default challenge if there is a new one`, async () => {
+        const community = (await pkc.createCommunity({})) as LocalCommunity;
+        expect(community?.settings?.challenges).to.deep.equal(defaultSettingsChallenges);
+        expect(community._usingDefaultChallenge).to.be.true;
         const differentDefaultChallenges: CommunityChallengeSetting[] = [];
         // Access private property via bracket notation to bypass TypeScript's access checks
         // @ts-expect-error - Accessing private property for testing purposes
-        subplebbit._defaultCommunityChallenges = differentDefaultChallenges;
-        await subplebbit.start(); // Should check value of default challenge, and upgrade to this one above
-        await new Promise((resolve) => subplebbit.once("update", resolve));
-        expect(subplebbit.settings!.challenges).to.deep.equal([]);
-        expect(subplebbit.challenges).to.deep.equal([]);
-        expect(subplebbit._usingDefaultChallenge).to.be.true;
-        const post = await publishRandomPost({ communityAddress: subplebbit.address, plebbit: plebbit }); // won't get a challenge
-        await waitTillPostInCommunityPages(post as Comment & { cid: string }, plebbit);
-        await subplebbit.delete();
+        community._defaultCommunityChallenges = differentDefaultChallenges;
+        await community.start(); // Should check value of default challenge, and upgrade to this one above
+        await new Promise((resolve) => community.once("update", resolve));
+        expect(community.settings!.challenges).to.deep.equal([]);
+        expect(community.challenges).to.deep.equal([]);
+        expect(community._usingDefaultChallenge).to.be.true;
+        const post = await publishRandomPost({ communityAddress: community.address, pkc: pkc }); // won't get a challenge
+        await waitTillPostInCommunityPages(post as Comment & { cid: string }, pkc);
+        await community.delete();
     });
 
     it(`Can set a basic question challenge system`, async () => {
-        const subplebbit = (await plebbit.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
+        const community = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
         const challenges: CommunityChallengeSetting[] = [{ name: "question", options: { question: "1+1=?", answer: "2" } }];
-        await subplebbit.edit({ settings: { challenges } });
-        expect(subplebbit._usingDefaultChallenge).to.be.false;
+        await community.edit({ settings: { challenges } });
+        expect(community._usingDefaultChallenge).to.be.false;
 
-        expect(subplebbit?.settings?.challenges).to.deep.equal(challenges);
+        expect(community?.settings?.challenges).to.deep.equal(challenges);
 
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
-        const remoteSub = (await remotePKC.getCommunity({ address: subplebbit.address })) as RemoteCommunity;
+        const remoteSub = (await remotePKC.getCommunity({ address: community.address })) as RemoteCommunity;
 
-        expect(subplebbit.updatedAt).to.equal(remoteSub.updatedAt);
-        for (const _subplebbit of [subplebbit, remoteSub]) {
-            expect(_subplebbit.challenges![0].challenge).to.equal("1+1=?");
-            expect(_subplebbit.challenges![0].description).to.equal("Ask a question, like 'What is the password?'");
-            expect(_subplebbit.challenges![0].exclude).to.be.undefined;
-            expect(_subplebbit.challenges![0].type).to.equal("text/plain");
+        expect(community.updatedAt).to.equal(remoteSub.updatedAt);
+        for (const _community of [community, remoteSub]) {
+            expect(_community.challenges![0].challenge).to.equal("1+1=?");
+            expect(_community.challenges![0].description).to.equal("Ask a question, like 'What is the password?'");
+            expect(_community.challenges![0].exclude).to.be.undefined;
+            expect(_community.challenges![0].type).to.equal("text/plain");
         }
 
         const mockPost = await generateMockPost({
-            communityAddress: subplebbit.address,
-            plebbit: plebbit,
+            communityAddress: community.address,
+            pkc: pkc,
             postProps: { challengeRequest: { challengeAnswers: ["2"] } }
         });
 
@@ -157,38 +157,38 @@ describe.concurrent(`subplebbit.settings.challenges`, async () => {
 
         expect(receivedChallenge).to.be.false;
 
-        await subplebbit.delete();
+        await community.delete();
     });
 
-    it(`subplebbit.settings.challenges isn't overridden with subplebbit.start() if it was edited before starting the sub`, async () => {
-        const subplebbit = (await plebbit.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
-        await subplebbit.edit({ settings: { challenges: [] } });
-        expect(subplebbit.settings!.challenges).to.deep.equal([]);
-        expect(subplebbit._usingDefaultChallenge).to.be.false;
-        expect(subplebbit.challenges).to.deep.equal([]);
-        await subplebbit.start();
-        await resolveWhenConditionIsTrue({ toUpdate: subplebbit, predicate: async () => typeof subplebbit.updatedAt === "number" });
-        expect(subplebbit.settings!.challenges).to.deep.equal([]);
-        const remoteSub = (await remotePKC.getCommunity({ address: subplebbit.address })) as RemoteCommunity;
-        for (const _subplebbit of [subplebbit, remoteSub]) expect(_subplebbit.challenges).to.deep.equal([]);
+    it(`community.settings.challenges isn't overridden with community.start() if it was edited before starting the sub`, async () => {
+        const community = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
+        await community.edit({ settings: { challenges: [] } });
+        expect(community.settings!.challenges).to.deep.equal([]);
+        expect(community._usingDefaultChallenge).to.be.false;
+        expect(community.challenges).to.deep.equal([]);
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+        expect(community.settings!.challenges).to.deep.equal([]);
+        const remoteSub = (await remotePKC.getCommunity({ address: community.address })) as RemoteCommunity;
+        for (const _community of [community, remoteSub]) expect(_community.challenges).to.deep.equal([]);
 
-        await subplebbit.delete();
+        await community.delete();
     });
 });
 
-describeIfRpc(`subplebbit.settings.challenges with path (RPC)`, async () => {
-    let plebbit: PKCType;
+describeIfRpc(`community.settings.challenges with path (RPC)`, async () => {
+    let pkc: PKCType;
 
     beforeAll(async () => {
-        plebbit = await mockPKC();
+        pkc = await mockPKC();
     });
 
     afterAll(async () => {
-        await plebbit.destroy();
+        await pkc.destroy();
     });
 
     it(`RPC server throws error when editing with a challenge path that doesn't exist on the server`, async () => {
-        const subplebbit = (await plebbit.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
+        const community = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
 
         // This path exists on the client machine but not necessarily on the RPC server
         // In RPC mode, the server tries to import this file and should fail
@@ -201,7 +201,7 @@ describeIfRpc(`subplebbit.settings.challenges with path (RPC)`, async () => {
         ];
 
         try {
-            await subplebbit.edit({ settings: { challenges } });
+            await community.edit({ settings: { challenges } });
             expect.fail("Should have thrown an error for invalid path on RPC server");
         } catch (error) {
             // RPC errors come as JSON-RPC format with code -32000 and the actual error in data property
@@ -215,6 +215,6 @@ describeIfRpc(`subplebbit.settings.challenges with path (RPC)`, async () => {
             expect(hasExpectedErrorCode, `Expected error related to module import, got: ${JSON.stringify(error)}`).to.be.true;
         }
 
-        await subplebbit.delete();
+        await community.delete();
     });
 });

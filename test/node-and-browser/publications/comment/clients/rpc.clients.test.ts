@@ -13,23 +13,23 @@ import type { Comment } from "../../../../../dist/node/publications/comment/comm
 const communityAddress = signers[0].address;
 
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] }).map((config) => {
-    describe(`comment.clients.plebbitRpcClients`, async () => {
+    describe(`comment.clients.pkcRpcClients`, async () => {
         let pkc: PKC;
         beforeAll(async () => {
-            pkc = await config.plebbitInstancePromise();
+            pkc = await config.pkcInstancePromise();
         });
 
         afterAll(async () => {
             await pkc.destroy();
         });
 
-        it(`Correct order of comment.clients.plebbitRpcClients states when publishing to a sub with challenge`, async () => {
+        it(`Correct order of comment.clients.pkcRpcClients states when publishing to a sub with challenge`, async () => {
             const mathCliCommunityAddress = signers[1].address;
 
             await pkc.getCommunity({ address: mathCliCommunityAddress }); // Do this to cache subplebbit so we won't get fetching-subplebbit-ipns
 
-            const rpcUrl = Object.keys(pkc.clients.plebbitRpcClients)[0];
-            const mockPost = await generateMockPost({ communityAddress: mathCliCommunityAddress, plebbit: pkc });
+            const rpcUrl = Object.keys(pkc.clients.pkcRpcClients)[0];
+            const mockPost = await generateMockPost({ communityAddress: mathCliCommunityAddress, pkc: pkc });
             mockPost.removeAllListeners();
 
             const expectedStates = [
@@ -44,7 +44,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
 
             const actualStates: string[] = [];
 
-            mockPost.clients.plebbitRpcClients[rpcUrl].on("statechange", (newState: string) => actualStates.push(newState));
+            mockPost.clients.pkcRpcClients[rpcUrl].on("statechange", (newState: string) => actualStates.push(newState));
 
             mockPost.once("challenge", async (challengeMsg) => {
                 await mockPost.publishChallengeAnswers(["2"]); // hardcode answer here
@@ -55,14 +55,14 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
             expect(actualStates).to.deep.equal(expectedStates);
         });
 
-        it(`Correct order of comment.clients.plebbitRpcClients states when updating a comment`, async () => {
-            const mockPost = await publishRandomPost({ communityAddress: communityAddress, plebbit: pkc });
+        it(`Correct order of comment.clients.pkcRpcClients states when updating a comment`, async () => {
+            const mockPost = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
             await waitTillPostInCommunityPages(mockPost as Comment & { cid: string }, pkc);
             const postToUpdate = await pkc.createComment({ cid: mockPost.cid });
 
             const recordedStates: string[] = [];
-            const currentRpcUrl = Object.keys(pkc.clients.plebbitRpcClients)[0];
-            postToUpdate.clients.plebbitRpcClients[currentRpcUrl].on("statechange", (newState: string) => recordedStates.push(newState));
+            const currentRpcUrl = Object.keys(pkc.clients.pkcRpcClients)[0];
+            postToUpdate.clients.pkcRpcClients[currentRpcUrl].on("statechange", (newState: string) => recordedStates.push(newState));
 
             await postToUpdate.update();
 
