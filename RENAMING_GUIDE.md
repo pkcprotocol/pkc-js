@@ -112,8 +112,8 @@ import { ChallengeFile, ChallengeFileFactory, Challenge, ChallengeResult } from 
 - [ ] Update desktop apps to install and register name resolvers
 
 **Release & Distribution:**
-- [ ] After rebrand, start publishing `@pkc/pkc-js` to the npm registry
-- [ ] Add GitHub CI job(s) to automate npm publishing for `@pkc/pkc-js`
+- [ ] After rebrand, start publishing `@pkc/pkc-js` to the npm registry (deferred)
+- [ ] Add GitHub CI job(s) to automate npm publishing for `@pkc/pkc-js` (deferred)
 
 ### 1.4 External Repos to Create
 
@@ -1254,7 +1254,7 @@ Use this section to track overall progress:
 
 | Phase | Status | Notes |
 |-------|--------|-------|
-| Phase 1: Web3 Modularization | [~] In Progress | Name resolver done; challenge cleanup done; `resolveAuthorName` renamed; exported challenge types done; runtime author computation and `author.nameResolved` follow-up done; `nameResolved` reserved field fully implemented across all types; non-blocking author resolution; author.name validation moved to community; logger normalization complete; RPC challenge verification wrapper refactored. Deprecated `subplebbitAddress`/`communityAddress` wire fields rejected with distinct errors (`421efd796`) |
+| Phase 1: Web3 Modularization | [x] Done | All in-repo items complete. Name resolver done; challenge cleanup done; `resolveAuthorName` renamed; exported challenge types done; runtime author computation and `author.nameResolved` follow-up done; `nameResolved` reserved field fully implemented across all types; non-blocking author resolution; author.name validation moved to community; logger normalization complete; RPC challenge verification wrapper refactored. Deprecated `subplebbitAddress`/`communityAddress` wire fields rejected with distinct errors (`421efd796`). npm publishing deferred. Downstream apps (plebbit-cli, desktop) are separate repos |
 | Phase 1B Step 1: SubplebbitIpfs wire format | [x] Done | `name` field added, `address`/`publicKey`/`nameResolved` instance-only, domain verification via key migration, `community.edit({name})` works, publicKey fallback loading, RPC support for all scenarios |
 | Phase 1B Step 2: Publication wire format | [x] Done | `communityPublicKey`/`communityName` wire fields, `communityAddress` instance-only, backward compat via `preprocessCommentIpfsBackwardCompat()`, LocalCommunity normalizes old→new format. Backward compat fixes for `communityAddress` in page parsing and `raw.subplebbitIpfs` fallback (`d6abb4417`) |
 | Phase 1B Step 3: DB migration | [x] Done | DB_VERSION=37, columns added, `subplebbitAddress` removed (in `extraProps` for CID reconstruction), v36→v37 and v29→v37 migration tests with production data patterns |
@@ -1275,7 +1275,7 @@ Use this section to track overall progress:
 | Phase 14.4: External Apps | [~] Out of Scope | plebbit-cli, desktop apps — see `docs/protocol/data-path-migration.md` |
 | Phase 15: Documentation | [x] Done | All docs/ files updated, RPC README updated, duplicate EXPORT_SUBPLEBBIT_SPEC.md deleted (`bdc8064dd`) |
 | Phase 16: GitHub & CI/CD | [x] Done | CI workflow files renamed and updated, benchmarks repo URL updated (`bdc8064dd`) |
-| Phase 17: Build & Verify | [ ] Not Started | |
+| Phase 17: Build & Verify | [x] Done | Build, tests, and typechecks pass |
 | Phase 18: Keyword Cleanup | [x] Done | Full sweep of remaining plebbit/subplebbit in src/ and test/; wire format `subplebbitEdit` → `communityEdit`; env var, test infra, comments, dead code; `PLEBBIT_CONFIGS` → `PKC_CONFIGS` (`499d8b9a9`) |
 
 ---
