@@ -3,7 +3,7 @@
 `pkc-js` is written entirely in Javascript and can run in the browser. Some pkc functionalities require native functions like the file system and native HTTP requests. Electron and Android WebView allow injecting native functions into the browser renderer. Example:
 
 ```javascript
-import Pkc from '@pkc/pkc-js'
+import Pkc from '@pkcprotocol/pkc-js'
 
 const nativeFunctions = {
   fetch: async () => {},

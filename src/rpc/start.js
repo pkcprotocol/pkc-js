@@ -1,3 +1,3 @@
-import PKC from "@pkc/pkc-js";
+import PKC from "@pkcprotocol/pkc-js";
 
 const pkc = await PKC();

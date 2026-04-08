@@ -1,5 +1,5 @@
 {
-    "name": "@pkc/pkc-js",
+    "name": "@pkcprotocol/pkc-js",
     "version": "0.0.11",
     "type": "module",
     "scripts": {

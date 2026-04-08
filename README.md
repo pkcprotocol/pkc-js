@@ -546,7 +546,7 @@ An object which may have the following keys:
 #### Example
 
 ```js
-const PKC = require('@pkc/pkc-js')
+const PKC = require('@pkcprotocol/pkc-js')
 const options = {
   ipfsGatewayUrls: ['https://cloudflare-ipfs.com'],
   kuboRpcClientsOptions: ['http://localhost:5001/api/v0'], // optional, must run an IPFS node to use localhost:5001/api/v0
@@ -736,7 +736,7 @@ An object which may have the following keys:
 #### Example
 
 ```js
-const PKC = require('@pkc/pkc-js')
+const PKC = require('@pkcprotocol/pkc-js')
 const pkcOptions = {
   ipfsGatewayUrls: ['https://cloudflare-ipfs.com'],
   kuboRpcClientsOptions: ['http://localhost:5001/api/v0'], // optional, must run an IPFS node to use localhost:5001/api/v0

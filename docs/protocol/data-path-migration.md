@@ -9,7 +9,7 @@ Guide for downstream applications (plebbit-cli, desktop apps) migrating from the
 | Default data directory | `${cwd}/.plebbit` | `${cwd}/.pkc` |
 | Community databases subdirectory | `subplebbits/` | `communities/` |
 | Deleted communities backup | `subplebbits/deleted/` | `communities/deleted/` |
-| Package name | `@plebbit/plebbit-js` | `@pkc/pkc-js` |
+| Package name | `@plebbit/plebbit-js` | `@pkcprotocol/pkc-js` |
 
 The new directory layout:
 

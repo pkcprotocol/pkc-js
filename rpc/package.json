@@ -1,5 +1,5 @@
 {
-    "name": "@pkc/pkc-js-rpc",
+    "name": "@pkcprotocol/pkc-js-rpc",
     "type": "module",
     "keywords": [
         "pkc",

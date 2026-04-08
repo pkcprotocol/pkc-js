@@ -1,7 +1,7 @@
 ## Get started running the PKC JSON-RPC websocket server
 
 ```js
-const {PKCWsServer} = require('@pkc/pkc-js/rpc')
+const {PKCWsServer} = require('@pkcprotocol/pkc-js/rpc')
 const port = 8080
 const pkcOptions = {ipfsHttpClientsOptions: ['http://localhost:5001/api/v0']}
 const pkcWebSocketServer = await PKCWsServer({port, pkcOptions})

@@ -1,4 +1,4 @@
-# test plebbit-react-hooks repo which depends on @pkc/pkc-js
+# test plebbit-react-hooks repo which depends on @pkcprotocol/pkc-js
 name: CI pkc-react-hooks
 
 on:
@@ -34,7 +34,7 @@ jobs:
       - run: cd pkc-js && npm run build
       - run: rm -fr pkc-js/node_modules
       # install latest pkc-js using add ./pkc-js (local folder module)
-      - run: yarn remove @pkc/pkc-js
+      - run: yarn remove @pkcprotocol/pkc-js
       - run: yarn add ./pkc-js
       - run: rm -rf pkc-js/yarn.lock
       - run: yarn

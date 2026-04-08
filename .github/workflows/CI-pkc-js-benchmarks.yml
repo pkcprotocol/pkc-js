@@ -1,4 +1,4 @@
-# run and save benchmarks for @pkc/pkc-js in pkcprotocol/pkc-js-benchmarks
+# run and save benchmarks for @pkcprotocol/pkc-js in pkcprotocol/pkc-js-benchmarks
 name: CI pkc-js-benchmarks
 
 # only run if the CI passes or if manually dispatched
@@ -49,7 +49,7 @@ jobs:
       # install latest pkc-js using add ./pkc-js (local folder module)
       - name: install and build pkc-js-benchmarks
         run: |
-          npm uninstall @pkc/pkc-js
+          npm uninstall @pkcprotocol/pkc-js
           npm install ../pkc-js
           rm -rf ../pkc-js/package-lock.json
           npm install

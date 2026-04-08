@@ -71,7 +71,7 @@ Name resolution must happen on the RPC server side, not the client side. This al
 
 `Plebbit.challenges` already exists as a mutable static object. External challenges:
 ```javascript
-import PKC from '@pkc/pkc-js';
+import PKC from '@pkcprotocol/pkc-js';
 import { evmContractCallChallenge } from '@bitsocial/challenge-evm-contract';
 
 PKC.challenges['evm-contract-call'] = evmContractCallChallenge;
@@ -79,7 +79,7 @@ PKC.challenges['evm-contract-call'] = evmContractCallChallenge;
 
 External challenges import types from plebbit-js:
 ```typescript
-import { ChallengeFile, ChallengeFileFactory, Challenge, ChallengeResult } from '@pkc/pkc-js';
+import { ChallengeFile, ChallengeFileFactory, Challenge, ChallengeResult } from '@pkcprotocol/pkc-js';
 ```
 
 ### 1.3 TODO Items
@@ -112,8 +112,8 @@ import { ChallengeFile, ChallengeFileFactory, Challenge, ChallengeResult } from 
 - [ ] Update desktop apps to install and register name resolvers
 
 **Release & Distribution:**
-- [ ] After rebrand, start publishing `@pkc/pkc-js` to the npm registry (deferred)
-- [ ] Add GitHub CI job(s) to automate npm publishing for `@pkc/pkc-js` (deferred)
+- [ ] After rebrand, start publishing `@pkcprotocol/pkc-js` to the npm registry (deferred)
+- [ ] Add GitHub CI job(s) to automate npm publishing for `@pkcprotocol/pkc-js` (deferred)
 
 ### 1.4 External Repos to Create
 
@@ -231,7 +231,7 @@ After removing `captcha-canvas-v3`, `mintpass`, `voucher`, and extracting `evm-c
 
 ### 2.1 Package Identity
 - [x] **package.json** - Rename package
-  - `"name": "@plebbit/plebbit-js"` → `"name": "@pkc/pkc-js"`
+  - `"name": "@plebbit/plebbit-js"` → `"name": "@pkcprotocol/pkc-js"`
   - Update `"repository"` URL if moving to new GitHub org
   - Update `"bugs"` URL
   - Update `"homepage"` URL
@@ -239,7 +239,7 @@ After removing `captcha-canvas-v3`, `mintpass`, `voucher`, and extracting `evm-c
   - Update description
 
 - [x] **rpc/package.json** - Rename RPC package
-  - `"name": "@plebbit/plebbit-js-rpc"` → `"name": "@pkc/pkc-js-rpc"`
+  - `"name": "@plebbit/plebbit-js-rpc"` → `"name": "@pkcprotocol/pkc-js-rpc"`
   - Update repository URLs
 
 ### 2.2 External Dependencies (Document for Later)
@@ -1258,7 +1258,7 @@ Use this section to track overall progress:
 | Phase 1B Step 1: SubplebbitIpfs wire format | [x] Done | `name` field added, `address`/`publicKey`/`nameResolved` instance-only, domain verification via key migration, `community.edit({name})` works, publicKey fallback loading, RPC support for all scenarios |
 | Phase 1B Step 2: Publication wire format | [x] Done | `communityPublicKey`/`communityName` wire fields, `communityAddress` instance-only, backward compat via `preprocessCommentIpfsBackwardCompat()`, LocalCommunity normalizes old→new format. Backward compat fixes for `communityAddress` in page parsing and `raw.subplebbitIpfs` fallback (`d6abb4417`) |
 | Phase 1B Step 3: DB migration | [x] Done | DB_VERSION=37, columns added, `subplebbitAddress` removed (in `extraProps` for CID reconstruction), v36→v37 and v29→v37 migration tests with production data patterns |
-| Phase 2: Package Config | [x] Done | Package renamed to `@pkc/pkc-js`, README rewritten, AGENTS.md updated (`61b66f198`) |
+| Phase 2: Package Config | [x] Done | Package renamed to `@pkcprotocol/pkc-js`, README rewritten, AGENTS.md updated (`61b66f198`) |
 | Phase 3: Directory Structure | [x] Done | All src/ and test/ directories renamed |
 | Phase 4: Source Files | [x] Done | All files renamed within moved directories |
 | Phase 5: Import Paths | [x] Done | All import paths updated in src/ and test/ |

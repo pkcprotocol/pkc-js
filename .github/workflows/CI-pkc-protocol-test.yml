@@ -31,7 +31,7 @@ jobs:
       # install plebbit-protocol-test
       - run: npm i
       # install latest pkc-js using add ./pkc-js (local folder module)
-      - run: npm remove @pkc/pkc-js
+      - run: npm remove @pkcprotocol/pkc-js
       - run: npm i ./pkc-js
       # install playwright browsers
       - run: npx playwright install --with-deps chromium firefox
