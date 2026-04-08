@@ -440,6 +440,7 @@ export class BaseClientsManager {
     }
     // IPFS P2P methods
     async resolveIpnsToCidP2P(ipnsName, loadOpts) {
+        const log = Logger("pkc-js:clients-manager:resolveIpnsToCidP2P");
         throwIfAbortSignalAborted(loadOpts.abortSignal);
         const ipnsResolveOpts = { nocache: true, recursive: true, ...loadOpts };
         const ipfsClient = this.getIpfsClientWithKuboRpcClientFunctions();
@@ -472,6 +473,7 @@ export class BaseClientsManager {
             error.details = { ...error.details, ipnsName, ipnsResolveOpts };
             // Wrap ETIMEDOUT in PKCError so _isRetriableErrorWhenLoading recognizes it as retriable
             if (error instanceof Error && "cause" in error && error.cause?.code === "ETIMEDOUT") {
+                log.error(`Failed to resolve IPNS ${ipnsName}: ${error.message} (ETIMEDOUT)`);
                 throw new PKCError("ERR_FAILED_TO_RESOLVE_IPNS_VIA_IPFS_P2P", {
                     ipnsName,
                     ipnsResolveOpts,
@@ -486,6 +488,7 @@ export class BaseClientsManager {
     }
     // TODO rename this to _fetchPathP2P
     async _fetchCidP2P(cidV0, loadOpts) {
+        const log = Logger("pkc-js:clients-manager:_fetchCidP2P");
         throwIfAbortSignalAborted(loadOpts.abortSignal);
         const kuboRpcOrHelia = this.getDefaultKuboRpcClientOrHelia();
         const ipfsClient = this.getIpfsClientWithKuboRpcClientFunctions();
@@ -493,8 +496,10 @@ export class BaseClientsManager {
             const rawData = await all(ipfsClient.cat(cidV0, { length: loadOpts.maxFileSizeBytes, timeout: `${loadOpts.timeoutMs}ms` }));
             const data = uint8ArrayConcat(rawData);
             const fileContent = uint8ArrayToString(data);
-            if (typeof fileContent !== "string")
+            if (typeof fileContent !== "string") {
+                log.error(`Failed to fetch CID ${cidV0}: fileContent is not a string`);
                 throw new PKCError("ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P", { cid: cidV0, loadOpts });
+            }
             if (data.byteLength === loadOpts.maxFileSizeBytes) {
                 const calculatedCid = await calculateIpfsHash(fileContent);
                 if (calculatedCid !== cidV0)
@@ -522,7 +527,8 @@ export class BaseClientsManager {
                 throw e;
             else if (e instanceof Error && e.name === "TimeoutError")
                 throw new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { cid: cidV0, error: e, loadOpts });
-            else
+            else {
+                log.error(`Failed to fetch CID ${cidV0}: ${e?.message} (${e?.name})`);
                 throw new PKCError("ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P", {
                     cid: cidV0,
                     error: e,
@@ -531,6 +537,7 @@ export class BaseClientsManager {
                     errorCode: e?.code,
                     loadOpts
                 });
+            }
         }
     }
     async _verifyGatewayResponseMatchesCid(gatewayResponseBody, cid, loadOpts) {
