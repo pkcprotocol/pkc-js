@@ -1,7 +1,8 @@
 {
   "git": {
     "commitMessage": "chore(release): ${version} [skip ci]",
-    "tagName": "v${version}"
+    "tagName": "v${version}",
+    "requireCleanWorkingDir": false
   },
   "npm": {
     "publish": true
