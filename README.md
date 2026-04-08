@@ -35,7 +35,9 @@ Comment extends Publication /* (IPFS file) */ {
   linkHeight?: number
   linkHtmlTagName?: 'a' | 'img' | 'video' | 'audio' // author can optionally provide the HTML element to use for the link
   spoiler?: boolean
-  flair?: Flair // arbitrary colored string added by the author or mods to describe the author or comment
+  nsfw?: boolean
+  flairs?: Flair[] // arbitrary colored strings added by the author or mods to describe the author or comment
+  quotedCids?: string[] // CIDs of comments being quoted/referenced in this reply
   // below are added by community owner, not author
   previousCid?: string // each comment/post is a linked list of other comments/posts with same comment.depth and comment.parentCid, undefined if first comment in list
   postCid?: string // helps faster loading post info for reply direct linking, undefined for posts, a post can't know its own CID
@@ -43,7 +45,6 @@ Comment extends Publication /* (IPFS file) */ {
   thumbnailUrl?: string // optionally fetched by community owner, some web pages have thumbnail urls in their meta tags https://moz.com/blog/meta-data-templates-123
   thumbnailUrlWidth?: number // community owner can optionally provide dimensions of thumbails which helps UI clients with infinite scrolling feeds
   thumbnailUrlHeight?: number
-  gallery?: {url?: string, htmlTagName?: 'img' | 'video' | 'audio'}[]
 }
 Vote extends Publication {
   commentCid: string
@@ -53,21 +54,26 @@ CommentEdit extends Publication {
   commentCid: string
   content?: string
   deleted?: boolean
-  flair?: Flair
+  flairs?: Flair[]
   spoiler?: boolean
+  nsfw?: boolean
   reason?: string
 }
 CommentModeration extends Publication {
   commentCid: string
   commentModeration: {
-    flair?: Flair
+    flairs?: Flair[]
     spoiler?: boolean
+    nsfw?: boolean
     pinned?: boolean
     locked?: boolean
+    archived?: boolean
+    approved?: boolean
     removed?: boolean
+    purged?: boolean
     reason?: string
     author?: {
-      flair?: Flair
+      flairs?: Flair[]
       banExpiresAt?: number
     }
   }
@@ -78,39 +84,46 @@ CommunityEdit extends Publication {
 MultisubEdit extends CreateMultisubOptions, Publication {}
 CommentUpdate /* (IPFS file) */ {
   cid: string // cid of the comment, need it in signature to prevent attack
-  edit?: AuthorCommentEdit // most recent edit by comment author, commentUpdate.edit.content, commentUpdate.edit.deleted, commentUpdate.edit.flair override Comment instance props. Validate commentUpdate.edit.signature
+  edit?: AuthorCommentEdit // most recent edit by comment author, commentUpdate.edit.content, commentUpdate.edit.deleted, commentUpdate.edit.flairs override Comment instance props. Validate commentUpdate.edit.signature
   upvoteCount: number
   downvoteCount: number
   replies?: Pages // only preload page 1 sorted by 'topAll', might preload more later, only provide sorting for posts (not comments) that have 100+ child comments
   replyCount: number
-  flair?: Flair // arbitrary colored string to describe the comment, added by mods, override comment.flair (which are added by author)
+  childCount?: number // the total of direct children of the comment, does not include indirect children
+  number?: number // sequential comment number assigned by the community
+  postNumber?: number // sequential post number assigned by the community
+  flairs?: Flair[] // arbitrary colored strings to describe the comment, added by mods, override comment.flairs and comment.edit.flairs (which are added by author)
   spoiler?: boolean
+  nsfw?: boolean
   pinned?: boolean
   locked?: boolean
+  archived?: boolean
+  approved?: boolean // if comment was pending approval and it got approved or disapproved
   removed?: boolean // mod deleted a comment
   reason?: string // reason the mod took a mod action
-  updatedAt: number // timestamp in seconds the IPNS record was updated
+  updatedAt: number // timestamp in seconds the CommentUpdate was updated
   protocolVersion: '1.0.0' // semantic version of the protocol https://semver.org/
   signature: Signature // signature of the CommentUpdate by the community owner to protect against malicious gateway
-  author?: { // add commentUpdate.author.community to comment.author.community, override comment.author.flair with commentUpdate.author.community.flair if any
+  author?: { // add commentUpdate.author.community to comment.author.community, override comment.author.flairs with commentUpdate.author.community.flairs if any
     community: CommunityAuthor
   }
-  lastReplyTimestamp?: number // needed for active sort in frontend
-  lastChildCid?: number // needed to fetch reply updates using community.postUpdates https://github.com/pkcprotocol/pkc-js/issues/12
+  lastReplyTimestamp?: number // the timestamp of the most recent direct or indirect child of the comment
+  lastChildCid?: string // the CID of the most recent direct child of the comment
 }
 Author {
   address: string
   shortAddress: string // not part of IPFS files, added to `Author` instance as convenience. Copy address, if address is a hash, remove hash prefix and trim to 12 first chars
+  name?: string // author chosen username
   previousCommentCid?: string // linked list of the author's comments
   displayName?: string
   wallets?: {[chainTicker: string]: Wallet}
   avatar?: Nft
-  flair?: Flair // (added added by author originally, can be overriden by commentUpdate.community.author.flair)
+  flairs?: Flair[] // (added by author originally, can be overridden by commentUpdate.author.community.flairs)
   community?: CommunityAuthor // (added by CommentUpdate) up to date author properties specific to the community it's in
 }
 CommunityAuthor {
   banExpiresAt?: number // (added by moderator only) timestamp in second, if defined the author was banned for this comment
-  flair?: Flair // (added by moderator only) for when a mod wants to edit an author's flair
+  flairs?: Flair[] // (added by moderator only) for when a mod wants to edit an author's flairs
   postScore: number // total post karma in the community
   replyScore: number // total reply karma in the community
   lastCommentCid: string // last comment by the author in the community, can be used with author.previousCommentCid to get a recent author comment history in all communities
@@ -119,7 +132,7 @@ CommunityAuthor {
 Wallet {
   address: string
   timestamp: number // in seconds, allows partial blocking multiple authors using the same wallet
-  signature: Signature // type 'eip191' {domainSeparator:"plebbit-author-wallet",authorAddress:"${authorAddress}","{timestamp:${wallet.timestamp}"}
+  signature: Signature // type 'eip191' {domainSeparator:"plebbit-author-wallet",authorAddress:"${authorAddress}",timestamp:"${wallet.timestamp}"}
   // ...will add more stuff later, like signer or send/sign or balance
 }
 Nft {
@@ -182,6 +195,8 @@ CommunityFeatures { // any boolean that changes the functionality of the communi
   noReplyDownvotes?: boolean
   requirePostLink?: boolean // require post.link be defined and a valid https url
   requirePostLinkIsMedia?: boolean // require post.link be media, e.g. for imageboards
+  requireReplyLink?: boolean // require reply.link be defined and a valid https url
+  requireReplyLinkIsMedia?: boolean // require reply.link be media
   noMarkdownImages?: boolean // don't embed images in text posts markdown
   noMarkdownVideos?: boolean // don't embed videos in text posts markdown
   noMarkdownAudio?: boolean // don't embed audio in text posts markdown
@@ -218,7 +233,7 @@ Flair {
   text: string
   backgroundColor?: string
   textColor?: string
-  expiresAt?: timestamp in second, a flair assigned to an author by a mod will follow the author in future comments, unless it expires
+  expiresAt?: number // timestamp in seconds, a flair assigned to an author by a mod will follow the author in future comments, unless it expires
 }
 Pages {
   pages: {[key: PostsSortType | RepliesSortType]: Page} // e.g. community.posts.pages.hot.comments[0].cid = '12D3KooW...'
@@ -330,7 +345,7 @@ ChallengeAnswerMessage extends PubsubMessage /* (sent by post author) */ {
 }
 ChallengeVerificationMessage extends PubsubMessage /* (sent by community owner) */ {
   challengeSuccess: bool // true if the challenge was successfully completed by the requester
-  challengeErrors?: (string|undefined)[] // tell the user which challenge failed and why
+  challengeErrors?: {[challengeIndex: string]: string} // challenge index => challenge error, tell the user which challenge failed and why
   reason?: string // reason for failed verification, for example post content is too long. could also be used for successful verification that bypass the challenge, for example because an author has good history
   encrypted: Encrypted
   /* ChallengeVerificationMessage.encrypted.ciphertext decrypts to JSON {
@@ -358,6 +373,11 @@ PubsubSignature {
   signedPropertyNames: string[] // the fields that were signed as part of the signature e.g. ['title', 'content', 'author', etc.] client should require that certain fields be signed or reject the publication, e.g. 'content', 'author', 'timestamp' are essential
 }
 ```
+
+### Libraries that use pkc-js
+
+- [bitsocial-cli](https://github.com/bitsocialnet/bitsocial-cli) - CLI client for the Bitsocial protocol
+- [bitsocial-react-hooks](https://github.com/bitsocialnet/bitsocial-react-hooks) - React hooks for building Bitsocial protocol UIs
 
 # API
 
@@ -444,7 +464,7 @@ PubsubSignature {
   - `comment.thumbnailUrl`
   - `comment.thumbnailUrlWidth`
   - `comment.thumbnailUrlHeight`
-  - `comment.flair`
+  - `comment.flairs`
   - `comment.spoiler`
   - `comment.depth`
   - `comment.state`
@@ -838,7 +858,7 @@ An object which may have the following keys:
 | title | `string` or `undefined` | If comment is a post, it needs a title |
 | link | `string` or `undefined` | If comment is a post, it might be a link post |
 | spoiler | `boolean` or `undefined` | Hide the comment thumbnail behind spoiler warning |
-| flair | `Flair` or `undefined` | Author or mod chosen colored label for the comment |
+| flairs | `Flair[]` or `undefined` | Author or mod chosen colored labels for the comment |
 | challengeRequest | `ChallengeRequest` or `undefined` | Optional properties to pass to `ChallengeRequestPubsubMessage` |
 | cid | `string` or `undefined` | (Not for publishing) Gives access to `Comment.on('update')` for a comment already fetched |
 | ...comment | `any` | `CreateCommentOptions` can also initialize any property on the `Comment` instance |
@@ -914,7 +934,7 @@ An object which may have the following keys:
 | signer | `Signer` | Signer of the edit, must be original author |
 | content | `string` or `undefined` | Edited content of the comment |
 | deleted | `boolean` or `undefined` | Edited deleted status of the comment |
-| flair | `Flair` or `undefined` | Edited flair of the comment |
+| flairs | `Flair[]` or `undefined` | Edited flairs of the comment |
 | spoiler | `boolean` or `undefined` | Edited spoiler of the comment |
 | reason | `string` or `undefined` | Reason of the edit |
 | challengeRequest | `ChallengeRequest` or `undefined` | Optional properties to pass to `ChallengeRequestPubsubMessage` |
@@ -976,12 +996,16 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| flair | `Flair` or `undefined` | Edited flair of the comment |
+| flairs | `Flair[]` or `undefined` | Edited flairs of the comment |
 | spoiler | `boolean` or `undefined` | Edited spoiler of the comment |
+| nsfw | `boolean` or `undefined` | Edited nsfw status of the comment |
 | reason | `string` or `undefined` | Reason of the edit |
 | pinned | `boolean` or `undefined` | Edited pinned status of the comment |
-| locked | `boolean` or `undefined` |Edited locked status of the comment |
+| locked | `boolean` or `undefined` | Edited locked status of the comment |
+| archived | `boolean` or `undefined` | Edited archived status of the comment |
+| approved | `boolean` or `undefined` | Approving a comment that's pending approval |
 | removed | `boolean` or `undefined` | Edited removed status of the comment |
+| purged | `boolean` or `undefined` | Purged status of the comment |
 | author | `CommentModerationAuthorOptions` or `undefined` | Edited author property of the comment |
 
 ##### CommentModerationAuthorOptions
@@ -991,7 +1015,7 @@ An object which may have the following keys:
 | Name | Type | Description |
 | ---- | ---- | ----------- |
 | banExpiresAt | `number` or `undefined` | Comment author was banned for this comment |
-| flair | `Flair` or `undefined` | Edited flair of the comment author |
+| flairs | `Flair[]` or `undefined` | Edited flairs of the comment author |
 
 #### Returns
 

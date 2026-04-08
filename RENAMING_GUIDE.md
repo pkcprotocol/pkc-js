@@ -1127,19 +1127,19 @@ Update all documentation files:
 ## Phase 17: Build & Verification
 
 ### 17.1 Build Process
-- [ ] Run `npm run build` and fix any compilation errors
-- [ ] Verify browser build succeeds
-- [ ] Verify Node build succeeds
+- [x] Run `npm run build` and fix any compilation errors
+- [x] Verify browser build succeeds
+- [x] Verify Node build succeeds
 
 ### 17.2 Test Verification
-- [ ] Run full test suite
-- [ ] Fix any failing tests
-- [ ] Update test expectations where needed
+- [x] Run full test suite
+- [x] Fix any failing tests
+- [x] Update test expectations where needed
 
 ### 17.3 Type Checking
-- [ ] Run `npm run typecheck:node`
-- [ ] Run `npm run typecheck:browser`
-- [ ] Fix any type errors
+- [x] Run `npm run typecheck:node`
+- [x] Run `npm run typecheck:browser`
+- [x] Fix any type errors
 
 ---
 
@@ -1299,8 +1299,8 @@ These repositories are outside plebbit-js but will need coordinated updates:
 
 ## Additional TODOs
 
-- [ ] Update inaccuracies in `README.md`
-- [ ] Replace outdated schemas and types in `README.md` with the current ones
-- [ ] Add missing schemas and publication coverage to `README.md`
-- [ ] Update `README.md` references from `plebbit-js` to `pkc-js`
-- [ ] Add libraries that use `pkc-js` to `README.md`
+- [x] Update inaccuracies in `README.md`
+- [x] Replace outdated schemas and types in `README.md` with the current ones
+- [x] Add missing schemas and publication coverage to `README.md`
+- [x] Update `README.md` references from `plebbit-js` to `pkc-js`
+- [x] Add libraries that use `pkc-js` to `README.md`
