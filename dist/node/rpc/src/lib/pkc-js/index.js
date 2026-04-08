@@ -1,5 +1,5 @@
 // NOTE: don't import pkc-js directly to be able to replace the implementation
-// @plebbit/pkc-js imported from parent folder
+// @pkcprotocol/pkc-js imported from parent folder
 import PKC from "../../../../index.js";
 import assert from "assert";
 import Logger from "../../../../logger.js";

@@ -26,7 +26,7 @@ const PubsubMessageBaseSchema = z.object({
 });
 export const EncryptedSchema = z
     .object({
-    // examples available at https://github.com/plebbit/plebbit-js/blob/master/docs/encryption.md
+    // examples available at https://github.com/pkc/pkc-js/blob/master/docs/encryption.md
     ciphertext: Uint8ArraySchema,
     iv: Uint8ArraySchema,
     tag: Uint8ArraySchema,
