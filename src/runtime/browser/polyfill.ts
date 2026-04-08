@@ -12,7 +12,7 @@ if (window.process.env === undefined) {
     window.process.env = {};
 }
 
-// polyfill digest function, in case the we're loading plebbit-js in browser on an insecure origin
+// polyfill digest function, in case the we're loading pkc-js in browser on an insecure origin
 
 import { sha512 } from "js-sha512";
 import { sha256 } from "js-sha256";
@@ -21,7 +21,7 @@ import { sha256 } from "js-sha256";
 if (window && !window?.crypto?.subtle) {
     console.log("window.crypto.subtle is not set, attempting to polyfill window.crypto.subtle.digest");
 
-    if (!window.crypto) window.crypto = {}; // to handle vitest in plebbit-react-hooks
+    if (!window.crypto) window.crypto = {}; // to handle vitest in pkc-react-hooks
     window.crypto.subtle = {
         digest: (hashMethod: any, arrayBuffer: any) => {
             if (hashMethod === "SHA-512") return sha512.digest(arrayBuffer);
