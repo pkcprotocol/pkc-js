@@ -1,6 +1,6 @@
-import { generatePrivateKey, getPublicKeyFromPrivateKey, getPlebbitAddressFromPrivateKey } from "./util.js";
+import { generatePrivateKey, getPublicKeyFromPrivateKey, getPKCAddressFromPrivateKey } from "./util.js";
 import { hideClassPrivateProps, shortifyAddress } from "../util.js";
-export { verifyCommentIpfs, verifyCommentPubsubMessage, verifySubplebbit, verifyVote } from "./signatures.js";
+export { verifyCommentIpfs, verifyCommentPubsubMessage, verifyCommunity, verifyVote } from "./signatures.js";
 export { encryptEd25519AesGcm, decryptEd25519AesGcm, decryptEd25519AesGcmPublicKeyBuffer } from "./encryption.js";
 import { CreateSignerSchema } from "../schema/schema.js";
 export class Signer {
@@ -38,7 +38,7 @@ export const createSigner = async (createSignerOptions) => {
         privateKey = parsed.privateKey;
         type = parsed.type;
     }
-    const [publicKey, address] = await Promise.all([getPublicKeyFromPrivateKey(privateKey), getPlebbitAddressFromPrivateKey(privateKey)]);
+    const [publicKey, address] = await Promise.all([getPublicKeyFromPrivateKey(privateKey), getPKCAddressFromPrivateKey(privateKey)]);
     return new SignerWithPublicKeyAddress({
         type,
         publicKey,

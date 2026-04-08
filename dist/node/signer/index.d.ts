@@ -1,5 +1,5 @@
 import type { SignerType } from "./types.js";
-export { verifyCommentIpfs, verifyCommentPubsubMessage, verifySubplebbit, verifyVote } from "./signatures.js";
+export { verifyCommentIpfs, verifyCommentPubsubMessage, verifyCommunity, verifyVote } from "./signatures.js";
 export { encryptEd25519AesGcm, decryptEd25519AesGcm, decryptEd25519AesGcmPublicKeyBuffer } from "./encryption.js";
 import { CreateSignerOptions } from "./types.js";
 export declare class Signer implements SignerType {

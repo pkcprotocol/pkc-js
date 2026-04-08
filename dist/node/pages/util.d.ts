@@ -2,9 +2,10 @@ import type { PageIpfs, PagesTypeIpfs, PagesTypeJson, PostSort, ReplySort, Timef
 import { Comment } from "../publications/comment/comment.js";
 import { PostsPages, RepliesPages } from "./pages.js";
 import type { CommentWithinModQueuePageJson, CommentWithinRepliesPostsPageJson, CommentUpdateType } from "../publications/comment/types.js";
-import { RemoteSubplebbit } from "../subplebbit/remote-subplebbit.js";
+import { RemoteCommunity } from "../community/remote-community.js";
+import type { LRUCache } from "lru-cache";
 import { BaseClientsManager } from "../clients/base-client-manager.js";
-import type { SubplebbitIpfsType } from "../subplebbit/types.js";
+import type { CommunityIpfsType } from "../community/types.js";
 export declare const TIMEFRAMES_TO_SECONDS: Record<Timeframe, number>;
 export declare const POSTS_SORT_TYPES: PostSort;
 export declare const POST_REPLIES_SORT_TYPES: ReplySort;
@@ -23,11 +24,31 @@ export declare function parseModQueuePageIpfs(modqueuePageIpfs: ModQueuePageIpfs
 export declare function parsePagesIpfs(pagesRaw: PagesTypeIpfs): Omit<PagesTypeJson, "clients">;
 export declare function processAllCommentsRecursively(comments: PageIpfs["comments"], processor: (comment: PageIpfs["comments"][0]) => void): void;
 export declare function parseRawPages(pages: PagesTypeIpfs | Omit<PagesTypeJson, "clients"> | RepliesPages | PostsPages | undefined): Pick<RepliesPages | PostsPages, "pages">;
-export declare function findCommentInPageInstance(pageInstance: RemoteSubplebbit["posts"] | Comment["replies"], targetCommentCid: string): PageIpfs["comments"][0] | undefined;
+export declare function findCommentInPageInstance(pageInstance: RemoteCommunity["posts"] | Comment["replies"], targetCommentCid: string): PageIpfs["comments"][0] | undefined;
 export declare function findCommentInParsedPages(pageJson: PageTypeJson, targetCommentCid: string): PageTypeJson["comments"][0] | undefined;
 export declare function findCommentInHierarchicalPageIpfsRecursively(page: PageIpfs, targetCid: string): PageIpfs["comments"][0] | undefined;
-export declare function findCommentInPageInstanceRecursively(pageInstance: RemoteSubplebbit["posts"] | Comment["replies"], targetCid: string): PageIpfs["comments"][0] | undefined;
-type PagesSource = NonNullable<SubplebbitIpfsType["posts"]> | NonNullable<CommentUpdateType["replies"] | NonNullable<SubplebbitIpfsType["modQueue"]>>;
+export type CommentRuntimeFields = {
+    author?: Partial<Pick<Comment["author"], "nameResolved">>;
+};
+export type PageRuntimeFields = {
+    comments?: CommentRuntimeFields[];
+};
+export declare function buildPageRuntimeFields(page: PageIpfs | ModQueuePageIpfs, cache: LRUCache<string, boolean>): PageRuntimeFields;
+export declare function buildPagesRuntimeFields(pages: Record<string, PageIpfs | ModQueuePageIpfs>, cache: LRUCache<string, boolean>): Record<string, PageRuntimeFields>;
+export declare function extractParsedPagesRuntimeFields(pages: Record<string, PageTypeJson | ModQueuePageTypeJson | undefined>): Record<string, PageRuntimeFields>;
+export declare function extractCommunityRuntimeFieldsFromParsedPages({ postsPages, modQueuePages }: {
+    postsPages?: Record<string, PageTypeJson | undefined>;
+    modQueuePages?: Record<string, ModQueuePageTypeJson | undefined>;
+}): {
+    posts?: {
+        pages: Record<string, PageRuntimeFields>;
+    };
+    modQueue?: {
+        pages: Record<string, PageRuntimeFields>;
+    };
+} | undefined;
+export declare function findCommentInPageInstanceRecursively(pageInstance: RemoteCommunity["posts"] | Comment["replies"], targetCid: string): PageIpfs["comments"][0] | undefined;
+type PagesSource = NonNullable<CommunityIpfsType["posts"]> | NonNullable<CommentUpdateType["replies"] | NonNullable<CommunityIpfsType["modQueue"]>>;
 export declare function iterateOverPageCidsToFindAllCids(opts: {
     pages: PagesSource;
     clientManager: BaseClientsManager;

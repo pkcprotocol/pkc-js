@@ -1,9 +1,9 @@
 import type { StorageInterface } from "../../types.js";
 export default class Storage implements StorageInterface {
-    private _plebbit;
+    private _pkc;
     private _keyv;
     private _db;
-    constructor(plebbit: Storage["_plebbit"]);
+    constructor(pkc: Storage["_pkc"]);
     toJSON(): undefined;
     init(): Promise<void>;
     getItem(key: string): Promise<unknown>;

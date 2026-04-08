@@ -35,7 +35,7 @@ export class InflightFetchManager {
     }
 }
 export const InflightResourceTypes = {
-    SUBPLEBBIT_IPNS: "subplebbit-ipns",
+    COMMUNITY_IPNS: "community-ipns",
     COMMENT_IPFS: "comment-ipfs"
 };
 //# sourceMappingURL=inflight-fetch-manager.js.map

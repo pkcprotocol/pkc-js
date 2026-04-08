@@ -1,18 +1,19 @@
 import { z } from "zod";
-import { CommentChallengeRequestToEncryptSchema, CommentIpfsSchema, CommentPubsubMessagePublicationSchema, CommentSignedPropertyNames, CommentsTableRowSchema, CommentUpdateForChallengeVerificationSchema, CommentUpdateForChallengeVerificationSignedPropertyNames, CommentUpdateForDisapprovedPendingComment, CommentUpdateSchema, CommentUpdateSignedPropertyNames, CommentUpdateTableRowSchema, CreateCommentOptionsSchema, OriginalCommentFieldsBeforeCommentUpdateSchema } from "./schema.js";
-import { SubplebbitAuthorSchema } from "../../schema/schema.js";
+import { CommentChallengeRequestToEncryptSchema, CommentIpfsSchema, CommentPubsubMessagePublicationSchema, CommentSignedPropertyNames, CommentsTableRowSchema, CommentUpdateForChallengeVerificationSchema, CommentUpdateForChallengeVerificationSignedPropertyNames, CommentUpdateForDisapprovedPendingComment, CommentUpdateSchema, CommentUpdateSignedPropertyNames, CommentUpdateTableRowSchema, CreateCommentOptionsSchema } from "./schema.js";
+import { CommunityAuthorSchema } from "../../schema/schema.js";
 import { RpcCommentEventResultSchema, RpcCommentUpdateResultSchema } from "../../clients/rpc-client/schema.js";
-import type { AuthorTypeWithCommentUpdate, JsonOfClass } from "../../types.js";
+import type { JsonOfClass, RuntimeAuthorWithCommentUpdateType } from "../../types.js";
 import { Comment } from "./comment.js";
 import type { RepliesPagesTypeJson } from "../../pages/types.js";
 import type { PublicationRpcErrorToTransmit, PublicationState } from "../types.js";
 import type { JsonSignature, SignerType } from "../../signer/types.js";
 import Publication from "../publication.js";
-export type SubplebbitAuthor = z.infer<typeof SubplebbitAuthorSchema>;
+export type CommunityAuthor = z.infer<typeof CommunityAuthorSchema>;
 export type CreateCommentOptions = z.infer<typeof CreateCommentOptionsSchema>;
 export type CommentPubsubMessagePublication = z.infer<typeof CommentPubsubMessagePublicationSchema>;
 export interface CommentOptionsToSign extends Omit<CommentPubsubMessagePublication, "signature"> {
     signer: SignerType;
+    communityAddress: string;
 }
 export type CommentUpdateType = z.infer<typeof CommentUpdateSchema>;
 export type CommentUpdateForDisapprovedPendingComment = z.infer<typeof CommentUpdateForDisapprovedPendingComment>;
@@ -21,15 +22,15 @@ export type CommentIpfsType = z.infer<typeof CommentIpfsSchema>;
 export type CommentChallengeRequestToEncryptType = z.infer<typeof CommentChallengeRequestToEncryptSchema>;
 export type RpcCommentUpdateResultType = z.infer<typeof RpcCommentUpdateResultSchema>;
 export type RpcCommentResultType = z.infer<typeof RpcCommentEventResultSchema>;
-type CommentOriginalField = z.infer<typeof OriginalCommentFieldsBeforeCommentUpdateSchema>;
-export interface CommentRawField extends Omit<Required<Publication["raw"]>, "pubsubMessageToPublish"> {
+export interface CommentRawField extends Omit<Required<Publication["raw"]>, "pubsubMessageToPublish" | "unsignedPublicationOptions"> {
     comment?: CommentIpfsType;
     commentUpdate?: CommentUpdateType;
     pubsubMessageToPublish?: CommentPubsubMessagePublication;
     commentUpdateFromChallengeVerification?: CommentUpdateForChallengeVerification;
+    runtimeFieldsFromRpc?: Record<string, any>;
 }
 export type CommentJson = JsonOfClass<Comment>;
-type AuthorWithShortSubplebbitAddress = AuthorTypeWithCommentUpdate & {
+type AuthorWithShortCommunityAddress = RuntimeAuthorWithCommentUpdateType & {
     shortAddress: string;
 };
 export interface CommentIpfsWithCidDefined extends CommentIpfsType {
@@ -39,10 +40,10 @@ export interface CommentIpfsWithCidPostCidDefined extends CommentIpfsWithCidDefi
     postCid: string;
 }
 export interface CommentWithinRepliesPostsPageJson extends CommentIpfsWithCidPostCidDefined, Omit<CommentUpdateType, "replies"> {
-    original: CommentOriginalField;
+    communityAddress: string;
     shortCid: string;
-    shortSubplebbitAddress: string;
-    author: AuthorWithShortSubplebbitAddress;
+    shortCommunityAddress: string;
+    author: AuthorWithShortCommunityAddress;
     deleted?: boolean;
     replies?: Omit<RepliesPagesTypeJson, "clients">;
     raw: {
@@ -51,10 +52,10 @@ export interface CommentWithinRepliesPostsPageJson extends CommentIpfsWithCidPos
     };
 }
 export interface CommentWithinModQueuePageJson extends CommentIpfsWithCidPostCidDefined, CommentUpdateForChallengeVerification {
-    original: CommentOriginalField;
+    communityAddress: string;
     shortCid: string;
-    shortSubplebbitAddress: string;
-    author: AuthorWithShortSubplebbitAddress;
+    shortCommunityAddress: string;
+    author: AuthorWithShortCommunityAddress;
     raw: {
         comment: CommentIpfsType;
         commentUpdate: CommentUpdateForChallengeVerification & {
@@ -64,14 +65,14 @@ export interface CommentWithinModQueuePageJson extends CommentIpfsWithCidPostCid
     pendingApproval: boolean;
 }
 export type CommentState = PublicationState | "updating";
-export type CommentUpdatingState = "stopped" | "resolving-author-address" | "fetching-ipfs" | "fetching-update-ipfs" | "resolving-subplebbit-address" | "fetching-subplebbit-ipns" | "fetching-subplebbit-ipfs" | "failed" | "succeeded" | "waiting-retry";
-export interface CommentPubsubMessageWithSubplebbitAuthor extends CommentPubsubMessagePublication {
-    author: AuthorTypeWithCommentUpdate;
+export type CommentUpdatingState = "stopped" | "resolving-author-name" | "fetching-ipfs" | "fetching-update-ipfs" | "resolving-community-name" | "fetching-community-ipns" | "fetching-community-ipfs" | "failed" | "succeeded" | "waiting-retry";
+export interface CommentPubsubMessageWithCommunityAuthor extends CommentPubsubMessagePublication {
+    author: RuntimeAuthorWithCommentUpdateType;
 }
-export interface PostPubsubMessageWithSubplebbitAuthor extends CommentPubsubMessageWithSubplebbitAuthor {
+export interface PostPubsubMessageWithCommunityAuthor extends CommentPubsubMessageWithCommunityAuthor {
     parentCid: undefined;
 }
-export interface ReplyPubsubMessageWithSubplebbitAuthor extends CommentPubsubMessageWithSubplebbitAuthor {
+export interface ReplyPubsubMessageWithCommunityAuthor extends CommentPubsubMessageWithCommunityAuthor {
     parentCid: string;
 }
 export interface CommentPubsubMessagPublicationSignature extends JsonSignature {
@@ -83,7 +84,9 @@ export interface CommentUpdateForChallengeVerificationSignature extends JsonSign
 export interface CommentUpdateSignature extends JsonSignature {
     signedPropertyNames: typeof CommentUpdateSignedPropertyNames;
 }
-export type MinimumCommentFieldsToFetchPages = Pick<CommentIpfsWithCidDefined, "cid" | "subplebbitAddress" | "depth" | "postCid">;
+export type MinimumCommentFieldsToFetchPages = Pick<CommentIpfsWithCidDefined, "cid" | "depth" | "postCid"> & {
+    communityAddress: string;
+};
 export type CommentRpcErrorToTransmit = PublicationRpcErrorToTransmit & {
     details?: PublicationRpcErrorToTransmit["details"] & {
         newUpdatingState?: Comment["updatingState"];

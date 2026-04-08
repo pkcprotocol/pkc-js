@@ -1,12 +1,12 @@
 import { z } from "zod";
-import { ChallengeAnswersSchema, CreatePublicationUserOptionsSchema, PlebbitTimestampSchema, ProtocolVersionSchema, UserAgentSchema } from "../schema/schema.js";
+import { ChallengeAnswersSchema, CreatePublicationUserOptionsSchema, PKCTimestampSchema, ProtocolVersionSchema, UserAgentSchema } from "../schema/schema.js";
 import { VotePubsubMessagePublicationSchema } from "../publications/vote/schema.js";
 import { CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema } from "../publications/comment-edit/schema.js";
 import { CommentIpfsSchema, CommentPubsubMessageWithFlexibleAuthorRefinementSchema, CommentUpdateForChallengeVerificationSchema } from "../publications/comment/schema.js";
-import { ChallengeFileSchema, ChallengeFromGetChallengeSchema } from "../subplebbit/schema.js";
+import { ChallengeFileSchema, ChallengeFromGetChallengeSchema } from "../community/schema.js";
 import * as remeda from "remeda";
 import { CommentModerationPubsubMessagePublicationSchema } from "../publications/comment-moderation/schema.js";
-import { SubplebbitEditPubsubMessagePublicationSchema } from "../publications/subplebbit-edit/schema.js";
+import { CommunityEditPubsubMessagePublicationSchema } from "../publications/community-edit/schema.js";
 import { Uint8ArraySchema, nonNegativeIntStringSchema } from "../schema.js";
 const AcceptedChallengeTypeSchema = z.string().min(1);
 export const PubsubMessageSignatureSchema = z
@@ -22,7 +22,7 @@ const PubsubMessageBaseSchema = z.object({
     signature: PubsubMessageSignatureSchema,
     protocolVersion: ProtocolVersionSchema,
     userAgent: UserAgentSchema,
-    timestamp: PlebbitTimestampSchema
+    timestamp: PKCTimestampSchema
 });
 export const EncryptedSchema = z
     .object({
@@ -33,7 +33,7 @@ export const EncryptedSchema = z
     type: z.string().min(1)
 })
     .strict();
-// publication with subplebbit author that are added by subplebbit when they respond to publication, or emit an event
+// publication with community author that are added by community when they respond to publication, or emit an event
 // Challenge Request message
 export const ChallengeRequestMessageSchema = PubsubMessageBaseSchema.extend({
     type: z.literal("CHALLENGEREQUEST"),
@@ -45,7 +45,7 @@ export const DecryptedChallengeRequestPublicationSchema = z.object({
     vote: VotePubsubMessagePublicationSchema.loose().optional(),
     commentEdit: CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema.loose().optional(),
     commentModeration: CommentModerationPubsubMessagePublicationSchema.loose().optional(),
-    subplebbitEdit: SubplebbitEditPubsubMessagePublicationSchema.loose().optional()
+    communityEdit: CommunityEditPubsubMessagePublicationSchema.loose().optional()
 });
 // ChallengeRequestMessage.encrypted.ciphertext decrypts to JSON, with these props
 export const DecryptedChallengeRequestSchema = DecryptedChallengeRequestPublicationSchema.merge(CreatePublicationUserOptionsSchema.shape.challengeRequest.unwrap());
@@ -94,5 +94,5 @@ export const DecryptedChallengeVerificationSchema = z
 })
     .strict();
 export const ChallengeVerificationMessageSignedPropertyNames = remeda.keys.strict(remeda.omit(ChallengeVerificationMessageSchema.shape, ["signature"]));
-// Handling challenges for subplebbit
+// Handling challenges for community
 //# sourceMappingURL=schema.js.map

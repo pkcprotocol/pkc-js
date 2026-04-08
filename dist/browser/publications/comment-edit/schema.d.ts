@@ -21,7 +21,7 @@ export declare const CreateCommentEditOptionsSchema: z.ZodObject<{
         privateKey: z.ZodString;
     }, z.core.$strip>;
     author: z.ZodOptional<z.ZodObject<{
-        address: z.ZodOptional<z.ZodString>;
+        name: z.ZodOptional<z.ZodOptional<z.ZodString>>;
         previousCommentCid: z.ZodOptional<z.ZodOptional<z.ZodString>>;
         displayName: z.ZodOptional<z.ZodOptional<z.ZodString>>;
         wallets: z.ZodOptional<z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
@@ -49,7 +49,9 @@ export declare const CreateCommentEditOptionsSchema: z.ZodObject<{
             expiresAt: z.ZodOptional<z.ZodNumber>;
         }, z.core.$loose>>>>;
     }, z.core.$loose>>;
-    subplebbitAddress: z.ZodString;
+    communityAddress: z.ZodString;
+    communityPublicKey: z.ZodOptional<z.ZodString>;
+    communityName: z.ZodOptional<z.ZodString>;
     protocolVersion: z.ZodOptional<z.ZodString>;
     timestamp: z.ZodOptional<z.ZodNumber>;
     challengeRequest: z.ZodOptional<z.ZodObject<{
@@ -69,7 +71,7 @@ export declare const CreateCommentEditOptionsSchema: z.ZodObject<{
     nsfw: z.ZodOptional<z.ZodBoolean>;
     reason: z.ZodOptional<z.ZodString>;
 }, z.core.$strict>;
-export declare const CommentEditSignedPropertyNames: ("timestamp" | "flairs" | "subplebbitAddress" | "author" | "protocolVersion" | "commentCid" | "content" | "deleted" | "spoiler" | "nsfw" | "reason")[];
+export declare const CommentEditSignedPropertyNames: ("timestamp" | "flairs" | "author" | "communityPublicKey" | "communityName" | "protocolVersion" | "commentCid" | "spoiler" | "nsfw" | "reason" | "content" | "deleted")[];
 export declare const CommentEditPubsubMessagePublicationSchema: z.ZodObject<{
     timestamp: z.ZodNumber;
     signature: z.ZodObject<{
@@ -84,9 +86,8 @@ export declare const CommentEditPubsubMessagePublicationSchema: z.ZodObject<{
         textColor: z.ZodOptional<z.ZodString>;
         expiresAt: z.ZodOptional<z.ZodNumber>;
     }, z.core.$loose>>>;
-    subplebbitAddress: z.ZodString;
-    author: z.ZodObject<{
-        address: z.ZodString;
+    author: z.ZodOptional<z.ZodObject<{
+        name: z.ZodOptional<z.ZodString>;
         previousCommentCid: z.ZodOptional<z.ZodString>;
         displayName: z.ZodOptional<z.ZodString>;
         wallets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
@@ -113,14 +114,16 @@ export declare const CommentEditPubsubMessagePublicationSchema: z.ZodObject<{
             textColor: z.ZodOptional<z.ZodString>;
             expiresAt: z.ZodOptional<z.ZodNumber>;
         }, z.core.$loose>>>;
-    }, z.core.$strict>;
+    }, z.core.$strict>>;
+    communityPublicKey: z.ZodOptional<z.ZodString>;
+    communityName: z.ZodOptional<z.ZodString>;
     protocolVersion: z.ZodString;
     commentCid: z.ZodString;
-    content: z.ZodOptional<z.ZodString>;
-    deleted: z.ZodOptional<z.ZodBoolean>;
     spoiler: z.ZodOptional<z.ZodBoolean>;
     nsfw: z.ZodOptional<z.ZodBoolean>;
     reason: z.ZodOptional<z.ZodString>;
+    content: z.ZodOptional<z.ZodString>;
+    deleted: z.ZodOptional<z.ZodBoolean>;
 }, z.core.$strict>;
 export declare const CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema: z.ZodObject<{
     timestamp: z.ZodNumber;
@@ -136,16 +139,17 @@ export declare const CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema
         textColor: z.ZodOptional<z.ZodString>;
         expiresAt: z.ZodOptional<z.ZodNumber>;
     }, z.core.$loose>>>;
-    subplebbitAddress: z.ZodString;
+    communityPublicKey: z.ZodOptional<z.ZodString>;
+    communityName: z.ZodOptional<z.ZodString>;
     protocolVersion: z.ZodString;
     commentCid: z.ZodString;
-    content: z.ZodOptional<z.ZodString>;
-    deleted: z.ZodOptional<z.ZodBoolean>;
     spoiler: z.ZodOptional<z.ZodBoolean>;
     nsfw: z.ZodOptional<z.ZodBoolean>;
     reason: z.ZodOptional<z.ZodString>;
-    author: z.ZodObject<{
-        address: z.ZodString;
+    content: z.ZodOptional<z.ZodString>;
+    deleted: z.ZodOptional<z.ZodBoolean>;
+    author: z.ZodOptional<z.ZodObject<{
+        name: z.ZodOptional<z.ZodString>;
         previousCommentCid: z.ZodOptional<z.ZodString>;
         displayName: z.ZodOptional<z.ZodString>;
         wallets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
@@ -172,7 +176,7 @@ export declare const CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema
             textColor: z.ZodOptional<z.ZodString>;
             expiresAt: z.ZodOptional<z.ZodNumber>;
         }, z.core.$loose>>>;
-    }, z.core.$loose>;
+    }, z.core.$loose>>;
 }, z.core.$loose>;
 export declare const CommentEditsTableRowSchema: z.ZodObject<{
     timestamp: z.ZodNumber;
@@ -188,9 +192,8 @@ export declare const CommentEditsTableRowSchema: z.ZodObject<{
         textColor: z.ZodOptional<z.ZodString>;
         expiresAt: z.ZodOptional<z.ZodNumber>;
     }, z.core.$loose>>>;
-    subplebbitAddress: z.ZodString;
-    author: z.ZodObject<{
-        address: z.ZodString;
+    author: z.ZodOptional<z.ZodObject<{
+        name: z.ZodOptional<z.ZodString>;
         previousCommentCid: z.ZodOptional<z.ZodString>;
         displayName: z.ZodOptional<z.ZodString>;
         wallets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
@@ -217,14 +220,16 @@ export declare const CommentEditsTableRowSchema: z.ZodObject<{
             textColor: z.ZodOptional<z.ZodString>;
             expiresAt: z.ZodOptional<z.ZodNumber>;
         }, z.core.$loose>>>;
-    }, z.core.$strict>;
+    }, z.core.$strict>>;
+    communityPublicKey: z.ZodOptional<z.ZodString>;
+    communityName: z.ZodOptional<z.ZodString>;
     protocolVersion: z.ZodString;
     commentCid: z.ZodString;
-    content: z.ZodOptional<z.ZodString>;
-    deleted: z.ZodOptional<z.ZodBoolean>;
     spoiler: z.ZodOptional<z.ZodBoolean>;
     nsfw: z.ZodOptional<z.ZodBoolean>;
     reason: z.ZodOptional<z.ZodString>;
+    content: z.ZodOptional<z.ZodString>;
+    deleted: z.ZodOptional<z.ZodBoolean>;
     insertedAt: z.ZodNumber;
     authorSignerAddress: z.ZodString;
     isAuthorEdit: z.ZodBoolean;
@@ -247,16 +252,17 @@ export declare const CommentEditChallengeRequestToEncryptSchema: z.ZodObject<{
             textColor: z.ZodOptional<z.ZodString>;
             expiresAt: z.ZodOptional<z.ZodNumber>;
         }, z.core.$loose>>>;
-        subplebbitAddress: z.ZodString;
+        communityPublicKey: z.ZodOptional<z.ZodString>;
+        communityName: z.ZodOptional<z.ZodString>;
         protocolVersion: z.ZodString;
         commentCid: z.ZodString;
-        content: z.ZodOptional<z.ZodString>;
-        deleted: z.ZodOptional<z.ZodBoolean>;
         spoiler: z.ZodOptional<z.ZodBoolean>;
         nsfw: z.ZodOptional<z.ZodBoolean>;
         reason: z.ZodOptional<z.ZodString>;
-        author: z.ZodObject<{
-            address: z.ZodString;
+        content: z.ZodOptional<z.ZodString>;
+        deleted: z.ZodOptional<z.ZodBoolean>;
+        author: z.ZodOptional<z.ZodObject<{
+            name: z.ZodOptional<z.ZodString>;
             previousCommentCid: z.ZodOptional<z.ZodString>;
             displayName: z.ZodOptional<z.ZodString>;
             wallets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
@@ -283,7 +289,7 @@ export declare const CommentEditChallengeRequestToEncryptSchema: z.ZodObject<{
                 textColor: z.ZodOptional<z.ZodString>;
                 expiresAt: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
-        }, z.core.$loose>;
+        }, z.core.$loose>>;
     }, z.core.$loose>;
 }, z.core.$strip>;
 export declare const CommentEditReservedFields: string[];

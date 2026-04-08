@@ -1,8 +1,7 @@
-import { ChainTicker } from "./types.js";
-type StatTypes = "ipns" | "ipfs" | "pubsub-publish" | "pubsub-subscribe" | ChainTicker;
+type StatTypes = "ipns" | "ipfs" | "pubsub-publish" | "pubsub-subscribe" | "pubsub-unsubscribe";
 export default class Stats {
-    private _plebbit;
-    constructor(plebbit: Stats["_plebbit"]);
+    private _pkc;
+    constructor(pkc: Stats["_pkc"]);
     toJSON(): undefined;
     private _getSuccessCountKey;
     private _getSuccessAverageKey;

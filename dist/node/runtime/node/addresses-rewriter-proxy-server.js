@@ -1,14 +1,14 @@
 import http from "node:http";
 import https from "node:https";
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "../../logger.js";
 import * as remeda from "remeda";
 import retry from "retry";
 import { hideClassPrivateProps } from "../../util.js";
 import { AddressRewriterDatabase } from "./address-rewriter-db.js";
-const debug = Logger("plebbit-js:addresses-rewriter");
+const debug = Logger("pkc-js:addresses-rewriter");
 const MAX_BODY_PREVIEW_BYTES = 4096;
 export class AddressesRewriterProxyServer {
-    constructor({ kuboClients: kuboClient, port, hostname, proxyTargetUrl, plebbit }) {
+    constructor({ kuboClients: kuboClient, port, hostname, proxyTargetUrl, pkc }) {
         this._requestLogBuffer = [];
         this._isWritingLogs = false;
         // Failed keys retry logic
@@ -20,14 +20,14 @@ export class AddressesRewriterProxyServer {
         this.proxyTarget = new URL(proxyTargetUrl);
         this.server = http.createServer((req, res) => this._proxyRequestRewrite(req, res));
         this._storageKeyName = `httprouter_proxy_${proxyTargetUrl}`;
-        this._plebbit = plebbit;
+        this._pkc = pkc;
         // Environment-based logging toggle
         const envValue = process.env.ENABLE_LOGGING_OF_ADDRESS_REWRITER_PROXY;
         this._loggingEnabled = envValue === "1" || envValue?.toLowerCase() === "true";
         // Initialize database only when logging is enabled
         if (this._loggingEnabled) {
             const kuboConfig = this.kuboClients?.[0]?.getEndpointConfig();
-            this._db = new AddressRewriterDatabase(this._plebbit.dataPath, kuboConfig, this.proxyTarget);
+            this._db = new AddressRewriterDatabase(this._pkc.dataPath, kuboConfig, this.proxyTarget);
         }
         else {
             this._db = null;
@@ -63,7 +63,7 @@ export class AddressesRewriterProxyServer {
         this.server.on("error", (err) => debug.error("Error with address rewriter proxy", this.server.address(), "Proxy target", this.proxyTarget, err));
         this.server.listen(this.port, this.hostname, callback);
         debug("Addresses rewriter proxy at", this.hostname + ":" + this.port, "started listening to forward requests to", this.proxyTarget.host, `- request logging ${this._loggingEnabled ? "enabled" : "disabled"}`);
-        await this._plebbit._storage.setItem(this._storageKeyName, `http://${this.hostname}:${this.port}`);
+        await this._pkc._storage.setItem(this._storageKeyName, `http://${this.hostname}:${this.port}`);
     }
     async destroy() {
         this.server.close();
@@ -83,7 +83,7 @@ export class AddressesRewriterProxyServer {
         // Destroy HTTP agents to clean up connections
         this._httpAgent.destroy();
         this._httpsAgent.destroy();
-        await this._plebbit._storage.removeItem(this._storageKeyName);
+        await this._pkc._storage.removeItem(this._storageKeyName);
     }
     _proxyRequestRewrite(req, res) {
         // get post body

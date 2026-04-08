@@ -3,29 +3,29 @@ import type { PageIpfs } from "../pages/types.js";
 import { CommentChallengeRequestToEncryptSchema, CommentIpfsSchema, CommentPubsubMessagePublicationSchema, CommentUpdateSchema, CreateCommentOptionsSchema } from "../publications/comment/schema.js";
 import type { CommentChallengeRequestToEncryptType, CommentIpfsType, CommentUpdateType } from "../publications/comment/types.js";
 import { DecryptedChallengeAnswerSchema, DecryptedChallengeSchema, DecryptedChallengeVerificationSchema } from "../pubsub-messages/schema.js";
-import { CreateNewLocalSubplebbitUserOptionsSchema, CreateRemoteSubplebbitFunctionArgumentSchema, CreateRpcSubplebbitFunctionArgumentSchema, CreateSubplebbitFunctionArgumentsSchema, SubplebbitEditOptionsSchema, SubplebbitIpfsSchema } from "../subplebbit/schema.js";
-import type { CreateNewLocalSubplebbitUserOptions, RpcRemoteSubplebbitUpdateEventResultType, SubplebbitEditOptions, SubplebbitIpfsType } from "../subplebbit/types.js";
+import { CreateNewLocalCommunityUserOptionsSchema, CreateRemoteCommunityFunctionArgumentSchema, CreateRpcCommunityFunctionArgumentSchema, CreateCommunityFunctionArgumentsSchema, CommunityEditOptionsSchema, CommunityIpfsSchema } from "../community/schema.js";
+import type { CreateNewLocalCommunityUserOptions, RpcRemoteCommunityUpdateEventResultType, CommunityEditOptions, CommunityIpfsType } from "../community/types.js";
 import type { DecryptedChallenge, DecryptedChallengeAnswer, DecryptedChallengeVerification } from "../pubsub-messages/types.js";
 import { CidStringSchema } from "./schema.js";
 import { RpcCommentEventResultSchema, RpcCommentUpdateResultSchema } from "../clients/rpc-client/schema.js";
-import { CreatePlebbitWsServerOptionsSchema, SetNewSettingsPlebbitWsServerSchema } from "../rpc/src/schema.js";
-import type { CreatePlebbitWsServerOptions } from "../rpc/src/types.js";
+import { CreatePKCWsServerOptionsSchema, SetNewSettingsPKCWsServerSchema } from "../rpc/src/schema.js";
+import type { CreatePKCWsServerOptions } from "../rpc/src/types.js";
 import type { CommentModerationChallengeRequestToEncrypt } from "../publications/comment-moderation/types.js";
 import { CommentModerationChallengeRequestToEncryptSchema, CommentModerationPubsubMessagePublicationSchema, CreateCommentModerationOptionsSchema } from "../publications/comment-moderation/schema.js";
 import type { VoteChallengeRequestToEncryptType } from "../publications/vote/types.js";
 import { CreateVoteUserOptionsSchema, VoteChallengeRequestToEncryptSchema, VotePubsubMessagePublicationSchema } from "../publications/vote/schema.js";
 import type { CommentEditChallengeRequestToEncryptType } from "../publications/comment-edit/types.js";
 import { CommentEditChallengeRequestToEncryptSchema, CommentEditPubsubMessagePublicationSchema, CreateCommentEditOptionsSchema } from "../publications/comment-edit/schema.js";
-import { PlebbitUserOptionsSchema } from "../schema.js";
+import { PKCUserOptionsSchema } from "../schema.js";
 import { z, type ZodObject } from "zod";
-import type { CreateSubplebbitEditPublicationOptions, SubplebbitEditChallengeRequestToEncryptType, SubplebbitEditPubsubMessagePublication } from "../publications/subplebbit-edit/types.js";
-import { SubplebbitEditPublicationChallengeRequestToEncryptSchema } from "../publications/subplebbit-edit/schema.js";
-export declare function parseJsonWithPlebbitErrorIfFails(x: string): any;
-export declare function parseSubplebbitIpfsSchemaPassthroughWithPlebbitErrorIfItFails(subIpfs: z.infer<typeof SubplebbitIpfsSchema>): SubplebbitIpfsType;
-export declare function parseCommentIpfsSchemaWithPlebbitErrorIfItFails(commentIpfsJson: z.infer<typeof CommentIpfsSchema>): CommentIpfsType;
-export declare function parseCommentUpdateSchemaWithPlebbitErrorIfItFails(commentUpdateJson: z.infer<typeof CommentUpdateSchema>): CommentUpdateType;
-export declare function parsePageIpfsSchemaWithPlebbitErrorIfItFails(pageIpfsJson: z.infer<typeof PageIpfsSchema>): PageIpfs;
-export declare function parseModQueuePageIpfsSchemaWithPlebbitErrorIfItFails(modQueuePageIpfsJson: z.infer<typeof ModQueuePageIpfsSchema>): {
+import type { CreateCommunityEditPublicationOptions, CommunityEditChallengeRequestToEncryptType, CommunityEditPubsubMessagePublication } from "../publications/community-edit/types.js";
+import { CommunityEditPublicationChallengeRequestToEncryptSchema } from "../publications/community-edit/schema.js";
+export declare function parseJsonWithPKCErrorIfFails(x: string): any;
+export declare function parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(communityIpfs: z.infer<typeof CommunityIpfsSchema>): CommunityIpfsType;
+export declare function parseCommentIpfsSchemaWithPKCErrorIfItFails(commentIpfsJson: z.infer<typeof CommentIpfsSchema>): CommentIpfsType;
+export declare function parseCommentUpdateSchemaWithPKCErrorIfItFails(commentUpdateJson: z.infer<typeof CommentUpdateSchema>): CommentUpdateType;
+export declare function parsePageIpfsSchemaWithPKCErrorIfItFails(pageIpfsJson: z.infer<typeof PageIpfsSchema>): PageIpfs;
+export declare function parseModQueuePageIpfsSchemaWithPKCErrorIfItFails(modQueuePageIpfsJson: z.infer<typeof ModQueuePageIpfsSchema>): {
     comments: {
         comment: {
             [x: string]: unknown;
@@ -36,11 +36,31 @@ export declare function parseModQueuePageIpfsSchemaWithPlebbitErrorIfItFails(mod
                 publicKey: string;
                 signedPropertyNames: string[];
             };
-            subplebbitAddress: string;
             protocolVersion: string;
-            author: {
+            depth: number;
+            flairs?: {
                 [x: string]: unknown;
-                address: string;
+                text: string;
+                backgroundColor?: string | undefined;
+                textColor?: string | undefined;
+                expiresAt?: number | undefined;
+            }[] | undefined;
+            communityPublicKey?: string | undefined;
+            communityName?: string | undefined;
+            link?: string | undefined;
+            spoiler?: boolean | undefined;
+            nsfw?: boolean | undefined;
+            content?: string | undefined;
+            title?: string | undefined;
+            linkWidth?: number | undefined;
+            linkHeight?: number | undefined;
+            linkHtmlTagName?: string | undefined;
+            parentCid?: string | undefined;
+            postCid?: string | undefined;
+            quotedCids?: string[] | undefined;
+            author?: {
+                [x: string]: unknown;
+                name?: string | undefined;
                 previousCommentCid?: string | undefined;
                 displayName?: string | undefined;
                 wallets?: Record<string, {
@@ -69,26 +89,7 @@ export declare function parseModQueuePageIpfsSchemaWithPlebbitErrorIfItFails(mod
                     textColor?: string | undefined;
                     expiresAt?: number | undefined;
                 }[] | undefined;
-            };
-            depth: number;
-            flairs?: {
-                [x: string]: unknown;
-                text: string;
-                backgroundColor?: string | undefined;
-                textColor?: string | undefined;
-                expiresAt?: number | undefined;
-            }[] | undefined;
-            content?: string | undefined;
-            spoiler?: boolean | undefined;
-            nsfw?: boolean | undefined;
-            link?: string | undefined;
-            title?: string | undefined;
-            linkWidth?: number | undefined;
-            linkHeight?: number | undefined;
-            linkHtmlTagName?: string | undefined;
-            parentCid?: string | undefined;
-            postCid?: string | undefined;
-            quotedCids?: string[] | undefined;
+            } | undefined;
             thumbnailUrl?: string | undefined;
             thumbnailUrlWidth?: number | undefined;
             thumbnailUrlHeight?: number | undefined;
@@ -108,7 +109,7 @@ export declare function parseModQueuePageIpfsSchemaWithPlebbitErrorIfItFails(mod
             number?: number | undefined;
             author?: {
                 [x: string]: unknown;
-                subplebbit?: {
+                community?: {
                     [x: string]: unknown;
                     postScore: number;
                     replyScore: number;
@@ -130,17 +131,24 @@ export declare function parseModQueuePageIpfsSchemaWithPlebbitErrorIfItFails(mod
     }[];
     nextCid?: string | undefined;
 };
-export declare function parseDecryptedChallengeWithPlebbitErrorIfItFails(decryptedChallengeJson: z.infer<typeof DecryptedChallengeSchema>): DecryptedChallenge;
+export declare function parseDecryptedChallengeWithPKCErrorIfItFails(decryptedChallengeJson: z.infer<typeof DecryptedChallengeSchema>): DecryptedChallenge;
 export declare function parseDecryptedChallengeVerification(decryptedChallengeVerificationJson: z.infer<typeof DecryptedChallengeVerificationSchema>): DecryptedChallengeVerification;
-export declare function parseRpcRemoteSubplebbitUpdateEventWithPlebbitErrorIfItFails(rpcRemoteSubplebbit: RpcRemoteSubplebbitUpdateEventResultType): {
-    subplebbit: {
+export declare function parseRpcRemoteCommunityUpdateEventWithPKCErrorIfItFails(rpcRemoteCommunity: RpcRemoteCommunityUpdateEventResultType): {
+    runtimeFields: {
+        [x: string]: unknown;
+        updateCid?: string | undefined;
+        updatingState?: import("../community/types.js").CommunityUpdatingState | undefined;
+        newPublicKey?: string | undefined;
+        nameResolved?: boolean | undefined;
+    };
+    community?: {
         [x: string]: unknown;
         challenges: {
             [x: string]: unknown;
             type: string;
             exclude?: {
                 [x: string]: unknown;
-                subplebbit?: {
+                community?: {
                     addresses: string[];
                     maxCommentCids: number;
                     postScore?: number | undefined;
@@ -164,7 +172,7 @@ export declare function parseRpcRemoteSubplebbitUpdateEventWithPlebbitErrorIfItF
                     vote?: boolean | undefined;
                     commentEdit?: boolean | undefined;
                     commentModeration?: boolean | undefined;
-                    subplebbitEdit?: boolean | undefined;
+                    communityEdit?: boolean | undefined;
                 } | undefined;
             }[] | undefined;
             description?: string | undefined;
@@ -183,7 +191,6 @@ export declare function parseRpcRemoteSubplebbitUpdateEventWithPlebbitErrorIfItF
             type: string;
             publicKey: string;
         };
-        address: string;
         createdAt: number;
         updatedAt: number;
         statsCid: string;
@@ -200,11 +207,31 @@ export declare function parseRpcRemoteSubplebbitUpdateEventWithPlebbitErrorIfItF
                             publicKey: string;
                             signedPropertyNames: string[];
                         };
-                        subplebbitAddress: string;
                         protocolVersion: string;
-                        author: {
+                        depth: number;
+                        flairs?: {
                             [x: string]: unknown;
-                            address: string;
+                            text: string;
+                            backgroundColor?: string | undefined;
+                            textColor?: string | undefined;
+                            expiresAt?: number | undefined;
+                        }[] | undefined;
+                        communityPublicKey?: string | undefined;
+                        communityName?: string | undefined;
+                        link?: string | undefined;
+                        spoiler?: boolean | undefined;
+                        nsfw?: boolean | undefined;
+                        content?: string | undefined;
+                        title?: string | undefined;
+                        linkWidth?: number | undefined;
+                        linkHeight?: number | undefined;
+                        linkHtmlTagName?: string | undefined;
+                        parentCid?: string | undefined;
+                        postCid?: string | undefined;
+                        quotedCids?: string[] | undefined;
+                        author?: {
+                            [x: string]: unknown;
+                            name?: string | undefined;
                             previousCommentCid?: string | undefined;
                             displayName?: string | undefined;
                             wallets?: Record<string, {
@@ -233,26 +260,7 @@ export declare function parseRpcRemoteSubplebbitUpdateEventWithPlebbitErrorIfItF
                                 textColor?: string | undefined;
                                 expiresAt?: number | undefined;
                             }[] | undefined;
-                        };
-                        depth: number;
-                        flairs?: {
-                            [x: string]: unknown;
-                            text: string;
-                            backgroundColor?: string | undefined;
-                            textColor?: string | undefined;
-                            expiresAt?: number | undefined;
-                        }[] | undefined;
-                        content?: string | undefined;
-                        spoiler?: boolean | undefined;
-                        nsfw?: boolean | undefined;
-                        link?: string | undefined;
-                        title?: string | undefined;
-                        linkWidth?: number | undefined;
-                        linkHeight?: number | undefined;
-                        linkHtmlTagName?: string | undefined;
-                        parentCid?: string | undefined;
-                        postCid?: string | undefined;
-                        quotedCids?: string[] | undefined;
+                        } | undefined;
                         thumbnailUrl?: string | undefined;
                         thumbnailUrlWidth?: number | undefined;
                         thumbnailUrlHeight?: number | undefined;
@@ -285,12 +293,25 @@ export declare function parseRpcRemoteSubplebbitUpdateEventWithPlebbitErrorIfItF
                                 publicKey: string;
                                 signedPropertyNames: string[];
                             };
-                            subplebbitAddress: string;
                             protocolVersion: string;
                             commentCid: string;
-                            author: {
+                            flairs?: {
                                 [x: string]: unknown;
-                                address: string;
+                                text: string;
+                                backgroundColor?: string | undefined;
+                                textColor?: string | undefined;
+                                expiresAt?: number | undefined;
+                            }[] | undefined;
+                            communityPublicKey?: string | undefined;
+                            communityName?: string | undefined;
+                            spoiler?: boolean | undefined;
+                            nsfw?: boolean | undefined;
+                            reason?: string | undefined;
+                            content?: string | undefined;
+                            deleted?: boolean | undefined;
+                            author?: {
+                                [x: string]: unknown;
+                                name?: string | undefined;
                                 previousCommentCid?: string | undefined;
                                 displayName?: string | undefined;
                                 wallets?: Record<string, {
@@ -319,19 +340,7 @@ export declare function parseRpcRemoteSubplebbitUpdateEventWithPlebbitErrorIfItF
                                     textColor?: string | undefined;
                                     expiresAt?: number | undefined;
                                 }[] | undefined;
-                            };
-                            flairs?: {
-                                [x: string]: unknown;
-                                text: string;
-                                backgroundColor?: string | undefined;
-                                textColor?: string | undefined;
-                                expiresAt?: number | undefined;
-                            }[] | undefined;
-                            content?: string | undefined;
-                            deleted?: boolean | undefined;
-                            spoiler?: boolean | undefined;
-                            nsfw?: boolean | undefined;
-                            reason?: string | undefined;
+                            } | undefined;
                         } | undefined;
                         flairs?: {
                             [x: string]: unknown;
@@ -350,7 +359,7 @@ export declare function parseRpcRemoteSubplebbitUpdateEventWithPlebbitErrorIfItF
                         approved?: boolean | undefined;
                         author?: {
                             [x: string]: unknown;
-                            subplebbit?: {
+                            community?: {
                                 [x: string]: unknown;
                                 postScore: number;
                                 replyScore: number;
@@ -381,6 +390,7 @@ export declare function parseRpcRemoteSubplebbitUpdateEventWithPlebbitErrorIfItF
         modQueue?: {
             pageCids: Record<string, string>;
         } | undefined;
+        name?: string | undefined;
         pubsubTopic?: string | undefined;
         postUpdates?: Record<string, string> | undefined;
         title?: string | undefined;
@@ -443,14 +453,13 @@ export declare function parseRpcRemoteSubplebbitUpdateEventWithPlebbitErrorIfItF
             textColor?: string | undefined;
             expiresAt?: number | undefined;
         }[]> | undefined;
-    };
-    updateCid: string;
-    updatingState?: import("../subplebbit/types.js").SubplebbitUpdatingState | undefined;
+    } | undefined;
+    resetInstance?: boolean | undefined;
 };
-export declare function parseCidStringSchemaWithPlebbitErrorIfItFails(cidString: z.infer<typeof CidStringSchema>): string;
-export declare function parseRpcCommentUpdateEventWithPlebbitErrorIfItFails(updateResult: z.infer<typeof RpcCommentUpdateResultSchema>): CommentUpdateType;
-export declare function parseRpcCommentEventWithPlebbitErrorIfItFails(updateResult: z.infer<typeof RpcCommentEventResultSchema>): CommentIpfsType;
-export declare function parseSubplebbitEditPubsubMessagePublicationSchemaWithPlebbitErrorIfItFails(args: SubplebbitEditPubsubMessagePublication): {
+export declare function parseCidStringSchemaWithPKCErrorIfItFails(cidString: z.infer<typeof CidStringSchema>): string;
+export declare function parseRpcCommentUpdateEventWithPKCErrorIfItFails(updateResult: z.input<typeof RpcCommentUpdateResultSchema>): z.infer<typeof RpcCommentUpdateResultSchema>;
+export declare function parseRpcCommentEventWithPKCErrorIfItFails(updateResult: z.input<typeof RpcCommentEventResultSchema>): z.infer<typeof RpcCommentEventResultSchema>;
+export declare function parseCommunityEditPubsubMessagePublicationSchemaWithPKCErrorIfItFails(args: CommunityEditPubsubMessagePublication): {
     timestamp: number;
     signature: {
         type: string;
@@ -458,42 +467,9 @@ export declare function parseSubplebbitEditPubsubMessagePublicationSchemaWithPle
         publicKey: string;
         signedPropertyNames: string[];
     };
-    subplebbitAddress: string;
-    author: {
-        [x: string]: unknown;
-        address: string;
-        previousCommentCid?: string | undefined;
-        displayName?: string | undefined;
-        wallets?: Record<string, {
-            address: string;
-            timestamp: number;
-            signature: {
-                signature: string;
-                type: string;
-            };
-        }> | undefined;
-        avatar?: {
-            [x: string]: unknown;
-            chainTicker: string;
-            address: string;
-            id: string;
-            timestamp: number;
-            signature: {
-                signature: string;
-                type: string;
-            };
-        } | undefined;
-        flairs?: {
-            [x: string]: unknown;
-            text: string;
-            backgroundColor?: string | undefined;
-            textColor?: string | undefined;
-            expiresAt?: number | undefined;
-        }[] | undefined;
-    };
     protocolVersion: string;
-    subplebbitEdit: {
-        address?: string | undefined;
+    communityEdit: {
+        name?: string | undefined;
         flairs?: Record<string, {
             [x: string]: unknown;
             text: string;
@@ -549,6 +525,7 @@ export declare function parseSubplebbitEditPubsubMessagePublicationSchemaWithPle
             backgroundUrl?: string | undefined;
             language?: string | undefined;
         } | undefined;
+        address?: string | undefined;
         settings?: {
             fetchThumbnailUrls?: boolean | undefined;
             fetchThumbnailUrlsProxyUrl?: string | undefined;
@@ -558,7 +535,7 @@ export declare function parseSubplebbitEditPubsubMessagePublicationSchemaWithPle
                 options?: Record<string, string> | undefined;
                 exclude?: {
                     [x: string]: unknown;
-                    subplebbit?: {
+                    community?: {
                         addresses: string[];
                         maxCommentCids: number;
                         postScore?: number | undefined;
@@ -582,7 +559,7 @@ export declare function parseSubplebbitEditPubsubMessagePublicationSchemaWithPle
                         vote?: boolean | undefined;
                         commentEdit?: boolean | undefined;
                         commentModeration?: boolean | undefined;
-                        subplebbitEdit?: boolean | undefined;
+                        communityEdit?: boolean | undefined;
                     } | undefined;
                 }[] | undefined;
                 description?: string | undefined;
@@ -596,15 +573,49 @@ export declare function parseSubplebbitEditPubsubMessagePublicationSchemaWithPle
             role: string;
         } | undefined> | undefined;
     };
+    author?: {
+        [x: string]: unknown;
+        name?: string | undefined;
+        previousCommentCid?: string | undefined;
+        displayName?: string | undefined;
+        wallets?: Record<string, {
+            address: string;
+            timestamp: number;
+            signature: {
+                signature: string;
+                type: string;
+            };
+        }> | undefined;
+        avatar?: {
+            [x: string]: unknown;
+            chainTicker: string;
+            address: string;
+            id: string;
+            timestamp: number;
+            signature: {
+                signature: string;
+                type: string;
+            };
+        } | undefined;
+        flairs?: {
+            [x: string]: unknown;
+            text: string;
+            backgroundColor?: string | undefined;
+            textColor?: string | undefined;
+            expiresAt?: number | undefined;
+        }[] | undefined;
+    } | undefined;
+    communityPublicKey?: string | undefined;
+    communityName?: string | undefined;
 };
-export declare function parseCreateSubplebbitEditPublicationOptionsSchemaWithPlebbitErrorIfItFails(args: CreateSubplebbitEditPublicationOptions): {
+export declare function parseCreateCommunityEditPublicationOptionsSchemaWithPKCErrorIfItFails(args: CreateCommunityEditPublicationOptions): {
     signer: {
         type: "ed25519";
         privateKey: string;
     };
-    subplebbitAddress: string;
-    subplebbitEdit: {
-        address?: string | undefined;
+    communityAddress: string;
+    communityEdit: {
+        name?: string | undefined;
         flairs?: Record<string, {
             [x: string]: unknown;
             text: string;
@@ -660,6 +671,7 @@ export declare function parseCreateSubplebbitEditPublicationOptionsSchemaWithPle
             backgroundUrl?: string | undefined;
             language?: string | undefined;
         } | undefined;
+        address?: string | undefined;
         settings?: {
             fetchThumbnailUrls?: boolean | undefined;
             fetchThumbnailUrlsProxyUrl?: string | undefined;
@@ -669,7 +681,7 @@ export declare function parseCreateSubplebbitEditPublicationOptionsSchemaWithPle
                 options?: Record<string, string> | undefined;
                 exclude?: {
                     [x: string]: unknown;
-                    subplebbit?: {
+                    community?: {
                         addresses: string[];
                         maxCommentCids: number;
                         postScore?: number | undefined;
@@ -693,7 +705,7 @@ export declare function parseCreateSubplebbitEditPublicationOptionsSchemaWithPle
                         vote?: boolean | undefined;
                         commentEdit?: boolean | undefined;
                         commentModeration?: boolean | undefined;
-                        subplebbitEdit?: boolean | undefined;
+                        communityEdit?: boolean | undefined;
                     } | undefined;
                 }[] | undefined;
                 description?: string | undefined;
@@ -709,7 +721,7 @@ export declare function parseCreateSubplebbitEditPublicationOptionsSchemaWithPle
     };
     author?: {
         [x: string]: unknown;
-        address?: string | undefined;
+        name?: string | undefined;
         previousCommentCid?: string | undefined;
         displayName?: string | undefined;
         wallets?: Record<string, {
@@ -739,6 +751,8 @@ export declare function parseCreateSubplebbitEditPublicationOptionsSchemaWithPle
             expiresAt?: number | undefined;
         }[] | undefined;
     } | undefined;
+    communityPublicKey?: string | undefined;
+    communityName?: string | undefined;
     protocolVersion?: string | undefined;
     timestamp?: number | undefined;
     challengeRequest?: {
@@ -746,22 +760,22 @@ export declare function parseCreateSubplebbitEditPublicationOptionsSchemaWithPle
         challengeCommentCids?: string[] | undefined;
     } | undefined;
 };
-export declare function parseDecryptedChallengeAnswerWithPlebbitErrorIfItFails(decryptedChallengeAnswers: z.infer<typeof DecryptedChallengeAnswerSchema>): DecryptedChallengeAnswer;
-export declare function parseCreatePlebbitWsServerOptionsSchemaWithPlebbitErrorIfItFails(options: z.infer<typeof CreatePlebbitWsServerOptionsSchema>): CreatePlebbitWsServerOptions;
-export declare function parseCommentModerationChallengeRequestToEncryptSchemaWithPlebbitErrorIfItFails(toEncrypt: z.infer<typeof CommentModerationChallengeRequestToEncryptSchema>): CommentModerationChallengeRequestToEncrypt;
-export declare function parseSubplebbitEditChallengeRequestToEncryptSchemaWithPlebbitErrorIfItFails(toEncrypt: z.infer<typeof SubplebbitEditPublicationChallengeRequestToEncryptSchema>): SubplebbitEditChallengeRequestToEncryptType;
-export declare function parseSubplebbitEditOptionsSchemaWithPlebbitErrorIfItFails(editOptions: z.infer<typeof SubplebbitEditOptionsSchema>): SubplebbitEditOptions;
-export declare function parseCommentChallengeRequestToEncryptSchemaWithPlebbitErrorIfItFails(toEncrypt: z.infer<typeof CommentChallengeRequestToEncryptSchema>): CommentChallengeRequestToEncryptType;
-export declare function parseVoteChallengeRequestToEncryptSchemaWithPlebbitErrorIfItFails(toEncrypt: z.infer<typeof VoteChallengeRequestToEncryptSchema>): VoteChallengeRequestToEncryptType;
-export declare function parseCommentEditChallengeRequestToEncryptSchemaWithPlebbitErrorIfItFails(toEncrypt: z.infer<typeof CommentEditChallengeRequestToEncryptSchema>): CommentEditChallengeRequestToEncryptType;
-export declare function parseCreateNewLocalSubplebbitUserOptionsSchemaWithPlebbitErrorIfItFails(options: z.infer<typeof CreateNewLocalSubplebbitUserOptionsSchema>): CreateNewLocalSubplebbitUserOptions;
-export declare function parseSetNewSettingsPlebbitWsServerSchemaWithPlebbitErrorIfItFails(settings: z.input<typeof SetNewSettingsPlebbitWsServerSchema>): z.input<typeof SetNewSettingsPlebbitWsServerSchema>;
-export declare function parseCreateCommentModerationOptionsSchemaWithPlebbitErrorIfItFails(args: z.infer<typeof CreateCommentModerationOptionsSchema>): {
+export declare function parseDecryptedChallengeAnswerWithPKCErrorIfItFails(decryptedChallengeAnswers: z.infer<typeof DecryptedChallengeAnswerSchema>): DecryptedChallengeAnswer;
+export declare function parseCreatePKCWsServerOptionsSchemaWithPKCErrorIfItFails(options: z.infer<typeof CreatePKCWsServerOptionsSchema>): CreatePKCWsServerOptions;
+export declare function parseCommentModerationChallengeRequestToEncryptSchemaWithPKCErrorIfItFails(toEncrypt: z.infer<typeof CommentModerationChallengeRequestToEncryptSchema>): CommentModerationChallengeRequestToEncrypt;
+export declare function parseCommunityEditChallengeRequestToEncryptSchemaWithPKCErrorIfItFails(toEncrypt: z.infer<typeof CommunityEditPublicationChallengeRequestToEncryptSchema>): CommunityEditChallengeRequestToEncryptType;
+export declare function parseCommunityEditOptionsSchemaWithPKCErrorIfItFails(editOptions: z.infer<typeof CommunityEditOptionsSchema>): CommunityEditOptions;
+export declare function parseCommentChallengeRequestToEncryptSchemaWithPKCErrorIfItFails(toEncrypt: z.infer<typeof CommentChallengeRequestToEncryptSchema>): CommentChallengeRequestToEncryptType;
+export declare function parseVoteChallengeRequestToEncryptSchemaWithPKCErrorIfItFails(toEncrypt: z.infer<typeof VoteChallengeRequestToEncryptSchema>): VoteChallengeRequestToEncryptType;
+export declare function parseCommentEditChallengeRequestToEncryptSchemaWithPKCErrorIfItFails(toEncrypt: z.infer<typeof CommentEditChallengeRequestToEncryptSchema>): CommentEditChallengeRequestToEncryptType;
+export declare function parseCreateNewLocalCommunityUserOptionsSchemaWithPKCErrorIfItFails(options: z.infer<typeof CreateNewLocalCommunityUserOptionsSchema>): CreateNewLocalCommunityUserOptions;
+export declare function parseSetNewSettingsPKCWsServerSchemaWithPKCErrorIfItFails(settings: z.input<typeof SetNewSettingsPKCWsServerSchema>): z.input<typeof SetNewSettingsPKCWsServerSchema>;
+export declare function parseCreateCommentModerationOptionsSchemaWithPKCErrorIfItFails(args: z.infer<typeof CreateCommentModerationOptionsSchema>): {
     signer: {
         type: "ed25519";
         privateKey: string;
     };
-    subplebbitAddress: string;
+    communityAddress: string;
     commentModeration: {
         [x: string]: unknown;
         flairs?: {
@@ -795,7 +809,7 @@ export declare function parseCreateCommentModerationOptionsSchemaWithPlebbitErro
     commentCid: string;
     author?: {
         [x: string]: unknown;
-        address?: string | undefined;
+        name?: string | undefined;
         previousCommentCid?: string | undefined;
         displayName?: string | undefined;
         wallets?: Record<string, {
@@ -825,6 +839,8 @@ export declare function parseCreateCommentModerationOptionsSchemaWithPlebbitErro
             expiresAt?: number | undefined;
         }[] | undefined;
     } | undefined;
+    communityPublicKey?: string | undefined;
+    communityName?: string | undefined;
     protocolVersion?: string | undefined;
     timestamp?: number | undefined;
     challengeRequest?: {
@@ -832,46 +848,13 @@ export declare function parseCreateCommentModerationOptionsSchemaWithPlebbitErro
         challengeCommentCids?: string[] | undefined;
     } | undefined;
 };
-export declare function parseCommentModerationPubsubMessagePublicationSchemaWithPlebbitErrorIfItFails(args: z.infer<typeof CommentModerationPubsubMessagePublicationSchema>): {
+export declare function parseCommentModerationPubsubMessagePublicationSchemaWithPKCErrorIfItFails(args: z.infer<typeof CommentModerationPubsubMessagePublicationSchema>): {
     timestamp: number;
     signature: {
         type: string;
         signature: string;
         publicKey: string;
         signedPropertyNames: string[];
-    };
-    subplebbitAddress: string;
-    author: {
-        [x: string]: unknown;
-        address: string;
-        previousCommentCid?: string | undefined;
-        displayName?: string | undefined;
-        wallets?: Record<string, {
-            address: string;
-            timestamp: number;
-            signature: {
-                signature: string;
-                type: string;
-            };
-        }> | undefined;
-        avatar?: {
-            [x: string]: unknown;
-            chainTicker: string;
-            address: string;
-            id: string;
-            timestamp: number;
-            signature: {
-                signature: string;
-                type: string;
-            };
-        } | undefined;
-        flairs?: {
-            [x: string]: unknown;
-            text: string;
-            backgroundColor?: string | undefined;
-            textColor?: string | undefined;
-            expiresAt?: number | undefined;
-        }[] | undefined;
     };
     protocolVersion: string;
     commentCid: string;
@@ -905,19 +888,9 @@ export declare function parseCommentModerationPubsubMessagePublicationSchemaWith
             banExpiresAt?: number | undefined;
         } | undefined;
     };
-};
-export declare function parseCreateRemoteSubplebbitFunctionArgumentSchemaWithPlebbitErrorIfItFails(args: any): z.infer<typeof CreateRemoteSubplebbitFunctionArgumentSchema>;
-export declare function parseCreateVoteOptionsSchemaWithPlebbitErrorIfItFails(args: z.infer<typeof CreateVoteUserOptionsSchema>): {
-    signer: {
-        type: "ed25519";
-        privateKey: string;
-    };
-    subplebbitAddress: string;
-    commentCid: string;
-    vote: 0 | 1 | -1;
     author?: {
         [x: string]: unknown;
-        address?: string | undefined;
+        name?: string | undefined;
         previousCommentCid?: string | undefined;
         displayName?: string | undefined;
         wallets?: Record<string, {
@@ -947,6 +920,52 @@ export declare function parseCreateVoteOptionsSchemaWithPlebbitErrorIfItFails(ar
             expiresAt?: number | undefined;
         }[] | undefined;
     } | undefined;
+    communityPublicKey?: string | undefined;
+    communityName?: string | undefined;
+};
+export declare function parseCreateRemoteCommunityFunctionArgumentSchemaWithPKCErrorIfItFails(args: any): z.infer<typeof CreateRemoteCommunityFunctionArgumentSchema>;
+export declare function parseCreateVoteOptionsSchemaWithPKCErrorIfItFails(args: z.infer<typeof CreateVoteUserOptionsSchema>): {
+    signer: {
+        type: "ed25519";
+        privateKey: string;
+    };
+    communityAddress: string;
+    commentCid: string;
+    vote: 0 | 1 | -1;
+    author?: {
+        [x: string]: unknown;
+        name?: string | undefined;
+        previousCommentCid?: string | undefined;
+        displayName?: string | undefined;
+        wallets?: Record<string, {
+            address: string;
+            timestamp: number;
+            signature: {
+                signature: string;
+                type: string;
+            };
+        }> | undefined;
+        avatar?: {
+            [x: string]: unknown;
+            chainTicker: string;
+            address: string;
+            id: string;
+            timestamp: number;
+            signature: {
+                signature: string;
+                type: string;
+            };
+        } | undefined;
+        flairs?: {
+            [x: string]: unknown;
+            text: string;
+            backgroundColor?: string | undefined;
+            textColor?: string | undefined;
+            expiresAt?: number | undefined;
+        }[] | undefined;
+    } | undefined;
+    communityPublicKey?: string | undefined;
+    communityName?: string | undefined;
     protocolVersion?: string | undefined;
     timestamp?: number | undefined;
     challengeRequest?: {
@@ -954,7 +973,7 @@ export declare function parseCreateVoteOptionsSchemaWithPlebbitErrorIfItFails(ar
         challengeCommentCids?: string[] | undefined;
     } | undefined;
 };
-export declare function parseVotePubsubMessagePublicationSchemaWithPlebbitErrorIfItFails(args: z.infer<typeof VotePubsubMessagePublicationSchema>): {
+export declare function parseVotePubsubMessagePublicationSchemaWithPKCErrorIfItFails(args: z.infer<typeof VotePubsubMessagePublicationSchema>): {
     timestamp: number;
     signature: {
         type: string;
@@ -962,53 +981,12 @@ export declare function parseVotePubsubMessagePublicationSchemaWithPlebbitErrorI
         publicKey: string;
         signedPropertyNames: string[];
     };
-    subplebbitAddress: string;
-    author: {
-        [x: string]: unknown;
-        address: string;
-        previousCommentCid?: string | undefined;
-        displayName?: string | undefined;
-        wallets?: Record<string, {
-            address: string;
-            timestamp: number;
-            signature: {
-                signature: string;
-                type: string;
-            };
-        }> | undefined;
-        avatar?: {
-            [x: string]: unknown;
-            chainTicker: string;
-            address: string;
-            id: string;
-            timestamp: number;
-            signature: {
-                signature: string;
-                type: string;
-            };
-        } | undefined;
-        flairs?: {
-            [x: string]: unknown;
-            text: string;
-            backgroundColor?: string | undefined;
-            textColor?: string | undefined;
-            expiresAt?: number | undefined;
-        }[] | undefined;
-    };
     protocolVersion: string;
     commentCid: string;
     vote: 0 | 1 | -1;
-};
-export declare function parseCreateCommentEditOptionsSchemaWithPlebbitErrorIfItFails(args: z.infer<typeof CreateCommentEditOptionsSchema>): {
-    signer: {
-        type: "ed25519";
-        privateKey: string;
-    };
-    subplebbitAddress: string;
-    commentCid: string;
     author?: {
         [x: string]: unknown;
-        address?: string | undefined;
+        name?: string | undefined;
         previousCommentCid?: string | undefined;
         displayName?: string | undefined;
         wallets?: Record<string, {
@@ -1038,6 +1016,50 @@ export declare function parseCreateCommentEditOptionsSchemaWithPlebbitErrorIfItF
             expiresAt?: number | undefined;
         }[] | undefined;
     } | undefined;
+    communityPublicKey?: string | undefined;
+    communityName?: string | undefined;
+};
+export declare function parseCreateCommentEditOptionsSchemaWithPKCErrorIfItFails(args: z.infer<typeof CreateCommentEditOptionsSchema>): {
+    signer: {
+        type: "ed25519";
+        privateKey: string;
+    };
+    communityAddress: string;
+    commentCid: string;
+    author?: {
+        [x: string]: unknown;
+        name?: string | undefined;
+        previousCommentCid?: string | undefined;
+        displayName?: string | undefined;
+        wallets?: Record<string, {
+            address: string;
+            timestamp: number;
+            signature: {
+                signature: string;
+                type: string;
+            };
+        }> | undefined;
+        avatar?: {
+            [x: string]: unknown;
+            chainTicker: string;
+            address: string;
+            id: string;
+            timestamp: number;
+            signature: {
+                signature: string;
+                type: string;
+            };
+        } | undefined;
+        flairs?: {
+            [x: string]: unknown;
+            text: string;
+            backgroundColor?: string | undefined;
+            textColor?: string | undefined;
+            expiresAt?: number | undefined;
+        }[] | undefined;
+    } | undefined;
+    communityPublicKey?: string | undefined;
+    communityName?: string | undefined;
     protocolVersion?: string | undefined;
     timestamp?: number | undefined;
     challengeRequest?: {
@@ -1057,7 +1079,7 @@ export declare function parseCreateCommentEditOptionsSchemaWithPlebbitErrorIfItF
     nsfw?: boolean | undefined;
     reason?: string | undefined;
 };
-export declare function parseCommentEditPubsubMessagePublicationSchemaWithPlebbitErrorIfItFails(args: z.infer<typeof CommentEditPubsubMessagePublicationSchema>): {
+export declare function parseCommentEditPubsubMessagePublicationSchemaWithPKCErrorIfItFails(args: z.infer<typeof CommentEditPubsubMessagePublicationSchema>): {
     timestamp: number;
     signature: {
         type: string;
@@ -1065,9 +1087,17 @@ export declare function parseCommentEditPubsubMessagePublicationSchemaWithPlebbi
         publicKey: string;
         signedPropertyNames: string[];
     };
-    subplebbitAddress: string;
-    author: {
-        address: string;
+    protocolVersion: string;
+    commentCid: string;
+    flairs?: {
+        [x: string]: unknown;
+        text: string;
+        backgroundColor?: string | undefined;
+        textColor?: string | undefined;
+        expiresAt?: number | undefined;
+    }[] | undefined;
+    author?: {
+        name?: string | undefined;
         previousCommentCid?: string | undefined;
         displayName?: string | undefined;
         wallets?: Record<string, {
@@ -1096,30 +1126,23 @@ export declare function parseCommentEditPubsubMessagePublicationSchemaWithPlebbi
             textColor?: string | undefined;
             expiresAt?: number | undefined;
         }[] | undefined;
-    };
-    protocolVersion: string;
-    commentCid: string;
-    flairs?: {
-        [x: string]: unknown;
-        text: string;
-        backgroundColor?: string | undefined;
-        textColor?: string | undefined;
-        expiresAt?: number | undefined;
-    }[] | undefined;
-    content?: string | undefined;
-    deleted?: boolean | undefined;
+    } | undefined;
+    communityPublicKey?: string | undefined;
+    communityName?: string | undefined;
     spoiler?: boolean | undefined;
     nsfw?: boolean | undefined;
     reason?: string | undefined;
+    content?: string | undefined;
+    deleted?: boolean | undefined;
 };
-export declare function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitErrorIfItFails(args: z.infer<typeof CreateSubplebbitFunctionArgumentsSchema>): {
+export declare function parseCreateCommunityFunctionArgumentsSchemaWithPKCErrorIfItFails(args: z.infer<typeof CreateCommunityFunctionArgumentsSchema>): {
     [x: string]: unknown;
     challenges: {
         [x: string]: unknown;
         type: string;
         exclude?: {
             [x: string]: unknown;
-            subplebbit?: {
+            community?: {
                 addresses: string[];
                 maxCommentCids: number;
                 postScore?: number | undefined;
@@ -1143,7 +1166,7 @@ export declare function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitE
                 vote?: boolean | undefined;
                 commentEdit?: boolean | undefined;
                 commentModeration?: boolean | undefined;
-                subplebbitEdit?: boolean | undefined;
+                communityEdit?: boolean | undefined;
             } | undefined;
         }[] | undefined;
         description?: string | undefined;
@@ -1162,7 +1185,6 @@ export declare function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitE
         type: string;
         publicKey: string;
     };
-    address: string;
     createdAt: number;
     updatedAt: number;
     statsCid: string;
@@ -1179,11 +1201,31 @@ export declare function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitE
                         publicKey: string;
                         signedPropertyNames: string[];
                     };
-                    subplebbitAddress: string;
                     protocolVersion: string;
-                    author: {
+                    depth: number;
+                    flairs?: {
                         [x: string]: unknown;
-                        address: string;
+                        text: string;
+                        backgroundColor?: string | undefined;
+                        textColor?: string | undefined;
+                        expiresAt?: number | undefined;
+                    }[] | undefined;
+                    communityPublicKey?: string | undefined;
+                    communityName?: string | undefined;
+                    link?: string | undefined;
+                    spoiler?: boolean | undefined;
+                    nsfw?: boolean | undefined;
+                    content?: string | undefined;
+                    title?: string | undefined;
+                    linkWidth?: number | undefined;
+                    linkHeight?: number | undefined;
+                    linkHtmlTagName?: string | undefined;
+                    parentCid?: string | undefined;
+                    postCid?: string | undefined;
+                    quotedCids?: string[] | undefined;
+                    author?: {
+                        [x: string]: unknown;
+                        name?: string | undefined;
                         previousCommentCid?: string | undefined;
                         displayName?: string | undefined;
                         wallets?: Record<string, {
@@ -1212,26 +1254,7 @@ export declare function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitE
                             textColor?: string | undefined;
                             expiresAt?: number | undefined;
                         }[] | undefined;
-                    };
-                    depth: number;
-                    flairs?: {
-                        [x: string]: unknown;
-                        text: string;
-                        backgroundColor?: string | undefined;
-                        textColor?: string | undefined;
-                        expiresAt?: number | undefined;
-                    }[] | undefined;
-                    content?: string | undefined;
-                    spoiler?: boolean | undefined;
-                    nsfw?: boolean | undefined;
-                    link?: string | undefined;
-                    title?: string | undefined;
-                    linkWidth?: number | undefined;
-                    linkHeight?: number | undefined;
-                    linkHtmlTagName?: string | undefined;
-                    parentCid?: string | undefined;
-                    postCid?: string | undefined;
-                    quotedCids?: string[] | undefined;
+                    } | undefined;
                     thumbnailUrl?: string | undefined;
                     thumbnailUrlWidth?: number | undefined;
                     thumbnailUrlHeight?: number | undefined;
@@ -1264,12 +1287,25 @@ export declare function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitE
                             publicKey: string;
                             signedPropertyNames: string[];
                         };
-                        subplebbitAddress: string;
                         protocolVersion: string;
                         commentCid: string;
-                        author: {
+                        flairs?: {
                             [x: string]: unknown;
-                            address: string;
+                            text: string;
+                            backgroundColor?: string | undefined;
+                            textColor?: string | undefined;
+                            expiresAt?: number | undefined;
+                        }[] | undefined;
+                        communityPublicKey?: string | undefined;
+                        communityName?: string | undefined;
+                        spoiler?: boolean | undefined;
+                        nsfw?: boolean | undefined;
+                        reason?: string | undefined;
+                        content?: string | undefined;
+                        deleted?: boolean | undefined;
+                        author?: {
+                            [x: string]: unknown;
+                            name?: string | undefined;
                             previousCommentCid?: string | undefined;
                             displayName?: string | undefined;
                             wallets?: Record<string, {
@@ -1298,19 +1334,7 @@ export declare function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitE
                                 textColor?: string | undefined;
                                 expiresAt?: number | undefined;
                             }[] | undefined;
-                        };
-                        flairs?: {
-                            [x: string]: unknown;
-                            text: string;
-                            backgroundColor?: string | undefined;
-                            textColor?: string | undefined;
-                            expiresAt?: number | undefined;
-                        }[] | undefined;
-                        content?: string | undefined;
-                        deleted?: boolean | undefined;
-                        spoiler?: boolean | undefined;
-                        nsfw?: boolean | undefined;
-                        reason?: string | undefined;
+                        } | undefined;
                     } | undefined;
                     flairs?: {
                         [x: string]: unknown;
@@ -1329,7 +1353,7 @@ export declare function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitE
                     approved?: boolean | undefined;
                     author?: {
                         [x: string]: unknown;
-                        subplebbit?: {
+                        community?: {
                             [x: string]: unknown;
                             postScore: number;
                             replyScore: number;
@@ -1360,6 +1384,7 @@ export declare function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitE
     modQueue?: {
         pageCids: Record<string, string>;
     } | undefined;
+    name?: string | undefined;
     pubsubTopic?: string | undefined;
     postUpdates?: Record<string, string> | undefined;
     title?: string | undefined;
@@ -1423,6 +1448,7 @@ export declare function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitE
         expiresAt?: number | undefined;
     }[]> | undefined;
 } | {
+    name?: string | undefined;
     flairs?: Record<string, {
         [x: string]: unknown;
         text: string;
@@ -1487,7 +1513,7 @@ export declare function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitE
             options?: Record<string, string> | undefined;
             exclude?: {
                 [x: string]: unknown;
-                subplebbit?: {
+                community?: {
                     addresses: string[];
                     maxCommentCids: number;
                     postScore?: number | undefined;
@@ -1511,7 +1537,7 @@ export declare function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitE
                     vote?: boolean | undefined;
                     commentEdit?: boolean | undefined;
                     commentModeration?: boolean | undefined;
-                    subplebbitEdit?: boolean | undefined;
+                    communityEdit?: boolean | undefined;
                 } | undefined;
             }[] | undefined;
             description?: string | undefined;
@@ -1529,7 +1555,6 @@ export declare function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitE
         role: string;
     }> | undefined;
 } | {
-    address: string;
     modQueue?: {
         pageCids: Record<string, string>;
     } | undefined;
@@ -1538,7 +1563,7 @@ export declare function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitE
         type: string;
         exclude?: {
             [x: string]: unknown;
-            subplebbit?: {
+            community?: {
                 addresses: string[];
                 maxCommentCids: number;
                 postScore?: number | undefined;
@@ -1562,7 +1587,7 @@ export declare function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitE
                 vote?: boolean | undefined;
                 commentEdit?: boolean | undefined;
                 commentModeration?: boolean | undefined;
-                subplebbitEdit?: boolean | undefined;
+                communityEdit?: boolean | undefined;
             } | undefined;
         }[] | undefined;
         description?: string | undefined;
@@ -1581,6 +1606,7 @@ export declare function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitE
         type: string;
         publicKey: string;
     } | undefined;
+    name?: string | undefined;
     createdAt?: number | undefined;
     updatedAt?: number | undefined;
     pubsubTopic?: string | undefined;
@@ -1647,6 +1673,8 @@ export declare function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitE
         textColor?: string | undefined;
         expiresAt?: number | undefined;
     }[]> | undefined;
+    address?: string | undefined;
+    publicKey?: string | undefined;
     posts?: {
         pages: Record<string, {
             comments: {
@@ -1659,11 +1687,31 @@ export declare function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitE
                         publicKey: string;
                         signedPropertyNames: string[];
                     };
-                    subplebbitAddress: string;
                     protocolVersion: string;
-                    author: {
+                    depth: number;
+                    flairs?: {
                         [x: string]: unknown;
-                        address: string;
+                        text: string;
+                        backgroundColor?: string | undefined;
+                        textColor?: string | undefined;
+                        expiresAt?: number | undefined;
+                    }[] | undefined;
+                    communityPublicKey?: string | undefined;
+                    communityName?: string | undefined;
+                    link?: string | undefined;
+                    spoiler?: boolean | undefined;
+                    nsfw?: boolean | undefined;
+                    content?: string | undefined;
+                    title?: string | undefined;
+                    linkWidth?: number | undefined;
+                    linkHeight?: number | undefined;
+                    linkHtmlTagName?: string | undefined;
+                    parentCid?: string | undefined;
+                    postCid?: string | undefined;
+                    quotedCids?: string[] | undefined;
+                    author?: {
+                        [x: string]: unknown;
+                        name?: string | undefined;
                         previousCommentCid?: string | undefined;
                         displayName?: string | undefined;
                         wallets?: Record<string, {
@@ -1692,26 +1740,7 @@ export declare function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitE
                             textColor?: string | undefined;
                             expiresAt?: number | undefined;
                         }[] | undefined;
-                    };
-                    depth: number;
-                    flairs?: {
-                        [x: string]: unknown;
-                        text: string;
-                        backgroundColor?: string | undefined;
-                        textColor?: string | undefined;
-                        expiresAt?: number | undefined;
-                    }[] | undefined;
-                    content?: string | undefined;
-                    spoiler?: boolean | undefined;
-                    nsfw?: boolean | undefined;
-                    link?: string | undefined;
-                    title?: string | undefined;
-                    linkWidth?: number | undefined;
-                    linkHeight?: number | undefined;
-                    linkHtmlTagName?: string | undefined;
-                    parentCid?: string | undefined;
-                    postCid?: string | undefined;
-                    quotedCids?: string[] | undefined;
+                    } | undefined;
                     thumbnailUrl?: string | undefined;
                     thumbnailUrlWidth?: number | undefined;
                     thumbnailUrlHeight?: number | undefined;
@@ -1744,12 +1773,25 @@ export declare function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitE
                             publicKey: string;
                             signedPropertyNames: string[];
                         };
-                        subplebbitAddress: string;
                         protocolVersion: string;
                         commentCid: string;
-                        author: {
+                        flairs?: {
                             [x: string]: unknown;
-                            address: string;
+                            text: string;
+                            backgroundColor?: string | undefined;
+                            textColor?: string | undefined;
+                            expiresAt?: number | undefined;
+                        }[] | undefined;
+                        communityPublicKey?: string | undefined;
+                        communityName?: string | undefined;
+                        spoiler?: boolean | undefined;
+                        nsfw?: boolean | undefined;
+                        reason?: string | undefined;
+                        content?: string | undefined;
+                        deleted?: boolean | undefined;
+                        author?: {
+                            [x: string]: unknown;
+                            name?: string | undefined;
                             previousCommentCid?: string | undefined;
                             displayName?: string | undefined;
                             wallets?: Record<string, {
@@ -1778,19 +1820,7 @@ export declare function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitE
                                 textColor?: string | undefined;
                                 expiresAt?: number | undefined;
                             }[] | undefined;
-                        };
-                        flairs?: {
-                            [x: string]: unknown;
-                            text: string;
-                            backgroundColor?: string | undefined;
-                            textColor?: string | undefined;
-                            expiresAt?: number | undefined;
-                        }[] | undefined;
-                        content?: string | undefined;
-                        deleted?: boolean | undefined;
-                        spoiler?: boolean | undefined;
-                        nsfw?: boolean | undefined;
-                        reason?: string | undefined;
+                        } | undefined;
                     } | undefined;
                     flairs?: {
                         [x: string]: unknown;
@@ -1809,7 +1839,7 @@ export declare function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitE
                     approved?: boolean | undefined;
                     author?: {
                         [x: string]: unknown;
-                        subplebbit?: {
+                        community?: {
                             [x: string]: unknown;
                             postScore: number;
                             replyScore: number;
@@ -1841,15 +1871,15 @@ export declare function parseCreateSubplebbitFunctionArgumentsSchemaWithPlebbitE
     } | undefined;
     updateCid?: string | undefined;
 };
-export declare function parsePlebbitUserOptionsSchemaWithPlebbitErrorIfItFails(args: any): z.infer<typeof PlebbitUserOptionsSchema>;
-export declare function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbitErrorIfItFails(args: z.infer<typeof CreateRpcSubplebbitFunctionArgumentSchema>): {
+export declare function parsePKCUserOptionsSchemaWithPKCErrorIfItFails(args: any): z.infer<typeof PKCUserOptionsSchema>;
+export declare function parseCreateRpcCommunityFunctionArgumentSchemaWithPKCErrorIfItFails(args: z.infer<typeof CreateRpcCommunityFunctionArgumentSchema>): {
     [x: string]: unknown;
     challenges: {
         [x: string]: unknown;
         type: string;
         exclude?: {
             [x: string]: unknown;
-            subplebbit?: {
+            community?: {
                 addresses: string[];
                 maxCommentCids: number;
                 postScore?: number | undefined;
@@ -1873,7 +1903,7 @@ export declare function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbi
                 vote?: boolean | undefined;
                 commentEdit?: boolean | undefined;
                 commentModeration?: boolean | undefined;
-                subplebbitEdit?: boolean | undefined;
+                communityEdit?: boolean | undefined;
             } | undefined;
         }[] | undefined;
         description?: string | undefined;
@@ -1892,7 +1922,6 @@ export declare function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbi
         type: string;
         publicKey: string;
     };
-    address: string;
     createdAt: number;
     updatedAt: number;
     statsCid: string;
@@ -1909,11 +1938,31 @@ export declare function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbi
                         publicKey: string;
                         signedPropertyNames: string[];
                     };
-                    subplebbitAddress: string;
                     protocolVersion: string;
-                    author: {
+                    depth: number;
+                    flairs?: {
                         [x: string]: unknown;
-                        address: string;
+                        text: string;
+                        backgroundColor?: string | undefined;
+                        textColor?: string | undefined;
+                        expiresAt?: number | undefined;
+                    }[] | undefined;
+                    communityPublicKey?: string | undefined;
+                    communityName?: string | undefined;
+                    link?: string | undefined;
+                    spoiler?: boolean | undefined;
+                    nsfw?: boolean | undefined;
+                    content?: string | undefined;
+                    title?: string | undefined;
+                    linkWidth?: number | undefined;
+                    linkHeight?: number | undefined;
+                    linkHtmlTagName?: string | undefined;
+                    parentCid?: string | undefined;
+                    postCid?: string | undefined;
+                    quotedCids?: string[] | undefined;
+                    author?: {
+                        [x: string]: unknown;
+                        name?: string | undefined;
                         previousCommentCid?: string | undefined;
                         displayName?: string | undefined;
                         wallets?: Record<string, {
@@ -1942,26 +1991,7 @@ export declare function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbi
                             textColor?: string | undefined;
                             expiresAt?: number | undefined;
                         }[] | undefined;
-                    };
-                    depth: number;
-                    flairs?: {
-                        [x: string]: unknown;
-                        text: string;
-                        backgroundColor?: string | undefined;
-                        textColor?: string | undefined;
-                        expiresAt?: number | undefined;
-                    }[] | undefined;
-                    content?: string | undefined;
-                    spoiler?: boolean | undefined;
-                    nsfw?: boolean | undefined;
-                    link?: string | undefined;
-                    title?: string | undefined;
-                    linkWidth?: number | undefined;
-                    linkHeight?: number | undefined;
-                    linkHtmlTagName?: string | undefined;
-                    parentCid?: string | undefined;
-                    postCid?: string | undefined;
-                    quotedCids?: string[] | undefined;
+                    } | undefined;
                     thumbnailUrl?: string | undefined;
                     thumbnailUrlWidth?: number | undefined;
                     thumbnailUrlHeight?: number | undefined;
@@ -1994,12 +2024,25 @@ export declare function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbi
                             publicKey: string;
                             signedPropertyNames: string[];
                         };
-                        subplebbitAddress: string;
                         protocolVersion: string;
                         commentCid: string;
-                        author: {
+                        flairs?: {
                             [x: string]: unknown;
-                            address: string;
+                            text: string;
+                            backgroundColor?: string | undefined;
+                            textColor?: string | undefined;
+                            expiresAt?: number | undefined;
+                        }[] | undefined;
+                        communityPublicKey?: string | undefined;
+                        communityName?: string | undefined;
+                        spoiler?: boolean | undefined;
+                        nsfw?: boolean | undefined;
+                        reason?: string | undefined;
+                        content?: string | undefined;
+                        deleted?: boolean | undefined;
+                        author?: {
+                            [x: string]: unknown;
+                            name?: string | undefined;
                             previousCommentCid?: string | undefined;
                             displayName?: string | undefined;
                             wallets?: Record<string, {
@@ -2028,19 +2071,7 @@ export declare function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbi
                                 textColor?: string | undefined;
                                 expiresAt?: number | undefined;
                             }[] | undefined;
-                        };
-                        flairs?: {
-                            [x: string]: unknown;
-                            text: string;
-                            backgroundColor?: string | undefined;
-                            textColor?: string | undefined;
-                            expiresAt?: number | undefined;
-                        }[] | undefined;
-                        content?: string | undefined;
-                        deleted?: boolean | undefined;
-                        spoiler?: boolean | undefined;
-                        nsfw?: boolean | undefined;
-                        reason?: string | undefined;
+                        } | undefined;
                     } | undefined;
                     flairs?: {
                         [x: string]: unknown;
@@ -2059,7 +2090,7 @@ export declare function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbi
                     approved?: boolean | undefined;
                     author?: {
                         [x: string]: unknown;
-                        subplebbit?: {
+                        community?: {
                             [x: string]: unknown;
                             postScore: number;
                             replyScore: number;
@@ -2090,6 +2121,7 @@ export declare function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbi
     modQueue?: {
         pageCids: Record<string, string>;
     } | undefined;
+    name?: string | undefined;
     pubsubTopic?: string | undefined;
     postUpdates?: Record<string, string> | undefined;
     title?: string | undefined;
@@ -2153,6 +2185,7 @@ export declare function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbi
         expiresAt?: number | undefined;
     }[]> | undefined;
 } | {
+    name?: string | undefined;
     flairs?: Record<string, {
         [x: string]: unknown;
         text: string;
@@ -2217,7 +2250,7 @@ export declare function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbi
             options?: Record<string, string> | undefined;
             exclude?: {
                 [x: string]: unknown;
-                subplebbit?: {
+                community?: {
                     addresses: string[];
                     maxCommentCids: number;
                     postScore?: number | undefined;
@@ -2241,7 +2274,7 @@ export declare function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbi
                     vote?: boolean | undefined;
                     commentEdit?: boolean | undefined;
                     commentModeration?: boolean | undefined;
-                    subplebbitEdit?: boolean | undefined;
+                    communityEdit?: boolean | undefined;
                 } | undefined;
             }[] | undefined;
             description?: string | undefined;
@@ -2259,7 +2292,6 @@ export declare function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbi
         role: string;
     }> | undefined;
 } | {
-    address: string;
     modQueue?: {
         pageCids: Record<string, string>;
     } | undefined;
@@ -2268,7 +2300,7 @@ export declare function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbi
         type: string;
         exclude?: {
             [x: string]: unknown;
-            subplebbit?: {
+            community?: {
                 addresses: string[];
                 maxCommentCids: number;
                 postScore?: number | undefined;
@@ -2292,7 +2324,7 @@ export declare function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbi
                 vote?: boolean | undefined;
                 commentEdit?: boolean | undefined;
                 commentModeration?: boolean | undefined;
-                subplebbitEdit?: boolean | undefined;
+                communityEdit?: boolean | undefined;
             } | undefined;
         }[] | undefined;
         description?: string | undefined;
@@ -2311,6 +2343,7 @@ export declare function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbi
         type: string;
         publicKey: string;
     } | undefined;
+    name?: string | undefined;
     createdAt?: number | undefined;
     updatedAt?: number | undefined;
     pubsubTopic?: string | undefined;
@@ -2377,6 +2410,8 @@ export declare function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbi
         textColor?: string | undefined;
         expiresAt?: number | undefined;
     }[]> | undefined;
+    address?: string | undefined;
+    publicKey?: string | undefined;
     posts?: {
         pages: Record<string, {
             comments: {
@@ -2389,11 +2424,31 @@ export declare function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbi
                         publicKey: string;
                         signedPropertyNames: string[];
                     };
-                    subplebbitAddress: string;
                     protocolVersion: string;
-                    author: {
+                    depth: number;
+                    flairs?: {
                         [x: string]: unknown;
-                        address: string;
+                        text: string;
+                        backgroundColor?: string | undefined;
+                        textColor?: string | undefined;
+                        expiresAt?: number | undefined;
+                    }[] | undefined;
+                    communityPublicKey?: string | undefined;
+                    communityName?: string | undefined;
+                    link?: string | undefined;
+                    spoiler?: boolean | undefined;
+                    nsfw?: boolean | undefined;
+                    content?: string | undefined;
+                    title?: string | undefined;
+                    linkWidth?: number | undefined;
+                    linkHeight?: number | undefined;
+                    linkHtmlTagName?: string | undefined;
+                    parentCid?: string | undefined;
+                    postCid?: string | undefined;
+                    quotedCids?: string[] | undefined;
+                    author?: {
+                        [x: string]: unknown;
+                        name?: string | undefined;
                         previousCommentCid?: string | undefined;
                         displayName?: string | undefined;
                         wallets?: Record<string, {
@@ -2422,26 +2477,7 @@ export declare function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbi
                             textColor?: string | undefined;
                             expiresAt?: number | undefined;
                         }[] | undefined;
-                    };
-                    depth: number;
-                    flairs?: {
-                        [x: string]: unknown;
-                        text: string;
-                        backgroundColor?: string | undefined;
-                        textColor?: string | undefined;
-                        expiresAt?: number | undefined;
-                    }[] | undefined;
-                    content?: string | undefined;
-                    spoiler?: boolean | undefined;
-                    nsfw?: boolean | undefined;
-                    link?: string | undefined;
-                    title?: string | undefined;
-                    linkWidth?: number | undefined;
-                    linkHeight?: number | undefined;
-                    linkHtmlTagName?: string | undefined;
-                    parentCid?: string | undefined;
-                    postCid?: string | undefined;
-                    quotedCids?: string[] | undefined;
+                    } | undefined;
                     thumbnailUrl?: string | undefined;
                     thumbnailUrlWidth?: number | undefined;
                     thumbnailUrlHeight?: number | undefined;
@@ -2474,12 +2510,25 @@ export declare function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbi
                             publicKey: string;
                             signedPropertyNames: string[];
                         };
-                        subplebbitAddress: string;
                         protocolVersion: string;
                         commentCid: string;
-                        author: {
+                        flairs?: {
                             [x: string]: unknown;
-                            address: string;
+                            text: string;
+                            backgroundColor?: string | undefined;
+                            textColor?: string | undefined;
+                            expiresAt?: number | undefined;
+                        }[] | undefined;
+                        communityPublicKey?: string | undefined;
+                        communityName?: string | undefined;
+                        spoiler?: boolean | undefined;
+                        nsfw?: boolean | undefined;
+                        reason?: string | undefined;
+                        content?: string | undefined;
+                        deleted?: boolean | undefined;
+                        author?: {
+                            [x: string]: unknown;
+                            name?: string | undefined;
                             previousCommentCid?: string | undefined;
                             displayName?: string | undefined;
                             wallets?: Record<string, {
@@ -2508,19 +2557,7 @@ export declare function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbi
                                 textColor?: string | undefined;
                                 expiresAt?: number | undefined;
                             }[] | undefined;
-                        };
-                        flairs?: {
-                            [x: string]: unknown;
-                            text: string;
-                            backgroundColor?: string | undefined;
-                            textColor?: string | undefined;
-                            expiresAt?: number | undefined;
-                        }[] | undefined;
-                        content?: string | undefined;
-                        deleted?: boolean | undefined;
-                        spoiler?: boolean | undefined;
-                        nsfw?: boolean | undefined;
-                        reason?: string | undefined;
+                        } | undefined;
                     } | undefined;
                     flairs?: {
                         [x: string]: unknown;
@@ -2539,7 +2576,7 @@ export declare function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbi
                     approved?: boolean | undefined;
                     author?: {
                         [x: string]: unknown;
-                        subplebbit?: {
+                        community?: {
                             [x: string]: unknown;
                             postScore: number;
                             replyScore: number;
@@ -2571,7 +2608,7 @@ export declare function parseCreateRpcSubplebbitFunctionArgumentSchemaWithPlebbi
     } | undefined;
     updateCid?: string | undefined;
 };
-export declare function parseCommentPubsubMessagePublicationWithPlebbitErrorIfItFails(args: z.infer<typeof CommentPubsubMessagePublicationSchema>): {
+export declare function parseCommentPubsubMessagePublicationWithPKCErrorIfItFails(args: z.infer<typeof CommentPubsubMessagePublicationSchema>): {
     timestamp: number;
     signature: {
         type: string;
@@ -2579,9 +2616,16 @@ export declare function parseCommentPubsubMessagePublicationWithPlebbitErrorIfIt
         publicKey: string;
         signedPropertyNames: string[];
     };
-    subplebbitAddress: string;
-    author: {
-        address: string;
+    protocolVersion: string;
+    flairs?: {
+        [x: string]: unknown;
+        text: string;
+        backgroundColor?: string | undefined;
+        textColor?: string | undefined;
+        expiresAt?: number | undefined;
+    }[] | undefined;
+    author?: {
+        name?: string | undefined;
         previousCommentCid?: string | undefined;
         displayName?: string | undefined;
         wallets?: Record<string, {
@@ -2610,19 +2654,13 @@ export declare function parseCommentPubsubMessagePublicationWithPlebbitErrorIfIt
             textColor?: string | undefined;
             expiresAt?: number | undefined;
         }[] | undefined;
-    };
-    protocolVersion: string;
-    flairs?: {
-        [x: string]: unknown;
-        text: string;
-        backgroundColor?: string | undefined;
-        textColor?: string | undefined;
-        expiresAt?: number | undefined;
-    }[] | undefined;
-    content?: string | undefined;
+    } | undefined;
+    communityPublicKey?: string | undefined;
+    communityName?: string | undefined;
+    link?: string | undefined;
     spoiler?: boolean | undefined;
     nsfw?: boolean | undefined;
-    link?: string | undefined;
+    content?: string | undefined;
     title?: string | undefined;
     linkWidth?: number | undefined;
     linkHeight?: number | undefined;
@@ -2631,12 +2669,12 @@ export declare function parseCommentPubsubMessagePublicationWithPlebbitErrorIfIt
     postCid?: string | undefined;
     quotedCids?: string[] | undefined;
 };
-export declare function parseCreateCommentOptionsSchemaWithPlebbitErrorIfItFails(args: z.infer<typeof CreateCommentOptionsSchema>): {
+export declare function parseCreateCommentOptionsSchemaWithPKCErrorIfItFails(args: z.infer<typeof CreateCommentOptionsSchema>): {
     signer: {
         type: "ed25519";
         privateKey: string;
     };
-    subplebbitAddress: string;
+    communityAddress: string;
     flairs?: {
         [x: string]: unknown;
         text: string;
@@ -2657,7 +2695,7 @@ export declare function parseCreateCommentOptionsSchemaWithPlebbitErrorIfItFails
     quotedCids?: string[] | undefined;
     author?: {
         [x: string]: unknown;
-        address?: string | undefined;
+        name?: string | undefined;
         previousCommentCid?: string | undefined;
         displayName?: string | undefined;
         wallets?: Record<string, {
@@ -2687,6 +2725,8 @@ export declare function parseCreateCommentOptionsSchemaWithPlebbitErrorIfItFails
             expiresAt?: number | undefined;
         }[] | undefined;
     } | undefined;
+    communityPublicKey?: string | undefined;
+    communityName?: string | undefined;
     protocolVersion?: string | undefined;
     timestamp?: number | undefined;
     challengeRequest?: {
@@ -2694,7 +2734,7 @@ export declare function parseCreateCommentOptionsSchemaWithPlebbitErrorIfItFails
         challengeCommentCids?: string[] | undefined;
     } | undefined;
 };
-export declare function parseSubplebbitAddressWithPlebbitErrorIfItFails(args: z.infer<typeof CreateCommentOptionsSchema.shape.subplebbitAddress>): string;
+export declare function parseCommunityAddressWithPKCErrorIfItFails(args: z.infer<typeof CreateCommentOptionsSchema.shape.communityAddress>): string;
 export type SchemaRowParserOptions = {
     prefix?: string;
     coerceBooleans?: boolean;

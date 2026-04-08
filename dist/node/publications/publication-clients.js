@@ -7,6 +7,6 @@ export class PublicationKuboPubsubClient extends GenericStateClient {
 }
 export class PublicationIpfsGatewayClient extends GenericStateClient {
 }
-export class PublicationPlebbitRpcStateClient extends GenericStateClient {
+export class PublicationPKCRpcStateClient extends GenericStateClient {
 }
 //# sourceMappingURL=publication-clients.js.map

@@ -1,11 +1,11 @@
 import http from "node:http";
-import { Plebbit } from "../../plebbit/plebbit.js";
+import { PKC } from "../../pkc/pkc.js";
 type AddressesRewriterOptions = {
-    kuboClients: Plebbit["clients"]["kuboRpcClients"][string]["_client"][];
+    kuboClients: PKC["clients"]["kuboRpcClients"][string]["_client"][];
     port: number;
     hostname: string | undefined;
     proxyTargetUrl: string;
-    plebbit: Pick<Plebbit, "_storage" | "dataPath">;
+    pkc: Pick<PKC, "_storage" | "dataPath">;
 };
 export declare class AddressesRewriterProxyServer {
     addresses: Record<string, string[]>;
@@ -15,7 +15,7 @@ export declare class AddressesRewriterProxyServer {
     proxyTarget: URL;
     server: ReturnType<(typeof http)["createServer"]>;
     _storageKeyName: string;
-    _plebbit: Pick<Plebbit, "_storage" | "dataPath">;
+    _pkc: Pick<PKC, "_storage" | "dataPath">;
     private _db;
     private _logWriteInterval?;
     private _requestLogBuffer;
@@ -26,7 +26,7 @@ export declare class AddressesRewriterProxyServer {
     private _updateAddressesInterval?;
     private _httpAgent;
     private _httpsAgent;
-    constructor({ kuboClients: kuboClient, port, hostname, proxyTargetUrl, plebbit }: AddressesRewriterOptions);
+    constructor({ kuboClients: kuboClient, port, hostname, proxyTargetUrl, pkc }: AddressesRewriterOptions);
     listen(callback?: () => void): Promise<void>;
     destroy(): Promise<void>;
     _proxyRequestRewrite(req: Parameters<http.RequestListener>[0], res: Parameters<http.RequestListener>[1]): void;

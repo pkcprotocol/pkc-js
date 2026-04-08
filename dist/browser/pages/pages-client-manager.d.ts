@@ -1,10 +1,10 @@
 import { BaseClientsManager, OptionsToLoadFromGateway } from "../clients/base-client-manager.js";
 import type { ModQueuePageIpfs, ModQueueSortName, PageIpfs } from "./types.js";
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "../logger.js";
 import { BasePages, ModQueuePages, PostsPages, RepliesPages } from "./pages.js";
-import { POSTS_SORT_TYPES, POST_REPLIES_SORT_TYPES } from "./util.js";
-import { Plebbit } from "../plebbit/plebbit.js";
-import { PagesIpfsGatewayClient, PagesKuboRpcClient, PagesLibp2pJsClient, PagesPlebbitRpcStateClient } from "./pages-clients.js";
+import { POSTS_SORT_TYPES, POST_REPLIES_SORT_TYPES, type PageRuntimeFields } from "./util.js";
+import { PKC } from "../pkc/pkc.js";
+import { PagesIpfsGatewayClient, PagesKuboRpcClient, PagesLibp2pJsClient, PagesPKCRpcStateClient } from "./pages-clients.js";
 export declare class BasePagesClientsManager extends BaseClientsManager {
     clients: {
         ipfsGateways: {
@@ -17,9 +17,9 @@ export declare class BasePagesClientsManager extends BaseClientsManager {
                 [kuboRpcClientUrl: string]: PagesKuboRpcClient;
             };
         };
-        plebbitRpcClients: {
+        pkcRpcClients: {
             [sortType: string]: {
-                [rpcUrl: string]: PagesPlebbitRpcStateClient;
+                [rpcUrl: string]: PagesPKCRpcStateClient;
             };
         };
         libp2pJsClients: {
@@ -31,12 +31,12 @@ export declare class BasePagesClientsManager extends BaseClientsManager {
     protected _pages: RepliesPages | PostsPages | ModQueuePages;
     constructor(opts: {
         pages: BasePagesClientsManager["_pages"];
-        plebbit: Plebbit;
+        pkc: PKC;
     });
     protected _updateIpfsGatewayClientStates(sortTypes: string[]): void;
     protected _updateKuboRpcClientStates(sortTypes: string[]): void;
     protected _updateLibp2pJsClientStates(sortTypes: string[]): void;
-    protected _updatePlebbitRpcClientStates(sortTypes: string[]): void;
+    protected _updatePKCRpcClientStates(sortTypes: string[]): void;
     preFetchGateway(gatewayUrl: string, loadOpts: OptionsToLoadFromGateway): void;
     postFetchGatewaySuccess(gatewayUrl: string, loadOpts: OptionsToLoadFromGateway): void;
     postFetchGatewayFailure(gatewayUrl: string, loadOpts: OptionsToLoadFromGateway): void;
@@ -47,22 +47,28 @@ export declare class BasePagesClientsManager extends BaseClientsManager {
     updatePagesMaxSizeCache(newPageCids: string[], pageMaxSizeBytes: number): void;
     updatePageCidsToSortTypesToIncludeSubsequent(nextPageCid: string, previousPageCid: string): void;
     updateKuboRpcState(newState: PagesKuboRpcClient["state"], kuboRpcClientUrl: string, sortTypes: string[] | undefined): void;
-    updateLibp2pJsClientState(newState: PagesLibp2pJsClient["state"], libp2pJsClientKey: keyof Plebbit["clients"]["libp2pJsClients"], sortTypes: string[] | undefined): void;
+    updateLibp2pJsClientState(newState: PagesLibp2pJsClient["state"], libp2pJsClientKey: keyof PKC["clients"]["libp2pJsClients"], sortTypes: string[] | undefined): void;
     updateGatewayState(newState: PagesIpfsGatewayClient["state"], gateway: string, sortTypes: string[] | undefined): void;
-    updateRpcState(newState: PagesPlebbitRpcStateClient["state"], rpcUrl: string, sortTypes: string[] | undefined): void;
-    _updateKuboRpcClientOrHeliaState(newState: PagesKuboRpcClient["state"] | PagesLibp2pJsClient["state"], kuboRpcOrHelia: Plebbit["clients"]["kuboRpcClients"][string] | Plebbit["clients"]["libp2pJsClients"][string], sortTypes: string[] | undefined): void;
+    updateRpcState(newState: PagesPKCRpcStateClient["state"], rpcUrl: string, sortTypes: string[] | undefined): void;
+    _updateKuboRpcClientOrHeliaState(newState: PagesKuboRpcClient["state"] | PagesLibp2pJsClient["state"], kuboRpcOrHelia: PKC["clients"]["kuboRpcClients"][string] | PKC["clients"]["libp2pJsClients"][string], sortTypes: string[] | undefined): void;
     protected preFetchPage(): void;
     protected _requestPageFromRPC(opts: {
         pageCid: string;
         log: Logger;
         sortTypes: string[] | undefined;
         pageMaxSize: number;
-    }): Promise<ModQueuePageIpfs | PageIpfs>;
+    }): Promise<{
+        page: ModQueuePageIpfs | PageIpfs;
+        runtimeFields?: PageRuntimeFields;
+    }>;
     private _fetchPageWithRpc;
     protected parsePageJson(json: unknown): PageIpfs | ModQueuePageIpfs;
     private _fetchPageWithKuboOrHeliaP2P;
     _fetchPageFromGateways(pageCid: string, log: Logger, pageMaxSize: number): Promise<PageIpfs | ModQueuePageIpfs>;
-    fetchPage(pageCid: string, overridePageMaxSize?: number): Promise<PageIpfs | ModQueuePageIpfs>;
+    fetchPage(pageCid: string, overridePageMaxSize?: number): Promise<{
+        page: PageIpfs | ModQueuePageIpfs;
+        runtimeFields?: PageRuntimeFields;
+    }>;
     protected getSortTypes(): string[];
 }
 export declare class RepliesPagesClientsManager extends BasePagesClientsManager {
@@ -73,8 +79,8 @@ export declare class RepliesPagesClientsManager extends BasePagesClientsManager 
         kuboRpcClients: Record<keyof typeof POST_REPLIES_SORT_TYPES, {
             [kuboRpcClientUrl: string]: PagesIpfsGatewayClient;
         }>;
-        plebbitRpcClients: Record<keyof typeof POST_REPLIES_SORT_TYPES, {
-            [rpcUrl: string]: PagesPlebbitRpcStateClient;
+        pkcRpcClients: Record<keyof typeof POST_REPLIES_SORT_TYPES, {
+            [rpcUrl: string]: PagesPKCRpcStateClient;
         }>;
         libp2pJsClients: Record<keyof typeof POST_REPLIES_SORT_TYPES, {
             [libp2pJsClientKey: string]: PagesIpfsGatewayClient;
@@ -87,9 +93,12 @@ export declare class RepliesPagesClientsManager extends BasePagesClientsManager 
         log: Logger;
         sortTypes: string[] | undefined;
         pageMaxSize: number;
-    }): Promise<PageIpfs>;
+    }): Promise<{
+        page: PageIpfs;
+        runtimeFields?: PageRuntimeFields;
+    }>;
 }
-export declare class SubplebbitPostsPagesClientsManager extends BasePagesClientsManager {
+export declare class CommunityPostsPagesClientsManager extends BasePagesClientsManager {
     clients: {
         ipfsGateways: Record<keyof typeof POSTS_SORT_TYPES, {
             [ipfsGatewayUrl: string]: PagesIpfsGatewayClient;
@@ -97,8 +106,8 @@ export declare class SubplebbitPostsPagesClientsManager extends BasePagesClients
         kuboRpcClients: Record<keyof typeof POSTS_SORT_TYPES, {
             [kuboRpcClientUrl: string]: PagesIpfsGatewayClient;
         }>;
-        plebbitRpcClients: Record<keyof typeof POSTS_SORT_TYPES, {
-            [rpcUrl: string]: PagesPlebbitRpcStateClient;
+        pkcRpcClients: Record<keyof typeof POSTS_SORT_TYPES, {
+            [rpcUrl: string]: PagesPKCRpcStateClient;
         }>;
         libp2pJsClients: Record<keyof typeof POSTS_SORT_TYPES, {
             [libp2pJsClientKey: string]: PagesIpfsGatewayClient;
@@ -111,9 +120,12 @@ export declare class SubplebbitPostsPagesClientsManager extends BasePagesClients
         log: Logger;
         sortTypes: string[] | undefined;
         pageMaxSize: number;
-    }): Promise<PageIpfs>;
+    }): Promise<{
+        page: PageIpfs;
+        runtimeFields?: PageRuntimeFields;
+    }>;
 }
-export declare class SubplebbitModQueueClientsManager extends BasePagesClientsManager {
+export declare class CommunityModQueueClientsManager extends BasePagesClientsManager {
     clients: {
         ipfsGateways: Record<ModQueueSortName, {
             [ipfsGatewayUrl: string]: PagesIpfsGatewayClient;
@@ -121,15 +133,18 @@ export declare class SubplebbitModQueueClientsManager extends BasePagesClientsMa
         kuboRpcClients: Record<ModQueueSortName, {
             [kuboRpcClientUrl: string]: PagesIpfsGatewayClient;
         }>;
-        plebbitRpcClients: Record<ModQueueSortName, {
-            [rpcUrl: string]: PagesPlebbitRpcStateClient;
+        pkcRpcClients: Record<ModQueueSortName, {
+            [rpcUrl: string]: PagesPKCRpcStateClient;
         }>;
         libp2pJsClients: Record<ModQueueSortName, {
             [libp2pJsClientKey: string]: PagesIpfsGatewayClient;
         }>;
     };
     protected getSortTypes(): ModQueueSortName[];
-    fetchPage(pageCid: string, overridePageMaxSize?: number): Promise<ModQueuePageIpfs>;
+    fetchPage(pageCid: string, overridePageMaxSize?: number): Promise<{
+        page: ModQueuePageIpfs;
+        runtimeFields?: PageRuntimeFields;
+    }>;
     protected preFetchPage(): void;
     protected parsePageJson(json: unknown): ModQueuePageIpfs;
     protected _requestPageFromRPC(opts: {
@@ -137,5 +152,8 @@ export declare class SubplebbitModQueueClientsManager extends BasePagesClientsMa
         log: Logger;
         sortTypes: string[] | undefined;
         pageMaxSize: number;
-    }): Promise<ModQueuePageIpfs>;
+    }): Promise<{
+        page: ModQueuePageIpfs;
+        runtimeFields?: PageRuntimeFields;
+    }>;
 }

@@ -1,10 +1,10 @@
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "../logger.js";
 import pLimit from "p-limit";
 import pTimeout from "p-timeout";
 import { binaryKeyToPubsubTopic, pubsubTopicToDhtKey, pubsubTopicToDhtKeyCid } from "../util.js";
-import { PlebbitError } from "../plebbit-error.js";
+import { PKCError } from "../pkc-error.js";
 import { CID } from "kubo-rpc-client";
-const log = Logger("plebbit-js:helia:ipns:routing:pubsub-with-fetch");
+const log = Logger("pkc-js:helia:ipns:routing:pubsub-with-fetch");
 const LIMIT_PARALLEL_FETCH_IPNS_FROM_PEERS = 3;
 const IPNS_FETCH_FROM_PEER_TIMEOUT_MS = 10000;
 export class IpnsFetchRouter {
@@ -21,7 +21,7 @@ export class IpnsFetchRouter {
         const record = await pTimeout(this._fetchService.fetch(peer, routingKey), {
             milliseconds: IPNS_FETCH_FROM_PEER_TIMEOUT_MS,
             signal: options?.signal,
-            message: new PlebbitError("ERR_LIBP2P_FETCH_IPNS_FROM_PEER_TIMEDOUT", {
+            message: new PKCError("ERR_LIBP2P_FETCH_IPNS_FROM_PEER_TIMEDOUT", {
                 peerId: peer,
                 routingKey,
                 topic,
@@ -31,7 +31,7 @@ export class IpnsFetchRouter {
             })
         });
         if (!record) {
-            throw new PlebbitError("ERR_FETCH_OVER_IPNS_OVER_PUBSUB_RETURNED_UNDEFINED", {
+            throw new PKCError("ERR_FETCH_OVER_IPNS_OVER_PUBSUB_RETURNED_UNDEFINED", {
                 peerId: peer,
                 routingKey,
                 topic,
@@ -81,7 +81,7 @@ export class IpnsFetchRouter {
         else {
             // All promises failed
             cleanUp();
-            throw new PlebbitError("ERR_FETCH_OVER_IPNS_OVER_PUBSUB_FAILED", {
+            throw new PKCError("ERR_FETCH_OVER_IPNS_OVER_PUBSUB_FAILED", {
                 peerIdToError,
                 topic,
                 routingKey,
@@ -158,7 +158,7 @@ export class IpnsFetchRouter {
             }
             cleanUp();
             // If we get here, all providers have been tried and failed
-            throw new PlebbitError("ERR_FETCH_OVER_IPNS_OVER_PUBSUB_FAILED", {
+            throw new PKCError("ERR_FETCH_OVER_IPNS_OVER_PUBSUB_FAILED", {
                 peerIdToError,
                 fetchingFromProviders: true,
                 topic,

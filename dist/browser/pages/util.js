@@ -2,8 +2,11 @@ import assert from "assert";
 import { BasePages } from "./pages.js";
 import * as remeda from "remeda";
 import { shortifyAddress, shortifyCid } from "../util.js";
-import { OriginalCommentFieldsBeforeCommentUpdateSchema } from "../publications/comment/schema.js";
-import { parseJsonWithPlebbitErrorIfFails, parsePageIpfsSchemaWithPlebbitErrorIfItFails } from "../schema/schema-util.js";
+import { getAuthorDomainFromWire } from "../publications/publication-author.js";
+import { getCommunityAddressFromRecord } from "../publications/publication-community.js";
+import { sha256 } from "js-sha256";
+import { parseJsonWithPKCErrorIfFails, parsePageIpfsSchemaWithPKCErrorIfItFails } from "../schema/schema-util.js";
+import { buildRuntimeAuthor } from "../publications/publication-author.js";
 export const TIMEFRAMES_TO_SECONDS = Object.freeze({
     HOUR: 3600, // 60 * 60
     DAY: 86400, // 60 * 60 * 24
@@ -44,7 +47,7 @@ export function hotScore(comment) {
         typeof comment.commentUpdate.upvoteCount === "number" &&
         typeof comment.comment.timestamp === "number");
     let score = comment.commentUpdate.upvoteCount - comment.commentUpdate.downvoteCount;
-    score++; // reddit initial upvotes is 1, plebbit is 0
+    score++; // reddit initial upvotes is 1, pkc is 0
     const order = Math.log10(Math.max(Math.abs(score), 1));
     const sign = score > 0 ? 1 : score < 0 ? -1 : 0;
     const seconds = comment.comment.timestamp - 1134028003;
@@ -53,7 +56,7 @@ export function hotScore(comment) {
 export function bestScore(comment) {
     assert(typeof comment.commentUpdate.downvoteCount === "number" && typeof comment.commentUpdate.upvoteCount === "number");
     const originalUpvoteCount = comment.commentUpdate.upvoteCount; // can be 0
-    const upvoteCount = comment.commentUpdate.upvoteCount + 1; // reddit initial upvotes is 1, plebbit is 0
+    const upvoteCount = comment.commentUpdate.upvoteCount + 1; // reddit initial upvotes is 1, pkc is 0
     const downvoteCount = comment.commentUpdate.downvoteCount;
     // n is the total number of ratings
     const n = originalUpvoteCount + downvoteCount;
@@ -71,7 +74,7 @@ export function bestScore(comment) {
 }
 export function controversialScore(comment) {
     assert(typeof comment.commentUpdate.downvoteCount === "number" && typeof comment.commentUpdate.upvoteCount === "number");
-    const upvoteCount = comment.commentUpdate.upvoteCount + 1; // reddit initial upvotes is 1, plebbit is 0
+    const upvoteCount = comment.commentUpdate.upvoteCount + 1; // reddit initial upvotes is 1, pkc is 0
     if (comment.commentUpdate.downvoteCount <= 0 || upvoteCount <= 0)
         return 0;
     const magnitude = upvoteCount + comment.commentUpdate.downvoteCount;
@@ -96,19 +99,24 @@ export function mapModqueuePageIpfsCommentToModQueuePageJsonComment(pageComment)
     const postCid = pageComment.comment.postCid ?? (pageComment.comment.depth === 0 ? pageComment.commentUpdate.cid : undefined);
     if (!postCid)
         throw Error("Failed to infer postCid from pageIpfs.comments.comment");
+    const runtimeAuthor = buildRuntimeAuthor({
+        author: { ...(pageComment.comment.author || {}), ...(pageComment.commentUpdate.author || {}) },
+        signaturePublicKey: pageComment.comment.signature.publicKey
+    });
+    const communityAddr = getCommunityAddressFromRecord(pageComment.comment);
     return {
         ...pageComment.comment,
         ...pageComment.commentUpdate,
         signature: pageComment.comment.signature,
         author: {
-            ...pageComment.comment.author,
-            ...pageComment.commentUpdate.author,
-            shortAddress: shortifyAddress(pageComment.comment.author.address),
-            flairs: pageComment.commentUpdate?.author?.subplebbit?.flairs || pageComment.comment.author.flairs
+            ...runtimeAuthor,
+            ...(pageComment.commentUpdate.author || {}),
+            shortAddress: shortifyAddress(runtimeAuthor.address),
+            flairs: pageComment.commentUpdate?.author?.community?.flairs || runtimeAuthor.flairs
         },
+        communityAddress: communityAddr,
         shortCid: shortifyCid(pageComment.commentUpdate.cid),
-        shortSubplebbitAddress: shortifyAddress(pageComment.comment.subplebbitAddress),
-        original: OriginalCommentFieldsBeforeCommentUpdateSchema.parse(pageComment.comment),
+        shortCommunityAddress: shortifyAddress(communityAddr),
         postCid,
         raw: {
             comment: pageComment.comment,
@@ -121,6 +129,10 @@ export function mapPageIpfsCommentToPageJsonComment(pageComment) {
     const postCid = pageComment.comment.postCid ?? (pageComment.comment.depth === 0 ? pageComment.commentUpdate.cid : undefined);
     if (!postCid)
         throw Error("Failed to infer postCid from pageIpfs.comments.comment");
+    const runtimeAuthor = buildRuntimeAuthor({
+        author: { ...(pageComment.comment.author || {}), ...(pageComment.commentUpdate.author || {}) },
+        signaturePublicKey: pageComment.comment.signature.publicKey
+    });
     const spoiler = typeof pageComment.commentUpdate.spoiler === "boolean"
         ? pageComment.commentUpdate.spoiler
         : typeof pageComment.commentUpdate.edit?.spoiler === "boolean"
@@ -131,21 +143,22 @@ export function mapPageIpfsCommentToPageJsonComment(pageComment) {
         : typeof pageComment.commentUpdate.edit?.nsfw === "boolean"
             ? pageComment.commentUpdate.edit?.nsfw
             : pageComment.comment.nsfw;
+    const communityAddr = getCommunityAddressFromRecord(pageComment.comment);
     return {
         ...pageComment.comment,
         ...pageComment.commentUpdate,
         signature: pageComment.comment.signature,
         author: {
-            ...pageComment.comment.author,
-            ...pageComment.commentUpdate.author,
-            shortAddress: shortifyAddress(pageComment.comment.author.address),
-            flairs: pageComment.commentUpdate?.author?.subplebbit?.flairs ||
+            ...runtimeAuthor,
+            ...(pageComment.commentUpdate.author || {}),
+            shortAddress: shortifyAddress(runtimeAuthor.address),
+            flairs: pageComment.commentUpdate?.author?.community?.flairs ||
                 pageComment.commentUpdate?.edit?.author?.flairs ||
-                pageComment.comment.author.flairs
+                runtimeAuthor.flairs
         },
+        communityAddress: communityAddr,
         shortCid: shortifyCid(pageComment.commentUpdate.cid),
-        shortSubplebbitAddress: shortifyAddress(pageComment.comment.subplebbitAddress),
-        original: OriginalCommentFieldsBeforeCommentUpdateSchema.parse(pageComment.comment),
+        shortCommunityAddress: shortifyAddress(communityAddr),
         deleted: pageComment.commentUpdate.edit?.deleted,
         replies: parsedPages,
         content: pageComment.commentUpdate.edit?.content || pageComment.comment.content,
@@ -183,7 +196,7 @@ export function processAllCommentsRecursively(comments, processor) {
         if (comment.commentUpdate.replies?.pages?.best?.comments)
             processAllCommentsRecursively(comment.commentUpdate.replies.pages.best.comments, processor);
 }
-// To use for both subplebbit.posts and comment.replies
+// To use for both community.posts and comment.replies
 export function parseRawPages(pages) {
     if (!pages)
         return {
@@ -200,6 +213,20 @@ export function parseRawPages(pages) {
         return { pages: pages.pages }; // already parsed
     else {
         pages = pages;
+        // Backward compat: old serialized flat pages may have subplebbitAddress but not communityAddress
+        for (const page of Object.values(pages.pages)) {
+            if (!page)
+                continue;
+            for (const comment of page.comments) {
+                if (!comment.communityAddress) {
+                    const addr = getCommunityAddressFromRecord(comment);
+                    if (addr) {
+                        comment.communityAddress = addr;
+                        comment.shortCommunityAddress = shortifyAddress(addr);
+                    }
+                }
+            }
+        }
         return {
             pages: pages.pages
         };
@@ -243,6 +270,81 @@ export function findCommentInHierarchicalPageIpfsRecursively(page, targetCid) {
     }
     return undefined;
 }
+function _buildCommentRuntimeFields(comment, cache) {
+    const domain = getAuthorDomainFromWire(comment.comment.author);
+    if (!domain)
+        return {};
+    const key = sha256(domain + comment.comment.signature.publicKey);
+    const cached = cache.get(key);
+    if (typeof cached !== "boolean")
+        return {};
+    return { author: { nameResolved: cached } };
+}
+export function buildPageRuntimeFields(page, cache) {
+    return {
+        comments: page.comments.map((c) => {
+            const rf = _buildCommentRuntimeFields(c, cache);
+            // Recurse into nested preloaded replies
+            // Use `replies.pages` path (matches parsed PageTypeJson structure) not `commentUpdate.replies.pages` (raw PageIpfs structure)
+            if ("commentUpdate" in c && c.commentUpdate?.replies?.pages) {
+                const nestedPages = {};
+                for (const [sortName, nestedPage] of Object.entries(c.commentUpdate.replies.pages)) {
+                    nestedPages[sortName] = buildPageRuntimeFields(nestedPage, cache);
+                }
+                rf.replies = { pages: nestedPages };
+            }
+            return rf;
+        })
+    };
+}
+export function buildPagesRuntimeFields(pages, cache) {
+    const result = {};
+    for (const [sort, page] of Object.entries(pages)) {
+        result[sort] = buildPageRuntimeFields(page, cache);
+    }
+    return result;
+}
+function extractCommentRuntimeFieldsFromParsedComment(comment) {
+    const runtimeFields = {};
+    if (typeof comment.author?.nameResolved === "boolean")
+        runtimeFields.author = { nameResolved: comment.author.nameResolved };
+    const repliesPages = "replies" in comment ? comment.replies?.pages : undefined;
+    if (repliesPages) {
+        const replyRuntimeFields = extractParsedPagesRuntimeFields(repliesPages);
+        if (Object.keys(replyRuntimeFields).length > 0)
+            runtimeFields.replies = { pages: replyRuntimeFields };
+    }
+    return runtimeFields;
+}
+function extractParsedPageRuntimeFields(page) {
+    const comments = page.comments.map(extractCommentRuntimeFieldsFromParsedComment);
+    return comments.some((commentRuntimeFields) => Object.keys(commentRuntimeFields).length > 0) ? { comments } : {};
+}
+export function extractParsedPagesRuntimeFields(pages) {
+    const result = {};
+    for (const [sort, page] of Object.entries(pages)) {
+        if (!page)
+            continue;
+        const pageRuntimeFields = extractParsedPageRuntimeFields(page);
+        if (Object.keys(pageRuntimeFields).length > 0)
+            result[sort] = pageRuntimeFields;
+    }
+    return result;
+}
+export function extractCommunityRuntimeFieldsFromParsedPages({ postsPages, modQueuePages }) {
+    const runtimeFields = {};
+    if (postsPages) {
+        const postsRuntimeFields = extractParsedPagesRuntimeFields(postsPages);
+        if (Object.keys(postsRuntimeFields).length > 0)
+            runtimeFields.posts = { pages: postsRuntimeFields };
+    }
+    if (modQueuePages) {
+        const modQueueRuntimeFields = extractParsedPagesRuntimeFields(modQueuePages);
+        if (Object.keys(modQueueRuntimeFields).length > 0)
+            runtimeFields.modQueue = { pages: modQueueRuntimeFields };
+    }
+    return Object.keys(runtimeFields).length > 0 ? runtimeFields : undefined;
+}
 export function findCommentInPageInstanceRecursively(pageInstance, targetCid) {
     if (!pageInstance)
         throw Error("should define page instance");
@@ -266,7 +368,7 @@ export async function iterateOverPageCidsToFindAllCids(opts) {
     if (!opts?.pages)
         throw Error("expected pages to be defined when iterating over page cids");
     const { pages, clientManager } = opts;
-    const timeoutMs = clientManager._plebbit._timeouts["page-ipfs"];
+    const timeoutMs = clientManager._pkc._timeouts["page-ipfs"];
     const visited = new Set();
     const queued = new Map();
     const queue = [];
@@ -302,8 +404,8 @@ export async function iterateOverPageCidsToFindAllCids(opts) {
             enqueue(preloadedPage.nextCid, FIRST_PAGE_MAX_FILE_SIZE_BYTES * 2);
     const fetchPage = async (cid, maxSizeBytes) => {
         const rawPage = await clientManager._fetchCidP2P(cid, { maxFileSizeBytes: maxSizeBytes, timeoutMs });
-        const parsedPage = parseJsonWithPlebbitErrorIfFails(rawPage);
-        const pageIpfs = parsePageIpfsSchemaWithPlebbitErrorIfItFails(parsedPage);
+        const parsedPage = parseJsonWithPKCErrorIfFails(rawPage);
+        const pageIpfs = parsePageIpfsSchemaWithPKCErrorIfItFails(parsedPage);
         return pageIpfs;
     };
     while (queue.length) {

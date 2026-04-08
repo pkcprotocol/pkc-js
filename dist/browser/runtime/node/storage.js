@@ -1,26 +1,26 @@
 import path from "path";
 import fs from "fs";
 import { hideClassPrivateProps } from "../../util.js";
-import { KeyvBetterSqlite3 } from "./subplebbit/keyv-better-sqlite3.js";
+import { KeyvBetterSqlite3 } from "./community/keyv-better-sqlite3.js";
 import Database from "better-sqlite3";
 // Storage is for long term items, no eviction based on ttl or anything like that
 export default class Storage {
-    constructor(plebbit) {
-        this._plebbit = plebbit;
+    constructor(pkc) {
+        this._pkc = pkc;
         let dbFilePath;
-        if (this._plebbit.noData || !this._plebbit.dataPath) {
+        if (this._pkc.noData || !this._pkc.dataPath) {
             dbFilePath = ":memory:";
         }
         else {
-            fs.mkdirSync(this._plebbit.dataPath, { recursive: true });
-            dbFilePath = path.join(this._plebbit.dataPath, "storage.db");
+            fs.mkdirSync(this._pkc.dataPath, { recursive: true });
+            dbFilePath = path.join(this._pkc.dataPath, "storage.db");
         }
         this._db = new Database(dbFilePath);
         this._keyv = new KeyvBetterSqlite3(this._db);
         this._keyv.on("error", (err) => {
             err.details = { ...err.details, dbFilePath, keyv: this._keyv, db: this._db };
             console.error("Error in Keyv", err);
-            this._plebbit.emit("error", err);
+            this._pkc.emit("error", err);
         });
         hideClassPrivateProps(this);
     }

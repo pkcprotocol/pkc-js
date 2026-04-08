@@ -1,8 +1,8 @@
 import path from "node:path";
 import fs from "node:fs/promises";
 import Database from "better-sqlite3";
-import Logger from "@plebbit/plebbit-logger";
-const debug = Logger("plebbit-js:address-rewriter-db");
+import Logger from "../../logger.js";
+const debug = Logger("pkc-js:address-rewriter-db");
 export class AddressRewriterDatabase {
     constructor(dataPath, kuboConfig, proxyTarget) {
         this._db = null;

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CidStringSchema, CreatePublicationUserOptionsSchema, FlairSchema, JsonSignatureSchema, PlebbitTimestampSchema, PublicationBaseBeforeSigning, SignerWithAddressPublicKeySchema, SubplebbitAuthorSchema } from "../../schema/schema.js";
+import { CidStringSchema, CreatePublicationUserOptionsSchema, FlairSchema, JsonSignatureSchema, PKCTimestampSchema, PublicationBaseBeforeSigning, SignerWithAddressPublicKeySchema, CommunityAuthorSchema } from "../../schema/schema.js";
 import * as remeda from "remeda";
 import { keysToOmitFromSignedPropertyNames } from "../../signer/constants.js";
 export const ModeratorOptionsSchema = z
@@ -14,7 +14,7 @@ export const ModeratorOptionsSchema = z
     removed: z.boolean().optional(),
     purged: z.boolean().optional(),
     reason: z.string().optional(),
-    author: SubplebbitAuthorSchema.pick({ banExpiresAt: true, flairs: true }).loose().optional()
+    author: CommunityAuthorSchema.pick({ banExpiresAt: true, flairs: true }).loose().optional()
 })
     .strict();
 export const CreateCommentModerationOptionsSchema = CreatePublicationUserOptionsSchema.extend({
@@ -24,16 +24,16 @@ export const CreateCommentModerationOptionsSchema = CreatePublicationUserOptions
 // ChallengeRequest.publication
 export const CommentModerationSignedPropertyNames = remeda.keys.strict(remeda.omit(CreateCommentModerationOptionsSchema.shape, keysToOmitFromSignedPropertyNames));
 const commentModerationPickOptions = (remeda.mapToObj([...CommentModerationSignedPropertyNames, "signature"], (x) => [x, true]));
-// Will be used by the sub when parsing request.publication
+// Will be used by the community when parsing request.publication
 export const CommentModerationPubsubMessagePublicationSchema = CreateCommentModerationOptionsSchema.merge(PublicationBaseBeforeSigning)
     .extend({
     signature: JsonSignatureSchema,
-    author: PublicationBaseBeforeSigning.shape.author.loose()
+    author: PublicationBaseBeforeSigning.shape.author.unwrap().loose().optional()
 })
     .pick(commentModerationPickOptions)
     .strict();
 export const CommentModerationsTableRowSchema = CommentModerationPubsubMessagePublicationSchema.extend({
-    insertedAt: PlebbitTimestampSchema,
+    insertedAt: PKCTimestampSchema,
     modSignerAddress: SignerWithAddressPublicKeySchema.shape.address,
     extraProps: z.looseObject({}).optional(),
     targetAuthorSignerAddress: SignerWithAddressPublicKeySchema.shape.address.optional(), // the signer address of the comment author being moderated (for bans/flairs)
@@ -47,11 +47,16 @@ export const CommentModerationChallengeRequestToEncryptSchema = CreateCommentMod
 export const CommentModerationReservedFields = remeda.difference([
     ...remeda.keys.strict(CommentModerationsTableRowSchema.shape),
     ...remeda.keys.strict(CommentModerationChallengeRequestToEncryptSchema.shape),
-    "shortSubplebbitAddress",
+    "shortCommunityAddress",
+    "shortCommunityAddress",
+    "communityAddress",
+    "communityPublicKey",
+    "communityName",
     "shortCommentCid",
     "state",
     "publishingState",
     "signer",
-    "clients"
+    "clients",
+    "nameResolved"
 ], remeda.keys.strict(CommentModerationPubsubMessagePublicationSchema.shape));
 //# sourceMappingURL=schema.js.map

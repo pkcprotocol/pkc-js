@@ -3,15 +3,15 @@ import { v4 as uuidV4 } from "uuid";
 import { hideClassPrivateProps } from "../../util.js";
 // Storage is for long term items, no eviction based on ttl or anything like that
 export default class Storage {
-    constructor(plebbit) {
-        this._plebbit = plebbit;
+    constructor(pkc) {
+        this._pkc = pkc;
         hideClassPrivateProps(this);
     }
     toJSON() {
         return undefined;
     }
     async init() {
-        const storageName = this._plebbit.noData ? `Browser-storage-no-data-${uuidV4()}` : "plebbitjs_storage";
+        const storageName = this._pkc.noData ? `Browser-storage-no-data-${uuidV4()}` : "pkcjs_storage";
         this._store = localForage.createInstance({
             name: storageName
         });

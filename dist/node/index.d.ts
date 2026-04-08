@@ -1,23 +1,23 @@
 import "./zod-error-map.js";
-import * as PlebbitClass from "./plebbit/plebbit.js";
-import type { InputPlebbitOptions } from "./types.js";
-import type { AuthorAddressRpcParam, CidRpcParam } from "./clients/rpc-client/types.js";
-declare const Plebbit: {
-    (plebbitOptions?: InputPlebbitOptions): Promise<PlebbitClass.Plebbit>;
+import * as PKCClass from "./pkc/pkc.js";
+import type { InputPKCOptions } from "./types.js";
+import type { AuthorNameRpcParam, CidRpcParam } from "./clients/rpc-client/types.js";
+declare const PKC: {
+    (pkcOptions?: InputPKCOptions): Promise<PKCClass.PKC>;
     setNativeFunctions: (newNativeFunctions: Partial<import("./types.js").NativeFunctions>) => void;
     nativeFunctions: {
         node: import("./types.js").NativeFunctions;
         browser: import("./types.js").NativeFunctions;
     };
     getShortCid: (params: CidRpcParam) => string;
-    getShortAddress: (params: AuthorAddressRpcParam) => string;
+    getShortAddress: (params: AuthorNameRpcParam) => string;
     challenges: Record<string, import("zod/v4/core").$InferInnerFunctionType<import("zod").ZodTuple<readonly [import("zod").ZodObject<{
         challengeSettings: import("zod").ZodObject<{
             path: import("zod").ZodOptional<import("zod").ZodString>;
             name: import("zod").ZodOptional<import("zod").ZodString>;
             options: import("zod").ZodOptional<import("zod").ZodRecord<import("zod").ZodString, import("zod").ZodString>>;
             exclude: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodObject<{
-                subplebbit: import("zod").ZodOptional<import("zod").ZodObject<{
+                community: import("zod").ZodOptional<import("zod").ZodObject<{
                     addresses: import("zod").ZodArray<import("zod").ZodString>;
                     maxCommentCids: import("zod").ZodNumber;
                     postScore: import("zod").ZodOptional<import("zod").ZodNumber>;
@@ -44,7 +44,7 @@ declare const Plebbit: {
                     vote: import("zod").ZodOptional<import("zod").ZodBoolean>;
                     commentEdit: import("zod").ZodOptional<import("zod").ZodBoolean>;
                     commentModeration: import("zod").ZodOptional<import("zod").ZodBoolean>;
-                    subplebbitEdit: import("zod").ZodOptional<import("zod").ZodBoolean>;
+                    communityEdit: import("zod").ZodOptional<import("zod").ZodBoolean>;
                 }, import("zod/v4/core").$loose>>;
             }, import("zod/v4/core").$loose>>>;
             description: import("zod").ZodOptional<import("zod").ZodString>;
@@ -69,7 +69,7 @@ declare const Plebbit: {
                 name: import("zod").ZodOptional<import("zod").ZodString>;
                 options: import("zod").ZodOptional<import("zod").ZodRecord<import("zod").ZodString, import("zod").ZodString>>;
                 exclude: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodObject<{
-                    subplebbit: import("zod").ZodOptional<import("zod").ZodObject<{
+                    community: import("zod").ZodOptional<import("zod").ZodObject<{
                         addresses: import("zod").ZodArray<import("zod").ZodString>;
                         maxCommentCids: import("zod").ZodNumber;
                         postScore: import("zod").ZodOptional<import("zod").ZodNumber>;
@@ -96,15 +96,15 @@ declare const Plebbit: {
                         vote: import("zod").ZodOptional<import("zod").ZodBoolean>;
                         commentEdit: import("zod").ZodOptional<import("zod").ZodBoolean>;
                         commentModeration: import("zod").ZodOptional<import("zod").ZodBoolean>;
-                        subplebbitEdit: import("zod").ZodOptional<import("zod").ZodBoolean>;
+                        communityEdit: import("zod").ZodOptional<import("zod").ZodBoolean>;
                     }, import("zod/v4/core").$loose>>;
                 }, import("zod/v4/core").$loose>>>;
                 description: import("zod").ZodOptional<import("zod").ZodString>;
                 pendingApproval: import("zod").ZodOptional<import("zod").ZodBoolean>;
             }, import("zod/v4/core").$strict>;
-            challengeRequestMessage: import("zod").ZodCustom<import("./pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor, import("./pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor>;
+            challengeRequestMessage: import("zod").ZodCustom<import("./pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithCommunityAuthor, import("./pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithCommunityAuthor>;
             challengeIndex: import("zod").ZodNumber;
-            subplebbit: import("zod").ZodCustom<import("./runtime/node/subplebbit/local-subplebbit.js").LocalSubplebbit, import("./runtime/node/subplebbit/local-subplebbit.js").LocalSubplebbit>;
+            community: import("zod").ZodCustom<import("./runtime/node/community/local-community.js").LocalCommunity, import("./runtime/node/community/local-community.js").LocalCommunity>;
         }, import("zod/v4/core").$strip>], null>, import("zod").ZodPromise<import("zod").ZodUnion<[import("zod").ZodObject<{
             challenge: import("zod").ZodString;
             verify: import("zod").ZodFunction<import("zod").ZodTuple<readonly [import("zod").ZodLazy<import("zod").ZodString>], null>, import("zod").ZodPromise<import("zod").ZodUnion<[import("zod").ZodObject<{
@@ -123,21 +123,21 @@ declare const Plebbit: {
         }, import("zod/v4/core").$strip>]>]>>>;
     }, import("zod/v4/core").$strict>>>;
 };
-export default Plebbit;
+export default PKC;
 export declare const setNativeFunctions: (newNativeFunctions: Partial<import("./types.js").NativeFunctions>) => void;
 export declare const nativeFunctions: {
     node: import("./types.js").NativeFunctions;
     browser: import("./types.js").NativeFunctions;
 };
 export declare const getShortCid: (params: CidRpcParam) => string;
-export declare const getShortAddress: (params: AuthorAddressRpcParam) => string;
+export declare const getShortAddress: (params: AuthorNameRpcParam) => string;
 export declare const challenges: Record<string, import("zod/v4/core").$InferInnerFunctionType<import("zod").ZodTuple<readonly [import("zod").ZodObject<{
     challengeSettings: import("zod").ZodObject<{
         path: import("zod").ZodOptional<import("zod").ZodString>;
         name: import("zod").ZodOptional<import("zod").ZodString>;
         options: import("zod").ZodOptional<import("zod").ZodRecord<import("zod").ZodString, import("zod").ZodString>>;
         exclude: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodObject<{
-            subplebbit: import("zod").ZodOptional<import("zod").ZodObject<{
+            community: import("zod").ZodOptional<import("zod").ZodObject<{
                 addresses: import("zod").ZodArray<import("zod").ZodString>;
                 maxCommentCids: import("zod").ZodNumber;
                 postScore: import("zod").ZodOptional<import("zod").ZodNumber>;
@@ -164,7 +164,7 @@ export declare const challenges: Record<string, import("zod/v4/core").$InferInne
                 vote: import("zod").ZodOptional<import("zod").ZodBoolean>;
                 commentEdit: import("zod").ZodOptional<import("zod").ZodBoolean>;
                 commentModeration: import("zod").ZodOptional<import("zod").ZodBoolean>;
-                subplebbitEdit: import("zod").ZodOptional<import("zod").ZodBoolean>;
+                communityEdit: import("zod").ZodOptional<import("zod").ZodBoolean>;
             }, import("zod/v4/core").$loose>>;
         }, import("zod/v4/core").$loose>>>;
         description: import("zod").ZodOptional<import("zod").ZodString>;
@@ -189,7 +189,7 @@ export declare const challenges: Record<string, import("zod/v4/core").$InferInne
             name: import("zod").ZodOptional<import("zod").ZodString>;
             options: import("zod").ZodOptional<import("zod").ZodRecord<import("zod").ZodString, import("zod").ZodString>>;
             exclude: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodObject<{
-                subplebbit: import("zod").ZodOptional<import("zod").ZodObject<{
+                community: import("zod").ZodOptional<import("zod").ZodObject<{
                     addresses: import("zod").ZodArray<import("zod").ZodString>;
                     maxCommentCids: import("zod").ZodNumber;
                     postScore: import("zod").ZodOptional<import("zod").ZodNumber>;
@@ -216,15 +216,15 @@ export declare const challenges: Record<string, import("zod/v4/core").$InferInne
                     vote: import("zod").ZodOptional<import("zod").ZodBoolean>;
                     commentEdit: import("zod").ZodOptional<import("zod").ZodBoolean>;
                     commentModeration: import("zod").ZodOptional<import("zod").ZodBoolean>;
-                    subplebbitEdit: import("zod").ZodOptional<import("zod").ZodBoolean>;
+                    communityEdit: import("zod").ZodOptional<import("zod").ZodBoolean>;
                 }, import("zod/v4/core").$loose>>;
             }, import("zod/v4/core").$loose>>>;
             description: import("zod").ZodOptional<import("zod").ZodString>;
             pendingApproval: import("zod").ZodOptional<import("zod").ZodBoolean>;
         }, import("zod/v4/core").$strict>;
-        challengeRequestMessage: import("zod").ZodCustom<import("./pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor, import("./pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor>;
+        challengeRequestMessage: import("zod").ZodCustom<import("./pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithCommunityAuthor, import("./pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithCommunityAuthor>;
         challengeIndex: import("zod").ZodNumber;
-        subplebbit: import("zod").ZodCustom<import("./runtime/node/subplebbit/local-subplebbit.js").LocalSubplebbit, import("./runtime/node/subplebbit/local-subplebbit.js").LocalSubplebbit>;
+        community: import("zod").ZodCustom<import("./runtime/node/community/local-community.js").LocalCommunity, import("./runtime/node/community/local-community.js").LocalCommunity>;
     }, import("zod/v4/core").$strip>], null>, import("zod").ZodPromise<import("zod").ZodUnion<[import("zod").ZodObject<{
         challenge: import("zod").ZodString;
         verify: import("zod").ZodFunction<import("zod").ZodTuple<readonly [import("zod").ZodLazy<import("zod").ZodString>], null>, import("zod").ZodPromise<import("zod").ZodUnion<[import("zod").ZodObject<{

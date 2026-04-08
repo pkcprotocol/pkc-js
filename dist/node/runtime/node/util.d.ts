@@ -1,30 +1,30 @@
 import type { KuboRpcClient, NativeFunctions } from "../../types.js";
-import { Plebbit } from "../../plebbit/plebbit.js";
-import { RemoteSubplebbit } from "../../subplebbit/remote-subplebbit.js";
-import Logger from "@plebbit/plebbit-logger";
-import type { SubplebbitIpfsType } from "../../subplebbit/types.js";
+import { PKC } from "../../pkc/pkc.js";
+import { RemoteCommunity } from "../../community/remote-community.js";
+import Logger from "../../logger.js";
+import type { CommunityIpfsType } from "../../community/types.js";
 import type { CommentIpfsType, CommentsTableRow, CommentUpdateType } from "../../publications/comment/types.js";
-import { DbHandler } from "./subplebbit/db-handler.js";
+import { DbHandler } from "./community/db-handler.js";
 export declare const getDefaultDataPath: () => string;
-export declare const getDefaultSubplebbitDbConfig: (subplebbitAddress: SubplebbitIpfsType["address"], plebbit: Plebbit) => Promise<DbHandler["_dbConfig"]>;
-export declare function getThumbnailPropsOfLink(url: string, subplebbit: RemoteSubplebbit, proxyHttpUrl?: string): Promise<{
+export declare const getDefaultCommunityDbConfig: (communityAddress: string, pkc: PKC) => Promise<DbHandler["_dbConfig"]>;
+export declare function getThumbnailPropsOfLink(url: string, community: RemoteCommunity, proxyHttpUrl?: string): Promise<{
     thumbnailUrl: string;
     thumbnailUrlWidth?: number;
     thumbnailUrlHeight?: number;
 } | undefined>;
 export declare const nativeFunctions: NativeFunctions;
 export declare const setNativeFunctions: (newNativeFunctions: Partial<NativeFunctions>) => void;
-export declare const deleteOldSubplebbitInWindows: (subPath: string, plebbit: Pick<Plebbit, "_storage">) => Promise<void>;
-export declare function trytoDeleteSubsThatFailedToBeDeletedBefore(plebbit: Plebbit, log: Logger): Promise<string[] | undefined>;
-export declare function listSubplebbitsSync(plebbit: Plebbit): string[];
+export declare const deleteOldCommunityInWindows: (subPath: string, pkc: Pick<PKC, "_storage">) => Promise<void>;
+export declare function tryToDeleteCommunitiesThatFailedToBeDeletedBefore(pkc: PKC, log: Logger): Promise<string[] | undefined>;
+export declare function listCommunitiesSync(pkc: PKC): string[];
 export declare function importSignerIntoKuboNode(ipnsKeyName: string, ipfsKey: Uint8Array, kuboRpcClientOptions: KuboRpcClient["_clientOptions"]): Promise<{
     id: string;
     name: string;
 } | undefined>;
-export declare function moveSubplebbitDbToDeletedDirectory(subplebbitAddress: string, plebbit: Plebbit): Promise<void>;
+export declare function moveCommunityDbToDeletedDirectory(communityAddress: string, pkc: PKC): Promise<void>;
 export declare function createKuboRpcClient(kuboRpcClientOptions: KuboRpcClient["_clientOptions"]): KuboRpcClient["_client"];
-export declare function monitorSubplebbitsDirectory(plebbit: Plebbit): Promise<AbortController>;
-export declare function calculateExpectedSignatureSize(newIpns: Omit<SubplebbitIpfsType, "signature" | "posts"> | Omit<CommentUpdateType, "signature" | "posts">): number;
+export declare function monitorCommunitiesDirectory(pkc: PKC): Promise<AbortController>;
+export declare function calculateExpectedSignatureSize(newIpns: Omit<CommunityIpfsType, "signature" | "posts"> | Omit<CommentUpdateType, "signature" | "posts">): number;
 export declare function deriveCommentIpfsFromCommentTableRow(commentTableRow: CommentsTableRow): CommentIpfsType;
 type InlineRepliesBudgetOptions = {
     comment: CommentsTableRow;

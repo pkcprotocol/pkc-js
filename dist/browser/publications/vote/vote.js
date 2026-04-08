@@ -1,19 +1,29 @@
 import Publication from "../publication.js";
-import { verifyVote } from "../../signer/index.js";
-import { hideClassPrivateProps, throwWithErrorCode } from "../../util.js";
+import { signVote, verifyVote } from "../../signer/signatures.js";
+import { hideClassPrivateProps } from "../../util.js";
+import { PKCError } from "../../pkc-error.js";
 // vote.signer is inherited from Publication
 class Vote extends Publication {
-    constructor(plebbit) {
-        super(plebbit);
+    constructor(pkc) {
+        super(pkc);
         this.raw = {};
         // public method should be bound
         this.publish = this.publish.bind(this);
         hideClassPrivateProps(this);
     }
+    _initUnsignedLocalProps(opts) {
+        super._initUnsignedLocalProps(opts);
+        const o = opts.unsignedOptions;
+        this.commentCid = o.commentCid;
+        this.vote = o.vote;
+    }
     _initLocalProps(props) {
         this._initRemoteProps(props.vote);
         this.challengeRequest = props.challengeRequest;
         this.signer = props.signer;
+    }
+    async _signPublicationOptionsToPublish(cleanedPublication) {
+        return signVote({ vote: cleanedPublication, pkc: this._pkc });
     }
     _initRemoteProps(props) {
         super._initBaseRemoteProps(props);
@@ -21,28 +31,18 @@ class Vote extends Publication {
         this.vote = props.vote;
         this.raw.pubsubMessageToPublish = props;
     }
-    toJSONPubsubMessagePublication() {
-        if (!this.raw.pubsubMessageToPublish)
-            throw Error("Should define local props before calling toJSONPubsubMessagePublication");
-        return this.raw.pubsubMessageToPublish;
-    }
     getType() {
         return "vote";
     }
-    async _validateSignature() {
-        const voteObj = JSON.parse(JSON.stringify(this.toJSONPubsubMessagePublication())); // Stringified here to simulate a message sent through IPNS/PUBSUB
+    async _validateSignatureHook() {
+        const voteObj = JSON.parse(JSON.stringify(this.raw.pubsubMessageToPublish)); // Stringified here to simulate a message sent through IPNS/PUBSUB
         const signatureValidity = await verifyVote({
             vote: voteObj,
-            resolveAuthorAddresses: this._plebbit.resolveAuthorAddresses,
-            clientsManager: this._clientsManager,
-            overrideAuthorAddressIfInvalid: true
-        }); // If author domain is not resolving to signer, then don't throw an error
+            resolveAuthorNames: this._pkc.resolveAuthorNames,
+            clientsManager: this._clientsManager
+        });
         if (!signatureValidity.valid)
-            throwWithErrorCode("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
-    }
-    async publish() {
-        await this._validateSignature();
-        return super.publish();
+            throw new PKCError("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
     }
 }
 export default Vote;

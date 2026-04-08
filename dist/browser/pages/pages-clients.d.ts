@@ -6,6 +6,6 @@ export declare class PagesKuboRpcClient extends GenericStateClient<PagesGatewayS
 }
 export declare class PagesLibp2pJsClient extends GenericStateClient<PagesGatewayState> {
 }
-export declare class PagesPlebbitRpcStateClient extends GenericStateClient<PagesGatewayState> {
+export declare class PagesPKCRpcStateClient extends GenericStateClient<PagesGatewayState> {
 }
 export {};

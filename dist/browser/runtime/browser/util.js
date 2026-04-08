@@ -1,23 +1,23 @@
 import { default as browserNativeFunctions } from "./native-functions.js";
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "../../logger.js";
 import { create as CreateKuboRpcClient } from "kubo-rpc-client";
-import { throwWithErrorCode } from "../../util.js";
+import { PKCError } from "../../pkc-error.js";
 // Functions should not be called in browser
 export const getDefaultDataPath = () => undefined;
 export const mkdir = () => {
     throw Error("mkdir should not be called in browser");
 };
-export const listSubplebbits = () => {
-    throw Error("listSubplebbits should not be called in browser");
+export const listCommunities = () => {
+    throw Error("listCommunities should not be called in browser");
 };
-export const listSubplebbitsSync = () => {
-    throw Error("listSubplebbitsSync should not be called in browser");
+export const listCommunitiesSync = () => {
+    throw Error("listCommunitiesSync should not be called in browser");
 };
-export const monitorSubplebbitsDirectory = () => {
-    throw Error("monitorSubplebbitsDirectory should not be called in browser");
+export const monitorCommunitiesDirectory = () => {
+    throw Error("monitorCommunitiesDirectory should not be called in browser");
 };
-export const trytoDeleteSubsThatFailedToBeDeletedBefore = () => {
-    throw Error("trytoDeleteSubsThatFailedToBeDeletedBefore should not be called in browser");
+export const tryToDeleteCommunitiesThatFailedToBeDeletedBefore = () => {
+    throw Error("tryToDeleteCommunitiesThatFailedToBeDeletedBefore should not be called in browser");
 };
 export async function importSignerIntoKuboNode(ipnsKeyName, ipfsKey, ipfsNode) {
     const data = new FormData();
@@ -38,12 +38,12 @@ export async function importSignerIntoKuboNode(ipnsKeyName, ipfsKey, ipfsNode) {
         headers: ipfsNode.headers
     });
     if (res.status !== 200)
-        throwWithErrorCode("ERR_FAILED_TO_IMPORT_IPFS_KEY", { url, status: res.status, statusText: res.statusText, ipnsKeyName });
+        throw new PKCError("ERR_FAILED_TO_IMPORT_IPFS_KEY", { url, status: res.status, statusText: res.statusText, ipnsKeyName });
     const resJson = (await res.json());
     return { id: resJson.Id, name: resJson.Name };
 }
 export function createKuboRpcClient(kuboRpcClientOptions) {
-    const log = Logger("plebbit-js:plebbit:createKuboRpcClient");
+    const log = Logger("pkc-js:pkc:createKuboRpcClient");
     log("Creating a new ipfs client on browser with options", kuboRpcClientOptions);
     const kuboRpcClient = CreateKuboRpcClient({
         ...kuboRpcClientOptions

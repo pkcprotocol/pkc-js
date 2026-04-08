@@ -1,4 +1,4 @@
-import { getAvailablePlebbitConfigsToTestAgainst } from "../../../test-util.js";
+import { getAvailablePKCConfigsToTestAgainst } from "../../../test-util.js";
 export function defineHangingScenario(definition) {
     if (!definition || typeof definition !== "object") {
         throw new Error("defineHangingScenario: definition must be an object");
@@ -28,15 +28,15 @@ export function resolveHangingScenarioModule(moduleNamespace, moduleId) {
     return defineHangingScenario(candidate);
 }
 export async function createScenarioContext(configCode) {
-    const configs = getAvailablePlebbitConfigsToTestAgainst();
+    const configs = getAvailablePKCConfigsToTestAgainst();
     const config = configs.find((candidate) => candidate.testConfigCode === configCode);
     if (!config) {
         const available = configs.map((candidate) => candidate.testConfigCode).join(", ");
-        throw new Error(`Unknown Plebbit config code "${configCode}". Available configs: ${available}`);
+        throw new Error(`Unknown PKC config code "${configCode}". Available configs: ${available}`);
     }
-    const plebbit = await config.plebbitInstancePromise({ forceMockPubsub: true });
+    const pkc = await config.pkcInstancePromise({ forceMockPubsub: true });
     return {
-        plebbit,
+        pkc,
         config: {
             name: config.name,
             testConfigCode: config.testConfigCode

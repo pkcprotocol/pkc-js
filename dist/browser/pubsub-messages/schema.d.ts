@@ -46,12 +46,13 @@ export declare const DecryptedChallengeRequestPublicationSchema: z.ZodObject<{
             textColor: z.ZodOptional<z.ZodString>;
             expiresAt: z.ZodOptional<z.ZodNumber>;
         }, z.core.$loose>>>;
-        subplebbitAddress: z.ZodString;
+        communityPublicKey: z.ZodOptional<z.ZodString>;
+        communityName: z.ZodOptional<z.ZodString>;
         protocolVersion: z.ZodString;
-        content: z.ZodOptional<z.ZodString>;
+        link: z.ZodOptional<z.ZodString>;
         spoiler: z.ZodOptional<z.ZodBoolean>;
         nsfw: z.ZodOptional<z.ZodBoolean>;
-        link: z.ZodOptional<z.ZodString>;
+        content: z.ZodOptional<z.ZodString>;
         title: z.ZodOptional<z.ZodString>;
         linkWidth: z.ZodOptional<z.ZodNumber>;
         linkHeight: z.ZodOptional<z.ZodNumber>;
@@ -59,8 +60,8 @@ export declare const DecryptedChallengeRequestPublicationSchema: z.ZodObject<{
         parentCid: z.ZodOptional<z.ZodString>;
         postCid: z.ZodOptional<z.ZodString>;
         quotedCids: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        author: z.ZodObject<{
-            address: z.ZodString;
+        author: z.ZodOptional<z.ZodObject<{
+            name: z.ZodOptional<z.ZodString>;
             previousCommentCid: z.ZodOptional<z.ZodString>;
             displayName: z.ZodOptional<z.ZodString>;
             wallets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
@@ -87,7 +88,7 @@ export declare const DecryptedChallengeRequestPublicationSchema: z.ZodObject<{
                 textColor: z.ZodOptional<z.ZodString>;
                 expiresAt: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
-        }, z.core.$loose>;
+        }, z.core.$loose>>;
     }, z.core.$loose>>;
     vote: z.ZodOptional<z.ZodObject<{
         timestamp: z.ZodNumber;
@@ -97,9 +98,8 @@ export declare const DecryptedChallengeRequestPublicationSchema: z.ZodObject<{
             publicKey: z.ZodString;
             signedPropertyNames: z.ZodArray<z.ZodString>;
         }, z.core.$strip>;
-        subplebbitAddress: z.ZodString;
-        author: z.ZodObject<{
-            address: z.ZodString;
+        author: z.ZodOptional<z.ZodObject<{
+            name: z.ZodOptional<z.ZodString>;
             previousCommentCid: z.ZodOptional<z.ZodString>;
             displayName: z.ZodOptional<z.ZodString>;
             wallets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
@@ -126,7 +126,9 @@ export declare const DecryptedChallengeRequestPublicationSchema: z.ZodObject<{
                 textColor: z.ZodOptional<z.ZodString>;
                 expiresAt: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
-        }, z.core.$loose>;
+        }, z.core.$loose>>;
+        communityPublicKey: z.ZodOptional<z.ZodString>;
+        communityName: z.ZodOptional<z.ZodString>;
         protocolVersion: z.ZodString;
         commentCid: z.ZodString;
         vote: z.ZodUnion<readonly [z.ZodLiteral<1>, z.ZodLiteral<0>, z.ZodLiteral<-1>]>;
@@ -145,16 +147,17 @@ export declare const DecryptedChallengeRequestPublicationSchema: z.ZodObject<{
             textColor: z.ZodOptional<z.ZodString>;
             expiresAt: z.ZodOptional<z.ZodNumber>;
         }, z.core.$loose>>>;
-        subplebbitAddress: z.ZodString;
+        communityPublicKey: z.ZodOptional<z.ZodString>;
+        communityName: z.ZodOptional<z.ZodString>;
         protocolVersion: z.ZodString;
         commentCid: z.ZodString;
-        content: z.ZodOptional<z.ZodString>;
-        deleted: z.ZodOptional<z.ZodBoolean>;
         spoiler: z.ZodOptional<z.ZodBoolean>;
         nsfw: z.ZodOptional<z.ZodBoolean>;
         reason: z.ZodOptional<z.ZodString>;
-        author: z.ZodObject<{
-            address: z.ZodString;
+        content: z.ZodOptional<z.ZodString>;
+        deleted: z.ZodOptional<z.ZodBoolean>;
+        author: z.ZodOptional<z.ZodObject<{
+            name: z.ZodOptional<z.ZodString>;
             previousCommentCid: z.ZodOptional<z.ZodString>;
             displayName: z.ZodOptional<z.ZodString>;
             wallets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
@@ -181,7 +184,7 @@ export declare const DecryptedChallengeRequestPublicationSchema: z.ZodObject<{
                 textColor: z.ZodOptional<z.ZodString>;
                 expiresAt: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
-        }, z.core.$loose>;
+        }, z.core.$loose>>;
     }, z.core.$loose>>;
     commentModeration: z.ZodOptional<z.ZodObject<{
         timestamp: z.ZodNumber;
@@ -191,9 +194,8 @@ export declare const DecryptedChallengeRequestPublicationSchema: z.ZodObject<{
             publicKey: z.ZodString;
             signedPropertyNames: z.ZodArray<z.ZodString>;
         }, z.core.$strip>;
-        subplebbitAddress: z.ZodString;
-        author: z.ZodObject<{
-            address: z.ZodString;
+        author: z.ZodOptional<z.ZodObject<{
+            name: z.ZodOptional<z.ZodString>;
             previousCommentCid: z.ZodOptional<z.ZodString>;
             displayName: z.ZodOptional<z.ZodString>;
             wallets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
@@ -220,7 +222,9 @@ export declare const DecryptedChallengeRequestPublicationSchema: z.ZodObject<{
                 textColor: z.ZodOptional<z.ZodString>;
                 expiresAt: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
-        }, z.core.$loose>;
+        }, z.core.$loose>>;
+        communityPublicKey: z.ZodOptional<z.ZodString>;
+        communityName: z.ZodOptional<z.ZodString>;
         protocolVersion: z.ZodString;
         commentCid: z.ZodString;
         commentModeration: z.ZodObject<{
@@ -250,7 +254,7 @@ export declare const DecryptedChallengeRequestPublicationSchema: z.ZodObject<{
             }, z.core.$loose>>;
         }, z.core.$loose>;
     }, z.core.$loose>>;
-    subplebbitEdit: z.ZodOptional<z.ZodObject<{
+    communityEdit: z.ZodOptional<z.ZodObject<{
         timestamp: z.ZodNumber;
         signature: z.ZodObject<{
             type: z.ZodString;
@@ -258,9 +262,8 @@ export declare const DecryptedChallengeRequestPublicationSchema: z.ZodObject<{
             publicKey: z.ZodString;
             signedPropertyNames: z.ZodArray<z.ZodString>;
         }, z.core.$strip>;
-        subplebbitAddress: z.ZodString;
-        author: z.ZodObject<{
-            address: z.ZodString;
+        author: z.ZodOptional<z.ZodObject<{
+            name: z.ZodOptional<z.ZodString>;
             previousCommentCid: z.ZodOptional<z.ZodString>;
             displayName: z.ZodOptional<z.ZodString>;
             wallets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
@@ -287,10 +290,12 @@ export declare const DecryptedChallengeRequestPublicationSchema: z.ZodObject<{
                 textColor: z.ZodOptional<z.ZodString>;
                 expiresAt: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
-        }, z.core.$loose>;
+        }, z.core.$loose>>;
+        communityPublicKey: z.ZodOptional<z.ZodString>;
+        communityName: z.ZodOptional<z.ZodString>;
         protocolVersion: z.ZodString;
-        subplebbitEdit: z.ZodObject<{
-            address: z.ZodOptional<z.ZodString>;
+        communityEdit: z.ZodObject<{
+            name: z.ZodOptional<z.ZodOptional<z.ZodString>>;
             flairs: z.ZodOptional<z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodArray<z.ZodObject<{
                 text: z.ZodString;
                 backgroundColor: z.ZodOptional<z.ZodString>;
@@ -347,6 +352,7 @@ export declare const DecryptedChallengeRequestPublicationSchema: z.ZodObject<{
                 backgroundUrl: z.ZodOptional<z.ZodString>;
                 language: z.ZodOptional<z.ZodString>;
             }, z.core.$loose>>>;
+            address: z.ZodOptional<z.ZodOptional<z.ZodString>>;
             settings: z.ZodOptional<z.ZodOptional<z.ZodObject<{
                 fetchThumbnailUrls: z.ZodOptional<z.ZodBoolean>;
                 fetchThumbnailUrlsProxyUrl: z.ZodOptional<z.ZodString>;
@@ -355,7 +361,7 @@ export declare const DecryptedChallengeRequestPublicationSchema: z.ZodObject<{
                     name: z.ZodOptional<z.ZodString>;
                     options: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
                     exclude: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                        subplebbit: z.ZodOptional<z.ZodObject<{
+                        community: z.ZodOptional<z.ZodObject<{
                             addresses: z.ZodArray<z.ZodString>;
                             maxCommentCids: z.ZodNumber;
                             postScore: z.ZodOptional<z.ZodNumber>;
@@ -382,7 +388,7 @@ export declare const DecryptedChallengeRequestPublicationSchema: z.ZodObject<{
                             vote: z.ZodOptional<z.ZodBoolean>;
                             commentEdit: z.ZodOptional<z.ZodBoolean>;
                             commentModeration: z.ZodOptional<z.ZodBoolean>;
-                            subplebbitEdit: z.ZodOptional<z.ZodBoolean>;
+                            communityEdit: z.ZodOptional<z.ZodBoolean>;
                         }, z.core.$loose>>;
                     }, z.core.$loose>>>;
                     description: z.ZodOptional<z.ZodString>;
@@ -416,12 +422,13 @@ export declare const DecryptedChallengeRequestSchema: z.ZodObject<{
             textColor: z.ZodOptional<z.ZodString>;
             expiresAt: z.ZodOptional<z.ZodNumber>;
         }, z.core.$loose>>>;
-        subplebbitAddress: z.ZodString;
+        communityPublicKey: z.ZodOptional<z.ZodString>;
+        communityName: z.ZodOptional<z.ZodString>;
         protocolVersion: z.ZodString;
-        content: z.ZodOptional<z.ZodString>;
+        link: z.ZodOptional<z.ZodString>;
         spoiler: z.ZodOptional<z.ZodBoolean>;
         nsfw: z.ZodOptional<z.ZodBoolean>;
-        link: z.ZodOptional<z.ZodString>;
+        content: z.ZodOptional<z.ZodString>;
         title: z.ZodOptional<z.ZodString>;
         linkWidth: z.ZodOptional<z.ZodNumber>;
         linkHeight: z.ZodOptional<z.ZodNumber>;
@@ -429,8 +436,8 @@ export declare const DecryptedChallengeRequestSchema: z.ZodObject<{
         parentCid: z.ZodOptional<z.ZodString>;
         postCid: z.ZodOptional<z.ZodString>;
         quotedCids: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        author: z.ZodObject<{
-            address: z.ZodString;
+        author: z.ZodOptional<z.ZodObject<{
+            name: z.ZodOptional<z.ZodString>;
             previousCommentCid: z.ZodOptional<z.ZodString>;
             displayName: z.ZodOptional<z.ZodString>;
             wallets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
@@ -457,7 +464,7 @@ export declare const DecryptedChallengeRequestSchema: z.ZodObject<{
                 textColor: z.ZodOptional<z.ZodString>;
                 expiresAt: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
-        }, z.core.$loose>;
+        }, z.core.$loose>>;
     }, z.core.$loose>>;
     vote: z.ZodOptional<z.ZodObject<{
         timestamp: z.ZodNumber;
@@ -467,9 +474,8 @@ export declare const DecryptedChallengeRequestSchema: z.ZodObject<{
             publicKey: z.ZodString;
             signedPropertyNames: z.ZodArray<z.ZodString>;
         }, z.core.$strip>;
-        subplebbitAddress: z.ZodString;
-        author: z.ZodObject<{
-            address: z.ZodString;
+        author: z.ZodOptional<z.ZodObject<{
+            name: z.ZodOptional<z.ZodString>;
             previousCommentCid: z.ZodOptional<z.ZodString>;
             displayName: z.ZodOptional<z.ZodString>;
             wallets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
@@ -496,7 +502,9 @@ export declare const DecryptedChallengeRequestSchema: z.ZodObject<{
                 textColor: z.ZodOptional<z.ZodString>;
                 expiresAt: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
-        }, z.core.$loose>;
+        }, z.core.$loose>>;
+        communityPublicKey: z.ZodOptional<z.ZodString>;
+        communityName: z.ZodOptional<z.ZodString>;
         protocolVersion: z.ZodString;
         commentCid: z.ZodString;
         vote: z.ZodUnion<readonly [z.ZodLiteral<1>, z.ZodLiteral<0>, z.ZodLiteral<-1>]>;
@@ -515,16 +523,17 @@ export declare const DecryptedChallengeRequestSchema: z.ZodObject<{
             textColor: z.ZodOptional<z.ZodString>;
             expiresAt: z.ZodOptional<z.ZodNumber>;
         }, z.core.$loose>>>;
-        subplebbitAddress: z.ZodString;
+        communityPublicKey: z.ZodOptional<z.ZodString>;
+        communityName: z.ZodOptional<z.ZodString>;
         protocolVersion: z.ZodString;
         commentCid: z.ZodString;
-        content: z.ZodOptional<z.ZodString>;
-        deleted: z.ZodOptional<z.ZodBoolean>;
         spoiler: z.ZodOptional<z.ZodBoolean>;
         nsfw: z.ZodOptional<z.ZodBoolean>;
         reason: z.ZodOptional<z.ZodString>;
-        author: z.ZodObject<{
-            address: z.ZodString;
+        content: z.ZodOptional<z.ZodString>;
+        deleted: z.ZodOptional<z.ZodBoolean>;
+        author: z.ZodOptional<z.ZodObject<{
+            name: z.ZodOptional<z.ZodString>;
             previousCommentCid: z.ZodOptional<z.ZodString>;
             displayName: z.ZodOptional<z.ZodString>;
             wallets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
@@ -551,7 +560,7 @@ export declare const DecryptedChallengeRequestSchema: z.ZodObject<{
                 textColor: z.ZodOptional<z.ZodString>;
                 expiresAt: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
-        }, z.core.$loose>;
+        }, z.core.$loose>>;
     }, z.core.$loose>>;
     commentModeration: z.ZodOptional<z.ZodObject<{
         timestamp: z.ZodNumber;
@@ -561,9 +570,8 @@ export declare const DecryptedChallengeRequestSchema: z.ZodObject<{
             publicKey: z.ZodString;
             signedPropertyNames: z.ZodArray<z.ZodString>;
         }, z.core.$strip>;
-        subplebbitAddress: z.ZodString;
-        author: z.ZodObject<{
-            address: z.ZodString;
+        author: z.ZodOptional<z.ZodObject<{
+            name: z.ZodOptional<z.ZodString>;
             previousCommentCid: z.ZodOptional<z.ZodString>;
             displayName: z.ZodOptional<z.ZodString>;
             wallets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
@@ -590,7 +598,9 @@ export declare const DecryptedChallengeRequestSchema: z.ZodObject<{
                 textColor: z.ZodOptional<z.ZodString>;
                 expiresAt: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
-        }, z.core.$loose>;
+        }, z.core.$loose>>;
+        communityPublicKey: z.ZodOptional<z.ZodString>;
+        communityName: z.ZodOptional<z.ZodString>;
         protocolVersion: z.ZodString;
         commentCid: z.ZodString;
         commentModeration: z.ZodObject<{
@@ -620,7 +630,7 @@ export declare const DecryptedChallengeRequestSchema: z.ZodObject<{
             }, z.core.$loose>>;
         }, z.core.$loose>;
     }, z.core.$loose>>;
-    subplebbitEdit: z.ZodOptional<z.ZodObject<{
+    communityEdit: z.ZodOptional<z.ZodObject<{
         timestamp: z.ZodNumber;
         signature: z.ZodObject<{
             type: z.ZodString;
@@ -628,9 +638,8 @@ export declare const DecryptedChallengeRequestSchema: z.ZodObject<{
             publicKey: z.ZodString;
             signedPropertyNames: z.ZodArray<z.ZodString>;
         }, z.core.$strip>;
-        subplebbitAddress: z.ZodString;
-        author: z.ZodObject<{
-            address: z.ZodString;
+        author: z.ZodOptional<z.ZodObject<{
+            name: z.ZodOptional<z.ZodString>;
             previousCommentCid: z.ZodOptional<z.ZodString>;
             displayName: z.ZodOptional<z.ZodString>;
             wallets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
@@ -657,10 +666,12 @@ export declare const DecryptedChallengeRequestSchema: z.ZodObject<{
                 textColor: z.ZodOptional<z.ZodString>;
                 expiresAt: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
-        }, z.core.$loose>;
+        }, z.core.$loose>>;
+        communityPublicKey: z.ZodOptional<z.ZodString>;
+        communityName: z.ZodOptional<z.ZodString>;
         protocolVersion: z.ZodString;
-        subplebbitEdit: z.ZodObject<{
-            address: z.ZodOptional<z.ZodString>;
+        communityEdit: z.ZodObject<{
+            name: z.ZodOptional<z.ZodOptional<z.ZodString>>;
             flairs: z.ZodOptional<z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodArray<z.ZodObject<{
                 text: z.ZodString;
                 backgroundColor: z.ZodOptional<z.ZodString>;
@@ -717,6 +728,7 @@ export declare const DecryptedChallengeRequestSchema: z.ZodObject<{
                 backgroundUrl: z.ZodOptional<z.ZodString>;
                 language: z.ZodOptional<z.ZodString>;
             }, z.core.$loose>>>;
+            address: z.ZodOptional<z.ZodOptional<z.ZodString>>;
             settings: z.ZodOptional<z.ZodOptional<z.ZodObject<{
                 fetchThumbnailUrls: z.ZodOptional<z.ZodBoolean>;
                 fetchThumbnailUrlsProxyUrl: z.ZodOptional<z.ZodString>;
@@ -725,7 +737,7 @@ export declare const DecryptedChallengeRequestSchema: z.ZodObject<{
                     name: z.ZodOptional<z.ZodString>;
                     options: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
                     exclude: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                        subplebbit: z.ZodOptional<z.ZodObject<{
+                        community: z.ZodOptional<z.ZodObject<{
                             addresses: z.ZodArray<z.ZodString>;
                             maxCommentCids: z.ZodNumber;
                             postScore: z.ZodOptional<z.ZodNumber>;
@@ -752,7 +764,7 @@ export declare const DecryptedChallengeRequestSchema: z.ZodObject<{
                             vote: z.ZodOptional<z.ZodBoolean>;
                             commentEdit: z.ZodOptional<z.ZodBoolean>;
                             commentModeration: z.ZodOptional<z.ZodBoolean>;
-                            subplebbitEdit: z.ZodOptional<z.ZodBoolean>;
+                            communityEdit: z.ZodOptional<z.ZodBoolean>;
                         }, z.core.$loose>>;
                     }, z.core.$loose>>>;
                     description: z.ZodOptional<z.ZodString>;
@@ -866,12 +878,13 @@ export declare const DecryptedChallengeVerificationSchema: z.ZodObject<{
             textColor: z.ZodOptional<z.ZodString>;
             expiresAt: z.ZodOptional<z.ZodNumber>;
         }, z.core.$loose>>>;
-        subplebbitAddress: z.ZodString;
+        communityPublicKey: z.ZodOptional<z.ZodString>;
+        communityName: z.ZodOptional<z.ZodString>;
         protocolVersion: z.ZodString;
-        content: z.ZodOptional<z.ZodString>;
+        link: z.ZodOptional<z.ZodString>;
         spoiler: z.ZodOptional<z.ZodBoolean>;
         nsfw: z.ZodOptional<z.ZodBoolean>;
-        link: z.ZodOptional<z.ZodString>;
+        content: z.ZodOptional<z.ZodString>;
         title: z.ZodOptional<z.ZodString>;
         linkWidth: z.ZodOptional<z.ZodNumber>;
         linkHeight: z.ZodOptional<z.ZodNumber>;
@@ -879,8 +892,8 @@ export declare const DecryptedChallengeVerificationSchema: z.ZodObject<{
         parentCid: z.ZodOptional<z.ZodString>;
         postCid: z.ZodOptional<z.ZodString>;
         quotedCids: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        author: z.ZodObject<{
-            address: z.ZodString;
+        author: z.ZodOptional<z.ZodObject<{
+            name: z.ZodOptional<z.ZodString>;
             previousCommentCid: z.ZodOptional<z.ZodString>;
             displayName: z.ZodOptional<z.ZodString>;
             wallets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
@@ -907,7 +920,7 @@ export declare const DecryptedChallengeVerificationSchema: z.ZodObject<{
                 textColor: z.ZodOptional<z.ZodString>;
                 expiresAt: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
-        }, z.core.$loose>;
+        }, z.core.$loose>>;
         depth: z.ZodNumber;
         thumbnailUrl: z.ZodOptional<z.ZodString>;
         thumbnailUrlWidth: z.ZodOptional<z.ZodNumber>;
@@ -928,7 +941,7 @@ export declare const DecryptedChallengeVerificationSchema: z.ZodObject<{
             signedPropertyNames: z.ZodArray<z.ZodString>;
         }, z.core.$strip>;
         author: z.ZodOptional<z.ZodObject<{
-            subplebbit: z.ZodOptional<z.ZodObject<{
+            community: z.ZodOptional<z.ZodObject<{
                 postScore: z.ZodNumber;
                 replyScore: z.ZodNumber;
                 banExpiresAt: z.ZodOptional<z.ZodNumber>;

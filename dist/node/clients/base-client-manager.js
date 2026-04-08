@@ -1,9 +1,11 @@
 import assert from "assert";
-import { calculateIpfsCidV0, delay, hideClassPrivateProps, isEthAliasDomain, isIpns, isStringDomain, normalizeEthAliasDomain, throwWithErrorCode, timestamp } from "../util.js";
+import { calculateIpfsCidV0, hideClassPrivateProps, isAbortError, isIpns, isStringDomain, throwIfAbortSignalAborted } from "../util.js";
+import { sha256 } from "js-sha256";
+import { getPKCAddressFromPublicKey } from "../signer/util.js";
 import { nativeFunctions } from "../runtime/node/util.js";
 import pLimit from "p-limit";
-import { FailedToFetchCommentIpfsFromGatewaysError, FailedToFetchCommentUpdateFromGatewaysError, FailedToFetchGenericIpfsFromGatewaysError, FailedToFetchPageIpfsFromGatewaysError, FailedToFetchSubplebbitFromGatewaysError, PlebbitError } from "../plebbit-error.js";
-import Logger from "@plebbit/plebbit-logger";
+import { FailedToFetchCommentIpfsFromGatewaysError, FailedToFetchCommentUpdateFromGatewaysError, FailedToFetchGenericIpfsFromGatewaysError, FailedToFetchPageIpfsFromGatewaysError, FailedToFetchCommunityFromGatewaysError, PKCError } from "../pkc-error.js";
+import Logger from "../logger.js";
 import * as cborg from "cborg";
 import last from "it-last";
 import { concat as uint8ArrayConcat } from "uint8arrays/concat";
@@ -31,12 +33,12 @@ const createUrlFromSubdomainResolution = (gateway, opts) => {
 };
 const GATEWAYS_THAT_SUPPORT_SUBDOMAIN_RESOLUTION = {}; // gateway url -> whether it supports subdomain resolution
 export class BaseClientsManager {
-    constructor(plebbit) {
+    constructor(pkc) {
         this.pubsubProviderSubscriptions = {}; // To keep track of subscriptions of each kubo pubsub provider/helia
-        this._plebbit = plebbit;
-        for (const provider of remeda.keys.strict(plebbit.clients.pubsubKuboRpcClients))
+        this._pkc = pkc;
+        for (const provider of remeda.keys.strict(pkc.clients.pubsubKuboRpcClients))
             this.pubsubProviderSubscriptions[provider] = [];
-        for (const provider of remeda.keys.strict(plebbit.clients.libp2pJsClients))
+        for (const provider of remeda.keys.strict(pkc.clients.libp2pJsClients))
             this.pubsubProviderSubscriptions[provider] = [];
         hideClassPrivateProps(this);
     }
@@ -44,70 +46,70 @@ export class BaseClientsManager {
         return undefined;
     }
     getDefaultPubsubKuboRpcClientOrHelia() {
-        const defaultPubsubProviderUrl = remeda.keys.strict(this._plebbit.clients.pubsubKuboRpcClients)[0];
+        const defaultPubsubProviderUrl = remeda.keys.strict(this._pkc.clients.pubsubKuboRpcClients)[0];
         if (defaultPubsubProviderUrl)
-            return this._plebbit.clients.pubsubKuboRpcClients[defaultPubsubProviderUrl];
-        const defaultLibp2pJsClient = remeda.keys.strict(this._plebbit.clients.libp2pJsClients)[0];
+            return this._pkc.clients.pubsubKuboRpcClients[defaultPubsubProviderUrl];
+        const defaultLibp2pJsClient = remeda.keys.strict(this._pkc.clients.libp2pJsClients)[0];
         if (defaultLibp2pJsClient)
-            return this._plebbit.clients.libp2pJsClients[defaultLibp2pJsClient];
-        throw new PlebbitError("ERR_NO_DEFAULT_PUBSUB_PROVIDER", {
-            pubsubKuboRpcClients: this._plebbit.clients.pubsubKuboRpcClients,
-            libp2pJsClients: this._plebbit.clients.libp2pJsClients
+            return this._pkc.clients.libp2pJsClients[defaultLibp2pJsClient];
+        throw new PKCError("ERR_NO_DEFAULT_PUBSUB_PROVIDER", {
+            pubsubKuboRpcClients: this._pkc.clients.pubsubKuboRpcClients,
+            libp2pJsClients: this._pkc.clients.libp2pJsClients
         });
     }
     getDefaultKuboRpcClientOrHelia() {
-        const defaultKuboRpcClient = remeda.keys.strict(this._plebbit.clients.kuboRpcClients)[0];
+        const defaultKuboRpcClient = remeda.keys.strict(this._pkc.clients.kuboRpcClients)[0];
         if (defaultKuboRpcClient)
-            return this._plebbit.clients.kuboRpcClients[defaultKuboRpcClient];
-        const defaultLibp2pJsClient = remeda.keys.strict(this._plebbit.clients.libp2pJsClients)[0];
+            return this._pkc.clients.kuboRpcClients[defaultKuboRpcClient];
+        const defaultLibp2pJsClient = remeda.keys.strict(this._pkc.clients.libp2pJsClients)[0];
         if (defaultLibp2pJsClient)
-            return this._plebbit.clients.libp2pJsClients[defaultLibp2pJsClient];
-        throw new PlebbitError("ERR_NO_DEFAULT_IPFS_PROVIDER", {
-            kuboRpcClients: this._plebbit.clients.kuboRpcClients,
-            libp2pJsClients: this._plebbit.clients.libp2pJsClients
+            return this._pkc.clients.libp2pJsClients[defaultLibp2pJsClient];
+        throw new PKCError("ERR_NO_DEFAULT_IPFS_PROVIDER", {
+            kuboRpcClients: this._pkc.clients.kuboRpcClients,
+            libp2pJsClients: this._pkc.clients.libp2pJsClients
         });
     }
     getDefaultKuboRpcClient() {
-        const defaultKuboRpcClient = remeda.keys.strict(this._plebbit.clients.kuboRpcClients)[0];
+        const defaultKuboRpcClient = remeda.keys.strict(this._pkc.clients.kuboRpcClients)[0];
         if (defaultKuboRpcClient)
-            return this._plebbit.clients.kuboRpcClients[defaultKuboRpcClient];
-        throw new PlebbitError("ERR_NO_DEFAULT_KUBO_RPC_IPFS_PROVIDER", {
-            kuboRpcClients: this._plebbit.clients.kuboRpcClients,
-            libp2pJsClients: this._plebbit.clients.libp2pJsClients
+            return this._pkc.clients.kuboRpcClients[defaultKuboRpcClient];
+        throw new PKCError("ERR_NO_DEFAULT_KUBO_RPC_IPFS_PROVIDER", {
+            kuboRpcClients: this._pkc.clients.kuboRpcClients,
+            libp2pJsClients: this._pkc.clients.libp2pJsClients
         });
     }
     getDefaultKuboPubsubClient() {
-        const defaultKuboPubsubClient = remeda.keys.strict(this._plebbit.clients.pubsubKuboRpcClients)[0];
+        const defaultKuboPubsubClient = remeda.keys.strict(this._pkc.clients.pubsubKuboRpcClients)[0];
         if (defaultKuboPubsubClient)
-            return this._plebbit.clients.pubsubKuboRpcClients[defaultKuboPubsubClient];
-        throw new PlebbitError("ERR_NO_DEFAULT_KUBO_RPC_PUBSUB_PROVIDER", {
-            pubsubKuboRpcClients: this._plebbit.clients.pubsubKuboRpcClients
+            return this._pkc.clients.pubsubKuboRpcClients[defaultKuboPubsubClient];
+        throw new PKCError("ERR_NO_DEFAULT_KUBO_RPC_PUBSUB_PROVIDER", {
+            pubsubKuboRpcClients: this._pkc.clients.pubsubKuboRpcClients
         });
     }
     getIpfsClientWithKuboRpcClientFunctions() {
-        const defaultKuboRpcClient = remeda.keys.strict(this._plebbit.clients.kuboRpcClients)[0];
+        const defaultKuboRpcClient = remeda.keys.strict(this._pkc.clients.kuboRpcClients)[0];
         if (defaultKuboRpcClient)
-            return this._plebbit.clients.kuboRpcClients[defaultKuboRpcClient]._client;
-        const defaultLibp2pJsClient = remeda.keys.strict(this._plebbit.clients.libp2pJsClients)[0];
+            return this._pkc.clients.kuboRpcClients[defaultKuboRpcClient]._client;
+        const defaultLibp2pJsClient = remeda.keys.strict(this._pkc.clients.libp2pJsClients)[0];
         if (defaultLibp2pJsClient)
-            return this._plebbit.clients.libp2pJsClients[defaultLibp2pJsClient].heliaWithKuboRpcClientFunctions;
-        throw new PlebbitError("ERR_NO_DEFAULT_IPFS_PROVIDER", {
-            kuboRpcClients: this._plebbit.clients.kuboRpcClients,
-            libp2pJsClients: this._plebbit.clients.libp2pJsClients
+            return this._pkc.clients.libp2pJsClients[defaultLibp2pJsClient].heliaWithKuboRpcClientFunctions;
+        throw new PKCError("ERR_NO_DEFAULT_IPFS_PROVIDER", {
+            kuboRpcClients: this._pkc.clients.kuboRpcClients,
+            libp2pJsClients: this._pkc.clients.libp2pJsClients
         });
     }
     // Pubsub methods
     async pubsubSubscribeOnProvider(pubsubTopic, handler, kuboPubsubRpcUrlOrLibp2pJsKey) {
-        const log = Logger("plebbit-js:plebbit:client-manager:pubsubSubscribeOnProvider");
-        const pubsubClient = this._plebbit.clients.libp2pJsClients[kuboPubsubRpcUrlOrLibp2pJsKey]?.heliaWithKuboRpcClientFunctions ||
-            this._plebbit.clients.pubsubKuboRpcClients[kuboPubsubRpcUrlOrLibp2pJsKey]._client;
+        const log = Logger("pkc-js:pkc:client-manager:pubsubSubscribeOnProvider");
+        const pubsubClient = this._pkc.clients.libp2pJsClients[kuboPubsubRpcUrlOrLibp2pJsKey]?.heliaWithKuboRpcClientFunctions ||
+            this._pkc.clients.pubsubKuboRpcClients[kuboPubsubRpcUrlOrLibp2pJsKey]._client;
         if (!pubsubClient)
-            throw new PlebbitError("ERR_INVALID_PUBSUB_PROVIDER", { pubsubProviderUrl: kuboPubsubRpcUrlOrLibp2pJsKey });
+            throw new PKCError("ERR_INVALID_PUBSUB_PROVIDER", { pubsubProviderUrl: kuboPubsubRpcUrlOrLibp2pJsKey });
         const timeBefore = Date.now();
         const handlePubsubError = async (err) => {
             error = err;
             log.error("pubsub callback error, topic", pubsubTopic, "provider url", kuboPubsubRpcUrlOrLibp2pJsKey, "error", err, "Will unsubscribe and re-attempt to subscribe");
-            await this._plebbit._stats.recordGatewayFailure(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-subscribe");
+            await this._pkc._stats.recordGatewayFailure(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-subscribe");
             try {
                 await this.pubsubUnsubscribeOnProvider(pubsubTopic, kuboPubsubRpcUrlOrLibp2pJsKey, handler);
             }
@@ -121,7 +123,7 @@ export class BaseClientsManager {
             await pubsubClient.pubsub.subscribe(pubsubTopic, handler, { onError: handlePubsubError });
             if (error)
                 throw error;
-            await this._plebbit._stats.recordGatewaySuccess(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-subscribe", Date.now() - timeBefore);
+            await this._pkc._stats.recordGatewaySuccess(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-subscribe", Date.now() - timeBefore);
             this.pubsubProviderSubscriptions[kuboPubsubRpcUrlOrLibp2pJsKey].push(pubsubTopic);
         }
         catch (e) {
@@ -131,13 +133,13 @@ export class BaseClientsManager {
                 this.pubsubProviderSubscriptions[kuboPubsubRpcUrlOrLibp2pJsKey].push(pubsubTopic);
                 return;
             }
-            await this._plebbit._stats.recordGatewayFailure(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-subscribe");
+            await this._pkc._stats.recordGatewayFailure(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-subscribe");
             log.error(`Failed to subscribe to pubsub topic (${pubsubTopic}) to (${kuboPubsubRpcUrlOrLibp2pJsKey}) due to error`, e);
             throw e;
         }
     }
     async pubsubSubscribe(pubsubTopic, handler) {
-        const providersSorted = await this._plebbit._stats.sortGatewaysAccordingToScore("pubsub-subscribe");
+        const providersSorted = await this._pkc._stats.sortGatewaysAccordingToScore("pubsub-subscribe");
         const providerToError = {};
         for (let i = 0; i < providersSorted.length; i++) {
             const pubsubProviderUrl = providersSorted[i];
@@ -148,15 +150,15 @@ export class BaseClientsManager {
                 providerToError[pubsubProviderUrl] = e;
             }
         }
-        const combinedError = new PlebbitError("ERR_PUBSUB_FAILED_TO_SUBSCRIBE", { pubsubTopic, providerToError });
+        const combinedError = new PKCError("ERR_PUBSUB_FAILED_TO_SUBSCRIBE", { pubsubTopic, providerToError });
         this.emitError(combinedError);
         throw combinedError;
     }
     async pubsubUnsubscribeOnProvider(pubsubTopic, kuboPubsubRpcUrlOrLibp2pJsKey, handler) {
-        const pubsubClient = this._plebbit.clients.libp2pJsClients[kuboPubsubRpcUrlOrLibp2pJsKey]?.heliaWithKuboRpcClientFunctions ||
-            this._plebbit.clients.pubsubKuboRpcClients[kuboPubsubRpcUrlOrLibp2pJsKey]._client;
+        const pubsubClient = this._pkc.clients.libp2pJsClients[kuboPubsubRpcUrlOrLibp2pJsKey]?.heliaWithKuboRpcClientFunctions ||
+            this._pkc.clients.pubsubKuboRpcClients[kuboPubsubRpcUrlOrLibp2pJsKey]._client;
         if (!pubsubClient)
-            throw new PlebbitError("ERR_INVALID_PUBSUB_PROVIDER", { pubsubProviderUrl: kuboPubsubRpcUrlOrLibp2pJsKey });
+            throw new PKCError("ERR_INVALID_PUBSUB_PROVIDER", { pubsubProviderUrl: kuboPubsubRpcUrlOrLibp2pJsKey });
         try {
             await pubsubClient.pubsub.unsubscribe(pubsubTopic, handler);
             this.pubsubProviderSubscriptions[kuboPubsubRpcUrlOrLibp2pJsKey] = this.pubsubProviderSubscriptions[kuboPubsubRpcUrlOrLibp2pJsKey].filter((subPubsubTopic) => subPubsubTopic !== pubsubTopic);
@@ -168,12 +170,12 @@ export class BaseClientsManager {
         }
     }
     async pubsubUnsubscribe(pubsubTopic, handler) {
-        for (const pubsubProviderUrl of remeda.keys.strict(this._plebbit.clients.pubsubKuboRpcClients)) {
+        for (const pubsubProviderUrl of remeda.keys.strict(this._pkc.clients.pubsubKuboRpcClients)) {
             try {
                 await this.pubsubUnsubscribeOnProvider(pubsubTopic, pubsubProviderUrl, handler);
             }
             catch (e) {
-                await this._plebbit._stats.recordGatewayFailure(pubsubProviderUrl, "pubsub-unsubscribe");
+                await this._pkc._stats.recordGatewayFailure(pubsubProviderUrl, "pubsub-unsubscribe");
                 //@ts-expect-error
                 e.details = { ...e.details, pubsubProviderUrl, pubsubTopic };
                 this.emitError(e);
@@ -181,29 +183,29 @@ export class BaseClientsManager {
         }
     }
     async pubsubPublishOnProvider(pubsubTopic, data, kuboPubsubRpcUrlOrLibp2pJsKey) {
-        const log = Logger("plebbit-js:plebbit:pubsubPublish");
-        const pubsubClient = this._plebbit.clients.libp2pJsClients[kuboPubsubRpcUrlOrLibp2pJsKey]?.heliaWithKuboRpcClientFunctions ||
-            this._plebbit.clients.pubsubKuboRpcClients[kuboPubsubRpcUrlOrLibp2pJsKey]._client;
+        const log = Logger("pkc-js:pkc:pubsubPublish");
+        const pubsubClient = this._pkc.clients.libp2pJsClients[kuboPubsubRpcUrlOrLibp2pJsKey]?.heliaWithKuboRpcClientFunctions ||
+            this._pkc.clients.pubsubKuboRpcClients[kuboPubsubRpcUrlOrLibp2pJsKey]._client;
         if (!pubsubClient)
-            throw new PlebbitError("ERR_INVALID_PUBSUB_PROVIDER", { pubsubProviderUrl: kuboPubsubRpcUrlOrLibp2pJsKey });
+            throw new PKCError("ERR_INVALID_PUBSUB_PROVIDER", { pubsubProviderUrl: kuboPubsubRpcUrlOrLibp2pJsKey });
         const dataBinary = cborg.encode(data);
         const timeBefore = Date.now();
         try {
             await pubsubClient.pubsub.publish(pubsubTopic, dataBinary);
-            this._plebbit._stats.recordGatewaySuccess(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-publish", Date.now() - timeBefore); // Awaiting this statement will bug out tests
+            this._pkc._stats.recordGatewaySuccess(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-publish", Date.now() - timeBefore); // Awaiting this statement will bug out tests
         }
         catch (error) {
             //@ts-expect-error
             error.details = { ...error.details, pubsubProviderUrl: kuboPubsubRpcUrlOrLibp2pJsKey, pubsubTopic };
-            await this._plebbit._stats.recordGatewayFailure(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-publish");
+            await this._pkc._stats.recordGatewayFailure(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-publish");
             throw error;
         }
     }
     async pubsubPublish(pubsubTopic, data) {
-        const log = Logger("plebbit-js:plebbit:client-manager:pubsubPublish");
-        const providersSorted = await this._plebbit._stats.sortGatewaysAccordingToScore("pubsub-publish");
+        const log = Logger("pkc-js:pkc:client-manager:pubsubPublish");
+        const providersSorted = await this._pkc._stats.sortGatewaysAccordingToScore("pubsub-publish");
         if (providersSorted.length === 0)
-            throw new PlebbitError("ERR_NO_PUBSUB_PROVIDERS_AVAILABLE_TO_PUBLISH_OVER_PUBSUB", { pubsubTopic, data });
+            throw new PKCError("ERR_NO_PUBSUB_PROVIDERS_AVAILABLE_TO_PUBLISH_OVER_PUBSUB", { pubsubTopic, data });
         const providerToError = {};
         for (let i = 0; i < providersSorted.length; i++) {
             const pubsubProviderUrl = providersSorted[i];
@@ -215,7 +217,7 @@ export class BaseClientsManager {
                 providerToError[pubsubProviderUrl] = e;
             }
         }
-        const combinedError = new PlebbitError("ERR_PUBSUB_FAILED_TO_PUBLISH", { pubsubTopic, data, providerToError });
+        const combinedError = new PKCError("ERR_PUBSUB_FAILED_TO_PUBLISH", { pubsubTopic, data, providerToError });
         this.emitError(combinedError);
         throw combinedError;
     }
@@ -224,19 +226,19 @@ export class BaseClientsManager {
         // Node-fetch will take care of size limits through options.size, while browsers will process stream manually
         const handleError = (e) => {
             const nodeError = e;
-            if (e instanceof PlebbitError)
+            if (e instanceof PKCError)
                 throw e;
             else if (e instanceof Error && e.message.includes("over limit"))
-                throw new PlebbitError("ERR_OVER_DOWNLOAD_LIMIT", { url, options });
+                throw new PKCError("ERR_OVER_DOWNLOAD_LIMIT", { url, options });
             else if (options.signal?.aborted)
-                throw new PlebbitError("ERR_GATEWAY_TIMED_OUT_OR_ABORTED", { url, options });
+                throw new PKCError("ERR_GATEWAY_TIMED_OUT_OR_ABORTED", { url, options });
             else {
                 const errorCode = url.includes("/ipfs/") || url.includes(".ipfs.")
                     ? "ERR_FAILED_TO_FETCH_IPFS_VIA_GATEWAY"
                     : url.includes("/ipns/") || url.includes(".ipns.")
                         ? "ERR_FAILED_TO_FETCH_IPNS_VIA_GATEWAY"
                         : "ERR_FAILED_TO_FETCH_GENERIC";
-                throw new PlebbitError(errorCode, {
+                throw new PKCError(errorCode, {
                     url,
                     status: res?.status,
                     statusText: res?.statusText,
@@ -272,7 +274,7 @@ export class BaseClientsManager {
             }
             const sizeHeader = res.headers.get("Content-Length");
             if (sizeHeader && Number(sizeHeader) > options.maxFileSizeBytes)
-                throw new PlebbitError("ERR_OVER_DOWNLOAD_LIMIT", { url, options, res, sizeHeader });
+                throw new PKCError("ERR_OVER_DOWNLOAD_LIMIT", { url, options, res, sizeHeader });
             // If getReader is undefined that means node-fetch is used here. node-fetch processes options.size automatically
             if (res?.body?.getReader === undefined)
                 return { resText: await res.text(), res };
@@ -295,7 +297,7 @@ export class BaseClientsManager {
                     if (done || !value)
                         break;
                     if (value.length + totalBytesRead > options.maxFileSizeBytes)
-                        throw new PlebbitError("ERR_OVER_DOWNLOAD_LIMIT", { url, options });
+                        throw new PKCError("ERR_OVER_DOWNLOAD_LIMIT", { url, options });
                     totalBytesRead += value.length;
                 }
                 return { resText, res };
@@ -336,7 +338,7 @@ export class BaseClientsManager {
         }
     }
     async _fetchWithGateway(gateway, loadOpts) {
-        const log = Logger("plebbit-js:plebbit:fetchWithGateway");
+        const log = Logger("pkc-js:pkc:fetchWithGateway");
         const url = GATEWAYS_THAT_SUPPORT_SUBDOMAIN_RESOLUTION[gateway]
             ? createUrlFromSubdomainResolution(gateway, loadOpts)
             : createUrlFromPathResolution(gateway, loadOpts);
@@ -351,7 +353,7 @@ export class BaseClientsManager {
             }
             await loadOpts.validateGatewayResponseFunc(resObj); // should throw if there's an issue
             this.postFetchGatewaySuccess(gateway, loadOpts);
-            this._plebbit._stats
+            this._pkc._stats
                 .recordGatewaySuccess(gateway, loadOpts.recordIpfsType, Date.now() - timeBefore)
                 .catch((err) => log.error("Failed to report gateway success", err));
             this._handleIfGatewayRedirectsToSubdomainResolution(gateway, loadOpts, resObj.res, log);
@@ -361,7 +363,7 @@ export class BaseClientsManager {
             //@ts-expect-error
             e.details = { ...e.details, url, loadOpts, wasRequestAborted: loadOpts.abortController.signal.aborted };
             this.postFetchGatewayFailure(gateway, loadOpts, e);
-            this._plebbit._stats
+            this._pkc._stats
                 .recordGatewayFailure(gateway, loadOpts.recordIpfsType)
                 .catch((err) => log.error("failed to report gateway error", err));
             return { error: e };
@@ -380,9 +382,9 @@ export class BaseClientsManager {
         const concurrencyLimit = 3;
         const queueLimit = pLimit(concurrencyLimit);
         // Only sort if we have more than 3 gateways
-        const gatewaysSorted = remeda.keys.strict(this._plebbit.clients.ipfsGateways).length <= concurrencyLimit
-            ? remeda.keys.strict(this._plebbit.clients.ipfsGateways)
-            : await this._plebbit._stats.sortGatewaysAccordingToScore(loadOpts.recordIpfsType);
+        const gatewaysSorted = remeda.keys.strict(this._pkc.clients.ipfsGateways).length <= concurrencyLimit
+            ? remeda.keys.strict(this._pkc.clients.ipfsGateways)
+            : await this._pkc._stats.sortGatewaysAccordingToScore(loadOpts.recordIpfsType);
         const gatewayFetches = {};
         const cleanUp = () => {
             queueLimit.clearQueue();
@@ -391,7 +393,14 @@ export class BaseClientsManager {
                     gateway.abortController.abort();
                 clearTimeout(gateway.timeoutId);
             });
+            if (loadOpts.abortSignal)
+                loadOpts.abortSignal.removeEventListener("abort", onParentAbort);
         };
+        const onParentAbort = () => cleanUp();
+        if (loadOpts.abortSignal) {
+            throwIfAbortSignalAborted(loadOpts.abortSignal);
+            loadOpts.abortSignal.addEventListener("abort", onParentAbort, { once: true });
+        }
         for (const gateway of gatewaysSorted) {
             const abortController = new AbortController();
             gatewayFetches[gateway] = {
@@ -408,18 +417,19 @@ export class BaseClientsManager {
         ]);
         if (Array.isArray(res)) {
             cleanUp();
+            throwIfAbortSignalAborted(loadOpts.abortSignal);
             const gatewayToError = {};
             for (let i = 0; i < res.length; i++)
                 if (res[i]["value"])
                     gatewayToError[gatewaysSorted[i]] = res[i]["value"].error;
-            const combinedError = loadOpts.recordPlebbitType === "comment"
+            const combinedError = loadOpts.recordPKCType === "comment"
                 ? new FailedToFetchCommentIpfsFromGatewaysError({ commentCid: loadOpts.root, gatewayToError, loadOpts })
-                : loadOpts.recordPlebbitType === "comment-update"
+                : loadOpts.recordPKCType === "comment-update"
                     ? new FailedToFetchCommentUpdateFromGatewaysError({ gatewayToError, loadOpts })
-                    : loadOpts.recordPlebbitType === "page-ipfs"
+                    : loadOpts.recordPKCType === "page-ipfs"
                         ? new FailedToFetchPageIpfsFromGatewaysError({ pageCid: loadOpts.root, gatewayToError, loadOpts })
-                        : loadOpts.recordPlebbitType === "subplebbit"
-                            ? new FailedToFetchSubplebbitFromGatewaysError({ ipnsName: loadOpts.root, gatewayToError, loadOpts })
+                        : loadOpts.recordPKCType === "community"
+                            ? new FailedToFetchCommunityFromGatewaysError({ ipnsName: loadOpts.root, gatewayToError, loadOpts })
                             : new FailedToFetchGenericIpfsFromGatewaysError({ cid: loadOpts.root, gatewayToError, loadOpts });
             throw combinedError;
         }
@@ -430,12 +440,13 @@ export class BaseClientsManager {
     }
     // IPFS P2P methods
     async resolveIpnsToCidP2P(ipnsName, loadOpts) {
+        throwIfAbortSignalAborted(loadOpts.abortSignal);
         const ipnsResolveOpts = { nocache: true, recursive: true, ...loadOpts };
         const ipfsClient = this.getIpfsClientWithKuboRpcClientFunctions();
         const performIpnsResolve = async () => {
             const resolvedCidOfIpns = await last(ipfsClient.name.resolve(ipnsName, ipnsResolveOpts));
             if (!resolvedCidOfIpns)
-                throw new PlebbitError("ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED", {
+                throw new PKCError("ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED", {
                     resolvedCidOfIpns,
                     ipnsName,
                     ipnsResolveOpts
@@ -446,19 +457,22 @@ export class BaseClientsManager {
             // Wrap the resolution function with pTimeout because kubo-rpc-client doesn't support timeout for IPNS
             const result = await pTimeout(performIpnsResolve(), {
                 milliseconds: loadOpts.timeoutMs,
-                message: new PlebbitError("ERR_IPNS_RESOLUTION_P2P_TIMEOUT", {
+                message: new PKCError("ERR_IPNS_RESOLUTION_P2P_TIMEOUT", {
                     ipnsName,
                     ipnsResolveOpts
-                })
+                }),
+                signal: loadOpts.abortSignal
             });
             return result;
         }
         catch (error) {
+            if (isAbortError(error))
+                throw error;
             //@ts-expect-error
             error.details = { ...error.details, ipnsName, ipnsResolveOpts };
-            // Wrap ETIMEDOUT in PlebbitError so _isRetriableErrorWhenLoading recognizes it as retriable
+            // Wrap ETIMEDOUT in PKCError so _isRetriableErrorWhenLoading recognizes it as retriable
             if (error instanceof Error && "cause" in error && error.cause?.code === "ETIMEDOUT") {
-                throw new PlebbitError("ERR_FAILED_TO_RESOLVE_IPNS_VIA_IPFS_P2P", {
+                throw new PKCError("ERR_FAILED_TO_RESOLVE_IPNS_VIA_IPFS_P2P", {
                     ipnsName,
                     ipnsResolveOpts,
                     error,
@@ -472,6 +486,7 @@ export class BaseClientsManager {
     }
     // TODO rename this to _fetchPathP2P
     async _fetchCidP2P(cidV0, loadOpts) {
+        throwIfAbortSignalAborted(loadOpts.abortSignal);
         const kuboRpcOrHelia = this.getDefaultKuboRpcClientOrHelia();
         const ipfsClient = this.getIpfsClientWithKuboRpcClientFunctions();
         const fetchPromise = async () => {
@@ -479,11 +494,11 @@ export class BaseClientsManager {
             const data = uint8ArrayConcat(rawData);
             const fileContent = uint8ArrayToString(data);
             if (typeof fileContent !== "string")
-                throw new PlebbitError("ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P", { cid: cidV0, loadOpts });
+                throw new PKCError("ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P", { cid: cidV0, loadOpts });
             if (data.byteLength === loadOpts.maxFileSizeBytes) {
                 const calculatedCid = await calculateIpfsHash(fileContent);
                 if (calculatedCid !== cidV0)
-                    throw new PlebbitError("ERR_OVER_DOWNLOAD_LIMIT", {
+                    throw new PKCError("ERR_OVER_DOWNLOAD_LIMIT", {
                         cid: cidV0,
                         loadOpts,
                         endedDownloadAtFileContentLength: data.byteLength
@@ -495,17 +510,20 @@ export class BaseClientsManager {
             // Wrap the fetch function with pTimeout to ensure it times out properly
             const result = await pTimeout(fetchPromise(), {
                 milliseconds: loadOpts.timeoutMs,
-                message: new PlebbitError("ERR_FETCH_CID_P2P_TIMEOUT", { cid: cidV0, loadOpts })
+                message: new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { cid: cidV0, loadOpts }),
+                signal: loadOpts.abortSignal
             });
             return result;
         }
         catch (e) {
-            if (e instanceof PlebbitError)
+            if (isAbortError(e))
+                throw e;
+            if (e instanceof PKCError)
                 throw e;
             else if (e instanceof Error && e.name === "TimeoutError")
-                throw new PlebbitError("ERR_FETCH_CID_P2P_TIMEOUT", { cid: cidV0, error: e, loadOpts });
+                throw new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { cid: cidV0, error: e, loadOpts });
             else
-                throw new PlebbitError("ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P", {
+                throw new PKCError("ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P", {
                     cid: cidV0,
                     error: e,
                     errorMessage: e?.message,
@@ -518,180 +536,131 @@ export class BaseClientsManager {
     async _verifyGatewayResponseMatchesCid(gatewayResponseBody, cid, loadOpts) {
         const calculatedCid = await calculateIpfsHash(gatewayResponseBody);
         if (gatewayResponseBody.length === loadOpts.maxFileSizeBytes && calculatedCid !== cid)
-            throw new PlebbitError("ERR_OVER_DOWNLOAD_LIMIT", { cid, loadOpts, gatewayResponseBody });
+            throw new PKCError("ERR_OVER_DOWNLOAD_LIMIT", { cid, loadOpts, gatewayResponseBody });
         if (calculatedCid !== cid)
-            throw new PlebbitError("ERR_CALCULATED_CID_DOES_NOT_MATCH", { calculatedCid, cid, gatewayResponseBody, loadOpts });
+            throw new PKCError("ERR_CALCULATED_CID_DOES_NOT_MATCH", { calculatedCid, cid, gatewayResponseBody, loadOpts });
     }
     // Resolver methods here
-    _getKeyOfCachedDomainTextRecord(domainAddress, txtRecord) {
-        // Normalize .bso to .eth so both aliases share the same cache entry
-        const normalizedAddress = normalizeEthAliasDomain(domainAddress);
-        return `${normalizedAddress}_${txtRecord}`;
-    }
-    async _getCachedTextRecord(address, txtRecord) {
-        const cacheKey = this._getKeyOfCachedDomainTextRecord(address, txtRecord);
-        const resolveCache = await this._plebbit._storage.getItem(cacheKey);
-        if (remeda.isPlainObject(resolveCache)) {
-            const stale = timestamp() - resolveCache.timestampSeconds > 3600; // Only resolve again if cache was stored over an hour ago
-            return { stale, ...resolveCache };
+    // Name resolver hooks — overridden by PKCClientsManager and subclass client managers
+    preResolveNameResolver(opts) { }
+    postResolveNameResolverSuccess(opts) { }
+    postResolveNameResolverFailure(opts) { }
+    async _resolveViaNameResolvers({ address, resolveType, abortSignal }) {
+        const log = Logger("pkc-js:client-manager:_resolveViaNameResolvers");
+        const nameResolvers = this._pkc.nameResolvers;
+        if (!nameResolvers || nameResolvers.length === 0) {
+            throw new PKCError("ERR_NO_RESOLVER_FOR_NAME", { address });
         }
-        return undefined;
-    }
-    async _resolveTextRecordWithCache(address, txtRecord) {
-        const log = Logger("plebbit-js:client-manager:resolveTextRecord");
-        const chain = isEthAliasDomain(address) ? "eth" : address.endsWith(".sol") ? "sol" : undefined;
-        if (!chain)
-            throw Error(`Can't figure out the chain of the address (${address}). Are you sure plebbit-js support this chain?`);
-        const chainId = this._plebbit.chainProviders[chain]?.chainId;
-        const ensAddress = normalizeEthAliasDomain(address);
-        const cachedTextRecord = await this._getCachedTextRecord(address, txtRecord);
-        if (cachedTextRecord) {
-            if (cachedTextRecord.stale)
-                this._resolveTextRecordConcurrently({ address, ensAddress, txtRecordName: txtRecord, chain, chainId })
-                    .then((newTextRecordValue) => log.trace(`Updated the stale text-record (${txtRecord}) value of address (${address}) to ${newTextRecordValue}`))
-                    .catch((err) => log.error(`Failed to update the stale text record (${txtRecord}) of address (${address})`, err));
-            return cachedTextRecord.valueOfTextRecord;
-        }
-        else
-            return this._resolveTextRecordConcurrently({ address, ensAddress, txtRecordName: txtRecord, chain, chainId });
-    }
-    preResolveTextRecord(address, txtRecordName, chain, chainProviderUrl, staleCache) { }
-    postResolveTextRecordSuccess(address, txtRecordName, resolvedTextRecord, chain, chainProviderUrl, staleCache) { }
-    postResolveTextRecordFailure(address, txtRecordName, chain, chainProviderUrl, error, staleCache) { }
-    async _resolveTextRecordSingleChainProvider({ address, ensAddress, txtRecordName, chain, chainproviderUrl, chainId, staleCache, signal }) {
-        this.preResolveTextRecord(address, txtRecordName, chain, chainproviderUrl, staleCache);
-        const timeBefore = Date.now();
-        try {
-            const resolvePromise = this._plebbit._domainResolver.resolveTxtRecord(ensAddress, txtRecordName, chain, chainproviderUrl, chainId);
-            const abortPromise = new Promise((_, reject) => {
-                if (signal.aborted) {
-                    reject(new PlebbitError("ERR_ABORTED_RESOLVING_TEXT_RECORD", { address, txtRecordName, chain, chainproviderUrl, chainId }));
-                }
-                signal.addEventListener("abort", () => {
-                    reject(new PlebbitError("ERR_ABORTED_RESOLVING_TEXT_RECORD", { address, txtRecordName, chain, chainproviderUrl }));
-                });
-            });
-            const resolvedTextRecord = signal ? await Promise.race([resolvePromise, abortPromise]) : await resolvePromise;
-            const timeAfter = Date.now();
-            if (typeof resolvedTextRecord === "string" && !isIpns(resolvedTextRecord))
-                throwWithErrorCode("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", {
-                    resolvedTextRecord,
-                    address,
-                    txtRecordName,
-                    chain,
-                    chainproviderUrl
-                });
-            this.postResolveTextRecordSuccess(address, txtRecordName, resolvedTextRecord, chain, chainproviderUrl, staleCache);
-            await this._plebbit._stats.recordGatewaySuccess(chainproviderUrl, chain, timeAfter - timeBefore);
-            return resolvedTextRecord;
-        }
-        catch (e) {
-            //@ts-expect-error
-            e.details = { ...e.details, address, txtRecordName, chain, chainproviderUrl, chainId };
-            this.postResolveTextRecordFailure(address, txtRecordName, chain, chainproviderUrl, e, staleCache);
-            await this._plebbit._stats.recordGatewayFailure(chainproviderUrl, chain);
-            return { error: e };
-        }
-    }
-    async _resolveTextRecordConcurrently({ address, ensAddress, txtRecordName, chain, chainId }) {
-        const log = Logger("plebbit-js:plebbit:client-manager:_resolveTextRecordConcurrently");
-        const timeouts = [0, 0, 100, 1000];
-        const _firstResolve = (promises) => {
-            return new Promise((resolve) => promises.forEach((promise) => promise.then((res) => {
-                if (typeof res === "string" || res === null)
-                    resolve(res);
-            })));
-        };
-        const concurrencyLimit = 3;
-        const queueLimit = pLimit(concurrencyLimit);
-        for (let i = 0; i < timeouts.length; i++) {
-            if (timeouts[i] !== 0)
-                await delay(timeouts[i]);
-            const cachedTextRecord = await this._getCachedTextRecord(address, txtRecordName);
-            if (cachedTextRecord && !cachedTextRecord.stale)
-                return cachedTextRecord.valueOfTextRecord;
-            log.trace(`Retrying to resolve address (${address}) text record (${txtRecordName}) for the ${i}th time`);
-            if (!this._plebbit.clients.chainProviders[chain]) {
-                throw Error(`Plebbit has no chain provider for (${chain})`);
-            }
-            // Only sort if we have more than 3 gateways
-            const providersSorted = this._plebbit.clients.chainProviders[chain].urls.length <= concurrencyLimit
-                ? this._plebbit.clients.chainProviders[chain].urls
-                : await this._plebbit._stats.sortGatewaysAccordingToScore(chain);
-            const abortController = new AbortController();
+        throwIfAbortSignalAborted(abortSignal);
+        let value;
+        let anyResolverCanHandle = false;
+        for (const nameResolver of nameResolvers) {
+            if (!nameResolver.canResolve({ name: address }))
+                continue;
+            anyResolverCanHandle = true;
+            this.preResolveNameResolver({ address, resolveType, resolverKey: nameResolver.key });
             try {
-                const providerPromises = providersSorted.map((providerUrl) => queueLimit(() => this._resolveTextRecordSingleChainProvider({
-                    address,
-                    ensAddress,
-                    txtRecordName,
-                    chain,
-                    chainproviderUrl: providerUrl,
-                    chainId,
-                    staleCache: cachedTextRecord,
-                    signal: abortController.signal
-                })));
-                //@ts-expect-error
-                const resolvedTextRecord = await Promise.race([
-                    _firstResolve(providerPromises),
-                    Promise.allSettled(providerPromises)
-                ]);
-                if (Array.isArray(resolvedTextRecord)) {
-                    // It means none of the promises settled with string or null, they all failed
-                    const errorsCombined = {};
-                    for (let i = 0; i < providersSorted.length; i++)
-                        errorsCombined[providersSorted[i]] = resolvedTextRecord[i].value.error;
-                    throwWithErrorCode("ERR_FAILED_TO_RESOLVE_TEXT_RECORD", { errors: errorsCombined, address, txtRecordName, chain });
-                }
-                else {
-                    // result could be either the value of the text record
-                    // or null if it doesn't have any value
-                    queueLimit.clearQueue();
-                    abortController.abort("Aborted resolving text record on domain since we got a result");
-                    if (typeof resolvedTextRecord === "string") {
-                        // Only cache valid text records, not null
-                        const resolvedCache = {
-                            timestampSeconds: timestamp(),
-                            valueOfTextRecord: resolvedTextRecord
-                        };
-                        const resolvedCacheKey = this._getKeyOfCachedDomainTextRecord(address, txtRecordName);
-                        await this._plebbit._storage.setItem(resolvedCacheKey, resolvedCache);
-                    }
-                    return resolvedTextRecord;
-                }
+                throwIfAbortSignalAborted(abortSignal);
+                const result = await nameResolver.resolve({ name: address, provider: nameResolver.provider, abortSignal });
+                throwIfAbortSignalAborted(abortSignal);
+                value = result?.publicKey;
             }
             catch (e) {
-                if (i === timeouts.length - 1) {
-                    log.error(`Failed to resolve address (${address}) text record (${txtRecordName}) using providers `, providersSorted, e);
-                    throw e;
-                }
+                const error = isAbortError(e) ? e : e;
+                this.postResolveNameResolverFailure({ address, resolveType, resolverKey: nameResolver.key, error });
+                if (abortSignal?.aborted)
+                    throwIfAbortSignalAborted(abortSignal);
+                if (isAbortError(error))
+                    throw error;
+                log.error(`Resolver ${nameResolver.key} failed for ${address}`, error);
+                continue;
             }
+            this.postResolveNameResolverSuccess({ address, resolveType, resolverKey: nameResolver.key, resolvedValue: value });
+            if (value)
+                break;
         }
-        throw Error("Should not reach this block within _resolveTextRecordConcurrently");
+        if (!anyResolverCanHandle) {
+            throw new PKCError("ERR_NO_RESOLVER_FOR_NAME", { address });
+        }
+        return value || null;
     }
-    async resolveSubplebbitAddressIfNeeded(subplebbitAddress) {
-        assert(typeof subplebbitAddress === "string", "subplebbitAddress needs to be a string to be resolved");
-        if (!isStringDomain(subplebbitAddress))
-            return subplebbitAddress;
-        return this._resolveTextRecordWithCache(subplebbitAddress, "subplebbit-address");
+    async resolveCommunityNameIfNeeded({ communityAddress, abortSignal }) {
+        assert(typeof communityAddress === "string", "communityAddress needs to be a string to be resolved");
+        if (!isStringDomain(communityAddress))
+            return communityAddress;
+        const result = await this._resolveViaNameResolvers({ address: communityAddress, resolveType: "community", abortSignal });
+        if (typeof result === "string" && !isIpns(result))
+            throw new PKCError("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: communityAddress });
+        return result;
     }
-    async clearDomainCache(domainAddress, txtRecordName) {
-        const cacheKey = this._getKeyOfCachedDomainTextRecord(domainAddress, txtRecordName);
-        await this._plebbit._storage.removeItem(cacheKey);
-    }
-    async resolveAuthorAddressIfNeeded(authorAddress) {
+    async resolveAuthorNameIfNeeded({ authorAddress, abortSignal }) {
         if (!isStringDomain(authorAddress))
-            throw new PlebbitError("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58", { authorAddress });
-        return this._resolveTextRecordWithCache(authorAddress, "plebbit-author-address");
+            throw new PKCError("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58", { authorAddress });
+        const result = await this._resolveViaNameResolvers({ address: authorAddress, resolveType: "author", abortSignal });
+        if (typeof result === "string" && !isIpns(result))
+            throw new PKCError("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: authorAddress });
+        return result;
+    }
+    // Background author name resolution — fire-and-forget, populates nameResolvedCache
+    resolveAuthorNamesInBackground({ authors, onResolved, abortSignal }) {
+        const log = Logger("pkc-js:base-client-manager:resolveAuthorNamesInBackground");
+        const cache = this._pkc._memCaches.nameResolvedCache;
+        // Deduplicate and skip already-cached entries
+        const seen = new Set();
+        const toResolve = [];
+        for (const { authorName, signaturePublicKey } of authors) {
+            if (!isStringDomain(authorName))
+                continue;
+            const cacheKey = sha256(authorName + signaturePublicKey);
+            if (seen.has(cacheKey))
+                continue;
+            seen.add(cacheKey);
+            if (typeof cache.get(cacheKey) === "boolean")
+                continue;
+            toResolve.push({ authorName, signaturePublicKey, cacheKey });
+        }
+        if (toResolve.length === 0)
+            return;
+        const limit = pLimit(5);
+        const resolveOne = async (entry) => {
+            if (abortSignal?.aborted)
+                return false;
+            try {
+                const resolved = await this.resolveAuthorNameIfNeeded({ authorAddress: entry.authorName, abortSignal });
+                const signerAddress = await getPKCAddressFromPublicKey(entry.signaturePublicKey);
+                const matches = resolved === signerAddress;
+                cache.set(entry.cacheKey, matches);
+                return true; // newly set
+            }
+            catch (e) {
+                if (isAbortError(e))
+                    return false;
+                log.error("Failed to resolve author name in background", entry.authorName, e);
+                if (e instanceof PKCError && e.code === "ERR_NO_RESOLVER_FOR_NAME") {
+                    cache.set(entry.cacheKey, false);
+                    return true; // newly set
+                }
+                // Transient failure — leave undefined for retry on next update
+                return false;
+            }
+        };
+        Promise.allSettled(toResolve.map((entry) => limit(() => resolveOne(entry))))
+            .then((results) => {
+            const anyNewlySet = results.some((r) => r.status === "fulfilled" && r.value === true);
+            if (anyNewlySet)
+                onResolved();
+        })
+            .catch((e) => log.error("Unexpected error in resolveAuthorNamesInBackground", e));
     }
     // Misc functions
     emitError(e) {
-        this._plebbit.emit("error", e);
+        this._pkc.emit("error", e);
     }
     calculateIpfsCid(content) {
         return calculateIpfsCidV0(content);
     }
-    async _withInflightSubplebbitFetch(subAddress, fetcher) {
-        return this._plebbit._inflightFetchManager.withResource(InflightResourceTypes.SUBPLEBBIT_IPNS, subAddress, fetcher);
+    async _withInflightCommunityFetch(subAddress, fetcher) {
+        return this._pkc._inflightFetchManager.withResource(InflightResourceTypes.COMMUNITY_IPNS, subAddress, fetcher);
     }
 }
 //# sourceMappingURL=base-client-manager.js.map

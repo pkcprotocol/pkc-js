@@ -8,12 +8,12 @@ import { createScenarioContext, defineHangingScenario } from "./hanging-test-uti
  */
 export default defineHangingScenario({
     id: "comment-publish",
-    description: "Finish publishing a comment and destroy plebbit",
+    description: "Finish publishing a comment and destroy pkc",
     run: async ({ configCode }) => {
-        const subplebbitAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
-        const { plebbit, config } = await createScenarioContext(configCode);
-        const post = await publishRandomPost(subplebbitAddress, plebbit);
-        await plebbit.destroy();
+        const communityAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
+        const { pkc, config } = await createScenarioContext(configCode);
+        const post = await publishRandomPost({ communityAddress, pkc });
+        await pkc.destroy();
     }
 });
 //# sourceMappingURL=comment-publish.scenario.js.map

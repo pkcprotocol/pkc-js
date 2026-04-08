@@ -5,6 +5,6 @@ export class PagesKuboRpcClient extends GenericStateClient {
 }
 export class PagesLibp2pJsClient extends GenericStateClient {
 }
-export class PagesPlebbitRpcStateClient extends GenericStateClient {
+export class PagesPKCRpcStateClient extends GenericStateClient {
 }
 //# sourceMappingURL=pages-clients.js.map

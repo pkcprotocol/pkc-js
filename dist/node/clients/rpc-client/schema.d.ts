@@ -1,81 +1,8 @@
 import { z } from "zod";
+import type { EncodedDecryptedChallengeVerificationMessageType } from "../../pubsub-messages/types.js";
 export declare const SubscriptionIdSchema: z.ZodNumber;
 export declare const RpcCommentEventResultSchema: z.ZodObject<{
-    timestamp: z.ZodNumber;
-    signature: z.ZodObject<{
-        type: z.ZodString;
-        signature: z.ZodString;
-        publicKey: z.ZodString;
-        signedPropertyNames: z.ZodArray<z.ZodString>;
-    }, z.core.$strip>;
-    flairs: z.ZodOptional<z.ZodArray<z.ZodObject<{
-        text: z.ZodString;
-        backgroundColor: z.ZodOptional<z.ZodString>;
-        textColor: z.ZodOptional<z.ZodString>;
-        expiresAt: z.ZodOptional<z.ZodNumber>;
-    }, z.core.$loose>>>;
-    subplebbitAddress: z.ZodString;
-    protocolVersion: z.ZodString;
-    content: z.ZodOptional<z.ZodString>;
-    spoiler: z.ZodOptional<z.ZodBoolean>;
-    nsfw: z.ZodOptional<z.ZodBoolean>;
-    link: z.ZodOptional<z.ZodString>;
-    title: z.ZodOptional<z.ZodString>;
-    linkWidth: z.ZodOptional<z.ZodNumber>;
-    linkHeight: z.ZodOptional<z.ZodNumber>;
-    linkHtmlTagName: z.ZodOptional<z.ZodString>;
-    parentCid: z.ZodOptional<z.ZodString>;
-    postCid: z.ZodOptional<z.ZodString>;
-    quotedCids: z.ZodOptional<z.ZodArray<z.ZodString>>;
-    author: z.ZodObject<{
-        address: z.ZodString;
-        previousCommentCid: z.ZodOptional<z.ZodString>;
-        displayName: z.ZodOptional<z.ZodString>;
-        wallets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
-            address: z.ZodString;
-            timestamp: z.ZodNumber;
-            signature: z.ZodObject<{
-                signature: z.ZodString;
-                type: z.ZodString;
-            }, z.core.$strip>;
-        }, z.core.$strip>>>;
-        avatar: z.ZodOptional<z.ZodObject<{
-            chainTicker: z.ZodString;
-            address: z.ZodString;
-            id: z.ZodString;
-            timestamp: z.ZodNumber;
-            signature: z.ZodObject<{
-                signature: z.ZodString;
-                type: z.ZodString;
-            }, z.core.$strip>;
-        }, z.core.$loose>>;
-        flairs: z.ZodOptional<z.ZodArray<z.ZodObject<{
-            text: z.ZodString;
-            backgroundColor: z.ZodOptional<z.ZodString>;
-            textColor: z.ZodOptional<z.ZodString>;
-            expiresAt: z.ZodOptional<z.ZodNumber>;
-        }, z.core.$loose>>>;
-    }, z.core.$loose>;
-    depth: z.ZodNumber;
-    thumbnailUrl: z.ZodOptional<z.ZodString>;
-    thumbnailUrlWidth: z.ZodOptional<z.ZodNumber>;
-    thumbnailUrlHeight: z.ZodOptional<z.ZodNumber>;
-    previousCid: z.ZodOptional<z.ZodString>;
-    pseudonymityMode: z.ZodOptional<z.ZodEnum<{
-        "per-post": "per-post";
-        "per-reply": "per-reply";
-        "per-author": "per-author";
-    }>>;
-}, z.core.$loose>;
-export declare const RpcCommentUpdateResultSchema: z.ZodObject<{
-    cid: z.ZodString;
-    upvoteCount: z.ZodNumber;
-    downvoteCount: z.ZodNumber;
-    replyCount: z.ZodNumber;
-    childCount: z.ZodOptional<z.ZodNumber>;
-    number: z.ZodOptional<z.ZodNumber>;
-    postNumber: z.ZodOptional<z.ZodNumber>;
-    edit: z.ZodOptional<z.ZodObject<{
+    comment: z.ZodObject<{
         timestamp: z.ZodNumber;
         signature: z.ZodObject<{
             type: z.ZodString;
@@ -89,16 +16,22 @@ export declare const RpcCommentUpdateResultSchema: z.ZodObject<{
             textColor: z.ZodOptional<z.ZodString>;
             expiresAt: z.ZodOptional<z.ZodNumber>;
         }, z.core.$loose>>>;
-        subplebbitAddress: z.ZodString;
+        communityPublicKey: z.ZodOptional<z.ZodString>;
+        communityName: z.ZodOptional<z.ZodString>;
         protocolVersion: z.ZodString;
-        commentCid: z.ZodString;
-        content: z.ZodOptional<z.ZodString>;
-        deleted: z.ZodOptional<z.ZodBoolean>;
+        link: z.ZodOptional<z.ZodString>;
         spoiler: z.ZodOptional<z.ZodBoolean>;
         nsfw: z.ZodOptional<z.ZodBoolean>;
-        reason: z.ZodOptional<z.ZodString>;
-        author: z.ZodObject<{
-            address: z.ZodString;
+        content: z.ZodOptional<z.ZodString>;
+        title: z.ZodOptional<z.ZodString>;
+        linkWidth: z.ZodOptional<z.ZodNumber>;
+        linkHeight: z.ZodOptional<z.ZodNumber>;
+        linkHtmlTagName: z.ZodOptional<z.ZodString>;
+        parentCid: z.ZodOptional<z.ZodString>;
+        postCid: z.ZodOptional<z.ZodString>;
+        quotedCids: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        author: z.ZodOptional<z.ZodObject<{
+            name: z.ZodOptional<z.ZodString>;
             previousCommentCid: z.ZodOptional<z.ZodString>;
             displayName: z.ZodOptional<z.ZodString>;
             wallets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
@@ -125,148 +58,234 @@ export declare const RpcCommentUpdateResultSchema: z.ZodObject<{
                 textColor: z.ZodOptional<z.ZodString>;
                 expiresAt: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
-        }, z.core.$loose>;
-    }, z.core.$loose>>;
-    flairs: z.ZodOptional<z.ZodArray<z.ZodObject<{
-        text: z.ZodString;
-        backgroundColor: z.ZodOptional<z.ZodString>;
-        textColor: z.ZodOptional<z.ZodString>;
-        expiresAt: z.ZodOptional<z.ZodNumber>;
-    }, z.core.$loose>>>;
-    spoiler: z.ZodOptional<z.ZodBoolean>;
-    nsfw: z.ZodOptional<z.ZodBoolean>;
-    pinned: z.ZodOptional<z.ZodBoolean>;
-    locked: z.ZodOptional<z.ZodBoolean>;
-    archived: z.ZodOptional<z.ZodBoolean>;
-    removed: z.ZodOptional<z.ZodBoolean>;
-    reason: z.ZodOptional<z.ZodString>;
-    approved: z.ZodOptional<z.ZodBoolean>;
-    updatedAt: z.ZodNumber;
-    author: z.ZodOptional<z.ZodObject<{
-        subplebbit: z.ZodOptional<z.ZodObject<{
-            postScore: z.ZodNumber;
-            replyScore: z.ZodNumber;
-            banExpiresAt: z.ZodOptional<z.ZodNumber>;
+        }, z.core.$loose>>;
+        depth: z.ZodNumber;
+        thumbnailUrl: z.ZodOptional<z.ZodString>;
+        thumbnailUrlWidth: z.ZodOptional<z.ZodNumber>;
+        thumbnailUrlHeight: z.ZodOptional<z.ZodNumber>;
+        previousCid: z.ZodOptional<z.ZodString>;
+        pseudonymityMode: z.ZodOptional<z.ZodEnum<{
+            "per-post": "per-post";
+            "per-reply": "per-reply";
+            "per-author": "per-author";
+        }>>;
+    }, z.core.$strict>;
+    runtimeFields: z.ZodOptional<z.ZodObject<{}, z.core.$loose>>;
+}, z.core.$strip>;
+export declare const RpcCommentUpdateResultSchema: z.ZodObject<{
+    commentUpdate: z.ZodObject<{
+        cid: z.ZodString;
+        upvoteCount: z.ZodNumber;
+        downvoteCount: z.ZodNumber;
+        replyCount: z.ZodNumber;
+        childCount: z.ZodOptional<z.ZodNumber>;
+        number: z.ZodOptional<z.ZodNumber>;
+        postNumber: z.ZodOptional<z.ZodNumber>;
+        edit: z.ZodOptional<z.ZodObject<{
+            timestamp: z.ZodNumber;
+            signature: z.ZodObject<{
+                type: z.ZodString;
+                signature: z.ZodString;
+                publicKey: z.ZodString;
+                signedPropertyNames: z.ZodArray<z.ZodString>;
+            }, z.core.$strip>;
             flairs: z.ZodOptional<z.ZodArray<z.ZodObject<{
                 text: z.ZodString;
                 backgroundColor: z.ZodOptional<z.ZodString>;
                 textColor: z.ZodOptional<z.ZodString>;
                 expiresAt: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
-            firstCommentTimestamp: z.ZodNumber;
-            lastCommentCid: z.ZodString;
-        }, z.core.$loose>>;
-    }, z.core.$loose>>;
-    lastChildCid: z.ZodOptional<z.ZodString>;
-    lastReplyTimestamp: z.ZodOptional<z.ZodNumber>;
-    signature: z.ZodObject<{
-        type: z.ZodString;
-        signature: z.ZodString;
-        publicKey: z.ZodString;
-        signedPropertyNames: z.ZodArray<z.ZodString>;
-    }, z.core.$strip>;
-    protocolVersion: z.ZodString;
-    replies: z.ZodOptional<z.ZodObject<{
-        pages: z.ZodRecord<z.ZodUnion<[z.ZodEnum<{
-            new: "new";
-            best: "best";
-            old: "old";
-            newFlat: "newFlat";
-            oldFlat: "oldFlat";
-        }>, z.ZodString]>, z.ZodObject<{
-            comments: z.ZodLazy<z.ZodArray<z.ZodObject<{
-                comment: z.ZodObject<{
+            communityPublicKey: z.ZodOptional<z.ZodString>;
+            communityName: z.ZodOptional<z.ZodString>;
+            protocolVersion: z.ZodString;
+            commentCid: z.ZodString;
+            spoiler: z.ZodOptional<z.ZodBoolean>;
+            nsfw: z.ZodOptional<z.ZodBoolean>;
+            reason: z.ZodOptional<z.ZodString>;
+            content: z.ZodOptional<z.ZodString>;
+            deleted: z.ZodOptional<z.ZodBoolean>;
+            author: z.ZodOptional<z.ZodObject<{
+                name: z.ZodOptional<z.ZodString>;
+                previousCommentCid: z.ZodOptional<z.ZodString>;
+                displayName: z.ZodOptional<z.ZodString>;
+                wallets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
+                    address: z.ZodString;
                     timestamp: z.ZodNumber;
                     signature: z.ZodObject<{
-                        type: z.ZodString;
                         signature: z.ZodString;
-                        publicKey: z.ZodString;
-                        signedPropertyNames: z.ZodArray<z.ZodString>;
+                        type: z.ZodString;
                     }, z.core.$strip>;
-                    flairs: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                        text: z.ZodString;
-                        backgroundColor: z.ZodOptional<z.ZodString>;
-                        textColor: z.ZodOptional<z.ZodString>;
-                        expiresAt: z.ZodOptional<z.ZodNumber>;
-                    }, z.core.$loose>>>;
-                    subplebbitAddress: z.ZodString;
-                    protocolVersion: z.ZodString;
-                    content: z.ZodOptional<z.ZodString>;
-                    spoiler: z.ZodOptional<z.ZodBoolean>;
-                    nsfw: z.ZodOptional<z.ZodBoolean>;
-                    link: z.ZodOptional<z.ZodString>;
-                    title: z.ZodOptional<z.ZodString>;
-                    linkWidth: z.ZodOptional<z.ZodNumber>;
-                    linkHeight: z.ZodOptional<z.ZodNumber>;
-                    linkHtmlTagName: z.ZodOptional<z.ZodString>;
-                    parentCid: z.ZodOptional<z.ZodString>;
-                    postCid: z.ZodOptional<z.ZodString>;
-                    quotedCids: z.ZodOptional<z.ZodArray<z.ZodString>>;
-                    author: z.ZodObject<{
-                        address: z.ZodString;
-                        previousCommentCid: z.ZodOptional<z.ZodString>;
-                        displayName: z.ZodOptional<z.ZodString>;
-                        wallets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
-                            address: z.ZodString;
-                            timestamp: z.ZodNumber;
-                            signature: z.ZodObject<{
-                                signature: z.ZodString;
-                                type: z.ZodString;
-                            }, z.core.$strip>;
-                        }, z.core.$strip>>>;
-                        avatar: z.ZodOptional<z.ZodObject<{
-                            chainTicker: z.ZodString;
-                            address: z.ZodString;
-                            id: z.ZodString;
-                            timestamp: z.ZodNumber;
-                            signature: z.ZodObject<{
-                                signature: z.ZodString;
-                                type: z.ZodString;
-                            }, z.core.$strip>;
-                        }, z.core.$loose>>;
+                }, z.core.$strip>>>;
+                avatar: z.ZodOptional<z.ZodObject<{
+                    chainTicker: z.ZodString;
+                    address: z.ZodString;
+                    id: z.ZodString;
+                    timestamp: z.ZodNumber;
+                    signature: z.ZodObject<{
+                        signature: z.ZodString;
+                        type: z.ZodString;
+                    }, z.core.$strip>;
+                }, z.core.$loose>>;
+                flairs: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    text: z.ZodString;
+                    backgroundColor: z.ZodOptional<z.ZodString>;
+                    textColor: z.ZodOptional<z.ZodString>;
+                    expiresAt: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$loose>>>;
+            }, z.core.$loose>>;
+        }, z.core.$loose>>;
+        flairs: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            text: z.ZodString;
+            backgroundColor: z.ZodOptional<z.ZodString>;
+            textColor: z.ZodOptional<z.ZodString>;
+            expiresAt: z.ZodOptional<z.ZodNumber>;
+        }, z.core.$loose>>>;
+        spoiler: z.ZodOptional<z.ZodBoolean>;
+        nsfw: z.ZodOptional<z.ZodBoolean>;
+        pinned: z.ZodOptional<z.ZodBoolean>;
+        locked: z.ZodOptional<z.ZodBoolean>;
+        archived: z.ZodOptional<z.ZodBoolean>;
+        removed: z.ZodOptional<z.ZodBoolean>;
+        reason: z.ZodOptional<z.ZodString>;
+        approved: z.ZodOptional<z.ZodBoolean>;
+        updatedAt: z.ZodNumber;
+        author: z.ZodOptional<z.ZodObject<{
+            community: z.ZodOptional<z.ZodObject<{
+                postScore: z.ZodNumber;
+                replyScore: z.ZodNumber;
+                banExpiresAt: z.ZodOptional<z.ZodNumber>;
+                flairs: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    text: z.ZodString;
+                    backgroundColor: z.ZodOptional<z.ZodString>;
+                    textColor: z.ZodOptional<z.ZodString>;
+                    expiresAt: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$loose>>>;
+                firstCommentTimestamp: z.ZodNumber;
+                lastCommentCid: z.ZodString;
+            }, z.core.$loose>>;
+        }, z.core.$loose>>;
+        lastChildCid: z.ZodOptional<z.ZodString>;
+        lastReplyTimestamp: z.ZodOptional<z.ZodNumber>;
+        signature: z.ZodObject<{
+            type: z.ZodString;
+            signature: z.ZodString;
+            publicKey: z.ZodString;
+            signedPropertyNames: z.ZodArray<z.ZodString>;
+        }, z.core.$strip>;
+        protocolVersion: z.ZodString;
+        replies: z.ZodOptional<z.ZodObject<{
+            pages: z.ZodRecord<z.ZodUnion<[z.ZodEnum<{
+                new: "new";
+                best: "best";
+                old: "old";
+                newFlat: "newFlat";
+                oldFlat: "oldFlat";
+            }>, z.ZodString]>, z.ZodObject<{
+                comments: z.ZodLazy<z.ZodArray<z.ZodObject<{
+                    comment: z.ZodObject<{
+                        timestamp: z.ZodNumber;
+                        signature: z.ZodObject<{
+                            type: z.ZodString;
+                            signature: z.ZodString;
+                            publicKey: z.ZodString;
+                            signedPropertyNames: z.ZodArray<z.ZodString>;
+                        }, z.core.$strip>;
                         flairs: z.ZodOptional<z.ZodArray<z.ZodObject<{
                             text: z.ZodString;
                             backgroundColor: z.ZodOptional<z.ZodString>;
                             textColor: z.ZodOptional<z.ZodString>;
                             expiresAt: z.ZodOptional<z.ZodNumber>;
                         }, z.core.$loose>>>;
+                        communityPublicKey: z.ZodOptional<z.ZodString>;
+                        communityName: z.ZodOptional<z.ZodString>;
+                        protocolVersion: z.ZodString;
+                        link: z.ZodOptional<z.ZodString>;
+                        spoiler: z.ZodOptional<z.ZodBoolean>;
+                        nsfw: z.ZodOptional<z.ZodBoolean>;
+                        content: z.ZodOptional<z.ZodString>;
+                        title: z.ZodOptional<z.ZodString>;
+                        linkWidth: z.ZodOptional<z.ZodNumber>;
+                        linkHeight: z.ZodOptional<z.ZodNumber>;
+                        linkHtmlTagName: z.ZodOptional<z.ZodString>;
+                        parentCid: z.ZodOptional<z.ZodString>;
+                        postCid: z.ZodOptional<z.ZodString>;
+                        quotedCids: z.ZodOptional<z.ZodArray<z.ZodString>>;
+                        author: z.ZodOptional<z.ZodObject<{
+                            name: z.ZodOptional<z.ZodString>;
+                            previousCommentCid: z.ZodOptional<z.ZodString>;
+                            displayName: z.ZodOptional<z.ZodString>;
+                            wallets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
+                                address: z.ZodString;
+                                timestamp: z.ZodNumber;
+                                signature: z.ZodObject<{
+                                    signature: z.ZodString;
+                                    type: z.ZodString;
+                                }, z.core.$strip>;
+                            }, z.core.$strip>>>;
+                            avatar: z.ZodOptional<z.ZodObject<{
+                                chainTicker: z.ZodString;
+                                address: z.ZodString;
+                                id: z.ZodString;
+                                timestamp: z.ZodNumber;
+                                signature: z.ZodObject<{
+                                    signature: z.ZodString;
+                                    type: z.ZodString;
+                                }, z.core.$strip>;
+                            }, z.core.$loose>>;
+                            flairs: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                                text: z.ZodString;
+                                backgroundColor: z.ZodOptional<z.ZodString>;
+                                textColor: z.ZodOptional<z.ZodString>;
+                                expiresAt: z.ZodOptional<z.ZodNumber>;
+                            }, z.core.$loose>>>;
+                        }, z.core.$loose>>;
+                        depth: z.ZodNumber;
+                        thumbnailUrl: z.ZodOptional<z.ZodString>;
+                        thumbnailUrlWidth: z.ZodOptional<z.ZodNumber>;
+                        thumbnailUrlHeight: z.ZodOptional<z.ZodNumber>;
+                        previousCid: z.ZodOptional<z.ZodString>;
+                        pseudonymityMode: z.ZodOptional<z.ZodEnum<{
+                            "per-post": "per-post";
+                            "per-reply": "per-reply";
+                            "per-author": "per-author";
+                        }>>;
                     }, z.core.$loose>;
-                    depth: z.ZodNumber;
-                    thumbnailUrl: z.ZodOptional<z.ZodString>;
-                    thumbnailUrlWidth: z.ZodOptional<z.ZodNumber>;
-                    thumbnailUrlHeight: z.ZodOptional<z.ZodNumber>;
-                    previousCid: z.ZodOptional<z.ZodString>;
-                    pseudonymityMode: z.ZodOptional<z.ZodEnum<{
-                        "per-post": "per-post";
-                        "per-reply": "per-reply";
-                        "per-author": "per-author";
-                    }>>;
-                }, z.core.$loose>;
-                commentUpdate: z.ZodObject</*elided*/ any, z.core.$loose>;
-            }, z.core.$strip>>>;
-            nextCid: z.ZodOptional<z.ZodString>;
+                    commentUpdate: z.ZodObject</*elided*/ any, z.core.$loose>;
+                }, z.core.$strip>>>;
+                nextCid: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>>;
+            pageCids: z.ZodOptional<z.ZodRecord<z.ZodUnion<[z.ZodEnum<{
+                new: "new";
+                best: "best";
+                old: "old";
+                newFlat: "newFlat";
+                oldFlat: "oldFlat";
+            }>, z.ZodString]>, z.ZodString>>;
         }, z.core.$strip>>;
-        pageCids: z.ZodOptional<z.ZodRecord<z.ZodUnion<[z.ZodEnum<{
-            new: "new";
-            best: "best";
-            old: "old";
-            newFlat: "newFlat";
-            oldFlat: "oldFlat";
-        }>, z.ZodString]>, z.ZodString>>;
-    }, z.core.$strip>>;
-}, z.core.$strict>;
+    }, z.core.$strict>;
+    runtimeFields: z.ZodOptional<z.ZodObject<{}, z.core.$loose>>;
+}, z.core.$strip>;
+export declare const RpcChallengeVerificationEventResultSchema: z.ZodObject<{
+    challengeVerification: z.ZodCustom<EncodedDecryptedChallengeVerificationMessageType, EncodedDecryptedChallengeVerificationMessageType>;
+    runtimeFields: z.ZodOptional<z.ZodObject<{}, z.core.$loose>>;
+}, z.core.$strip>;
 export declare const RpcCidParamSchema: z.ZodObject<{
     cid: z.ZodString;
 }, z.core.$loose>;
-export declare const RpcSubplebbitAddressParamSchema: z.ZodObject<{
+export declare const RpcCommunityAddressParamSchema: z.ZodObject<{
     address: z.ZodString;
 }, z.core.$strip>;
-export declare const RpcAuthorAddressParamSchema: z.ZodObject<{
+export declare const RpcCommunityLookupParamSchema: z.ZodObject<{
+    address: z.ZodOptional<z.ZodString>;
+    name: z.ZodOptional<z.ZodString>;
+    publicKey: z.ZodOptional<z.ZodString>;
+}, z.core.$strip>;
+export declare const RpcAuthorNameParamSchema: z.ZodObject<{
     address: z.ZodString;
 }, z.core.$strip>;
-export declare const RpcSubplebbitPageParamSchema: z.ZodObject<{
+export declare const RpcCommunityPageParamSchema: z.ZodObject<{
     cid: z.ZodString;
-    subplebbitAddress: z.ZodString;
+    communityAddress: z.ZodString;
     type: z.ZodEnum<{
         posts: "posts";
         modqueue: "modqueue";
@@ -274,8 +293,141 @@ export declare const RpcSubplebbitPageParamSchema: z.ZodObject<{
     pageMaxSize: z.ZodNumber;
 }, z.core.$loose>;
 export declare const RpcCommentRepliesPageParamSchema: z.ZodObject<{
-    subplebbitAddress: z.ZodString;
+    communityAddress: z.ZodString;
     cid: z.ZodString;
     pageMaxSize: z.ZodNumber;
     commentCid: z.ZodString;
 }, z.core.$loose>;
+export declare const RpcEditCommunityParamSchema: z.ZodObject<{
+    address: z.ZodString;
+    editOptions: z.ZodObject<{
+        name: z.ZodOptional<z.ZodOptional<z.ZodString>>;
+        flairs: z.ZodOptional<z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodArray<z.ZodObject<{
+            text: z.ZodString;
+            backgroundColor: z.ZodOptional<z.ZodString>;
+            textColor: z.ZodOptional<z.ZodString>;
+            expiresAt: z.ZodOptional<z.ZodNumber>;
+        }, z.core.$loose>>>>>;
+        title: z.ZodOptional<z.ZodOptional<z.ZodString>>;
+        description: z.ZodOptional<z.ZodOptional<z.ZodString>>;
+        pubsubTopic: z.ZodOptional<z.ZodOptional<z.ZodString>>;
+        rules: z.ZodOptional<z.ZodOptional<z.ZodArray<z.ZodString>>>;
+        features: z.ZodOptional<z.ZodOptional<z.ZodObject<{
+            noVideos: z.ZodOptional<z.ZodBoolean>;
+            noSpoilers: z.ZodOptional<z.ZodBoolean>;
+            noImages: z.ZodOptional<z.ZodBoolean>;
+            noVideoReplies: z.ZodOptional<z.ZodBoolean>;
+            noSpoilerReplies: z.ZodOptional<z.ZodBoolean>;
+            noImageReplies: z.ZodOptional<z.ZodBoolean>;
+            noPolls: z.ZodOptional<z.ZodBoolean>;
+            noCrossposts: z.ZodOptional<z.ZodBoolean>;
+            noNestedReplies: z.ZodOptional<z.ZodBoolean>;
+            safeForWork: z.ZodOptional<z.ZodBoolean>;
+            authorFlairs: z.ZodOptional<z.ZodBoolean>;
+            requireAuthorFlairs: z.ZodOptional<z.ZodBoolean>;
+            postFlairs: z.ZodOptional<z.ZodBoolean>;
+            requirePostFlairs: z.ZodOptional<z.ZodBoolean>;
+            noMarkdownImages: z.ZodOptional<z.ZodBoolean>;
+            noMarkdownVideos: z.ZodOptional<z.ZodBoolean>;
+            noMarkdownAudio: z.ZodOptional<z.ZodBoolean>;
+            noAudio: z.ZodOptional<z.ZodBoolean>;
+            noAudioReplies: z.ZodOptional<z.ZodBoolean>;
+            markdownImageReplies: z.ZodOptional<z.ZodBoolean>;
+            markdownVideoReplies: z.ZodOptional<z.ZodBoolean>;
+            noPostUpvotes: z.ZodOptional<z.ZodBoolean>;
+            noReplyUpvotes: z.ZodOptional<z.ZodBoolean>;
+            noPostDownvotes: z.ZodOptional<z.ZodBoolean>;
+            noReplyDownvotes: z.ZodOptional<z.ZodBoolean>;
+            noUpvotes: z.ZodOptional<z.ZodBoolean>;
+            noDownvotes: z.ZodOptional<z.ZodBoolean>;
+            requirePostLink: z.ZodOptional<z.ZodBoolean>;
+            requirePostLinkIsMedia: z.ZodOptional<z.ZodBoolean>;
+            requireReplyLink: z.ZodOptional<z.ZodBoolean>;
+            requireReplyLinkIsMedia: z.ZodOptional<z.ZodBoolean>;
+            pseudonymityMode: z.ZodOptional<z.ZodEnum<{
+                "per-post": "per-post";
+                "per-reply": "per-reply";
+                "per-author": "per-author";
+            }>>;
+        }, z.core.$loose>>>;
+        suggested: z.ZodOptional<z.ZodOptional<z.ZodObject<{
+            primaryColor: z.ZodOptional<z.ZodString>;
+            secondaryColor: z.ZodOptional<z.ZodString>;
+            avatarUrl: z.ZodOptional<z.ZodString>;
+            bannerUrl: z.ZodOptional<z.ZodString>;
+            backgroundUrl: z.ZodOptional<z.ZodString>;
+            language: z.ZodOptional<z.ZodString>;
+        }, z.core.$loose>>>;
+        address: z.ZodOptional<z.ZodOptional<z.ZodString>>;
+        settings: z.ZodOptional<z.ZodOptional<z.ZodObject<{
+            fetchThumbnailUrls: z.ZodOptional<z.ZodBoolean>;
+            fetchThumbnailUrlsProxyUrl: z.ZodOptional<z.ZodString>;
+            challenges: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                path: z.ZodOptional<z.ZodString>;
+                name: z.ZodOptional<z.ZodString>;
+                options: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+                exclude: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    community: z.ZodOptional<z.ZodObject<{
+                        addresses: z.ZodArray<z.ZodString>;
+                        maxCommentCids: z.ZodNumber;
+                        postScore: z.ZodOptional<z.ZodNumber>;
+                        replyScore: z.ZodOptional<z.ZodNumber>;
+                        firstCommentTimestamp: z.ZodOptional<z.ZodNumber>;
+                    }, z.core.$strict>>;
+                    postScore: z.ZodOptional<z.ZodNumber>;
+                    replyScore: z.ZodOptional<z.ZodNumber>;
+                    postCount: z.ZodOptional<z.ZodNumber>;
+                    replyCount: z.ZodOptional<z.ZodNumber>;
+                    firstCommentTimestamp: z.ZodOptional<z.ZodNumber>;
+                    challenges: z.ZodOptional<z.ZodArray<z.ZodNumber>>;
+                    role: z.ZodOptional<z.ZodArray<z.ZodUnion<[z.ZodEnum<{
+                        owner: "owner";
+                        admin: "admin";
+                        moderator: "moderator";
+                    }>, z.ZodString]>>>;
+                    address: z.ZodOptional<z.ZodArray<z.ZodString>>;
+                    rateLimit: z.ZodOptional<z.ZodNumber>;
+                    rateLimitChallengeSuccess: z.ZodOptional<z.ZodBoolean>;
+                    publicationType: z.ZodOptional<z.ZodObject<{
+                        post: z.ZodOptional<z.ZodBoolean>;
+                        reply: z.ZodOptional<z.ZodBoolean>;
+                        vote: z.ZodOptional<z.ZodBoolean>;
+                        commentEdit: z.ZodOptional<z.ZodBoolean>;
+                        commentModeration: z.ZodOptional<z.ZodBoolean>;
+                        communityEdit: z.ZodOptional<z.ZodBoolean>;
+                    }, z.core.$loose>>;
+                }, z.core.$loose>>>;
+                description: z.ZodOptional<z.ZodString>;
+                pendingApproval: z.ZodOptional<z.ZodBoolean>;
+            }, z.core.$strict>>>;
+            maxPendingApprovalCount: z.ZodOptional<z.ZodNumber>;
+            purgeDisapprovedCommentsOlderThan: z.ZodOptional<z.ZodNumber>;
+        }, z.core.$strict>>>;
+        roles: z.ZodOptional<z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<[z.ZodObject<{
+            role: z.ZodUnion<[z.ZodEnum<{
+                owner: "owner";
+                admin: "admin";
+                moderator: "moderator";
+            }>, z.ZodString]>;
+        }, z.core.$loose>, z.ZodUndefined]>>>>;
+    }, z.core.$strict>;
+}, z.core.$strip>;
+export declare const RpcPublishChallengeAnswersParamSchema: z.ZodObject<{
+    subscriptionId: z.ZodNumber;
+    challengeAnswers: z.ZodArray<z.ZodString>;
+}, z.core.$strip>;
+export declare const RpcUnsubscribeParamSchema: z.ZodObject<{
+    subscriptionId: z.ZodNumber;
+}, z.core.$strip>;
+export declare const RpcStateChangeEventResultSchema: z.ZodObject<{
+    state: z.ZodString;
+}, z.core.$strip>;
+export declare const RpcCommunitiesChangeEventResultSchema: z.ZodObject<{
+    communities: z.ZodArray<z.ZodString>;
+}, z.core.$strip>;
+export declare const RpcFetchCidResultSchema: z.ZodObject<{
+    content: z.ZodString;
+}, z.core.$strip>;
+export declare const RpcResolveAuthorNameResultSchema: z.ZodObject<{
+    resolvedAddress: z.ZodNullable<z.ZodString>;
+}, z.core.$strip>;

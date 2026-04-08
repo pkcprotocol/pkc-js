@@ -11,14 +11,14 @@ export const SignerWithAddressPublicKeySchema = CreateSignerSchema.extend({
 export const SignerWithAddressPublicKeyShortAddressSchema = SignerWithAddressPublicKeySchema.extend({
     shortAddress: z.string().length(12)
 });
-export const SubplebbitAddressSchema = z.string().min(1); // TODO add a regex for checking if it's a domain or IPNS address
+export const CommunityAddressSchema = z.string().min(1); // TODO add a regex for checking if it's a domain or IPNS address
 export const AuthorAddressSchema = z.string().min(1);
-export const PlebbitTimestampSchema = z.number().positive().int(); // Math.round(Date.now() / 1000)
+export const PKCTimestampSchema = z.number().positive().int(); // Math.round(Date.now() / 1000)
 export const ProtocolVersionSchema = z.string().min(1);
 export const UserAgentSchema = z.string().min(1); // TODO should use regex to validate
 const WalletSchema = z.object({
     address: z.string(),
-    timestamp: PlebbitTimestampSchema,
+    timestamp: PKCTimestampSchema,
     signature: z.object({ signature: z.string().min(1), type: z.string().min(1) })
 });
 const isIpfsCid = (value) => {
@@ -41,19 +41,19 @@ export const AuthorAvatarNftSchema = z.looseObject({
     chainTicker: ChainTickerSchema,
     address: z.string(),
     id: z.string(),
-    timestamp: PlebbitTimestampSchema,
+    timestamp: PKCTimestampSchema,
     signature: z.object({ signature: z.string().min(1), type: z.string().min(1) })
 });
 export const FlairSchema = z.looseObject({
     text: z.string(),
     backgroundColor: z.string().optional(),
     textColor: z.string().optional(),
-    expiresAt: PlebbitTimestampSchema.optional()
+    expiresAt: PKCTimestampSchema.optional()
 });
 // When author creates their publication, this is publication.author
 export const AuthorPubsubSchema = z
     .object({
-    address: AuthorAddressSchema,
+    name: z.string().min(1).optional(),
     previousCommentCid: CidStringSchema.optional(),
     displayName: z.string().optional(),
     wallets: AuthorWalletsSchema.optional(),
@@ -66,9 +66,11 @@ export const ChallengeAnswersSchema = ChallengeAnswerStringSchema.array().nonemp
 export const CreatePublicationUserOptionsSchema = z.object({
     signer: CreateSignerSchema,
     author: AuthorPubsubSchema.partial().loose().optional(),
-    subplebbitAddress: SubplebbitAddressSchema,
+    communityAddress: CommunityAddressSchema,
+    communityPublicKey: z.string().min(1).optional(), // IPNS key of the community; optional in schema for backward compat with old CommentIpfs, but communities mandate it on new incoming publications
+    communityName: z.string().min(1).optional(), // domain name of the community, if any
     protocolVersion: ProtocolVersionSchema.optional(),
-    timestamp: PlebbitTimestampSchema.optional(),
+    timestamp: PKCTimestampSchema.optional(),
     // pubsubMessage field will contain fields to be added to request.encrypted
     challengeRequest: z
         .object({
@@ -86,39 +88,41 @@ export const JsonSignatureSchema = z.object({
 // Common stuff here
 export const PublicationBaseBeforeSigning = z.object({
     signer: SignerWithAddressPublicKeySchema,
-    timestamp: PlebbitTimestampSchema,
-    author: AuthorPubsubSchema,
+    timestamp: PKCTimestampSchema,
+    author: AuthorPubsubSchema.optional(),
     protocolVersion: ProtocolVersionSchema
 });
-// We need testing if `challengerequest` in LocalSubplebbit emits the actual publication values including `author.subplebbit` values without anonymization
-// `author.subplebbit.lastCommentCid` should be set to comment.timestamp always if `anonMode=per-reply`
-// `author.subplebbit.lastCommentCid` should be the last comment the anon author made inside the post if `anonMode=per-post`
-// `author.subplebbit.lastCommentCid` should operate regularly for `anonMode=per-author`, that is to say it will be equal to the last comment cid the author made in the subplebbit
-// `author.subplebbit.banExpiresAt` should be effective in rejecting publication regardless of anon mode (needs to be tested), but in terms of calculating the field value:
-// - `anonMode=per-reply` = it should show `author.subplebbit.banExpiresAt` only if the author got banned on that specific comment, but it should not show on their other comments
-// - `anonMode=per-post` = it should show `author.subplebbit.banExpiresAt` only on the author's replies and post inside their post
-// - `anonMode=per-author` = it should should `author.subplebbit.banExpiresAt` on all  the author's comments in the sub
-// anonMode=per-reply, `author.subplebbit.postScore` should be 0
-// anonMode=per-post, `author.subplebbit.postScore` should be total post karma (upvotes - downvotes) of the post if it's published by author
-// anonMode=per-author, `author.subplebbit.postScore` it should use the value of total post karma in the subplebbit.
-// anonMode=per-reply, `author.subplebbit.replyScore` should be karma of that single reply if it's published by author
-// anonMode=per-post, `author.subplebbit.replyScore` should be total replies karma (upvotes - downvotes) of inside the post
-// anonMode=per-author, `author.subplebbit.replyScore` it should use the value of total reply karma in the subplebbit.
-// anonMode=per-reply, `author.subplebbit.firstCommentTimestamp` should be timestamp of the comment itself
-// anonMode=per-post, `author.subplebbit.firstCommentTimestamp` should be first timestamp of the author's comment inside the post
-// anonMode=per-author, `author.subplebbit.firstCommentTimestamp` should use the value of timestamp of the first comment by the author in the subplebbit.
-// values below are added by the sub, not the author
-export const SubplebbitAuthorSchema = z.looseObject({
-    postScore: z.number(), // total post karma in the subplebbit
-    replyScore: z.number(), // total reply karma in the subplebbit
-    banExpiresAt: PlebbitTimestampSchema.optional(), // timestamp in second, if defined the author was banned for this comment
+// We need testing if `challengerequest` in LocalCommunity emits the actual publication values including `author.community` values without anonymization
+// `author.community.lastCommentCid` should be set to comment.timestamp always if `anonMode=per-reply`
+// `author.community.lastCommentCid` should be the last comment the anon author made inside the post if `anonMode=per-post`
+// `author.community.lastCommentCid` should operate regularly for `anonMode=per-author`, that is to say it will be equal to the last comment cid the author made in the community
+// `author.community.banExpiresAt` should be effective in rejecting publication regardless of anon mode (needs to be tested), but in terms of calculating the field value:
+// - `anonMode=per-reply` = it should show `author.community.banExpiresAt` only if the author got banned on that specific comment, but it should not show on their other comments
+// - `anonMode=per-post` = it should show `author.community.banExpiresAt` only on the author's replies and post inside their post
+// - `anonMode=per-author` = it should show `author.community.banExpiresAt` on all the author's comments in the community
+// anonMode=per-reply, `author.community.postScore` should be 0
+// anonMode=per-post, `author.community.postScore` should be total post karma (upvotes - downvotes) of the post if it's published by author
+// anonMode=per-author, `author.community.postScore` it should use the value of total post karma in the community.
+// anonMode=per-reply, `author.community.replyScore` should be karma of that single reply if it's published by author
+// anonMode=per-post, `author.community.replyScore` should be total replies karma (upvotes - downvotes) of inside the post
+// anonMode=per-author, `author.community.replyScore` it should use the value of total reply karma in the community.
+// anonMode=per-reply, `author.community.firstCommentTimestamp` should be timestamp of the comment itself
+// anonMode=per-post, `author.community.firstCommentTimestamp` should be first timestamp of the author's comment inside the post
+// anonMode=per-author, `author.community.firstCommentTimestamp` should use the value of timestamp of the first comment by the author in the community.
+// values below are added by the community, not the author
+export const CommunityAuthorSchema = z.looseObject({
+    postScore: z.number(), // total post karma in the community
+    replyScore: z.number(), // total reply karma in the community
+    banExpiresAt: PKCTimestampSchema.optional(), // timestamp in second, if defined the author was banned for this comment
     flairs: FlairSchema.array().optional(), // not part of the signature, mod can edit it after comment is published
-    firstCommentTimestamp: PlebbitTimestampSchema, // timestamp of the first comment by the author in the subplebbit, used for account age based challenges
-    lastCommentCid: CidStringSchema // last comment by the author in the subplebbit, can be used with author.previousCommentCid to get a recent author comment history in all subplebbits
+    firstCommentTimestamp: PKCTimestampSchema, // timestamp of the first comment by the author in the community, used for account age based challenges
+    lastCommentCid: CidStringSchema // last comment by the author in the community, can be used with author.previousCommentCid to get a recent author comment history in all communities
 });
-export const CommentAuthorSchema = SubplebbitAuthorSchema.pick({ banExpiresAt: true, flairs: true });
+export const CommentAuthorSchema = CommunityAuthorSchema.pick({ banExpiresAt: true, flairs: true });
 export const AuthorWithOptionalCommentUpdateSchema = AuthorPubsubSchema.extend({
-    subplebbit: SubplebbitAuthorSchema.optional() // (added by CommentUpdate) up to date author properties specific to the subplebbit it's in
+    community: CommunityAuthorSchema.optional() // (added by CommentUpdate) up to date author properties specific to the community it's in
 });
-export const AuthorReservedFields = remeda.difference([...remeda.keys.strict(AuthorWithOptionalCommentUpdateSchema.shape), "shortAddress"], remeda.keys.strict(AuthorPubsubSchema.shape));
+export const AuthorReservedFields = remeda.difference([...remeda.keys.strict(AuthorWithOptionalCommentUpdateSchema.shape), "address", "publicKey", "shortAddress", "nameResolved"], remeda.keys.strict(AuthorPubsubSchema.shape));
+// Old CommentIpfs records had author.address — exclude it from the CommentIpfs verification check
+export const AuthorCommentIpfsReservedFields = remeda.difference(AuthorReservedFields, ["address"]);
 //# sourceMappingURL=schema.js.map

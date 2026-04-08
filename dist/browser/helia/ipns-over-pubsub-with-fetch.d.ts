@@ -2,7 +2,7 @@ import { GetOptions as ipnsGetOptions, IPNSRouting, PutOptions } from "@helia/ip
 import type { Fetch } from "@libp2p/fetch";
 import { peerIdFromString } from "@libp2p/peer-id";
 import type { HeliaWithLibp2pPubsub } from "./types.js";
-export type PlebbitIpnsGetOptions = ipnsGetOptions & {
+export type PKCIpnsGetOptions = ipnsGetOptions & {
     ipnsName: string;
 };
 type PeerId = ReturnType<typeof peerIdFromString>;
@@ -17,7 +17,7 @@ export declare class IpnsFetchRouter implements IPNSRouting {
         routingKey: Uint8Array;
         topic: string;
         pubsubSubscribers: PeerId[];
-        options: PlebbitIpnsGetOptions & {
+        options: PKCIpnsGetOptions & {
             signal: AbortSignal;
             abortController: AbortController;
         };
@@ -25,12 +25,12 @@ export declare class IpnsFetchRouter implements IPNSRouting {
     _handleFetchingFromProviders({ routingKey, topic, options }: {
         routingKey: Uint8Array;
         topic: string;
-        options: PlebbitIpnsGetOptions & {
+        options: PKCIpnsGetOptions & {
             signal: AbortSignal;
             abortController: AbortController;
         };
     }): Promise<Uint8Array>;
-    get(routingKey: Uint8Array, options: PlebbitIpnsGetOptions): Promise<Uint8Array>;
+    get(routingKey: Uint8Array, options: PKCIpnsGetOptions): Promise<Uint8Array>;
 }
 export declare function createIpnsFetchRouter(helia: HeliaWithLibp2pPubsub): IPNSRouting;
 export {};

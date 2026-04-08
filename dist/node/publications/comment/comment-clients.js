@@ -7,6 +7,6 @@ export class CommentKuboPubsubClient extends GenericStateClient {
 }
 export class CommentIpfsGatewayClient extends GenericStateClient {
 }
-export class CommentPlebbitRpcStateClient extends GenericStateClient {
+export class CommentPKCRpcStateClient extends GenericStateClient {
 }
 //# sourceMappingURL=comment-clients.js.map

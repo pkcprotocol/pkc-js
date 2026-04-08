@@ -1,6 +1,6 @@
 // Comment edit schemas here
 import { z } from "zod";
-import { FlairSchema, CidStringSchema, CreatePublicationUserOptionsSchema, JsonSignatureSchema, PublicationBaseBeforeSigning, PlebbitTimestampSchema, SignerWithAddressPublicKeySchema } from "../../schema/schema.js";
+import { FlairSchema, CidStringSchema, CreatePublicationUserOptionsSchema, JsonSignatureSchema, PublicationBaseBeforeSigning, PKCTimestampSchema, SignerWithAddressPublicKeySchema } from "../../schema/schema.js";
 import * as remeda from "remeda";
 import { keysToOmitFromSignedPropertyNames } from "../../signer/constants.js";
 export const AuthorCommentEditOptionsSchema = z
@@ -25,10 +25,10 @@ export const CommentEditPubsubMessagePublicationSchema = CreateCommentEditOption
     .pick(editPubsubPickOptions)
     .strict();
 export const CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema = CommentEditPubsubMessagePublicationSchema.extend({
-    author: CommentEditPubsubMessagePublicationSchema.shape.author.loose()
+    author: CommentEditPubsubMessagePublicationSchema.shape.author.unwrap().loose().optional()
 }).loose();
 export const CommentEditsTableRowSchema = CommentEditPubsubMessagePublicationSchema.extend({
-    insertedAt: PlebbitTimestampSchema,
+    insertedAt: PKCTimestampSchema,
     authorSignerAddress: SignerWithAddressPublicKeySchema.shape.address,
     isAuthorEdit: z.boolean(), // if true, then it was an author at the time of editing
     extraProps: z.looseObject({}).optional() // will hold unknown props,
@@ -40,11 +40,16 @@ export const CommentEditReservedFields = remeda.difference(remeda.unique([
     ...remeda.keys.strict(CommentEditsTableRowSchema.shape),
     ...remeda.keys.strict(CommentEditChallengeRequestToEncryptSchema.shape),
     "shortCommentCid",
-    "shortSubplebbitAddress",
+    "shortCommunityAddress",
+    "shortCommunityAddress",
+    "communityAddress",
+    "communityPublicKey",
+    "communityName",
     "state",
     "publishingState",
     "signer",
     "clients",
-    "commentEdit"
+    "commentEdit",
+    "nameResolved"
 ]), remeda.keys.strict(CommentEditPubsubMessagePublicationSchema.shape));
 //# sourceMappingURL=schema.js.map

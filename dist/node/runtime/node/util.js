@@ -4,7 +4,7 @@ import path from "path";
 import assert from "assert";
 import scraper from "open-graph-scraper";
 import { HttpProxyAgent, HttpsProxyAgent } from "hpagent";
-import { PlebbitError } from "../../plebbit-error.js";
+import { PKCError } from "../../pkc-error.js";
 import probe from "probe-image-size";
 import { STORAGE_KEYS } from "../../constants.js";
 import os from "os";
@@ -12,19 +12,19 @@ import { Agent as HttpAgent } from "http";
 import { Agent as HttpsAgent } from "https";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { create as CreateKuboRpcClient } from "kubo-rpc-client";
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "../../logger.js";
 import * as remeda from "remeda";
 import Database from "better-sqlite3";
 import { CommentIpfsSchema } from "../../publications/comment/schema.js";
 import { MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE } from "../../publications/comment/comment-client-manager.js";
-export const getDefaultDataPath = () => path.join(process.cwd(), ".plebbit");
-export const getDefaultSubplebbitDbConfig = async (subplebbitAddress, plebbit) => {
+export const getDefaultDataPath = () => path.join(process.cwd(), ".pkc");
+export const getDefaultCommunityDbConfig = async (communityAddress, pkc) => {
     let filename;
-    if (plebbit.noData)
+    if (pkc.noData)
         filename = ":memory:";
     else {
-        assert(typeof plebbit.dataPath === "string", "plebbit.dataPath need to be defined to get default subplebbit db config");
-        filename = path.join(plebbit.dataPath, "subplebbits", subplebbitAddress);
+        assert(typeof pkc.dataPath === "string", "pkc.dataPath need to be defined to get default community db config");
+        filename = path.join(pkc.dataPath, "communities", communityAddress);
         await fsPromises.mkdir(path.dirname(filename), { recursive: true });
     }
     return {
@@ -61,9 +61,9 @@ async function _getThumbnailUrlOfLink(url, agent) {
         thumbnailUrlHeight: Number(res.result.ogImage[0].height)
     };
 }
-// Should be moved to subplebbit.ts
-export async function getThumbnailPropsOfLink(url, subplebbit, proxyHttpUrl) {
-    const log = Logger(`plebbit-js:subplebbit:getThumbnailUrlOfLink`);
+// Should be moved to community.ts
+export async function getThumbnailPropsOfLink(url, community, proxyHttpUrl) {
+    const log = Logger(`pkc-js:community:getThumbnailUrlOfLink`);
     const agent = proxyHttpUrl
         ? {
             http: new HttpProxyAgent({ proxy: proxyHttpUrl }),
@@ -75,16 +75,16 @@ export async function getThumbnailPropsOfLink(url, subplebbit, proxyHttpUrl) {
         thumbnailOg = await _getThumbnailUrlOfLink(url, agent);
     }
     catch (e) {
-        const plebbitError = new PlebbitError("ERR_FAILED_TO_FETCH_THUMBNAIL_URL_OF_LINK", {
+        const pkcError = new PKCError("ERR_FAILED_TO_FETCH_THUMBNAIL_URL_OF_LINK", {
             error: e,
             url,
             proxyHttpUrl,
-            subplebbitAddress: subplebbit.address
+            communityAddress: community.address
         });
         //@ts-expect-error
-        plebbitError.stack = e.stack;
-        log.error(plebbitError);
-        subplebbit.emit("error", plebbitError);
+        pkcError.stack = e.stack;
+        log.error(pkcError);
+        community.emit("error", pkcError);
         return undefined;
     }
     if (!thumbnailOg)
@@ -104,16 +104,16 @@ export async function getThumbnailPropsOfLink(url, subplebbit, proxyHttpUrl) {
         return { thumbnailUrl: thumbnailOg.thumbnailUrl, thumbnailUrlHeight: thumbnailHeight, thumbnailUrlWidth: thumbnailWidth };
     }
     catch (e) {
-        const plebbitError = new PlebbitError("ERR_FAILED_TO_FETCH_THUMBNAIL_DIMENSION_OF_LINK", {
+        const pkcError = new PKCError("ERR_FAILED_TO_FETCH_THUMBNAIL_DIMENSION_OF_LINK", {
             url,
             proxyHttpUrl,
             error: e,
-            subplebbitAddress: subplebbit.address
+            communityAddress: community.address
         });
         //@ts-expect-error
-        plebbitError.stack = e.stack;
-        log.error(plebbitError);
-        subplebbit.emit("error", plebbitError);
+        pkcError.stack = e.stack;
+        log.error(pkcError);
+        community.emit("error", pkcError);
         return undefined;
     }
 }
@@ -130,79 +130,79 @@ export const setNativeFunctions = (newNativeFunctions) => {
     for (const i in newNativeFunctions)
         nativeFunctions[i] = newNativeFunctions[i];
 };
-export const deleteOldSubplebbitInWindows = async (subPath, plebbit) => {
-    const log = Logger("plebbit-js:subplebbit:deleteStaleSubplebbitInWindows");
-    const subAddress = path.basename(subPath);
+export const deleteOldCommunityInWindows = async (subPath, pkc) => {
+    const log = Logger("pkc-js:community:deleteStaleCommunityInWindows");
+    const communityAddress = path.basename(subPath);
     await new Promise((resolve) => setTimeout(resolve, 10000)); // give windows time to release the file
     try {
         await fsPromises.rm(subPath, { force: true });
-        log(`Succeeded in deleting old subplebbit (${subAddress})`);
+        log(`Succeeded in deleting old community (${communityAddress})`);
     }
     catch (e) {
         // Assume it's because of EBUSY
-        log.error(`Failed to delete old subplebbit (${subAddress}). Restarting the node process or daemon should make this error disappear`, e);
-        // Put subAddress in storage
-        const storageKey = STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_SUBPLEBBITS];
-        const subsThatWeFailedToDelete = (await plebbit._storage.getItem(storageKey)) || [];
-        if (!subsThatWeFailedToDelete.includes(subAddress))
-            subsThatWeFailedToDelete.push(subAddress);
-        await plebbit._storage.setItem(storageKey, subsThatWeFailedToDelete);
-        log(`Updated persistent deleted subplebbits in storage`, subsThatWeFailedToDelete);
+        log.error(`Failed to delete old community (${communityAddress}). Restarting the node process or daemon should make this error disappear`, e);
+        // Put communityAddress in storage
+        const storageKey = STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_COMMUNITIES];
+        const communitiesThatWeFailedToDelete = (await pkc._storage.getItem(storageKey)) || [];
+        if (!communitiesThatWeFailedToDelete.includes(communityAddress))
+            communitiesThatWeFailedToDelete.push(communityAddress);
+        await pkc._storage.setItem(storageKey, communitiesThatWeFailedToDelete);
+        log(`Updated persistent deleted communities in storage`, communitiesThatWeFailedToDelete);
     }
 };
-export async function trytoDeleteSubsThatFailedToBeDeletedBefore(plebbit, log) {
-    const deletedPersistentSubs = (await plebbit._storage.getItem(STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_SUBPLEBBITS]));
-    if (Array.isArray(deletedPersistentSubs)) {
-        if (deletedPersistentSubs.length === 0) {
-            await plebbit._storage.removeItem(STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_SUBPLEBBITS]);
-            log("Removed persistent deleted subplebbits from storage because there are none left");
+export async function tryToDeleteCommunitiesThatFailedToBeDeletedBefore(pkc, log) {
+    const deletedPersistentCommunities = (await pkc._storage.getItem(STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_COMMUNITIES]));
+    if (Array.isArray(deletedPersistentCommunities)) {
+        if (deletedPersistentCommunities.length === 0) {
+            await pkc._storage.removeItem(STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_COMMUNITIES]);
+            log("Removed persistent deleted communities from storage because there are none left");
             return undefined;
         }
         // Attempt to delete them
-        const subsThatWereDeletedSuccessfully = [];
-        for (const subAddress of deletedPersistentSubs) {
-            const subPath = path.join(plebbit.dataPath, "subplebbits", subAddress);
+        const communitiesThatWereDeletedSuccessfully = [];
+        for (const communityAddress of deletedPersistentCommunities) {
+            const communityPath = path.join(pkc.dataPath, "communities", communityAddress);
             try {
-                await fsPromises.rm(subPath, { force: true });
-                log(`Succeeded in deleting old db path (${subAddress})`);
-                subsThatWereDeletedSuccessfully.push(subAddress);
+                await fsPromises.rm(communityPath, { force: true });
+                log(`Succeeded in deleting old db path (${communityAddress})`);
+                communitiesThatWereDeletedSuccessfully.push(communityAddress);
             }
             catch (e) {
-                log.error(`Failed to delete stale db (${subAddress}). This error should go away after restarting the daemon or process`, e);
+                log.error(`Failed to delete stale db (${communityAddress}). This error should go away after restarting the daemon or process`, e);
             }
         }
-        const newPersistentDeletedSubplebbits = remeda.difference(deletedPersistentSubs, subsThatWereDeletedSuccessfully);
-        if (newPersistentDeletedSubplebbits.length === 0) {
-            await plebbit._storage.removeItem(STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_SUBPLEBBITS]);
-            log("Removed persistent deleted subplebbits from storage because there are none left");
+        const newPersistentDeletedCommunities = remeda.difference(deletedPersistentCommunities, communitiesThatWereDeletedSuccessfully);
+        if (newPersistentDeletedCommunities.length === 0) {
+            await pkc._storage.removeItem(STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_COMMUNITIES]);
+            log("Removed persistent deleted communities from storage because there are none left");
             return undefined;
         }
         else {
-            await plebbit._storage.setItem(STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_SUBPLEBBITS], newPersistentDeletedSubplebbits);
-            log(`Updated persistent deleted subplebbits in storage`, newPersistentDeletedSubplebbits);
-            return newPersistentDeletedSubplebbits;
+            await pkc._storage.setItem(STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_COMMUNITIES], newPersistentDeletedCommunities);
+            log(`Updated persistent deleted communities in storage`, newPersistentDeletedCommunities);
+            return newPersistentDeletedCommunities;
         }
     }
 }
-export function listSubplebbitsSync(plebbit) {
-    const log = Logger("plebbit-js:listSubplebbitsSync");
-    if (typeof plebbit.dataPath !== "string")
-        throw Error("plebbit.dataPath needs to be defined to listSubplebbits");
-    const subplebbitsPath = path.join(plebbit.dataPath, "subplebbits");
+export function listCommunitiesSync(pkc) {
+    const log = Logger("pkc-js:listCommunitiesSync");
+    if (typeof pkc.dataPath !== "string")
+        throw Error("pkc.dataPath needs to be defined to listCommunities");
+    const communitiesPath = path.join(pkc.dataPath, "communities");
     // We'll skip the deleted persistent subs handling for now since it's async
     // and would need separate handling
     // Get files synchronously
-    const files = readdirSync(subplebbitsPath, { recursive: false, withFileTypes: false })
+    const files = readdirSync(communitiesPath, { recursive: false, withFileTypes: false })
         .map((file) => file.toString()) // Ensure all entries are strings
         .filter((file) => !file.includes(".lock") && !file.endsWith("-journal") && !file.endsWith("-shm") && !file.endsWith("-wal"));
-    const subplebbitFilesWeDontNeedToCheck = plebbit.subplebbits ? files.filter((address) => plebbit.subplebbits.includes(address)) : [];
+    const communityFilesWeDontNeedToCheck = pkc.communities ? files.filter((address) => pkc.communities.includes(address)) : [];
     // For the remaining files, check if they're SQLite files synchronously
-    const filesToCheckIfSqlite = files.filter((address) => !subplebbitFilesWeDontNeedToCheck.includes(address));
+    const filesToCheckIfSqlite = files.filter((address) => !communityFilesWeDontNeedToCheck.includes(address));
     const sqliteFiles = filesToCheckIfSqlite.filter((address) => {
         try {
             // Simple synchronous check for SQLite files
             // Look for the SQLite file header "SQLite format 3\0"
-            const filePath = path.join(subplebbitsPath, address);
+            const filePath = path.join(communitiesPath, address);
             if (!existsSync(filePath))
                 return false;
             const fd = openSync(filePath, "r");
@@ -217,11 +217,11 @@ export function listSubplebbitsSync(plebbit) {
         }
     });
     // Combine and sort the results
-    const filtered_results = [...subplebbitFilesWeDontNeedToCheck, ...sqliteFiles].sort();
+    const filtered_results = [...communityFilesWeDontNeedToCheck, ...sqliteFiles].sort();
     return filtered_results;
 }
 export async function importSignerIntoKuboNode(ipnsKeyName, ipfsKey, kuboRpcClientOptions) {
-    const log = Logger("plebbit-js:local-subplebbit:importSignerIntoKuboNode");
+    const log = Logger("pkc-js:local-community:importSignerIntoKuboNode");
     const data = new FormData();
     if (typeof ipnsKeyName !== "string")
         throw Error("ipnsKeyName needs to be defined before importing key into IPFS node");
@@ -241,18 +241,18 @@ export async function importSignerIntoKuboNode(ipnsKeyName, ipfsKey, kuboRpcClie
     if (res.status === 500)
         return; // key already imported
     if (res.status !== 200)
-        throw new PlebbitError("ERR_FAILED_TO_IMPORT_IPFS_KEY", { url, status: res.status, statusText: res.statusText, ipnsKeyName });
+        throw new PKCError("ERR_FAILED_TO_IMPORT_IPFS_KEY", { url, status: res.status, statusText: res.statusText, ipnsKeyName });
     const resJson = (await res.json());
     log("Imported IPNS' signer into kubo node", resJson, " Onto kubo rpc URL", kuboRpcUrl);
     return { id: resJson.Id, name: resJson.Name };
 }
-export async function moveSubplebbitDbToDeletedDirectory(subplebbitAddress, plebbit) {
-    if (typeof plebbit.dataPath !== "string")
-        throw Error("plebbit.dataPath is not defined");
-    const oldPath = path.join(plebbit.dataPath, "subplebbits", subplebbitAddress);
-    const newPath = path.join(plebbit.dataPath, "subplebbits", "deleted", subplebbitAddress);
+export async function moveCommunityDbToDeletedDirectory(communityAddress, pkc) {
+    if (typeof pkc.dataPath !== "string")
+        throw Error("pkc.dataPath is not defined");
+    const oldPath = path.join(pkc.dataPath, "communities", communityAddress);
+    const newPath = path.join(pkc.dataPath, "communities", "deleted", communityAddress);
     // Create the deleted directory if it doesn't exist
-    await fsPromises.mkdir(path.join(plebbit.dataPath, "subplebbits", "deleted"), { recursive: true });
+    await fsPromises.mkdir(path.join(pkc.dataPath, "communities", "deleted"), { recursive: true });
     // Check if the source file exists
     if (!existsSync(oldPath)) {
         throw Error(`Source database ${oldPath} does not exist`);
@@ -266,7 +266,7 @@ export async function moveSubplebbitDbToDeletedDirectory(subplebbitAddress, pleb
         sourceDb.close();
         // Delete the original file
         if (os.type() === "Windows_NT") {
-            await deleteOldSubplebbitInWindows(oldPath, plebbit);
+            await deleteOldCommunityInWindows(oldPath, pkc);
         }
         else
             rmSync(oldPath, (err) => {
@@ -280,7 +280,7 @@ export async function moveSubplebbitDbToDeletedDirectory(subplebbitAddress, pleb
     }
 }
 export function createKuboRpcClient(kuboRpcClientOptions) {
-    const log = Logger("plebbit-js:plebbit:createKuboRpcClient");
+    const log = Logger("pkc-js:pkc:createKuboRpcClient");
     log.trace("Creating a new kubo client on node with options", kuboRpcClientOptions);
     const isHttpsAgent = (typeof kuboRpcClientOptions.url === "string" && kuboRpcClientOptions.url.startsWith("https")) ||
         kuboRpcClientOptions?.protocol === "https" ||
@@ -295,20 +295,20 @@ export function createKuboRpcClient(kuboRpcClientOptions) {
     });
     return kuboRpcClient;
 }
-export async function monitorSubplebbitsDirectory(plebbit) {
+export async function monitorCommunitiesDirectory(pkc) {
     const watchAbortController = new AbortController();
-    const subsPath = path.join(plebbit.dataPath, "subplebbits");
+    const communitiesPath = path.join(pkc.dataPath, "communities");
     // Create directory synchronously if it doesn't exist
-    await fsPromises.mkdir(subsPath, { recursive: true });
+    await fsPromises.mkdir(communitiesPath, { recursive: true });
     const extensionsToIgnore = [".lock", "-journal", "-shm", "-wal"];
     let isProcessingChange = false;
     // Initial check
-    const initialSubs = listSubplebbitsSync(plebbit);
-    if (deterministicStringify(initialSubs) !== deterministicStringify(plebbit.subplebbits)) {
-        plebbit.emit("subplebbitschange", initialSubs);
+    const initialCommunities = listCommunitiesSync(pkc);
+    if (deterministicStringify(initialCommunities) !== deterministicStringify(pkc.communities)) {
+        pkc.emit("communitieschange", initialCommunities);
     }
     // Set up watcher with synchronous check
-    fsWatch(subsPath, { signal: watchAbortController.signal, persistent: false }, (eventType, filename) => {
+    fsWatch(communitiesPath, { signal: watchAbortController.signal, persistent: false }, (eventType, filename) => {
         // Skip ignored files
         if (typeof filename === "string" && extensionsToIgnore.some((ext) => filename.endsWith(ext)))
             return;
@@ -317,9 +317,9 @@ export async function monitorSubplebbitsDirectory(plebbit) {
             return;
         isProcessingChange = true;
         try {
-            const currentSubs = listSubplebbitsSync(plebbit);
-            if (deterministicStringify(currentSubs) !== deterministicStringify(plebbit.subplebbits)) {
-                plebbit.emit("subplebbitschange", currentSubs);
+            const currentCommunities = listCommunitiesSync(pkc);
+            if (deterministicStringify(currentCommunities) !== deterministicStringify(pkc.communities)) {
+                pkc.emit("communitieschange", currentCommunities);
             }
         }
         catch (error) {
@@ -354,6 +354,13 @@ export function deriveCommentIpfsFromCommentTableRow(commentTableRow) {
     };
     if (commentTableRow.depth === 0)
         delete finalCommentIpfsJson.postCid;
+    // For old migrated rows (pre-wire-format-change), extraProps contains subplebbitAddress.
+    // The original CommentIpfs on IPFS did NOT have communityPublicKey/communityName,
+    // so we must remove them to preserve CID reproducibility.
+    if (commentTableRow.extraProps && "subplebbitAddress" in commentTableRow.extraProps) {
+        delete finalCommentIpfsJson.communityPublicKey;
+        delete finalCommentIpfsJson.communityName;
+    }
     return finalCommentIpfsJson;
 }
 export function calculateInlineRepliesBudget({ comment, commentUpdateWithoutReplies, maxCommentUpdateBytes = MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE, maxPageBytes = 512 * 1024, minInlineRepliesBytes = 96 * 1024, hardInlineRepliesLimitBytes = 256 * 1024, depthBufferBaseBytes = 8 * 1024, depthBufferPerDepthBytes = 8 * 1024, commentUpdateHeadroomBytes = 4 * 1024, pageSafetyMarginBytes = 1024, inlineMetadataBytes = 2 * 1024 }) {

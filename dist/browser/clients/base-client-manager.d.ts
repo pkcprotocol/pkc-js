@@ -1,12 +1,20 @@
-import { Plebbit } from "../plebbit/plebbit.js";
-import { PlebbitError } from "../plebbit-error.js";
-import Logger from "@plebbit/plebbit-logger";
+import { PKC } from "../pkc/pkc.js";
+import { PKCError } from "../pkc-error.js";
+import Logger from "../logger.js";
 import type { PubsubMessage } from "../pubsub-messages/types.js";
-import type { ChainTicker, PubsubSubscriptionHandler, ResultOfFetchingSubplebbit } from "../types.js";
-export type LoadType = "subplebbit" | "comment-update" | "comment" | "page-ipfs" | "generic-ipfs";
-export type CachedTextRecordResolve = {
-    timestampSeconds: number;
-    valueOfTextRecord: string;
+import type { PubsubSubscriptionHandler, ResultOfFetchingCommunity } from "../types.js";
+export type LoadType = "community" | "comment-update" | "comment" | "page-ipfs" | "generic-ipfs";
+export type ResolveType = "community" | "author";
+export type PreResolveNameResolverOptions = {
+    address: string;
+    resolveType: ResolveType;
+    resolverKey: string;
+};
+export type PostResolveNameResolverSuccessOptions = PreResolveNameResolverOptions & {
+    resolvedValue: string | undefined;
+};
+export type PostResolveNameResolverFailureOptions = PreResolveNameResolverOptions & {
+    error: Error;
 };
 export type OptionsToLoadFromGateway = {
     recordIpfsType: "ipfs" | "ipns";
@@ -14,10 +22,10 @@ export type OptionsToLoadFromGateway = {
     requestHeaders?: Record<string, string>;
     root: string;
     path?: string;
-    recordPlebbitType: LoadType;
+    recordPKCType: LoadType;
     abortController: AbortController;
     timeoutMs: number;
-    abortRequestErrorBeforeLoadingBodyFunc?: (res: Response) => Promise<PlebbitError | undefined>;
+    abortRequestErrorBeforeLoadingBodyFunc?: (res: Response) => Promise<PKCError | undefined>;
     validateGatewayResponseFunc: (resObj: {
         resText: string | undefined;
         res: Response;
@@ -25,12 +33,12 @@ export type OptionsToLoadFromGateway = {
     log: Logger;
 };
 export declare class BaseClientsManager {
-    _plebbit: Plebbit;
+    _pkc: PKC;
     pubsubProviderSubscriptions: Record<string, string[]>;
-    constructor(plebbit: Plebbit);
+    constructor(pkc: PKC);
     toJSON(): undefined;
     getDefaultPubsubKuboRpcClientOrHelia(): import("../types.js").PubsubClient | import("../helia/libp2pjsClient.js").Libp2pJsClient;
-    getDefaultKuboRpcClientOrHelia(): Plebbit["clients"]["kuboRpcClients"][string] | Plebbit["clients"]["libp2pJsClients"][string];
+    getDefaultKuboRpcClientOrHelia(): PKC["clients"]["kuboRpcClients"][string] | PKC["clients"]["libp2pJsClients"][string];
     getDefaultKuboRpcClient(): import("../types.js").KuboRpcClient;
     getDefaultKuboPubsubClient(): import("../types.js").PubsubClient;
     getIpfsClientWithKuboRpcClientFunctions(): import("../helia/types.js").HeliaWithKuboRpcClientFunctions;
@@ -46,29 +54,29 @@ export declare class BaseClientsManager {
     } & Pick<OptionsToLoadFromGateway, "abortRequestErrorBeforeLoadingBodyFunc" | "maxFileSizeBytes" | "requestHeaders">): Promise<{
         resText: string | undefined;
         res: Response;
-        abortError?: PlebbitError;
+        abortError?: PKCError;
     }>;
     preFetchGateway(gatewayUrl: string, loadOpts: OptionsToLoadFromGateway): void;
     postFetchGatewaySuccess(gatewayUrl: string, loadOpts: OptionsToLoadFromGateway): void;
-    postFetchGatewayFailure(gatewayUrl: string, loadOpts: OptionsToLoadFromGateway, error: PlebbitError): void;
+    postFetchGatewayFailure(gatewayUrl: string, loadOpts: OptionsToLoadFromGateway, error: PKCError): void;
     postFetchGatewayAborted(gatewayUrl: string, loadOpts: OptionsToLoadFromGateway): void;
     _fetchFromGatewayAndVerifyIfBodyCorrespondsToProvidedCid(url: string, loadOpts: Omit<OptionsToLoadFromGateway, "validateGatewayResponses">): Promise<{
         resText: string | undefined;
         res: Response;
-        abortError?: PlebbitError;
+        abortError?: PKCError;
     }>;
     private _handleIfGatewayRedirectsToSubdomainResolution;
     protected _fetchWithGateway(gateway: string, loadOpts: OptionsToLoadFromGateway): Promise<{
         res: Response;
         resText: string | undefined;
     } | {
-        error: PlebbitError;
+        error: PKCError;
     }>;
     protected _firstResolve(promises: Promise<{
         res: Response;
         resText: string;
     } | {
-        error: PlebbitError;
+        error: PKCError;
     }>[]): Promise<{
         res: {
             res: Response;
@@ -76,30 +84,43 @@ export declare class BaseClientsManager {
         };
         i: number;
     }>;
-    fetchFromMultipleGateways(loadOpts: Omit<OptionsToLoadFromGateway, "abortController">): Promise<{
+    fetchFromMultipleGateways(loadOpts: Omit<OptionsToLoadFromGateway, "abortController"> & {
+        abortSignal?: AbortSignal;
+    }): Promise<{
         resText: string;
         res: Response;
     }>;
     resolveIpnsToCidP2P(ipnsName: string, loadOpts: {
         timeoutMs: number;
+        abortSignal?: AbortSignal;
     }): Promise<string>;
     _fetchCidP2P(cidV0: string, loadOpts: {
         maxFileSizeBytes: number;
         timeoutMs: number;
+        abortSignal?: AbortSignal;
     }): Promise<string>;
     private _verifyGatewayResponseMatchesCid;
-    _getKeyOfCachedDomainTextRecord(domainAddress: string, txtRecord: string): string;
-    private _getCachedTextRecord;
-    private _resolveTextRecordWithCache;
-    preResolveTextRecord(address: string, txtRecordName: "subplebbit-address" | "plebbit-author-address", chain: ChainTicker, chainProviderUrl: string, staleCache?: CachedTextRecordResolve): void;
-    postResolveTextRecordSuccess(address: string, txtRecordName: "subplebbit-address" | "plebbit-author-address", resolvedTextRecord: string | null, chain: ChainTicker, chainProviderUrl: string, staleCache?: CachedTextRecordResolve): void;
-    postResolveTextRecordFailure(address: string, txtRecordName: "subplebbit-address" | "plebbit-author-address", chain: ChainTicker, chainProviderUrl: string, error: Error, staleCache?: CachedTextRecordResolve): void;
-    private _resolveTextRecordSingleChainProvider;
-    private _resolveTextRecordConcurrently;
-    resolveSubplebbitAddressIfNeeded(subplebbitAddress: string): Promise<string | null>;
-    clearDomainCache(domainAddress: string, txtRecordName: "subplebbit-address" | "plebbit-author-address"): Promise<void>;
-    resolveAuthorAddressIfNeeded(authorAddress: string): Promise<string | null>;
-    emitError(e: PlebbitError): void;
+    preResolveNameResolver(opts: PreResolveNameResolverOptions): void;
+    postResolveNameResolverSuccess(opts: PostResolveNameResolverSuccessOptions): void;
+    postResolveNameResolverFailure(opts: PostResolveNameResolverFailureOptions): void;
+    private _resolveViaNameResolvers;
+    resolveCommunityNameIfNeeded({ communityAddress, abortSignal }: {
+        communityAddress: string;
+        abortSignal?: AbortSignal;
+    }): Promise<string | null>;
+    resolveAuthorNameIfNeeded({ authorAddress, abortSignal }: {
+        authorAddress: string;
+        abortSignal?: AbortSignal;
+    }): Promise<string | null>;
+    resolveAuthorNamesInBackground({ authors, onResolved, abortSignal }: {
+        authors: Array<{
+            authorName: string;
+            signaturePublicKey: string;
+        }>;
+        onResolved: () => void;
+        abortSignal?: AbortSignal;
+    }): void;
+    emitError(e: PKCError): void;
     calculateIpfsCid(content: string): Promise<string>;
-    protected _withInflightSubplebbitFetch(subAddress: string, fetcher: () => Promise<ResultOfFetchingSubplebbit>): Promise<ResultOfFetchingSubplebbit>;
+    protected _withInflightCommunityFetch(subAddress: string, fetcher: () => Promise<ResultOfFetchingCommunity>): Promise<ResultOfFetchingCommunity>;
 }

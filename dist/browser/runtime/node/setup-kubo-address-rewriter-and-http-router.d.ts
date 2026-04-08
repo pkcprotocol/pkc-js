@@ -1,4 +1,4 @@
-import { Plebbit } from "../../plebbit/plebbit.js";
-export declare function setupKuboAddressesRewriterAndHttpRouters(plebbit: Plebbit): Promise<{
+import { PKC } from "../../pkc/pkc.js";
+export declare function setupKuboAddressesRewriterAndHttpRouters(pkc: PKC): Promise<{
     destroy: () => Promise<void>;
 }>;

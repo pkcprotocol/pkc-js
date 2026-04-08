@@ -22,9 +22,9 @@ export declare const SignerWithAddressPublicKeyShortAddressSchema: z.ZodObject<{
     publicKey: z.ZodString;
     shortAddress: z.ZodString;
 }, z.core.$strip>;
-export declare const SubplebbitAddressSchema: z.ZodString;
+export declare const CommunityAddressSchema: z.ZodString;
 export declare const AuthorAddressSchema: z.ZodString;
-export declare const PlebbitTimestampSchema: z.ZodNumber;
+export declare const PKCTimestampSchema: z.ZodNumber;
 export declare const ProtocolVersionSchema: z.ZodString;
 export declare const UserAgentSchema: z.ZodString;
 export declare const CidStringSchema: z.ZodString;
@@ -46,7 +46,7 @@ export declare const FlairSchema: z.ZodObject<{
     expiresAt: z.ZodOptional<z.ZodNumber>;
 }, z.core.$loose>;
 export declare const AuthorPubsubSchema: z.ZodObject<{
-    address: z.ZodString;
+    name: z.ZodOptional<z.ZodString>;
     previousCommentCid: z.ZodOptional<z.ZodString>;
     displayName: z.ZodOptional<z.ZodString>;
     wallets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
@@ -84,7 +84,7 @@ export declare const CreatePublicationUserOptionsSchema: z.ZodObject<{
         privateKey: z.ZodString;
     }, z.core.$strip>;
     author: z.ZodOptional<z.ZodObject<{
-        address: z.ZodOptional<z.ZodString>;
+        name: z.ZodOptional<z.ZodOptional<z.ZodString>>;
         previousCommentCid: z.ZodOptional<z.ZodOptional<z.ZodString>>;
         displayName: z.ZodOptional<z.ZodOptional<z.ZodString>>;
         wallets: z.ZodOptional<z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
@@ -112,7 +112,9 @@ export declare const CreatePublicationUserOptionsSchema: z.ZodObject<{
             expiresAt: z.ZodOptional<z.ZodNumber>;
         }, z.core.$loose>>>>;
     }, z.core.$loose>>;
-    subplebbitAddress: z.ZodString;
+    communityAddress: z.ZodString;
+    communityPublicKey: z.ZodOptional<z.ZodString>;
+    communityName: z.ZodOptional<z.ZodString>;
     protocolVersion: z.ZodOptional<z.ZodString>;
     timestamp: z.ZodOptional<z.ZodNumber>;
     challengeRequest: z.ZodOptional<z.ZodObject<{
@@ -136,8 +138,8 @@ export declare const PublicationBaseBeforeSigning: z.ZodObject<{
         publicKey: z.ZodString;
     }, z.core.$strip>;
     timestamp: z.ZodNumber;
-    author: z.ZodObject<{
-        address: z.ZodString;
+    author: z.ZodOptional<z.ZodObject<{
+        name: z.ZodOptional<z.ZodString>;
         previousCommentCid: z.ZodOptional<z.ZodString>;
         displayName: z.ZodOptional<z.ZodString>;
         wallets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
@@ -164,10 +166,10 @@ export declare const PublicationBaseBeforeSigning: z.ZodObject<{
             textColor: z.ZodOptional<z.ZodString>;
             expiresAt: z.ZodOptional<z.ZodNumber>;
         }, z.core.$loose>>>;
-    }, z.core.$strict>;
+    }, z.core.$strict>>;
     protocolVersion: z.ZodString;
 }, z.core.$strip>;
-export declare const SubplebbitAuthorSchema: z.ZodObject<{
+export declare const CommunityAuthorSchema: z.ZodObject<{
     postScore: z.ZodNumber;
     replyScore: z.ZodNumber;
     banExpiresAt: z.ZodOptional<z.ZodNumber>;
@@ -190,7 +192,7 @@ export declare const CommentAuthorSchema: z.ZodObject<{
     banExpiresAt: z.ZodOptional<z.ZodNumber>;
 }, z.core.$loose>;
 export declare const AuthorWithOptionalCommentUpdateSchema: z.ZodObject<{
-    address: z.ZodString;
+    name: z.ZodOptional<z.ZodString>;
     previousCommentCid: z.ZodOptional<z.ZodString>;
     displayName: z.ZodOptional<z.ZodString>;
     wallets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
@@ -217,7 +219,7 @@ export declare const AuthorWithOptionalCommentUpdateSchema: z.ZodObject<{
         textColor: z.ZodOptional<z.ZodString>;
         expiresAt: z.ZodOptional<z.ZodNumber>;
     }, z.core.$loose>>>;
-    subplebbit: z.ZodOptional<z.ZodObject<{
+    community: z.ZodOptional<z.ZodObject<{
         postScore: z.ZodNumber;
         replyScore: z.ZodNumber;
         banExpiresAt: z.ZodOptional<z.ZodNumber>;
@@ -232,3 +234,4 @@ export declare const AuthorWithOptionalCommentUpdateSchema: z.ZodObject<{
     }, z.core.$loose>>;
 }, z.core.$strict>;
 export declare const AuthorReservedFields: string[];
+export declare const AuthorCommentIpfsReservedFields: string[];

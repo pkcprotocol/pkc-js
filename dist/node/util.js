@@ -1,5 +1,5 @@
 import { messages } from "./errors.js";
-import { PlebbitError } from "./plebbit-error.js";
+import { PKCError } from "./pkc-error.js";
 //@ts-expect-error
 import extName from "ext-name";
 import { CID } from "kubo-rpc-client";
@@ -13,14 +13,34 @@ import { of as calculateIpfsCidV0Lib } from "typestub-ipfs-only-hash";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import { sha256 } from "js-sha256";
 import { base32 } from "multiformats/bases/base32";
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "./logger.js";
 import retry from "retry";
 import PeerId from "peer-id";
 import { unmarshalIPNSRecord } from "ipns";
 import { importFile } from "ipfs-unixfs-importer";
 import { MemoryBlockstore } from "blockstore-core";
+import { findUpdatingCommunity } from "./pkc/tracked-instance-registry-util.js";
 export function timestamp() {
     return Math.round(Date.now() / 1000);
+}
+export function createAbortError(message = "The operation was aborted") {
+    const error = new Error(message);
+    error.name = "AbortError";
+    return error;
+}
+export function isAbortError(error) {
+    return error instanceof Error && error.name === "AbortError";
+}
+export function throwIfAbortSignalAborted(signal) {
+    if (!signal?.aborted)
+        return;
+    if (signal.reason instanceof Error) {
+        signal.reason.name = signal.reason.name || "AbortError";
+        throw signal.reason;
+    }
+    if (typeof signal.reason === "string" && signal.reason.length > 0)
+        throw createAbortError(signal.reason);
+    throw createAbortError();
 }
 export function replaceXWithY(obj, x, y) {
     // obj is a JS object
@@ -78,9 +98,6 @@ export function removeNullUndefinedEmptyObjectsValuesRecursively(obj) {
             delete cleanedObj[key];
     }
     return cleanedObj;
-}
-export function throwWithErrorCode(code, details) {
-    throw new PlebbitError(code, details);
 }
 const parseIfJsonString = (jsonString) => {
     if (typeof jsonString !== "string" || (!jsonString.startsWith("{") && !jsonString.startsWith("[")))
@@ -179,7 +196,7 @@ export function doesDomainAddressHaveCapitalLetter(domainAddress) {
 }
 export function getPostUpdateTimestampRange(postUpdates, postTimestamp) {
     if (!postUpdates)
-        throw Error("subplebbit has no post updates");
+        throw Error("community has no post updates");
     if (!postTimestamp)
         throw Error("post has no timestamp");
     return (remeda.keys
@@ -340,7 +357,7 @@ export function isEthAliasDomain(address) {
 export function normalizeEthAliasDomain(address) {
     return address.endsWith(".bso") ? address.slice(0, -4) + ".eth" : address;
 }
-export function areEquivalentSubplebbitAddresses(addressA, addressB) {
+export function areEquivalentCommunityAddresses(addressA, addressB) {
     if (addressA === addressB)
         return true;
     const lowerA = addressA.toLowerCase();
@@ -349,7 +366,7 @@ export function areEquivalentSubplebbitAddresses(addressA, addressB) {
         return false;
     return normalizeEthAliasDomain(lowerA) === normalizeEthAliasDomain(lowerB);
 }
-export function getEquivalentSubplebbitAddresses(address) {
+export function getEquivalentCommunityAddresses(address) {
     const lower = address.toLowerCase();
     if (lower.endsWith(".bso"))
         return [address, address.slice(0, -4) + ".eth"];
@@ -402,6 +419,47 @@ export function parseIpfsRawOptionToIpfsOptions(kuboRpcRawOption) {
     else
         return kuboRpcRawOption;
 }
+// Deep merge runtimeFields from RPC server into parsed data.
+// Handles nested objects (recursive), arrays (element-by-element), and primitives (overwrite).
+// For getter-only properties (e.g. updatingState), sets the backing _field directly.
+export function deepMergeRuntimeFields(target, source) {
+    if (!source || typeof source !== "object")
+        return;
+    if (!target || typeof target !== "object")
+        return;
+    for (const key of Object.keys(source)) {
+        if (Array.isArray(source[key]) && Array.isArray(target?.[key])) {
+            for (let i = 0; i < source[key].length; i++) {
+                if (i < target[key].length)
+                    deepMergeRuntimeFields(target[key][i], source[key][i]);
+            }
+        }
+        else if (source[key] && typeof source[key] === "object" && target?.[key] && typeof target[key] === "object") {
+            deepMergeRuntimeFields(target[key], source[key]);
+        }
+        else if (source[key] !== undefined) {
+            // Don't create new complex (object/array) properties on the target from runtimeFields.
+            // RuntimeFields should only merge into existing structures, not create new pages/comments/etc.
+            if ((typeof source[key] === "object" || Array.isArray(source[key])) && !(key in target)) {
+                continue;
+            }
+            // Check if the property is getter-only (no setter)
+            let descriptor;
+            let proto = target;
+            while (proto && !descriptor) {
+                descriptor = Object.getOwnPropertyDescriptor(proto, key);
+                proto = Object.getPrototypeOf(proto);
+            }
+            if (descriptor?.get && !descriptor.set) {
+                // Set the backing _field directly (e.g. _updatingState for updatingState)
+                target[`_${key}`] = source[key];
+            }
+            else {
+                target[key] = source[key];
+            }
+        }
+    }
+}
 export function hideClassPrivateProps(_this) {
     // make props that start with _ not enumerable
     for (const propertyName in _this) {
@@ -411,9 +469,11 @@ export function hideClassPrivateProps(_this) {
 }
 export function derivePublicationFromChallengeRequest(request) {
     const publicationFieldNames = remeda.keys.strict(DecryptedChallengeRequestPublicationSchema.shape);
-    for (const pubName of publicationFieldNames)
-        if (request[pubName])
-            return request[pubName];
+    for (const pubName of publicationFieldNames) {
+        const publication = request[pubName];
+        if (publication)
+            return publication;
+    }
     throw Error("Failed to find publication on ChallengeRequest");
 }
 export function isRequestPubsubPublicationOfReply(request) {
@@ -442,27 +502,38 @@ export async function resolveWhenPredicateIsTrue(options) {
         listener(); // initial check — no await, errors flow through reject()
     });
 }
-export async function waitForUpdateInSubInstanceWithErrorAndTimeout(subplebbit, timeoutMs) {
-    const wasUpdating = subplebbit.state === "updating";
+export async function waitForUpdateInCommunityInstanceWithErrorAndTimeout(community, timeoutMs) {
+    const wasUpdating = community.state === "updating";
     const updatingStates = [];
     const updatingStateChangeListener = (state) => updatingStates.push(state);
-    subplebbit.on("updatingstatechange", updatingStateChangeListener);
-    const updatePromise = new Promise((resolve) => subplebbit.once("update", resolve));
+    community.on("updatingstatechange", updatingStateChangeListener);
+    // Wait specifically for communityIpfs to be defined — intermediate "update" events
+    // (e.g. resetInstance, toJSONInternalRpcBeforeFirstUpdate) may fire without it
+    let updateListener;
+    const updatePromise = new Promise((resolve) => {
+        updateListener = () => {
+            if (community.raw.communityIpfs) {
+                community.removeListener("update", updateListener);
+                resolve();
+            }
+        };
+        community.on("update", updateListener);
+    });
     let updateError;
     const errorListener = (err) => (updateError = err);
-    subplebbit.on("error", errorListener);
+    community.on("error", errorListener);
     try {
-        if (subplebbit.state !== "started")
-            await subplebbit.update();
-        await pTimeout(Promise.race([updatePromise, new Promise((resolve) => subplebbit.once("error", resolve))]), {
+        if (community.state !== "started")
+            await community.update();
+        await pTimeout(Promise.race([updatePromise, new Promise((resolve) => community.once("error", resolve))]), {
             milliseconds: timeoutMs,
             message: updateError ||
-                new PlebbitError("ERR_GET_SUBPLEBBIT_TIMED_OUT", {
-                    subplebbitAddress: subplebbit.address,
+                new PKCError("ERR_GET_COMMUNITY_TIMED_OUT", {
+                    communityAddress: community.address,
                     timeoutMs,
                     error: updateError,
                     updatingStates,
-                    subplebbit
+                    community
                 })
         });
         if (updateError)
@@ -471,15 +542,18 @@ export async function waitForUpdateInSubInstanceWithErrorAndTimeout(subplebbit, 
     catch (e) {
         if (updateError)
             throw updateError;
-        if (subplebbit._plebbit._updatingSubplebbits[subplebbit.address]?._clientsManager._ipnsLoadingOperation?.mainError())
-            throw subplebbit._plebbit._updatingSubplebbits[subplebbit.address]._clientsManager._ipnsLoadingOperation.mainError();
+        const updatingCommunity = findUpdatingCommunity(community._pkc, { address: community.address });
+        if (updatingCommunity?._clientsManager._ipnsLoadingOperation?.mainError())
+            throw updatingCommunity._clientsManager._ipnsLoadingOperation.mainError();
         throw e;
     }
     finally {
-        subplebbit.removeListener("error", errorListener);
-        subplebbit.removeListener("updatingstatechange", updatingStateChangeListener);
-        if (!wasUpdating && subplebbit.state !== "started")
-            await subplebbit.stop();
+        if (updateListener)
+            community.removeListener("update", updateListener);
+        community.removeListener("error", errorListener);
+        community.removeListener("updatingstatechange", updatingStateChangeListener);
+        if (!wasUpdating && community.state !== "started")
+            await community.stop();
     }
 }
 export function calculateIpfsCidV0(content) {
@@ -675,7 +749,7 @@ export async function removeBlocksFromKuboNode({ ipfsClient: kuboRpcClient, log,
     });
 }
 export async function removeMfsFilesSafely({ kuboRpcClient, paths, log, inputNumOfRetries, rmOptions }) {
-    const logger = log ?? Logger("plebbit-js:util:removeMfsFilesSafely");
+    const logger = log ?? Logger("pkc-js:util:removeMfsFilesSafely");
     const numOfRetries = inputNumOfRetries ?? 3;
     return new Promise((resolve, reject) => {
         const operation = retry.operation({
@@ -692,7 +766,7 @@ export async function removeMfsFilesSafely({ kuboRpcClient, paths, log, inputNum
                     ...rmOptions
                 }), {
                     milliseconds: 120000,
-                    message: new PlebbitError("ERR_TIMED_OUT_RM_MFS_FILE", {
+                    message: new PKCError("ERR_TIMED_OUT_RM_MFS_FILE", {
                         toDeleteMfsPaths: paths,
                         kuboRpcUrl: kuboRpcClient.url
                     })
@@ -715,7 +789,7 @@ export async function getIpnsRecordInLocalKuboNode(kuboRpcClient, ipnsName) {
     const ipnsFetchUrl = `${gatewayUrl}/ipns/${ipnsName}?format=ipns-record`;
     const res = await fetch(ipnsFetchUrl);
     if (res.status !== 200)
-        throw new PlebbitError("ERR_FAILED_TO_LOAD_LOCAL_RAW_IPNS_RECORD", {
+        throw new PKCError("ERR_FAILED_TO_LOAD_LOCAL_RAW_IPNS_RECORD", {
             ipnsFetchUrl,
             ipnsName,
             status: res.status,
@@ -726,7 +800,7 @@ export async function getIpnsRecordInLocalKuboNode(kuboRpcClient, ipnsName) {
         return unmarshalIPNSRecord(ipnsRecordRaw);
     }
     catch (e) {
-        throw new PlebbitError("ERR_FAILED_TO_PARSE_LOCAL_RAW_IPNS_RECORD", { ipnsName, ipnsFetchUrl, parseError: e });
+        throw new PKCError("ERR_FAILED_TO_PARSE_LOCAL_RAW_IPNS_RECORD", { ipnsName, ipnsFetchUrl, parseError: e });
     }
 }
 const textEncoder = new TextEncoder();

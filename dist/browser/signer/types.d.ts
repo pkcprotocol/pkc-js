@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { CreateSignerSchema, JsonSignatureSchema } from "../schema/schema.js";
 import type { ChallengeAnswerMessageType, ChallengeMessageType, ChallengeRequestMessageType, ChallengeVerificationMessageType, PublicationFromDecryptedChallengeRequest } from "../pubsub-messages/types.js";
-import type { SubplebbitIpfsType } from "../subplebbit/types.js";
+import type { CommunityIpfsType } from "../community/types.js";
 import type { CommentUpdateForChallengeVerification, CommentUpdateType } from "../publications/comment/types.js";
 import { EncryptedSchema, PubsubMessageSignatureSchema } from "../pubsub-messages/schema.js";
 export type CreateSignerOptions = z.infer<typeof CreateSignerSchema>;
@@ -17,4 +17,4 @@ export interface SignerType {
 export type Encrypted = z.infer<typeof EncryptedSchema>;
 export type PubsubSignature = z.infer<typeof PubsubMessageSignatureSchema>;
 export type PubsubMsgToSign = Omit<ChallengeAnswerMessageType, "signature"> | Omit<ChallengeRequestMessageType, "signature"> | Omit<ChallengeVerificationMessageType, "signature"> | Omit<ChallengeMessageType, "signature">;
-export type PlebbitRecordToVerify = PublicationFromDecryptedChallengeRequest | SubplebbitIpfsType | CommentUpdateType | CommentUpdateForChallengeVerification;
+export type PKCRecordToVerify = PublicationFromDecryptedChallengeRequest | CommunityIpfsType | CommentUpdateType | CommentUpdateForChallengeVerification;

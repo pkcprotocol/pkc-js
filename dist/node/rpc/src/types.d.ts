@@ -1,13 +1,13 @@
-import type { PlebbitError } from "../../plebbit-error.js";
-import type { Plebbit } from "../../plebbit/plebbit.js";
-import { CreatePlebbitWsServerOptionsSchema, SetNewSettingsPlebbitWsServerSchema, PlebbitWsServerSettingsSerializedSchema } from "./schema.js";
+import type { PKCError } from "../../pkc-error.js";
+import type { PKC } from "../../pkc/pkc.js";
+import { CreatePKCWsServerOptionsSchema, SetNewSettingsPKCWsServerSchema, PKCWsServerSettingsSerializedSchema } from "./schema.js";
 import { z } from "zod";
-export type CreatePlebbitWsServerOptions = z.infer<typeof CreatePlebbitWsServerOptionsSchema>;
-export interface PlebbitWsServerClassOptions extends CreatePlebbitWsServerOptions {
-    plebbit: Plebbit;
+export type CreatePKCWsServerOptions = z.infer<typeof CreatePKCWsServerOptionsSchema>;
+export interface PKCWsServerClassOptions extends CreatePKCWsServerOptions {
+    pkc: PKC;
 }
-export type SetNewSettingsPlebbitWsServer = z.infer<typeof SetNewSettingsPlebbitWsServerSchema>;
-export type PlebbitWsServerSettingsSerialized = z.infer<typeof PlebbitWsServerSettingsSerializedSchema>;
+export type SetNewSettingsPKCWsServer = z.infer<typeof SetNewSettingsPKCWsServerSchema>;
+export type PKCWsServerSettingsSerialized = z.infer<typeof PKCWsServerSettingsSerializedSchema>;
 export type JsonRpcSendNotificationOptions = {
     method: string;
     result: any;
@@ -15,10 +15,10 @@ export type JsonRpcSendNotificationOptions = {
     event: string;
     connectionId: string;
 };
-export type PlebbitRpcServerEvents = {
-    error: (error: PlebbitError | Error) => void;
+export type PKCRpcServerEvents = {
+    error: (error: PKCError | Error) => void;
 };
-export interface RpcSubplebbitState {
+export interface RpcCommunityState {
     wasStarted: boolean;
     wasExplicitlyStopped: boolean;
 }

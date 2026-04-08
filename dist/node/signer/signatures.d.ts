@@ -1,17 +1,16 @@
-import { Plebbit } from "../plebbit/plebbit.js";
+import { PKC } from "../pkc/pkc.js";
 import type { ChallengeAnswerMessageSignature, ChallengeAnswerMessageType, ChallengeMessageSignature, ChallengeMessageType, ChallengeRequestMessageSignature, ChallengeRequestMessageType, ChallengeVerificationMessageSignature, ChallengeVerificationMessageType, DecryptedChallengeVerification } from "../pubsub-messages/types.js";
-import Logger from "@plebbit/plebbit-logger";
+import Logger from "../logger.js";
 import { messages } from "../errors.js";
 import { BaseClientsManager } from "../clients/base-client-manager.js";
-import type { SubplebbitIpfsType, SubplebbitSignature } from "../subplebbit/types.js";
+import type { CommunityIpfsType, CommunitySignature } from "../community/types.js";
 import type { JsonSignature, PubsubMsgToSign, PubsubSignature, SignerType } from "./types.js";
 import type { CommentEditOptionsToSign, CommentEditPubsubMessagePublication, CommentEditSignature } from "../publications/comment-edit/types.js";
 import type { VoteOptionsToSign, VotePubsubMessagePublication, VoteSignature } from "../publications/vote/types.js";
 import type { CommentIpfsType, CommentIpfsWithCidDefined, CommentIpfsWithCidPostCidDefined, CommentOptionsToSign, CommentPubsubMessagePublication, CommentPubsubMessagPublicationSignature, CommentUpdateForChallengeVerification, CommentUpdateForChallengeVerificationSignature, CommentUpdateSignature, CommentUpdateType } from "../publications/comment/types.js";
 import type { ModQueuePageIpfs, PageIpfs } from "../pages/types.js";
 import type { CommentModerationOptionsToSign, CommentModerationPubsubMessagePublication, CommentModerationSignature } from "../publications/comment-moderation/types.js";
-import type { SubplebbitEditPublicationOptionsToSign, SubplebbitEditPublicationSignature, SubplebbitEditPubsubMessagePublication } from "../publications/subplebbit-edit/types.js";
-import { RemoteSubplebbit } from "../subplebbit/remote-subplebbit.js";
+import type { CommunityEditPublicationOptionsToSign, CommunityEditPublicationSignature, CommunityEditPubsubMessagePublication } from "../publications/community-edit/types.js";
 export type ValidationResult = {
     valid: true;
 } | {
@@ -30,9 +29,9 @@ signer, log }: {
     log: Logger;
 }): Promise<PubsubSignature>;
 export declare function cleanUpBeforePublishing<T>(msg: T): T;
-export declare function signComment({ comment, plebbit }: {
+export declare function signComment({ comment, pkc }: {
     comment: CommentOptionsToSign;
-    plebbit: Plebbit;
+    pkc: PKC;
 }): Promise<CommentPubsubMessagPublicationSignature>;
 export declare function signCommentUpdate({ update, signer }: {
     update: Omit<CommentUpdateType, "signature">;
@@ -42,26 +41,26 @@ export declare function signCommentUpdateForChallengeVerification({ update, sign
     update: Omit<DecryptedChallengeVerification["commentUpdate"], "signature">;
     signer: SignerType;
 }): Promise<CommentUpdateForChallengeVerificationSignature>;
-export declare function signVote({ vote, plebbit }: {
+export declare function signVote({ vote, pkc }: {
     vote: VoteOptionsToSign;
-    plebbit: Plebbit;
+    pkc: PKC;
 }): Promise<VoteSignature>;
-export declare function signSubplebbitEdit({ subplebbitEdit, plebbit }: {
-    subplebbitEdit: SubplebbitEditPublicationOptionsToSign;
-    plebbit: Plebbit;
-}): Promise<SubplebbitEditPublicationSignature>;
-export declare function signCommentEdit({ edit, plebbit }: {
+export declare function signCommunityEdit({ communityEdit, pkc }: {
+    communityEdit: CommunityEditPublicationOptionsToSign;
+    pkc: PKC;
+}): Promise<CommunityEditPublicationSignature>;
+export declare function signCommentEdit({ edit, pkc }: {
     edit: CommentEditOptionsToSign;
-    plebbit: Plebbit;
+    pkc: PKC;
 }): Promise<CommentEditSignature>;
-export declare function signCommentModeration({ commentMod, plebbit }: {
+export declare function signCommentModeration({ commentMod, pkc }: {
     commentMod: CommentModerationOptionsToSign;
-    plebbit: Plebbit;
+    pkc: PKC;
 }): Promise<CommentModerationSignature>;
-export declare function signSubplebbit({ subplebbit, signer }: {
-    subplebbit: Omit<SubplebbitIpfsType, "signature">;
+export declare function signCommunity({ community, signer }: {
+    community: Omit<CommunityIpfsType, "signature">;
     signer: SignerType;
-}): Promise<SubplebbitSignature>;
+}): Promise<CommunitySignature>;
 export declare function signChallengeRequest({ request, signer }: {
     request: Omit<ChallengeRequestMessageType, "signature">;
     signer: SignerType;
@@ -78,74 +77,66 @@ export declare function signChallengeVerification({ challengeVerification, signe
     challengeVerification: Omit<ChallengeVerificationMessageType, "signature">;
     signer: SignerType;
 }): Promise<ChallengeVerificationMessageSignature>;
-export declare function verifyVote({ vote, resolveAuthorAddresses, clientsManager, overrideAuthorAddressIfInvalid }: {
+export declare function verifyVote({ vote, resolveAuthorNames, clientsManager }: {
     vote: VotePubsubMessagePublication;
-    resolveAuthorAddresses: boolean;
+    resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
-    overrideAuthorAddressIfInvalid: boolean;
 }): Promise<ValidationResult>;
-export declare function verifySubplebbitEdit({ subplebbitEdit, resolveAuthorAddresses, clientsManager, overrideAuthorAddressIfInvalid }: {
-    subplebbitEdit: SubplebbitEditPubsubMessagePublication;
-    resolveAuthorAddresses: boolean;
+export declare function verifyCommunityEdit({ communityEdit, resolveAuthorNames, clientsManager }: {
+    communityEdit: CommunityEditPubsubMessagePublication;
+    resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
-    overrideAuthorAddressIfInvalid: boolean;
 }): Promise<ValidationResult>;
-export declare function verifyCommentEdit({ edit, resolveAuthorAddresses, clientsManager, overrideAuthorAddressIfInvalid }: {
+export declare function verifyCommentEdit({ edit, resolveAuthorNames, clientsManager }: {
     edit: CommentEditPubsubMessagePublication;
-    resolveAuthorAddresses: boolean;
+    resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
-    overrideAuthorAddressIfInvalid: boolean;
 }): Promise<ValidationResult>;
-export declare function verifyCommentModeration({ moderation, resolveAuthorAddresses, clientsManager, overrideAuthorAddressIfInvalid }: {
+export declare function verifyCommentModeration({ moderation, resolveAuthorNames, clientsManager }: {
     moderation: CommentModerationPubsubMessagePublication;
-    resolveAuthorAddresses: boolean;
+    resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
-    overrideAuthorAddressIfInvalid: boolean;
 }): Promise<ValidationResult>;
-export declare function verifyCommentPubsubMessage({ comment, resolveAuthorAddresses, clientsManager, overrideAuthorAddressIfInvalid }: {
+export declare function verifyCommentPubsubMessage({ comment, resolveAuthorNames, clientsManager, abortSignal }: {
     comment: CommentPubsubMessagePublication;
-    resolveAuthorAddresses: boolean;
+    resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
-    overrideAuthorAddressIfInvalid: boolean;
-}): Promise<({
+    abortSignal?: AbortSignal;
+}): Promise<{
     valid: true;
-} & {
-    derivedAddress?: string;
-}) | ({
+} | {
     valid: false;
     reason: string;
-} & {
-    derivedAddress?: string;
-}) | {
+} | {
     valid: boolean;
     reason: messages;
 }>;
 export declare function verifyCommentIpfs(opts: {
     comment: CommentIpfsType;
     calculatedCommentCid: string;
-    resolveAuthorAddresses: boolean;
+    resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
-    overrideAuthorAddressIfInvalid: boolean;
-    subplebbitAddressFromInstance?: CommentIpfsType["subplebbitAddress"];
+    communityAddressFromInstance?: string;
+    abortSignal?: AbortSignal;
 }): ReturnType<typeof verifyCommentPubsubMessage>;
-export declare function verifySubplebbit({ subplebbit, subplebbitIpnsName, resolveAuthorAddresses, clientsManager, overrideAuthorAddressIfInvalid, validatePages, cacheIfValid }: {
-    subplebbit: SubplebbitIpfsType;
-    subplebbitIpnsName: string;
-    resolveAuthorAddresses: boolean;
+export declare function verifyCommunity({ community, communityIpnsName, resolveAuthorNames, clientsManager, validatePages, cacheIfValid, abortSignal }: {
+    community: CommunityIpfsType;
+    communityIpnsName: string;
+    resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
-    overrideAuthorAddressIfInvalid: boolean;
     validatePages: boolean;
     cacheIfValid?: boolean;
+    abortSignal?: AbortSignal;
 }): Promise<ValidationResult>;
-export declare function verifyCommentUpdate({ update, resolveAuthorAddresses, clientsManager, subplebbit, comment, overrideAuthorAddressIfInvalid, validatePages, validateUpdateSignature }: {
+export declare function verifyCommentUpdate({ update, resolveAuthorNames, clientsManager, community, comment, validatePages, validateUpdateSignature, abortSignal }: {
     update: CommentUpdateType | CommentUpdateForChallengeVerification | ModQueuePageIpfs["comments"][0]["commentUpdate"];
-    resolveAuthorAddresses: boolean;
+    resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
-    subplebbit: SubplebbitForVerifyingPages;
+    community: CommunityForVerifyingPages;
     comment: Pick<CommentIpfsWithCidPostCidDefined, "signature" | "cid" | "depth" | "postCid">;
-    overrideAuthorAddressIfInvalid: boolean;
     validatePages: boolean;
     validateUpdateSignature: boolean;
+    abortSignal?: AbortSignal;
 }): Promise<ValidationResult>;
 export declare function verifyChallengeRequest({ request, validateTimestampRange }: {
     request: ChallengeRequestMessageType;
@@ -170,37 +161,40 @@ type ParentCommentForVerifyingPages = Pick<CommentIpfsWithCidPostCidDefined, "ci
     depth: -1;
     postCid: undefined;
 };
-type SubplebbitForVerifyingPages = Pick<RemoteSubplebbit, "address" | "signature">;
-export declare function verifyPageComment({ pageComment, subplebbit, parentComment, resolveAuthorAddresses, clientsManager, overrideAuthorAddressIfInvalid, validatePages, validateUpdateSignature }: {
+type CommunityForVerifyingPages = {
+    address: string;
+    signature?: CommunityIpfsType["signature"];
+};
+export declare function verifyPageComment({ pageComment, community, parentComment, resolveAuthorNames, clientsManager, validatePages, validateUpdateSignature, abortSignal }: {
     pageComment: (PageIpfs | ModQueuePageIpfs)["comments"][0];
-    subplebbit: SubplebbitForVerifyingPages;
+    community: CommunityForVerifyingPages;
     parentComment: ParentCommentForVerifyingPages | undefined;
-    resolveAuthorAddresses: boolean;
+    resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
-    overrideAuthorAddressIfInvalid: boolean;
     validatePages: boolean;
     validateUpdateSignature: boolean;
+    abortSignal?: AbortSignal;
 }): Promise<ValidationResult>;
-export declare function verifyPage({ pageCid, pageSortName, page, resolveAuthorAddresses, clientsManager, subplebbit, parentComment, overrideAuthorAddressIfInvalid, validatePages, validateUpdateSignature }: {
+export declare function verifyPage({ pageCid, pageSortName, page, resolveAuthorNames, clientsManager, community, parentComment, validatePages, validateUpdateSignature, abortSignal }: {
     pageCid: string | undefined;
     pageSortName: string | undefined;
     page: PageIpfs;
-    resolveAuthorAddresses: boolean;
+    resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
-    subplebbit: SubplebbitForVerifyingPages;
+    community: CommunityForVerifyingPages;
     parentComment: ParentCommentForVerifyingPages;
-    overrideAuthorAddressIfInvalid: boolean;
     validatePages: boolean;
     validateUpdateSignature: boolean;
+    abortSignal?: AbortSignal;
 }): Promise<ValidationResult>;
-export declare function verifyModQueuePage({ pageCid, page, resolveAuthorAddresses, clientsManager, subplebbit, overrideAuthorAddressIfInvalid, validatePages, validateUpdateSignature }: {
+export declare function verifyModQueuePage({ pageCid, page, resolveAuthorNames, clientsManager, community, validatePages, validateUpdateSignature, abortSignal }: {
     pageCid: string | undefined;
     page: ModQueuePageIpfs;
-    resolveAuthorAddresses: boolean;
+    resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
-    subplebbit: SubplebbitForVerifyingPages;
-    overrideAuthorAddressIfInvalid: boolean;
+    community: CommunityForVerifyingPages;
     validatePages: boolean;
     validateUpdateSignature: boolean;
+    abortSignal?: AbortSignal;
 }): Promise<ValidationResult>;
 export {};

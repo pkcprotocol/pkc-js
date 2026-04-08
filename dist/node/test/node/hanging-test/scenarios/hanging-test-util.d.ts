@@ -1,19 +1,19 @@
-import type { Plebbit } from "../../../../plebbit/plebbit.js";
+import type { PKC } from "../../../../pkc/pkc.js";
 /**
  * Arguments supplied to each hanging-test scenario from the test harness.
  * `configCode` maps to one of the entries returned by
- * `getAvailablePlebbitConfigsToTestAgainst`.
+ * `getAvailablePKCConfigsToTestAgainst`.
  */
 export interface HangingScenarioArgs {
     configCode: string;
 }
 /**
- * Resolved context after looking up the config and instantiating a Plebbit
+ * Resolved context after looking up the config and instantiating a PKC
  * instance. Scenarios should call `createScenarioContext` and make sure to
- * `await plebbit.destroy()` in a finally block once their work is done.
+ * `await pkc.destroy()` in a finally block once their work is done.
  */
 export interface HangingScenarioContext {
-    plebbit: Plebbit;
+    pkc: PKC;
     config: {
         name: string;
         testConfigCode: string;

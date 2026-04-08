@@ -1,16 +1,15 @@
-import { CachedTextRecordResolve } from "../../clients/base-client-manager.js";
-import { GenericChainProviderClient } from "../../clients/chain-provider-client.js";
+import { PreResolveNameResolverOptions } from "../../clients/base-client-manager.js";
 import type { PageIpfs } from "../../pages/types.js";
-import type { SubplebbitIpfsType } from "../../subplebbit/types.js";
-import type { ChainTicker } from "../../types.js";
+import type { CommunityIpfsType } from "../../community/types.js";
+import { NameResolverClient } from "../../clients/name-resolver-client.js";
 import { Comment } from "./comment.js";
 import type { CommentIpfsType, CommentUpdateType } from "./types.js";
-import { PlebbitError } from "../../plebbit-error.js";
-import Logger from "@plebbit/plebbit-logger";
+import { PKCError } from "../../pkc-error.js";
+import Logger from "../../logger.js";
 import { PublicationClientsManager } from "../publication-client-manager.js";
-import { RemoteSubplebbit } from "../../subplebbit/remote-subplebbit.js";
-import { CommentIpfsGatewayClient, CommentKuboPubsubClient, CommentKuboRpcClient, CommentLibp2pJsClient, CommentPlebbitRpcStateClient } from "./comment-clients.js";
-import { Plebbit } from "../../plebbit/plebbit.js";
+import { RemoteCommunity } from "../../community/remote-community.js";
+import { CommentIpfsGatewayClient, CommentKuboPubsubClient, CommentKuboRpcClient, CommentLibp2pJsClient, CommentPKCRpcStateClient } from "./comment-clients.js";
+import { PKC } from "../../pkc/pkc.js";
 type NewCommentUpdate = {
     commentUpdate: CommentUpdateType;
     commentUpdateIpfsPath: NonNullable<Comment["_commentUpdateIpfsPath"]>;
@@ -27,12 +26,12 @@ export declare class CommentClientsManager extends PublicationClientsManager {
         pubsubKuboRpcClients: {
             [pubsubClientUrl: string]: CommentKuboPubsubClient;
         };
-        chainProviders: Record<ChainTicker, {
-            [chainProviderUrl: string]: GenericChainProviderClient;
-        }>;
-        plebbitRpcClients: Record<string, CommentPlebbitRpcStateClient>;
+        pkcRpcClients: Record<string, CommentPKCRpcStateClient>;
         libp2pJsClients: {
             [libp2pJsClientKey: string]: CommentLibp2pJsClient;
+        };
+        nameResolvers: {
+            [resolverKey: string]: NameResolverClient;
         };
     };
     private _postForUpdating?;
@@ -42,44 +41,44 @@ export declare class CommentClientsManager extends PublicationClientsManager {
     constructor(comment: Comment);
     protected _initKuboRpcClients(): void;
     protected _initLibp2pJsClients(): void;
-    protected _initPlebbitRpcClients(): void;
+    protected _initPKCRpcClients(): void;
     updateLibp2pJsClientState(newState: CommentLibp2pJsClient["state"], libp2pJsClientKey: string): void;
     updateKuboRpcState(newState: CommentKuboRpcClient["state"], kuboRpcClientUrl: string): void;
     updateGatewayState(newState: CommentIpfsGatewayClient["state"], ipfsGatewayClientUrl: string): void;
     updateKuboRpcPubsubState(newState: CommentKuboPubsubClient["state"], pubsubKuboRpcClientUrl: string): void;
-    preResolveTextRecord(address: string, txtRecordName: "subplebbit-address" | "plebbit-author-address", chain: ChainTicker, chainProviderUrl: string, staleCache?: CachedTextRecordResolve): void;
+    preResolveNameResolver(opts: PreResolveNameResolverOptions): void;
     _calculatePathForPostCommentUpdate(folderCid: string, postCid: string): string;
-    _updateKuboRpcClientOrHeliaState(newState: CommentKuboRpcClient["state"] | CommentLibp2pJsClient["state"], kuboRpcOrHelia: Plebbit["clients"]["kuboRpcClients"][string] | Plebbit["clients"]["libp2pJsClients"][string]): void;
-    _fetchPostCommentUpdateIpfsP2P(subIpns: SubplebbitIpfsType, timestampRanges: string[], log: Logger): Promise<NewCommentUpdate>;
-    _shouldWeFetchCommentUpdateFromNextTimestamp(err: PlebbitError | Error): boolean;
+    _updateKuboRpcClientOrHeliaState(newState: CommentKuboRpcClient["state"] | CommentLibp2pJsClient["state"], kuboRpcOrHelia: PKC["clients"]["kuboRpcClients"][string] | PKC["clients"]["libp2pJsClients"][string]): void;
+    _fetchPostCommentUpdateIpfsP2P(subIpns: CommunityIpfsType, timestampRanges: string[], log: Logger): Promise<NewCommentUpdate>;
+    _shouldWeFetchCommentUpdateFromNextTimestamp(err: PKCError | Error): boolean;
     private _throwIfCommentUpdateHasInvalidSignature;
-    _fetchPostCommentUpdateFromGateways(subIpns: SubplebbitIpfsType, timestampRanges: string[], log: Logger): Promise<NewCommentUpdate>;
-    _useLoadedCommentUpdateIfNewInfo(loadedCommentUpdate: NonNullable<NewCommentUpdate> | Pick<NonNullable<NewCommentUpdate>, "commentUpdate">, subplebbit: Pick<SubplebbitIpfsType, "signature">, log: Logger): boolean;
-    useSubplebbitPostUpdatesToFetchCommentUpdateForPost(subIpfs: SubplebbitIpfsType): Promise<void>;
+    _fetchPostCommentUpdateFromGateways(subIpns: CommunityIpfsType, timestampRanges: string[], log: Logger): Promise<NewCommentUpdate>;
+    _useLoadedCommentUpdateIfNewInfo(loadedCommentUpdate: NonNullable<NewCommentUpdate> | Pick<NonNullable<NewCommentUpdate>, "commentUpdate">, community: Pick<CommunityIpfsType, "signature">, log: Logger): boolean;
+    useCommunityPostUpdatesToFetchCommentUpdateForPost(subIpfs: CommunityIpfsType): Promise<void>;
     private _fetchRawCommentCidIpfsP2P;
     private _fetchCommentIpfsFromGateways;
     private _throwIfCommentIpfsIsInvalid;
     _fetchCommentIpfsFromPages(): Promise<void>;
     fetchAndVerifyCommentCid(cid: string): Promise<CommentIpfsType>;
     protected _isPublishing(): boolean;
-    _findCommentInPagesOfUpdatingCommentsOrSubplebbit(opts?: {
-        sub?: RemoteSubplebbit;
+    _findCommentInPagesOfUpdatingCommentsOrCommunity(opts?: {
+        community?: RemoteCommunity;
         post?: Comment;
         parent?: Comment;
     }): PageIpfs["comments"][0] | undefined;
-    handleUpdateEventFromSub(sub: RemoteSubplebbit): Promise<void>;
+    handleUpdateEventFromCommunity(community: RemoteCommunity): Promise<void>;
     _chooseWhichPagesBasedOnParentAndReplyTimestamp(parentCommentTimestamp: number): "old" | "new";
     usePageCidsOfParentToFetchCommentUpdateForReply(postCommentInstance: Comment): Promise<void>;
-    handleErrorEventFromSub(error: PlebbitError | Error): Promise<void>;
-    handleIpfsGatewaySubplebbitState(subplebbitNewGatewayState: RemoteSubplebbit["clients"]["ipfsGateways"][string]["state"], gatewayUrl: string): void;
-    _translateSubUpdatingStateToCommentUpdatingState(newSubUpdatingState: RemoteSubplebbit["updatingState"]): void;
-    handleUpdatingStateChangeEventFromSub(newSubUpdatingState: RemoteSubplebbit["updatingState"]): void;
-    handleErrorEventFromPost(error: PlebbitError | Error): void;
+    handleErrorEventFromCommunity(error: PKCError | Error): Promise<void>;
+    handleIpfsGatewayCommunityState(communityNewGatewayState: RemoteCommunity["clients"]["ipfsGateways"][string]["state"], gatewayUrl: string): void;
+    _translateCommunityUpdatingStateToCommentUpdatingState(newCommunityUpdatingState: RemoteCommunity["updatingState"]): void;
+    handleUpdatingStateChangeEventFromCommunity(newCommunityUpdatingState: RemoteCommunity["updatingState"]): void;
+    handleErrorEventFromPost(error: PKCError | Error): void;
     handleUpdatingStateChangeEventFromPost(newState: Comment["updatingState"]): void;
     _handleIpfsGatewayPostState(newState: Comment["clients"]["ipfsGateways"][string]["state"], gatewayUrl: string): void;
     _handleKuboRpcPostState(newState: Comment["clients"]["kuboRpcClients"][string]["state"], kuboRpcUrl: string): void;
     _handleLibp2pJsClientPostState(newState: Comment["clients"]["libp2pJsClients"][string]["state"], libp2pJsClientKey: string): void;
-    _handleChainProviderPostState(newState: Comment["clients"]["chainProviders"][ChainTicker][string]["state"], chainTicker: ChainTicker, providerUrl: string): void;
+    _handleNameResolverPostState(newState: Comment["clients"]["nameResolvers"][string]["state"], resolverKey: string): void;
     handleUpdateEventFromPostToFetchReplyCommentUpdate(postInstance: Comment): Promise<void>;
     _createPostInstanceWithStateTranslation(): Promise<CommentClientsManager["_postForUpdating"]>;
     cleanUpUpdatingPostInstance(): Promise<void>;

@@ -1,8 +1,8 @@
 import assert from "assert";
 import * as remeda from "remeda";
 export default class Stats {
-    constructor(plebbit) {
-        this._plebbit = plebbit;
+    constructor(pkc) {
+        this._pkc = pkc;
     }
     toJSON() {
         return undefined;
@@ -16,11 +16,11 @@ export default class Stats {
     async recordGatewaySuccess(gatewayUrl, type, timeElapsedMs) {
         const countKey = this._getSuccessCountKey(gatewayUrl, type);
         const averageKey = this._getSuccessAverageKey(gatewayUrl, type);
-        const curAverage = (await this._plebbit._storage.getItem(averageKey)) || 0;
-        const curCount = (await this._plebbit._storage.getItem(countKey)) || 0;
+        const curAverage = (await this._pkc._storage.getItem(averageKey)) || 0;
+        const curCount = (await this._pkc._storage.getItem(countKey)) || 0;
         const newAverage = curAverage + (timeElapsedMs - curAverage) / (curCount + 1);
         const newCount = curCount + 1;
-        await Promise.all([this._plebbit._storage.setItem(averageKey, newAverage), this._plebbit._storage.setItem(countKey, newCount)]);
+        await Promise.all([this._pkc._storage.setItem(averageKey, newAverage), this._pkc._storage.setItem(countKey, newCount)]);
     }
     _getBaseKey(url, type) {
         return `STATS_${url}_${type}`;
@@ -30,9 +30,9 @@ export default class Stats {
     }
     async recordGatewayFailure(gatewayUrl, type) {
         const countKey = this._getFailuresCountKey(gatewayUrl, type);
-        const curCount = (await this._plebbit._storage.getItem(countKey)) || 0;
+        const curCount = (await this._pkc._storage.getItem(countKey)) || 0;
         const newCount = curCount + 1;
-        await this._plebbit._storage.setItem(countKey, newCount);
+        await this._pkc._storage.setItem(countKey, newCount);
     }
     _gatewayScore(failureCounts, successCounts, successAverageMs) {
         // Thanks for @thisisnotph for their input on this formula
@@ -43,20 +43,18 @@ export default class Stats {
         const gatewayType = type === "ipfs" || type === "ipns"
             ? "ipfsGateways"
             : type === "pubsub-publish" || type === "pubsub-subscribe"
-                ? remeda.keys.strict(this._plebbit.clients.pubsubKuboRpcClients).length > 0
+                ? remeda.keys.strict(this._pkc.clients.pubsubKuboRpcClients).length > 0
                     ? "pubsubKuboRpcClients"
-                    : remeda.keys.strict(this._plebbit.clients.libp2pJsClients).length > 0
+                    : remeda.keys.strict(this._pkc.clients.libp2pJsClients).length > 0
                         ? "libp2pJsClients"
                         : undefined
-                : "chainProviders";
+                : undefined;
         assert(gatewayType, "Can't find the gateway type to sort");
-        const gateways = gatewayType === "chainProviders"
-            ? this._plebbit.clients.chainProviders[type].urls
-            : remeda.keys.strict(this._plebbit.clients[gatewayType]);
+        const gateways = remeda.keys.strict(this._pkc.clients[gatewayType]);
         const score = async (gatewayUrl) => {
-            const failureCounts = (await this._plebbit._storage.getItem(this._getFailuresCountKey(gatewayUrl, type))) || 0;
-            const successCounts = (await this._plebbit._storage.getItem(this._getSuccessCountKey(gatewayUrl, type))) || 0;
-            const successAverageMs = (await this._plebbit._storage.getItem(this._getSuccessAverageKey(gatewayUrl, type))) || 0;
+            const failureCounts = (await this._pkc._storage.getItem(this._getFailuresCountKey(gatewayUrl, type))) || 0;
+            const successCounts = (await this._pkc._storage.getItem(this._getSuccessCountKey(gatewayUrl, type))) || 0;
+            const successAverageMs = (await this._pkc._storage.getItem(this._getSuccessAverageKey(gatewayUrl, type))) || 0;
             return this._gatewayScore(failureCounts, successCounts, successAverageMs);
         };
         const gatewaysSorted = remeda.sortBy.strict(gateways, score);

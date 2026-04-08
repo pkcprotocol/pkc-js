@@ -1,8 +1,9 @@
-import { Plebbit } from "../../plebbit/plebbit.js";
+import { PKC } from "../../pkc/pkc.js";
 import Publication from "../publication.js";
 import type { CommentEditPubsubMessagePublication, CreateCommentEditOptions } from "./types.js";
 import type { PublicationTypeName } from "../../types.js";
 import type { SignerType } from "../../signer/types.js";
+import type { CreatePublicationOptions } from "../../types.js";
 export declare class CommentEdit extends Publication implements CommentEditPubsubMessagePublication {
     commentCid: CommentEditPubsubMessagePublication["commentCid"];
     content?: CommentEditPubsubMessagePublication["content"];
@@ -16,15 +17,25 @@ export declare class CommentEdit extends Publication implements CommentEditPubsu
         pubsubMessageToPublish?: CommentEditPubsubMessagePublication;
     };
     challengeRequest?: CreateCommentEditOptions["challengeRequest"];
-    constructor(plebbit: Plebbit);
+    constructor(pkc: PKC);
+    _initUnsignedLocalProps<T extends {
+        signer: SignerType;
+        communityAddress: string;
+        timestamp: number;
+        protocolVersion: string;
+        author?: Record<string, unknown>;
+    }>(opts: {
+        unsignedOptions: T;
+        challengeRequest?: CreatePublicationOptions["challengeRequest"];
+    }): void;
     _initLocalProps(props: {
         commentEdit: CommentEditPubsubMessagePublication;
         signer?: SignerType;
         challengeRequest?: CreateCommentEditOptions["challengeRequest"];
     }): void;
+    protected _signPublicationOptionsToPublish(cleanedPublication: unknown): Promise<CommentEditPubsubMessagePublication["signature"]>;
     _initPubsubPublicationProps(props: CommentEditPubsubMessagePublication): void;
-    toJSONPubsubMessagePublication(): CommentEditPubsubMessagePublication;
     getType(): PublicationTypeName;
-    private _validateSignature;
+    protected _validateSignatureHook(): Promise<void>;
     publish(): Promise<void>;
 }

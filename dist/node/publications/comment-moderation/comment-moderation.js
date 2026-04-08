@@ -1,18 +1,28 @@
 import Publication from "../publication.js";
-import { hideClassPrivateProps, isIpfsCid, throwWithErrorCode } from "../../util.js";
-import { verifyCommentModeration } from "../../signer/signatures.js";
+import { hideClassPrivateProps, isIpfsCid } from "../../util.js";
+import { PKCError } from "../../pkc-error.js";
+import { signCommentModeration, verifyCommentModeration } from "../../signer/signatures.js";
 export class CommentModeration extends Publication {
-    constructor(plebbit) {
-        super(plebbit);
+    constructor(pkc) {
+        super(pkc);
         this.raw = {};
         // public method should be bound
         this.publish = this.publish.bind(this);
         hideClassPrivateProps(this);
     }
+    _initUnsignedLocalProps(opts) {
+        super._initUnsignedLocalProps(opts);
+        const o = opts.unsignedOptions;
+        this.commentCid = o.commentCid;
+        this.commentModeration = o.commentModeration;
+    }
     _initLocalProps(props) {
         this._initPubsubPublication(props.commentModeration);
         this.challengeRequest = props.challengeRequest;
         this.signer = props.signer;
+    }
+    async _signPublicationOptionsToPublish(cleanedPublication) {
+        return signCommentModeration({ commentMod: cleanedPublication, pkc: this._pkc });
     }
     _initPubsubPublication(pubsubMsgPub) {
         super._initBaseRemoteProps(pubsubMsgPub);
@@ -20,30 +30,23 @@ export class CommentModeration extends Publication {
         this.commentModeration = pubsubMsgPub.commentModeration;
         this.raw.pubsubMessageToPublish = pubsubMsgPub;
     }
-    toJSONPubsubMessagePublication() {
-        if (!this.raw.pubsubMessageToPublish)
-            throw Error("Need to define local CommentModerationPubsubMessage first");
-        return this.raw.pubsubMessageToPublish;
-    }
     getType() {
         return "commentModeration";
     }
-    async _validateSignature() {
-        const editObj = JSON.parse(JSON.stringify(this.toJSONPubsubMessagePublication()));
+    async _validateSignatureHook() {
+        const editObj = JSON.parse(JSON.stringify(this.raw.pubsubMessageToPublish));
         const signatureValidity = await verifyCommentModeration({
             moderation: editObj,
-            resolveAuthorAddresses: this._plebbit.resolveAuthorAddresses,
-            clientsManager: this._clientsManager,
-            overrideAuthorAddressIfInvalid: true
-        }); // If author domain is not resolving to signer, then don't throw an error
+            resolveAuthorNames: this._pkc.resolveAuthorNames,
+            clientsManager: this._clientsManager
+        });
         if (!signatureValidity.valid)
-            throwWithErrorCode("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
+            throw new PKCError("ERR_SIGNATURE_IS_INVALID", { signatureValidity });
     }
     async publish() {
         // TODO if publishing with content,reason, deleted, verify that publisher is original author
         if (!isIpfsCid(this.commentCid))
-            throwWithErrorCode("ERR_CID_IS_INVALID", { commentCid: this.commentCid });
-        await this._validateSignature();
+            throw new PKCError("ERR_CID_IS_INVALID", { commentCid: this.commentCid });
         return super.publish();
     }
 }

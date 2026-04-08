@@ -1,11 +1,27 @@
 import { z } from "zod";
 import type { Server as HTTPServer } from "http";
 import type { Server as HTTPSServer } from "https";
-export declare const CreatePlebbitWsServerOptionsSchema: z.ZodObject<{
-    plebbitOptions: z.ZodOptional<z.ZodCustom<{
+export declare const CreatePKCWsServerOptionsSchema: z.ZodObject<{
+    pkcOptions: z.ZodOptional<z.ZodCustom<{
         kuboRpcClientsOptions?: import("../../util.js").KuboRpcClientCreateOption[] | undefined;
-        plebbitRpcClientsOptions?: string[] | undefined;
+        pkcRpcClientsOptions?: string[] | undefined;
         dataPath?: string | undefined;
+        nameResolvers?: {
+            key: string;
+            resolve: (opts: {
+                name: string;
+                provider: string;
+                abortSignal?: AbortSignal;
+            }) => Promise<{
+                publicKey: string;
+                [key: string]: string;
+            } | undefined>;
+            canResolve: (opts: {
+                name: string;
+            }) => boolean;
+            provider: string;
+            dataPath?: string | undefined;
+        }[] | undefined;
         libp2pJsClientsOptions?: {
             key: string;
             libp2pOptions?: Partial<import("libp2p").Libp2pInit<import("helia").DefaultLibp2pServices> & {
@@ -19,7 +35,7 @@ export declare const CreatePlebbitWsServerOptionsSchema: z.ZodObject<{
                 name: z.ZodOptional<z.ZodString>;
                 options: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
                 exclude: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                    subplebbit: z.ZodOptional<z.ZodObject<{
+                    community: z.ZodOptional<z.ZodObject<{
                         addresses: z.ZodArray<z.ZodString>;
                         maxCommentCids: z.ZodNumber;
                         postScore: z.ZodOptional<z.ZodNumber>;
@@ -46,7 +62,7 @@ export declare const CreatePlebbitWsServerOptionsSchema: z.ZodObject<{
                         vote: z.ZodOptional<z.ZodBoolean>;
                         commentEdit: z.ZodOptional<z.ZodBoolean>;
                         commentModeration: z.ZodOptional<z.ZodBoolean>;
-                        subplebbitEdit: z.ZodOptional<z.ZodBoolean>;
+                        communityEdit: z.ZodOptional<z.ZodBoolean>;
                     }, z.core.$loose>>;
                 }, z.core.$loose>>>;
                 description: z.ZodOptional<z.ZodString>;
@@ -71,7 +87,7 @@ export declare const CreatePlebbitWsServerOptionsSchema: z.ZodObject<{
                     name: z.ZodOptional<z.ZodString>;
                     options: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
                     exclude: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                        subplebbit: z.ZodOptional<z.ZodObject<{
+                        community: z.ZodOptional<z.ZodObject<{
                             addresses: z.ZodArray<z.ZodString>;
                             maxCommentCids: z.ZodNumber;
                             postScore: z.ZodOptional<z.ZodNumber>;
@@ -98,15 +114,15 @@ export declare const CreatePlebbitWsServerOptionsSchema: z.ZodObject<{
                             vote: z.ZodOptional<z.ZodBoolean>;
                             commentEdit: z.ZodOptional<z.ZodBoolean>;
                             commentModeration: z.ZodOptional<z.ZodBoolean>;
-                            subplebbitEdit: z.ZodOptional<z.ZodBoolean>;
+                            communityEdit: z.ZodOptional<z.ZodBoolean>;
                         }, z.core.$loose>>;
                     }, z.core.$loose>>>;
                     description: z.ZodOptional<z.ZodString>;
                     pendingApproval: z.ZodOptional<z.ZodBoolean>;
                 }, z.core.$strict>;
-                challengeRequestMessage: z.ZodCustom<import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor, import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor>;
+                challengeRequestMessage: z.ZodCustom<import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithCommunityAuthor, import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithCommunityAuthor>;
                 challengeIndex: z.ZodNumber;
-                subplebbit: z.ZodCustom<import("../../runtime/node/subplebbit/local-subplebbit.js").LocalSubplebbit, import("../../runtime/node/subplebbit/local-subplebbit.js").LocalSubplebbit>;
+                community: z.ZodCustom<import("../../runtime/node/community/local-community.js").LocalCommunity, import("../../runtime/node/community/local-community.js").LocalCommunity>;
             }, z.core.$strip>], null>, z.ZodPromise<z.ZodUnion<[z.ZodObject<{
                 challenge: z.ZodString;
                 verify: z.ZodFunction<z.ZodTuple<readonly [z.ZodLazy<z.ZodString>], null>, z.ZodPromise<z.ZodUnion<[z.ZodObject<{
@@ -127,11 +143,7 @@ export declare const CreatePlebbitWsServerOptionsSchema: z.ZodObject<{
         ipfsGatewayUrls?: string[] | undefined;
         pubsubKuboRpcClientsOptions?: import("../../util.js").KuboRpcClientCreateOption[] | undefined;
         httpRoutersOptions?: string[] | undefined;
-        chainProviders?: Record<string, {
-            urls: string[];
-            chainId: number;
-        }> | undefined;
-        resolveAuthorAddresses?: boolean | undefined;
+        resolveAuthorNames?: boolean | undefined;
         publishInterval?: number | undefined;
         updateInterval?: number | undefined;
         noData?: boolean | undefined;
@@ -139,8 +151,24 @@ export declare const CreatePlebbitWsServerOptionsSchema: z.ZodObject<{
         userAgent?: string | undefined;
     }, {
         kuboRpcClientsOptions?: import("../../util.js").KuboRpcClientCreateOption[] | undefined;
-        plebbitRpcClientsOptions?: string[] | undefined;
+        pkcRpcClientsOptions?: string[] | undefined;
         dataPath?: string | undefined;
+        nameResolvers?: {
+            key: string;
+            resolve: (opts: {
+                name: string;
+                provider: string;
+                abortSignal?: AbortSignal;
+            }) => Promise<{
+                publicKey: string;
+                [key: string]: string;
+            } | undefined>;
+            canResolve: (opts: {
+                name: string;
+            }) => boolean;
+            provider: string;
+            dataPath?: string | undefined;
+        }[] | undefined;
         libp2pJsClientsOptions?: {
             key: string;
             libp2pOptions?: Partial<import("libp2p").Libp2pInit<import("helia").DefaultLibp2pServices> & {
@@ -154,7 +182,7 @@ export declare const CreatePlebbitWsServerOptionsSchema: z.ZodObject<{
                 name: z.ZodOptional<z.ZodString>;
                 options: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
                 exclude: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                    subplebbit: z.ZodOptional<z.ZodObject<{
+                    community: z.ZodOptional<z.ZodObject<{
                         addresses: z.ZodArray<z.ZodString>;
                         maxCommentCids: z.ZodNumber;
                         postScore: z.ZodOptional<z.ZodNumber>;
@@ -181,7 +209,7 @@ export declare const CreatePlebbitWsServerOptionsSchema: z.ZodObject<{
                         vote: z.ZodOptional<z.ZodBoolean>;
                         commentEdit: z.ZodOptional<z.ZodBoolean>;
                         commentModeration: z.ZodOptional<z.ZodBoolean>;
-                        subplebbitEdit: z.ZodOptional<z.ZodBoolean>;
+                        communityEdit: z.ZodOptional<z.ZodBoolean>;
                     }, z.core.$loose>>;
                 }, z.core.$loose>>>;
                 description: z.ZodOptional<z.ZodString>;
@@ -206,7 +234,7 @@ export declare const CreatePlebbitWsServerOptionsSchema: z.ZodObject<{
                     name: z.ZodOptional<z.ZodString>;
                     options: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
                     exclude: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                        subplebbit: z.ZodOptional<z.ZodObject<{
+                        community: z.ZodOptional<z.ZodObject<{
                             addresses: z.ZodArray<z.ZodString>;
                             maxCommentCids: z.ZodNumber;
                             postScore: z.ZodOptional<z.ZodNumber>;
@@ -233,15 +261,15 @@ export declare const CreatePlebbitWsServerOptionsSchema: z.ZodObject<{
                             vote: z.ZodOptional<z.ZodBoolean>;
                             commentEdit: z.ZodOptional<z.ZodBoolean>;
                             commentModeration: z.ZodOptional<z.ZodBoolean>;
-                            subplebbitEdit: z.ZodOptional<z.ZodBoolean>;
+                            communityEdit: z.ZodOptional<z.ZodBoolean>;
                         }, z.core.$loose>>;
                     }, z.core.$loose>>>;
                     description: z.ZodOptional<z.ZodString>;
                     pendingApproval: z.ZodOptional<z.ZodBoolean>;
                 }, z.core.$strict>;
-                challengeRequestMessage: z.ZodCustom<import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor, import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor>;
+                challengeRequestMessage: z.ZodCustom<import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithCommunityAuthor, import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithCommunityAuthor>;
                 challengeIndex: z.ZodNumber;
-                subplebbit: z.ZodCustom<import("../../runtime/node/subplebbit/local-subplebbit.js").LocalSubplebbit, import("../../runtime/node/subplebbit/local-subplebbit.js").LocalSubplebbit>;
+                community: z.ZodCustom<import("../../runtime/node/community/local-community.js").LocalCommunity, import("../../runtime/node/community/local-community.js").LocalCommunity>;
             }, z.core.$strip>], null>, z.ZodPromise<z.ZodUnion<[z.ZodObject<{
                 challenge: z.ZodString;
                 verify: z.ZodFunction<z.ZodTuple<readonly [z.ZodLazy<z.ZodString>], null>, z.ZodPromise<z.ZodUnion<[z.ZodObject<{
@@ -262,11 +290,7 @@ export declare const CreatePlebbitWsServerOptionsSchema: z.ZodObject<{
         ipfsGatewayUrls?: string[] | undefined;
         pubsubKuboRpcClientsOptions?: import("../../util.js").KuboRpcClientCreateOption[] | undefined;
         httpRoutersOptions?: string[] | undefined;
-        chainProviders?: Record<string, {
-            urls: string[];
-            chainId: number;
-        }> | undefined;
-        resolveAuthorAddresses?: boolean | undefined;
+        resolveAuthorNames?: boolean | undefined;
         publishInterval?: number | undefined;
         updateInterval?: number | undefined;
         noData?: boolean | undefined;
@@ -274,27 +298,19 @@ export declare const CreatePlebbitWsServerOptionsSchema: z.ZodObject<{
         userAgent?: string | undefined;
     }>>;
     authKey: z.ZodOptional<z.ZodString>;
-    startStartedSubplebbitsOnStartup: z.ZodOptional<z.ZodBoolean>;
+    startStartedCommunitiesOnStartup: z.ZodOptional<z.ZodBoolean>;
     port: z.ZodOptional<z.ZodNumber>;
     server: z.ZodOptional<z.ZodCustom<HTTPServer<typeof import("http").IncomingMessage, typeof import("http").ServerResponse> | HTTPSServer<typeof import("http").IncomingMessage, typeof import("http").ServerResponse>, HTTPServer<typeof import("http").IncomingMessage, typeof import("http").ServerResponse> | HTTPSServer<typeof import("http").IncomingMessage, typeof import("http").ServerResponse>>>;
 }, z.core.$loose>;
-export declare const SetNewSettingsPlebbitWsServerSchema: z.ZodObject<{
-    plebbitOptions: z.ZodObject<{
+export declare const SetNewSettingsPKCWsServerSchema: z.ZodObject<{
+    pkcOptions: z.ZodObject<{
         ipfsGatewayUrls: z.ZodOptional<z.ZodArray<z.ZodURL>>;
         kuboRpcClientsOptions: z.ZodOptional<z.ZodPipe<z.ZodArray<z.ZodCustom<import("../../util.js").KuboRpcClientCreateOption, import("../../util.js").KuboRpcClientCreateOption>>, z.ZodTransform<import("kubo-rpc-client").Options[], import("../../util.js").KuboRpcClientCreateOption[]>>>;
         httpRoutersOptions: z.ZodOptional<z.ZodArray<z.ZodString>>;
         pubsubKuboRpcClientsOptions: z.ZodOptional<z.ZodPipe<z.ZodArray<z.ZodCustom<import("../../util.js").KuboRpcClientCreateOption, import("../../util.js").KuboRpcClientCreateOption>>, z.ZodTransform<import("kubo-rpc-client").Options[], import("../../util.js").KuboRpcClientCreateOption[]>>>;
-        plebbitRpcClientsOptions: z.ZodOptional<z.ZodArray<z.ZodURL>>;
+        pkcRpcClientsOptions: z.ZodOptional<z.ZodArray<z.ZodURL>>;
         dataPath: z.ZodOptional<z.ZodString>;
-        chainProviders: z.ZodRecord<z.ZodString, z.ZodObject<{
-            urls: z.ZodArray<z.ZodUnion<[z.ZodURL, z.ZodEnum<{
-                viem: "viem";
-                "ethers.js": "ethers.js";
-                "web3.js": "web3.js";
-            }>]>>;
-            chainId: z.ZodNumber;
-        }, z.core.$strip>>;
-        resolveAuthorAddresses: z.ZodBoolean;
+        resolveAuthorNames: z.ZodBoolean;
         libp2pJsClientsOptions: z.ZodOptional<z.ZodArray<z.ZodObject<{
             key: z.ZodString;
             libp2pOptions: z.ZodDefault<z.ZodCustom<Partial<import("libp2p").Libp2pInit<import("helia").DefaultLibp2pServices> & {
@@ -315,7 +331,7 @@ export declare const SetNewSettingsPlebbitWsServerSchema: z.ZodObject<{
                 name: z.ZodOptional<z.ZodString>;
                 options: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
                 exclude: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                    subplebbit: z.ZodOptional<z.ZodObject<{
+                    community: z.ZodOptional<z.ZodObject<{
                         addresses: z.ZodArray<z.ZodString>;
                         maxCommentCids: z.ZodNumber;
                         postScore: z.ZodOptional<z.ZodNumber>;
@@ -342,7 +358,7 @@ export declare const SetNewSettingsPlebbitWsServerSchema: z.ZodObject<{
                         vote: z.ZodOptional<z.ZodBoolean>;
                         commentEdit: z.ZodOptional<z.ZodBoolean>;
                         commentModeration: z.ZodOptional<z.ZodBoolean>;
-                        subplebbitEdit: z.ZodOptional<z.ZodBoolean>;
+                        communityEdit: z.ZodOptional<z.ZodBoolean>;
                     }, z.core.$loose>>;
                 }, z.core.$loose>>>;
                 description: z.ZodOptional<z.ZodString>;
@@ -367,7 +383,7 @@ export declare const SetNewSettingsPlebbitWsServerSchema: z.ZodObject<{
                     name: z.ZodOptional<z.ZodString>;
                     options: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
                     exclude: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                        subplebbit: z.ZodOptional<z.ZodObject<{
+                        community: z.ZodOptional<z.ZodObject<{
                             addresses: z.ZodArray<z.ZodString>;
                             maxCommentCids: z.ZodNumber;
                             postScore: z.ZodOptional<z.ZodNumber>;
@@ -394,15 +410,15 @@ export declare const SetNewSettingsPlebbitWsServerSchema: z.ZodObject<{
                             vote: z.ZodOptional<z.ZodBoolean>;
                             commentEdit: z.ZodOptional<z.ZodBoolean>;
                             commentModeration: z.ZodOptional<z.ZodBoolean>;
-                            subplebbitEdit: z.ZodOptional<z.ZodBoolean>;
+                            communityEdit: z.ZodOptional<z.ZodBoolean>;
                         }, z.core.$loose>>;
                     }, z.core.$loose>>>;
                     description: z.ZodOptional<z.ZodString>;
                     pendingApproval: z.ZodOptional<z.ZodBoolean>;
                 }, z.core.$strict>;
-                challengeRequestMessage: z.ZodCustom<import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor, import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor>;
+                challengeRequestMessage: z.ZodCustom<import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithCommunityAuthor, import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithCommunityAuthor>;
                 challengeIndex: z.ZodNumber;
-                subplebbit: z.ZodCustom<import("../../runtime/node/subplebbit/local-subplebbit.js").LocalSubplebbit, import("../../runtime/node/subplebbit/local-subplebbit.js").LocalSubplebbit>;
+                community: z.ZodCustom<import("../../runtime/node/community/local-community.js").LocalCommunity, import("../../runtime/node/community/local-community.js").LocalCommunity>;
             }, z.core.$strip>], null>, z.ZodPromise<z.ZodUnion<[z.ZodObject<{
                 challenge: z.ZodString;
                 verify: z.ZodFunction<z.ZodTuple<readonly [z.ZodLazy<z.ZodString>], null>, z.ZodPromise<z.ZodUnion<[z.ZodObject<{
@@ -425,7 +441,7 @@ export declare const SetNewSettingsPlebbitWsServerSchema: z.ZodObject<{
                 name: z.ZodOptional<z.ZodString>;
                 options: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
                 exclude: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                    subplebbit: z.ZodOptional<z.ZodObject<{
+                    community: z.ZodOptional<z.ZodObject<{
                         addresses: z.ZodArray<z.ZodString>;
                         maxCommentCids: z.ZodNumber;
                         postScore: z.ZodOptional<z.ZodNumber>;
@@ -452,7 +468,7 @@ export declare const SetNewSettingsPlebbitWsServerSchema: z.ZodObject<{
                         vote: z.ZodOptional<z.ZodBoolean>;
                         commentEdit: z.ZodOptional<z.ZodBoolean>;
                         commentModeration: z.ZodOptional<z.ZodBoolean>;
-                        subplebbitEdit: z.ZodOptional<z.ZodBoolean>;
+                        communityEdit: z.ZodOptional<z.ZodBoolean>;
                     }, z.core.$loose>>;
                 }, z.core.$loose>>>;
                 description: z.ZodOptional<z.ZodString>;
@@ -477,7 +493,7 @@ export declare const SetNewSettingsPlebbitWsServerSchema: z.ZodObject<{
                     name: z.ZodOptional<z.ZodString>;
                     options: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
                     exclude: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                        subplebbit: z.ZodOptional<z.ZodObject<{
+                        community: z.ZodOptional<z.ZodObject<{
                             addresses: z.ZodArray<z.ZodString>;
                             maxCommentCids: z.ZodNumber;
                             postScore: z.ZodOptional<z.ZodNumber>;
@@ -504,15 +520,15 @@ export declare const SetNewSettingsPlebbitWsServerSchema: z.ZodObject<{
                             vote: z.ZodOptional<z.ZodBoolean>;
                             commentEdit: z.ZodOptional<z.ZodBoolean>;
                             commentModeration: z.ZodOptional<z.ZodBoolean>;
-                            subplebbitEdit: z.ZodOptional<z.ZodBoolean>;
+                            communityEdit: z.ZodOptional<z.ZodBoolean>;
                         }, z.core.$loose>>;
                     }, z.core.$loose>>>;
                     description: z.ZodOptional<z.ZodString>;
                     pendingApproval: z.ZodOptional<z.ZodBoolean>;
                 }, z.core.$strict>;
-                challengeRequestMessage: z.ZodCustom<import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor, import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor>;
+                challengeRequestMessage: z.ZodCustom<import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithCommunityAuthor, import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithCommunityAuthor>;
                 challengeIndex: z.ZodNumber;
-                subplebbit: z.ZodCustom<import("../../runtime/node/subplebbit/local-subplebbit.js").LocalSubplebbit, import("../../runtime/node/subplebbit/local-subplebbit.js").LocalSubplebbit>;
+                community: z.ZodCustom<import("../../runtime/node/community/local-community.js").LocalCommunity, import("../../runtime/node/community/local-community.js").LocalCommunity>;
             }, z.core.$strip>], null>, z.ZodPromise<z.ZodUnion<[z.ZodObject<{
                 challenge: z.ZodString;
                 verify: z.ZodFunction<z.ZodTuple<readonly [z.ZodLazy<z.ZodString>], null>, z.ZodPromise<z.ZodUnion<[z.ZodObject<{
@@ -530,23 +546,20 @@ export declare const SetNewSettingsPlebbitWsServerSchema: z.ZodObject<{
                 error: z.ZodString;
             }, z.core.$strip>]>]>>>;
         }, z.core.$strict>>>>>;
+        nameResolvers: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            key: z.ZodString;
+            provider: z.ZodString;
+            dataPath: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>>>;
     }, z.core.$loose>;
 }, z.core.$strip>;
-export declare const PlebbitWsServerSettingsSerializedSchema: z.ZodObject<{
-    plebbitOptions: z.ZodObject<{
+export declare const PKCWsServerSettingsSerializedSchema: z.ZodObject<{
+    pkcOptions: z.ZodObject<{
         ipfsGatewayUrls: z.ZodOptional<z.ZodArray<z.ZodURL>>;
         httpRoutersOptions: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        plebbitRpcClientsOptions: z.ZodOptional<z.ZodArray<z.ZodURL>>;
+        pkcRpcClientsOptions: z.ZodOptional<z.ZodArray<z.ZodURL>>;
         dataPath: z.ZodOptional<z.ZodString>;
-        chainProviders: z.ZodRecord<z.ZodString, z.ZodObject<{
-            urls: z.ZodArray<z.ZodUnion<[z.ZodURL, z.ZodEnum<{
-                viem: "viem";
-                "ethers.js": "ethers.js";
-                "web3.js": "web3.js";
-            }>]>>;
-            chainId: z.ZodNumber;
-        }, z.core.$strip>>;
-        resolveAuthorAddresses: z.ZodBoolean;
+        resolveAuthorNames: z.ZodBoolean;
         libp2pJsClientsOptions: z.ZodOptional<z.ZodArray<z.ZodObject<{
             key: z.ZodString;
             libp2pOptions: z.ZodDefault<z.ZodCustom<Partial<import("libp2p").Libp2pInit<import("helia").DefaultLibp2pServices> & {
@@ -567,7 +580,7 @@ export declare const PlebbitWsServerSettingsSerializedSchema: z.ZodObject<{
                 name: z.ZodOptional<z.ZodString>;
                 options: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
                 exclude: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                    subplebbit: z.ZodOptional<z.ZodObject<{
+                    community: z.ZodOptional<z.ZodObject<{
                         addresses: z.ZodArray<z.ZodString>;
                         maxCommentCids: z.ZodNumber;
                         postScore: z.ZodOptional<z.ZodNumber>;
@@ -594,7 +607,7 @@ export declare const PlebbitWsServerSettingsSerializedSchema: z.ZodObject<{
                         vote: z.ZodOptional<z.ZodBoolean>;
                         commentEdit: z.ZodOptional<z.ZodBoolean>;
                         commentModeration: z.ZodOptional<z.ZodBoolean>;
-                        subplebbitEdit: z.ZodOptional<z.ZodBoolean>;
+                        communityEdit: z.ZodOptional<z.ZodBoolean>;
                     }, z.core.$loose>>;
                 }, z.core.$loose>>>;
                 description: z.ZodOptional<z.ZodString>;
@@ -619,7 +632,7 @@ export declare const PlebbitWsServerSettingsSerializedSchema: z.ZodObject<{
                     name: z.ZodOptional<z.ZodString>;
                     options: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
                     exclude: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                        subplebbit: z.ZodOptional<z.ZodObject<{
+                        community: z.ZodOptional<z.ZodObject<{
                             addresses: z.ZodArray<z.ZodString>;
                             maxCommentCids: z.ZodNumber;
                             postScore: z.ZodOptional<z.ZodNumber>;
@@ -646,15 +659,15 @@ export declare const PlebbitWsServerSettingsSerializedSchema: z.ZodObject<{
                             vote: z.ZodOptional<z.ZodBoolean>;
                             commentEdit: z.ZodOptional<z.ZodBoolean>;
                             commentModeration: z.ZodOptional<z.ZodBoolean>;
-                            subplebbitEdit: z.ZodOptional<z.ZodBoolean>;
+                            communityEdit: z.ZodOptional<z.ZodBoolean>;
                         }, z.core.$loose>>;
                     }, z.core.$loose>>>;
                     description: z.ZodOptional<z.ZodString>;
                     pendingApproval: z.ZodOptional<z.ZodBoolean>;
                 }, z.core.$strict>;
-                challengeRequestMessage: z.ZodCustom<import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor, import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor>;
+                challengeRequestMessage: z.ZodCustom<import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithCommunityAuthor, import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithCommunityAuthor>;
                 challengeIndex: z.ZodNumber;
-                subplebbit: z.ZodCustom<import("../../runtime/node/subplebbit/local-subplebbit.js").LocalSubplebbit, import("../../runtime/node/subplebbit/local-subplebbit.js").LocalSubplebbit>;
+                community: z.ZodCustom<import("../../runtime/node/community/local-community.js").LocalCommunity, import("../../runtime/node/community/local-community.js").LocalCommunity>;
             }, z.core.$strip>], null>, z.ZodPromise<z.ZodUnion<[z.ZodObject<{
                 challenge: z.ZodString;
                 verify: z.ZodFunction<z.ZodTuple<readonly [z.ZodLazy<z.ZodString>], null>, z.ZodPromise<z.ZodUnion<[z.ZodObject<{
@@ -677,7 +690,7 @@ export declare const PlebbitWsServerSettingsSerializedSchema: z.ZodObject<{
                 name: z.ZodOptional<z.ZodString>;
                 options: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
                 exclude: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                    subplebbit: z.ZodOptional<z.ZodObject<{
+                    community: z.ZodOptional<z.ZodObject<{
                         addresses: z.ZodArray<z.ZodString>;
                         maxCommentCids: z.ZodNumber;
                         postScore: z.ZodOptional<z.ZodNumber>;
@@ -704,7 +717,7 @@ export declare const PlebbitWsServerSettingsSerializedSchema: z.ZodObject<{
                         vote: z.ZodOptional<z.ZodBoolean>;
                         commentEdit: z.ZodOptional<z.ZodBoolean>;
                         commentModeration: z.ZodOptional<z.ZodBoolean>;
-                        subplebbitEdit: z.ZodOptional<z.ZodBoolean>;
+                        communityEdit: z.ZodOptional<z.ZodBoolean>;
                     }, z.core.$loose>>;
                 }, z.core.$loose>>>;
                 description: z.ZodOptional<z.ZodString>;
@@ -729,7 +742,7 @@ export declare const PlebbitWsServerSettingsSerializedSchema: z.ZodObject<{
                     name: z.ZodOptional<z.ZodString>;
                     options: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
                     exclude: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                        subplebbit: z.ZodOptional<z.ZodObject<{
+                        community: z.ZodOptional<z.ZodObject<{
                             addresses: z.ZodArray<z.ZodString>;
                             maxCommentCids: z.ZodNumber;
                             postScore: z.ZodOptional<z.ZodNumber>;
@@ -756,15 +769,15 @@ export declare const PlebbitWsServerSettingsSerializedSchema: z.ZodObject<{
                             vote: z.ZodOptional<z.ZodBoolean>;
                             commentEdit: z.ZodOptional<z.ZodBoolean>;
                             commentModeration: z.ZodOptional<z.ZodBoolean>;
-                            subplebbitEdit: z.ZodOptional<z.ZodBoolean>;
+                            communityEdit: z.ZodOptional<z.ZodBoolean>;
                         }, z.core.$loose>>;
                     }, z.core.$loose>>>;
                     description: z.ZodOptional<z.ZodString>;
                     pendingApproval: z.ZodOptional<z.ZodBoolean>;
                 }, z.core.$strict>;
-                challengeRequestMessage: z.ZodCustom<import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor, import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithSubplebbitAuthor>;
+                challengeRequestMessage: z.ZodCustom<import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithCommunityAuthor, import("../../pubsub-messages/types.js").DecryptedChallengeRequestMessageTypeWithCommunityAuthor>;
                 challengeIndex: z.ZodNumber;
-                subplebbit: z.ZodCustom<import("../../runtime/node/subplebbit/local-subplebbit.js").LocalSubplebbit, import("../../runtime/node/subplebbit/local-subplebbit.js").LocalSubplebbit>;
+                community: z.ZodCustom<import("../../runtime/node/community/local-community.js").LocalCommunity, import("../../runtime/node/community/local-community.js").LocalCommunity>;
             }, z.core.$strip>], null>, z.ZodPromise<z.ZodUnion<[z.ZodObject<{
                 challenge: z.ZodString;
                 verify: z.ZodFunction<z.ZodTuple<readonly [z.ZodLazy<z.ZodString>], null>, z.ZodPromise<z.ZodUnion<[z.ZodObject<{
@@ -784,6 +797,31 @@ export declare const PlebbitWsServerSettingsSerializedSchema: z.ZodObject<{
         }, z.core.$strict>>>>>;
         kuboRpcClientsOptions: z.ZodOptional<z.ZodCustom<import("kubo-rpc-client").Options[], import("kubo-rpc-client").Options[]>>;
         pubsubKuboRpcClientsOptions: z.ZodOptional<z.ZodCustom<import("kubo-rpc-client").Options[], import("kubo-rpc-client").Options[]>>;
+        nameResolvers: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            key: z.ZodString;
+            resolve: z.ZodCustom<(opts: {
+                name: string;
+                provider: string;
+                abortSignal?: AbortSignal;
+            }) => Promise<{
+                publicKey: string;
+                [key: string]: string;
+            } | undefined>, (opts: {
+                name: string;
+                provider: string;
+                abortSignal?: AbortSignal;
+            }) => Promise<{
+                publicKey: string;
+                [key: string]: string;
+            } | undefined>>;
+            canResolve: z.ZodCustom<(opts: {
+                name: string;
+            }) => boolean, (opts: {
+                name: string;
+            }) => boolean>;
+            provider: z.ZodString;
+            dataPath: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>>>;
     }, z.core.$loose>;
     challenges: z.ZodRecord<z.ZodString, z.ZodObject<{
         type: z.ZodString;
