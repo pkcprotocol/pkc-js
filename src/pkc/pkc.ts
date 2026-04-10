@@ -226,6 +226,14 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
                     writable: true,
                     configurable: true
                 });
+                if (resolver.destroy) {
+                    Object.defineProperty(resolver, "destroy", {
+                        enumerable: false,
+                        value: resolver.destroy,
+                        writable: true,
+                        configurable: true
+                    });
+                }
             }
         }
 
@@ -1123,6 +1131,10 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         await Promise.all(Object.values(this.clients.libp2pJsClients).map((client) => client.heliaWithKuboRpcClientFunctions.stop()));
 
         await Promise.all(Object.values(this.clients.pkcRpcClients).map((client) => client.destroy()));
+
+        if (this.nameResolvers) {
+            await Promise.all(this.nameResolvers.map((resolver) => resolver.destroy?.()));
+        }
 
         // Get all methods on the instance and override them to throw errors if used after destruction
         Object.getOwnPropertyNames(Object.getPrototypeOf(this))

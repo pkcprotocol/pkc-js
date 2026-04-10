@@ -286,6 +286,26 @@ describe(`pkc.destroy`, async () => {
         await pkc.destroy(); // should not throw
         expect(community.state).to.equal("stopped");
     });
+
+    it(`pkc.destroy() calls destroy() on each name resolver`, async () => {
+        let destroyCalled = false;
+        const mockResolver = {
+            key: "test-resolver",
+            resolve: async (): Promise<{ publicKey: string; [key: string]: string } | undefined> => undefined,
+            canResolve: (): boolean => true,
+            provider: "test-provider",
+            destroy: async () => {
+                destroyCalled = true;
+            }
+        };
+        const pkc = await PKC({
+            nameResolvers: [mockResolver],
+            httpRoutersOptions: []
+        });
+        expect(destroyCalled).to.be.false;
+        await pkc.destroy();
+        expect(destroyCalled).to.be.true;
+    });
 });
 
 describeIfRpc(`pkc.clients.pkcRpcClients`, async () => {

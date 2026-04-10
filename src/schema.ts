@@ -46,11 +46,16 @@ export const NameResolverSchema = z.object({
         message: "canResolve must be a function"
     }),
     provider: z.string().min(1),
-    dataPath: z.string().optional() // Optional filesystem path for persistent cache storage. Resolvers can use this to store cached resolution results across restarts.
+    dataPath: z.string().optional(), // Optional filesystem path for persistent cache storage. Resolvers can use this to store cached resolution results across restarts.
+    destroy: z
+        .custom<() => Promise<void>>((val) => typeof val === "function", {
+            message: "destroy must be a function"
+        })
+        .optional()
 });
 
 // Serialized variant without function props — for RPC transport where functions can't survive JSON serialization
-export const NameResolverSerializedSchema = NameResolverSchema.omit({ resolve: true, canResolve: true });
+export const NameResolverSerializedSchema = NameResolverSchema.omit({ resolve: true, canResolve: true, destroy: true });
 
 const TransformKuboRpcClientOptionsSchema = KuboRpcCreateClientOptionSchema.array().transform((options) =>
     options.map(parseIpfsRawOptionToIpfsOptions)
