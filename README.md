@@ -1,4 +1,4 @@
-*Telegram group for this repo https://t.me/plebbitjs*
+*Telegram group for this repo https://t.me/pkc_js*
 
 `pkc-js` is an NPM module to wrap around the IPFS APIs used by PKC. It is used in all clients: CLI, Electron (desktop GUI) and web.
 
