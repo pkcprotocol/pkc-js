@@ -29,7 +29,7 @@
         "test:server:wait-on": "wait-on http://localhost:14952 --timeout 300000",
         "clean": "rimraf dist",
         "prettier": "prettier {src,test,config}/**/*.{js,ts} --write --config config/prettier.config.js",
-        "test:prettier": "prettier-check {src,test,config}/**/*.{js,ts} --config config/prettier.config.js",
+        "test:prettier": "prettier --check {src,test,config}/**/*.{js,ts} --config config/prettier.config.js",
         "commit": "cz",
         "release": "HUSKY=0 release-it --config config/.release-it.json",
         "prepare": "husky"
@@ -90,7 +90,6 @@
         "helia": "6.0.20",
         "hpagent": "1.2.0",
         "it-all": "3.0.6",
-        "jose": "4.11.0",
         "js-sha256": "0.11.1",
         "js-sha512": "0.9.0",
         "kubo-rpc-client": "6.1.0",
@@ -148,7 +147,6 @@
         "npm-run-all": "4.1.5",
         "playwright": "1.56.1",
         "prettier": "3.2.4",
-        "prettier-check": "2.0.0",
         "release-it": "19.2.4",
         "rimraf": "6.1.3",
         "sinon": "17.0.1",
@@ -156,9 +154,9 @@
         "socket.io-client": "4.8.1",
         "tempy": "1.0.1",
         "typescript": "5.9.3",
-        "vite": "7.2.6",
+        "vite": "~7.3.2",
         "vitest": "4.0.15",
-        "wait-on": "6.0.1"
+        "wait-on": "^9.0.4"
     },
     "description": "pkc-js is an NPM module to wrap around the IPFS APIs used by PKC. It is used in all clients: CLI, Electron (Desktop GUI) and Web.",
     "publishConfig": {
@@ -208,5 +206,10 @@
     },
     "lint-staged": {
         "{src,test,config}/**/*.{js,ts}": "prettier --write --config config/prettier.config.js"
+    },
+    "overrides": {
+        "release-it": {
+            "undici": "^7.24.7"
+        }
     }
 }
