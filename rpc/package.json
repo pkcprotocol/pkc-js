@@ -6,7 +6,7 @@
         "community"
     ],
     "repository": "github:pkcprotocol/pkc-js",
-    "license": "GPL-2.0",
+    "license": "GPL-3.0-or-later",
     "publishConfig": {
         "access": "public"
     },
