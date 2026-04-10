@@ -161,6 +161,9 @@
         "wait-on": "6.0.1"
     },
     "description": "pkc-js is an NPM module to wrap around the IPFS APIs used by PKC. It is used in all clients: CLI, Electron (Desktop GUI) and Web.",
+    "publishConfig": {
+        "access": "public"
+    },
     "repository": {
         "type": "git",
         "url": "git+https://github.com/pkcprotocol/pkc-js.git"

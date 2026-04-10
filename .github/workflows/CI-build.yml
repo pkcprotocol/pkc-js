@@ -1,4 +1,4 @@
-# build and commit the dist folder after successful CI
+# build and release after successful CI
 name: CI build
 
 on:
@@ -13,40 +13,48 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
     if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'master' }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
+          ref: master
           fetch-depth: 0
-      - uses: actions/setup-node@v3
+
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
-          registry-url: 'https://registry.npmjs.org'
 
-      # build dist folder
       - run: npm ci
       - run: npm run build
 
-      # set git config for release-it
-      - run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Set up Git author
+        run: |
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
 
-      # create github release with tags and changelog
-      # dist files are included via before:git:release hook in .release-it.json
-      - run: npm run release -- --ci
+      - name: Get current version
+        id: before
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Run release-it
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        continue-on-error: true
-        id: release
+        run: npm run release -- --ci || true
 
-      # commit dist separately if release-it didn't create a release
-      - name: Commit dist if needed
+      - name: Check if released
+        id: release
         run: |
-          if [ -n "$(git status --porcelain dist)" ]; then
-            git add dist --force
-            git commit -m "chore: update dist"
-            git push
+          AFTER=$(node -p "require('./package.json').version")
+          if [ "${{ steps.before.outputs.version }}" != "$AFTER" ]; then
+            echo "Released v$AFTER"
+            echo "released=true" >> $GITHUB_OUTPUT
+          else
+            echo "No new version to release"
+            echo "released=false" >> $GITHUB_OUTPUT
           fi
+
+      - name: Publish to npm
+        if: steps.release.outputs.released == 'true'
+        run: npx --yes npm@latest publish --access public --provenance

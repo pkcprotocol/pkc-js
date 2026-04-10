@@ -1,23 +1,23 @@
 {
   "git": {
-    "commitMessage": "chore(release): ${version} [skip ci]",
+    "requireCleanWorkingDir": false,
+    "requireCommits": true,
+    "commit": false,
+    "tagAnnotation": "v${version}",
     "tagName": "v${version}",
-    "requireCleanWorkingDir": false
+    "push": true,
+    "pushArgs": ["--follow-tags"]
   },
-  "npm": {
-    "publish": true
-  },
+  "npm": { "publish": false },
   "github": {
     "release": true,
     "releaseName": "v${version}"
-  },
-  "hooks": {
-    "before:git:release": "git add docs/CHANGELOG.md package.json && git add dist --force"
   },
   "plugins": {
     "@release-it/conventional-changelog": {
       "preset": {
         "name": "conventionalcommits",
+        "preMajor": true,
         "types": [
           { "type": "feat", "section": "Features" },
           { "type": "fix", "section": "Bug Fixes" },
@@ -30,8 +30,7 @@
       "header": "# Changelog"
     }
   },
-  "version": {
-    "isPreRelease": false,
-    "preMajor": true
+  "hooks": {
+    "before:git:release": "git add docs/CHANGELOG.md package.json && git commit -m 'chore(release): ${version} [skip ci]'"
   }
 }
