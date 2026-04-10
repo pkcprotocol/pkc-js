@@ -3,5 +3,7 @@ export type {
     ChallengeInput,
     ChallengeResultInput,
     GetChallengeArgsInput,
-    CommunityChallengeSetting
+    CommunityChallengeSetting,
+    ChallengeFileFactoryInput,
+    ChallengeFileFactoryArgs
 } from "./community/types.js";
