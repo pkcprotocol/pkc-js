@@ -191,7 +191,7 @@
         "nodejs"
     ],
     "author": "Esteban Abaroa, Rinse",
-    "license": "GPL-3.0-only",
+    "license": "GPL-3.0-or-later",
     "bugs": {
         "url": "https://github.com/pkcprotocol/pkc-js/issues"
     },
