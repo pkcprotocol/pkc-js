@@ -155,18 +155,17 @@ export class DbHandler {
         const dbFilePath = this._dbConfig.filename;
         if (!this._db || !this._db.open) {
             this._db = new Database(dbFilePath, { ...this._dbConfig, ...dbConfigOptions });
-            try {
+            if (!this._db.readonly) {
                 this._db.pragma("journal_mode = WAL");
-            } catch (e) {
-                log(`Could not set WAL journal mode for ${dbFilePath}`, e);
-                throw e;
             }
             log("initialized a new connection to db", dbFilePath);
         }
         if (!this._keyv) {
-            this._keyv = new KeyvBetterSqlite3(this._db);
-            // Rename old keyv keys from pre-rebranding databases (subplebbit → community)
-            this._db.exec(`UPDATE keyv SET key = 'keyv:INTERNAL_COMMUNITY' WHERE key = 'keyv:INTERNAL_SUBPLEBBIT'`);
+            this._keyv = new KeyvBetterSqlite3(this._db, this._db.readonly ? { createTable: false } : undefined);
+            if (!this._db.readonly) {
+                // Rename old keyv keys from pre-rebranding databases (subplebbit → community)
+                this._db.exec(`UPDATE keyv SET key = 'keyv:INTERNAL_COMMUNITY' WHERE key = 'keyv:INTERNAL_SUBPLEBBIT'`);
+            }
         }
     }
 
@@ -217,7 +216,9 @@ export class DbHandler {
     destoryConnection() {
         const log = Logger("pkc-js:local-community:dbHandler:destroyConnection");
         if (this._db && this._db.open) {
-            this._db.exec("PRAGMA checkpoint"); // write all wal to disk
+            if (!this._db.readonly) {
+                this._db.exec("PRAGMA wal_checkpoint"); // write all wal to disk
+            }
             this._db.close();
         }
         if (this._keyv) this._keyv.disconnect();
