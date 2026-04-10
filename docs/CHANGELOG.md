@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.13](https://github.com/pkcprotocol/pkc-js/compare/v0.0.12...v0.0.13) (2026-04-10)
+
+### Bug Fixes
+
+* rename INTERNAL_SUBPLEBBIT keyv key for pre-rebranding community DBs ([5ee9d35](https://github.com/pkcprotocol/pkc-js/commit/5ee9d35553e974c0070e0eb8d0445c28d61c2ab0))
+* skip write operations when opening db in readonly mode ([62b403f](https://github.com/pkcprotocol/pkc-js/commit/62b403f88c00df5b311342303bd6a7b2b8021488))
+
 ## [0.0.12](https://github.com/pkcprotocol/pkc-js/compare/v0.0.11...v0.0.12) (2026-04-10)
 
 ### Features
