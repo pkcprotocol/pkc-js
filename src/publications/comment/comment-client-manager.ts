@@ -598,7 +598,12 @@ export class CommentClientsManager extends PublicationClientsManager {
             return;
         }
 
-        if (!community.raw.communityIpfs) throw Error("Community IPFS should be defined when an update is emitted");
+        if (!community.raw.communityIpfs) {
+            // communityIpfs can be undefined after key migration (_clearDataForKeyMigration clears it).
+            // Skip this update; the community will re-fetch with the new key and emit another update.
+            log("community.raw.communityIpfs is undefined (likely key migration in progress), skipping this update");
+            return;
+        }
         // let's try to find a CommentUpdate in community pages, or _updatingComments
         // this._communityForUpdating!.community.raw.communityIpfs?.posts.
 
