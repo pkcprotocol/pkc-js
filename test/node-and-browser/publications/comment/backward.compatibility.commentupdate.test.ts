@@ -16,7 +16,7 @@ import validCommentUpdateFixture from "../../../fixtures/signatures/comment/comm
 import * as remeda from "remeda";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { describe, it, beforeAll, afterAll } from "vitest";
-import Logger from "@pkc/pkc-logger";
+import Logger from "@pkcprotocol/pkc-logger";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { RemoteCommunity } from "../../../../dist/node/community/remote-community.js";

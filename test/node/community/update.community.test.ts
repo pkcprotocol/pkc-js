@@ -1,4 +1,4 @@
-import lockfile from "@pkc/proper-lock-file";
+import lockfile from "@pkcprotocol/proper-lock-file";
 import path from "path";
 import {
     createSubWithNoChallenge,

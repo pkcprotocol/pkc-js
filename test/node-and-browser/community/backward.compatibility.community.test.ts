@@ -8,7 +8,7 @@ import {
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
 import { _signJson } from "../../../dist/node/signer/signatures.js";
-import Logger from "@pkc/pkc-logger";
+import Logger from "@pkcprotocol/pkc-logger";
 import { describe, it, afterAll, beforeAll } from "vitest";
 
 import type { PKCError } from "../../../dist/node/pkc-error.js";

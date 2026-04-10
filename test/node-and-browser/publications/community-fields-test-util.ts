@@ -1,7 +1,7 @@
 import signers from "../../fixtures/signers.js";
 import { _signJson, cleanUpBeforePublishing } from "../../../dist/node/signer/signatures.js";
 import validCommentIpfsFixture from "../../fixtures/signatures/comment/commentUpdate/valid_comment_ipfs.json" with { type: "json" };
-import Logger from "@pkc/pkc-logger";
+import Logger from "@pkcprotocol/pkc-logger";
 import { expect } from "vitest";
 import type { SignerType } from "../../../dist/node/signer/types.js";
 import type Publication from "../../../dist/node/publications/publication.js";

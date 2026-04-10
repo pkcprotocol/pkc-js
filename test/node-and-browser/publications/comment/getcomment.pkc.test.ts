@@ -13,7 +13,7 @@ import validCommentAuthorAddressDomainFixture from "../../../fixtures/signatures
 import { messages } from "../../../../dist/node/errors.js";
 import { getPKCAddressFromPublicKeySync } from "../../../../dist/node/signer/util.js";
 import { _signJson, cleanUpBeforePublishing } from "../../../../dist/node/signer/signatures.js";
-import Logger from "@pkc/pkc-logger";
+import Logger from "@pkcprotocol/pkc-logger";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { PKCError } from "../../../../dist/node/pkc-error.js";
 

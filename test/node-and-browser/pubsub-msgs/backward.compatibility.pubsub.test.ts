@@ -15,7 +15,7 @@ import { describe, it, beforeAll, afterAll } from "vitest";
 
 import { _signJson, _signPubsubMsg } from "../../../dist/node/signer/signatures.js";
 import { messages } from "../../../dist/node/errors.js";
-import Logger from "@pkc/pkc-logger";
+import Logger from "@pkcprotocol/pkc-logger";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 
 // Types for pubsub messages and errors

@@ -1,4 +1,4 @@
-import BaseLogger from "@pkc/pkc-logger";
+import BaseLogger from "@pkcprotocol/pkc-logger";
 
 interface Logger {
     (formatter: any, ...args: any[]): void;

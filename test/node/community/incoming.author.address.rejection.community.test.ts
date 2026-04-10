@@ -1,5 +1,5 @@
 import { beforeAll, afterAll, it, expect } from "vitest";
-import Logger from "@pkc/pkc-logger";
+import Logger from "@pkcprotocol/pkc-logger";
 import signers from "../../fixtures/signers.js";
 import {
     createSubWithNoChallenge,

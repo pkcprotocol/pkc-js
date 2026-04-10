@@ -11,7 +11,7 @@ import {
     forceLocalSubPagesToAlwaysGenerateMultipleChunks,
     publishCommentWithDepth
 } from "../../../dist/node/test/test-util.js";
-import Logger from "@pkc/pkc-logger";
+import Logger from "@pkcprotocol/pkc-logger";
 import { describe, it, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 
 import type { PKC } from "../../../dist/node/pkc/pkc.js";

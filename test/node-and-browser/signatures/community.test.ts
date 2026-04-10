@@ -14,7 +14,7 @@ import validCommunityFixture from "../../fixtures/signatures/community/valid_com
 import newFormatFixture from "../../fixtures/signatures/community/valid_community_ipfs_new_format.json" with { type: "json" };
 import newFormatWithNameFixture from "../../fixtures/signatures/community/valid_community_ipfs_new_format_with_name.json" with { type: "json" };
 import { removeUndefinedValuesRecursively } from "../../../dist/node/util.js";
-import Logger from "@pkc/pkc-logger";
+import Logger from "@pkcprotocol/pkc-logger";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { CommunityIpfsType } from "../../../dist/node/community/types.js";

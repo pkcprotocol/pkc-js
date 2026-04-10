@@ -244,8 +244,8 @@ After removing `captcha-canvas-v3`, `mintpass`, `voucher`, and extracting `evm-c
 
 ### 2.2 External Dependencies (Document for Later)
 The following dependencies are in the @plebbit namespace and need separate repository work (rename AFTER pkc-js rename):
-- [x] `@plebbit/plebbit-logger` → `@pkc/pkc-logger` - Done
-- [x] `@plebbit/proper-lockfile` → `@pkc/proper-lock-file` - Done
+- [x] `@plebbit/plebbit-logger` → `@pkcprotocol/pkc-logger` - Done
+- [x] `@plebbit/proper-lockfile` → `@pkcprotocol/proper-lock-file` - Done
 
 ### 2.3 RPC Package Configuration
 - [x] **rpc/package.json** - Update keywords
@@ -1286,8 +1286,8 @@ These repositories are outside plebbit-js but will need coordinated updates:
 
 | Repository | Changes Needed | Status |
 |------------|---------------|--------|
-| @plebbit/plebbit-logger | Renamed to @pkc/pkc-logger | [x] Done |
-| @plebbit/proper-lockfile | Renamed to @pkc/proper-lock-file | [x] Done |
+| @plebbit/plebbit-logger | Renamed to @pkcprotocol/pkc-logger | [x] Done |
+| @plebbit/proper-lockfile | Renamed to @pkcprotocol/proper-lock-file | [x] Done |
 | plebbit-cli | Directory migration: `.plebbit/` → `.pkc/` and `subplebbits/` → `communities/`, API updates, install name resolvers | [ ] Not Started |
 | Desktop apps | Directory migration: `.plebbit/` → `.pkc/` and `subplebbits/` → `communities/`, API updates, install name resolvers | [ ] Not Started |
 | plebbit-js-benchmarks | Rename repo to pkc-js-benchmarks, update all plebbit/subplebbit references | [ ] Not Started |
