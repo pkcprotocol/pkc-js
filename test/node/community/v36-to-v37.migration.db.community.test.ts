@@ -1061,6 +1061,66 @@ describeSkipIfRpc("v36 → v37 DB migration (subplebbitAddress → communityPubl
         });
     });
 
+    describe("Keyv key rename: INTERNAL_SUBPLEBBIT → INTERNAL_COMMUNITY (on initDbIfNeeded)", () => {
+        // The rename must happen in initDbIfNeeded(), not createOrMigrateTablesIfNeeded(),
+        // because createCommunity() calls _getDbInternalState() before migration runs.
+        let keyvDbHandler: DbHandler | undefined;
+
+        afterAll(() => {
+            if (keyvDbHandler) {
+                keyvDbHandler.destoryConnection();
+                keyvDbHandler = undefined;
+            }
+        });
+
+        beforeAll(async () => {
+            const fakeCommunity = createFakeCommunity(IPNS_ADDRESS);
+            keyvDbHandler = new DbHandler(fakeCommunity as unknown as LocalCommunity);
+
+            // First init — creates the DB and keyv table
+            await keyvDbHandler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
+
+            const priv = getPrivate(keyvDbHandler);
+            const db = priv._db;
+
+            // Insert a keyv row with the OLD key name (pre-rebranding)
+            const fakeInternalState = {
+                value: {
+                    address: IPNS_ADDRESS,
+                    createdAt: now,
+                    protocolVersion: "1.0.0",
+                    encryption: { type: "ed25519-aes-gcm", publicKey: "fakePubKey" },
+                    signer: { publicKey: "fakePubKey", privateKey: "fakePrivKey" },
+                    settings: {},
+                    _usingDefaultChallenge: true,
+                    _internalStateUpdateId: "fake-uuid"
+                }
+            };
+            db.prepare(`INSERT INTO keyv (key, value) VALUES (?, ?)`).run("keyv:INTERNAL_SUBPLEBBIT", JSON.stringify(fakeInternalState));
+
+            // Reset _keyv to null so the next initDbIfNeeded call re-creates it and triggers the rename
+            (priv as unknown as Record<string, unknown>)._keyv = undefined;
+            await keyvDbHandler.initDbIfNeeded();
+        });
+
+        it("old INTERNAL_SUBPLEBBIT key no longer exists", () => {
+            const priv = getPrivate(keyvDbHandler!);
+            const row = priv._db.prepare("SELECT * FROM keyv WHERE key = ?").get("keyv:INTERNAL_SUBPLEBBIT");
+            expect(row).to.be.undefined;
+        });
+
+        it("new INTERNAL_COMMUNITY key exists with the migrated state", () => {
+            const priv = getPrivate(keyvDbHandler!);
+            const row = priv._db.prepare("SELECT * FROM keyv WHERE key = ?").get("keyv:INTERNAL_COMMUNITY") as
+                | { key: string; value: string }
+                | undefined;
+            expect(row).to.exist;
+            const parsed = JSON.parse(row!.value);
+            expect(parsed.value.address).to.equal(IPNS_ADDRESS);
+            expect(parsed.value.createdAt).to.equal(now);
+        });
+    });
+
     describe("CHECK constraint enforcement", () => {
         let constraintDbHandler: DbHandler | undefined;
 

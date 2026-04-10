@@ -163,7 +163,11 @@ export class DbHandler {
             }
             log("initialized a new connection to db", dbFilePath);
         }
-        if (!this._keyv) this._keyv = new KeyvBetterSqlite3(this._db);
+        if (!this._keyv) {
+            this._keyv = new KeyvBetterSqlite3(this._db);
+            // Rename old keyv keys from pre-rebranding databases (subplebbit → community)
+            this._db.exec(`UPDATE keyv SET key = 'keyv:INTERNAL_COMMUNITY' WHERE key = 'keyv:INTERNAL_SUBPLEBBIT'`);
+        }
     }
 
     async createOrMigrateTablesIfNeeded() {
