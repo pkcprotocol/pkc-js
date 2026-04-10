@@ -378,6 +378,7 @@ PubsubSignature {
 
 - [bitsocial-cli](https://github.com/bitsocialnet/bitsocial-cli) - CLI client for the Bitsocial protocol
 - [bitsocial-react-hooks](https://github.com/bitsocialnet/bitsocial-react-hooks) - React hooks for building Bitsocial protocol UIs
+- [bso-resolver](https://github.com/bitsocialnet/bso-resolver) - Resolves .bso human readable names to PKC cryptographic identities
 
 # API
 
