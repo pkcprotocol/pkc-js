@@ -9,7 +9,9 @@ import {
     ProtocolVersionSchema,
     PublicationBaseBeforeSigning,
     SignerWithAddressPublicKeySchema,
-    CommunityAuthorSchema
+    CommunityAuthorSchema,
+    hasAtLeastOneCommunityIdentifier,
+    atLeastOneCommunityIdentifierMessage
 } from "../../schema/schema.js";
 import { CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema } from "../comment-edit/schema.js";
 import * as remeda from "remeda";
@@ -51,7 +53,9 @@ export const CreateCommentOptionsSchema = z
 export const CreateCommentOptionsWithRefinementSchema = CreateCommentOptionsSchema.refine(
     (arg) => arg.link || arg.content || arg.title,
     messages.ERR_COMMENT_HAS_NO_CONTENT_LINK_TITLE
-).refine((arg) => (arg.parentCid ? arg.postCid : true), messages.ERR_REPLY_HAS_NOT_DEFINED_POST_CID);
+)
+    .refine((arg) => (arg.parentCid ? arg.postCid : true), messages.ERR_REPLY_HAS_NOT_DEFINED_POST_CID)
+    .refine(hasAtLeastOneCommunityIdentifier, atLeastOneCommunityIdentifierMessage);
 
 // Below is what's used to initialize a local publication to be published
 

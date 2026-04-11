@@ -8,7 +8,9 @@ import {
     JsonSignatureSchema,
     PublicationBaseBeforeSigning,
     PKCTimestampSchema,
-    SignerWithAddressPublicKeySchema
+    SignerWithAddressPublicKeySchema,
+    hasAtLeastOneCommunityIdentifier,
+    atLeastOneCommunityIdentifierMessage
 } from "../../schema/schema.js";
 import * as remeda from "remeda";
 import { keysToOmitFromSignedPropertyNames } from "../../signer/constants.js";
@@ -26,6 +28,11 @@ export const AuthorCommentEditOptionsSchema = z
     .strict();
 
 export const CreateCommentEditOptionsSchema = CreatePublicationUserOptionsSchema.merge(AuthorCommentEditOptionsSchema).strict();
+
+export const CreateCommentEditOptionsWithRefinementSchema = CreateCommentEditOptionsSchema.refine(
+    hasAtLeastOneCommunityIdentifier,
+    atLeastOneCommunityIdentifierMessage
+);
 
 export const CommentEditSignedPropertyNames = remeda.keys.strict(
     remeda.omit(CreateCommentEditOptionsSchema.shape, keysToOmitFromSignedPropertyNames)

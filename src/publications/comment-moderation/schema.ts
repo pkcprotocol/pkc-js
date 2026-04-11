@@ -7,7 +7,9 @@ import {
     PKCTimestampSchema,
     PublicationBaseBeforeSigning,
     SignerWithAddressPublicKeySchema,
-    CommunityAuthorSchema
+    CommunityAuthorSchema,
+    hasAtLeastOneCommunityIdentifier,
+    atLeastOneCommunityIdentifierMessage
 } from "../../schema/schema.js";
 import * as remeda from "remeda";
 import { keysToOmitFromSignedPropertyNames } from "../../signer/constants.js";
@@ -32,6 +34,11 @@ export const CreateCommentModerationOptionsSchema = CreatePublicationUserOptions
     commentModeration: ModeratorOptionsSchema.loose(),
     commentCid: CidStringSchema
 }).strict();
+
+export const CreateCommentModerationOptionsWithRefinementSchema = CreateCommentModerationOptionsSchema.refine(
+    hasAtLeastOneCommunityIdentifier,
+    atLeastOneCommunityIdentifierMessage
+);
 
 // ChallengeRequest.publication
 

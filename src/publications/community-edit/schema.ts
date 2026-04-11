@@ -1,11 +1,22 @@
 import { CommunityEditOptionsSchema } from "../../community/schema.js";
-import { CreatePublicationUserOptionsSchema, JsonSignatureSchema, PublicationBaseBeforeSigning } from "../../schema/schema.js";
+import {
+    CreatePublicationUserOptionsSchema,
+    JsonSignatureSchema,
+    PublicationBaseBeforeSigning,
+    hasAtLeastOneCommunityIdentifier,
+    atLeastOneCommunityIdentifierMessage
+} from "../../schema/schema.js";
 import * as remeda from "remeda";
 import { keysToOmitFromSignedPropertyNames } from "../../signer/constants.js";
 
 export const CreateCommunityEditPublicationOptionsSchema = CreatePublicationUserOptionsSchema.extend({
     communityEdit: CommunityEditOptionsSchema.strict()
 }).strict();
+
+export const CreateCommunityEditPublicationOptionsWithRefinementSchema = CreateCommunityEditPublicationOptionsSchema.refine(
+    hasAtLeastOneCommunityIdentifier,
+    atLeastOneCommunityIdentifierMessage
+);
 
 export const CommunityEditPublicationSignedPropertyNames = remeda.keys.strict(
     remeda.omit(CreateCommunityEditPublicationOptionsSchema.shape, keysToOmitFromSignedPropertyNames)

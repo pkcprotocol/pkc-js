@@ -73,6 +73,65 @@ describe("CommunityEdit - community fields", () => {
         });
     });
 
+    it("only communityPublicKey: derives communityAddress, eagerly signs", async () => {
+        const signer = await pkc.createSigner();
+        const subEdit = await pkc.createCommunityEdit({
+            communityPublicKey: signers[0].address,
+            communityEdit: { description: "test" },
+            signer
+        });
+        expect(subEdit.communityAddress).to.equal(signers[0].address);
+        expect(subEdit.communityPublicKey).to.equal(signers[0].address);
+        expect(subEdit.communityName).to.be.undefined;
+        expectEagerSignedLocalPublication({
+            publication: subEdit,
+            type: "communityEdit",
+            communityPublicKey: signers[0].address
+        });
+    });
+
+    it("only communityName: derives communityAddress, deferred signing", async () => {
+        const signer = await pkc.createSigner();
+        const subEdit = await pkc.createCommunityEdit({
+            communityName: "test.eth",
+            communityEdit: { description: "test" },
+            signer
+        });
+        expect(subEdit.communityAddress).to.equal("test.eth");
+        expect(subEdit.communityPublicKey).to.be.undefined;
+        expect(subEdit.communityName).to.equal("test.eth");
+        expectDeferredUnsignedLocalPublication(subEdit);
+    });
+
+    it("communityPublicKey + communityName: derives communityAddress from name, eagerly signs", async () => {
+        const signer = await pkc.createSigner();
+        const subEdit = await pkc.createCommunityEdit({
+            communityPublicKey: signers[0].address,
+            communityName: "myforum.eth",
+            communityEdit: { description: "test" },
+            signer
+        });
+        expect(subEdit.communityAddress).to.equal("myforum.eth");
+        expect(subEdit.communityPublicKey).to.equal(signers[0].address);
+        expect(subEdit.communityName).to.equal("myforum.eth");
+        expectEagerSignedLocalPublication({
+            publication: subEdit,
+            type: "communityEdit",
+            communityPublicKey: signers[0].address,
+            communityName: "myforum.eth"
+        });
+    });
+
+    it("throws when none of communityAddress, communityPublicKey, communityName provided", async () => {
+        const signer = await pkc.createSigner();
+        await expect(
+            pkc.createCommunityEdit({
+                communityEdit: { description: "test" },
+                signer
+            } as any)
+        ).rejects.toThrow();
+    });
+
     it("signed PubsubMessage with communityPublicKey + communityName sets both", async () => {
         const signedMsg = await buildSignedPubsubMessage({
             signer: signers[0],

@@ -84,7 +84,7 @@ export const ChallengeAnswersSchema = ChallengeAnswerStringSchema.array().nonemp
 export const CreatePublicationUserOptionsSchema = z.object({
     signer: CreateSignerSchema,
     author: AuthorPubsubSchema.partial().loose().optional(),
-    communityAddress: CommunityAddressSchema,
+    communityAddress: CommunityAddressSchema.optional(), // derived as communityName || communityPublicKey if not provided
     communityPublicKey: z.string().min(1).optional(), // IPNS key of the community; optional in schema for backward compat with old CommentIpfs, but communities mandate it on new incoming publications
     communityName: z.string().min(1).optional(), // domain name of the community, if any
     protocolVersion: ProtocolVersionSchema.optional(),
@@ -97,6 +97,13 @@ export const CreatePublicationUserOptionsSchema = z.object({
         })
         .optional()
 });
+
+// Reusable refinement for publication creation: at least one community identifier must be provided
+export function hasAtLeastOneCommunityIdentifier(opts: { communityAddress?: string; communityPublicKey?: string; communityName?: string }) {
+    return !!(opts.communityAddress || opts.communityPublicKey || opts.communityName);
+}
+export const atLeastOneCommunityIdentifierMessage =
+    "At least one of communityAddress, communityPublicKey, or communityName must be provided";
 
 export const JsonSignatureSchema = z.object({
     type: z.string().min(1),

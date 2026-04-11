@@ -496,8 +496,13 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         const filledSigner = await this.createSigner(finalOptions.signer);
         const filledProtocolVersion = finalOptions.protocolVersion || env.PROTOCOL_VERSION;
 
+        // Derive communityAddress from communityName or communityPublicKey if not explicitly provided
+        // The refinement schema guarantees at least one of these is present
+        const communityAddress = (finalOptions.communityAddress || finalOptions.communityName || finalOptions.communityPublicKey)!;
+
         return {
             ...finalOptions,
+            communityAddress,
             timestamp: filledTimestamp,
             signer: filledSigner,
             author: cleanedAuthor,
@@ -568,9 +573,14 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
 
         const commentInstance = new Comment(this);
         if ("communityAddress" in options && options.communityAddress)
-            commentInstance.setCommunityAddress(parseCommunityAddressWithPKCErrorIfItFails(options.communityAddress));
+            commentInstance.setCommunityAddress(parseCommunityAddressWithPKCErrorIfItFails(options.communityAddress as string));
         else if ("subplebbitAddress" in options && options.subplebbitAddress)
             commentInstance.setCommunityAddress(parseCommunityAddressWithPKCErrorIfItFails(options.subplebbitAddress as string));
+        // Derive communityAddress from communityName or communityPublicKey if not provided
+        else if ("communityName" in options && typeof options.communityName === "string")
+            commentInstance.setCommunityAddress(options.communityName);
+        else if ("communityPublicKey" in options && typeof options.communityPublicKey === "string")
+            commentInstance.setCommunityAddress(options.communityPublicKey);
 
         if ("communityPublicKey" in options && typeof options.communityPublicKey === "string")
             commentInstance.communityPublicKey = options.communityPublicKey;

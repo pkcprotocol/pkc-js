@@ -7,7 +7,9 @@ import {
     JsonSignatureSchema,
     PKCTimestampSchema,
     PublicationBaseBeforeSigning,
-    SignerWithAddressPublicKeySchema
+    SignerWithAddressPublicKeySchema,
+    hasAtLeastOneCommunityIdentifier,
+    atLeastOneCommunityIdentifierMessage
 } from "../../schema/schema.js";
 import * as remeda from "remeda";
 import { keysToOmitFromSignedPropertyNames } from "../../signer/constants.js";
@@ -16,6 +18,11 @@ export const CreateVoteUserOptionsSchema = CreatePublicationUserOptionsSchema.ex
     commentCid: CidStringSchema,
     vote: z.union([z.literal(1), z.literal(0), z.literal(-1)])
 }).strict();
+
+export const CreateVoteUserOptionsWithRefinementSchema = CreateVoteUserOptionsSchema.refine(
+    hasAtLeastOneCommunityIdentifier,
+    atLeastOneCommunityIdentifierMessage
+);
 
 export const VoteSignedPropertyNames = remeda.keys.strict(
     remeda.omit(CreateVoteUserOptionsSchema.shape, keysToOmitFromSignedPropertyNames)

@@ -851,7 +851,9 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| communityAddress | `string` | `Address` of the community |
+| communityAddress | `string` or `undefined` | `Address` of the community (derived from `communityName` or `communityPublicKey` if not provided) |
+| communityPublicKey | `string` or `undefined` | IPNS public key of the community (can identify the community instead of `communityAddress`) |
+| communityName | `string` or `undefined` | Domain name of the community, e.g. `'memes.bso'` (can identify the community instead of `communityAddress`) |
 | timestamp | `number` or `undefined` | Time of publishing in seconds, `Math.round(Date.now() / 1000)` if undefined |
 | author | `Author` | Author of the comment |
 | signer | `Signer` | Signer of the comment |
@@ -929,7 +931,7 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| communityAddress | `string` | `Address` of the community |
+| communityAddress | `string` or `undefined` | `Address` of the community (derived from `communityName` or `communityPublicKey` if not provided) |
 | commentCid | `string` | The comment CID to be edited (don't use 'cid' because eventually CommentEdit.cid will exist) |
 | timestamp | `number` or `undefined` | Time of publishing in ms, `Math.round(Date.now() / 1000)` if undefined |
 | author | `Author` | Author of the `CommentEdit` publication, must be original author. Not used to edit the `comment.author` property, only to authenticate the `CommentEdit` publication |
@@ -984,7 +986,7 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| communityAddress | `string` | `Address` of the community |
+| communityAddress | `string` or `undefined` | `Address` of the community (derived from `communityName` or `communityPublicKey` if not provided) |
 | commentCid | `string` | The comment CID to be edited (don't use 'cid' because eventually CommentEdit.cid will exist) |
 | timestamp | `number` or `undefined` | Time of publishing in ms, `Math.round(Date.now() / 1000)` if undefined |
 | author | `Author` | Author of the `CommentModeration` publication, must be moderator. Not used to edit the `comment.author` property, only to authenticate the `CommentModeration` publication |
@@ -1053,7 +1055,7 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| communityAddress | `string` | `Address` of the community |
+| communityAddress | `string` or `undefined` | `Address` of the community (derived from `communityName` or `communityPublicKey` if not provided) |
 | commentCid | `string` | The comment or post to vote on |
 | timestamp | `number` or `undefined` | Time of publishing in ms, `Math.round(Date.now() / 1000)` if undefined |
 | author | `Author` | Author of the comment, will be needed for voting with NFTs or tokens |

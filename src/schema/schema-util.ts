@@ -32,7 +32,7 @@ import type {
     CommunityIpfsType
 } from "../community/types.js";
 import type { DecryptedChallenge, DecryptedChallengeAnswer, DecryptedChallengeVerification } from "../pubsub-messages/types.js";
-import { CidStringSchema } from "./schema.js";
+import { CidStringSchema, CommunityAddressSchema } from "./schema.js";
 import { RpcCommentEventResultSchema, RpcCommentUpdateResultSchema } from "../clients/rpc-client/schema.js";
 import { CreatePKCWsServerOptionsSchema, SetNewSettingsPKCWsServerSchema } from "../rpc/src/schema.js";
 import type { CreatePKCWsServerOptions, SetNewSettingsPKCWsServer } from "../rpc/src/types.js";
@@ -40,11 +40,13 @@ import type { CommentModerationChallengeRequestToEncrypt } from "../publications
 import {
     CommentModerationChallengeRequestToEncryptSchema,
     CommentModerationPubsubMessagePublicationSchema,
-    CreateCommentModerationOptionsSchema
+    CreateCommentModerationOptionsSchema,
+    CreateCommentModerationOptionsWithRefinementSchema
 } from "../publications/comment-moderation/schema.js";
 import type { VoteChallengeRequestToEncryptType } from "../publications/vote/types.js";
 import {
     CreateVoteUserOptionsSchema,
+    CreateVoteUserOptionsWithRefinementSchema,
     VoteChallengeRequestToEncryptSchema,
     VotePubsubMessagePublicationSchema
 } from "../publications/vote/schema.js";
@@ -53,7 +55,8 @@ import {
     CommentEditChallengeRequestToEncryptSchema,
     CommentEditPubsubMessagePublicationSchema,
     CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema,
-    CreateCommentEditOptionsSchema
+    CreateCommentEditOptionsSchema,
+    CreateCommentEditOptionsWithRefinementSchema
 } from "../publications/comment-edit/schema.js";
 import { PKCUserOptionsSchema } from "../schema.js";
 import { z, type ZodObject, type ZodType } from "zod";
@@ -64,6 +67,7 @@ import type {
 } from "../publications/community-edit/types.js";
 import {
     CreateCommunityEditPublicationOptionsSchema,
+    CreateCommunityEditPublicationOptionsWithRefinementSchema,
     CommunityEditPublicationChallengeRequestToEncryptSchema,
     CommunityEditPubsubMessagePublicationSchema
 } from "../publications/community-edit/schema.js";
@@ -191,7 +195,7 @@ export function parseCommunityEditPubsubMessagePublicationSchemaWithPKCErrorIfIt
 }
 
 export function parseCreateCommunityEditPublicationOptionsSchemaWithPKCErrorIfItFails(args: CreateCommunityEditPublicationOptions) {
-    const parseRes = CreateCommunityEditPublicationOptionsSchema.safeParse(args);
+    const parseRes = CreateCommunityEditPublicationOptionsWithRefinementSchema.safeParse(args);
     if (!parseRes.success)
         throw new PKCError("ERR_INVALID_CREATE_COMMUNITY_EDIT_ARGS_SCHEMA", {
             zodError: parseRes.error,
@@ -321,7 +325,7 @@ export function parseSetNewSettingsPKCWsServerSchemaWithPKCErrorIfItFails(
 }
 
 export function parseCreateCommentModerationOptionsSchemaWithPKCErrorIfItFails(args: z.infer<typeof CreateCommentModerationOptionsSchema>) {
-    const parseRes = CreateCommentModerationOptionsSchema.safeParse(args);
+    const parseRes = CreateCommentModerationOptionsWithRefinementSchema.safeParse(args);
     if (!parseRes.success)
         throw new PKCError("ERR_INVALID_CREATE_COMMENT_MODERATION_ARGS_SCHEMA", {
             zodError: parseRes.error,
@@ -357,7 +361,7 @@ export function parseCreateRemoteCommunityFunctionArgumentSchemaWithPKCErrorIfIt
 }
 
 export function parseCreateVoteOptionsSchemaWithPKCErrorIfItFails(args: z.infer<typeof CreateVoteUserOptionsSchema>) {
-    const parseRes = CreateVoteUserOptionsSchema.safeParse(args);
+    const parseRes = CreateVoteUserOptionsWithRefinementSchema.safeParse(args);
     if (!parseRes.success)
         throw new PKCError("ERR_INVALID_CREATE_VOTE_ARGS_SCHEMA", {
             zodError: parseRes.error,
@@ -379,7 +383,7 @@ export function parseVotePubsubMessagePublicationSchemaWithPKCErrorIfItFails(arg
 }
 
 export function parseCreateCommentEditOptionsSchemaWithPKCErrorIfItFails(args: z.infer<typeof CreateCommentEditOptionsSchema>) {
-    const parseRes = CreateCommentEditOptionsSchema.safeParse(args);
+    const parseRes = CreateCommentEditOptionsWithRefinementSchema.safeParse(args);
     if (!parseRes.success)
         throw new PKCError("ERR_INVALID_CREATE_COMMENT_EDIT_ARGS_SCHEMA", {
             zodError: parseRes.error,
@@ -459,8 +463,8 @@ export function parseCreateCommentOptionsSchemaWithPKCErrorIfItFails(args: z.inf
     else return args;
 }
 
-export function parseCommunityAddressWithPKCErrorIfItFails(args: z.infer<typeof CreateCommentOptionsSchema.shape.communityAddress>) {
-    const parseRes = CreateCommentOptionsSchema.shape.communityAddress.safeParse(args);
+export function parseCommunityAddressWithPKCErrorIfItFails(args: string) {
+    const parseRes = CommunityAddressSchema.safeParse(args);
     if (!parseRes.success)
         throw new PKCError("ERR_INVALID_COMMUNITY_ADDRESS_SCHEMA", {
             zodError: parseRes.error,

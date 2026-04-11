@@ -58,6 +58,26 @@ describe("Comment - community fields", () => {
             expect(comment.communityPublicKey).to.equal(signers[0].address);
             expect(comment.communityName).to.equal("myforum.eth");
         });
+
+        it("CID + only communityPublicKey: derives communityAddress from publicKey", async () => {
+            const comment = await pkc.createComment({
+                cid: DUMMY_CID,
+                communityPublicKey: signers[0].address
+            });
+            expect(comment.communityAddress).to.equal(signers[0].address);
+            expect(comment.communityPublicKey).to.equal(signers[0].address);
+            expect(comment.communityName).to.be.undefined;
+        });
+
+        it("CID + only communityName: derives communityAddress from name", async () => {
+            const comment = await pkc.createComment({
+                cid: DUMMY_CID,
+                communityName: "test.eth"
+            });
+            expect(comment.communityAddress).to.equal("test.eth");
+            expect(comment.communityPublicKey).to.be.undefined;
+            expect(comment.communityName).to.equal("test.eth");
+        });
     });
 
     // ─── Unsigned creation (with signer) ───
@@ -113,6 +133,69 @@ describe("Comment - community fields", () => {
                 type: "comment",
                 communityPublicKey: signers[0].address
             });
+        });
+
+        it("only communityPublicKey: derives communityAddress, eagerly signs", async () => {
+            const signer = await pkc.createSigner();
+            const comment = await pkc.createComment({
+                communityPublicKey: signers[0].address,
+                content: "test",
+                title: "test",
+                signer
+            });
+            expect(comment.communityAddress).to.equal(signers[0].address);
+            expect(comment.communityPublicKey).to.equal(signers[0].address);
+            expect(comment.communityName).to.be.undefined;
+            expectEagerSignedLocalPublication({
+                publication: comment,
+                type: "comment",
+                communityPublicKey: signers[0].address
+            });
+        });
+
+        it("only communityName: derives communityAddress, deferred signing", async () => {
+            const signer = await pkc.createSigner();
+            const comment = await pkc.createComment({
+                communityName: "test.eth",
+                content: "test",
+                title: "test",
+                signer
+            });
+            expect(comment.communityAddress).to.equal("test.eth");
+            expect(comment.communityPublicKey).to.be.undefined;
+            expect(comment.communityName).to.equal("test.eth");
+            expectDeferredUnsignedLocalPublication(comment);
+        });
+
+        it("communityPublicKey + communityName: derives communityAddress from name, eagerly signs", async () => {
+            const signer = await pkc.createSigner();
+            const comment = await pkc.createComment({
+                communityPublicKey: signers[0].address,
+                communityName: "myforum.eth",
+                content: "test",
+                title: "test",
+                signer
+            });
+            expect(comment.communityAddress).to.equal("myforum.eth");
+            expect(comment.communityPublicKey).to.equal(signers[0].address);
+            expect(comment.communityName).to.equal("myforum.eth");
+            expectEagerSignedLocalPublication({
+                publication: comment,
+                type: "comment",
+                communityPublicKey: signers[0].address,
+                communityName: "myforum.eth"
+            });
+        });
+
+        it("throws when none of communityAddress, communityPublicKey, communityName provided", async () => {
+            const signer = await pkc.createSigner();
+            await expect(
+                pkc.createComment({
+                    content: "test",
+                    title: "test",
+                    signer
+                } as any)
+            ).rejects.toThrow();
         });
     });
 

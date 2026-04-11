@@ -1047,10 +1047,7 @@ export async function createSubWithNoChallenge(
     return community;
 }
 
-export async function generatePostToAnswerMathQuestion(
-    props: Partial<CreateCommentOptions> & Pick<CreateCommentOptions, "communityAddress">,
-    pkc: PKC
-) {
+export async function generatePostToAnswerMathQuestion(props: Partial<CreateCommentOptions> & { communityAddress: string }, pkc: PKC) {
     const mockPost = await generateMockPost({ communityAddress: props.communityAddress, pkc, postProps: props });
     mockPost.removeAllListeners("challenge");
     mockPost.once("challenge", (challengeMessage) => {

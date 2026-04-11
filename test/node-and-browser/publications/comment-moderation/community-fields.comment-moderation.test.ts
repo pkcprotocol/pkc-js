@@ -77,6 +77,69 @@ describe("CommentModeration - community fields", () => {
         });
     });
 
+    it("only communityPublicKey: derives communityAddress, eagerly signs", async () => {
+        const signer = await pkc.createSigner();
+        const mod = await pkc.createCommentModeration({
+            communityPublicKey: signers[0].address,
+            commentCid: DUMMY_COMMENT_CID,
+            commentModeration: { reason: "test" },
+            signer
+        });
+        expect(mod.communityAddress).to.equal(signers[0].address);
+        expect(mod.communityPublicKey).to.equal(signers[0].address);
+        expect(mod.communityName).to.be.undefined;
+        expectEagerSignedLocalPublication({
+            publication: mod,
+            type: "commentModeration",
+            communityPublicKey: signers[0].address
+        });
+    });
+
+    it("only communityName: derives communityAddress, deferred signing", async () => {
+        const signer = await pkc.createSigner();
+        const mod = await pkc.createCommentModeration({
+            communityName: "test.eth",
+            commentCid: DUMMY_COMMENT_CID,
+            commentModeration: { reason: "test" },
+            signer
+        });
+        expect(mod.communityAddress).to.equal("test.eth");
+        expect(mod.communityPublicKey).to.be.undefined;
+        expect(mod.communityName).to.equal("test.eth");
+        expectDeferredUnsignedLocalPublication(mod);
+    });
+
+    it("communityPublicKey + communityName: derives communityAddress from name, eagerly signs", async () => {
+        const signer = await pkc.createSigner();
+        const mod = await pkc.createCommentModeration({
+            communityPublicKey: signers[0].address,
+            communityName: "myforum.eth",
+            commentCid: DUMMY_COMMENT_CID,
+            commentModeration: { reason: "test" },
+            signer
+        });
+        expect(mod.communityAddress).to.equal("myforum.eth");
+        expect(mod.communityPublicKey).to.equal(signers[0].address);
+        expect(mod.communityName).to.equal("myforum.eth");
+        expectEagerSignedLocalPublication({
+            publication: mod,
+            type: "commentModeration",
+            communityPublicKey: signers[0].address,
+            communityName: "myforum.eth"
+        });
+    });
+
+    it("throws when none of communityAddress, communityPublicKey, communityName provided", async () => {
+        const signer = await pkc.createSigner();
+        await expect(
+            pkc.createCommentModeration({
+                commentCid: DUMMY_COMMENT_CID,
+                commentModeration: { reason: "test" },
+                signer
+            } as any)
+        ).rejects.toThrow();
+    });
+
     it("signed PubsubMessage with communityPublicKey + communityName sets both", async () => {
         const signedMsg = await buildSignedPubsubMessage({
             signer: signers[0],
