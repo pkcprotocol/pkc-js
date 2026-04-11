@@ -832,10 +832,6 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             provideOptions: { recursive: true },
             provideInBackground: false
         });
-        log(
-            `Published community record. Kubo CID: ${file.path}. updatedAt: ${newCommunityRecord.updatedAt}. ` +
-                `Content length: ${contentToPublish.length}`
-        );
         if (file.size > MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS) {
             throw new PKCError("ERR_LOCAL_COMMUNITY_RECORD_TOO_LARGE", {
                 calculatedSizeOfNewCommunityRecord: file.size,
