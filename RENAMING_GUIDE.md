@@ -1290,7 +1290,7 @@ These repositories are outside plebbit-js but will need coordinated updates:
 | @plebbit/proper-lockfile | Renamed to @pkcprotocol/proper-lock-file | [x] Done |
 | plebbit-cli | Directory migration: `.plebbit/` → `.pkc/` and `subplebbits/` → `communities/`, API updates, install name resolvers | [ ] Not Started |
 | Desktop apps | Directory migration: `.plebbit/` → `.pkc/` and `subplebbits/` → `communities/`, API updates, install name resolvers | [ ] Not Started |
-| plebbit-js-benchmarks | Rename repo to pkc-js-benchmarks, update all plebbit/subplebbit references | [ ] Not Started |
+| plebbit-js-benchmarks | Rename repo to pkc-js-benchmarks, update all plebbit/subplebbit references | [x] Done |
 | plebbit-protocol-test | Rename repo to pkc-protocol-test, update wire format test fixtures for new field names, add backward compat tests for old records | [ ] Not Started |
 | plebbit-react-hooks | Update all API references (method names, type imports, event names). Depends on pkc-js rename completing first | [ ] Not Started |
 | DNS TXT records | Migrate `subplebbit-address` and `plebbit-author-address` → single `bitsocial` record | [ ] Not Started |
