@@ -518,7 +518,7 @@ export class AddressesRewriterProxyServer {
 
     private async _retryFailedKeys() {
         if (this._failedKeys.size === 0) {
-            debug(`No failed keys to retry - all keys successfully provided`);
+            debug.trace(`No failed keys to retry - all keys successfully provided`);
             return;
         }
 
