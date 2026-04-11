@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.0.14](https://github.com/pkcprotocol/pkc-js/compare/v0.0.13...v0.0.14) (2026-04-11)
+
+### Features
+
+* **challenges:** generate unique random default challenge answer per community ([f352de3](https://github.com/pkcprotocol/pkc-js/commit/f352de329643b699cc8b84baa2e99bc1adb4b842))
+
+### Bug Fixes
+
+* **challenges:** preserve default challenge upgrade path when default structure changes ([e0b4f42](https://github.com/pkcprotocol/pkc-js/commit/e0b4f423ab6a2ac656dffe70c1e87f1d8226411d))
+* prevent _purgeCommentsWithInvalidSchemaOrSignature from purging all comments ([3984f9f](https://github.com/pkcprotocol/pkc-js/commit/3984f9f2bec365df3e8d168db1837346a299682c))
+
 ## [0.0.13](https://github.com/pkcprotocol/pkc-js/compare/v0.0.12...v0.0.13) (2026-04-10)
 
 ### Bug Fixes
