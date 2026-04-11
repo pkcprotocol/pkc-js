@@ -21,7 +21,9 @@ Note: IPFS files are immutable, fetched by their CID, which is a hash of their c
 Address: string // a PKC author, community or multisub "address" can be a crypto domain like memes.bso, an IPNS name, an ethereum address, etc. How to resolve ENS names https://github.com/pkcprotocol/pkc-js/blob/master/docs/ens.md
 Publication {
   author: Author
-  communityAddress: string // all publications are directed to a community owner
+  communityPublicKey: string // IPNS public key of the community this publication is directed to
+  communityName?: string // optional crypto domain name of the community (e.g. 'memes.bso')
+  // note: communityAddress is available as a convenience instance property at runtime, but is not part of the wire format
   timestamp: number // number in seconds
   signature: Signature // sign immutable fields like author, title, content, timestamp to prevent tampering
   protocolVersion: '1.0.0' // semantic version of the protocol https://semver.org/
@@ -81,13 +83,13 @@ CommentModeration extends Publication {
 CommunityEdit extends Publication {
   communityEdit: CreateCommunityOptions
 }
-MultisubEdit extends CreateMultisubOptions, Publication {}
+MultisubEdit extends CreateMultisubOptions, Publication {} // not yet implemented
 CommentUpdate /* (IPFS file) */ {
   cid: string // cid of the comment, need it in signature to prevent attack
   edit?: AuthorCommentEdit // most recent edit by comment author, commentUpdate.edit.content, commentUpdate.edit.deleted, commentUpdate.edit.flairs override Comment instance props. Validate commentUpdate.edit.signature
   upvoteCount: number
   downvoteCount: number
-  replies?: Pages // only preload page 1 sorted by 'topAll', might preload more later, only provide sorting for posts (not comments) that have 100+ child comments
+  replies?: Pages // only preload page 1 sorted by 'best', might preload more later, only provide sorting for posts (not comments) that have 100+ child comments
   replyCount: number
   childCount?: number // the total of direct children of the comment, does not include indirect children
   number?: number // sequential comment number assigned by the community
@@ -151,13 +153,13 @@ Signature {
 }
 Signer {
   privateKey?: string // 32 bytes base64 string
-  type: 'ed25519' | 'eip191' // multiple versions/types to allow signing with metamask/other wallet or to change the signature fields or algorithm https://eips.ethereum.org/EIPS/eip-191
+  type: 'ed25519' // eip191 is only used for wallet/NFT signatures, not for Signer instances
   publicKey?: string // 32 bytes base64 string
   address: string // public key hash, not needed for signing
   ipfsKey?: IpfsKey // a Key object used for importing into IpfsHttpClient https://docs.ipfs.io/reference/cli/#ipfs-key-import
 }
-Community /* (IPNS record Community.address) */ {
-  address: string // validate community address in signature to prevent a crypto domain resolving to an impersonated community
+Community /* (IPNS record, identified by community's public key) */ {
+  address: string // instance-only convenience property, not part of the IPNS record. Validate community address in signature to prevent a crypto domain resolving to an impersonated community
   title?: string
   description?: string
   roles?: {[authorAddress: string]: CommunityRole} // each author address can be mapped to 1 CommunityRole
@@ -237,7 +239,7 @@ Flair {
 }
 Pages {
   pages: {[key: PostsSortType | RepliesSortType]: Page} // e.g. community.posts.pages.hot.comments[0].cid = '12D3KooW...'
-  pageCids: {[key: PostsSortType | RepliesSortType | ModSortType]: pageCid} // e.g. community.posts.pageCids.topAll = '12D3KooW...'
+  pageCids: {[key: PostsSortType | RepliesSortType]: pageCid} // e.g. community.posts.pageCids.topAll = '12D3KooW...'
 }
 Page {
   nextCid: string // get next page (sorted by the same sort type)
@@ -251,9 +253,8 @@ PageIpfsComment {
   comment: Comment
   commentUpdate: CommentUpdate
 }
-PostsSortType: 'hot' | 'new' | 'active' | 'topHour' | 'topDay' | 'topWeek' | 'topMonth' | 'topYear' | 'topAll' | 'controversialHour' | 'controversialDay' | 'controversialWeek' | 'controversialMonth' | 'controversialYear' | 'controversialAll'
-RepliesSortType: 'topAll' | 'new' | 'old' | 'controversialAll'
-ModSortType: 'reports' | 'spam' | 'modqueue' | 'unmoderated' | 'edited'
+PostsSortType: 'hot' | 'new' | 'active' | 'topHour' | 'topDay' | 'topWeek' | 'topMonth' | 'topYear' | 'topAll'
+RepliesSortType: 'best' | 'new' | 'old' | 'newFlat' | 'oldFlat'
 CommunityStats {
   hourActiveUserCount: number
   dayActiveUserCount: number
@@ -278,7 +279,7 @@ ChallengeType {
   type: 'image/png' | 'text/plain' | 'chain/<chainTicker>'
   //...other properties for more complex types later, e.g. an array of whitelisted addresses, a token address, etc,
 }
-Multisub /* (IPNS record Multisub.address) */ {
+Multisub /* (IPNS record Multisub.address) (not yet implemented) */ {
   title?: string
   description?: string
   communities: MultisubCommunity[]
@@ -286,7 +287,7 @@ Multisub /* (IPNS record Multisub.address) */ {
   updatedAt: number
   signature: Signature // signature of the Multisub update by the multisub owner to protect against malicious gateway
 }
-MultisubCommunity { // this metadata is set by the owner of the Multisub, not the owner of the community
+MultisubCommunity { // (not yet implemented) this metadata is set by the owner of the Multisub, not the owner of the community
   address: Address
   title?: string
   description?: string
@@ -295,7 +296,7 @@ MultisubCommunity { // this metadata is set by the owner of the Multisub, not th
   features?: string[] // client can detect user's SFW setting and hide/show community based on it
   tags?: string[] // arbitrary keywords used for search
 }
-PKCDefaults { // fetched once when app first load, a dictionary of default settings
+PKCDefaults { // fetched once when app first load, a dictionary of default settings (not yet implemented)
   multisubAddresses: {[multisubName: string]: Address}
   // PKC has 3 default multisubs
   multisubAddresses.all: Address // the default communities to show at url pkc.bso/p/all
@@ -384,10 +385,10 @@ PubsubSignature {
 
 - [PKC API](#pkc-api)
   - [`PKC(pkcOptions)`](#pkcpkcoptions)
-  - [`pkc.getMultisub(multisubAddress)`](#pkcgetmultisubmultisubaddress)
+  - [`pkc.getMultisub(multisubAddress)`](#pkcgetmultisubmultisubaddress) *(not yet implemented)*
   - [`pkc.getCommunity({address})`](#pkcgetcommunityaddress)
   - [`pkc.getComment({cid})`](#pkcgetcommentcid)
-  - [`pkc.createMultisub(createMultisubOptions)`](#pkccreatemultisubcreatemultisuboptions)
+  - [`pkc.createMultisub(createMultisubOptions)`](#pkccreatemultisubcreatemultisuboptions) *(not yet implemented)*
   - [`pkc.createCommunity(createCommunityOptions)`](#pkccreatecommunitycreatecommunityoptions)
   - [`pkc.createCommunityEdit(createCommunityEditOptions)`](#pkccreatecommunityeditcreatecommunityeditoptions)
   - [`pkc.createComment(createCommentOptions)`](#pkccreatecommentcreatecommentoptions)
@@ -397,7 +398,7 @@ PubsubSignature {
   - [`pkc.createSigner(createSignerOptions)`](#pkccreatesignercreatesigneroptions)
   - `pkc.communities`
   - `pkc.clients`
-  - [`pkc.getDefaults()`](#pkcgetdefaults)
+  - [`pkc.getDefaults()`](#pkcgetdefaults) *(not yet implemented)*
   - `pkc.fetchCid({cid})`
   - `pkc.resolveAuthorAddress({address})`
   - `PKC.getShortAddress({address})`
@@ -536,7 +537,7 @@ An object which may have the following keys:
 | pubsubKuboRpcClientsOptions | `(string \| kuboRpcClientsOptions)[]` or `undefined` | `['https://pubsubprovider.xyz/api/v0']` | Optional URLs or [kuboRpcClientsOptions](https://www.npmjs.com/package/kubo-rpc-client#options) used for pubsub publishing when `kuboRpcClientsOptions` isn't available, like in the browser |
 | pkcRpcClientsOptions | `string[]` or `undefined` | `undefined` | Optional websocket URLs of PKC RPC servers, required to run a community from a browser/electron/webview |
 | dataPath | `string`  or `undefined` | .pkc folder in the current working directory | (Node only) Optional folder path to create/resume the user and community databases |
-| resolveAuthorAddresses | `boolean`  or `undefined` | `true` | Optionally disable resolving crypto domain author addresses, which can be done lazily later to save time |
+| resolveAuthorNames | `boolean`  or `undefined` | `true` | Optionally disable resolving crypto domain author names, which can be done lazily later to save time |
 
 #### Returns
 
@@ -557,7 +558,7 @@ const pkc = await PKC(options) // should be independent instance, not singleton
 pkc.on('error', console.log)
 ```
 
-### `pkc.getMultisub(multisubAddress)`
+### `pkc.getMultisub(multisubAddress)` *(not yet implemented)*
 
 > Get a multisub by its `Address`. A multisub is a list of communities curated by the creator of the multisub. E.g. `'pkc.bso/#/m/john.bso'` would display a feed of the multisub communities curated by `'john.bso'` (multisub `Address` `'john.bso'`).
 
@@ -655,7 +656,7 @@ Prints:
 */
 ```
 
-### `pkc.createMultisub(createMultisubOptions)`
+### `pkc.createMultisub(createMultisubOptions)` *(not yet implemented)*
 
 > Create a multisub instance. A multisub is a list of communities curated by the creator of the multisub. E.g. `'pkc.bso/#/m/john.bso'` would display a feed of the multisub communities curated by `'john.bso'` (multisub `Address` `'john.bso'`).
 
@@ -826,9 +827,9 @@ An object which may have the following keys:
 ```js
 const createCommunityEditOptions = {address: 'news.bso', title: 'New title'}
 const communityEdit = await pkc.createCommunityEdit(createCommunityEditOptions)
-communityEdit.on('challenge', async (challengeMessage, _communityEdit) => {
+communityEdit.on('challenge', async (challengeMessage) => {
   const challengeAnswers = await askUserForChallengeAnswers(challengeMessage.challenges)
-  _communityEdit.publishChallengeAnswers(challengeAnswers)
+  communityEdit.publishChallengeAnswers(challengeAnswers)
 })
 communityEdit.on('challengeverification', console.log)
 await communityEdit.publish()
@@ -898,7 +899,7 @@ const comment = await pkc.createComment({
   upvoteCount: 100,
   replies: {
     pages: {
-      topAll: {
+      best: {
         nextCid: 'Qm...',
         comments: [{content: 'My first reply', ...reply}]
       }
@@ -909,7 +910,7 @@ const comment = await pkc.createComment({
 console.log(comment.content) // prints 'My first post'
 console.log(comment.locked) // prints true
 console.log(comment.upvoteCount) // prints 100
-console.log(comment.replies.pages.topAll.comments[0].content) // prints 'My first reply'
+console.log(comment.replies.pages.best.comments[0].content) // prints 'My first reply'
 ```
 
 ### `pkc.createCommentEdit(createCommentEditOptions)`
@@ -959,9 +960,9 @@ An object which may have the following keys:
 
 ```js
 const commentEdit = await pkc.createCommentEdit(createCommentEditOptions)
-commentEdit.on('challenge', async (challengeMessage, _commentEdit) => {
+commentEdit.on('challenge', async (challengeMessage) => {
   const challengeAnswers = await askUserForChallengeAnswers(challengeMessage.challenges)
-  _commentEdit.publishChallengeAnswers(challengeAnswers)
+  commentEdit.publishChallengeAnswers(challengeAnswers)
 })
 commentEdit.on('challengeverification', console.log)
 await commentEdit.publish()
@@ -1028,9 +1029,9 @@ An object which may have the following keys:
 
 ```js
 const commentModeration = await pkc.createCommentModeration(createCommentModerationOptions)
-commentModeration.on('challenge', async (challengeMessage, _commentModeration) => {
+commentModeration.on('challenge', async (challengeMessage) => {
   const challengeAnswers = await askUserForChallengeAnswers(challengeMessage.challenges)
-  _commentModeration.publishChallengeAnswers(challengeAnswers)
+  commentModeration.publishChallengeAnswers(challengeAnswers)
 })
 commentModeration.on('challengeverification', console.log)
 await commentModeration.publish()
@@ -1079,9 +1080,9 @@ An object which may have the following keys:
 
 ```js
 const vote = await pkc.createVote(createVoteOptions)
-vote.on('challenge', async (challengeMessage, _vote) => {
+vote.on('challenge', async (challengeMessage) => {
   const challengeAnswers = await askUserForChallengeAnswers(challengeMessage.challenges)
-  _vote.publishChallengeAnswers(challengeAnswers)
+  vote.publishChallengeAnswers(challengeAnswers)
 })
 vote.on('challengeverification', console.log)
 await vote.publish()
@@ -1119,28 +1120,21 @@ const newRandomSigner = await pkc.createSigner()
 const signerFromPrivateKey = await pkc.createSigner({privateKey: 'AbCd...', type: 'ed25519'})
 ```
 
-### `pkc.listCommunities()`
+### `pkc.communities`
 
-> (Only for Node or over RPC) Get all the community addresses in the `${pkc.dataPath}/communities` folder. Same as doing `ls ${pkc.dataPath}/communities`.
-
-#### Returns
-
-| Type | Description |
-| -------- | -------- |
-| `Promise<Address[]>` | An array of `Address` strings |
+> A `string[]` of community addresses stored locally. Updates when communities are created or deleted. Listen for changes with the `communitieschange` event.
 
 #### Example
 
 ```js
 // start all the communities you own and have stored locally
-const communityAddresses = await pkc.listCommunities()
-for (const address of communityAddresses) {
+for (const address of pkc.communities) {
   const community = await pkc.createCommunity({address})
   await community.start()
 }
 ```
 
-### `pkc.getDefaults()`
+### `pkc.getDefaults()` *(not yet implemented)*
 
 > Get the default global PKC settings, e.g. the default multisubs like p/all, p/dao, etc.
 
@@ -1329,28 +1323,6 @@ Object is of the form:
 { // ...TODO }
 ```
 
-### `challengerequest`
-
-> When the user publishes a comment, he makes a `'challengerequest'` to the pubsub, the community owner will send back a `challenge`, eg. a captcha that the user must complete.
-
-#### Emits
-
-| Type | Description |
-| -------- | -------- |
-| `ChallengeRequestMessage` | The comment of the user and the challenge request |
-
-Object is of the form:
-
-```js
-{ // ...TODO }
-```
-
-#### Example
-
-```js
-{ // ...TODO }
-```
-
 ### `statechange`
 
 > `Community.state` property changed.
@@ -1505,9 +1477,9 @@ Object is of the form:
 
 ```js
 const comment = await pkc.createComment(commentObject)
-comment.on('challenge', async (challengeMessage, _comment) => {
+comment.on('challenge', async (challengeMessage) => {
   const challengeAnswers = await askUserForChallengeAnswers(challengeMessage.challenges)
-  _comment.publishChallengeAnswers(challengeAnswers)
+  comment.publishChallengeAnswers(challengeAnswers)
 })
 comment.on('challengeverification', console.log)
 await comment.publish()
@@ -1522,7 +1494,7 @@ await comment.publish()
 | Type | Description |
 | -------- | -------- |
 | `ChallengeVerificationMessage` | The challenge verification result |
-| `Comment` | The `Comment` instance, i.e. `this` |
+| `Comment` or `undefined` | The `Comment` instance if the publication is a comment and the verification contains comment data, otherwise `undefined` |
 
 Object is of the form:
 
@@ -1577,7 +1549,7 @@ The pages API for scrolling pages of a community or replies to a post/comment. `
 
 ### `pages.getPage({cid})`
 
-> Get a `Page` instance using an IPFS CID from `Pages.pageCids[sortType]`, e.g. `Community.posts.pageCids.hot` or `Comment.replies.pageCids.topAll`.
+> Get a `Page` instance using an IPFS CID from `Pages.pageCids[sortType]`, e.g. `Community.posts.pageCids.hot` or `Comment.replies.pageCids.best`.
 
 #### Parameters
 
@@ -1611,9 +1583,9 @@ post.on('update', async updatedPost => {
     replies = repliesPageSortedByNew.comments
   }
   else {
-    // the 'topAll' sort type is always preloaded by default on replies and can be used as fallback
+    // the 'best' sort type is always preloaded by default on replies and can be used as fallback
     // on community.posts only 'hot' is preloaded by default
-    replies = updatedPost.replies.pages.topAll.comments
+    replies = updatedPost.replies.pages.best.comments
   }
   console.log(replies)
 })
