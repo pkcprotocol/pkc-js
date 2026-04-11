@@ -241,7 +241,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         );
     }
 
-    private _defaultCommunityChallenges: CommunityChallengeSetting[] = LocalCommunity._generateDefaultChallenges();
+    _defaultCommunityChallenges: CommunityChallengeSetting[] = LocalCommunity._generateDefaultChallenges();
 
     // These caches below will be used to facilitate challenges exchange with authors, they will expire after 10 minutes
     // Most of the time they will be delete and cleaned up automatically
@@ -566,16 +566,22 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         if (this._usingDefaultChallenge) {
             const currentAnswer = this.settings?.challenges?.[0]?.options?.answer;
-            if (currentAnswer) {
+            if (currentAnswer && LocalCommunity._isDefaultChallengeStructure(this._defaultCommunityChallenges)) {
                 // Preserve the existing per-community random answer in the template
                 this._defaultCommunityChallenges = LocalCommunity._generateDefaultChallenges(currentAnswer);
             }
 
             if (!remeda.isDeepEqual(this.settings?.challenges, this._defaultCommunityChallenges)) {
                 await this.edit({ settings: { ...this.settings, challenges: this._defaultCommunityChallenges } });
+                // edit() recalculates _usingDefaultChallenge via _isDefaultChallengeStructure,
+                // which may return false for non-standard defaults (e.g. []).
+                // Re-assert true since we know this is still a default-driven upgrade.
+                this._usingDefaultChallenge = true;
                 log(
-                    `Upgraded default challenge for community (${this.address}) with answer:`,
-                    this._defaultCommunityChallenges[0].options!.answer
+                    `Upgraded default challenge for community (${this.address})`,
+                    this._defaultCommunityChallenges[0]?.options?.answer
+                        ? `with answer: ${this._defaultCommunityChallenges[0].options!.answer}`
+                        : `to ${this._defaultCommunityChallenges.length} challenge(s)`
                 );
             }
         }
