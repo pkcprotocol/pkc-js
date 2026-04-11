@@ -103,7 +103,6 @@ describe.concurrent(`community.settings.challenges`, async () => {
         expect(community._usingDefaultChallenge).to.be.true;
         const differentDefaultChallenges: CommunityChallengeSetting[] = [];
         // Access private property via bracket notation to bypass TypeScript's access checks
-        // @ts-expect-error - Accessing private property for testing purposes
         community._defaultCommunityChallenges = differentDefaultChallenges;
         await community.start(); // Should check value of default challenge, and upgrade to this one above
         await new Promise((resolve) => community.once("update", resolve));
