@@ -810,11 +810,13 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| address | `string` | `Address` of the community to edit |
+| communityAddress | `string` or `undefined` | `Address` of the community (derived from `communityName` or `communityPublicKey` if not provided). Providing both `communityPublicKey` and `communityName` is recommended for speed |
+| communityPublicKey | `string` or `undefined` | IPNS public key of the community (can identify the community instead of `communityAddress`) |
+| communityName | `string` or `undefined` | Domain name of the community, e.g. `'memes.bso'` (can identify the community instead of `communityAddress`) |
 | timestamp | `number` or `undefined` | Time of publishing in seconds, `Math.round(Date.now() / 1000)` if undefined |
 | author | `Author` | `author.address` of the community edit must have `community.roles` `'admin'` |
 | signer | `Signer` | Signer of the community edit |
-| ...communityEditOptions | `any` | `CreateCommunityEditOptions` extends [`CommunityEditOptions`](#communityeditoptions) |
+| communityEdit | `CommunityEditOptions` | The community edit options, see [`CommunityEditOptions`](#communityeditoptions) |
 
 #### Returns
 
@@ -825,7 +827,7 @@ An object which may have the following keys:
 #### Example
 
 ```js
-const createCommunityEditOptions = {address: 'news.bso', title: 'New title'}
+const createCommunityEditOptions = {communityName: 'news.bso', communityEdit: {title: 'New title'}}
 const communityEdit = await pkc.createCommunityEdit(createCommunityEditOptions)
 communityEdit.on('challenge', async (challengeMessage) => {
   const challengeAnswers = await askUserForChallengeAnswers(challengeMessage.challenges)
@@ -851,7 +853,7 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| communityAddress | `string` or `undefined` | `Address` of the community (derived from `communityName` or `communityPublicKey` if not provided) |
+| communityAddress | `string` or `undefined` | `Address` of the community (derived from `communityName` or `communityPublicKey` if not provided). Providing both `communityPublicKey` and `communityName` is recommended for speed |
 | communityPublicKey | `string` or `undefined` | IPNS public key of the community (can identify the community instead of `communityAddress`) |
 | communityName | `string` or `undefined` | Domain name of the community, e.g. `'memes.bso'` (can identify the community instead of `communityAddress`) |
 | timestamp | `number` or `undefined` | Time of publishing in seconds, `Math.round(Date.now() / 1000)` if undefined |
@@ -931,9 +933,11 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| communityAddress | `string` or `undefined` | `Address` of the community (derived from `communityName` or `communityPublicKey` if not provided) |
+| communityAddress | `string` or `undefined` | `Address` of the community (derived from `communityName` or `communityPublicKey` if not provided). Providing both `communityPublicKey` and `communityName` is recommended for speed |
+| communityPublicKey | `string` or `undefined` | IPNS public key of the community (can identify the community instead of `communityAddress`) |
+| communityName | `string` or `undefined` | Domain name of the community, e.g. `'memes.bso'` (can identify the community instead of `communityAddress`) |
 | commentCid | `string` | The comment CID to be edited (don't use 'cid' because eventually CommentEdit.cid will exist) |
-| timestamp | `number` or `undefined` | Time of publishing in ms, `Math.round(Date.now() / 1000)` if undefined |
+| timestamp | `number` or `undefined` | Time of publishing in seconds, `Math.round(Date.now() / 1000)` if undefined |
 | author | `Author` | Author of the `CommentEdit` publication, must be original author. Not used to edit the `comment.author` property, only to authenticate the `CommentEdit` publication |
 | signer | `Signer` | Signer of the edit, must be original author |
 | content | `string` or `undefined` | Edited content of the comment |
@@ -986,9 +990,11 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| communityAddress | `string` or `undefined` | `Address` of the community (derived from `communityName` or `communityPublicKey` if not provided) |
+| communityAddress | `string` or `undefined` | `Address` of the community (derived from `communityName` or `communityPublicKey` if not provided). Providing both `communityPublicKey` and `communityName` is recommended for speed |
+| communityPublicKey | `string` or `undefined` | IPNS public key of the community (can identify the community instead of `communityAddress`) |
+| communityName | `string` or `undefined` | Domain name of the community, e.g. `'memes.bso'` (can identify the community instead of `communityAddress`) |
 | commentCid | `string` | The comment CID to be edited (don't use 'cid' because eventually CommentEdit.cid will exist) |
-| timestamp | `number` or `undefined` | Time of publishing in ms, `Math.round(Date.now() / 1000)` if undefined |
+| timestamp | `number` or `undefined` | Time of publishing in seconds, `Math.round(Date.now() / 1000)` if undefined |
 | author | `Author` | Author of the `CommentModeration` publication, must be moderator. Not used to edit the `comment.author` property, only to authenticate the `CommentModeration` publication |
 | signer | `Signer` | Signer of the edit, must be moderator |
 | commentModeration | `CommentModerationOptions` | The comment moderation options |
@@ -1055,9 +1061,11 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| communityAddress | `string` or `undefined` | `Address` of the community (derived from `communityName` or `communityPublicKey` if not provided) |
+| communityAddress | `string` or `undefined` | `Address` of the community (derived from `communityName` or `communityPublicKey` if not provided). Providing both `communityPublicKey` and `communityName` is recommended for speed |
+| communityPublicKey | `string` or `undefined` | IPNS public key of the community (can identify the community instead of `communityAddress`) |
+| communityName | `string` or `undefined` | Domain name of the community, e.g. `'memes.bso'` (can identify the community instead of `communityAddress`) |
 | commentCid | `string` | The comment or post to vote on |
-| timestamp | `number` or `undefined` | Time of publishing in ms, `Math.round(Date.now() / 1000)` if undefined |
+| timestamp | `number` or `undefined` | Time of publishing in seconds, `Math.round(Date.now() / 1000)` if undefined |
 | author | `Author` | Author of the comment, will be needed for voting with NFTs or tokens |
 | vote | `1` or `0` or `-1` | 0 is for resetting a vote |
 | signer | `Signer` | Signer of the vote |
