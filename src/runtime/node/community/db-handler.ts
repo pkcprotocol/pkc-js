@@ -11,7 +11,7 @@ import assert from "assert";
 import fs from "fs";
 import os from "os";
 import Logger from "../../../logger.js";
-import { deleteOldCommunityInWindows, getDefaultCommunityDbConfig } from "../util.js";
+import { deleteOldCommunityInWindows, deriveCommentIpfsFromCommentTableRow, getDefaultCommunityDbConfig } from "../util.js";
 import env from "../../../version.js";
 import Database, { type Database as BetterSqlite3Database } from "better-sqlite3";
 import { sha256 } from "js-sha256";
@@ -943,7 +943,7 @@ export class DbHandler {
                 continue;
             }
             const validRes = await verifyCommentIpfs({
-                comment: { ...commentRecord, ...commentRecord.extraProps },
+                comment: deriveCommentIpfsFromCommentTableRow(commentRecord),
                 resolveAuthorNames: false,
                 calculatedCommentCid: commentRecord.cid,
                 clientsManager: this._community._clientsManager
