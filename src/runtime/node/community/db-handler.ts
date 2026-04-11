@@ -530,8 +530,8 @@ export class DbHandler {
                 const _usingDefaultChallenge =
                     "_usingDefaultChallenge" in internalState
                         ? internalState._usingDefaultChallenge
-                        : //@ts-expect-error
-                          remeda.isDeepEqual(this._community._defaultCommunityChallenges, internalState?.settings?.challenges);
+                        : //@ts-expect-error - fallback for old DB records that predate _usingDefaultChallenge field
+                          LocalCommunity._isDefaultChallengeStructure(internalState?.settings?.challenges);
                 const updateCid: string =
                     "updateCid" in internalState && typeof internalState.updateCid === "string"
                         ? internalState.updateCid

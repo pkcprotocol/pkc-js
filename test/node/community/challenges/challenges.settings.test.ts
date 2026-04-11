@@ -21,15 +21,8 @@ import type { Comment } from "../../../../dist/node/publications/comment/comment
 describe.concurrent(`community.settings.challenges`, async () => {
     let pkc: PKCType;
     let remotePKC: PKCType;
-    const defaultSettingsChallenges: CommunityChallengeSetting[] = [
-        {
-            name: "question",
-            options: {
-                question: "Placeholder challenge. Set your own challenges otherwise you risk getting spammed",
-                answer: "Placeholder answer"
-            }
-        }
-    ];
+    const defaultChallengeQuestionText =
+        "What is the answer to this community's challenge? (check community.settings.challenges to see the answer, or set your own challenge)";
     const defaultChallengeDescriptions = ["Ask a question, like 'What is the password?'"];
     const defaultChallengeTypes = ["text/plain"];
 
@@ -46,9 +39,13 @@ describe.concurrent(`community.settings.challenges`, async () => {
     it(`default challenges are configured on new community`, async () => {
         // Should be set to default on community.start()
         const community = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
-        // community?.settings?.challenges should be set to defaultSettingsChallenges
-        // also community.challenges should reflect community.settings.challenges
-        expect(community?.settings?.challenges).to.deep.equal(defaultSettingsChallenges);
+        // community?.settings?.challenges should have a unique random answer
+        const defaultSettings = community?.settings?.challenges;
+        expect(defaultSettings).to.have.length(1);
+        expect(defaultSettings![0].name).to.equal("question");
+        expect(defaultSettings![0].options!.question).to.equal(defaultChallengeQuestionText);
+        expect(defaultSettings![0].options!.answer).to.be.a("string").that.is.not.empty;
+        expect(defaultSettings![0].options!.answer).to.not.equal("Placeholder answer");
 
         expect(community._usingDefaultChallenge).to.be.true;
 
@@ -56,13 +53,11 @@ describe.concurrent(`community.settings.challenges`, async () => {
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
         const remoteCommunity = (await remotePKC.getCommunity({ address: community.address })) as RemoteCommunity;
         for (const _community of [community, remoteCommunity]) {
-            expect(_community.challenges!.length).to.equal(defaultSettingsChallenges.length);
-            _community.challenges!.forEach((challenge, index) => {
-                expect(challenge.type).to.equal(defaultChallengeTypes[index]);
-                expect(challenge.description).to.equal(defaultChallengeDescriptions[index]);
-                expect(challenge.exclude).to.deep.equal(defaultSettingsChallenges[index].exclude);
-            });
-            expect(_community.challenges![0].challenge).to.equal(defaultSettingsChallenges[0].options!.question);
+            expect(_community.challenges!.length).to.equal(1);
+            expect(_community.challenges![0].type).to.equal(defaultChallengeTypes[0]);
+            expect(_community.challenges![0].description).to.equal(defaultChallengeDescriptions[0]);
+            expect(_community.challenges![0].exclude).to.be.undefined;
+            expect(_community.challenges![0].challenge).to.equal(defaultChallengeQuestionText);
         }
         // clean up
         await community.delete();
@@ -103,7 +98,8 @@ describe.concurrent(`community.settings.challenges`, async () => {
 
     itSkipIfRpc(`pkc-js will upgrade default challenge if there is a new one`, async () => {
         const community = (await pkc.createCommunity({})) as LocalCommunity;
-        expect(community?.settings?.challenges).to.deep.equal(defaultSettingsChallenges);
+        expect(community?.settings?.challenges).to.have.length(1);
+        expect(community?.settings?.challenges![0].name).to.equal("question");
         expect(community._usingDefaultChallenge).to.be.true;
         const differentDefaultChallenges: CommunityChallengeSetting[] = [];
         // Access private property via bracket notation to bypass TypeScript's access checks

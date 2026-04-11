@@ -215,15 +215,33 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     override raw: RpcLocalCommunity["raw"] = {};
     private _postUpdatesBuckets = [86400, 604800, 2592000, 3153600000]; // 1 day, 1 week, 1 month, 100 years. Expecting to be sorted from smallest to largest
 
-    private _defaultCommunityChallenges: CommunityChallengeSetting[] = [
-        {
-            name: "question",
-            options: {
-                question: "Placeholder challenge. Set your own challenges otherwise you risk getting spammed",
-                answer: "Placeholder answer"
+    private static _defaultChallengeQuestionText =
+        "What is the answer to this community's challenge? (check community.settings.challenges to see the answer, or set your own challenge)";
+
+    static _generateDefaultChallenges(answer?: string): CommunityChallengeSetting[] {
+        return [
+            {
+                name: "question",
+                options: {
+                    question: LocalCommunity._defaultChallengeQuestionText,
+                    answer: answer ?? uuidV4()
+                }
             }
-        }
-    ];
+        ];
+    }
+
+    static _isDefaultChallengeStructure(challenges: CommunityChallengeSetting[] | undefined): boolean {
+        if (!challenges || challenges.length !== 1) return false;
+        const c = challenges[0];
+        return (
+            c.name === "question" &&
+            c.options?.question === LocalCommunity._defaultChallengeQuestionText &&
+            typeof c.options?.answer === "string" &&
+            c.options.answer.length > 0
+        );
+    }
+
+    private _defaultCommunityChallenges: CommunityChallengeSetting[] = LocalCommunity._generateDefaultChallenges();
 
     // These caches below will be used to facilitate challenges exchange with authors, they will expire after 10 minutes
     // Most of the time they will be delete and cleaned up automatically
@@ -542,12 +560,24 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     async _setChallengesToDefaultIfNotDefined(log: Logger) {
         if (
             this._usingDefaultChallenge !== false &&
-            (!this.settings?.challenges || remeda.isDeepEqual(this.settings?.challenges, this._defaultCommunityChallenges))
+            (!this.settings?.challenges || LocalCommunity._isDefaultChallengeStructure(this.settings?.challenges))
         )
             this._usingDefaultChallenge = true;
-        if (this._usingDefaultChallenge && !remeda.isDeepEqual(this.settings?.challenges, this._defaultCommunityChallenges)) {
-            await this.edit({ settings: { ...this.settings, challenges: this._defaultCommunityChallenges } });
-            log(`Defaulted the challenges of community (${this.address}) to`, this._defaultCommunityChallenges);
+
+        if (this._usingDefaultChallenge) {
+            const currentAnswer = this.settings?.challenges?.[0]?.options?.answer;
+            if (currentAnswer) {
+                // Preserve the existing per-community random answer in the template
+                this._defaultCommunityChallenges = LocalCommunity._generateDefaultChallenges(currentAnswer);
+            }
+
+            if (!remeda.isDeepEqual(this.settings?.challenges, this._defaultCommunityChallenges)) {
+                await this.edit({ settings: { ...this.settings, challenges: this._defaultCommunityChallenges } });
+                log(
+                    `Upgraded default challenge for community (${this.address}) with answer:`,
+                    this._defaultCommunityChallenges[0].options!.answer
+                );
+            }
         }
     }
 
@@ -567,7 +597,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         if (!this.settings?.challenges) {
             this.settings = { ...this.settings, challenges: this._defaultCommunityChallenges };
             this._usingDefaultChallenge = true;
-            log(`Defaulted the challenges of community (${this.address}) to`, this._defaultCommunityChallenges);
+            log(
+                `Generated default challenge for community (${this.address}) with answer:`,
+                this._defaultCommunityChallenges[0].options!.answer
+            );
         }
         if (typeof this.settings?.purgeDisapprovedCommentsOlderThan !== "number") {
             this.settings = { ...this.settings, purgeDisapprovedCommentsOlderThan: 1.21e6 }; // two weeks
@@ -3240,7 +3273,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             challenges: await Promise.all(
                 newChallengeSettings.map((cs) => getCommunityChallengeFromCommunityChallengeSettings(cs, this._pkc))
             ),
-            _usingDefaultChallenge: remeda.isDeepEqual(newChallengeSettings, this._defaultCommunityChallenges)
+            _usingDefaultChallenge: LocalCommunity._isDefaultChallengeStructure(newChallengeSettings)
         };
     }
 
