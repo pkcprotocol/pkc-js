@@ -1121,6 +1121,58 @@ describeSkipIfRpc("v36 → v37 DB migration (subplebbitAddress → communityPubl
         });
     });
 
+    describe("Schema validation tolerates pre-rebranding author.address in comment edits", () => {
+        // Pre-rebranding comment edits have author: { address: "12D3KooW..." }.
+        // The purge schema validation must tolerate this legacy field instead of treating it as invalid.
+        // We test the schema directly because the full purge also verifies crypto signatures,
+        // which cannot be faked in unit tests.
+
+        it("CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema.strip() accepts a record with author.address", () => {
+            const {
+                CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema
+            } = require("../../../dist/node/publications/comment-edit/schema.js");
+            const record = {
+                commentCid: "QmT5G1gnNHpGfRyqbdp7M5S4n16BsC27xWodNDJar4UNNz",
+                author: { address: "12D3KooWAuthorPurge" },
+                timestamp: now,
+                protocolVersion: "1.0.0",
+                communityPublicKey: IPNS_ADDRESS,
+                content: "edited content",
+                signature: {
+                    type: "ed25519",
+                    signature: "fake-sig",
+                    publicKey: "fake-pk",
+                    signedPropertyNames: ["commentCid", "author", "timestamp", "content", "communityPublicKey"]
+                },
+                // Extra fields from CommentEditsTableRow that should be stripped
+                insertedAt: now,
+                authorSignerAddress: "12D3KooWAuthorPurge",
+                isAuthorEdit: true,
+                extraProps: { subplebbitAddress: IPNS_ADDRESS }
+            };
+            expect(() => CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema.strip().parse(record)).not.to.throw();
+        });
+
+        it("CommentEditPubsubMessagePublicationSchema.strip() rejects a record with author.address (the old bug)", () => {
+            const { CommentEditPubsubMessagePublicationSchema } = require("../../../dist/node/publications/comment-edit/schema.js");
+            const record = {
+                commentCid: "QmT5G1gnNHpGfRyqbdp7M5S4n16BsC27xWodNDJar4UNNz",
+                author: { address: "12D3KooWAuthorPurge" },
+                timestamp: now,
+                protocolVersion: "1.0.0",
+                communityPublicKey: IPNS_ADDRESS,
+                content: "edited content",
+                signature: {
+                    type: "ed25519",
+                    signature: "fake-sig",
+                    publicKey: "fake-pk",
+                    signedPropertyNames: ["commentCid", "author", "timestamp", "content", "communityPublicKey"]
+                }
+            };
+            expect(() => CommentEditPubsubMessagePublicationSchema.strip().parse(record)).to.throw(/address/);
+        });
+    });
+
     describe("CHECK constraint enforcement", () => {
         let constraintDbHandler: DbHandler | undefined;
 

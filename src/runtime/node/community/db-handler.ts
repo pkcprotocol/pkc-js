@@ -49,7 +49,10 @@ import { getCommunityChallengeFromCommunityChallengeSettings, pkcJsChallenges } 
 import KeyvBetterSqlite3 from "./keyv-better-sqlite3.js";
 
 import { STORAGE_KEYS } from "../../../constants.js";
-import { CommentEditPubsubMessagePublicationSchema } from "../../../publications/comment-edit/schema.js";
+import {
+    CommentEditPubsubMessagePublicationSchema,
+    CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema
+} from "../../../publications/comment-edit/schema.js";
 import { TIMEFRAMES_TO_SECONDS } from "../../../pages/util.js";
 import type { VotesTableRow, VotesTableRowInsert } from "../../../publications/vote/types.js";
 import {
@@ -885,7 +888,7 @@ export class DbHandler {
             }
 
             try {
-                CommentEditPubsubMessagePublicationSchema.strip().parse(commentEditRecord);
+                CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema.strip().parse(commentEditRecord);
             } catch (e) {
                 log.error(
                     `Comment edit (${commentEditRecord.commentCid}) row ${rawCommentEditRecord.rowid} in DB has an invalid schema and will be purged from comment edits table.`,
@@ -895,8 +898,9 @@ export class DbHandler {
                 continue;
             }
 
-            const commentEditPubsub = remeda.pick(commentEditRecord, [
-                ...(commentEditRecord.signature.signedPropertyNames as CommentEditSignature["signedPropertyNames"]),
+            const commentEditWithExtraProps = this._spreadExtraProps({ ...commentEditRecord });
+            const commentEditPubsub = remeda.pick(commentEditWithExtraProps, [
+                ...(commentEditWithExtraProps.signature.signedPropertyNames as CommentEditSignature["signedPropertyNames"]),
                 "signature"
             ]) as CommentEditPubsubMessagePublication;
             const validRes = await verifyCommentEdit({
