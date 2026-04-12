@@ -176,6 +176,33 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await community.stop();
             await testPKC.destroy();
         });
+
+        it(`update() succeeds via name resolution when publicKey has no IPNS record (triggers key migration)`, async () => {
+            const wrongPublicKey = (await pkc.createSigner()).address; // random key → no IPNS record
+            const correctPublicKey = signers[0].address; // "migrating.bso" resolves to this in defaultMockResolverRecords
+
+            const community = await pkc.createCommunity({
+                publicKey: wrongPublicKey,
+                name: "migrating.bso"
+            });
+
+            expect(community.address).to.equal("migrating.bso");
+            expect(community.publicKey).to.equal(wrongPublicKey);
+
+            await community.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: community,
+                predicate: async () => typeof community.updatedAt === "number"
+            });
+
+            // Community loaded successfully via key migration
+            expect(community.updatedAt).to.be.a("number");
+            expect(community.publicKey).to.equal(correctPublicKey);
+            expect(community.address).to.equal("migrating.bso"); // address is immutable
+            expect(community.nameResolved).to.equal(true);
+
+            await community.stop();
+        });
     });
 });
 
