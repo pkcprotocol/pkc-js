@@ -426,7 +426,9 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     }
 
     async getCommunityPage(params: any) {
-        const { cid: pageCid, communityAddress, type, pageMaxSize } = parseRpcCommunityPageParam(params[0]);
+        const { cid: pageCid, communityPublicKey, communityName, type, pageMaxSize } = parseRpcCommunityPageParam(params[0]);
+        if (!communityPublicKey && !communityName) throw Error("At least one of communityPublicKey or communityName must be provided");
+        const communityAddress = (communityName || communityPublicKey)!;
         const pkc = await this._getPKCInstance();
 
         // Use started community to fetch the page if possible, to expedite the process
@@ -443,9 +445,9 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     }
 
     async getCommentPage(params: any) {
-        const { cid: pageCid, commentCid, communityAddress, pageMaxSize } = parseRpcCommentRepliesPageParam(params[0]);
+        const { cid: pageCid, commentCid, communityPublicKey, communityName, pageMaxSize } = parseRpcCommentRepliesPageParam(params[0]);
         const pkc = await this._getPKCInstance();
-        const comment = await pkc.createComment({ cid: commentCid, communityAddress });
+        const comment = await pkc.createComment({ cid: commentCid, communityPublicKey, communityName });
         const { page } = await comment.replies._fetchAndVerifyPage({ pageCid, pageMaxSize });
         const runtimeFields = buildPageRuntimeFields(page, pkc._memCaches.nameResolvedCache);
         return { page, runtimeFields };

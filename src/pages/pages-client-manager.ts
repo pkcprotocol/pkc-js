@@ -13,6 +13,7 @@ import { hideClassPrivateProps } from "../util.js";
 import { PKC } from "../pkc/pkc.js";
 import { sha256 } from "js-sha256";
 import { PagesIpfsGatewayClient, PagesKuboRpcClient, PagesLibp2pJsClient, PagesPKCRpcStateClient } from "./pages-clients.js";
+import type { RemoteCommunity } from "../community/remote-community.js";
 
 export class BasePagesClientsManager extends BaseClientsManager {
     clients: {
@@ -343,7 +344,8 @@ export class RepliesPagesClientsManager extends BasePagesClientsManager {
         const result = await this._pkc._pkcRpcClient!.getCommentPage({
             cid: opts.pageCid,
             commentCid: this._pages._parentComment!.cid!,
-            communityAddress: this._pages._community.address,
+            communityPublicKey: this._pages._parentComment!.communityPublicKey,
+            communityName: this._pages._parentComment!.communityName,
             pageMaxSize: opts.pageMaxSize
         });
         return { page: result.page, runtimeFields: result.runtimeFields };
@@ -376,7 +378,8 @@ export class CommunityPostsPagesClientsManager extends BasePagesClientsManager {
     }): Promise<{ page: PageIpfs; runtimeFields?: PageRuntimeFields }> {
         const result = await this._pkc._pkcRpcClient!.getCommunityPage({
             cid: opts.pageCid,
-            communityAddress: this._pages._community.address,
+            communityPublicKey: (this._pages._community as RemoteCommunity).publicKey,
+            communityName: (this._pages._community as RemoteCommunity).name,
             type: "posts",
             pageMaxSize: opts.pageMaxSize
         });
@@ -424,7 +427,8 @@ export class CommunityModQueueClientsManager extends BasePagesClientsManager {
         const result = await this._pkc._pkcRpcClient!.getCommunityPage({
             type: "modqueue",
             cid: opts.pageCid,
-            communityAddress: this._pages._community.address,
+            communityPublicKey: (this._pages._community as RemoteCommunity).publicKey,
+            communityName: (this._pages._community as RemoteCommunity).name,
             pageMaxSize: opts.pageMaxSize
         });
         return { page: result.page as ModQueuePageIpfs, runtimeFields: result.runtimeFields };

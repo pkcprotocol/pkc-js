@@ -35,7 +35,6 @@ export const RpcCommunityLookupParamSchema = z
     .refine((args) => args.address || args.name || args.publicKey, "At least one of address, name, or publicKey must be provided");
 export const RpcAuthorNameParamSchema = z.object({ address: AuthorAddressSchema });
 export const RpcCommunityPageParamSchema = RpcCidParamSchema.extend({
-    communityAddress: CommunityAddressSchema,
     type: z.enum(["posts", "modqueue"]),
     pageMaxSize: z.number().positive().int()
 });
