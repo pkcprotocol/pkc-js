@@ -18,7 +18,13 @@ export const RpcChallengeVerificationEventResultSchema = z.object({
     runtimeFields: z.object({}).loose().optional()
 });
 
-export const RpcCidParamSchema = z.object({ cid: CidStringSchema }).loose();
+export const RpcCidParamSchema = z
+    .object({
+        cid: CidStringSchema,
+        communityPublicKey: z.string().min(1).optional(),
+        communityName: z.string().min(1).optional()
+    })
+    .loose();
 export const RpcCommunityAddressParamSchema = z.object({ address: CommunityAddressSchema });
 export const RpcCommunityLookupParamSchema = z
     .object({

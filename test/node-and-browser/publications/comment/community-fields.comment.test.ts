@@ -294,5 +294,34 @@ describe("Comment - community fields", () => {
             expect(copiedComment.communityPublicKey).to.equal(signers[0].address);
             expect(copiedComment.communityName).to.equal("test.eth");
         });
+
+        // Regression: _createCommentInstanceFromAnotherCommentInstance must derive communityAddress
+        // from communityName/communityPublicKey when communityAddress is not provided.
+        // This mirrors the RPC commentUpdateSubscribe flow where the client sends
+        // communityName/communityPublicKey (source fields) without communityAddress (derived).
+
+        it("derives communityAddress from communityName when raw is present but communityAddress is not", async () => {
+            const comment = await pkc.createComment({ cid: DUMMY_CID, raw: {}, communityName: "test.eth" } as any);
+            expect(comment.communityAddress).to.equal("test.eth");
+            expect(comment.communityName).to.equal("test.eth");
+        });
+
+        it("derives communityAddress from communityPublicKey when raw is present but communityAddress is not", async () => {
+            const comment = await pkc.createComment({ cid: DUMMY_CID, raw: {}, communityPublicKey: signers[0].address } as any);
+            expect(comment.communityAddress).to.equal(signers[0].address);
+            expect(comment.communityPublicKey).to.equal(signers[0].address);
+        });
+
+        it("derives communityAddress from communityName when both communityName and communityPublicKey are present without communityAddress", async () => {
+            const comment = await pkc.createComment({
+                cid: DUMMY_CID,
+                raw: {},
+                communityName: "myforum.eth",
+                communityPublicKey: signers[0].address
+            } as any);
+            expect(comment.communityAddress).to.equal("myforum.eth");
+            expect(comment.communityName).to.equal("myforum.eth");
+            expect(comment.communityPublicKey).to.equal(signers[0].address);
+        });
     });
 });

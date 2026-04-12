@@ -936,8 +936,9 @@ export class Comment
         try {
             this._updateRpcSubscriptionId = await this._pkc._pkcRpcClient!.commentUpdateSubscribe({
                 cid: this.cid,
-                raw: this.raw,
-                communityAddress: this.communityAddress,
+                ...(this.raw.comment || this.raw.commentUpdate ? { raw: this.raw } : undefined),
+                communityName: this.communityName,
+                communityPublicKey: this.communityPublicKey,
                 parentCid: this.parentCid,
                 postCid: this.postCid
             });

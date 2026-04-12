@@ -517,6 +517,11 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         if (options.communityAddress) commentInstance.setCommunityAddress(options.communityAddress);
         if (options.communityPublicKey) commentInstance.communityPublicKey = options.communityPublicKey;
         if (options.communityName) commentInstance.communityName = options.communityName;
+        // Derive communityAddress from communityName/communityPublicKey when not explicitly provided
+        if (!commentInstance.communityAddress) {
+            const derived = options.communityName || options.communityPublicKey;
+            if (derived) commentInstance.setCommunityAddress(derived);
+        }
         if (options.raw?.commentUpdate?.cid) commentInstance.setCid(options.raw?.commentUpdate?.cid);
         if ("pubsubMessageToPublish" in options.raw && options.raw.pubsubMessageToPublish && "signer" in options && options.signer)
             commentInstance._initLocalProps({
