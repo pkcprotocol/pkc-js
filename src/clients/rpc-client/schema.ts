@@ -6,16 +6,16 @@ import type { EncodedDecryptedChallengeVerificationMessageType } from "../../pub
 export const SubscriptionIdSchema = z.number().positive().int();
 
 export const RpcCommentEventResultSchema = z.object({
-    comment: CommentIpfsSchema,
-    runtimeFields: z.object({}).passthrough().optional()
+    comment: CommentIpfsSchema.loose(),
+    runtimeFields: z.object({}).loose().optional()
 });
 export const RpcCommentUpdateResultSchema = z.object({
     commentUpdate: CommentUpdateSchema,
-    runtimeFields: z.object({}).passthrough().optional()
+    runtimeFields: z.object({}).loose().optional()
 });
 export const RpcChallengeVerificationEventResultSchema = z.object({
     challengeVerification: z.custom<EncodedDecryptedChallengeVerificationMessageType>(),
-    runtimeFields: z.object({}).passthrough().optional()
+    runtimeFields: z.object({}).loose().optional()
 });
 
 export const RpcCidParamSchema = z.object({ cid: CidStringSchema }).loose();

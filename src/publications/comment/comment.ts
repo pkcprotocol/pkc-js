@@ -635,7 +635,7 @@ export class Comment
             err.code === "ERR_CALCULATED_CID_DOES_NOT_MATCH" ||
             err.code === "ERR_OVER_DOWNLOAD_LIMIT" ||
             err.code === "ERR_INVALID_JSON" ||
-            err.code === "ERR_COMMENT_IPFS_COMMUNITY_ADDRESS_MISMATCH"
+            err.code === "ERR_COMMENT_IPFS_COMMUNITY_NAME_MISMATCH"
         )
             return false; // These errors means there's a problem with the record itself, not the loading
 

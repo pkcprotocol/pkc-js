@@ -198,8 +198,10 @@ const addCommentIpfsWithInvalidSchemaToIpfs = async () => {
     return postWithInvalidSchemaCid;
 };
 
-const addValidCommentIpfsToIpfs = async () => {
-    return addStringToIpfs(JSON.stringify(validCommentFixture));
+const addCommentIpfsWithCommunityNameToIpfs = async () => {
+    const commentWithName = JSON.parse(JSON.stringify(validCommentFixture));
+    commentWithName.communityName = "real-domain.eth";
+    return addStringToIpfs(JSON.stringify(commentWithName));
 };
 
 const addInvalidJsonToIpfs = async () => {
@@ -211,7 +213,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         let invalidCommentIpfsCid: string;
         let cidOfInvalidJson: string;
         let cidOfCommentIpfsWithInvalidSchema: string;
-        let cidOfCommentIpfsWithMismatchedCommunityAddress: string;
+        let cidOfCommentIpfsWithCommunityName: string;
         let pkc: PKC;
         let commentUpdateWithInvalidSignatureJson: { cid: string };
         beforeAll(async () => {
@@ -219,7 +221,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             invalidCommentIpfsCid = await addCommentIpfsWithInvalidSignatureToIpfs();
             cidOfInvalidJson = await addInvalidJsonToIpfs();
             cidOfCommentIpfsWithInvalidSchema = await addCommentIpfsWithInvalidSchemaToIpfs();
-            cidOfCommentIpfsWithMismatchedCommunityAddress = await addValidCommentIpfsToIpfs();
+            cidOfCommentIpfsWithCommunityName = await addCommentIpfsWithCommunityNameToIpfs();
             const community = await pkc.getCommunity({ address: communityAddress });
             commentUpdateWithInvalidSignatureJson = await createCommentUpdateWithInvalidSignature(
                 community.posts.pages.hot.comments[0].cid
@@ -307,13 +309,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(updateHasBeenEmitted).to.be.false;
         });
 
-        it(`comment.update() emits error and stops updating loop if CommentIpfs communityAddress does not match`, async () => {
-            const expectedCommunityAddress = signers[1].address;
-            expect(expectedCommunityAddress).to.not.equal(validCommentFixture.subplebbitAddress);
-
+        it(`comment.update() emits error and stops updating loop if CommentIpfs communityName does not match`, async () => {
             const createdComment = await pkc.createComment({
-                cid: cidOfCommentIpfsWithMismatchedCommunityAddress,
-                communityAddress: expectedCommunityAddress
+                cid: cidOfCommentIpfsWithCommunityName,
+                communityName: "forged-domain.eth"
             });
 
             const updatingStates: string[] = [];
@@ -327,7 +326,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await resolveWhenConditionIsTrue({ toUpdate: createdComment, predicate: async () => errors.length >= 1, eventName: "error" });
             expect(errors.length).to.equal(1);
             expect(errors[0].code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
-            expect(errors[0].details.commentIpfsValidation.reason).to.equal(messages.ERR_COMMENT_IPFS_COMMUNITY_ADDRESS_MISMATCH);
+            expect(errors[0].details.commentIpfsValidation.reason).to.equal(messages.ERR_COMMENT_IPFS_COMMUNITY_NAME_MISMATCH);
 
             expect(createdComment.state).to.equal("stopped");
             expect(createdComment.updatingState).to.equal("failed");
@@ -361,7 +360,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             // No community address mismatch error should have been emitted
             const addressMismatchErrors = errors.filter(
-                (e) => e.details?.commentIpfsValidation?.reason === messages.ERR_COMMENT_IPFS_COMMUNITY_ADDRESS_MISMATCH
+                (e) => e.details?.commentIpfsValidation?.reason === messages.ERR_COMMENT_IPFS_COMMUNITY_NAME_MISMATCH
             );
             expect(addressMismatchErrors).to.deep.equal([]);
             // After loading, communityPublicKey is set from the actual CommentIpfs record

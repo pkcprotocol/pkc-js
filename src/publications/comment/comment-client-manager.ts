@@ -423,7 +423,8 @@ export class CommentClientsManager extends PublicationClientsManager {
             resolveAuthorNames: this._pkc.resolveAuthorNames,
             clientsManager: this,
             calculatedCommentCid: commentCid,
-            communityAddressFromInstance: this._comment.communityAddress,
+            communityPublicKeyFromInstance: this._comment.communityPublicKey,
+            communityNameFromInstance: this._comment.communityName,
             abortSignal: this._comment._getStopAbortSignal()
         };
         const commentIpfsValidation = await verifyCommentIpfs(verificationOpts);

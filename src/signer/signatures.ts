@@ -13,7 +13,7 @@ import * as ed from "@noble/ed25519";
 
 import PeerId from "peer-id";
 import { areEquivalentCommunityAddresses, isStringDomain, removeNullUndefinedEmptyObjectsValuesRecursively, timestamp } from "../util.js";
-import { getCommunityAddressFromRecord } from "../publications/publication-community.js";
+import { getCommunityAddressFromRecord, getCommunityNameFromWire } from "../publications/publication-community.js";
 import { PKCError } from "../pkc-error.js";
 import { PKC } from "../pkc/pkc.js";
 
@@ -509,25 +509,27 @@ export async function verifyCommentIpfs(opts: {
     calculatedCommentCid: string;
     resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
-    communityAddressFromInstance?: string;
+    communityPublicKeyFromInstance?: string;
+    communityNameFromInstance?: string;
     abortSignal?: AbortSignal;
 }): ReturnType<typeof verifyCommentPubsubMessage> {
     const cacheKey = sha256(
         opts.comment.signature.signature +
             opts.comment.signature.publicKey +
             opts.calculatedCommentCid +
-            (opts.communityAddressFromInstance || "")
+            (opts.communityPublicKeyFromInstance || "") +
+            (opts.communityNameFromInstance || "")
     );
     if (opts.clientsManager._pkc._memCaches.commentVerificationCache.get(cacheKey)) return { valid: true };
 
-    // Handle both old format (subplebbitAddress) and new format (communityPublicKey/communityName)
-    const commentCommunityAddress = getCommunityAddressFromRecord(opts.comment as unknown as Record<string, unknown>);
+    // Only check communityName mismatch — communityPublicKey mismatch is intentionally not an error (key rotation)
+    const communityNameFromRecord = getCommunityNameFromWire(opts.comment as unknown as Record<string, unknown>);
     if (
-        opts.communityAddressFromInstance &&
-        commentCommunityAddress &&
-        !areEquivalentCommunityAddresses(commentCommunityAddress, opts.communityAddressFromInstance)
+        opts.communityNameFromInstance &&
+        communityNameFromRecord &&
+        !areEquivalentCommunityAddresses(communityNameFromRecord, opts.communityNameFromInstance)
     )
-        return { valid: false, reason: messages.ERR_COMMENT_IPFS_COMMUNITY_ADDRESS_MISMATCH };
+        return { valid: false, reason: messages.ERR_COMMENT_IPFS_COMMUNITY_NAME_MISMATCH };
 
     // Reject CommentIpfs records that contain reserved (runtime-only) fields
     if (_isThereReservedFieldInRecord(opts.comment, CommentIpfsReservedFields))

@@ -261,18 +261,18 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             }
         });
 
-        it(`pkc.getComment should throw if CommentIpfs communityAddress does not match the requested one`, async () => {
-            const commentIpfsCid = await addStringToIpfs(JSON.stringify(validCommentFixture));
-            const expectedCommunityAddress = signers[1].address;
-            expect(expectedCommunityAddress).to.not.equal(validCommentFixture.subplebbitAddress);
+        it(`pkc.getComment should throw if CommentIpfs communityName does not match the requested one`, async () => {
+            const commentIpfs = JSON.parse(JSON.stringify(validCommentFixture));
+            commentIpfs.communityName = "real-domain.eth";
+            const commentIpfsCid = await addStringToIpfs(JSON.stringify(commentIpfs));
 
             try {
-                await pkc.getComment({ cid: commentIpfsCid, communityAddress: expectedCommunityAddress });
+                await pkc.getComment({ cid: commentIpfsCid, communityName: "forged-domain.eth" });
                 expect.fail("should not succeed");
             } catch (e) {
                 const error = e as PKCError;
                 expect(error.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
-                expect(error.details.commentIpfsValidation.reason).to.equal(messages.ERR_COMMENT_IPFS_COMMUNITY_ADDRESS_MISMATCH);
+                expect(error.details.commentIpfsValidation.reason).to.equal(messages.ERR_COMMENT_IPFS_COMMUNITY_NAME_MISMATCH);
             }
         });
 
@@ -289,6 +289,21 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(loadedComment.communityAddress).to.equal("example.eth");
             expect(loadedComment.communityPublicKey).to.equal(signers[6].address);
             expect(loadedComment.communityName).to.equal("example.eth");
+        });
+
+        it(`pkc.getComment succeeds when communityPublicKey differs from CommentIpfs (pure key rotation, no domain)`, async () => {
+            // Simulate a non-domain community that rotated its IPNS key.
+            // The caller passes the old communityPublicKey, but the CommentIpfs has the real (new) key.
+            // getComment should load the record and use the community fields from the CommentIpfs.
+            const commentIpfsCid = await addStringToIpfs(JSON.stringify(validCommentFixture));
+            const realCommunityAddress = validCommentFixture.subplebbitAddress; // the actual community key in the record
+            const oldKey = signers[6].address; // differs from the real key
+            expect(oldKey).to.not.equal(realCommunityAddress);
+
+            const loadedComment = await pkc.getComment({ cid: commentIpfsCid, communityPublicKey: oldKey });
+            // After loading, the community fields should come from the CommentIpfs, not the hint
+            expect(loadedComment.communityAddress).to.equal(realCommunityAddress);
+            expect(loadedComment.communityPublicKey).to.equal(realCommunityAddress); // non-domain address = public key
         });
 
         itSkipIfRpc(`pkc.getComment times out if commentCid does not exist`, async () => {

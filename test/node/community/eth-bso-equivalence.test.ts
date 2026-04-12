@@ -101,7 +101,7 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
                 clientsManager: pkc._clientsManager,
                 resolveAuthorNames: false,
                 calculatedCommentCid: pageComment.cid!,
-                communityAddressFromInstance: bsoNameAddress
+                communityNameFromInstance: bsoNameAddress
             });
             expect(verification.valid).to.be.true;
         });
@@ -115,7 +115,7 @@ describeSkipIfRpc(`.eth <-> .bso alias equivalence`, async () => {
                 clientsManager: pkc._clientsManager,
                 resolveAuthorNames: false,
                 calculatedCommentCid: pageComment.cid!,
-                communityAddressFromInstance: pageComment.communityAddress.endsWith(".eth")
+                communityNameFromInstance: pageComment.communityAddress.endsWith(".eth")
                     ? pageComment.communityAddress.slice(0, -4) + ".bso"
                     : pageComment.communityAddress.slice(0, -4) + ".eth"
             });

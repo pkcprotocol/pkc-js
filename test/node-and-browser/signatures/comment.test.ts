@@ -408,7 +408,62 @@ describeSkipIfRpc("verify Comment", async () => {
             clientsManager: pkc._clientsManager,
             resolveAuthorNames: false,
             calculatedCommentCid: "QmKeyRotationTest",
-            communityAddressFromInstance: "example.eth" // matches communityName
+            communityNameFromInstance: "example.eth" // matches communityName
+        });
+        expect(verification).to.deep.equal({ valid: true });
+    });
+
+    it(`verifyCommentIpfs returns invalid when communityName from record mismatches communityNameFromInstance`, async () => {
+        const comment = remeda.clone(validCommentFixture) as CommentIpfsType;
+        (comment as Record<string, unknown>).communityName = "real.eth";
+
+        const verification = await verifyCommentIpfs({
+            comment,
+            clientsManager: pkc._clientsManager,
+            resolveAuthorNames: false,
+            calculatedCommentCid: "QmNameMismatchTest",
+            communityNameFromInstance: "forged.eth"
+        });
+        expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IPFS_COMMUNITY_NAME_MISMATCH });
+    });
+
+    it(`verifyCommentIpfs passes when communityName aliases match (.eth vs .bso)`, async () => {
+        const comment = remeda.clone(validCommentFixture) as CommentIpfsType;
+        (comment as Record<string, unknown>).communityName = "example.eth";
+
+        const verification = await verifyCommentIpfs({
+            comment,
+            clientsManager: pkc._clientsManager,
+            resolveAuthorNames: false,
+            calculatedCommentCid: "QmAliasTest",
+            communityNameFromInstance: "example.bso"
+        });
+        expect(verification).to.deep.equal({ valid: true });
+    });
+
+    it(`verifyCommentIpfs passes when communityPublicKeyFromInstance differs from record`, async () => {
+        const comment = remeda.clone(validCommentFixture) as CommentIpfsType;
+
+        const verification = await verifyCommentIpfs({
+            comment,
+            clientsManager: pkc._clientsManager,
+            resolveAuthorNames: false,
+            calculatedCommentCid: "QmPublicKeyMismatchTest",
+            communityPublicKeyFromInstance: signers[6].address
+        });
+        expect(verification).to.deep.equal({ valid: true });
+    });
+
+    it(`verifyCommentIpfs passes when communityNameFromInstance is set but record has no communityName`, async () => {
+        const comment = remeda.clone(validCommentFixture) as CommentIpfsType;
+        // validCommentFixture has subplebbitAddress (IPNS key), no communityName
+
+        const verification = await verifyCommentIpfs({
+            comment,
+            clientsManager: pkc._clientsManager,
+            resolveAuthorNames: false,
+            calculatedCommentCid: "QmNoNameInRecordTest",
+            communityNameFromInstance: "some-domain.eth"
         });
         expect(verification).to.deep.equal({ valid: true });
     });
