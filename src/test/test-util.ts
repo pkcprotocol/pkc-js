@@ -2459,7 +2459,10 @@ export function mockReplyToUseParentPagesForUpdates(reply: Comment) {
 
     updatingComment._clientsManager.handleUpdateEventFromPostToFetchReplyCommentUpdate = (postInstance) => {
         // this should stop pkc-js from assuming the post replies is a single preloaded page
-        const updatingCommunityInstance = findUpdatingCommunity(reply._pkc, { address: postInstance.communityAddress });
+        const updatingCommunityInstance = findUpdatingCommunity(reply._pkc, {
+            publicKey: postInstance.communityPublicKey,
+            name: postInstance.communityName
+        });
         const updatingParentInstance = findUpdatingComment(reply._pkc, { cid: reply.parentCid! });
 
         if (postInstance.replies.pages)

@@ -190,7 +190,7 @@ describeSkipIfRpc("PKCWsServer listener lifecycle", function () {
             expect(deleteResult).to.equal(true);
 
             expect(trackedListenersMap.get(capturedCommunity!)).to.equal(undefined, "Tracked listeners should be removed after delete");
-            expect(findStartedCommunity(rpcServer.pkc, { address })).to.equal(
+            expect(findStartedCommunity(rpcServer.pkc, { publicKey: address })).to.equal(
                 undefined,
                 "Started community list should not contain deleted community"
             );

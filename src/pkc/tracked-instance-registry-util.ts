@@ -10,12 +10,14 @@ type TrackedCommunity = RemoteCommunity | RpcRemoteCommunity | RpcLocalCommunity
 type StartedCommunity = LocalCommunity | RpcLocalCommunity;
 
 type CommunityLookup = {
-    address?: string;
     name?: string;
     publicKey?: string;
 };
 
-type CommunityWithAliases = CommunityLookup & {
+type CommunityWithAliases = {
+    address?: string;
+    name?: string;
+    publicKey?: string;
     signer?: { address?: string } | undefined;
 };
 

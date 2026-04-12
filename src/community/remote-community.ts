@@ -336,6 +336,13 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
             this.publicKey = getPKCAddressFromPublicKeySync(newProps.signature.publicKey);
         } else if (explicitPublicKey) {
             this.publicKey = explicitPublicKey;
+        } else if (
+            !this.publicKey &&
+            "address" in newProps &&
+            typeof newProps.address === "string" &&
+            !isStringDomain(newProps.address as string)
+        ) {
+            this.publicKey = newProps.address as string;
         }
         if (typeof newProps.name === "string") this.name = newProps.name;
         else if (
@@ -534,7 +541,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
 
     _setCommunityIpfsPropsFromUpdatingCommunitiesIfPossible() {
         const log = Logger("pkc-js:comment:_setCommunityIpfsPropsFromUpdatingCommunitiesIfPossible");
-        const updatingCommunity = findUpdatingCommunity(this._pkc, { address: this.address });
+        const updatingCommunity = findUpdatingCommunity(this._pkc, { publicKey: this.publicKey, name: this.name });
         if (updatingCommunity?.raw?.communityIpfs && (this.updatedAt || 0) < updatingCommunity.raw.communityIpfs.updatedAt) {
             this.initCommunityIpfsPropsNoMerge(updatingCommunity.raw.communityIpfs);
             this.updateCid = updatingCommunity.updateCid;
@@ -552,7 +559,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     }
 
     private async _initCommunityInstanceWithListeners() {
-        const trackedUpdatingCommunity = findUpdatingCommunity(this._pkc, { address: this.address });
+        const trackedUpdatingCommunity = findUpdatingCommunity(this._pkc, { publicKey: this.publicKey, name: this.name });
         if (!trackedUpdatingCommunity) throw Error("should be defined at this stage");
         const log = Logger("pkc-js:remote-community:update");
         const communityInstance = trackedUpdatingCommunity;
@@ -592,7 +599,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     private async fetchLatestCommunityOrSubscribeToEvent() {
         const log = Logger("pkc-js:remote-community:update:updateOnce");
 
-        if (!findUpdatingCommunity(this._pkc, { address: this.address })) {
+        if (!findUpdatingCommunity(this._pkc, { publicKey: this.publicKey, name: this.name })) {
             // Pass publicKey alongside name/address so the updating community can use publicKey fallback
             const createOpts =
                 this.publicKey && isStringDomain(this.address)
@@ -603,7 +610,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
             log("Creating a new entry for this._pkc._updatingCommunities", this.address);
         }
 
-        const communityInstance = findUpdatingCommunity(this._pkc, { address: this.address });
+        const communityInstance = findUpdatingCommunity(this._pkc, { publicKey: this.publicKey, name: this.name });
         if (!communityInstance) throw Error("should be defined at this stage");
         if (communityInstance === this) {
             // Already tracking this instance; start the loop directly without mirroring to itself

@@ -287,20 +287,20 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     predicate: async () => typeof secondComment.updatedAt === "number"
                 });
 
-                const commentCommunityAddress = firstComment.communityAddress;
-                expect(findUpdatingCommunity(pkc, { address: commentCommunityAddress })).to.exist;
+                const communityLookup = { publicKey: firstComment.communityPublicKey, name: firstComment.communityName };
+                expect(findUpdatingCommunity(pkc, communityLookup)).to.exist;
 
                 await firstComment.stop();
                 await new Promise((resolve) => setTimeout(resolve, 200));
 
-                expect(findUpdatingCommunity(pkc, { address: commentCommunityAddress })).to.exist;
+                expect(findUpdatingCommunity(pkc, communityLookup)).to.exist;
                 expect(secondComment.state).to.equal("updating");
                 expect(findUpdatingComment(pkc, { cid: secondComment.cid! })).to.exist;
 
                 await secondComment.stop();
                 await new Promise((resolve) => setTimeout(resolve, 200));
 
-                expect(findUpdatingCommunity(pkc, { address: commentCommunityAddress })).to.not.exist;
+                expect(findUpdatingCommunity(pkc, communityLookup)).to.not.exist;
                 expect(listUpdatingComments(pkc)).to.deep.equal([]);
             }
         );
@@ -440,17 +440,17 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 const comment = await pkc.createComment({ cid: commentCid });
 
                 expect(findUpdatingComment(pkc, { cid: commentCid })).to.not.exist;
-                expect(findUpdatingCommunity(pkc, { address: comment.communityAddress })).to.not.exist;
+                expect(findUpdatingCommunity(pkc, { publicKey: comment.communityPublicKey, name: comment.communityName })).to.not.exist;
 
                 await comment.update();
                 await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });
                 expect(findUpdatingComment(pkc, { cid: commentCid })).to.exist;
-                expect(findUpdatingCommunity(pkc, { address: comment.communityAddress })).to.exist;
+                expect(findUpdatingCommunity(pkc, { publicKey: comment.communityPublicKey, name: comment.communityName })).to.exist;
 
                 await comment.stop();
                 await new Promise((resolve) => setTimeout(resolve, 500)); // need to wait some time to propgate events
                 expect(findUpdatingComment(pkc, { cid: commentCid })).to.not.exist;
-                expect(findUpdatingCommunity(pkc, { address: comment.communityAddress })).to.not.exist;
+                expect(findUpdatingCommunity(pkc, { publicKey: comment.communityPublicKey, name: comment.communityName })).to.not.exist;
             }
         );
 
@@ -462,17 +462,17 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const comment = await pkc.createComment({ cid: commentCid });
 
             expect(findUpdatingComment(pkc, { cid: commentCid })).to.not.exist;
-            expect(findUpdatingCommunity(pkc, { address: community.address })).to.exist;
+            expect(findUpdatingCommunity(pkc, { publicKey: community.publicKey, name: community.name })).to.exist;
 
             await comment.update();
             await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });
             expect(findUpdatingComment(pkc, { cid: commentCid })).to.exist;
-            expect(findUpdatingCommunity(pkc, { address: comment.communityAddress })).to.exist;
+            expect(findUpdatingCommunity(pkc, { publicKey: comment.communityPublicKey, name: comment.communityName })).to.exist;
 
             await comment.stop();
             await new Promise((resolve) => setTimeout(resolve, 500)); // need to wait some time to propgate events
             expect(findUpdatingComment(pkc, { cid: commentCid })).to.not.exist;
-            expect(findUpdatingCommunity(pkc, { address: comment.communityAddress })).to.exist;
+            expect(findUpdatingCommunity(pkc, { publicKey: comment.communityPublicKey, name: comment.communityName })).to.exist;
         });
     });
 });

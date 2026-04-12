@@ -33,9 +33,9 @@ describe.concurrent(`pkc._startedCommunities`, () => {
     it(`community.start() should add the community to pkc._startedCommunities. stop() should remove it`, async () => {
         const community = (await pkc.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         await community.start();
-        expect(findStartedCommunity(pkc, { address: community.address })).to.equal(community);
+        expect(findStartedCommunity(pkc, { publicKey: community.publicKey, name: community.name })).to.equal(community);
         await community.stop();
-        expect(findStartedCommunity(pkc, { address: community.address })).to.be.undefined;
+        expect(findStartedCommunity(pkc, { publicKey: community.publicKey, name: community.name })).to.be.undefined;
     });
 
     it(`started registry resolves the same community by address, name, publicKey, and sticky aliases`, async () => {
@@ -54,18 +54,18 @@ describe.concurrent(`pkc._startedCommunities`, () => {
 
             const publicKey = startedCommunity.publicKey || startedCommunity.signer.address;
 
-            expect(findStartedCommunity(isolatedPKC, { address: originalAddress })).to.equal(startedCommunity);
-            expect(findStartedCommunity(isolatedPKC, { address: bsoAddress })).to.equal(startedCommunity);
-            expect(findStartedCommunity(isolatedPKC, { address: ethAddress })).to.equal(startedCommunity);
+            expect(findStartedCommunity(isolatedPKC, { publicKey: originalAddress })).to.equal(startedCommunity);
+            expect(findStartedCommunity(isolatedPKC, { name: bsoAddress })).to.equal(startedCommunity);
+            expect(findStartedCommunity(isolatedPKC, { name: ethAddress })).to.equal(startedCommunity);
             expect(findStartedCommunity(isolatedPKC, { name: bsoAddress })).to.equal(startedCommunity);
             expect(findStartedCommunity(isolatedPKC, { publicKey })).to.equal(startedCommunity);
             expect(listStartedCommunities(isolatedPKC)).to.deep.equal([startedCommunity]);
 
             await startedCommunity.stop();
 
-            expect(findStartedCommunity(isolatedPKC, { address: originalAddress })).to.be.undefined;
-            expect(findStartedCommunity(isolatedPKC, { address: bsoAddress })).to.be.undefined;
-            expect(findStartedCommunity(isolatedPKC, { address: ethAddress })).to.be.undefined;
+            expect(findStartedCommunity(isolatedPKC, { publicKey: originalAddress })).to.be.undefined;
+            expect(findStartedCommunity(isolatedPKC, { name: bsoAddress })).to.be.undefined;
+            expect(findStartedCommunity(isolatedPKC, { name: ethAddress })).to.be.undefined;
             expect(listStartedCommunities(isolatedPKC)).to.deep.equal([]);
         } finally {
             await isolatedPKC.destroy().catch(() => {});
@@ -157,27 +157,33 @@ describe.concurrent(`pkc._startedCommunities`, () => {
     it(`Publishing/updating via comment should not stop a started community`, async () => {
         const startedCommunity = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity | RpcLocalCommunity;
         await startedCommunity.start();
-        expect(findStartedCommunity(pkc, { address: startedCommunity.address })).to.equal(startedCommunity);
+        expect(findStartedCommunity(pkc, { publicKey: startedCommunity.publicKey, name: startedCommunity.name })).to.equal(
+            startedCommunity
+        );
 
         const post = await publishRandomPost({ communityAddress: startedCommunity.address, pkc: pkc });
         const comment = await pkc.createComment({ cid: post.cid! });
         await comment.update();
         await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });
-        expect(findStartedCommunity(pkc, { address: startedCommunity.address })).to.equal(startedCommunity);
-        expect(findUpdatingCommunity(pkc, { address: startedCommunity.address })).to.be.undefined;
+        expect(findStartedCommunity(pkc, { publicKey: startedCommunity.publicKey, name: startedCommunity.name })).to.equal(
+            startedCommunity
+        );
+        expect(findUpdatingCommunity(pkc, { publicKey: startedCommunity.publicKey, name: startedCommunity.name })).to.be.undefined;
         expect(findUpdatingComment(pkc, { cid: comment.cid! })).to.exist;
 
         await comment.stop();
         await new Promise((resolve) => setTimeout(resolve, 200));
 
-        expect(findStartedCommunity(pkc, { address: startedCommunity.address })).to.equal(startedCommunity);
-        expect(findUpdatingCommunity(pkc, { address: startedCommunity.address })).to.be.undefined;
+        expect(findStartedCommunity(pkc, { publicKey: startedCommunity.publicKey, name: startedCommunity.name })).to.equal(
+            startedCommunity
+        );
+        expect(findUpdatingCommunity(pkc, { publicKey: startedCommunity.publicKey, name: startedCommunity.name })).to.be.undefined;
         expect(findUpdatingComment(pkc, { cid: comment.cid! })).to.not.exist;
 
         expect(startedCommunity.state).to.equal("started");
         await startedCommunity.stop();
-        expect(findStartedCommunity(pkc, { address: startedCommunity.address })).to.not.exist;
-        expect(findUpdatingCommunity(pkc, { address: startedCommunity.address })).to.be.undefined;
+        expect(findStartedCommunity(pkc, { publicKey: startedCommunity.publicKey, name: startedCommunity.name })).to.not.exist;
+        expect(findUpdatingCommunity(pkc, { publicKey: startedCommunity.publicKey, name: startedCommunity.name })).to.be.undefined;
         expect(findUpdatingComment(pkc, { cid: comment.cid! })).to.not.exist;
     });
 

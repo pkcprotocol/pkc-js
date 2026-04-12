@@ -432,8 +432,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         const log = Logger("pkc-js:local-community:_updateInstancePropsWithStartedCommunityOrDb");
         const startedCommunity = <LocalCommunity | undefined>(
-            (findStartedCommunity(this._pkc, { address: this.address }) ||
-                findCommunityInRegistry(processStartedCommunities, { address: this.address }))
+            (findStartedCommunity(this._pkc, { publicKey: this.publicKey, name: this.name }) ||
+                findCommunityInRegistry(processStartedCommunities, { publicKey: this.publicKey, name: this.name }))
         );
         if (startedCommunity) {
             log("Loading local community", this.address, "from started community instance");
@@ -3381,8 +3381,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         // 4 - calling edit() on the community that's started (should edit the started community)
 
         const startedCommunity = <LocalCommunity | undefined>(
-            (findStartedCommunity(this._pkc, { address: this.address }) ||
-                findCommunityInRegistry(processStartedCommunities, { address: this.address }))
+            (findStartedCommunity(this._pkc, { publicKey: this.publicKey, name: this.name }) ||
+                findCommunityInRegistry(processStartedCommunities, { publicKey: this.publicKey, name: this.name }))
         );
         if (startedCommunity && this.state !== "started") {
             // sceneario 1
@@ -3429,7 +3429,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             return this._editPropsOnNotStartedCommunity(newProps);
         }
 
-        if (findStartedCommunity(this._pkc, { address: this.address }) === this) {
+        if (findStartedCommunity(this._pkc, { publicKey: this.publicKey, name: this.name }) === this) {
             // sceneario 4
             return this._editPropsOnStartedCommunity(newProps);
         }
@@ -3447,8 +3447,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         await this._updateStartedValue();
         if (
             this.started ||
-            findStartedCommunity(this._pkc, { address: this.address }) ||
-            findCommunityInRegistry(processStartedCommunities, { address: this.address })
+            findStartedCommunity(this._pkc, { publicKey: this.publicKey, name: this.name }) ||
+            findCommunityInRegistry(processStartedCommunities, { publicKey: this.publicKey, name: this.name })
         )
             throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: this.address });
         try {
@@ -3607,8 +3607,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         await this.initDbHandlerIfNeeded();
         await this._updateStartedValue();
         const startedCommunity = <LocalCommunity | undefined>(
-            (findStartedCommunity(this._pkc, { address: this.address }) ||
-                findCommunityInRegistry(processStartedCommunities, { address: this.address }))
+            (findStartedCommunity(this._pkc, { publicKey: this.publicKey, name: this.name }) ||
+                findCommunityInRegistry(processStartedCommunities, { publicKey: this.publicKey, name: this.name }))
         );
         if (this._mirroredStartedOrUpdatingCommunity)
             return; // we're already mirroring a started or updating community
@@ -3618,7 +3618,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             untrackUpdatingCommunity(this._pkc, this);
             return;
         } else {
-            const updatingCommunity = findUpdatingCommunity(this._pkc, { address: this.address });
+            const updatingCommunity = findUpdatingCommunity(this._pkc, { publicKey: this.publicKey, name: this.name });
             if (updatingCommunity instanceof LocalCommunity && updatingCommunity !== this) {
                 // different instance is updating, let's mirror it
                 await this._initMirroringStartedOrUpdatingCommunity(updatingCommunity as LocalCommunity);
@@ -3747,7 +3747,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             this._updateLoopAbortController = undefined;
             if (this._dbHandler) this._dbHandler.destoryConnection();
             if (this._mirroredStartedOrUpdatingCommunity) await this._cleanUpMirroredStartedOrUpdatingCommunity();
-            if (findUpdatingCommunity(this._pkc, { address: this.address }) === this) untrackUpdatingCommunity(this._pkc, this);
+            if (findUpdatingCommunity(this._pkc, { publicKey: this.publicKey, name: this.name }) === this)
+                untrackUpdatingCommunity(this._pkc, this);
             this._setUpdatingStateWithEventEmissionIfNewState("stopped");
             log(`Stopped the updating of local community (${this.address})`);
             this._setState("stopped");
@@ -3759,8 +3760,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         log.trace(`Attempting to stop the community (${this.address}) before deleting, if needed`);
 
         const startedCommunity = <LocalCommunity | undefined>(
-            (findStartedCommunity(this._pkc, { address: this.address }) ||
-                findCommunityInRegistry(processStartedCommunities, { address: this.address }))
+            (findStartedCommunity(this._pkc, { publicKey: this.publicKey, name: this.name }) ||
+                findCommunityInRegistry(processStartedCommunities, { publicKey: this.publicKey, name: this.name }))
         );
         if (startedCommunity && startedCommunity !== this) {
             await startedCommunity.delete();

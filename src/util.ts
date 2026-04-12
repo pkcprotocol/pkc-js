@@ -590,7 +590,7 @@ export async function waitForUpdateInCommunityInstanceWithErrorAndTimeout(commun
         if (updateError) throw updateError;
     } catch (e) {
         if (updateError) throw updateError;
-        const updatingCommunity = findUpdatingCommunity(community._pkc, { address: community.address });
+        const updatingCommunity = findUpdatingCommunity(community._pkc, { publicKey: community.publicKey, name: community.name });
         if (updatingCommunity?._clientsManager._ipnsLoadingOperation?.mainError())
             throw updatingCommunity._clientsManager._ipnsLoadingOperation.mainError();
         throw e;

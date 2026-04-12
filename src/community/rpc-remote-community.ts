@@ -232,9 +232,8 @@ export class RpcRemoteCommunity extends RemoteCommunity {
         const updatingSub =
             updatingCommunity ||
             ((await this._pkc.createCommunity({
-                address: this.address,
-                ...(this.name ? { name: this.name } : undefined),
-                ...(this.publicKey ? { publicKey: this.publicKey } : undefined)
+                name: this.name,
+                publicKey: this.publicKey
             })) as RpcRemoteCommunity);
         trackUpdatingCommunity(this._pkc, updatingSub);
         log("Creating a new entry for this._pkc._updatingCommunities", this.address);
@@ -252,12 +251,14 @@ export class RpcRemoteCommunity extends RemoteCommunity {
         if (this.state !== "stopped") return; // No need to do anything if community is already updating
         this._setState("updating");
         try {
-            const existingSub = findUpdatingCommunity(this._pkc, { address: this.address }) as RpcRemoteCommunity | undefined;
+            const existingSub = findUpdatingCommunity(this._pkc, { publicKey: this.publicKey, name: this.name }) as
+                | RpcRemoteCommunity
+                | undefined;
             if (existingSub) {
                 if (existingSub === this) await this._initRpcUpdateSubscription();
                 else await this._initMirroringUpdatingCommunity(existingSub);
             } else {
-                const startedSub = findStartedCommunity(this._pkc, { address: this.address });
+                const startedSub = findStartedCommunity(this._pkc, { publicKey: this.publicKey, name: this.name });
                 if (startedSub) await this._initMirroringUpdatingCommunity(startedSub as RpcLocalCommunity);
                 else {
                     // creating a new entry in pkc._updatingCommunities

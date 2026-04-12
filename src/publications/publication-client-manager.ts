@@ -165,14 +165,13 @@ export class PublicationClientsManager extends PKCClientsManager {
         // basically in Publication or comment we need to be fetching the community record
         // this function will be for translating between the states of the community and its clients to publication/comment states
         const directCommunityInstance =
-            findUpdatingCommunity(this._pkc, { address: this._publication.communityAddress }) ||
-            findStartedCommunity(this._pkc, { address: this._publication.communityAddress });
+            findUpdatingCommunity(this._pkc, { publicKey: this._publication.communityPublicKey, name: this._publication.communityName }) ||
+            findStartedCommunity(this._pkc, { publicKey: this._publication.communityPublicKey, name: this._publication.communityName });
         const community =
             directCommunityInstance ||
             (await this._pkc.createCommunity({
                 name: this._publication.communityName,
-                publicKey: this._publication.communityPublicKey,
-                address: this._publication.communityAddress
+                publicKey: this._publication.communityPublicKey
             }));
 
         this._communityForUpdating = {

@@ -979,9 +979,9 @@ export class Comment
             if (!this.communityAddress) return;
         }
         const updatingCommunityInstance =
-            findUpdatingCommunity(this._pkc, { address: this.communityAddress }) ||
+            findUpdatingCommunity(this._pkc, { publicKey: this.communityPublicKey, name: this.communityName }) ||
             this._communityForUpdating?.community ||
-            findStartedCommunity(this._pkc, { address: this.communityAddress });
+            findStartedCommunity(this._pkc, { publicKey: this.communityPublicKey, name: this.communityName });
         if (updatingCommunityInstance?.raw?.communityIpfs && this.cid) {
             const commentInCommunityPosts = findCommentInPageInstanceRecursively(updatingCommunityInstance.posts, this.cid);
             if (commentInCommunityPosts) {
@@ -1050,7 +1050,8 @@ export class Comment
                         if ((this.updatedAt || 0) < commentInAncestor.commentUpdate.updatedAt) {
                             this._initCommentUpdate(
                                 commentInAncestor.commentUpdate,
-                                findUpdatingCommunity(this._pkc, { address: this.communityAddress })?.raw?.communityIpfs
+                                findUpdatingCommunity(this._pkc, { publicKey: this.communityPublicKey, name: this.communityName })?.raw
+                                    ?.communityIpfs
                             );
                             this.emit("update", this);
                         }

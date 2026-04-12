@@ -705,8 +705,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
         const cached = this._pkc._memCaches.communityForPublishing.get(this.communityAddress, { allowStale: true });
         if (cached) return cached;
         const subInstance =
-            findUpdatingCommunity(this._pkc, { address: this.communityAddress }) ||
-            findStartedCommunity(this._pkc, { address: this.communityAddress });
+            findUpdatingCommunity(this._pkc, { publicKey: this.communityPublicKey, name: this.communityName }) ||
+            findStartedCommunity(this._pkc, { publicKey: this.communityPublicKey, name: this.communityName });
         const subIpfs = subInstance?.raw.communityIpfs;
         if (subIpfs && subInstance.publicKey)
             return {
@@ -730,7 +730,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             if (!this._pkc._memCaches.communityForPublishing.has(this.communityAddress)) {
                 log("The cache of community is stale, we will use the cached and update in the background");
                 this._pkc
-                    .getCommunity({ address: this.communityAddress })
+                    .getCommunity({ publicKey: this.communityPublicKey, name: this.communityName })
                     .catch((e) => log.error("Failed to update cache of community", this.communityAddress, e));
             }
             return cachedCommunity;
@@ -1175,7 +1175,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
         const options = { acceptedChallengeTypes: [] };
 
         const providers = this._getPubsubProviders();
-        const startedCommunity = findStartedCommunity(this._pkc, { address: this.communityAddress }) as LocalCommunity | undefined;
+        const startedCommunity = findStartedCommunity(this._pkc, { publicKey: this.communityPublicKey, name: this.communityName }) as
+            | LocalCommunity
+            | undefined;
         if (startedCommunity) {
             return this._publishWithLocalCommunity(
                 startedCommunity,

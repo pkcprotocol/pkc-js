@@ -446,8 +446,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         if (!this._comment.cid) throw Error("Comment cid should be defined");
         const community = await this._pkc.createCommunity({
             name: this._comment.communityName,
-            publicKey: this._comment.communityPublicKey,
-            address: this._comment.communityAddress
+            publicKey: this._comment.communityPublicKey
         });
 
         const abortController = new AbortController();
@@ -564,8 +563,8 @@ export class CommentClientsManager extends PublicationClientsManager {
         // TODO rewrite this to use updating comments and community
         if (typeof this._comment.cid !== "string") throw Error("Need to have defined cid");
         const community: RemoteCommunity | undefined =
-            findStartedCommunity(this._pkc, { address: this._comment.communityAddress }) ||
-            findUpdatingCommunity(this._pkc, { address: this._comment.communityAddress }) ||
+            findStartedCommunity(this._pkc, { publicKey: this._comment.communityPublicKey, name: this._comment.communityName }) ||
+            findUpdatingCommunity(this._pkc, { publicKey: this._comment.communityPublicKey, name: this._comment.communityName }) ||
             opts?.community;
         let updateFromCommunity: PageIpfs["comments"][0] | undefined;
         if (community) updateFromCommunity = findCommentInPageInstanceRecursively(community.posts, this._comment.cid);
@@ -938,8 +937,14 @@ export class CommentClientsManager extends PublicationClientsManager {
         }
         const replyInPage = this._findCommentInPagesOfUpdatingCommentsOrCommunity({ post: postInstance });
 
-        const updatingCommunity = findUpdatingCommunity(this._pkc, { address: postInstance.communityAddress });
-        const startedCommunity = findStartedCommunity(this._pkc, { address: postInstance.communityAddress });
+        const updatingCommunity = findUpdatingCommunity(this._pkc, {
+            publicKey: postInstance.communityPublicKey,
+            name: postInstance.communityName
+        });
+        const startedCommunity = findStartedCommunity(this._pkc, {
+            publicKey: postInstance.communityPublicKey,
+            name: postInstance.communityName
+        });
         const repliesCommunity = <Pick<CommunityIpfsType, "signature">>(
             (updatingCommunity?.raw?.communityIpfs || startedCommunity?.raw?.communityIpfs || postInstance.replies._community)
         );

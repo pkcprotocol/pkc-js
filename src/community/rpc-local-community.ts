@@ -236,7 +236,7 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
         if (typeof this._startRpcSubscriptionId === "number")
             throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { communityAddress: this.address });
 
-        if (findStartedCommunity(this._pkc, { address: this.address }))
+        if (findStartedCommunity(this._pkc, { publicKey: this.publicKey, name: this.name }))
             throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED_IN_SAME_PKC_INSTANCE", { communityAddress: this.address });
         try {
             this._startRpcSubscriptionId = await this._pkc._pkcRpcClient!.startCommunity({ address: this.address });
@@ -335,7 +335,7 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
 
     override async delete() {
         // Make sure to stop updating or starting first
-        const startedCommunity = findStartedCommunity(this._pkc, { address: this.address });
+        const startedCommunity = findStartedCommunity(this._pkc, { publicKey: this.publicKey, name: this.name });
         if (startedCommunity && startedCommunity !== this) {
             await startedCommunity.delete();
         } else {
