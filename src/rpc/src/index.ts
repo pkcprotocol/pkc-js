@@ -435,7 +435,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const community =
             communityAddress in this._startedCommunities
                 ? await this.getStartedCommunity(communityAddress)
-                : <RemoteCommunity | LocalCommunity>await pkc.createCommunity({ address: communityAddress });
+                : <RemoteCommunity | LocalCommunity>await pkc.createCommunity({ name: communityName, publicKey: communityPublicKey });
         const { page } =
             type === "posts"
                 ? await community.posts._fetchAndVerifyPage({ pageCid, pageMaxSize })
