@@ -12,6 +12,7 @@ import {
 } from "../../schema/schema-util.js";
 import { FailedToFetchCommentUpdateFromGatewaysError, PKCError } from "../../pkc-error.js";
 import { verifyCommentIpfs, verifyCommentUpdate } from "../../signer/signatures.js";
+import { getPKCAddressFromPublicKeySync } from "../../signer/util.js";
 import Logger from "../../logger.js";
 import { getPostUpdateTimestampRange, hideClassPrivateProps, isAbortError, resolveWhenPredicateIsTrue } from "../../util.js";
 import { PublicationClientsManager } from "../publication-client-manager.js";
@@ -210,7 +211,11 @@ export class CommentClientsManager extends PublicationClientsManager {
             update: commentUpdate,
             resolveAuthorNames: this._pkc.resolveAuthorNames,
             clientsManager: this,
-            community: { address: this._comment.communityAddress, signature: communityIpfs.signature },
+            community: {
+                publicKey: getPKCAddressFromPublicKeySync(communityIpfs.signature.publicKey),
+                name: communityIpfs.name,
+                signature: communityIpfs.signature
+            },
             comment: { ...this._comment.raw.comment, cid: this._comment.cid, postCid: this._comment.postCid },
             validatePages: this._pkc.validatePages,
             validateUpdateSignature: true,

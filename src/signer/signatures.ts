@@ -13,7 +13,7 @@ import * as ed from "@noble/ed25519";
 
 import PeerId from "peer-id";
 import { areEquivalentCommunityAddresses, isStringDomain, removeNullUndefinedEmptyObjectsValuesRecursively, timestamp } from "../util.js";
-import { getCommunityAddressFromRecord, getCommunityNameFromWire } from "../publications/publication-community.js";
+import { getCommunityNameFromWire } from "../publications/publication-community.js";
 import { PKCError } from "../pkc-error.js";
 import { PKC } from "../pkc/pkc.js";
 
@@ -595,9 +595,12 @@ export async function verifyCommunity({
     const cacheKey = sha256(community.signature.signature + validatePages + communityIpnsName);
     if (cacheIfValidWithDefault && clientsManager._pkc._memCaches.communityVerificationCache.get(cacheKey)) return { valid: true };
 
-    // Derive address for page verification: name || publicKey || ipnsName
     const communityAddress = community.name || getPKCAddressFromPublicKeySync(community.signature.publicKey);
-    const communityForPages: CommunityForVerifyingPages = { address: communityAddress, signature: community.signature };
+    const communityForPages: CommunityForVerifyingPages = {
+        publicKey: getPKCAddressFromPublicKeySync(community.signature.publicKey),
+        name: community.name,
+        signature: community.signature
+    };
 
     if (community.posts?.pages && validatePages)
         for (const preloadedPageSortName of remeda.keys.strict(community.posts.pages)) {
@@ -686,7 +689,12 @@ export async function verifyCommentUpdate({
     }
 
     const cacheKey = sha256(
-        update.signature.signature + community.address + JSON.stringify(comment) + validatePages + validateUpdateSignature
+        update.signature.signature +
+            community.publicKey +
+            community.name +
+            JSON.stringify(comment) +
+            validatePages +
+            validateUpdateSignature
     );
 
     if (clientsManager._pkc._memCaches.commentUpdateVerificationCache.get(cacheKey)) return { valid: true };
@@ -829,7 +837,7 @@ type ParentCommentForVerifyingPages =
     | Pick<CommentIpfsWithCidDefined, "postCid"> // when we're verifying a flat page
     | { cid: undefined; depth: -1; postCid: undefined }; // when we're verifying a community posts page
 
-type CommunityForVerifyingPages = { address: string; signature?: CommunityIpfsType["signature"] };
+type CommunityForVerifyingPages = { publicKey?: string; name?: string; signature?: CommunityIpfsType["signature"] };
 
 export async function verifyPageComment({
     pageComment,
@@ -855,10 +863,6 @@ export async function verifyPageComment({
     // another sceneario is with a flat page, where we don't have the parent comment cid or prop, but we do have its postCid
     // another sceneario is when we're veriifying a nested page and we have the parent comment cid and all its props
     // another sceneario is when we're verifying a mod queue page that has comments with different depths with different parentCids and not necessarily a shared postCid
-    // Handle both old format (subplebbitAddress) and new format (communityPublicKey/communityName)
-    const pageCommunityAddress = getCommunityAddressFromRecord(pageComment.comment as unknown as Record<string, unknown>);
-    if (pageCommunityAddress && !areEquivalentCommunityAddresses(pageCommunityAddress, community.address))
-        return { valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY };
 
     if (pageComment.comment.depth === 0 && pageComment.comment.postCid)
         return { valid: false, reason: messages.ERR_PAGE_COMMENT_POST_HAS_POST_CID_DEFINED_WITH_DEPTH_0 };
@@ -882,6 +886,8 @@ export async function verifyPageComment({
         resolveAuthorNames,
         clientsManager,
         calculatedCommentCid,
+        communityNameFromInstance: community.name,
+        communityPublicKeyFromInstance: community.publicKey,
         abortSignal
     });
     if (!commentSignatureValidity.valid) return commentSignatureValidity;
@@ -935,14 +941,7 @@ export async function verifyPage({
 }): Promise<ValidationResult> {
     const cacheKey =
         pageCid &&
-        sha256(
-            pageCid +
-                community.address +
-                community.signature?.publicKey +
-                JSON.stringify(parentComment) +
-                validatePages +
-                validateUpdateSignature
-        );
+        sha256(pageCid + community.publicKey + community.name + JSON.stringify(parentComment) + validatePages + validateUpdateSignature);
     if (cacheKey) if (clientsManager._pkc._memCaches.pageVerificationCache.get(cacheKey)) return { valid: true };
 
     for (const pageComment of page.comments) {
@@ -984,8 +983,7 @@ export async function verifyModQueuePage({
     validateUpdateSignature: boolean;
     abortSignal?: AbortSignal;
 }): Promise<ValidationResult> {
-    const cacheKey =
-        pageCid && sha256(pageCid + community.address + community.signature?.publicKey + validatePages + validateUpdateSignature);
+    const cacheKey = pageCid && sha256(pageCid + community.publicKey + community.name + validatePages + validateUpdateSignature);
     if (cacheKey) if (clientsManager._pkc._memCaches.pageVerificationCache.get(cacheKey)) return { valid: true };
 
     for (const pageComment of page.comments) {

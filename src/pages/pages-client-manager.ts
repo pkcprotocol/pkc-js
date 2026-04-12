@@ -124,7 +124,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
     }
 
     private _calculatePageMaxSizeCacheKey(pageCid: string) {
-        return sha256(this._pages._community.address + pageCid);
+        return sha256((this._pages._community.name || this._pages._community.publicKey) + pageCid);
     }
 
     updatePagesMaxSizeCache(newPageCids: string[], pageMaxSizeBytes: number) {
@@ -367,7 +367,7 @@ export class CommunityPostsPagesClientsManager extends BasePagesClientsManager {
     protected override preFetchPage(): void {
         if (!this._pages._community) throw Error("Community needs to be defined");
 
-        if (!this._pages._community.address) throw Error("Community address is not defined");
+        if (!this._pages._community.publicKey && !this._pages._community.name) throw Error("Community publicKey or name is not defined");
     }
 
     protected override async _requestPageFromRPC(opts: {
@@ -410,7 +410,7 @@ export class CommunityModQueueClientsManager extends BasePagesClientsManager {
     protected override preFetchPage(): void {
         if (!this._pages._community) throw Error("Community needs to be defined");
 
-        if (!this._pages._community.address) throw Error("Community address is not defined");
+        if (!this._pages._community.publicKey && !this._pages._community.name) throw Error("Community publicKey or name is not defined");
     }
 
     protected override parsePageJson(json: unknown): ModQueuePageIpfs {

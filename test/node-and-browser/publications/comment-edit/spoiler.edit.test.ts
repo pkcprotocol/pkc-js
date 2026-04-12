@@ -112,7 +112,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 update: recreatedPost.raw.commentUpdate,
                 resolveAuthorNames: true,
                 clientsManager: recreatedPost._clientsManager,
-                community: { address: recreatedPost.communityAddress },
+                community: { publicKey: recreatedPost.communityPublicKey, name: recreatedPost.communityName },
                 comment: recreatedPost as unknown as Pick<CommentIpfsWithCidPostCidDefined, "signature" | "cid" | "depth" | "postCid">,
                 validatePages: true,
                 validateUpdateSignature: true

@@ -152,7 +152,7 @@ export class Comment
             pages: {},
             pageCids: {},
             pkc: this._pkc,
-            community: { address: this.communityAddress },
+            community: { publicKey: this.communityPublicKey, name: this.communityName },
             parentComment: this
         });
 
@@ -404,7 +404,7 @@ export class Comment
         if (typeof repliesCreationTimestamp !== "number") throw Error("comment.updatedAt should be defined when updating replies");
 
         this.replies._community.signature = communitySignature;
-        const repliesCommunity = { address: this.communityAddress, signature: communitySignature };
+        const repliesCommunity = { publicKey: this.communityPublicKey, name: this.communityName, signature: communitySignature };
         if (!newReplies) {
             this.replies.resetPages();
         } else if (!("pages" in newReplies) && newReplies.pageCids) {
@@ -624,7 +624,8 @@ export class Comment
 
     override setCommunityAddress(newCommunityAddress: string) {
         super.setCommunityAddress(newCommunityAddress);
-        this.replies._community.address = newCommunityAddress;
+        this.replies._community.publicKey = this.communityPublicKey;
+        this.replies._community.name = this.communityName;
     }
 
     private _isCommentIpfsErrorRetriable(err: PKCError | Error): boolean {

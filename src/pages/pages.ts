@@ -18,7 +18,7 @@ import { sha256 } from "js-sha256";
 import type { PageRuntimeFields } from "./util.js";
 
 type BaseProps = {
-    community: Pick<RemoteCommunity, "address" | "signature"> & {
+    community: Pick<RemoteCommunity, "publicKey" | "name" | "signature"> & {
         _getStopAbortSignal?: () => AbortSignal | undefined;
     };
     pkc: PKC;
@@ -103,7 +103,8 @@ export class BasePages {
     }
 
     async getPage(pageCid: GetPageParam): Promise<PageTypeJson | ModQueuePageTypeJson> {
-        if (!this._community?.address) throw Error("Community address needs to be defined under page");
+        if (!this._community?.publicKey && !this._community?.name)
+            throw Error("Community publicKey or name needs to be defined under page");
         const parsedArgs = parsePageCidParams(pageCid);
 
         const { page: pageIpfs, runtimeFields } = await this._fetchAndVerifyPage({ pageCid: parsedArgs.cid });

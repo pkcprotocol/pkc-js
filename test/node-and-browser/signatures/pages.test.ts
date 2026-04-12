@@ -198,17 +198,17 @@ describeSkipIfRpc(`verify pages`, async () => {
             const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
-        it(`comment.communityPublicKey`, async () => {
+        it(`comment.communityPublicKey (tampered signed field)`, async () => {
             const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
             (invalidPage.comments[0].comment as Record<string, unknown>).communityPublicKey += "1234";
             const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
-            expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY });
+            expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
-        it(`comment.communityName`, async () => {
+        it(`comment.communityName (tampered signed field)`, async () => {
             const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
             (invalidPage.comments[0].comment as Record<string, unknown>).communityName = "fake.eth";
             const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
-            expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY });
+            expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
         it("comment.timestamp", async () => {
             const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
@@ -253,5 +253,39 @@ describeSkipIfRpc(`verify pages`, async () => {
             const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
+    });
+
+    it(`Page is valid when verifying community has different publicKey (key rotation allowed)`, async () => {
+        const page = remeda.clone(validPageIpfsFixture) as PageIpfs;
+        const verification = await verifyPage({
+            pageCid: uuidV4(),
+            pageSortName: "hot",
+            page,
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager,
+            community: { publicKey: "12D3KooWJJcSwMHrFvsFL7YCNDLD93kBczEfkHpPNdxcjZwR2X2Y", signature: community.signature },
+            parentComment: { cid: undefined, depth: -1, postCid: undefined },
+            validatePages: true,
+            validateUpdateSignature: true
+        });
+        expect(verification).to.deep.equal({ valid: true });
+    });
+
+    it(`Page is invalid when verifying community has different name than comment's communityName`, async () => {
+        const page = remeda.clone(validPageIpfsFixture) as PageIpfs;
+        // Add communityName to the record — name check in verifyCommentIpfs fires before signature check
+        (page.comments[0].comment as Record<string, unknown>).communityName = "real.eth";
+        const verification = await verifyPage({
+            pageCid: uuidV4(),
+            pageSortName: "hot",
+            page,
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager,
+            community: { publicKey: communityAddress, name: "different.eth", signature: community.signature },
+            parentComment: { cid: undefined, depth: -1, postCid: undefined },
+            validatePages: true,
+            validateUpdateSignature: true
+        });
+        expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IPFS_COMMUNITY_NAME_MISMATCH });
     });
 });

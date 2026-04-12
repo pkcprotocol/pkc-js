@@ -1071,10 +1071,11 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
                 commentIpfsValidity
             });
 
-        const communityIpfs = findUpdatingCommunity(this, { address: comment.communityAddress })?.raw?.communityIpfs;
-        const community: { address: string; signature?: CommunityIpfsType["signature"] } = communityIpfs
-            ? { address: comment.communityAddress, signature: communityIpfs.signature }
-            : { address: comment.communityAddress };
+        const updatingCommunity = findUpdatingCommunity(this, { name: comment.communityName, publicKey: comment.communityPublicKey });
+        const communityIpfs = updatingCommunity?.raw?.communityIpfs;
+        const community = communityIpfs
+            ? { publicKey: updatingCommunity!.publicKey, name: updatingCommunity!.name, signature: communityIpfs.signature }
+            : { publicKey: comment.communityPublicKey, name: comment.communityName };
         const commentUpdateVerificationOpts = {
             update: commentUpdate,
             resolveAuthorNames: this.resolveAuthorNames,
