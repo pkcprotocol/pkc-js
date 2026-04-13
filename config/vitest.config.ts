@@ -106,6 +106,8 @@ const browserProject = defineProject({
     }
 });
 
+const isWindows = process.platform === "win32";
+
 const nodeProject = defineProject({
     name: "node",
     test: {
@@ -117,7 +119,14 @@ const nodeProject = defineProject({
         passWithNoTests: false,
         dangerouslyIgnoreUnhandledErrors: false,
         reporters: sharedReporters,
-        fileParallelism: false
+        fileParallelism: false,
+        ...(isWindows && {
+            poolOptions: {
+                forks: {
+                    maxForks: 3
+                }
+            }
+        })
     }
 });
 
