@@ -31,31 +31,46 @@ const KuboRpcCreateClientOptionSchema = z.custom<KuboRpcClientCreateOption>(); /
 
 const DirectoryPathSchema = z.string(); // TODO add validation for path
 
-export const NameResolverSchema = z.object({
-    key: z.string().min(1),
-    resolve: z.custom<
-        (opts: {
-            name: string;
-            provider: string;
-            abortSignal?: AbortSignal;
-        }) => Promise<{ publicKey: string; [key: string]: string } | undefined>
-    >((val) => typeof val === "function", {
-        message: "resolve must be a function"
-    }),
-    canResolve: z.custom<(opts: { name: string }) => boolean>((val) => typeof val === "function", {
-        message: "canResolve must be a function"
-    }),
-    provider: z.string().min(1),
-    dataPath: z.string().optional(), // Optional filesystem path for persistent cache storage. Resolvers can use this to store cached resolution results across restarts.
-    destroy: z
-        .custom<() => Promise<void>>((val) => typeof val === "function", {
-            message: "destroy must be a function"
-        })
-        .optional()
-});
+export interface NameResolverInterface {
+    key: string;
+    provider: string;
+    dataPath?: string;
+    resolve: (opts: {
+        name: string;
+        provider: string;
+        abortSignal?: AbortSignal;
+    }) => Promise<{ publicKey: string; [key: string]: string } | undefined>;
+    canResolve: (opts: { name: string }) => boolean;
+    destroy?: () => Promise<void>;
+}
+
+// z.custom() preserves the original object (including class instances) — z.object() would strip unknown keys and break class-based resolvers
+export const NameResolverSchema = z.custom<NameResolverInterface>(
+    (val) => {
+        if (val == null || typeof val !== "object") return false;
+        const v = val as Record<string, unknown>;
+        return (
+            typeof v.key === "string" &&
+            v.key.length > 0 &&
+            typeof v.resolve === "function" &&
+            typeof v.canResolve === "function" &&
+            typeof v.provider === "string" &&
+            v.provider.length > 0 &&
+            (v.destroy === undefined || typeof v.destroy === "function")
+        );
+    },
+    {
+        message:
+            "Invalid name resolver: must have key (string), resolve (function), canResolve (function), provider (string), and optionally destroy (function)"
+    }
+);
 
 // Serialized variant without function props — for RPC transport where functions can't survive JSON serialization
-export const NameResolverSerializedSchema = NameResolverSchema.omit({ resolve: true, canResolve: true, destroy: true });
+export const NameResolverSerializedSchema = z.object({
+    key: z.string().min(1),
+    provider: z.string().min(1),
+    dataPath: z.string().optional()
+});
 
 const TransformKuboRpcClientOptionsSchema = KuboRpcCreateClientOptionSchema.array().transform((options) =>
     options.map(parseIpfsRawOptionToIpfsOptions)

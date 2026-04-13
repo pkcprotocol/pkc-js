@@ -865,3 +865,50 @@ describeSkipIfRpc(`CommentEdit with author as domain`, async () => {
         await publishWithExpectedResult({ publication: commentEdit, expectedChallengeSuccess: true });
     });
 });
+
+// RPC clients can't use nameResolvers (functions aren't serializable over RPC)
+describeSkipIfRpc("Class-based name resolvers", () => {
+    it("class-based resolver preserves internal state after PKC options parsing", async () => {
+        // Simulate a class-based resolver like BsoResolver that has internal state
+        class TestResolver {
+            key: string;
+            provider: string;
+            private runtime: { createClient: () => string };
+
+            constructor({ key, provider }: { key: string; provider: string }) {
+                this.key = key;
+                this.provider = provider;
+                this.runtime = { createClient: () => "test-client" };
+            }
+
+            canResolve({ name }: { name: string }) {
+                return name.endsWith(".test");
+            }
+
+            async resolve({ name }: { name: string }) {
+                // This line crashes if Zod strips `this.runtime`
+                const client = this.runtime.createClient();
+                return { publicKey: signers[0].address };
+            }
+
+            async destroy() {}
+        }
+
+        const resolver = new TestResolver({ key: "test-resolver", provider: "test" });
+
+        const pkc = await mockPKCV2({
+            stubStorage: true,
+            remotePKC: true,
+            mockResolve: false,
+            pkcOptions: {
+                nameResolvers: [resolver]
+            }
+        });
+
+        // This should not throw "Cannot read properties of undefined (reading 'createClient')"
+        const result = await pkc.resolveAuthorName({ address: "something.test" });
+        expect(result).to.equal(signers[0].address);
+
+        await pkc.destroy();
+    });
+});
