@@ -385,6 +385,10 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         this.shortAddress = shortifyAddress(this.address);
         // Sync wire-format name field: domains go into `name`, non-domains clear it
         this.name = isStringDomain(newAddress) ? newAddress : undefined;
+        // For non-domain addresses, the address IS the publicKey (IPNS name from ed25519 key)
+        if (!isStringDomain(newAddress) && !this.publicKey) {
+            this.publicKey = newAddress;
+        }
         this.posts._community = this;
         this.modQueue._community = this;
         refreshTrackedCommunityAliases(this._pkc, this);
