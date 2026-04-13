@@ -279,6 +279,11 @@ const stdoutLogPath =
 const stderrLogPath =
     resolveMaybePath(getLastOption(options, "stderr-log")) ?? (logPrefix ? resolveMaybePath(`${logPrefix}.stderr.log`) : undefined);
 
+const perTestLogDir = resolveMaybePath(getLastOption(options, "per-test-logs"));
+if (perTestLogDir) {
+    env.PER_TEST_LOG_DIR = perTestLogDir;
+}
+
 if (options.has("mocha-spec")) {
     console.warn("The --mocha-spec flag is deprecated. Pass test paths as positional arguments instead.");
 }

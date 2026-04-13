@@ -59,7 +59,7 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 
 ### Debugging
 
-- When a failing test is reported, run it first with stdout and stderr captured (e.g. `--stdout-log /tmp/out.log --stderr-log /tmp/err.log` or `DEBUG="pkc-js*"`) and derive your theory from the logs. Do not start by reading source code — the codebase has many moving parts and logs give a far more reliable picture of what actually went wrong.
+- When a failing test is reported, run it first with stdout and stderr captured (e.g. `--per-test-logs /tmp/test-logs`, `--stdout-log /tmp/out.log --stderr-log /tmp/err.log`, or `DEBUG="pkc-js*"`) and derive your theory from the logs. Do not start by reading source code — the codebase has many moving parts and logs give a far more reliable picture of what actually went wrong.
 - When a bug or regression is reported, reproduce it deterministically in a test case first, then brainstorm how to fix it.
 - When a bug or test failure is reported, understand the root cause instead of trying to fix it with timeouts.
 
@@ -91,6 +91,7 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 
 - When debugging CI failures, check `test_server.log` for community logs and `test_node_${config}.stdout.log`/`test_node_${config}.stderr.log` artifacts for client logs (where config is e.g. `remote-kubo-rpc`).
 - To capture stdout/stderr from `run-test-config.js` to log files, use `--stdout-log <path>` and `--stderr-log <path>`, or use `--log-prefix <prefix>` to automatically create `<prefix>.stdout.log` and `<prefix>.stderr.log`. DEBUG output (from the `debug` module) goes to stderr.
+- To capture per-test-file logs, use `--per-test-logs <dir>`. Each test file gets its own `<stem>.stdout.log` and `<stem>.stderr.log` under a directory structure mirroring the test path (e.g. `test/node/pkc/pkc.test.ts` → `<dir>/node/pkc/pkc.stderr.log`). This also captures DEBUG output by redirecting the `debug` module through `console.error`, which vitest then captures per-test via `onUserConsoleLog`. Example: `DEBUG="pkc-js*" node test/run-test-config.js --pkc-config "local-kubo-rpc,remote-pkc-rpc" --per-test-logs /tmp/test-logs test/node/pkc/pkc.test.ts`.
 - To troubleshoot or debug anything related to a local community, run sqlite queries against its database at `${dataPath}/communities/${communityAddress}`.
 - When a test times out, capture both stdout and stderr (e.g. `--stdout-log /tmp/out.log --stderr-log /tmp/err.log` or `DEBUG="pkc-js*,pkc-react-hooks*"`) and inspect them — timeouts usually indicate an uncaught error that isn't surfaced in the default output.
 - `FailedToFetchCommunityFromGatewaysError: Failed to fetch Community IPNS record from gateway` is a generic wrapper error — the message alone does not explain the root cause. Always inspect the error's `details` field and any nested/inner errors to find the actual failure reason.

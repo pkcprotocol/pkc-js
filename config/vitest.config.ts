@@ -10,8 +10,14 @@ const isGithubActions = Boolean(process.env.GITHUB_ACTIONS);
 const vitestReportDir = ".vitest-reports";
 const vitestJsonReportPath = `${vitestReportDir}/browser-tests.json`;
 const stderrJsonReporterPath = "./config/vitest-stderr-json-reporter.js";
+const perFileLogReporterPath = "./config/vitest-per-file-log-reporter.js";
+const perTestLogDir = process.env.PER_TEST_LOG_DIR;
 const baseReporters = ["verbose", [stderrJsonReporterPath, { outputFile: vitestJsonReportPath }]] as const;
-const sharedReporters = isGithubActions ? [...baseReporters, "github-actions"] : [...baseReporters];
+const sharedReporters = [
+    ...baseReporters,
+    ...(isGithubActions ? ["github-actions" as const] : []),
+    ...(perTestLogDir ? [perFileLogReporterPath] : [])
+];
 
 mkdirSync(vitestReportDir, { recursive: true });
 
