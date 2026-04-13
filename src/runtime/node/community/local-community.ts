@@ -2907,7 +2907,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 )
             );
 
-            log(`unpinned ${sizeBefore - this._cidsToUnPin.size} stale cids from ipfs node for community (${this.address})`);
+            log.trace(`unpinned ${sizeBefore - this._cidsToUnPin.size} stale cids from ipfs node for community (${this.address})`);
         }
     }
 
