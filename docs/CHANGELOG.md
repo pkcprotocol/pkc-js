@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.0.15](https://github.com/pkcprotocol/pkc-js/compare/v0.0.14...v0.0.15) (2026-04-12)
+
+### Features
+
+* **schema:** make communityAddress optional in publication creation ([2ad308c](https://github.com/pkcprotocol/pkc-js/commit/2ad308c1ecd843dd05c4b0fb75b83147f745b111))
+
+### Bug Fixes
+
+* **purge:** prevent comment edits from being purged during pre-rebranding DB migration ([f339690](https://github.com/pkcprotocol/pkc-js/commit/f339690e6cdf367f1c1ed635e80711f934f67e1b))
+* **rpc:** send communityName/communityPublicKey instead of communityAddress ([8d03773](https://github.com/pkcprotocol/pkc-js/commit/8d03773fd6e7916b03c638c043f3173335698e34))
+
 ## [0.0.14](https://github.com/pkcprotocol/pkc-js/compare/v0.0.13...v0.0.14) (2026-04-11)
 
 ### Features
