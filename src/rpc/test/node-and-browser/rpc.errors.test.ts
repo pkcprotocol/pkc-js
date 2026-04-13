@@ -68,6 +68,46 @@ describe("RPC error (de)serialization helpers", () => {
             expect(deserialized.details).to.deep.equal(serializedError.details);
         });
 
+        it("preserves the message of a plain Error after server-side serialization", () => {
+            // Plain Error properties are non-enumerable, so JSON.stringify loses them.
+            // The server must extract message/name into a plain object before throwing.
+            const originalError = new Error("Failed to resolve community address to an IPNS name");
+            (originalError as any).details = { ipnsPubsubTopic: undefined };
+
+            // Simulate the server-side serialization (the fix in rpcWebsocketsRegister)
+            const errorJson: Record<string, unknown> = {
+                message: originalError.message,
+                name: originalError.name
+            };
+            if ("details" in originalError) errorJson.details = (originalError as any).details;
+            if ("code" in originalError) errorJson.code = (originalError as any).code;
+
+            const client = new PKCRpcClient("ws://localhost:0");
+            const deserialized = (client as unknown as RpcClientWithDeserialize)._deserializeRpcError(errorJson);
+
+            expect(deserialized).to.be.instanceOf(Error);
+            expect(deserialized).to.not.be.instanceOf(PKCError);
+            expect(deserialized.message).to.equal("Failed to resolve community address to an IPNS name");
+            expect(deserialized.details).to.deep.equal({ ipnsPubsubTopic: undefined });
+        });
+
+        it("loses the message when a plain Error is JSON.stringified directly (documents the bug)", () => {
+            // This test documents WHY the server-side fix is needed:
+            // JSON.stringify(new Error("msg")) produces "{}" because message/name are non-enumerable.
+            const error = new Error("important message");
+            const roundTripped = JSON.parse(JSON.stringify(error));
+
+            // Without the fix, the client would receive this empty object
+            expect(roundTripped.message).to.be.undefined;
+            expect(roundTripped.name).to.be.undefined;
+
+            const client = new PKCRpcClient("ws://localhost:0");
+            const deserialized = (client as unknown as RpcClientWithDeserialize)._deserializeRpcError(roundTripped);
+
+            // The client falls back to the generic message
+            expect(deserialized.message).to.equal("RPC server returned an unknown error");
+        });
+
         it("returns a generic Error when payload is malformed", () => {
             const client = new PKCRpcClient("ws://localhost:0");
 

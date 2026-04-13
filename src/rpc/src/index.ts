@@ -356,7 +356,17 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
                     const errorJson = JSON.parse(JSON.stringify(typedError));
                     delete errorJson["stack"];
                     throw errorJson;
-                } else throw typedError;
+                } else {
+                    // Plain Error properties (message, name) are non-enumerable and lost by JSON.stringify.
+                    // Extract them into a plain object so rpc-websockets can serialize them.
+                    const errorJson: Record<string, unknown> = {
+                        message: typedError.message,
+                        name: typedError.name
+                    };
+                    if ("details" in typedError) errorJson.details = (typedError as any).details;
+                    if ("code" in typedError) errorJson.code = (typedError as any).code;
+                    throw errorJson;
+                }
             }
         };
         this.rpcWebsockets.register(method, callbackWithErrorHandled);
