@@ -579,24 +579,30 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             ); // CommentJson
 
         const commentInstance = new Comment(this);
-        if ("communityAddress" in options && options.communityAddress)
-            commentInstance.setCommunityAddress(parseCommunityAddressWithPKCErrorIfItFails(options.communityAddress as string));
-        else if ("subplebbitAddress" in options && options.subplebbitAddress)
-            commentInstance.setCommunityAddress(parseCommunityAddressWithPKCErrorIfItFails(options.subplebbitAddress as string));
-        // Derive communityAddress from communityName or communityPublicKey if not provided
-        else if ("communityName" in options && typeof options.communityName === "string")
-            commentInstance.setCommunityAddress(options.communityName);
-        else if ("communityPublicKey" in options && typeof options.communityPublicKey === "string")
-            commentInstance.setCommunityAddress(options.communityPublicKey);
 
+        // Derive communityAddress from the various input forms
+        const derivedCommunityAddress =
+            ("communityAddress" in options && options.communityAddress
+                ? parseCommunityAddressWithPKCErrorIfItFails(options.communityAddress as string)
+                : undefined) ||
+            ("subplebbitAddress" in options && options.subplebbitAddress
+                ? parseCommunityAddressWithPKCErrorIfItFails(options.subplebbitAddress as string)
+                : undefined) ||
+            ("communityName" in options && typeof options.communityName === "string" ? options.communityName : undefined) ||
+            ("communityPublicKey" in options && typeof options.communityPublicKey === "string" ? options.communityPublicKey : undefined);
+
+        // Set communityPublicKey and communityName BEFORE setCommunityAddress,
+        // because setCommunityAddress propagates these to replies._community
         if ("communityPublicKey" in options && typeof options.communityPublicKey === "string")
             commentInstance.communityPublicKey = options.communityPublicKey;
-        else if (commentInstance.communityAddress && !isStringDomain(commentInstance.communityAddress))
-            commentInstance.communityPublicKey = commentInstance.communityAddress;
+        else if (derivedCommunityAddress && !isStringDomain(derivedCommunityAddress))
+            commentInstance.communityPublicKey = derivedCommunityAddress;
 
         if ("communityName" in options && typeof options.communityName === "string") commentInstance.communityName = options.communityName;
-        else if (commentInstance.communityAddress && isStringDomain(commentInstance.communityAddress))
-            commentInstance.communityName = commentInstance.communityAddress;
+        else if (derivedCommunityAddress && isStringDomain(derivedCommunityAddress))
+            commentInstance.communityName = derivedCommunityAddress;
+
+        if (derivedCommunityAddress) commentInstance.setCommunityAddress(derivedCommunityAddress);
 
         if ("depth" in options) {
             // Options is CommentIpfs | CommentIpfsWithCidDefined | MinimumCommentFieldsToFetchPages

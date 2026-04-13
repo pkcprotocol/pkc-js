@@ -8,7 +8,7 @@ import {
     shortifyCid
 } from "../../util.js";
 import Publication from "../publication.js";
-import { getCommunityAddressFromRecord } from "../publication-community.js";
+import { getCommunityAddressFromRecord, getCommunityPublicKeyFromWire, getCommunityNameFromWire } from "../publication-community.js";
 import type { DecryptedChallengeVerification } from "../../pubsub-messages/types.js";
 import type { AuthorWithOptionalCommentUpdateJson, PublicationTypeName } from "../../types.js";
 
@@ -971,7 +971,12 @@ export class Comment
             for (const updatingCommunity of [...listUpdatingCommunities(this._pkc), ...listStartedCommunities(this._pkc)]) {
                 const commentInCommunityPosts = findCommentInPageInstanceRecursively(updatingCommunity.posts, this.cid);
                 if (commentInCommunityPosts) {
-                    const addr = getCommunityAddressFromRecord(commentInCommunityPosts.comment as unknown as Record<string, unknown>);
+                    const record = commentInCommunityPosts.comment;
+                    // Derive communityPublicKey/communityName before setCommunityAddress
+                    // so that setCommunityAddress can propagate them to replies._community
+                    if (!this.communityPublicKey) this.communityPublicKey = getCommunityPublicKeyFromWire(record);
+                    if (!this.communityName) this.communityName = getCommunityNameFromWire(record);
+                    const addr = getCommunityAddressFromRecord(record);
                     if (addr) this.setCommunityAddress(addr);
                     break;
                 }

@@ -159,9 +159,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
     _initBaseRemoteProps(props: CommentIpfsType | PublicationFromDecryptedChallengeRequest) {
         const communityFields = buildRuntimeCommunityFields({ publication: props as Record<string, unknown> });
-        this.setCommunityAddress(communityFields.communityAddress);
+        // Set communityPublicKey/communityName BEFORE setCommunityAddress,
+        // because setCommunityAddress propagates these to replies._community
         this.communityPublicKey = communityFields.communityPublicKey;
         this.communityName = communityFields.communityName;
+        this.setCommunityAddress(communityFields.communityAddress);
         this.timestamp = props.timestamp;
         this.signature = props.signature;
         const runtimeAuthor = buildRuntimeAuthor({

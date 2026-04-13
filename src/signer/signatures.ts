@@ -13,7 +13,7 @@ import * as ed from "@noble/ed25519";
 
 import PeerId from "peer-id";
 import { areEquivalentCommunityAddresses, isStringDomain, removeNullUndefinedEmptyObjectsValuesRecursively, timestamp } from "../util.js";
-import { getCommunityNameFromWire } from "../publications/publication-community.js";
+import { getCommunityNameFromWire, getCommunityPublicKeyFromWire } from "../publications/publication-community.js";
 import { PKCError } from "../pkc-error.js";
 import { PKC } from "../pkc/pkc.js";
 
@@ -879,6 +879,21 @@ export async function verifyPageComment({
         if (pageComment.comment.postCid !== parentComment.postCid)
             return { valid: false, reason: messages.ERR_PAGE_COMMENT_POST_CID_IS_NOT_SAME_AS_POST_CID_OF_COMMENT_INSTANCE };
     }
+
+    // Check that the comment belongs to the same community as the page
+    const commentRecord = pageComment.comment;
+    if (community.name) {
+        // Domain-based community: only check name mismatch (key rotation is allowed)
+        const communityNameFromRecord = getCommunityNameFromWire(commentRecord);
+        if (communityNameFromRecord && !areEquivalentCommunityAddresses(communityNameFromRecord, community.name))
+            return { valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY };
+    } else if (community.publicKey) {
+        // Key-only community: check publicKey mismatch
+        const communityPublicKeyFromRecord = getCommunityPublicKeyFromWire(commentRecord);
+        if (communityPublicKeyFromRecord && !areEquivalentCommunityAddresses(communityPublicKeyFromRecord, community.publicKey))
+            return { valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY };
+    }
+
     const calculatedCommentCid = await calculateIpfsHash(deterministicStringify(pageComment.comment));
 
     const commentSignatureValidity = await verifyCommentIpfs({

@@ -7,6 +7,7 @@ import * as remeda from "remeda";
 import { v4 as uuidV4 } from "uuid";
 
 import validPageIpfsFixture from "../../fixtures/valid_page.json" with { type: "json" };
+import validPageWithNameFixture from "../../fixtures/valid_page_with_name.json" with { type: "json" };
 import legacyPageIpfsFixture from "../../fixtures/valid_page_legacy_communityAddress.json" with { type: "json" };
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
@@ -202,13 +203,30 @@ describeSkipIfRpc(`verify pages`, async () => {
             const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
             (invalidPage.comments[0].comment as Record<string, unknown>).communityPublicKey += "1234";
             const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
-            expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
+            expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY });
         });
         it(`comment.communityName (tampered signed field)`, async () => {
-            const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
+            // Use fixture with communityName in signedPropertyNames (domain-based community)
+            const invalidPage = remeda.clone(validPageWithNameFixture) as PageIpfs;
             (invalidPage.comments[0].comment as Record<string, unknown>).communityName = "fake.eth";
-            const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
-            expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
+            const domainCommunity = {
+                publicKey: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR",
+                name: "testcommunity.eth",
+                signature: community.signature
+            };
+            const parentComment = getParentComment(undefined);
+            const verification = await verifyPage({
+                pageCid: uuidV4(),
+                pageSortName: "hot",
+                page: invalidPage,
+                resolveAuthorNames: pkc.resolveAuthorNames,
+                clientsManager: pkc._clientsManager,
+                community: domainCommunity,
+                parentComment,
+                validatePages: true,
+                validateUpdateSignature: true
+            });
+            expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY });
         });
         it("comment.timestamp", async () => {
             const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
@@ -255,7 +273,7 @@ describeSkipIfRpc(`verify pages`, async () => {
         });
     });
 
-    it(`Page is valid when verifying community has different publicKey (key rotation allowed)`, async () => {
+    it(`Page is invalid when verifying key-only community has different publicKey`, async () => {
         const page = remeda.clone(validPageIpfsFixture) as PageIpfs;
         const verification = await verifyPage({
             pageCid: uuidV4(),
@@ -268,7 +286,7 @@ describeSkipIfRpc(`verify pages`, async () => {
             validatePages: true,
             validateUpdateSignature: true
         });
-        expect(verification).to.deep.equal({ valid: true });
+        expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY });
     });
 
     it(`Page is invalid when verifying community has different name than comment's communityName`, async () => {
@@ -286,6 +304,92 @@ describeSkipIfRpc(`verify pages`, async () => {
             validatePages: true,
             validateUpdateSignature: true
         });
-        expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IPFS_COMMUNITY_NAME_MISMATCH });
+        expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY });
+    });
+
+    it(`Domain fixture is valid when verified against matching domain community`, async () => {
+        const page = remeda.clone(validPageWithNameFixture) as PageIpfs;
+        const domainCommunity = {
+            publicKey: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR",
+            name: "testcommunity.eth",
+            signature: community.signature
+        };
+        const verification = await verifyPage({
+            pageCid: uuidV4(),
+            pageSortName: "hot",
+            page,
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager,
+            community: domainCommunity,
+            parentComment: { cid: undefined, depth: -1, postCid: undefined },
+            validatePages: true,
+            validateUpdateSignature: true
+        });
+        expect(verification).to.deep.equal({ valid: true });
+    });
+
+    it(`Key rotation is allowed for domain communities (different publicKey, same name)`, async () => {
+        // Domain fixture has communityName: "testcommunity.eth" and communityPublicKey: "12D3KooWN5..."
+        // Verify with a community that has the same name but a DIFFERENT publicKey
+        const page = remeda.clone(validPageWithNameFixture) as PageIpfs;
+        const rotatedKeyCommunity = {
+            publicKey: "12D3KooWJJcSwMHrFvsFL7YCNDLD93kBczEfkHpPNdxcjZwR2X2Y", // different key
+            name: "testcommunity.eth", // same name
+            signature: community.signature
+        };
+        const verification = await verifyPage({
+            pageCid: uuidV4(),
+            pageSortName: "hot",
+            page,
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager,
+            community: rotatedKeyCommunity,
+            parentComment: { cid: undefined, depth: -1, postCid: undefined },
+            validatePages: true,
+            validateUpdateSignature: true
+        });
+        expect(verification).to.deep.equal({ valid: true });
+    });
+
+    it(`Legacy subplebbitAddress page is invalid when community has different publicKey`, async () => {
+        // Legacy fixture uses subplebbitAddress: "12D3KooWN5..." (non-domain = publicKey)
+        const page = remeda.clone(legacyPageIpfsFixture) as PageIpfs;
+        const verification = await verifyPage({
+            pageCid: uuidV4(),
+            pageSortName: "hot",
+            page,
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager,
+            community: { publicKey: "12D3KooWJJcSwMHrFvsFL7YCNDLD93kBczEfkHpPNdxcjZwR2X2Y", signature: community.signature },
+            parentComment: { cid: undefined, depth: -1, postCid: undefined },
+            validatePages: true,
+            validateUpdateSignature: true
+        });
+        expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY });
+    });
+
+    it(`Domain community: tampered communityPublicKey with matching name is caught by CID mismatch`, async () => {
+        // When a domain community checks pages, it only validates name (key rotation allowed).
+        // Tampering communityPublicKey passes the community check, but changes the CID since it's signed.
+        const page = remeda.clone(validPageWithNameFixture) as PageIpfs;
+        (page.comments[0].comment as Record<string, unknown>).communityPublicKey = "12D3KooWJJcSwMHrFvsFL7YCNDLD93kBczEfkHpPNdxcjZwR2X2Y";
+        const domainCommunity = {
+            publicKey: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR",
+            name: "testcommunity.eth",
+            signature: community.signature
+        };
+        const verification = await verifyPage({
+            pageCid: uuidV4(),
+            pageSortName: "hot",
+            page,
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager,
+            community: domainCommunity,
+            parentComment: { cid: undefined, depth: -1, postCid: undefined },
+            validatePages: true,
+            validateUpdateSignature: true
+        });
+        // communityPublicKey is a signed field, so tampering invalidates the signature
+        expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
 });

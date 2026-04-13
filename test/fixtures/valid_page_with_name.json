@@ -1,0 +1,68 @@
+{
+  "comments": [
+    {
+      "comment": {
+        "content": "Test post with communityName",
+        "title": "Test Post With Domain Community",
+        "author": {
+          "displayName": "Test Author"
+        },
+        "communityPublicKey": "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR",
+        "communityName": "testcommunity.eth",
+        "protocolVersion": "1.0.0",
+        "timestamp": 1776058315,
+        "signature": {
+          "signature": "khELqELqBCQPPvDt9+b4Ot6NdIh2p7dfSxl7p9936hQ+oi30ya483dO3vz1pgufo7KGk+2a82qkGijxtotYrCw",
+          "publicKey": "P+hfzUaucnIcxBnVAnSnmDm1ApHABFW4GMcfN6nwLV0",
+          "type": "ed25519",
+          "signedPropertyNames": [
+            "content",
+            "title",
+            "author",
+            "communityPublicKey",
+            "communityName",
+            "protocolVersion",
+            "timestamp"
+          ]
+        },
+        "depth": 0
+      },
+      "commentUpdate": {
+        "cid": "QmZiC3tvrSjsCdK85U1zh64esP8xd6jvKCbDkghqJ1iF3z",
+        "upvoteCount": 1,
+        "downvoteCount": 0,
+        "replyCount": 0,
+        "childCount": 0,
+        "number": 1,
+        "postNumber": 1,
+        "updatedAt": 1776058317,
+        "author": {
+          "subplebbit": {
+            "postScore": 1,
+            "replyScore": 0,
+            "firstCommentTimestamp": 1776058315,
+            "lastCommentCid": "QmZiC3tvrSjsCdK85U1zh64esP8xd6jvKCbDkghqJ1iF3z"
+          }
+        },
+        "protocolVersion": "1.0.0",
+        "signature": {
+          "signature": "dVhYn/udW7WDNTkt1/HFhQ11Pt1j7bLIhOkcvuUrqYSPJo9rzmjqjRN850y0JAw9IUiTfKNHSgv9HgHAdC31CQ",
+          "publicKey": "tkPPciAVI7kfzmSHjazd0ekx8z9bCt9RlE5RnEpFRGo",
+          "type": "ed25519",
+          "signedPropertyNames": [
+            "cid",
+            "upvoteCount",
+            "downvoteCount",
+            "replyCount",
+            "childCount",
+            "number",
+            "postNumber",
+            "updatedAt",
+            "author",
+            "protocolVersion"
+          ]
+        }
+      }
+    }
+  ]
+}
