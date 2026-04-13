@@ -45,10 +45,11 @@ jobs:
             - run: DEBUG="pkc*" npm run test:server:node 2>&1 | tee test_server.log & npm run test:server:wait-on
               shell: bash
             - name: Run mocked challenge tests
-              run: npm run test:mocked:challenges
+              id: run_mocked_challenges
+              run: node test/run-test-config.js --environment node --per-test-logs /tmp/per-test-logs test/challenges
             - name: Run node tests (local config)
               id: run_node_tests_local
-              run: DEBUG="pkc*" PKC_CONFIGS=local-kubo-rpc node test/run-test-config.js --parallel --environment node --run-timeout-ms 1740000 --log-prefix test_node_local test/node src/rpc/test/node src/rpc/test/node-and-browser
+              run: DEBUG="pkc*" PKC_CONFIGS=local-kubo-rpc node test/run-test-config.js --parallel --environment node --run-timeout-ms 1740000 --log-prefix test_node_local --per-test-logs /tmp/per-test-logs test/node src/rpc/test/node src/rpc/test/node-and-browser
               shell: bash
             - name: Print failed node tests (local)
               if: ${{ failure() && steps.run_node_tests_local.outcome == 'failure' }}
@@ -60,6 +61,20 @@ jobs:
                   name: vitest-node-local-${{ matrix.os }}
                   path: .vitest-reports
                   include-hidden-files: true
+                  if-no-files-found: ignore
+            - name: Upload per-test logs (node local)
+              if: ${{ failure() && (steps.run_node_tests_local.outcome == 'failure' || steps.run_mocked_challenges.outcome == 'failure') }}
+              uses: actions/upload-artifact@v4
+              with:
+                  name: per-test-logs-node-local-${{ matrix.os }}
+                  path: /tmp/per-test-logs
+                  if-no-files-found: ignore
+            - name: Upload test server log (node local)
+              if: ${{ always() && job.status != 'success' }}
+              uses: actions/upload-artifact@v4
+              with:
+                  name: test-server-log-node-local-${{ matrix.os }}
+                  path: test_server.log
                   if-no-files-found: ignore
             - run: cat test_server.log
               if: ${{ always() && job.status != 'success' }}
@@ -86,7 +101,7 @@ jobs:
             - run: DEBUG="pkc*" npm run test:server:node 2>&1 | tee test_server.log & npm run test:server:wait-on
             - name: Run tests with config
               id: run_node_tests_remote
-              run: DEBUG="pkc*" node test/run-test-config.js --parallel --pkc-config ${{ matrix.config }} --environment node --log-prefix test_node_${{ matrix.config }} test/node-and-browser src/rpc/test/node-and-browser
+              run: DEBUG="pkc*" node test/run-test-config.js --parallel --pkc-config ${{ matrix.config }} --environment node --log-prefix test_node_${{ matrix.config }} --per-test-logs /tmp/per-test-logs test/node-and-browser src/rpc/test/node-and-browser
             - name: Print failed node tests
               if: ${{ failure() && steps.run_node_tests_remote.outcome == 'failure' }}
               run: node .github/workflows/print-vitest-failures.cjs
@@ -106,6 +121,20 @@ jobs:
                   path: |
                       test_node_${{ matrix.config }}.stdout.log
                       test_node_${{ matrix.config }}.stderr.log
+                  if-no-files-found: ignore
+            - name: Upload per-test logs (node ${{ matrix.config }})
+              if: ${{ failure() && steps.run_node_tests_remote.outcome == 'failure' }}
+              uses: actions/upload-artifact@v4
+              with:
+                  name: per-test-logs-node-${{ matrix.config }}
+                  path: /tmp/per-test-logs
+                  if-no-files-found: ignore
+            - name: Upload test server log (node ${{ matrix.config }})
+              if: ${{ always() && job.status != 'success' }}
+              uses: actions/upload-artifact@v4
+              with:
+                  name: test-server-log-node-${{ matrix.config }}
+                  path: test_server.log
                   if-no-files-found: ignore
             - run: cat test_server.log
               if: ${{ !cancelled() && failure() }}
@@ -138,7 +167,7 @@ jobs:
             # Run tests based on environment and config
             - name: Run browser tests with config
               id: run_browser_tests
-              run: DEBUG="pkc*" node test/run-test-config.js --parallel --pkc-config ${{ matrix.config }} --environment ${{ matrix.environment }} test/browser test/node-and-browser
+              run: DEBUG="pkc*" node test/run-test-config.js --parallel --pkc-config ${{ matrix.config }} --environment ${{ matrix.environment }} --per-test-logs /tmp/per-test-logs test/browser test/node-and-browser
 
             - name: Print failed browser tests
               if: ${{ failure() && steps.run_browser_tests.outcome == 'failure' }}
@@ -151,6 +180,22 @@ jobs:
                   name: vitest-browser-${{ matrix.environment }}-${{ matrix.config }}
                   path: .vitest-reports
                   include-hidden-files: true
+                  if-no-files-found: ignore
+
+            - name: Upload per-test logs (browser ${{ matrix.environment }}-${{ matrix.config }})
+              if: ${{ failure() && steps.run_browser_tests.outcome == 'failure' }}
+              uses: actions/upload-artifact@v4
+              with:
+                  name: per-test-logs-browser-${{ matrix.environment }}-${{ matrix.config }}
+                  path: /tmp/per-test-logs
+                  if-no-files-found: ignore
+
+            - name: Upload test server log (browser ${{ matrix.environment }}-${{ matrix.config }})
+              if: ${{ always() && job.status != 'success' }}
+              uses: actions/upload-artifact@v4
+              with:
+                  name: test-server-log-browser-${{ matrix.environment }}-${{ matrix.config }}
+                  path: test_server.log
                   if-no-files-found: ignore
 
             - run: cat test_server.log
@@ -172,7 +217,7 @@ jobs:
             # Setup tests for pkc-js using rpc here
             - run: DEBUG="pkc*" npm run test:server:node:rpc 2>&1 | tee test_server.log & npm run test:server:wait-on
             - id: run_rpc_tests
-              run: DEBUG="pkc*" npm run test:node:parallel:rpc
+              run: DEBUG="pkc*" USE_RPC=1 PKC_CONFIGS=remote-pkc-rpc node test/run-test-config.js --environment node --parallel --per-test-logs /tmp/per-test-logs test/node test/node-and-browser src/rpc/test/node src/rpc/test/node-and-browser
             - name: Print failed rpc tests
               if: ${{ failure() && steps.run_rpc_tests.outcome == 'failure' }}
               run: node .github/workflows/print-vitest-failures.cjs
@@ -183,6 +228,20 @@ jobs:
                   name: vitest-rpc
                   path: .vitest-reports
                   include-hidden-files: true
+                  if-no-files-found: ignore
+            - name: Upload per-test logs (rpc)
+              if: ${{ failure() && steps.run_rpc_tests.outcome == 'failure' }}
+              uses: actions/upload-artifact@v4
+              with:
+                  name: per-test-logs-rpc
+                  path: /tmp/per-test-logs
+                  if-no-files-found: ignore
+            - name: Upload test server log (rpc)
+              if: ${{ always() && job.status != 'success' }}
+              uses: actions/upload-artifact@v4
+              with:
+                  name: test-server-log-rpc
+                  path: test_server.log
                   if-no-files-found: ignore
             - run: cat test_server.log
               if: ${{ !cancelled() && failure() }}
