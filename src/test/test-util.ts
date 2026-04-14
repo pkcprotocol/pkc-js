@@ -1,5 +1,6 @@
 import PKCIndex from "../index.js";
 import { calculateStringSizeSameAsIpfsAddCidV0, removeUndefinedValuesRecursively, retryKuboIpfsAdd, timestamp } from "../util.js";
+import retry from "retry";
 import { getCommunityAddressFromRecord } from "../publications/publication-community.js";
 import { Comment } from "../publications/comment/comment.js";
 import { PKC } from "../pkc/pkc.js";
@@ -1686,16 +1687,32 @@ export async function createNewIpns() {
 
         // Verify the IPNS record is resolvable before returning
         // This ensures Kubo's cache is properly synced for RPC tests
-        const resolvedCid = await last(
-            ipfsClient._client.name.resolve(signer.address, {
-                nocache: false, // Allow cache to be used
-                timeout: 5000 // 5 second timeout for verification
-            })
-        );
+        // Wrapped in retry because Kubo can transiently ETIMEDOUT in CI
+        const resolvedCid = await new Promise<string>((resolve, reject) => {
+            const operation = retry.operation({
+                retries: 3,
+                factor: 2,
+                minTimeout: 2000
+            });
 
-        if (!resolvedCid) {
-            throw new Error(`Failed to verify IPNS resolution for ${signer.address}`);
-        }
+            operation.attempt(async (currentAttempt) => {
+                try {
+                    const result = await last(
+                        ipfsClient._client.name.resolve(signer.address, {
+                            nocache: false, // Allow cache to be used
+                            timeout: 5000 // 5 second timeout for verification
+                        })
+                    );
+                    if (!result) {
+                        throw new Error(`Failed to verify IPNS resolution for ${signer.address}`);
+                    }
+                    resolve(result);
+                } catch (error) {
+                    if (operation.retry(error as Error)) return;
+                    reject(operation.mainError() || error);
+                }
+            });
+        });
     };
 
     return {
