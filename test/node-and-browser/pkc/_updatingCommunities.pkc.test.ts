@@ -354,6 +354,44 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await community.stop();
         });
 
+        // Regression: update() should not mirror a stopped entry from _updatingCommunities.
+        // Reproduces a race condition where concurrent callers both create updating community
+        // entries with the same name alias. When one stops, the other should still receive updates.
+        it(`Stopping one mirroring community should not break another community mirroring the same shared entry`, async () => {
+            const nameCommunitySigner = signers[3];
+
+            // 1. Create a community by IPNS key — its record has name: 'plebbit.bso'
+            const communityByKey = await pkc.createCommunity({ address: nameCommunitySigner.address });
+            await communityByKey.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: communityByKey,
+                predicate: async () => typeof communityByKey.updatedAt === "number"
+            });
+            expect(communityByKey.name).to.equal("plebbit.bso");
+            // Now _updatingCommunities has an entry with alias 'plebbit.bso'
+
+            // 2. While communityByKey is still updating, create a domain community and update it.
+            //    update() will find communityByKey's entry via the shared name alias and mirror to it.
+            const communityByDomain = await pkc.createCommunity({ address: "plebbit.bso" });
+            const oldUpdatedAt = communityByDomain.updatedAt;
+            await communityByDomain.update();
+
+            // 3. Stop communityByKey — this tears down one consumer but the shared entry should survive
+            await communityByKey.stop();
+
+            // 4. Publish a post to trigger a new community update on the server
+            await publishRandomPost({ communityAddress: "plebbit.bso", pkc: pkc });
+
+            // 5. communityByDomain should still receive updates despite communityByKey being stopped.
+            //    Without the fix, communityByDomain mirrors a dead entry and hangs forever.
+            await resolveWhenConditionIsTrue({
+                toUpdate: communityByDomain,
+                predicate: async () => oldUpdatedAt !== communityByDomain.updatedAt
+            });
+            expect(communityByDomain.updatedAt).to.not.equal(oldUpdatedAt);
+            await communityByDomain.stop();
+        });
+
         itIfRpc(`Updating a comment over RPC should not populate _updatingCommunities`, async () => {
             const community = await pkc.getCommunity({ address: communityAddress });
             const postCid = community.posts.pages.hot.comments[0].cid;
