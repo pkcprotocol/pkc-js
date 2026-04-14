@@ -68,6 +68,10 @@ function persistAliases<T extends object>(target: T, aliases: string[]): string[
 
 export function getCommunityRegistryAliases(community: CommunityWithAliases): string[] {
     const aliases = dedupeAliases([community.address, community.name, community.publicKey, community.signer?.address]);
+    if (aliases.length === 0)
+        throw new Error(
+            "getCommunityRegistryAliases: no aliases found — at least one of address, name, publicKey, or signer.address must be defined"
+        );
 
     return dedupeAliases(
         aliases.flatMap((alias) => {

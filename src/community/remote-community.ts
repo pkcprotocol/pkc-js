@@ -363,6 +363,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         } else {
             // Address already set -- refresh tracking aliases without changing address
             refreshTrackedCommunityAliases(this._pkc, this);
+            this._assertHasIdentity();
         }
 
         this._updateLocalPostsInstance(newProps.posts);
@@ -370,6 +371,12 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
 
         // Exclusive Instance props
         if ("updateCid" in newProps && newProps.updateCid) this.updateCid = newProps.updateCid as string;
+    }
+
+    private _assertHasIdentity(): void {
+        if (!this.name && !this.publicKey) {
+            throw new Error(`Community identity invariant violated: both name and publicKey are undefined (address: ${this.address})`);
+        }
     }
 
     setAddress(newAddress: string) {
@@ -392,6 +399,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         this.posts._community = this;
         this.modQueue._community = this;
         refreshTrackedCommunityAliases(this._pkc, this);
+        this._assertHasIdentity();
     }
 
     _clearDataForKeyMigration(newPublicKey: string) {
@@ -406,6 +414,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         this.ipnsName = newPublicKey;
         this.ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(newPublicKey);
         this.ipnsPubsubTopicRoutingCid = pubsubTopicToDhtKey(this.ipnsPubsubTopic);
+        this._assertHasIdentity();
     }
 
     protected _toJSONIpfsBaseNoPosts() {
