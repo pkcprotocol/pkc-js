@@ -61,14 +61,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         it(`community.updatingState should never emit "resolving-name" when community address is not a domain`, async () => {
             // Regression: background author name resolution was incorrectly setting
             // community.updatingState to "resolving-name" after "succeeded"
-            const community = await pkc.getCommunity({ address: signers[0].address });
-            const oldUpdatedAt = Number(community.updatedAt);
+            const community = await pkc.createCommunity({ address: signers[1].address });
             const recordedStates: string[] = [];
             community.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
 
-            await publishRandomPost({ communityAddress: community.address, pkc: pkc });
+            const updatePromise = new Promise((resolve) => community.once("update", resolve));
             await community.update();
-            await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => Number(community.updatedAt) > oldUpdatedAt });
+            await updatePromise;
             await community.stop();
 
             expect(recordedStates.filter((s) => s === "resolving-name")).to.have.length(0);
