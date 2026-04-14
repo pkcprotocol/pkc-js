@@ -440,7 +440,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 const comment = await pkc.createComment({ cid: commentCid });
 
                 expect(findUpdatingComment(pkc, { cid: commentCid })).to.not.exist;
-                expect(findUpdatingCommunity(pkc, { publicKey: comment.communityPublicKey, name: comment.communityName })).to.not.exist;
+                // communityPublicKey/communityName may be undefined before CommentIpfs is loaded
+                if (comment.communityPublicKey || comment.communityName)
+                    expect(findUpdatingCommunity(pkc, { publicKey: comment.communityPublicKey, name: comment.communityName })).to.not.exist;
 
                 await comment.update();
                 await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });

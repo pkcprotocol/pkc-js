@@ -29,7 +29,13 @@ import { PKC } from "../../pkc/pkc.js";
 import type { PublicationEvents } from "../types.js";
 import { InflightResourceTypes } from "../../util/inflight-fetch-manager.js";
 import { loadAllPagesUnderCommunityToFindComment } from "./comment-util.js";
-import { findStartedCommunity, findUpdatingComment, findUpdatingCommunity } from "../../pkc/tracked-instance-registry-util.js";
+import {
+    findStartedCommunity,
+    findUpdatingComment,
+    findUpdatingCommunity,
+    listStartedCommunities,
+    listUpdatingCommunities
+} from "../../pkc/tracked-instance-registry-util.js";
 
 const fetchCommentLogger = Logger("pkc-js:comment:client-manager:fetchAndVerifyCommentCid");
 
@@ -562,12 +568,24 @@ export class CommentClientsManager extends PublicationClientsManager {
     }): PageIpfs["comments"][0] | undefined {
         // TODO rewrite this to use updating comments and community
         if (typeof this._comment.cid !== "string") throw Error("Need to have defined cid");
-        const community: RemoteCommunity | undefined =
-            findStartedCommunity(this._pkc, { publicKey: this._comment.communityPublicKey, name: this._comment.communityName }) ||
-            findUpdatingCommunity(this._pkc, { publicKey: this._comment.communityPublicKey, name: this._comment.communityName }) ||
-            opts?.community;
         let updateFromCommunity: PageIpfs["comments"][0] | undefined;
-        if (community) updateFromCommunity = findCommentInPageInstanceRecursively(community.posts, this._comment.cid);
+        if (this._comment.communityPublicKey || this._comment.communityName) {
+            // Community identity is known — look up the specific community
+            const community: RemoteCommunity | undefined =
+                findStartedCommunity(this._pkc, { publicKey: this._comment.communityPublicKey, name: this._comment.communityName }) ||
+                findUpdatingCommunity(this._pkc, { publicKey: this._comment.communityPublicKey, name: this._comment.communityName }) ||
+                opts?.community;
+            if (community) updateFromCommunity = findCommentInPageInstanceRecursively(community.posts, this._comment.cid);
+        } else {
+            // Community identity not known yet (e.g. createComment({cid}) before CommentIpfs loaded)
+            // — search all tracked communities for this CID
+            for (const community of [...listStartedCommunities(this._pkc), ...listUpdatingCommunities(this._pkc)]) {
+                updateFromCommunity = findCommentInPageInstanceRecursively(community.posts, this._comment.cid);
+                if (updateFromCommunity) break;
+            }
+            if (!updateFromCommunity && opts?.community)
+                updateFromCommunity = findCommentInPageInstanceRecursively(opts.community.posts, this._comment.cid);
+        }
 
         const post: Comment | undefined = this._comment.postCid
             ? findUpdatingComment(this._pkc, { cid: this._comment.postCid })
