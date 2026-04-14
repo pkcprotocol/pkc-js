@@ -313,6 +313,7 @@ describe("local community garbage collection", () => {
 
         const community = Object.assign(Object.create(LocalCommunityClass.prototype), {
             address: "test-sub-delete",
+            publicKey: "mock-public-key",
             state: "stopped",
             signer: { ipnsKeyName: "key-name", address: "12D3KooMock" },
             _pkc: {
