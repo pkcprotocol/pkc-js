@@ -58,6 +58,22 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             expect(recordedStates.slice(recordedStates.length - expectedStates.length)).to.deep.equal(expectedStates);
         });
 
+        it(`community.updatingState should never emit "resolving-name" when community address is not a domain`, async () => {
+            // Regression: background author name resolution was incorrectly setting
+            // community.updatingState to "resolving-name" after "succeeded"
+            const community = await pkc.getCommunity({ address: signers[0].address });
+            const oldUpdatedAt = Number(community.updatedAt);
+            const recordedStates: string[] = [];
+            community.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
+
+            await publishRandomPost({ communityAddress: community.address, pkc: pkc });
+            await community.update();
+            await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => Number(community.updatedAt) > oldUpdatedAt });
+            await community.stop();
+
+            expect(recordedStates.filter((s) => s === "resolving-name")).to.have.length(0);
+        });
+
         it(`community.updatingState is in correct order upon updating with IPFS client and community address is an ENS`, async () => {
             const community = await pkc.createCommunity({ address: "plebbit.eth" });
             const recordedStates: string[] = [];

@@ -132,6 +132,7 @@ export class CommunityClientsManager extends PKCClientsManager {
     override preResolveNameResolver(opts: PreResolveNameResolverOptions): void {
         super.preResolveNameResolver(opts);
         if (this._suppressUpdatingStateForNameResolution > 0) return;
+        if (opts.resolveType !== "community") return;
         this._community._setUpdatingStateWithEventEmissionIfNewState("resolving-name");
     }
 
