@@ -575,6 +575,7 @@ export async function waitForUpdateInCommunityInstanceWithErrorAndTimeout(commun
     community.on("error", errorListener);
     try {
         if (community.state !== "started") await community.update();
+        if (updateError) throw updateError; // Error may have fired synchronously during update (e.g. RPC emitAllPendingMessages replay)
         await pTimeout(Promise.race([updatePromise, new Promise((resolve) => community.once("error", resolve))]), {
             milliseconds: timeoutMs,
             message:
