@@ -371,8 +371,7 @@ const getCommunityChallengeFromCommunityChallengeSettings = async (
             (e as PKCError).details = {
                 ...(e as PKCError).details,
                 path: communityChallengeSettings.path,
-                communityChallengeSettings,
-                error: e
+                communityChallengeSettings
             };
             if (e instanceof Error)
                 e.message = `getCommunityChallengeFromCommunityChallengeSettings failed importing challenge with path '${communityChallengeSettings.path}': ${e.message}`;

@@ -1,4 +1,4 @@
-import { describe, it } from "vitest";
+import { describe, it, expect } from "vitest";
 import PKCRpcClient from "../../../../dist/node/clients/rpc-client/pkc-rpc-client.js";
 import { PKCError } from "../../../../dist/node/pkc-error.js";
 import { messages } from "../../../../dist/node/errors.js";
@@ -116,6 +116,44 @@ describe("RPC error (de)serialization helpers", () => {
             expect(deserialized).to.be.instanceOf(Error);
             expect(deserialized.message).to.equal("Received malformed RPC error payload");
             expect(deserialized.details).to.deep.equal({ rawError: "not-an-object" });
+        });
+    });
+
+    describe("circular error serialization", () => {
+        it("crashes with circular structure when using plain JSON.stringify (documents the bug)", () => {
+            const error = new PKCError("ERR_FAILED_TO_IMPORT_CHALLENGE_FILE_FACTORY", {
+                path: "/path/to/nonexistent/challenge.js"
+            });
+            // Simulate what challenges/index.ts:375 does: error.details.error = error
+            error.details.error = error;
+
+            expect(() => JSON.stringify(error)).to.throw("Converting circular structure to JSON");
+        });
+
+        it("does not crash when serializing a PKCError with circular details.error using a circular-safe replacer", () => {
+            const error = new PKCError("ERR_FAILED_TO_IMPORT_CHALLENGE_FILE_FACTORY", {
+                path: "/path/to/nonexistent/challenge.js"
+            });
+            error.details.error = error; // circular self-reference
+
+            // This is what the fixed rpcWebsocketsRegister should do
+            const seen = new WeakSet();
+            const errorJson = JSON.parse(
+                JSON.stringify(error, (_key, value) => {
+                    if (typeof value === "object" && value !== null) {
+                        if (seen.has(value)) return undefined;
+                        seen.add(value);
+                    }
+                    return value;
+                })
+            );
+
+            expect(errorJson.code).to.equal("ERR_FAILED_TO_IMPORT_CHALLENGE_FILE_FACTORY");
+            expect(errorJson.details.path).to.equal("/path/to/nonexistent/challenge.js");
+            // The circular reference is broken — details.error is serialized but its
+            // own details (which would recurse) are stripped by the WeakSet guard
+            expect(errorJson.details.error).to.be.an("object");
+            expect(errorJson.details.error.code).to.equal("ERR_FAILED_TO_IMPORT_CHALLENGE_FILE_FACTORY");
         });
     });
 

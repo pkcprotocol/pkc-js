@@ -353,7 +353,16 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
                 log.error(`${callback.name} error`, { params, error: typedError });
                 // We need to stringify the error here because rpc-websocket will remove props from PKCError
                 if (typedError instanceof PKCError) {
-                    const errorJson = JSON.parse(JSON.stringify(typedError));
+                    const seen = new WeakSet();
+                    const errorJson = JSON.parse(
+                        JSON.stringify(typedError, (_key, value) => {
+                            if (typeof value === "object" && value !== null) {
+                                if (seen.has(value)) return undefined;
+                                seen.add(value);
+                            }
+                            return value;
+                        })
+                    );
                     delete errorJson["stack"];
                     throw errorJson;
                 } else {
