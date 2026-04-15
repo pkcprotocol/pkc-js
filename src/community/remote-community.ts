@@ -545,8 +545,11 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
 
         if (err instanceof FailedToFetchCommunityFromGatewaysError) {
             // If all gateway errors are non retriable, then the error is non retriable
-            for (const gatewayError of Object.values(err.details.gatewayToError))
+            for (const gatewayError of Object.values(err.details.gatewayToError)) {
+                // Invalid signature from a gateway is retriable (transient gateway issue, e.g. stale IPNS cache)
+                if (gatewayError instanceof PKCError && gatewayError.code === "ERR_COMMUNITY_SIGNATURE_IS_INVALID") return true;
                 if (this._isRetriableErrorWhenLoading(gatewayError)) return true;
+            }
             return false; // if all gateways are non retriable, then we should not retry
         }
         return true;

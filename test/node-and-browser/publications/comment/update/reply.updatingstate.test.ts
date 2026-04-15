@@ -230,7 +230,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             }
         });
 
-        it(`updating state of reply is set to failed if community has an invalid Community record`, async () => {
+        // Gateway invalid signature errors are silently retriable (no error event, no "failed" state)
+        it(`updating state of reply retries silently if gateway community has an invalid Community record`, async () => {
             const pkc = await config.pkcInstancePromise();
             try {
                 const { commentCid: mockedReplyCid, communityAddress: communityAddress } = await createStaticCommunityRecordForComment({
@@ -245,19 +246,14 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 const recordedStates: string[] = [];
                 mockReply.on("updatingstatechange", () => recordedStates.push(mockReply.updatingState));
 
-                const createErrorPromise = () =>
-                    new Promise<void>((resolve) =>
-                        mockReply.once("error", (err) => {
-                            if (
-                                (err as PKCError).details.gatewayToError["http://localhost:18080"].code ===
-                                "ERR_COMMUNITY_SIGNATURE_IS_INVALID"
-                            )
-                                resolve();
-                        })
-                    );
                 await mockReply.update();
 
-                await createErrorPromise();
+                // Wait for the reply to reach waiting-retry (silent retry for gateway signature error)
+                await resolveWhenConditionIsTrue({
+                    toUpdate: mockReply,
+                    predicate: async () => recordedStates.includes("waiting-retry"),
+                    eventName: "updatingstatechange"
+                });
 
                 await mockReply.stop();
                 expect(mockReply.updatedAt).to.be.undefined;
@@ -266,7 +262,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                     "fetching-ipfs", // fetching comment ipfs of reply
                     "succeeded", // succeeded loading comment ipfs of reply
                     "fetching-community-ipns", // fetching community ipns from gateway
-                    "failed", // community ipfs record is invalid
+                    "waiting-retry", // community ipfs record has invalid signature, silently retrying
                     "stopped" // called post.stop()
                 ];
                 const filteredExpectedStates = cleanupStateArray(expectedUpdateStates);

@@ -75,7 +75,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await remotePKC.destroy();
         });
 
-        it(`community.update() emit an error if there are unknown props not included in signature.signedPropertyNames`, async () => {
+        it(`community.update() rejects unknown props not in signedPropertyNames (error for RPC, silent retry for gateways)`, async () => {
             const opts = { includeExtraPropInSignedPropertyNames: false, extraProps: { extraProp: "1234" } };
 
             const publishedSub = await publishCommunityRecordWithExtraProp(opts);
@@ -84,21 +84,17 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             const community = await remotePKC.createCommunity({ address: publishedSub.ipnsObj.signer.address });
 
-            const errorPromise = new Promise<PKCError>((resolve) => community.once("error", resolve as (err: Error) => void));
-
             await community.update();
 
-            const error = await errorPromise;
-
             if (isPKCFetchingUsingGateways(remotePKC)) {
-                expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
-                const gatewayError = error.details.gatewayToError[remotePKC.ipfsGatewayUrls[0]] as PKCError;
-                expect(gatewayError.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
-                expect(gatewayError.details.signatureValidity.valid).to.be.false;
-                expect(gatewayError.details.signatureValidity.reason).to.equal(
-                    messages.ERR_COMMUNITY_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES
-                );
+                // Gateway invalid signature errors are silently retriable — wait for retry state instead of error event
+                await resolveWhenConditionIsTrue({
+                    toUpdate: community,
+                    predicate: async () => community.updatingState === "waiting-retry",
+                    eventName: "updatingstatechange"
+                });
             } else {
+                const error = await new Promise<PKCError>((resolve) => community.once("error", resolve as (err: Error) => void));
                 expect(error.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
                 expect(error.details.signatureValidity.valid).to.be.false;
                 expect(error.details.signatureValidity.reason).to.equal(
@@ -296,21 +292,22 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await publishedSub.ipnsObj.pkc.destroy();
         });
 
-        it(`community.update() rejects CommunityIpfs with nameResolved reserved field`, async () => {
+        it(`community.update() rejects CommunityIpfs with nameResolved reserved field (error for RPC, silent retry for gateways)`, async () => {
             const remotePKC = await config.pkcInstancePromise();
 
             const community = await remotePKC.createCommunity({ address: publishedSub.ipnsObj.signer.address });
-            const errorPromise = new Promise<PKCError>((resolve) => community.once("error", resolve as (err: Error) => void));
 
             await community.update();
-            const error = await errorPromise;
 
             if (isPKCFetchingUsingGateways(remotePKC)) {
-                expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
-                const gatewayError = Object.values(error.details.gatewayToError)[0] as PKCError;
-                expect(gatewayError.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
-                expect(gatewayError.details.signatureValidity.reason).to.equal(messages.ERR_COMMUNITY_RECORD_INCLUDES_RESERVED_FIELD);
+                // Gateway invalid signature errors are silently retriable — wait for retry state
+                await resolveWhenConditionIsTrue({
+                    toUpdate: community,
+                    predicate: async () => community.updatingState === "waiting-retry",
+                    eventName: "updatingstatechange"
+                });
             } else {
+                const error = await new Promise<PKCError>((resolve) => community.once("error", resolve as (err: Error) => void));
                 expect(error.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
                 expect(error.details.signatureValidity.reason).to.equal(messages.ERR_COMMUNITY_RECORD_INCLUDES_RESERVED_FIELD);
             }
@@ -320,7 +317,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await remotePKC.destroy();
         });
 
-        it(`getCommunity() throws when CommunityIpfs has nameResolved reserved field`, async () => {
+        it(`getCommunity() throws when CommunityIpfs has nameResolved reserved field (timeout for gateways, error for RPC)`, async () => {
             const remotePKC = await config.pkcInstancePromise();
 
             try {
@@ -329,10 +326,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             } catch (e) {
                 const error = e as PKCError;
                 if (isPKCFetchingUsingGateways(remotePKC)) {
-                    expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
-                    const gatewayError = Object.values(error.details.gatewayToError)[0] as PKCError;
-                    expect(gatewayError.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
-                    expect(gatewayError.details.signatureValidity.reason).to.equal(messages.ERR_COMMUNITY_RECORD_INCLUDES_RESERVED_FIELD);
+                    // Gateway invalid signature errors are silently retriable, so getCommunity() times out
+                    expect(error.code).to.equal("ERR_GET_COMMUNITY_TIMED_OUT");
                 } else {
                     expect(error.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
                     expect(error.details.signatureValidity.reason).to.equal(messages.ERR_COMMUNITY_RECORD_INCLUDES_RESERVED_FIELD);

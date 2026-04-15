@@ -201,10 +201,22 @@ export class CommunityClientsManager extends PKCClientsManager {
                             error
                         );
 
-                        this._community._changeStateEmitEventEmitStateChangeEvent({
-                            event: { name: "error", args: [error] },
-                            newUpdatingState: "waiting-retry"
-                        });
+                        // Gateway signature errors are transient (e.g. stale IPNS cache) — log but don't emit error event
+                        const isGatewaySignatureError =
+                            error instanceof FailedToFetchCommunityFromGatewaysError &&
+                            Object.values(error.details.gatewayToError).every(
+                                (gatewayError) =>
+                                    gatewayError instanceof PKCError && gatewayError.code === "ERR_COMMUNITY_SIGNATURE_IS_INVALID"
+                            );
+                        if (isGatewaySignatureError) {
+                            log(`Community ${this._community.address} gateway returned invalid signature, silently retrying`);
+                            this._community._setUpdatingStateWithEventEmissionIfNewState("waiting-retry");
+                        } else {
+                            this._community._changeStateEmitEventEmitStateChangeEvent({
+                                event: { name: "error", args: [error] },
+                                newUpdatingState: "waiting-retry"
+                            });
+                        }
 
                         this._ipnsLoadingOperation!.retry(<Error>e);
                     }

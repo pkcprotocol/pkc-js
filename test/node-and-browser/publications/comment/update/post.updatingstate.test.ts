@@ -273,7 +273,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             await pkc.destroy();
         });
 
-        it(`updating state of post is set to failed if sub has an invalid Community record`, async () => {
+        // Gateway invalid signature errors are silently retriable (no error event, no "failed" state)
+        it(`updating state of post retries silently if gateway community has an invalid Community record`, async () => {
             const dedicatedPKC = await config.pkcInstancePromise();
             try {
                 const { commentCid, communityAddress: communityAddress } = await createStaticCommunityRecordForComment({
@@ -287,28 +288,24 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 const recordedStates: string[] = [];
                 createdPost.on("updatingstatechange", () => recordedStates.push(createdPost.updatingState));
 
-                const errors: PKCError[] = [];
-
-                createdPost.on("error", (err) => errors.push(err as PKCError));
                 await createdPost.update();
 
-                await resolveWhenConditionIsTrue({ toUpdate: createdPost, predicate: async () => errors.length >= 1, eventName: "error" });
+                // Wait for the post to reach waiting-retry (silent retry for gateway signature error)
+                await resolveWhenConditionIsTrue({
+                    toUpdate: createdPost,
+                    predicate: async () => recordedStates.includes("waiting-retry"),
+                    eventName: "updatingstatechange"
+                });
 
                 await createdPost.stop();
-                if (dedicatedPKC._updatingComments.size() > 0) throw Error("should reset updating comments");
                 expect(createdPost.updatedAt).to.be.undefined;
                 expect(createdPost.raw.commentUpdate).to.be.undefined;
-
-                for (const err of errors) {
-                    expect(err.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
-                    expect(err.details.gatewayToError["http://localhost:18080"].code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
-                }
 
                 const expectedUpdateStates = [
                     "fetching-ipfs", // fetching comment ipfs of post
                     "succeeded", // succeeded loading comment ipfs of post
                     "fetching-community-ipns", // fetching community ipns from gateway
-                    "failed", // community ipfs record is invalid
+                    "waiting-retry", // community ipfs record has invalid signature, silently retrying
                     "stopped" // called post.stop()
                 ];
                 expect(recordedStates).to.deep.equal(expectedUpdateStates);

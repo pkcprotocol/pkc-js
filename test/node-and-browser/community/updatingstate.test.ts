@@ -334,7 +334,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             }
         });
 
-        it(`updatingState is correct when we attempt to update a community with invalid record, if we're updating with an ipfs gateways`, async () => {
+        // Gateway invalid signature errors are silently retriable (no error event emitted)
+        it(`updatingState silently retries when gateway returns community with invalid signature`, async () => {
             const { commentCid, communityAddress: communityAddress } = await createStaticCommunityRecordForComment({
                 invalidateCommunitySignature: true
             });
@@ -343,17 +344,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             const community = await pkc.createCommunity({ address: communityAddress });
 
             const recordedUpdatingStates: string[] = [];
-            const errors: PKCError[] = [];
 
             community.on("updatingstatechange", (newState: string) => recordedUpdatingStates.push(newState));
-            community.on("error", (err: PKCError | Error) => {
-                errors.push(err as PKCError);
-            });
 
-            // First update should succeed with the initial valid record
-            const errorPromise = new Promise((resolve) => community.once("error", resolve));
             await community.update();
-            await errorPromise;
 
             // Wait for at least 2 complete retry cycles (pairs of fetching-ipns + waiting-retry)
             await resolveWhenConditionIsTrue({
@@ -367,23 +361,17 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
 
             await community.stop();
 
-            const expectedFirstStates = ["fetching-ipns", "failed"];
+            const expectedFirstStates = ["fetching-ipns", "waiting-retry"];
             expect(recordedUpdatingStates.slice(0, expectedFirstStates.length)).to.deep.equal(expectedFirstStates);
 
-            // Remaining states should loop as ["fetching-ipns", "stopped"] when it keeps failing
+            // Remaining states should loop as ["fetching-ipns", "waiting-retry"] when it keeps silently retrying
             const remainingStates = recordedUpdatingStates.slice(expectedFirstStates.length, recordedUpdatingStates.length - 1);
             expect(remainingStates.length % 2).to.equal(0);
             for (let i = 0; i < remainingStates.length; i += 2) {
-                expect(remainingStates.slice(i, i + 2)).to.deep.equal(["fetching-ipns", "waiting-retry"]); // resolves IPNS, then realizes it's the same IPNS with invalid signature and abort
+                expect(remainingStates.slice(i, i + 2)).to.deep.equal(["fetching-ipns", "waiting-retry"]);
             }
 
             expect(recordedUpdatingStates[recordedUpdatingStates.length - 1]).to.equal("stopped");
-
-            expect(errors.length).to.equal(1);
-            expect(errors[0].code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
-            expect((errors[0].details.gatewayToError["http://localhost:18080"] as PKCError).code).to.equal(
-                "ERR_COMMUNITY_SIGNATURE_IS_INVALID"
-            );
         });
     });
 });

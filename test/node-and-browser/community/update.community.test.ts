@@ -244,7 +244,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             }
         });
 
-        it.sequential(`community.update emits error if signature of community is invalid`, async () => {
+        it.sequential(`community.update handles invalid community signature (error for RPC, silent retry for gateways)`, async () => {
             // should emit an error and keep retrying
 
             // Publish a valid record signed with ipnsObj.signer first, then corrupt a signed field.
@@ -255,24 +255,20 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await ipnsObj.publishToIpns(JSON.stringify(communityRecord));
             const tempCommunity = await pkc.createCommunity({ address: ipnsObj.signer.address });
 
-            const errorPromise = new Promise<void>((resolve) => {
-                tempCommunity.once("error", (err: PKCError | Error) => {
-                    const pErr = err as PKCError;
-                    if (isPKCFetchingUsingGateways(pkc)) {
-                        expect(pErr.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
-                        for (const gatewayUrl of Object.keys(pkc.clients.ipfsGateways))
-                            expect((pErr.details.gatewayToError[gatewayUrl] as PKCError).code).to.equal(
-                                "ERR_COMMUNITY_SIGNATURE_IS_INVALID"
-                            );
-                    } else {
-                        expect(pErr.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
-                    }
-                    resolve();
-                });
-            });
-
             await tempCommunity.update();
-            await errorPromise;
+
+            if (isPKCFetchingUsingGateways(pkc)) {
+                // Gateway invalid signature errors are silently retriable — wait for retry state
+                await resolveWhenConditionIsTrue({
+                    toUpdate: tempCommunity,
+                    predicate: async () => tempCommunity.updatingState === "waiting-retry",
+                    eventName: "updatingstatechange"
+                });
+            } else {
+                const error = await new Promise<PKCError>((resolve) => tempCommunity.once("error", resolve as (err: Error) => void));
+                expect(error.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
+            }
+
             await tempCommunity.stop();
             await ipnsObj.pkc.destroy();
         });

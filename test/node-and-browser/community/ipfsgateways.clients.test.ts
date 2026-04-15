@@ -109,7 +109,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             }
         });
 
-        it(`Correct order of ipfs gateway states when we update a community with record whose signature is invalid`, async () => {
+        it(`Correct order of ipfs gateway states when we update a community with record whose signature is invalid (silently retries)`, async () => {
             const { commentCid, communityAddress: communityAddress } = await createStaticCommunityRecordForComment({
                 invalidateCommunitySignature: true
             });
@@ -157,14 +157,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 expect(recordedStates[i + 1]).to.equal("stopped");
             }
 
-            expect(emittedErrors.length).to.equal(1); // it's only a single emitted error since we never re-download an invalid record
-
-            for (const emittedError of emittedErrors) {
-                expect(emittedError.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
-                expect((emittedError.details.gatewayToError["http://localhost:18080"] as PKCError).code).to.equal(
-                    "ERR_COMMUNITY_SIGNATURE_IS_INVALID"
-                );
-            }
+            // Gateway invalid signature errors are silently retriable — no error event emitted
+            expect(emittedErrors.length).to.equal(0);
 
             expect(waitingRetryCount).to.be.greaterThan(0);
             expect(updateCount).to.equal(0); // no updatess because invalid signatures
