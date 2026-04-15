@@ -20,44 +20,31 @@ import startPKCWebSocketServers from "./pkc-ws-server.js";
 process.env["PKC_CONFIGS"] = process.env["PKC_CONFIGS"] || "local-kubo-rpc";
 process.env["DEBUG"] = process.env["DEBUG"] || "*";
 
-// 🔧 ENHANCED: Capture test-server.js stdout and stderr
-const testServerLogDir = path.join(process.cwd(), "test-server");
+// Capture test-server.js stdout and stderr to a single log file in /tmp
+const pkcConfig = process.env["PKC_CONFIGS"] || "local-kubo-rpc";
 const logTimestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-const testServerStdoutLog = path.join(testServerLogDir, "stdout.log");
-const testServerStderrLog = path.join(testServerLogDir, "stderr.log");
+const testServerLogFile = `/tmp/test-server-${pkcConfig}-${logTimestamp}.log`;
 
-// Create test-server directory if it doesn't exist
-fs.mkdirSync(testServerLogDir, { recursive: true });
+const testServerLogStream = fs.createWriteStream(testServerLogFile, { flags: "a" });
 
-// Create log streams
-const testServerStdoutStream = fs.createWriteStream(testServerStdoutLog, { flags: "a" });
-const testServerStderrStream = fs.createWriteStream(testServerStderrLog, { flags: "a" });
-
-// Capture original stdout/stderr write functions
 const originalStdoutWrite = process.stdout.write;
 const originalStderrWrite = process.stderr.write;
 
-// Override stdout write to capture output
 process.stdout.write = function (chunk, encoding, fd) {
-    testServerStdoutStream.write(chunk);
+    testServerLogStream.write(chunk);
     return originalStdoutWrite.call(process.stdout, chunk, encoding, fd);
 };
 
-// Override stderr write to capture output
 process.stderr.write = function (chunk, encoding, fd) {
-    testServerStderrStream.write(chunk);
+    testServerLogStream.write(chunk);
     return originalStderrWrite.call(process.stderr, chunk, encoding, fd);
 };
 
-// Handle process exit to close streams
 process.on("exit", () => {
-    testServerStdoutStream.end();
-    testServerStderrStream.end();
+    testServerLogStream.end();
 });
 
-console.log(`📝 Test server logs:`);
-console.log(`   📄 stdout: ${testServerStdoutLog}`);
-console.log(`   📄 stderr: ${testServerStderrLog}`);
+console.log(`📝 Test server log: ${testServerLogFile}`);
 
 const ipfsPath = getIpfsPath();
 
