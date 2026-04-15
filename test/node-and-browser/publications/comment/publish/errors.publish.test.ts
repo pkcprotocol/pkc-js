@@ -103,7 +103,7 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
         await tempPKC.destroy();
     });
-    it(`comment.publish succeeds if provider 1 is not responding and 2 is responding`, async () => {
+    it.sequential(`comment.publish succeeds if provider 1 is not responding and 2 is responding`, async () => {
         const notRespondingPubsubUrl = "http://localhost:15005/api/v0"; // Should take msgs but not respond, never throws errors
         const upPubsubUrl = "http://localhost:15002/api/v0";
         const pkc = await mockPKCV2({
@@ -177,7 +177,7 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
         expect(mockPost.clients.pubsubKuboRpcClients[offlinePubsubUrls[0]].state).to.equal("stopped");
         expect(mockPost.clients.pubsubKuboRpcClients[offlinePubsubUrls[1]].state).to.equal("stopped");
     });
-    it(`comment emits error when provider 1 is not responding and provider 2 throws an error`, async () => {
+    it.sequential(`comment emits error when pubsub provider 1 is not responding and pubsub provider 2 throws an error`, async () => {
         // First provider waits, second provider fails to subscribe
         // second provider should update its state to be stopped, but it should not emit an error until the first provider is done with waiting
 
