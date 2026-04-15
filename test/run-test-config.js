@@ -579,8 +579,36 @@ const ensureTestServerIsRunning = async () => {
     }
 };
 
+const ensureRpcServerIsRunning = async () => {
+    const net = await import("net");
+    const isReachable = await new Promise((resolve) => {
+        const socket = net.createConnection({ port: 39652 }, () => {
+            socket.destroy();
+            resolve(true);
+        });
+        socket.on("error", () => resolve(false));
+        socket.setTimeout(2000, () => {
+            socket.destroy();
+            resolve(false);
+        });
+    });
+    if (!isReachable) {
+        console.error("========================================");
+        console.error("ERROR: RPC WebSocket server is not running on port 39652!");
+        console.error("RPC tests require the RPC server. Start it with:");
+        console.error("  npm run test:server:node:rpc");
+        console.error("========================================");
+        process.exit(1);
+    }
+};
+
 // Ensure test server is reachable before doing anything else
 await ensureTestServerIsRunning();
+
+// If running RPC tests, also ensure the RPC WebSocket server is reachable
+if (env.USE_RPC === "1") {
+    await ensureRpcServerIsRunning();
+}
 
 // Type check TypeScript files before running tests
 typeCheckTests();
