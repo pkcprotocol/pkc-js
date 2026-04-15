@@ -8,7 +8,11 @@ const sharedTimeoutMs = Number.parseInt(process.env.VITEST_TIMEOUT ?? "120000", 
 const isFirefox = process.env.VITEST_BROWSER === "firefox";
 const isGithubActions = Boolean(process.env.GITHUB_ACTIONS);
 const vitestReportDir = ".vitest-reports";
-const vitestJsonReportPath = `${vitestReportDir}/browser-tests.json`;
+const vitestMode = (process.env.VITEST_MODE ?? "node").toLowerCase();
+const envLabel = vitestMode === "browser" ? process.env.VITEST_BROWSER ?? "browser" : "node";
+const pkcConfigs = process.env.PKC_CONFIGS?.trim();
+const reportBaseName = pkcConfigs ? `${envLabel}-${pkcConfigs.replace(/,/g, "-")}.json` : `${envLabel}.json`;
+const vitestJsonReportPath = `${vitestReportDir}/${reportBaseName}`;
 const stderrJsonReporterPath = "./config/vitest-stderr-json-reporter.js";
 const perFileLogReporterPath = "./config/vitest-per-file-log-reporter.js";
 const perTestLogDir = process.env.PER_TEST_LOG_DIR;

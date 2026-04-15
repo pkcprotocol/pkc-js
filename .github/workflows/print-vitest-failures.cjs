@@ -1,18 +1,31 @@
 const fs = require("fs");
 const path = require("path");
 
-const reportPath = path.join(process.cwd(), ".vitest-reports", "browser-tests.json");
+const reportDir = path.join(process.cwd(), ".vitest-reports");
 
-if (!fs.existsSync(reportPath)) {
-    console.log(`Vitest report not found at ${reportPath}`);
+if (!fs.existsSync(reportDir)) {
+    console.log(`Vitest report directory not found at ${reportDir}`);
     process.exit(0);
 }
 
-let report;
-try {
-    report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
-} catch (error) {
-    console.error(`Could not parse ${reportPath}:`, error);
+const reportFiles = fs.readdirSync(reportDir).filter((f) => f.endsWith(".json"));
+if (reportFiles.length === 0) {
+    console.log(`No JSON report files found in ${reportDir}`);
+    process.exit(0);
+}
+
+const reports = [];
+for (const file of reportFiles) {
+    const filePath = path.join(reportDir, file);
+    try {
+        reports.push({ file, report: JSON.parse(fs.readFileSync(filePath, "utf8")) });
+    } catch (error) {
+        console.error(`Could not parse ${filePath}:`, error);
+    }
+}
+
+if (reports.length === 0) {
+    console.log("No parseable vitest reports found.");
     process.exit(0);
 }
 
@@ -59,35 +72,37 @@ const trackEntry = (bucket, entry) => {
     });
 };
 
-for (const suite of report.testResults || []) {
-    for (const assertion of suite.assertionResults || []) {
-        if (assertion.status === "failed") {
-            trackEntry(failedTests, {
-                kind: "failed",
+for (const { report } of reports) {
+    for (const suite of report.testResults || []) {
+        for (const assertion of suite.assertionResults || []) {
+            if (assertion.status === "failed") {
+                trackEntry(failedTests, {
+                    kind: "failed",
+                    suite: suite.name,
+                    test: assertion.fullName || assertion.title,
+                    message: assertion.failureMessages
+                });
+            }
+        }
+        const suiteMessage = normalizeMessage(suite.message).trim();
+        if (suiteMessage) {
+            trackEntry(unhandledErrors, {
+                kind: "unhandled",
                 suite: suite.name,
-                test: assertion.fullName || assertion.title,
-                message: assertion.failureMessages
+                test: "Unhandled error",
+                message: suiteMessage
             });
         }
     }
-    const suiteMessage = normalizeMessage(suite.message).trim();
-    if (suiteMessage) {
+
+    for (const error of report.unhandledErrors || []) {
         trackEntry(unhandledErrors, {
             kind: "unhandled",
-            suite: suite.name,
-            test: "Unhandled error",
-            message: suiteMessage
+            suite: error.file || error.path || error.suite || "Unhandled errors",
+            test: error.testName || error.name || "Unhandled error",
+            message: error.stack || error.message || error
         });
     }
-}
-
-for (const error of report.unhandledErrors || []) {
-    trackEntry(unhandledErrors, {
-        kind: "unhandled",
-        suite: error.file || error.path || error.suite || "Unhandled errors",
-        test: error.testName || error.name || "Unhandled error",
-        message: error.stack || error.message || error
-    });
 }
 
 if (failedTests.length === 0 && unhandledErrors.length === 0) {
