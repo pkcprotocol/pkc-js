@@ -319,6 +319,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`getCommunity() throws when CommunityIpfs has nameResolved reserved field (timeout for gateways, error for RPC)`, async () => {
             const remotePKC = await config.pkcInstancePromise();
+            if (isPKCFetchingUsingGateways(remotePKC)) {
+                remotePKC._timeouts["community-ipns"] = 5000; // 5s so getCommunity times out before vitest
+            }
 
             try {
                 await remotePKC.getCommunity({ address: publishedSub.ipnsObj.signer.address });

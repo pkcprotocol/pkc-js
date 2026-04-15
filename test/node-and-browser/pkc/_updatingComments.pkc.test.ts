@@ -2,6 +2,7 @@ import { beforeAll, describe, it, beforeEach, afterEach } from "vitest";
 import {
     getAvailablePKCConfigsToTestAgainst,
     findOrPublishCommentWithDepth,
+    isPKCFetchingUsingGateways,
     itSkipIfRpc,
     publishRandomPost,
     publishRandomReply,
@@ -326,7 +327,17 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             await post.update();
-            await resolveWhenConditionIsTrue({ toUpdate: post, predicate: async () => errors.length >= 1, eventName: "error" });
+
+            if (isPKCFetchingUsingGateways(pkc)) {
+                // Gateway signature errors are silently retriable — no error event fires
+                await resolveWhenConditionIsTrue({
+                    toUpdate: post,
+                    predicate: async () => post.updatingState === "waiting-retry",
+                    eventName: "updatingstatechange"
+                });
+            } else {
+                await resolveWhenConditionIsTrue({ toUpdate: post, predicate: async () => errors.length >= 1, eventName: "error" });
+            }
 
             await post.stop();
 
