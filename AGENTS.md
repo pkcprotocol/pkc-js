@@ -63,6 +63,10 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 - When a bug or regression is reported, reproduce it deterministically in a test case first, then brainstorm how to fix it.
 - When a bug or test failure is reported, understand the root cause instead of trying to fix it with timeouts.
 
+### Workflow
+
+- When given a prompt to implement a feature, create a GitHub issue for it using `gh issue create`. Keep the issue body up to date with your implementation plan and progress as work proceeds. Once the feature is fully implemented, close the issue with `gh issue close`.
+
 ## SHOULD Rules
 
 ### Schema & Database
