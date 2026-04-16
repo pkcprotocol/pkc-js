@@ -46,10 +46,10 @@ jobs:
               shell: bash
             - name: Run mocked challenge tests
               id: run_mocked_challenges
-              run: node test/run-test-config.js --environment node --per-test-logs /tmp/per-test-logs test/challenges
+              run: node test/run-test-config.js --environment node --per-test-logs ${{ runner.temp }}/per-test-logs test/challenges
             - name: Run node tests (local config)
               id: run_node_tests_local
-              run: DEBUG="pkc*" PKC_CONFIGS=local-kubo-rpc node test/run-test-config.js --parallel --environment node --run-timeout-ms 1740000 --log-prefix test_node_local --per-test-logs /tmp/per-test-logs test/node src/rpc/test/node src/rpc/test/node-and-browser
+              run: DEBUG="pkc*" PKC_CONFIGS=local-kubo-rpc node test/run-test-config.js --parallel --environment node --run-timeout-ms 1740000 --log-prefix test_node_local --per-test-logs ${{ runner.temp }}/per-test-logs test/node src/rpc/test/node src/rpc/test/node-and-browser
               shell: bash
             - name: Print failed node tests (local)
               if: ${{ failure() && steps.run_node_tests_local.outcome == 'failure' }}
@@ -67,7 +67,7 @@ jobs:
               uses: actions/upload-artifact@v4
               with:
                   name: per-test-logs-node-local-${{ matrix.os }}
-                  path: /tmp/per-test-logs
+                  path: ${{ runner.temp }}/per-test-logs
                   if-no-files-found: ignore
             - name: Upload test server log (node local)
               if: ${{ always() && job.status != 'success' }}
