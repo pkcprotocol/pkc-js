@@ -680,13 +680,13 @@ export class CommentClientsManager extends PublicationClientsManager {
         return startWithNewPages ? "new" : "old";
     }
 
-    async usePageCidsOfParentToFetchCommentUpdateForReply(postCommentInstance: Comment) {
+    async usePageCidsOfParentToFetchCommentUpdateForReply(
+        postCommentInstance: Comment,
+        communityWithSignature: Pick<CommunityIpfsType, "signature">
+    ) {
         const log = Logger("pkc-js:comment:update:usePageCidsOfParentToFetchCommentUpdateForReply");
         if (!this._comment.cid) throw Error("comment.cid needs to be defined to fetch comment update of reply");
         if (!this._comment.parentCid) throw Error("comment.parentCid needs to be defined to fetch comment update of reply");
-        const communityWithSignature = <Required<Pick<RemoteCommunity, "signature">>>postCommentInstance.replies._community;
-        if (!communityWithSignature.signature)
-            throw Error("comment.replies._community.signature needs to be defined to fetch comment update of reply");
         const parentCommentInstance =
             postCommentInstance.cid === this._comment.parentCid
                 ? postCommentInstance
@@ -981,7 +981,10 @@ export class CommentClientsManager extends PublicationClientsManager {
 
         if (this._fetchingUpdateForReplyUsingPageCidsPromise) await this._fetchingUpdateForReplyUsingPageCidsPromise;
 
-        this._fetchingUpdateForReplyUsingPageCidsPromise = this.usePageCidsOfParentToFetchCommentUpdateForReply(postInstance)
+        this._fetchingUpdateForReplyUsingPageCidsPromise = this.usePageCidsOfParentToFetchCommentUpdateForReply(
+            postInstance,
+            repliesCommunity
+        )
             .catch((error) => {
                 if (isAbortError(error)) return;
                 log.error("Failed to fetch reply commentUpdate update from parent pages", error);
