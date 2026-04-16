@@ -322,8 +322,6 @@ export enum messages {
     ERR_DOMAIN_COMMUNITY_ADDRESS_TXT_RECORD_POINT_TO_DIFFERENT_ADDRESS = "community-address text record of domain is pointing to a different address than community.signer.address",
     ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS = "Resolved the text record value to a string that is non IPNS",
     ERR_COMMUNITY_DOMAIN_HAS_NO_TEXT_RECORD = "Domain resolver did not find the text record community-address",
-    ERR_AUTHOR_DOMAIN_HAS_NO_TEXT_RECORD = "Domain resolver did not find the text record pkc-author-address",
-    ERR_ROLE_ADDRESS_DOMAIN_COULD_NOT_BE_RESOLVED = "Failed to resolve the pkc-author-address text record for role address domain",
 
     // Local community errors
     ERR_LOCAL_COMMUNITY_HAS_NO_SIGNER_IN_INTERNAL_STATE = "community.signer needs to be defined before proceeding",
