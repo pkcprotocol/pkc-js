@@ -361,5 +361,6 @@ export enum messages {
     ERR_RPC_CLIENT_TRYING_TO_EDIT_REMOTE_COMMUNITY = "RPC client is attempting to edit remote community",
     ERR_RPC_CLIENT_TRYING_TO_DELETE_REMOTE_COMMUNITY = "RPC client is attempting to delete remote community",
     ERR_GENERIC_RPC_CLIENT_CALL_ERROR = "RPC client received an unknown error when executing call over websocket",
-    ERR_RPC_CLIENT_CHALLENGE_NAME_NOT_AVAILABLE_ON_SERVER = "The challenge name is not available on the RPC server. Available challenges are listed in details.availableChallenges"
+    ERR_RPC_CLIENT_CHALLENGE_NAME_NOT_AVAILABLE_ON_SERVER = "The challenge name is not available on the RPC server. Available challenges are listed in details.availableChallenges",
+    ERR_ROLE_ADDRESS_NAME_COULD_NOT_BE_RESOLVED = "Role address name could not be resolved"
 }

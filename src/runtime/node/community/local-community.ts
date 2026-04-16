@@ -3262,7 +3262,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 } catch {
                     resolved = null;
                 }
-                if (!resolved) throw new PKCError("ERR_ROLE_ADDRESS_DOMAIN_COULD_NOT_BE_RESOLVED", { roleAddress });
+                if (!resolved) throw new PKCError("ERR_ROLE_ADDRESS_NAME_COULD_NOT_BE_RESOLVED", { roleAddress });
             }
         }
         return <NonNullable<CommunityIpfsType["roles"]>>remeda.omitBy(newRawRoles, (val, key) => val === undefined || val === null);

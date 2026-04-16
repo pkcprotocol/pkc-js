@@ -721,10 +721,10 @@ describe(`Editing community.roles`, async () => {
         expect(remoteCommunity.roles).to.be.undefined;
     });
 
-    it(`Editing roles with an unresolvable domain throws ERR_ROLE_ADDRESS_DOMAIN_COULD_NOT_BE_RESOLVED`, async () => {
+    it(`Editing roles with an unresolvable domain throws ERR_ROLE_ADDRESS_NAME_COULD_NOT_BE_RESOLVED`, async () => {
         // "nonexistent.bso" doesn't resolve in the mock resolver
         await expect(community.edit({ roles: { "nonexistent.bso": { role: "moderator" } } })).rejects.toMatchObject({
-            code: "ERR_ROLE_ADDRESS_DOMAIN_COULD_NOT_BE_RESOLVED"
+            code: "ERR_ROLE_ADDRESS_NAME_COULD_NOT_BE_RESOLVED"
         });
     });
 

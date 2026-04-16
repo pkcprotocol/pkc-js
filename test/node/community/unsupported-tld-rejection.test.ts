@@ -125,7 +125,7 @@ describe("Community rejects publications with unsupported author TLDs", () => {
                 }
             })
         ).rejects.toMatchObject({
-            code: "ERR_ROLE_ADDRESS_DOMAIN_COULD_NOT_BE_RESOLVED"
+            code: "ERR_ROLE_ADDRESS_NAME_COULD_NOT_BE_RESOLVED"
         });
     });
 });
