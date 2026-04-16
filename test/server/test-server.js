@@ -15,6 +15,7 @@ import url from "url";
 import querystring from "querystring";
 
 import fs from "fs";
+import os from "os";
 import startPKCWebSocketServers from "./pkc-ws-server.js";
 
 process.env["PKC_CONFIGS"] = process.env["PKC_CONFIGS"] || "local-kubo-rpc";
@@ -23,7 +24,7 @@ process.env["DEBUG"] = process.env["DEBUG"] || "*";
 // Capture test-server.js stdout and stderr to a single log file in /tmp
 const pkcConfig = process.env["PKC_CONFIGS"] || "local-kubo-rpc";
 const logTimestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-const testServerLogFile = `/tmp/test-server-${pkcConfig}-${logTimestamp}.log`;
+const testServerLogFile = `${os.tmpdir()}/test-server-${pkcConfig}-${logTimestamp}.log`;
 
 const testServerLogStream = fs.createWriteStream(testServerLogFile, { flags: "a" });
 
