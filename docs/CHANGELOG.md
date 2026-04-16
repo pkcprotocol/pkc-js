@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.0.16](https://github.com/pkcprotocol/pkc-js/compare/v0.0.15...v0.0.16) (2026-04-16)
+
+### Features
+
+* **ci:** enable per-test logs and upload all logs as artifacts on failure ([c7a23a1](https://github.com/pkcprotocol/pkc-js/commit/c7a23a1354f170d0199dfdcdb199ca2f05109891))
+* **test:** add --per-test-logs flag for per-file stdout/stderr capture ([47a65d5](https://github.com/pkcprotocol/pkc-js/commit/47a65d596b7dd07204af628179f93e79b6cd5ae8))
+
+### Bug Fixes
+
+* add missing ERR_ROLE_ADDRESS_NAME_COULD_NOT_BE_RESOLVED error code to fix build ([9ce78eb](https://github.com/pkcprotocol/pkc-js/commit/9ce78ebafa58f43195d084d3cb2132a593045983))
+* **ci:** cap vitest forks to 3 on Windows to prevent Kubo overload ([b581c2f](https://github.com/pkcprotocol/pkc-js/commit/b581c2f53e7089db6463c5f1791b7f86f592ed64))
+* **ci:** use GitHub App token for release push to bypass branch protection ([3c8e068](https://github.com/pkcprotocol/pkc-js/commit/3c8e068c1c95712ffe933afb43f738091089beb3))
+* **ci:** use os.tmpdir() for test server log path to fix Windows CI ([142e26f](https://github.com/pkcprotocol/pkc-js/commit/142e26f5f1a66cbad9b0038f2db29224744a55f2))
+* **ci:** use runner.temp for per-test-logs path to fix Windows artifact upload ([3f53a58](https://github.com/pkcprotocol/pkc-js/commit/3f53a58f26b6152cbd2d545aea43df160b03166f))
+* **comment:** search all tracked communities when comment identity is unknown ([477e9c2](https://github.com/pkcprotocol/pkc-js/commit/477e9c2d284dfe18d817bb4675c991e7b492959a))
+* **community:** handle error fired synchronously during community.update() ([9777abf](https://github.com/pkcprotocol/pkc-js/commit/9777abf22bc8b899ec41311514f93f3af1eafd6d))
+* **community:** make ERR_COMMUNITY_SIGNATURE_IS_INVALID retriable for gateways ([d33f112](https://github.com/pkcprotocol/pkc-js/commit/d33f112cc58cb4efb5711d01bbfa59c46a7e7e88))
+* **community:** prevent author name resolution from setting updatingState to resolving-name ([6e804b8](https://github.com/pkcprotocol/pkc-js/commit/6e804b88d6433a395256a2fbb953a01a89f7a2ed))
+* **community:** set publicKey in setAddress() for non-domain addresses ([8b38f8c](https://github.com/pkcprotocol/pkc-js/commit/8b38f8c1c41145900e8889ee6beacf7fa95dc461))
+* pass resolved community signature to usePageCidsOfParentToFetchCommentUpdateForReply ([b311da1](https://github.com/pkcprotocol/pkc-js/commit/b311da172e85307d50f04911726d269c17ad93f7))
+* **pkc:** be stricter about no public key or name ([dd1805e](https://github.com/pkcprotocol/pkc-js/commit/dd1805e2b882c507f6f4b82ad4f28485e6e081a9))
+* **rpc:** preserve plain Error messages in RPC server→client serialization ([8120f57](https://github.com/pkcprotocol/pkc-js/commit/8120f579567bb21c57a511ff1fedf2f41b628109))
+* **rpc:** prevent circular error reference from crashing RPC server ([f4d880b](https://github.com/pkcprotocol/pkc-js/commit/f4d880b916dd112efa425a8910b21a8aa7b330ab))
+* **rpc:** send communityPublicKey/communityName instead of communityAddress in page RPC params ([780214f](https://github.com/pkcprotocol/pkc-js/commit/780214f6eb2ff939ef3f88b2f858f45f809f3801))
+* **schema:** preserve class-based name resolver instances through Zod parsing ([63ebcc0](https://github.com/pkcprotocol/pkc-js/commit/63ebcc08fece9d0bf448b97a74a348cab75986bc))
+* **test:** add missing publicKey to delete() mock in garbage collection test ([2d037d3](https://github.com/pkcprotocol/pkc-js/commit/2d037d31d0bca25f03b3bb19406c6ec728e6635a))
+* **test:** attach event listeners before update() to prevent RPC race condition ([7a25545](https://github.com/pkcprotocol/pkc-js/commit/7a25545bf58b3a5f2f345fbca4c3b67e1d37a77f))
+* **test:** avoid concurrent test contention in updatingstate regression test ([337bc68](https://github.com/pkcprotocol/pkc-js/commit/337bc6806ea122e08d840fe05635798a313e2090))
+* **test:** check RPC server is running before executing RPC tests ([6bff826](https://github.com/pkcprotocol/pkc-js/commit/6bff82666aac9b96affc203880855caf69f4e59b))
+* **test:** log test server output to /tmp/test-server-{config}-{date}.log ([5c94dc2](https://github.com/pkcprotocol/pkc-js/commit/5c94dc2764cd912f0a04732ebc16d2f31ceade07))
+* **test:** make tests using real Kubo port 15005 sequential ([7da2636](https://github.com/pkcprotocol/pkc-js/commit/7da26366161c229fd042b1febb9c2463cb284908))
+* **test:** make vitest JSON report path unique per config and environment ([c0df47d](https://github.com/pkcprotocol/pkc-js/commit/c0df47d40fa2f437b85b47205d1c9e0e0549d2c2))
+* **test:** retry IPNS name.resolve in publishToIpns to avoid transient CI failures ([2b95fa7](https://github.com/pkcprotocol/pkc-js/commit/2b95fa7d70ab8e9ef3197d2f515d5e5436adeb07))
+* **test:** update tests for silent gateway signature error retry ([a02db14](https://github.com/pkcprotocol/pkc-js/commit/a02db14c793c60c50517256bcf1889787bce1e20))
+* **verify:** restore community-belongs-to check and fix replies._community timing ([ac3fb67](https://github.com/pkcprotocol/pkc-js/commit/ac3fb677ea2185f3a6d19fa9c49dac5ff88dc617))
+
 ## [0.0.15](https://github.com/pkcprotocol/pkc-js/compare/v0.0.14...v0.0.15) (2026-04-12)
 
 ### Features
