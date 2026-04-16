@@ -247,9 +247,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 errors.push(err as PKCError);
             });
 
-            // First update should succeed with the initial valid record
-            await community.update();
-
+            // Attach error listener BEFORE update() to avoid race where error arrives
+            // during update() initialization via emitAllPendingMessages
             const errorPromise = new Promise<void>((resolve, reject) =>
                 community.once("error", (err: PKCError | Error) => {
                     if (community.updatingState !== "failed") reject("if it emits error, updatingState should be failed");
@@ -259,6 +258,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     resolve();
                 })
             );
+
+            // First update should succeed with the initial valid record
+            await community.update();
 
             await errorPromise;
 

@@ -84,9 +84,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             const community = await remotePKC.createCommunity({ address: publishedSub.ipnsObj.signer.address });
 
-            await community.update();
-
             if (isPKCFetchingUsingGateways(remotePKC)) {
+                await community.update();
                 // Gateway invalid signature errors are silently retriable — wait for retry state instead of error event
                 await resolveWhenConditionIsTrue({
                     toUpdate: community,
@@ -94,7 +93,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     eventName: "updatingstatechange"
                 });
             } else {
-                const error = await new Promise<PKCError>((resolve) => community.once("error", resolve as (err: Error) => void));
+                // Attach error listener BEFORE update() to avoid race where error arrives
+                // during update() initialization via emitAllPendingMessages
+                const errorPromise = new Promise<PKCError>((resolve) => community.once("error", resolve as (err: Error) => void));
+                await community.update();
+                const error = await errorPromise;
                 expect(error.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
                 expect(error.details.signatureValidity.valid).to.be.false;
                 expect(error.details.signatureValidity.reason).to.equal(

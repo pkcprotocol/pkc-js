@@ -111,8 +111,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(JSON.parse(JSON.stringify(post)).author.shortAddress)
                 .to.be.a("string")
                 .with.length.above(0);
+            // Attach update listener BEFORE update() to avoid race where the update event
+            // arrives during update() initialization via emitAllPendingMessages
+            const updatePromise = new Promise((resolve) => post.once("update", resolve));
             await post.update();
-            await new Promise((resolve) => post.once("update", resolve));
+            await updatePromise;
             expect(JSON.parse(JSON.stringify(post)).author.shortAddress)
                 .to.be.a("string")
                 .with.length.above(0);

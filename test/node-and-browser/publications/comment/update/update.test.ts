@@ -553,9 +553,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             createdComment.clients.ipfsGateways[ipfsGatewayUrl].on("statechange", (state) => ipfsGatewayStates.push(state));
             let updateHasBeenEmitted = false;
             createdComment.once("update", () => (updateHasBeenEmitted = true));
+            // Attach error listener BEFORE update() to avoid race where error arrives
+            // during update() initialization via emitAllPendingMessages
+            const errPromise = new Promise<PKCError>((resolve) => createdComment.once("error", resolve as (err: unknown) => void));
             await createdComment.update();
 
-            const err = await new Promise<PKCError>((resolve) => createdComment.once("error", resolve as (err: unknown) => void));
+            const err = await errPromise;
             expect(err.code).to.equal("ERR_FAILED_TO_FETCH_COMMENT_IPFS_FROM_GATEWAYS");
             expect(err.details.gatewayToError[gatewayUrl].code).to.equal("ERR_CALCULATED_CID_DOES_NOT_MATCH");
 
