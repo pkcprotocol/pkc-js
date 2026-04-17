@@ -329,15 +329,15 @@ export class CommunityClientsManager extends PKCClientsManager {
     // fetching community ipns here
 
     private async _resolveCommunityNameWithoutUpdatingState({
-        communityAddress,
+        communityName,
         abortSignal
     }: {
-        communityAddress: string;
+        communityName: string;
         abortSignal?: AbortSignal;
     }): Promise<string | null> {
         this._suppressUpdatingStateForNameResolution++;
         try {
-            return await this.resolveCommunityNameIfNeeded({ communityAddress, abortSignal });
+            return await this.resolveCommunityNameIfNeeded({ communityName, abortSignal });
         } finally {
             this._suppressUpdatingStateForNameResolution--;
         }
@@ -355,7 +355,7 @@ export class CommunityClientsManager extends PKCClientsManager {
             }
         };
         this._resolveCommunityNameWithoutUpdatingState({
-            communityAddress: name,
+            communityName: name,
             abortSignal: this._community._getStopAbortSignal()
         })
             .then((resolved) => {
@@ -446,7 +446,7 @@ export class CommunityClientsManager extends PKCClientsManager {
             } else {
                 // Name only or publicKey only: use existing resolution flow
                 ipnsName = await this.resolveCommunityNameIfNeeded({
-                    communityAddress: subAddress,
+                    communityName: subAddress,
                     abortSignal: this._community._getStopAbortSignal()
                 });
             }

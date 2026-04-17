@@ -35,7 +35,7 @@ describe("Comments with Authors as domains", async () => {
             title: "Mock post title",
             communityAddress: signers[0].address
         });
-        const resolvedAuthorAddress = await pkc.resolveAuthorName({ name: mockPost.author.address });
+        const { resolvedAuthorName: resolvedAuthorAddress } = await pkc.resolveAuthorName({ name: mockPost.author.address });
         expect(resolvedAuthorAddress).to.equal(signers[3].address);
 
         expect(mockPost.author.address).to.equal("plebbit.bso");
@@ -143,7 +143,7 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
             }
         });
 
-        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "plebbit.bso" });
+        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "plebbit.bso" });
         expect(resolved).to.equal(expectedIpns);
         // The resolver receives the original address as-is
         expect(receivedName).to.equal("plebbit.bso");
@@ -166,7 +166,7 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
             }
         });
 
-        const resolved = await pkc.resolveAuthorName({ name: "testauthor.bso" });
+        const { resolvedAuthorName: resolved } = await pkc.resolveAuthorName({ name: "testauthor.bso" });
         expect(resolved).to.equal(expectedAuthorAddress);
         await pkc.destroy();
     });
@@ -201,7 +201,7 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
             }
         ];
 
-        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
+        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "test.bso" });
         expect(resolved).to.equal(expectedIpns);
         expect(resolverCalls).to.deep.equal(["resolver-1", "resolver-2"]);
         await pkc.destroy();
@@ -232,7 +232,7 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
             }
         ];
 
-        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
+        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "test.bso" });
         expect(resolved).to.equal(expectedIpns);
         await pkc.destroy();
     });
@@ -302,7 +302,7 @@ describeSkipIfRpc(`nameResolver canResolve filtering`, async () => {
             }
         });
 
-        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
+        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "test.bso" });
         expect(resolved).to.equal(expectedIpns);
         expect(resolverCalls).to.deep.equal(["active-resolver"]);
         await pkc.destroy();
@@ -340,12 +340,12 @@ describeSkipIfRpc(`nameResolver canResolve filtering`, async () => {
             }
         });
 
-        const resolvedEth = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.eth" });
+        const resolvedEth = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "test.eth" });
         expect(resolvedEth).to.equal(ethIpns);
         expect(resolverCalls).to.deep.equal(["eth-resolver"]);
 
         resolverCalls.length = 0;
-        const resolvedTon = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.ton" });
+        const resolvedTon = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "test.ton" });
         expect(resolvedTon).to.equal(tonIpns);
         expect(resolverCalls).to.deep.equal(["ton-resolver"]);
         await pkc.destroy();
@@ -368,7 +368,7 @@ describeSkipIfRpc(`nameResolver canResolve filtering`, async () => {
         });
 
         try {
-            await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.ton" });
+            await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "test.ton" });
             expect.fail("Should have thrown");
         } catch (e: any) {
             expect(e.code).to.equal("ERR_NO_RESOLVER_FOR_NAME");
@@ -386,7 +386,7 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
         });
 
         try {
-            await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
+            await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "test.bso" });
             expect.fail("Should have thrown");
         } catch (e: any) {
             expect(e.code).to.equal("ERR_NO_RESOLVER_FOR_NAME");
@@ -398,7 +398,7 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
         const pkc = await mockPKCV2({ remotePKC: true, mockResolve: false });
 
         try {
-            await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
+            await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "test.bso" });
             expect.fail("Should have thrown");
         } catch (e: any) {
             expect(e.code).to.equal("ERR_NO_RESOLVER_FOR_NAME");
@@ -423,7 +423,7 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
         });
 
         try {
-            await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
+            await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "test.bso" });
             expect.fail("Should have thrown");
         } catch (e: any) {
             expect(e.code).to.equal("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS");
@@ -457,7 +457,7 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
             }
         });
 
-        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
+        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "test.bso" });
         expect(resolved).to.be.null;
         await pkc.destroy();
     });
@@ -484,7 +484,7 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
             }
         });
 
-        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
+        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "test.bso" });
         expect(resolved).to.be.null;
         await pkc.destroy();
     });
@@ -513,7 +513,7 @@ describeSkipIfRpc(`nameResolver provider argument passthrough`, async () => {
             }
         });
 
-        await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
+        await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "test.bso" });
         expect(receivedProvider).to.equal("my-custom-provider-url");
         await pkc.destroy();
     });
@@ -541,7 +541,7 @@ describeSkipIfRpc(`nameResolver abortSignal support`, async () => {
             }
         });
 
-        await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
+        await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "test.bso" });
         // The resolver should have been called (signal may or may not be passed depending on call site)
         // The important thing is that the resolver type accepts abortSignal and doesn't break
         expect(receivedSignal === undefined || receivedSignal instanceof AbortSignal).to.be.true;
@@ -572,7 +572,7 @@ describeSkipIfRpc(`nameResolver resolution behavior`, async () => {
         });
 
         const ipnsAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
-        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: ipnsAddress });
+        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: ipnsAddress });
         expect(resolved).to.equal(ipnsAddress);
         expect(resolverCalled).to.be.false;
         await pkc.destroy();
@@ -597,7 +597,7 @@ describeSkipIfRpc(`nameResolver resolution behavior`, async () => {
         try {
             // An IPNS address is not a domain, so resolveAuthorNameIfNeeded should throw
             await pkc._clientsManager.resolveAuthorNameIfNeeded({
-                authorAddress: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR"
+                authorName: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR"
             });
             expect.fail("Should have thrown");
         } catch (e: any) {
@@ -630,11 +630,11 @@ describeSkipIfRpc(`nameResolver resolution behavior`, async () => {
             }
         });
 
-        const resolved1 = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "cached.bso" });
+        const resolved1 = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "cached.bso" });
         expect(resolved1).to.equal(firstIpns);
         expect(callCount).to.equal(1);
 
-        const resolved2 = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "cached.bso" });
+        const resolved2 = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "cached.bso" });
         expect(resolved2).to.equal(secondIpns);
         expect(callCount).to.equal(2);
         await pkc.destroy();
@@ -744,7 +744,7 @@ describeSkipIfRpc(`nameResolver returning extra properties`, async () => {
             }
         });
 
-        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.bso" });
+        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "test.bso" });
         expect(resolved).to.equal(expectedIpns);
         await pkc.destroy();
     });
@@ -771,7 +771,7 @@ describeSkipIfRpc(`nameResolver runtime modification`, async () => {
             }
         });
 
-        const resolved1 = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "runtime.bso" });
+        const resolved1 = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "runtime.bso" });
         expect(resolved1).to.equal(firstIpns);
 
         // Swap resolvers at runtime
@@ -784,7 +784,7 @@ describeSkipIfRpc(`nameResolver runtime modification`, async () => {
             }
         ];
 
-        const resolved2 = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "runtime.bso" });
+        const resolved2 = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "runtime.bso" });
         expect(resolved2).to.equal(secondIpns);
         await pkc.destroy();
     });
@@ -810,7 +810,7 @@ describeSkipIfRpc(`nameResolver runtime modification`, async () => {
 
         // .ton should fail since no resolver handles it
         try {
-            await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.ton" });
+            await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "test.ton" });
             expect.fail("Should have thrown");
         } catch (e: any) {
             expect(e.code).to.equal("ERR_NO_RESOLVER_FOR_NAME");
@@ -827,7 +827,7 @@ describeSkipIfRpc(`nameResolver runtime modification`, async () => {
             }
         ];
 
-        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: "test.ton" });
+        const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "test.ton" });
         expect(resolved).to.equal(tonIpns);
         await pkc.destroy();
     });
@@ -906,7 +906,7 @@ describeSkipIfRpc("Class-based name resolvers", () => {
         });
 
         // This should not throw "Cannot read properties of undefined (reading 'createClient')"
-        const result = await pkc.resolveAuthorName({ name: "something.test" });
+        const { resolvedAuthorName: result } = await pkc.resolveAuthorName({ name: "something.test" });
         expect(result).to.equal(signers[0].address);
 
         await pkc.destroy();

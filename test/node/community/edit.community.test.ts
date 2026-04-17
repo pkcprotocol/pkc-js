@@ -63,7 +63,7 @@ describeSkipIfRpc(`community.edit`, async () => {
         pkcResolverRecords.set(bsoNameAddress, community.signer.address);
         remoteResolverRecords.set(bsoNameAddress, community.signer.address);
 
-        const resolvedSubAddress = await remotePKC._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: bsoNameAddress });
+        const resolvedSubAddress = await remotePKC._clientsManager.resolveCommunityNameIfNeeded({ communityName: bsoNameAddress });
         expect(resolvedSubAddress).to.equal(community.signer.address);
 
         await pkc.resolveAuthorName({ name: "esteban.bso" });
@@ -233,10 +233,10 @@ describeSkipIfRpc(`community.edit .eth -> .bso transition`, async () => {
         remoteResolverRecords.set(ethAddress, community.signer.address);
         remoteResolverRecords.set(bsoAddress, community.signer.address);
 
-        expect(await remotePKC._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: ethAddress })).to.equal(
+        expect(await remotePKC._clientsManager.resolveCommunityNameIfNeeded({ communityName: ethAddress })).to.equal(
             community.signer.address
         );
-        expect(await remotePKC._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: bsoAddress })).to.equal(
+        expect(await remotePKC._clientsManager.resolveCommunityNameIfNeeded({ communityName: bsoAddress })).to.equal(
             community.signer.address
         );
 
@@ -422,7 +422,7 @@ describeSkipIfRpc(`Concurrency with community.edit`, async () => {
                 pkc._storage.removeItem = () => Promise.resolve(false); // stop clearing cache when editing community address
 
                 const resolvedSubAddress = await pkc._clientsManager.resolveCommunityNameIfNeeded({
-                    communityAddress: editArgs.address
+                    communityName: editArgs.address
                 });
                 expect(resolvedSubAddress).to.equal(communityInstance.signer.address);
             }
@@ -622,7 +622,7 @@ describe(`Edit misc`, async () => {
         const newCommunity = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         if (!customPKC._pkcRpcClient) {
             const resolvedSubAddress = await customPKC._clientsManager.resolveCommunityNameIfNeeded({
-                communityAddress: "no-sub-address.bso"
+                communityName: "no-sub-address.bso"
             });
             expect(resolvedSubAddress).to.equal(null);
         }

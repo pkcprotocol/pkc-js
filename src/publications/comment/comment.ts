@@ -935,7 +935,7 @@ export class Comment
         if (!rpcUrl) throw Error("Failed to get rpc url");
         if (!this.cid) throw Error("Can't start updating comment without defining this.cid");
         try {
-            this._updateRpcSubscriptionId = await this._pkc._pkcRpcClient!.commentUpdateSubscribe({
+            const { subscriptionId } = await this._pkc._pkcRpcClient!.commentUpdateSubscribe({
                 cid: this.cid,
                 ...(this.raw.comment || this.raw.commentUpdate ? { raw: this.raw } : undefined),
                 communityName: this.communityName,
@@ -943,6 +943,7 @@ export class Comment
                 parentCid: this.parentCid,
                 postCid: this.postCid
             });
+            this._updateRpcSubscriptionId = subscriptionId;
         } catch (e) {
             log.error("Failed to receive commentUpdate from RPC due to error", e);
             await this._stopUpdateLoop();

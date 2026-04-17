@@ -421,6 +421,162 @@ describe("getChallengeVerification", () => {
     });
 });
 
+describe("cascading challenge fallthrough (whitelist → mintpass → spam-blocker)", () => {
+    // These tests reproduce the scenario described in challenge-optional-flag-proposal.md.
+    // They simulate a whitelist → mintpass → spam-blocker cascading challenge architecture
+    // using mutual exclude.challenges and the proposed ignoreChallenge flag.
+    //
+    // Challenge setup (mutual exclusion):
+    //   C0: whitelist — immediate success/false based on address list
+    //        exclude: [{ challenges: [1] }, { challenges: [2] }] — excluded if C1 or C2 passes/pending
+    //   C1: mock-nft-check (like mintpass) — success:true if author has wallets.eth, pending iframe if not
+    //        exclude: [{ challenges: [0] }, { challenges: [2] }] — excluded if C0 or C2 passes/pending
+    //        ignoreChallenge: true — don't show mintpass iframe to user
+    //   C2: mock-spam-blocker — always returns pending challenge URL
+    //        exclude: [{ challenges: [0] }, { challenges: [1] }] — excluded if C0 or C1 passes
+
+    // Mock challenge: simulates mintpass NFT check (https://github.com/bitsocialnet/mintpass)
+    // Returns success:true if author has wallets.eth, pending iframe challenge if not
+    const mockNftCheckFactory = () => ({
+        getChallenge: async ({
+            challengeRequestMessage
+        }: {
+            challengeRequestMessage: DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+        }) => {
+            const publication = (challengeRequestMessage as unknown as Record<string, unknown>).comment as Record<string, unknown>;
+            const author = publication?.author as Record<string, unknown>;
+            const wallets = author?.wallets as Record<string, unknown> | undefined;
+            if (wallets?.eth) {
+                return { success: true as const };
+            }
+            // No NFT — return pending challenge with iframe URL (like mintpass does)
+            return {
+                challenge: `https://mintpass.example.com/request/${author?.address}`,
+                verify: async (_answer: string) => ({ success: false as const, error: "No NFT found after verification" }),
+                type: "url/iframe" as const
+            };
+        },
+        type: "url/iframe",
+        description: "Mock NFT check challenge (simulates mintpass)"
+    });
+
+    // Mock challenge: simulates spam-blocker (https://github.com/bitsocialnet/spam-blocker)
+    // Always returns a pending challenge URL
+    const mockSpamBlockerFactory = () => ({
+        getChallenge: async () => ({
+            challenge: "https://spam-blocker.example.com/verify/session123",
+            verify: async (_answer: string) => ({ success: true as const }),
+            type: "url/iframe" as const
+        }),
+        type: "url/iframe",
+        description: "Mock spam blocker challenge"
+    });
+
+    const whitelistedAuthor = { address: "whitelisted-user.bso" };
+    const nftHolderAuthor = { address: "nft-holder.bso", wallets: { eth: { address: "0xabc", signature: "0x..." } } };
+    const regularAuthor = { address: `regular-user-${Math.random()}.bso` };
+
+    const createCascadingCommunity = () => {
+        const pkc = {
+            getComment: () => {},
+            createComment: () => {},
+            settings: {
+                challenges: {
+                    "mock-nft-check": mockNftCheckFactory,
+                    "mock-spam-blocker": mockSpamBlockerFactory
+                }
+            }
+        };
+        return {
+            settings: {
+                challenges: [
+                    // C0: whitelist — excluded if C1 or C2 passes/pending
+                    {
+                        name: "whitelist",
+                        options: { addresses: "whitelisted-user.bso" },
+                        exclude: [{ challenges: [1] }, { challenges: [2] }]
+                    },
+                    // C1: NFT check — excluded if C0 or C2 passes/pending, ignoreChallenge drops iframe
+                    {
+                        name: "mock-nft-check",
+                        ignoreChallenge: true,
+                        exclude: [{ challenges: [0] }, { challenges: [2] }]
+                    },
+                    // C2: spam blocker — excluded if C0 or C1 passes
+                    {
+                        name: "mock-spam-blocker",
+                        exclude: [{ challenges: [0] }, { challenges: [1] }]
+                    }
+                ]
+            },
+            _pkc: pkc
+        } as unknown as LocalCommunity;
+    };
+
+    const createChallengeRequest = (author: Record<string, unknown>) =>
+        ({
+            ...parsePubsubMsgFixture(validChallengeRequestFixture),
+            comment: { ...validCommentIpfsFixture, author }
+        }) as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+
+    it("scenario 1: whitelisted user passes immediately", async () => {
+        const community = createCascadingCommunity();
+        const result = (await getPendingChallengesOrChallengeVerification(
+            createChallengeRequest(whitelistedAuthor),
+            community
+        )) as ChallengeVerificationResult & {
+            challengeSuccess?: boolean;
+            challengeErrors?: Record<number, string>;
+            pendingChallenges?: unknown[];
+        };
+
+        // C0 whitelist succeeds → C1 excluded (C0 passed) → C2 excluded (C0 passed) → overall success
+        expect(result.challengeSuccess).to.equal(true);
+        expect(result.pendingChallenges).to.equal(undefined);
+    });
+
+    it("scenario 2: NFT holder (not whitelisted) should pass via NFT check", async () => {
+        const community = createCascadingCommunity();
+        const result = (await getPendingChallengesOrChallengeVerification(
+            createChallengeRequest(nftHolderAuthor),
+            community
+        )) as ChallengeVerificationResult & {
+            challengeSuccess?: boolean;
+            challengeErrors?: Record<number, string>;
+            pendingChallenges?: unknown[];
+        };
+
+        // C0 fails (not whitelisted) — but excluded by C1 success
+        // C1 succeeds (has NFT)
+        // C2 excluded (C1 passed)
+        // → overall success
+        expect(result.challengeSuccess).to.equal(true);
+        expect(result.pendingChallenges).to.equal(undefined);
+    });
+
+    it("scenario 3: user has neither — should get spam-blocker challenge only (requires ignoreChallenge)", async () => {
+        const community = createCascadingCommunity();
+        const result = (await getPendingChallengesOrChallengeVerification(
+            createChallengeRequest(regularAuthor),
+            community
+        )) as ChallengeVerificationResult & {
+            challengeSuccess?: boolean;
+            challengeErrors?: Record<number, string>;
+            pendingChallenges?: Array<{ challenge: string; type: string; index: number }>;
+        };
+
+        // C0 fails → excluded by C2 pending (pending excludes non-pending)
+        // C1 returns pending iframe → ignoreChallenge drops it (NOT shown to user)
+        // C2 runs → user sees spam-blocker URL only
+        // This test will FAIL until ignoreChallenge is implemented — currently both C1 and C2 iframes are shown
+        expect(result.challengeSuccess).to.equal(undefined);
+        expect(result.pendingChallenges?.length).to.equal(1);
+        expect(result.pendingChallenges?.[0].challenge).to.equal("https://spam-blocker.example.com/verify/session123");
+        expect(result.pendingChallenges?.[0].type).to.equal("url/iframe");
+        expect(result.pendingChallenges?.[0].index).to.equal(2);
+    });
+});
+
 describe("await getCommunityChallengeFromCommunityChallengeSettings", () => {
     // skip these tests when soloing communities
     if (communities.length < 5) {

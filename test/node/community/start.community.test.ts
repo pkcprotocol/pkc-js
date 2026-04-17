@@ -575,8 +575,8 @@ describe(`Publish loop resiliency`, async () => {
                 // getCommunity stops the sub which aborts the fire-and-forget background resolution,
                 // so nameResolved won't be set on the page. Instead, directly verify that the domain
                 // resolves to a different address than the comment's signer (i.e. the name is invalid).
-                const resolved = await remotePKCInstance._clientsManager.resolveAuthorNameIfNeeded({
-                    authorAddress: "plebbit.bso"
+                const { resolvedAuthorName: resolved } = await remotePKCInstance._clientsManager.resolveAuthorNameIfNeeded({
+                    authorName: "plebbit.bso"
                 });
                 expect(resolved).to.not.equal(mockPostInPage!.author.publicKey);
             }

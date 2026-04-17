@@ -114,7 +114,7 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
 
         if (commentInPendingApprovalDepth === 0)
             it(`pending post should not have postCid defined at its pages`, async () => {
-                const pageRaw = JSON.parse(await pkc.fetchCid({ cid: community.modQueue.pageCids?.pendingApproval! }));
+                const pageRaw = JSON.parse((await pkc.fetchCid({ cid: community.modQueue.pageCids?.pendingApproval! })).content);
                 expect(pageRaw.comments[0].comment.postCid).to.be.undefined;
             });
 

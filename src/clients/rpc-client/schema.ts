@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { CommentIpfsSchema, CommentUpdateSchema } from "../../publications/comment/schema.js";
-import { AuthorAddressSchema, ChallengeAnswersSchema, CidStringSchema, CommunityAddressSchema } from "../../schema/schema.js";
+import { AuthorAddressSchema, ChallengeAnswersSchema, CidStringSchema } from "../../schema/schema.js";
 import { CommunityEditOptionsSchema } from "../../community/schema.js";
 import type { EncodedDecryptedChallengeVerificationMessageType } from "../../pubsub-messages/types.js";
 export const SubscriptionIdSchema = z.number().positive().int();
@@ -25,14 +25,13 @@ export const RpcCidParamSchema = z
         communityName: z.string().min(1).optional()
     })
     .loose();
-export const RpcCommunityAddressParamSchema = z.object({ address: CommunityAddressSchema }); // TODO remove address and replace it with `{name, publicKey}`
-export const RpcCommunityLookupParamSchema = z
+export const RpcCommunityIdentifierParamSchema = z
     .object({
-        address: CommunityAddressSchema.optional(), // Why do we need address here? For backward compatibility?
         name: z.string().min(1).optional(),
         publicKey: z.string().min(1).optional()
     })
-    .refine((args) => args.address || args.name || args.publicKey, "At least one of address, name, or publicKey must be provided");
+    .refine((args) => args.name || args.publicKey, "At least one of name or publicKey must be provided");
+export const RpcFetchCidParamSchema = z.object({ cid: CidStringSchema });
 export const RpcAuthorNameParamSchema = z.object({ name: AuthorAddressSchema });
 export const RpcCommunityPageParamSchema = RpcCidParamSchema.extend({
     type: z.enum(["posts", "modqueue"]),
@@ -41,12 +40,13 @@ export const RpcCommunityPageParamSchema = RpcCidParamSchema.extend({
 export const RpcCommentRepliesPageParamSchema = RpcCommunityPageParamSchema.omit({ type: true }).extend({ commentCid: CidStringSchema });
 
 // Params for methods that previously used multiple positional args
-export const RpcEditCommunityParamSchema = z.object({
-    // TODO we should not send address to RPC server
-    // instead send both name and publicKey
-    address: CommunityAddressSchema,
-    editOptions: CommunityEditOptionsSchema
-});
+export const RpcEditCommunityParamSchema = z
+    .object({
+        name: z.string().min(1).optional(),
+        publicKey: z.string().min(1).optional(),
+        editOptions: CommunityEditOptionsSchema
+    })
+    .refine((args) => args.name || args.publicKey, "At least one of name or publicKey must be provided");
 export const RpcPublishChallengeAnswersParamSchema = z.object({
     subscriptionId: SubscriptionIdSchema,
     challengeAnswers: ChallengeAnswersSchema
@@ -57,4 +57,6 @@ export const RpcUnsubscribeParamSchema = z.object({ subscriptionId: Subscription
 export const RpcStateChangeEventResultSchema = z.object({ state: z.string() });
 export const RpcCommunitiesChangeEventResultSchema = z.object({ communities: z.array(z.string()) });
 export const RpcFetchCidResultSchema = z.object({ content: z.string() });
-export const RpcResolveAuthorNameResultSchema = z.object({ resolvedAddress: z.string().nullable() }); // TODO here rename to resolvedName instead
+export const RpcResolveAuthorNameResultSchema = z.object({ resolvedAuthorName: z.string().nullable() });
+export const RpcSuccessResultSchema = z.object({ success: z.literal(true) });
+export const RpcSubscriptionIdResultSchema = z.object({ subscriptionId: SubscriptionIdSchema }); // parsed with .loose() in rpc-schema-util.ts

@@ -173,7 +173,7 @@ describeSkipIfRpc.concurrent("Gateway loading of local community IPNS", async ()
 
     it("Can load the CID using gatewayPKC.fetchCid after it's published", async () => {
         console.log("Starting test: Can load the CID using gatewayPKC.fetchCid after it's published");
-        const rawRecord = await gatewayPKC.fetchCid({ cid: latestUpdateCid });
+        const { content: rawRecord } = await gatewayPKC.fetchCid({ cid: latestUpdateCid });
         const record = JSON.parse(rawRecord) as CommunityIpfsType;
         expect(record.updatedAt).to.equal(community.updatedAt);
     });

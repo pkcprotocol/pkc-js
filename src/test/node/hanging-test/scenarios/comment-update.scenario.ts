@@ -14,7 +14,8 @@ export default defineHangingScenario({
         const communityAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
         const { pkc, config } = await createScenarioContext(configCode);
 
-        const community = await pkc.getCommunity({ address: communityAddress });
+        const communityLookupArgs = { publicKey: communityAddress };
+        const community = await pkc.getCommunity(communityLookupArgs);
 
         const post = await pkc.createComment({ cid: community.lastPostCid! });
         await post.update();

@@ -148,7 +148,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
 
             const newContentCid = await addStringToIpfs("test");
 
-            const contentLoadedByHelia = await testPKC.fetchCid({ cid: newContentCid });
+            const { content: contentLoadedByHelia } = await testPKC.fetchCid({ cid: newContentCid });
             expect(contentLoadedByHelia).to.equal("test");
 
             const numOfPeersAfterFetching = libp2pJsClient._helia.libp2p.getConnections().length;

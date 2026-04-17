@@ -67,14 +67,13 @@ import type { CommentEditChallengeRequestToEncryptType } from "../../publication
 import type { CommentModerationChallengeRequestToEncrypt } from "../../publications/comment-moderation/types.js";
 import type { InputPKCOptions } from "../../types.js";
 import type { CommunityEditChallengeRequestToEncryptType } from "../../publications/community-edit/types.js";
-import { PublicationRpcErrorToTransmit, RpcPublishResult } from "../../publications/types.js";
+import { PublicationRpcErrorToTransmit } from "../../publications/types.js";
 import { TypedEmitter } from "tiny-typed-emitter";
 import { sanitizeRpcNotificationResult } from "./json-rpc-util.js";
 import type { ModQueuePageIpfs, PageIpfs } from "../../pages/types.js";
 import { buildPageRuntimeFields, buildPagesRuntimeFields } from "../../pages/util.js";
 import {
-    parseRpcCommunityAddressParam,
-    parseRpcCommunityLookupParam,
+    parseRpcCommunityIdentifierParam,
     parseRpcAuthorNameParam,
     parseRpcCidParam,
     parseRpcCommentRepliesPageParam,
@@ -83,7 +82,16 @@ import {
     parseRpcPublishChallengeAnswersParam,
     parseRpcUnsubscribeParam
 } from "../../clients/rpc-client/rpc-schema-util.js";
-import { CommunityAddressRpcParam, CommunityLookupRpcParam } from "../../clients/rpc-client/types.js";
+import type {
+    CommunityIdentifierRpcParam,
+    RpcSubscriptionIdResult,
+    RpcSuccessResult,
+    RpcFetchCidResult,
+    RpcResolveAuthorNameResult,
+    RpcCommentPageResult,
+    RpcCommunityPageResult,
+    RpcLocalCommunityUpdateResultType
+} from "../../clients/rpc-client/types.js";
 import { findStartedCommunity } from "../../pkc/tracked-instance-registry-util.js";
 
 // store started communities to be able to stop them
@@ -112,7 +120,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         [connectionId: string]: { [subscriptionId: number]: (args: { newPKC: PKC }) => Promise<void> };
     } = {}; // TODO rename this to _afterSettingsChange
 
-    private _startedCommunities: { [address: string]: "pending" | LocalCommunity } = {}; // TODO replace this with pkc._startedCommunities
+    private _startedCommunities: { [address: string]: "pending" | LocalCommunity } = {};
     private _autoStartOnBoot: boolean = false;
     private _rpcStateDb: BetterSqlite3Database | undefined;
 
@@ -230,6 +238,16 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             await new Promise((r) => setTimeout(r, 20));
         }
         return <LocalCommunity>this._startedCommunities[address];
+    }
+
+    private _findCommunityAddress(identifier: { name?: string; publicKey?: string }): string | undefined {
+        const { name, publicKey } = identifier;
+        if (!name && !publicKey) throw new Error("At least one of name or publicKey must be provided");
+        if (name && name in this._startedCommunities) return name;
+        if (name && this.pkc.communities.includes(name)) return name;
+        if (publicKey && publicKey in this._startedCommunities) return publicKey;
+        if (publicKey && this.pkc.communities.includes(publicKey)) return publicKey;
+        return undefined;
     }
 
     private _emitError(error: PKCError | Error) {
@@ -444,7 +462,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         return comment.raw.comment!;
     }
 
-    async getCommunityPage(params: any) {
+    async getCommunityPage(params: any): Promise<RpcCommunityPageResult> {
         const { cid: pageCid, communityPublicKey, communityName, type, pageMaxSize } = parseRpcCommunityPageParam(params[0]);
         if (!communityPublicKey && !communityName) throw Error("At least one of communityPublicKey or communityName must be provided");
         const communityAddress = (communityName || communityPublicKey)!;
@@ -463,7 +481,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         return { page, runtimeFields };
     }
 
-    async getCommentPage(params: any) {
+    async getCommentPage(params: any): Promise<RpcCommentPageResult> {
         const { cid: pageCid, commentCid, communityPublicKey, communityName, pageMaxSize } = parseRpcCommentRepliesPageParam(params[0]);
         const pkc = await this._getPKCInstance();
         const comment = await pkc.createComment({ cid: commentCid, communityPublicKey, communityName });
@@ -472,7 +490,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         return { page, runtimeFields };
     }
 
-    async createCommunity(params: any) {
+    async createCommunity(params: any): Promise<RpcInternalCommunityRecordBeforeFirstUpdateType> {
         const createCommunityOptions = parseCreateNewLocalCommunityUserOptionsSchemaWithPKCErrorIfItFails(params[0]);
         const pkc = await this._getPKCInstance();
         const community = <LocalCommunity>await pkc.createCommunity(createCommunityOptions);
@@ -585,13 +603,12 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         };
     }
 
-    async startCommunity(params: any, connectionId: string) {
-        const { address } = parseRpcCommunityAddressParam(params[0]);
+    async startCommunity(params: any, connectionId: string): Promise<RpcSubscriptionIdResult> {
+        const { name, publicKey } = parseRpcCommunityIdentifierParam(params[0]);
         const pkc = await this._getPKCInstance();
 
-        const localCommunities = pkc.communities;
-        if (!localCommunities.includes(address))
-            throw new PKCError("ERR_RPC_CLIENT_ATTEMPTING_TO_START_A_REMOTE_COMMUNITY", { communityAddress: address });
+        const address = this._findCommunityAddress({ name, publicKey });
+        if (!address) throw new PKCError("ERR_RPC_CLIENT_ATTEMPTING_TO_START_A_REMOTE_COMMUNITY", { communityAddress: name || publicKey });
 
         const subscriptionId = generateSubscriptionId();
 
@@ -639,16 +656,15 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
         await startCommunityImpl();
 
-        return subscriptionId;
+        return { subscriptionId };
     }
 
-    async stopCommunity(params: any) {
-        const { address } = parseRpcCommunityAddressParam(params[0]);
+    async stopCommunity(params: any): Promise<RpcSuccessResult> {
+        const { name, publicKey } = parseRpcCommunityIdentifierParam(params[0]);
         const pkc = await this._getPKCInstance();
 
-        const localCommunities = pkc.communities;
-        if (!localCommunities.includes(address))
-            throw new PKCError("ERR_RPC_CLIENT_TRYING_TO_STOP_REMOTE_COMMUNITY", { communityAddress: address });
+        const address = this._findCommunityAddress({ name, publicKey });
+        if (!address) throw new PKCError("ERR_RPC_CLIENT_TRYING_TO_STOP_REMOTE_COMMUNITY", { communityAddress: name || publicKey });
         const isCommunityStarted = address in this._startedCommunities;
         if (!isCommunityStarted)
             throw new PKCError("ERR_RPC_CLIENT_TRYING_TO_STOP_COMMUNITY_THAT_IS_NOT_RUNNING", { communityAddress: address });
@@ -659,7 +675,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         delete this._startedCommunities[address];
         this._updateCommunityState(address, { wasExplicitlyStopped: true });
 
-        return true;
+        return { success: true };
     }
 
     private async _postStoppingOrDeleting(community: LocalCommunity) {
@@ -679,16 +695,15 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         }
     }
 
-    async editCommunity(params: any) {
+    async editCommunity(params: any): Promise<RpcLocalCommunityUpdateResultType> {
         const rawParam = params[0];
         rawParam.editOptions = replaceXWithY(rawParam.editOptions, null, undefined);
-        const { address, editOptions } = parseRpcEditCommunityParam(rawParam);
+        const { name, publicKey, editOptions } = parseRpcEditCommunityParam(rawParam);
         const editCommunityOptions = parseCommunityEditOptionsSchemaWithPKCErrorIfItFails(editOptions);
         const pkc = await this._getPKCInstance();
 
-        const localCommunities = pkc.communities;
-        if (!localCommunities.includes(address))
-            throw new PKCError("ERR_RPC_CLIENT_TRYING_TO_EDIT_REMOTE_COMMUNITY", { communityAddress: address });
+        const address = this._findCommunityAddress({ name, publicKey });
+        if (!address) throw new PKCError("ERR_RPC_CLIENT_TRYING_TO_EDIT_REMOTE_COMMUNITY", { communityAddress: name || publicKey });
         let community: LocalCommunity;
         if (this._startedCommunities[address] instanceof LocalCommunity) community = <LocalCommunity>this._startedCommunities[address];
         else {
@@ -717,13 +732,12 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         else return community.toJSONInternalRpcBeforeFirstUpdate();
     }
 
-    async deleteCommunity(params: any) {
-        const { address } = parseRpcCommunityAddressParam(params[0]);
+    async deleteCommunity(params: any): Promise<RpcSuccessResult> {
+        const { name, publicKey } = parseRpcCommunityIdentifierParam(params[0]);
         const pkc = await this._getPKCInstance();
 
-        const addresses = pkc.communities;
-        if (!addresses.includes(address))
-            throw new PKCError("ERR_RPC_CLIENT_TRYING_TO_DELETE_REMOTE_COMMUNITY", { communityAddress: address });
+        const address = this._findCommunityAddress({ name, publicKey });
+        if (!address) throw new PKCError("ERR_RPC_CLIENT_TRYING_TO_DELETE_REMOTE_COMMUNITY", { communityAddress: name || publicKey });
 
         const isCommunityStarted = address in this._startedCommunities;
         const community = isCommunityStarted
@@ -734,10 +748,10 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         delete this._startedCommunities[address];
         this._removeCommunityState(address);
 
-        return true;
+        return { success: true };
     }
 
-    async communitiesSubscribe(params: any, connectionId: string) {
+    async communitiesSubscribe(params: any, connectionId: string): Promise<RpcSubscriptionIdResult> {
         // TODO need to implement _onSettingsChange here
         const subscriptionId = generateSubscriptionId();
         const sendEvent = (event: string, result: any) => {
@@ -761,15 +775,13 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
         sendEvent("communitieschange", { communities: pkc.communities });
 
-        return subscriptionId;
+        return { subscriptionId };
     }
 
-    async fetchCid(params: any) {
+    async fetchCid(params: any): Promise<RpcFetchCidResult> {
         const parsedArgs = parseRpcCidParam(params[0]);
         const pkc = await this._getPKCInstance();
-        const res = await pkc.fetchCid(parsedArgs);
-        if (typeof res !== "string") throw Error("Result of fetchCid should be a string");
-        return { content: res };
+        return pkc.fetchCid(parsedArgs);
     }
 
     private _serializeSettingsFromPKC(pkc: PKC): PKCWsServerSettingsSerialized {
@@ -786,7 +798,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         return <PKCWsServerSettingsSerialized>{ pkcOptions, challenges };
     }
 
-    async settingsSubscribe(params: any, connectionId: string): Promise<number> {
+    async settingsSubscribe(params: any, connectionId: string): Promise<RpcSubscriptionIdResult> {
         const subscriptionId = generateSubscriptionId();
         const sendEvent = (event: string, result: any) => {
             this.jsonRpcSendNotification({
@@ -809,7 +821,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         this._onSettingsChange[connectionId][subscriptionId] = sendRpcSettings;
         await sendRpcSettings({ newPKC: this.pkc });
 
-        return subscriptionId;
+        return { subscriptionId };
     }
 
     private _initPKC(pkc: PKC) {
@@ -821,7 +833,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         return PKCJs.PKC(newOptions);
     }
 
-    async setSettings(params: any) {
+    async setSettings(params: any): Promise<RpcSuccessResult> {
         const runSetSettings = async () => {
             const settings = parseSetNewSettingsPKCWsServerSchemaWithPKCErrorIfItFails(params[0]);
             const currentSettings = this._serializeSettingsFromPKC(this.pkc);
@@ -866,10 +878,10 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         // keep queue usable even if a run fails; error still propagates to the caller via setSettingsRun
         this._setSettingsQueue = setSettingsRun.catch(() => {});
         await setSettingsRun;
-        return true;
+        return { success: true as const };
     }
 
-    async commentUpdateSubscribe(params: any, connectionId: string) {
+    async commentUpdateSubscribe(params: any, connectionId: string): Promise<RpcSubscriptionIdResult> {
         const logUpdate = Logger("pkc-js-rpc:pkc-ws-server:commentUpdateSubscribe");
         const parsedCommentUpdateArgs = parseRpcCidParam(params[0]);
         const subscriptionId = generateSubscriptionId();
@@ -969,19 +981,19 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             throw e;
         }
 
-        return subscriptionId;
+        return { subscriptionId };
     }
 
-    async communityUpdateSubscribe(params: any, connectionId: string) {
-        const parsedCommunityUpdateArgs = parseRpcCommunityLookupParam(params[0]);
+    async communityUpdateSubscribe(params: any, connectionId: string): Promise<RpcSubscriptionIdResult> {
+        const parsedCommunityUpdateArgs = parseRpcCommunityIdentifierParam(params[0]);
         const subscriptionId = generateSubscriptionId();
 
         await this._bindCommunityUpdateSubscription(parsedCommunityUpdateArgs, connectionId, subscriptionId);
 
-        return subscriptionId;
+        return { subscriptionId };
     }
 
-    private async _bindCommunityUpdateSubscription(parsedArgs: CommunityLookupRpcParam, connectionId: string, subscriptionId: number) {
+    private async _bindCommunityUpdateSubscription(parsedArgs: CommunityIdentifierRpcParam, connectionId: string, subscriptionId: number) {
         const sendEvent = (event: string, result: any) =>
             this.jsonRpcSendNotification({
                 method: "communityUpdateNotification",
@@ -1084,7 +1096,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         return comment;
     }
 
-    async publishComment(params: any, connectionId: string): Promise<RpcPublishResult> {
+    async publishComment(params: any, connectionId: string): Promise<RpcSubscriptionIdResult> {
         // TODO need to implement _onSettingsChange here
         const publishOptions = parseCommentChallengeRequestToEncryptSchemaWithPKCErrorIfItFails(params[0]);
 
@@ -1161,10 +1173,10 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             errorListener(error);
             const cleanup = this.subscriptionCleanups?.[connectionId]?.[subscriptionId];
             if (cleanup) await cleanup();
-            return subscriptionId;
+            return { subscriptionId };
         }
 
-        return subscriptionId;
+        return { subscriptionId };
     }
 
     private async _createVoteInstanceFromPublishVoteParams(params: VoteChallengeRequestToEncryptType) {
@@ -1173,7 +1185,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         vote.challengeRequest = remeda.omit(params, ["vote"]);
         return vote;
     }
-    async publishVote(params: any, connectionId: string): Promise<RpcPublishResult> {
+    async publishVote(params: any, connectionId: string): Promise<RpcSubscriptionIdResult> {
         // TODO need to implement _onSettingsChange here
         const publishOptions = parseVoteChallengeRequestToEncryptSchemaWithPKCErrorIfItFails(params[0]);
 
@@ -1232,7 +1244,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             if (cleanup) await cleanup();
         }
 
-        return subscriptionId;
+        return { subscriptionId };
     }
 
     private async _createCommunityEditInstanceFromPublishCommunityEditParams(params: CommunityEditChallengeRequestToEncryptType) {
@@ -1242,7 +1254,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         return communityEdit;
     }
 
-    async publishCommunityEdit(params: any, connectionId: string): Promise<RpcPublishResult> {
+    async publishCommunityEdit(params: any, connectionId: string): Promise<RpcSubscriptionIdResult> {
         // TODO need to implement _onSettingsChange here
         const publishOptions = parseCommunityEditChallengeRequestToEncryptSchemaWithPKCErrorIfItFails(params[0]);
 
@@ -1305,7 +1317,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             if (cleanup) await cleanup();
         }
 
-        return subscriptionId;
+        return { subscriptionId };
     }
 
     private async _createCommentEditInstanceFromPublishCommentEditParams(params: CommentEditChallengeRequestToEncryptType) {
@@ -1315,7 +1327,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         return commentEdit;
     }
 
-    async publishCommentEdit(params: any, connectionId: string): Promise<RpcPublishResult> {
+    async publishCommentEdit(params: any, connectionId: string): Promise<RpcSubscriptionIdResult> {
         // TODO need to implement _onSettingsChange here
         const publishOptions = parseCommentEditChallengeRequestToEncryptSchemaWithPKCErrorIfItFails(params[0]);
         const subscriptionId = generateSubscriptionId();
@@ -1380,7 +1392,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             if (cleanup) await cleanup();
         }
 
-        return subscriptionId;
+        return { subscriptionId };
     }
 
     private async _createCommentModerationInstanceFromPublishCommentModerationParams(params: CommentModerationChallengeRequestToEncrypt) {
@@ -1390,7 +1402,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         return commentModeration;
     }
 
-    async publishCommentModeration(params: any, connectionId: string): Promise<RpcPublishResult> {
+    async publishCommentModeration(params: any, connectionId: string): Promise<RpcSubscriptionIdResult> {
         // TODO need to implement _onSettingsChange here
         const publishOptions = parseCommentModerationChallengeRequestToEncryptSchemaWithPKCErrorIfItFails(params[0]);
         const subscriptionId = generateSubscriptionId();
@@ -1456,10 +1468,10 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             if (cleanup) await cleanup();
         }
 
-        return subscriptionId;
+        return { subscriptionId };
     }
 
-    async publishChallengeAnswers(params: any) {
+    async publishChallengeAnswers(params: any): Promise<RpcSuccessResult> {
         const parsed = parseRpcPublishChallengeAnswersParam(params[0]);
         const subscriptionId = parsed.subscriptionId;
         const decryptedChallengeAnswers = parseDecryptedChallengeAnswerWithPKCErrorIfItFails({
@@ -1476,26 +1488,25 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
         await publication.publishChallengeAnswers(decryptedChallengeAnswers.challengeAnswers);
 
-        return true;
+        return { success: true };
     }
 
-    async resolveAuthorName(params: any) {
+    async resolveAuthorName(params: any): Promise<RpcResolveAuthorNameResult> {
         const parsedArgs = parseRpcAuthorNameParam(params[0]);
         const pkc = await this._getPKCInstance();
-        const resolvedAuthorAddress = await pkc.resolveAuthorName(parsedArgs);
-        return { resolvedAddress: resolvedAuthorAddress };
+        return pkc.resolveAuthorName(parsedArgs);
     }
 
-    async unsubscribe(params: any, connectionId: string) {
+    async unsubscribe(params: any, connectionId: string): Promise<RpcSuccessResult> {
         const { subscriptionId } = parseRpcUnsubscribeParam(params[0]);
 
         log("Received unsubscribe", { connectionId, subscriptionId });
         const connectionCleanups = this.subscriptionCleanups[connectionId];
-        if (!connectionCleanups || !connectionCleanups[subscriptionId]) return true;
+        if (!connectionCleanups || !connectionCleanups[subscriptionId]) return { success: true };
 
         await connectionCleanups[subscriptionId](); // commenting this out fixes the timeout with remove.test.js
         delete connectionCleanups[subscriptionId];
-        return true;
+        return { success: true };
     }
 
     async destroy() {

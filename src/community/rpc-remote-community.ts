@@ -207,11 +207,11 @@ export class RpcRemoteCommunity extends RemoteCommunity {
         const log = Logger("pkc-js:rpc-remote-community:_initRpcUpdateSubscription");
         this._setState("updating");
         try {
-            this._updateRpcSubscriptionId = await this._pkc._pkcRpcClient!.communityUpdateSubscribe({
-                address: this.address,
-                ...(this.name ? { name: this.name } : undefined),
-                ...(this.publicKey ? { publicKey: this.publicKey } : undefined)
+            const { subscriptionId } = await this._pkc._pkcRpcClient!.communityUpdateSubscribe({
+                name: this.name,
+                publicKey: this.publicKey
             });
+            this._updateRpcSubscriptionId = subscriptionId;
         } catch (e) {
             log.error("Failed to receive communityUpdate from RPC due to error", e);
             this._setState("stopped");

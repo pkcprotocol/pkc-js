@@ -145,7 +145,7 @@ describe("local community.posts pagination coverage", () => {
                 expect(pageCids.length).to.be.greaterThan(0);
 
                 for (const pageCid of pageCids) {
-                    const pageIpfs = JSON.parse(await pkc.fetchCid({ cid: pageCid })) as PageIpfs; // will have PageIpfs type
+                    const pageIpfs = JSON.parse((await pkc.fetchCid({ cid: pageCid })).content) as PageIpfs; // will have PageIpfs type
 
                     for (const commentInPageIpfs of pageIpfs.comments) {
                         const calculatedCid = await calculateIpfsHash(JSON.stringify(commentInPageIpfs.comment));

@@ -52,7 +52,7 @@ describeSkipIfRpc(`nameResolver abortSignal support`, async () => {
         try {
             const abortController = new AbortController();
             const resolutionPromise = pkc._clientsManager.resolveCommunityNameIfNeeded({
-                communityAddress: "test.bso",
+                communityName: "test.bso",
                 abortSignal: abortController.signal
             });
 

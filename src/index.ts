@@ -18,7 +18,6 @@ const PKC = async function PKC(pkcOptions: InputPKCOptions = {}): Promise<PKCCla
     return pkc;
 };
 
-// TODO for parameter type, it should use a generic type that allows for {address: name || publicKey} and its name should reflect that
 const getShortAddressValue = (params: AuthorNameRpcParam) => {
     const parsed = parseRpcAuthorNameParam(params);
     return shortifyAddress(parsed.name);

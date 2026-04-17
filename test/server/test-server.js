@@ -299,7 +299,7 @@ const setUpMockGateways = async () => {
             res.setHeader("x-ipfs-roots", sub.updateCid);
             res.setHeader("etag", sub.updateCid);
             res.end(JSON.stringify(sub.raw.communityIpfs));
-        } else res.end(await pkc.fetchCid({ cid: req.url }));
+        } else res.end((await pkc.fetchCid({ cid: req.url })).content);
     })
         .listen(13415, hostName)
         .on("error", (err) => {

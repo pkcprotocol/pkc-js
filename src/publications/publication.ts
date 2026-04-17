@@ -66,6 +66,7 @@ import type {
     PublicationRpcErrorToTransmit,
     PublicationState
 } from "./types.js";
+import type { RpcSubscriptionIdResult } from "../clients/rpc-client/types.js";
 import type { SignerType } from "../signer/types.js";
 import PKCRpcClient from "../clients/rpc-client/pkc-rpc-client.js";
 import { PublicationClientsManager } from "./publication-client-manager.js";
@@ -544,7 +545,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
         });
 
         if (this._pkc._pkcRpcClient && typeof this._rpcPublishSubscriptionId === "number") {
-            return this._pkc._pkcRpcClient.publishChallengeAnswers(this._rpcPublishSubscriptionId, toEncryptAnswers.challengeAnswers);
+            return this._pkc._pkcRpcClient.publishChallengeAnswers({
+                subscriptionId: this._rpcPublishSubscriptionId,
+                challengeAnswers: toEncryptAnswers.challengeAnswers
+            });
         }
 
         const challengeExchangesWithChallenge = Object.values(this._challengeExchanges).filter((exchange) => exchange.challenge);
@@ -849,23 +853,20 @@ class Publication extends TypedEmitter<PublicationEvents> {
         if (!this._pkc._pkcRpcClient) throw Error("Can't publish to RPC without publication.pkc.pkcRpcClient being defined");
         this._setStateWithEmission("publishing");
 
-        const pubNameToPublishFunction: Record<PublicationTypeName, PKCRpcClient["publishComment"]> = {
-            comment: this._pkc._pkcRpcClient.publishComment,
-            vote: this._pkc._pkcRpcClient.publishVote,
-            commentEdit: this._pkc._pkcRpcClient.publishCommentEdit,
-            commentModeration: this._pkc._pkcRpcClient.publishCommentModeration,
-            communityEdit: this._pkc._pkcRpcClient.publishCommunityEdit
-        };
+        const rpcClient = this._pkc._pkcRpcClient;
+        const pubNameToPublishFunction = {
+            comment: rpcClient.publishComment,
+            vote: rpcClient.publishVote,
+            commentEdit: rpcClient.publishCommentEdit,
+            commentModeration: rpcClient.publishCommentModeration,
+            communityEdit: rpcClient.publishCommunityEdit
+        } as const;
 
         // PKCRpcClient will take care of zod parsing for us
-        this._rpcPublishSubscriptionId = await pubNameToPublishFunction[this.getType()].bind(this._pkc._pkcRpcClient)(
-            this.toJSONPubsubRequestToEncrypt()
-        );
-        if (typeof this._rpcPublishSubscriptionId !== "number") {
-            this._updatePublishingStateWithEmission("failed");
-            await this._postSucessOrFailurePublishing();
-            throw Error("Failed to find the type of publication");
-        }
+        // Each publish method expects its specific type, but toJSONPubsubRequestToEncrypt() returns the correct shape at runtime
+        const publishFn = pubNameToPublishFunction[this.getType()] as (args: DecryptedChallengeRequest) => Promise<RpcSubscriptionIdResult>;
+        const { subscriptionId } = await publishFn.bind(rpcClient)(this.toJSONPubsubRequestToEncrypt());
+        this._rpcPublishSubscriptionId = subscriptionId;
 
         this._pkc._pkcRpcClient
             .getSubscription(this._rpcPublishSubscriptionId)

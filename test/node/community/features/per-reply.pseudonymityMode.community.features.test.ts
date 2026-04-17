@@ -742,7 +742,7 @@ describeSkipIfRpc('community.features.pseudonymityMode="per-reply"', () => {
             });
             await waitForStoredCommentUpdateWithAssertions(context.community as LocalCommunity, post);
 
-            const resolvedAddress = await context.publisherPKC.resolveAuthorName({ name: domainAddress });
+            const { resolvedAuthorName: resolvedAddress } = await context.publisherPKC.resolveAuthorName({ name: domainAddress });
             expect(resolvedAddress).to.equal(domainSigner.address);
 
             const domainReply = await context.publisherPKC.createComment({
@@ -2429,7 +2429,7 @@ describeSkipIfRpc('community.features.pseudonymityMode="per-reply"', () => {
 });
 
 async function expectCommentCidToUseAlias(pkc: PKC, cid: string, aliasSigner: { address: string; publicKey: string }): Promise<void> {
-    const fetched = JSON.parse(await pkc.fetchCid({ cid })) as {
+    const fetched = JSON.parse((await pkc.fetchCid({ cid })).content) as {
         author?: { address?: string };
         signature?: { publicKey?: string };
         pseudonymityMode?: string;

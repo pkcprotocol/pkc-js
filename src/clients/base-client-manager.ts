@@ -705,7 +705,7 @@ export class BaseClientsManager {
     postResolveNameResolverFailure(opts: PostResolveNameResolverFailureOptions) {}
 
     private async _resolveViaNameResolvers({
-        name: address,
+        name,
         resolveType,
         abortSignal
     }: {
@@ -716,7 +716,7 @@ export class BaseClientsManager {
         const log = Logger("pkc-js:client-manager:_resolveViaNameResolvers");
         const nameResolvers = this._pkc.nameResolvers;
         if (!nameResolvers || nameResolvers.length === 0) {
-            throw new PKCError("ERR_NO_RESOLVER_FOR_NAME", { address });
+            throw new PKCError("ERR_NO_RESOLVER_FOR_NAME", { address: name });
         }
 
         throwIfAbortSignalAborted(abortSignal);
@@ -725,13 +725,13 @@ export class BaseClientsManager {
         let anyResolverCanHandle = false;
 
         for (const nameResolver of nameResolvers) {
-            if (!nameResolver.canResolve({ name: address })) continue;
+            if (!nameResolver.canResolve({ name })) continue;
             anyResolverCanHandle = true;
 
-            this.preResolveNameResolver({ address, resolveType, resolverKey: nameResolver.key });
+            this.preResolveNameResolver({ address: name, resolveType, resolverKey: nameResolver.key });
             try {
                 throwIfAbortSignalAborted(abortSignal);
-                const resolvePromise = nameResolver.resolve({ name: address, provider: nameResolver.provider, abortSignal });
+                const resolvePromise = nameResolver.resolve({ name, provider: nameResolver.provider, abortSignal });
                 // Race resolve() against abort signal so resolvers that ignore the signal still get interrupted
                 const result = abortSignal
                     ? await Promise.race([
@@ -746,52 +746,51 @@ export class BaseClientsManager {
                 value = result?.publicKey;
             } catch (e) {
                 const error = isAbortError(e) ? e : (e as Error);
-                this.postResolveNameResolverFailure({ address, resolveType, resolverKey: nameResolver.key, error });
+                this.postResolveNameResolverFailure({ address: name, resolveType, resolverKey: nameResolver.key, error });
                 if (abortSignal?.aborted) throwIfAbortSignalAborted(abortSignal);
                 if (isAbortError(error)) throw error;
-                log.error(`Resolver ${nameResolver.key} failed for ${address}`, error);
+                log.error(`Resolver ${nameResolver.key} failed for ${name}`, error);
                 continue;
             }
-            this.postResolveNameResolverSuccess({ address, resolveType, resolverKey: nameResolver.key, resolvedValue: value });
+            this.postResolveNameResolverSuccess({ address: name, resolveType, resolverKey: nameResolver.key, resolvedValue: value });
 
             if (value) break;
         }
 
         if (!anyResolverCanHandle) {
-            throw new PKCError("ERR_NO_RESOLVER_FOR_NAME", { address });
+            throw new PKCError("ERR_NO_RESOLVER_FOR_NAME", { address: name });
         }
 
         return value || null;
     }
 
     async resolveCommunityNameIfNeeded({
-        communityAddress,
+        communityName,
         abortSignal
     }: {
-        communityAddress: string;
+        communityName: string;
         abortSignal?: AbortSignal;
     }): Promise<string | null> {
-        assert(typeof communityAddress === "string", "communityAddress needs to be a string to be resolved");
-        if (!isStringDomain(communityAddress)) return communityAddress;
-        const result = await this._resolveViaNameResolvers({ name: communityAddress, resolveType: "community", abortSignal });
+        assert(typeof communityName === "string", "communityName needs to be a string to be resolved");
+        if (!isStringDomain(communityName)) return communityName;
+        const result = await this._resolveViaNameResolvers({ name: communityName, resolveType: "community", abortSignal });
         if (typeof result === "string" && !isIpns(result))
-            throw new PKCError("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: communityAddress });
+            throw new PKCError("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: communityName });
         return result;
     }
 
-    // TODO function below should return an object {resolvedAuthorName}
     async resolveAuthorNameIfNeeded({
-        authorAddress: authorName,
+        authorName,
         abortSignal
     }: {
-        authorAddress: string;
+        authorName: string;
         abortSignal?: AbortSignal;
-    }): Promise<string | null> {
+    }): Promise<{ resolvedAuthorName: string | null }> {
         if (!isStringDomain(authorName)) throw new PKCError("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58", { authorAddress: authorName });
         const result = await this._resolveViaNameResolvers({ name: authorName, resolveType: "author", abortSignal });
         if (typeof result === "string" && !isIpns(result))
             throw new PKCError("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: authorName });
-        return result;
+        return { resolvedAuthorName: result };
     }
 
     // Background author name resolution — fire-and-forget, populates nameResolvedCache
@@ -825,7 +824,10 @@ export class BaseClientsManager {
         const resolveOne = async (entry: (typeof toResolve)[0]) => {
             if (abortSignal?.aborted) return false;
             try {
-                const resolved = await this.resolveAuthorNameIfNeeded({ authorAddress: entry.authorName, abortSignal });
+                const { resolvedAuthorName: resolved } = await this.resolveAuthorNameIfNeeded({
+                    authorName: entry.authorName,
+                    abortSignal
+                });
                 const signerAddress = await getPKCAddressFromPublicKey(entry.signaturePublicKey);
                 const matches = resolved === signerAddress;
                 cache.set(entry.cacheKey, matches);

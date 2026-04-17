@@ -208,7 +208,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 log
             );
 
-            const pageIpfs = JSON.parse(await pkc.fetchCid({ cid: community.posts.pageCids.new }));
+            const pageIpfs = JSON.parse((await pkc.fetchCid({ cid: community.posts.pageCids.new })).content);
 
             pageIpfs.comments.push({
                 comment: post.raw.comment,

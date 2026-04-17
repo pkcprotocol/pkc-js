@@ -100,7 +100,7 @@ describeSkipIfRpc(`Migration to a new IPFS repo`, async () => {
     it(`Posts' IPFS are repinned`, async () => {
         const subLoaded = await remotePKC.getCommunity({ address: subAfterMigration.address });
         const postFromPage = subLoaded.posts.pages.hot!.comments[0];
-        const postIpfs = JSON.parse(await remotePKC.fetchCid({ cid: postFromPage.cid }));
+        const postIpfs = JSON.parse((await remotePKC.fetchCid({ cid: postFromPage.cid })).content);
         // communityAddress is runtime-only; wire format uses communityPublicKey/communityName
         expect(postIpfs.communityPublicKey).to.equal(subAfterMigration.address); // Make sure it was loaded correctly
     });
@@ -131,7 +131,7 @@ describeSkipIfRpc(`Migration to a new IPFS repo`, async () => {
     it(`Comments' IPFS are repinned`, async () => {
         const subLoaded = await remotePKC.getCommunity({ address: subAfterMigration.address });
         const postFromPage = subLoaded.posts.pages.hot!.comments[0];
-        const commentIpfs = JSON.parse(await remotePKC.fetchCid({ cid: postFromPage.replies!.pages.best!.comments[0].cid }));
+        const commentIpfs = JSON.parse((await remotePKC.fetchCid({ cid: postFromPage.replies!.pages.best!.comments[0].cid })).content);
         // communityAddress is runtime-only; wire format uses communityPublicKey/communityName
         expect(commentIpfs.communityPublicKey).to.equal(subAfterMigration.address); // Make sure it was loaded correctly
     });

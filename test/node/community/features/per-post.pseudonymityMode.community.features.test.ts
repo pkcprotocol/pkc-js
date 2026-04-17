@@ -214,7 +214,7 @@ describeSkipIfRpc('community.features.pseudonymityMode="per-post"', () => {
             const domainSigner = await context.publisherPKC.createSigner(signers[3]);
             const domainAddress = "plebbit.bso";
 
-            const resolvedAddress = await context.publisherPKC.resolveAuthorName({ name: domainAddress });
+            const { resolvedAuthorName: resolvedAddress } = await context.publisherPKC.resolveAuthorName({ name: domainAddress });
             expect(resolvedAddress).to.equal(domainSigner.address);
 
             const domainPost = await context.publisherPKC.createComment({
@@ -2012,7 +2012,7 @@ describeSkipIfRpc('community.features.pseudonymityMode="per-post"', () => {
 });
 
 async function expectCommentCidToUseAlias(pkc: PKC, cid: string, aliasSigner: SignerWithPublicKeyAddress) {
-    const fetched = JSON.parse(await pkc.fetchCid({ cid })) as {
+    const fetched = JSON.parse((await pkc.fetchCid({ cid })).content) as {
         author?: { address?: string };
         signature?: { publicKey?: string };
         pseudonymityMode?: string;

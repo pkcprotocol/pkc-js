@@ -523,7 +523,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
                 const freshAddress = freshCommunity.address;
                 const startCommunityId = await (pkcB._pkcRpcClient as unknown as RpcClientWithInternals)._webSocketClient.call(
                     "startCommunity",
-                    [{ address: freshAddress }]
+                    [{ publicKey: freshAddress }]
                 );
 
                 const currentSettings = await waitForSettings(pkcA._pkcRpcClient);
@@ -547,7 +547,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
                         sub.once("update", (res: { params?: { result?: unknown } }) => resolve(res.params?.result));
                         // trigger community update to provoke an event
                         (pkcB._pkcRpcClient as unknown as RpcClientWithInternals)._webSocketClient
-                            .call("communityUpdateSubscribe", [{ address: freshAddress }])
+                            .call("communityUpdateSubscribe", [{ publicKey: freshAddress }])
                             .catch((err) => reject(err));
                     }),
                     { milliseconds: 45000, message: "Timed out waiting for started community update after setSettings" }
@@ -653,8 +653,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
                 const communityB = await pkcB.getCommunity({ address: communityAddress });
                 await communityB.update();
 
-                const communityUpdateSubscriptionId = await pkcB._pkcRpcClient.communityUpdateSubscribe({
-                    address: communityAddress
+                const { subscriptionId: communityUpdateSubscriptionId } = await pkcB._pkcRpcClient.communityUpdateSubscribe({
+                    publicKey: communityAddress
                 });
 
                 const currentSettings = await waitForSettings(pkcA._pkcRpcClient);
@@ -701,14 +701,16 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
                 );
                 const freshAddress = freshCommunity.address;
 
-                const startCommunitySubscriptionId = await pkcB._pkcRpcClient.startCommunity({ address: freshAddress });
+                const { subscriptionId: startCommunitySubscriptionId } = await pkcB._pkcRpcClient.startCommunity({
+                    publicKey: freshAddress
+                });
                 await pTimeout(waitForSubscriptionEvent(pkcB._pkcRpcClient, startCommunitySubscriptionId, "update"), {
                     milliseconds: 45000,
                     message: "startCommunity failed to emit initial update"
                 });
 
-                const communityUpdateSubscriptionId = await pkcB._pkcRpcClient.communityUpdateSubscribe({
-                    address: freshAddress
+                const { subscriptionId: communityUpdateSubscriptionId } = await pkcB._pkcRpcClient.communityUpdateSubscribe({
+                    publicKey: freshAddress
                 });
 
                 const currentSettings = await waitForSettings(pkcA._pkcRpcClient);

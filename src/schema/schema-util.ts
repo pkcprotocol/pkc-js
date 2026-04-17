@@ -231,7 +231,7 @@ export function parseCreatePKCWsServerOptionsSchemaWithPKCErrorIfItFails(
 export function parseCommentModerationChallengeRequestToEncryptSchemaWithPKCErrorIfItFails(
     toEncrypt: z.infer<typeof CommentModerationChallengeRequestToEncryptSchema>
 ): CommentModerationChallengeRequestToEncrypt {
-    const parseRes = CommentModerationChallengeRequestToEncryptSchema.safeParse(toEncrypt);
+    const parseRes = CommentModerationChallengeRequestToEncryptSchema.loose().safeParse(toEncrypt);
     if (!parseRes.success)
         throw new PKCError("ERR_INVALID_COMMENT_MODERATION_CHALLENGE_REQUEST_TO_ENCRYPT_SCHEMA", {
             zodError: parseRes.error,
@@ -243,7 +243,7 @@ export function parseCommentModerationChallengeRequestToEncryptSchemaWithPKCErro
 export function parseCommunityEditChallengeRequestToEncryptSchemaWithPKCErrorIfItFails(
     toEncrypt: z.infer<typeof CommunityEditPublicationChallengeRequestToEncryptSchema>
 ): CommunityEditChallengeRequestToEncryptType {
-    const parseRes = CommunityEditPublicationChallengeRequestToEncryptSchema.safeParse(toEncrypt);
+    const parseRes = CommunityEditPublicationChallengeRequestToEncryptSchema.loose().safeParse(toEncrypt);
     if (!parseRes.success)
         throw new PKCError("ERR_INVALID_COMMUNITY_EDIT_CHALLENGE_REQUEST_TO_ENCRYPT_SCHEMA", {
             zodError: parseRes.error,
@@ -279,7 +279,7 @@ export function parseCommentChallengeRequestToEncryptSchemaWithPKCErrorIfItFails
 export function parseVoteChallengeRequestToEncryptSchemaWithPKCErrorIfItFails(
     toEncrypt: z.infer<typeof VoteChallengeRequestToEncryptSchema>
 ): VoteChallengeRequestToEncryptType {
-    const parseRes = VoteChallengeRequestToEncryptSchema.safeParse(toEncrypt);
+    const parseRes = VoteChallengeRequestToEncryptSchema.loose().safeParse(toEncrypt);
     if (!parseRes.success)
         throw new PKCError("ERR_INVALID_VOTE_CHALLENGE_REQUEST_TO_ENCRYPT_SCHEMA", {
             zodError: parseRes.error,
@@ -291,7 +291,7 @@ export function parseVoteChallengeRequestToEncryptSchemaWithPKCErrorIfItFails(
 export function parseCommentEditChallengeRequestToEncryptSchemaWithPKCErrorIfItFails(
     toEncrypt: z.infer<typeof CommentEditChallengeRequestToEncryptSchema>
 ): CommentEditChallengeRequestToEncryptType {
-    const parseRes = CommentEditChallengeRequestToEncryptSchema.safeParse(toEncrypt);
+    const parseRes = CommentEditChallengeRequestToEncryptSchema.loose().safeParse(toEncrypt);
     if (!parseRes.success)
         throw new PKCError("ERR_INVALID_COMMENT_EDIT_CHALLENGE_REQUEST_TO_ENCRYPT_SCHEMA", {
             zodError: parseRes.error,

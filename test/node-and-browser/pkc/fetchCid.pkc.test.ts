@@ -27,7 +27,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const fileString = "Hello plebs";
             const cid = await addStringToIpfs(fileString);
             expect(cid).to.equal("QmbWqTYuyfcpDyn6gawRf5eSFVtYnGDAKttjESXjjbAHbr");
-            const contentFromFetchCid = await pkc.fetchCid({ cid: cid });
+            const { content: contentFromFetchCid } = await pkc.fetchCid({ cid: cid });
             expect(contentFromFetchCid).to.equal(fileString);
         });
 
@@ -47,7 +47,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const jsonFileTest = { 123: "123" };
             const cid = await addStringToIpfs(JSON.stringify(jsonFileTest));
             expect(cid).to.equal("QmaZN2117dty2gHUDx2kHM61Vz9UcVDHFCx9PQt2bP2CEo");
-            expect(JSON.parse(await pkc.fetchCid({ cid: cid }))).to.deep.equal(jsonFileTest);
+            expect(JSON.parse((await pkc.fetchCid({ cid: cid })).content)).to.deep.equal(jsonFileTest);
         });
 
         it("Throws an error when file to download is over 1mb", async () => {
@@ -91,7 +91,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                     dataPath: undefined
                 }
             });
-            const fileString1FromGateway = await plebbitWithMaliciousGateway.fetchCid({ cid: cids[0] });
+            const { content: fileString1FromGateway } = await plebbitWithMaliciousGateway.fetchCid({ cid: cids[0] });
             expect(fileString1).to.equal(fileString1FromGateway);
 
             // The following line should throw since the malicious gateway would send a content that differs from original content
@@ -124,7 +124,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             const cid = await addStringToIpfs(JSON.stringify(jsonFileTest)); // should be "QmaZN2117dty2gHUDx2kHM61Vz9UcVDHFCx9PQt2bP2CEo"
 
             const timeBefore = Date.now();
-            const content = await multipleGatewayPKC.fetchCid({ cid });
+            const { content } = await multipleGatewayPKC.fetchCid({ cid });
             expect(content).to.be.a("string");
             const timeItTookInMs = Date.now() - timeBefore;
             expect(timeItTookInMs).to.be.lessThan(9000);

@@ -239,7 +239,8 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
         if (findStartedCommunity(this._pkc, { publicKey: this.publicKey, name: this.name }))
             throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED_IN_SAME_PKC_INSTANCE", { communityAddress: this.address });
         try {
-            this._startRpcSubscriptionId = await this._pkc._pkcRpcClient!.startCommunity({ address: this.address });
+            const { subscriptionId } = await this._pkc._pkcRpcClient!.startCommunity({ name: this.name, publicKey: this.publicKey });
+            this._startRpcSubscriptionId = subscriptionId;
             this._setState("started");
         } catch (e) {
             log.error(`Failed to start community (${this.address}) from RPC due to error`, e);
@@ -297,7 +298,7 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
             // Need to be careful not to stop an already running community
             const log = Logger("pkc-js:rpc-local-community:stop");
             try {
-                await this._pkc._pkcRpcClient!.stopCommunity({ address: this.address });
+                await this._pkc._pkcRpcClient!.stopCommunity({ name: this.name, publicKey: this.publicKey });
             } catch (e) {
                 log.error("RPC client received an error when asking rpc server to stop community", e);
             }
@@ -320,7 +321,11 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
                 }
             }
         }
-        const subPropsAfterEdit = await this._pkc._pkcRpcClient!.editCommunity(this.address, newCommunityOptions);
+        const subPropsAfterEdit = await this._pkc._pkcRpcClient!.editCommunity({
+            name: this.name,
+            publicKey: this.publicKey,
+            editOptions: newCommunityOptions
+        });
         if ("community" in subPropsAfterEdit) this.initRpcInternalCommunityAfterFirstUpdateNoMerge(subPropsAfterEdit);
         else this.initRpcInternalCommunityBeforeFirstUpdateNoMerge(subPropsAfterEdit);
         this.emit("update", this);
@@ -341,7 +346,7 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
         } else {
             if (this.state === "started" || this.state === "updating") await this.stop();
 
-            await this._pkc._pkcRpcClient!.deleteCommunity({ address: this.address });
+            await this._pkc._pkcRpcClient!.deleteCommunity({ name: this.name, publicKey: this.publicKey });
         }
 
         this.started = false;

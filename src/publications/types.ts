@@ -50,5 +50,3 @@ export type PublicationRpcErrorToTransmit = PublicationEventArgs<"error">[0] & {
         publishThrowError?: boolean; // if true, the error was thrown by publish() not emitted by the publication instance
     };
 };
-
-export type RpcPublishResult = number; // subscriptionId

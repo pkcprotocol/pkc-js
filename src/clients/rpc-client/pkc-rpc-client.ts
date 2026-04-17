@@ -5,16 +5,12 @@ import { PKCError } from "../../pkc-error.js";
 import EventEmitter from "events";
 import pTimeout from "p-timeout";
 import { hideClassPrivateProps, replaceXWithY, resolveWhenPredicateIsTrue } from "../../util.js";
-import type {
-    CreateNewLocalCommunityUserOptions,
-    RpcInternalCommunityRecordBeforeFirstUpdateType,
-    CommunityEditOptions,
-    RpcLocalCommunityUpdateResultType
-} from "../../community/types.js";
-import type { ModQueuePageIpfs, PageIpfs } from "../../pages/types.js";
-import type { PageRuntimeFields } from "../../pages/util.js";
-import { SubscriptionIdSchema } from "./schema.js";
-import type { DecryptedChallengeAnswer, DecryptedChallengeRequest } from "../../pubsub-messages/types.js";
+import type { CreateNewLocalCommunityUserOptions } from "../../community/types.js";
+import type { CommentChallengeRequestToEncryptType } from "../../publications/comment/types.js";
+import type { VoteChallengeRequestToEncryptType } from "../../publications/vote/types.js";
+import type { CommentEditChallengeRequestToEncryptType } from "../../publications/comment-edit/types.js";
+import type { CommentModerationChallengeRequestToEncrypt } from "../../publications/comment-moderation/types.js";
+import type { CommunityEditChallengeRequestToEncryptType } from "../../publications/community-edit/types.js";
 import type { PKCWsServerSettingsSerialized } from "../../rpc/src/types.js";
 import { parseSetNewSettingsPKCWsServerSchemaWithPKCErrorIfItFails } from "../../schema/schema-util.js";
 import { ZodError } from "zod";
@@ -23,23 +19,37 @@ import { SetNewSettingsPKCWsServerSchema } from "../../rpc/src/schema.js";
 import * as z from "zod";
 import { TypedEmitter } from "tiny-typed-emitter";
 import type { PKCRpcClientEvents } from "../../types.js";
-import type { RpcPublishResult } from "../../publications/types.js";
 import { messages } from "../../errors.js";
 import type {
     AuthorNameRpcParam,
-    CommunityAddressRpcParam,
-    CommunityLookupRpcParam,
+    CommunityIdentifierRpcParam,
     CidRpcParam,
+    FetchCidRpcParam,
     CommentPageRpcParam,
-    CommunityPageRpcParam
+    CommunityPageRpcParam,
+    EditCommunityRpcParam,
+    PublishChallengeAnswersRpcParam,
+    RpcInternalCommunityRecordBeforeFirstUpdateType,
+    RpcLocalCommunityUpdateResultType,
+    RpcCommentPageResult,
+    RpcCommunityPageResult,
+    RpcResolveAuthorNameResult,
+    RpcSubscriptionIdResult,
+    RpcSuccessResult,
+    RpcFetchCidResult
 } from "./types.js";
 import {
-    parseRpcCommunityAddressParam,
-    parseRpcCommunityLookupParam,
+    parseRpcCommunityIdentifierParam,
     parseRpcAuthorNameParam,
     parseRpcCidParam,
+    parseRpcFetchCidParam,
+    parseRpcEditCommunityParam,
     parseRpcCommentRepliesPageParam,
-    parseRpcCommunityPageParam
+    parseRpcCommunityPageParam,
+    parseRpcResolveAuthorNameResult,
+    parseRpcFetchCidResult,
+    parseRpcSuccessResult,
+    parseRpcSubscriptionIdResult
 } from "./rpc-schema-util.js";
 
 const log = Logger("pkc-js:PKCRpcClient");
@@ -325,16 +335,16 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         return commentProps;
     }
 
-    async getCommentPage(page: CommentPageRpcParam): Promise<{ page: PageIpfs; runtimeFields?: PageRuntimeFields }> {
+    async getCommentPage(page: CommentPageRpcParam): Promise<RpcCommentPageResult> {
         const parsedGetCommentRepliesPageArgs = parseRpcCommentRepliesPageParam(page);
         const result = await this._webSocketClient.call("getCommentPage", [parsedGetCommentRepliesPageArgs]);
-        return result as { page: PageIpfs; runtimeFields?: PageRuntimeFields };
+        return result as RpcCommentPageResult;
     }
 
-    async getCommunityPage(page: CommunityPageRpcParam): Promise<{ page: PageIpfs | ModQueuePageIpfs; runtimeFields?: PageRuntimeFields }> {
+    async getCommunityPage(page: CommunityPageRpcParam): Promise<RpcCommunityPageResult> {
         const parsedGetCommunityPostsPage = parseRpcCommunityPageParam(page);
         const result = await this._webSocketClient.call("getCommunityPage", [parsedGetCommunityPostsPage]);
-        return result as { page: PageIpfs | ModQueuePageIpfs; runtimeFields?: PageRuntimeFields };
+        return result as RpcCommunityPageResult;
     }
 
     async createCommunity(
@@ -352,99 +362,88 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         if (!this._pendingSubscriptionMsgs[subscriptionId]) this._pendingSubscriptionMsgs[subscriptionId] = [];
     }
 
-    async startCommunity(communityAddress: CommunityAddressRpcParam) {
-        const parsedStartCommunityArgs = parseRpcCommunityAddressParam(communityAddress);
-        const subscriptionId = SubscriptionIdSchema.parse(await this._webSocketClient.call("startCommunity", [parsedStartCommunityArgs]));
-        this._initSubscriptionEvent(subscriptionId);
-        return subscriptionId;
-    }
-
-    async stopCommunity(communityAddress: CommunityAddressRpcParam): Promise<void> {
-        const parsedStopCommunityArgs = parseRpcCommunityAddressParam(communityAddress);
-
-        const res = await this._webSocketClient.call("stopCommunity", [parsedStopCommunityArgs]);
-        if (res !== true) throw Error("Calling RPC function should throw or return true");
-    }
-
-    async editCommunity(communityAddress: string, communityEditOptions: CommunityEditOptions): Promise<RpcLocalCommunityUpdateResultType> {
-        const propsAfterReplacing = replaceXWithY(communityEditOptions, undefined, null);
-        const rawRes = <RpcLocalCommunityUpdateResultType>(
-            await this._webSocketClient.call("editCommunity", [{ address: communityAddress, editOptions: propsAfterReplacing }])
-        );
-        return rawRes;
-    }
-
-    async deleteCommunity(communityAddress: CommunityAddressRpcParam) {
-        const parsedDeleteCommunityArgs = parseRpcCommunityAddressParam(communityAddress);
-        const res = await this._webSocketClient.call("deleteCommunity", [parsedDeleteCommunityArgs]);
-        if (res !== true) throw Error("Calling RPC function deleteCommunity should either return true or throw");
-    }
-
-    async communityUpdateSubscribe(communityAddress: CommunityLookupRpcParam): Promise<number> {
-        const parsedCommunityUpdateArgs = parseRpcCommunityLookupParam(communityAddress);
-        const subscriptionId = SubscriptionIdSchema.parse(
-            await this._webSocketClient.call("communityUpdateSubscribe", [parsedCommunityUpdateArgs])
-        );
-        this._initSubscriptionEvent(subscriptionId);
-        return subscriptionId;
-    }
-
-    async publishComment(commentProps: DecryptedChallengeRequest): Promise<RpcPublishResult> {
-        const publishRes = <RpcPublishResult>await this._webSocketClient.call("publishComment", [commentProps]);
-        this._initSubscriptionEvent(publishRes);
-        return publishRes;
-    }
-
-    async publishCommentEdit(commentEditProps: DecryptedChallengeRequest): Promise<RpcPublishResult> {
-        const publishRes = <RpcPublishResult>await this._webSocketClient.call("publishCommentEdit", [commentEditProps]);
-        this._initSubscriptionEvent(publishRes);
-        return publishRes;
-    }
-
-    async publishCommentModeration(commentModProps: DecryptedChallengeRequest): Promise<RpcPublishResult> {
-        const publishRes = <RpcPublishResult>await this._webSocketClient.call("publishCommentModeration", [commentModProps]);
-        this._initSubscriptionEvent(publishRes);
-        return publishRes;
-    }
-
-    async publishVote(voteProps: DecryptedChallengeRequest): Promise<RpcPublishResult> {
-        const publishRes = <RpcPublishResult>await this._webSocketClient.call("publishVote", [voteProps]);
-        this._initSubscriptionEvent(publishRes);
-        return publishRes;
-    }
-
-    async publishCommunityEdit(communityEdit: DecryptedChallengeRequest): Promise<RpcPublishResult> {
-        const publishRes = <RpcPublishResult>await this._webSocketClient.call("publishCommunityEdit", [communityEdit]);
-        this._initSubscriptionEvent(publishRes);
-        return publishRes;
-    }
-
-    async commentUpdateSubscribe(args: CidRpcParam) {
-        const parsedCommentUpdateArgs = parseRpcCidParam(args);
-        const subscriptionId = SubscriptionIdSchema.parse(
-            await this._webSocketClient.call("commentUpdateSubscribe", [parsedCommentUpdateArgs])
-        );
-        this._initSubscriptionEvent(subscriptionId);
-        return subscriptionId;
-    }
-
-    async publishChallengeAnswers(subscriptionId: number, challengeAnswers: DecryptedChallengeAnswer["challengeAnswers"]) {
-        const parsedId = SubscriptionIdSchema.parse(subscriptionId);
-        const res = <boolean>await this._webSocketClient.call("publishChallengeAnswers", [{ subscriptionId: parsedId, challengeAnswers }]);
-        if (res !== true) throw Error("RPC function publishChallengeAnswers should either return true or throw");
+    async startCommunity(communityIdentifier: CommunityIdentifierRpcParam): Promise<RpcSubscriptionIdResult> {
+        const parsedStartCommunityArgs = parseRpcCommunityIdentifierParam(communityIdentifier);
+        const res = parseRpcSubscriptionIdResult(await this._webSocketClient.call("startCommunity", [parsedStartCommunityArgs]));
+        this._initSubscriptionEvent(res.subscriptionId);
         return res;
     }
 
-    async resolveAuthorName(parsedAuthorName: AuthorNameRpcParam) {
+    async stopCommunity(communityIdentifier: CommunityIdentifierRpcParam): Promise<RpcSuccessResult> {
+        const parsedStopCommunityArgs = parseRpcCommunityIdentifierParam(communityIdentifier);
+        return parseRpcSuccessResult(await this._webSocketClient.call("stopCommunity", [parsedStopCommunityArgs]));
+    }
+
+    async editCommunity(args: EditCommunityRpcParam): Promise<RpcLocalCommunityUpdateResultType> {
+        const parsedArgs = parseRpcEditCommunityParam({
+            ...args,
+            editOptions: replaceXWithY(args.editOptions, undefined, null)
+        });
+        const rawRes = <RpcLocalCommunityUpdateResultType>await this._webSocketClient.call("editCommunity", [parsedArgs]);
+        return rawRes;
+    }
+
+    async deleteCommunity(communityIdentifier: CommunityIdentifierRpcParam): Promise<RpcSuccessResult> {
+        const parsedDeleteCommunityArgs = parseRpcCommunityIdentifierParam(communityIdentifier);
+        return parseRpcSuccessResult(await this._webSocketClient.call("deleteCommunity", [parsedDeleteCommunityArgs]));
+    }
+
+    async communityUpdateSubscribe(communityIdentifier: CommunityIdentifierRpcParam): Promise<RpcSubscriptionIdResult> {
+        const parsedCommunityUpdateArgs = parseRpcCommunityIdentifierParam(communityIdentifier);
+        const res = parseRpcSubscriptionIdResult(await this._webSocketClient.call("communityUpdateSubscribe", [parsedCommunityUpdateArgs]));
+        this._initSubscriptionEvent(res.subscriptionId);
+        return res;
+    }
+
+    async publishComment(commentProps: CommentChallengeRequestToEncryptType): Promise<RpcSubscriptionIdResult> {
+        const res = parseRpcSubscriptionIdResult(await this._webSocketClient.call("publishComment", [commentProps]));
+        this._initSubscriptionEvent(res.subscriptionId);
+        return res;
+    }
+
+    async publishCommentEdit(commentEditProps: CommentEditChallengeRequestToEncryptType): Promise<RpcSubscriptionIdResult> {
+        const res = parseRpcSubscriptionIdResult(await this._webSocketClient.call("publishCommentEdit", [commentEditProps]));
+        this._initSubscriptionEvent(res.subscriptionId);
+        return res;
+    }
+
+    async publishCommentModeration(commentModProps: CommentModerationChallengeRequestToEncrypt): Promise<RpcSubscriptionIdResult> {
+        const res = parseRpcSubscriptionIdResult(await this._webSocketClient.call("publishCommentModeration", [commentModProps]));
+        this._initSubscriptionEvent(res.subscriptionId);
+        return res;
+    }
+
+    async publishVote(voteProps: VoteChallengeRequestToEncryptType): Promise<RpcSubscriptionIdResult> {
+        const res = parseRpcSubscriptionIdResult(await this._webSocketClient.call("publishVote", [voteProps]));
+        this._initSubscriptionEvent(res.subscriptionId);
+        return res;
+    }
+
+    async publishCommunityEdit(communityEdit: CommunityEditChallengeRequestToEncryptType): Promise<RpcSubscriptionIdResult> {
+        const res = parseRpcSubscriptionIdResult(await this._webSocketClient.call("publishCommunityEdit", [communityEdit]));
+        this._initSubscriptionEvent(res.subscriptionId);
+        return res;
+    }
+
+    async commentUpdateSubscribe(args: CidRpcParam): Promise<RpcSubscriptionIdResult> {
+        const parsedCommentUpdateArgs = parseRpcCidParam(args);
+        const res = parseRpcSubscriptionIdResult(await this._webSocketClient.call("commentUpdateSubscribe", [parsedCommentUpdateArgs]));
+        this._initSubscriptionEvent(res.subscriptionId);
+        return res;
+    }
+
+    async publishChallengeAnswers(args: PublishChallengeAnswersRpcParam): Promise<RpcSuccessResult> {
+        return parseRpcSuccessResult(await this._webSocketClient.call("publishChallengeAnswers", [args]));
+    }
+
+    async resolveAuthorName(parsedAuthorName: AuthorNameRpcParam): Promise<RpcResolveAuthorNameResult> {
         const resolveAuthorNameArgs = parseRpcAuthorNameParam(parsedAuthorName);
-        const res = <{ resolvedAddress: string | null }>await this._webSocketClient.call("resolveAuthorName", [resolveAuthorNameArgs]); // TODO use actual type from rpc server instead of manual type. It should also be {resolvedAuthorName}
-        if (typeof res?.resolvedAddress !== "string" && res?.resolvedAddress !== null)
-            throw Error("RPC function resolveAuthorName should respond with { resolvedAddress: string | null }");
-        return res.resolvedAddress;
+        const res = parseRpcResolveAuthorNameResult(await this._webSocketClient.call("resolveAuthorName", [resolveAuthorNameArgs]));
+        return res;
     }
 
     async initalizeCommunitieschangeEvent() {
-        const subscriptionId = SubscriptionIdSchema.parse(await this._webSocketClient.call("communitiesSubscribe", []));
+        const { subscriptionId } = parseRpcSubscriptionIdResult(await this._webSocketClient.call("communitiesSubscribe", []));
         this._initSubscriptionEvent(subscriptionId);
         this.getSubscription(subscriptionId).on("communitieschange", (res) => {
             this.emit("communitieschange", <string[]>res.params.result.communities);
@@ -453,7 +452,7 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     }
 
     async initalizeSettingschangeEvent() {
-        const subscriptionId = SubscriptionIdSchema.parse(await this._webSocketClient.call("settingsSubscribe", []));
+        const { subscriptionId } = parseRpcSubscriptionIdResult(await this._webSocketClient.call("settingsSubscribe", []));
         this._initSubscriptionEvent(subscriptionId);
         this.getSubscription(subscriptionId).on("settingschange", (res) => {
             this.emit("settingschange", <PKCWsServerSettingsSerialized>res.params.result);
@@ -461,18 +460,14 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         this.emitAllPendingMessages(subscriptionId);
     }
 
-    async fetchCid(args: CidRpcParam): Promise<string> {
-        const parsedFetchCidArgs = parseRpcCidParam(args);
-        const res = <{ content: string }>await this._webSocketClient.call("fetchCid", [parsedFetchCidArgs]);
-        if (typeof res?.content !== "string") throw Error("RPC function fetchCid did not respond with { content: string }");
-        return res.content;
+    async fetchCid(args: FetchCidRpcParam): Promise<RpcFetchCidResult> {
+        const parsedFetchCidArgs = parseRpcFetchCidParam(args);
+        return parseRpcFetchCidResult(await this._webSocketClient.call("fetchCid", [parsedFetchCidArgs]));
     }
 
-    async setSettings(settings: z.input<typeof SetNewSettingsPKCWsServerSchema>) {
+    async setSettings(settings: z.input<typeof SetNewSettingsPKCWsServerSchema>): Promise<RpcSuccessResult> {
         const parsedSettings = parseSetNewSettingsPKCWsServerSchemaWithPKCErrorIfItFails(settings);
-        const res = <boolean>await this._webSocketClient.call("setSettings", [parsedSettings]);
-        if (res !== true) throw Error("Failed setSettings");
-        return res;
+        return parseRpcSuccessResult(await this._webSocketClient.call("setSettings", [parsedSettings]));
     }
 
     async rpcCall(method: string, params: any[]): Promise<any> {

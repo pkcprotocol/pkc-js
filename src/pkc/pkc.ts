@@ -127,8 +127,8 @@ import { PKCTypedEmitter } from "../clients/pkc-typed-emitter.js";
 import type { PageTypeJson } from "../pages/types.js";
 import { createLibp2pJsClientOrUseExistingOne } from "../helia/helia-for-pkc.js";
 import { Libp2pJsClient } from "../helia/libp2pjsClient.js";
-import { AuthorNameRpcParam, CidRpcParam, CommunityLookupRpcParam } from "../clients/rpc-client/types.js";
-import { parseRpcAuthorNameParam, parseRpcCidParam, parseRpcCommunityLookupParam } from "../clients/rpc-client/rpc-schema-util.js";
+import type { AuthorNameRpcParam, CidRpcParam, RpcFetchCidResult } from "../clients/rpc-client/types.js";
+import { parseRpcAuthorNameParam, parseRpcCidParam } from "../clients/rpc-client/rpc-schema-util.js";
 import { cleanWireAuthor, normalizeCreatePublicationAuthor } from "../publications/publication-author.js";
 import { IndexedTrackedInstanceRegistry, TrackedInstanceRegistry } from "./tracked-instance-registry.js";
 import {
@@ -430,9 +430,8 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         hideClassPrivateProps(this);
     }
 
-    async getCommunity(getCommunityArgs: CommunityLookupRpcParam) {
-        const parsedArgs = parseRpcCommunityLookupParam(getCommunityArgs);
-        const community = await this.createCommunity(parsedArgs);
+    async getCommunity(getCommunityArgs: { address?: string; name?: string; publicKey?: string }) {
+        const community = await this.createCommunity(getCommunityArgs);
 
         if (typeof community.createdAt === "number") return <RpcLocalCommunity | LocalCommunity>community; // It's a local community, and already has been loaded, no need to wait
         const timeoutMs = this._timeouts["community-ipns"];
@@ -1026,11 +1025,12 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         return createSigner(createSignerOptions);
     }
 
-    async fetchCid(fetchCidArgs: CidRpcParam): Promise<string> {
+    async fetchCid(fetchCidArgs: CidRpcParam): Promise<RpcFetchCidResult> {
         // pkc-with-rpc-client will handle if user is connected to rpc client
 
         const parsedArgs = parseRpcCidParam(fetchCidArgs);
-        return this._clientsManager.fetchCid(parsedArgs.cid);
+        const content = await this._clientsManager.fetchCid(parsedArgs.cid);
+        return { content };
     }
 
     // Used to pre-subscribe so publishing on pubsub would be faster
@@ -1049,14 +1049,13 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         delete this._pubsubSubscriptions[parsedTopic];
     }
 
-    // TODO function below should return an object {resolvedAuthorName}
-    async resolveAuthorName(reolveAuthorNameArgs: AuthorNameRpcParam) {
-        const parsedArgs = parseRpcAuthorNameParam(reolveAuthorNameArgs);
-        const resolved = await this._clientsManager.resolveAuthorNameIfNeeded({
-            authorAddress: parsedArgs.name,
+    async resolveAuthorName(resolveAuthorNameArgs: AuthorNameRpcParam) {
+        const parsedArgs = parseRpcAuthorNameParam(resolveAuthorNameArgs);
+        const res = await this._clientsManager.resolveAuthorNameIfNeeded({
+            authorName: parsedArgs.name,
             abortSignal: AbortSignal.timeout(this._timeouts["resolve-author-name"])
         });
-        return resolved;
+        return res;
     }
 
     async validateComment(comment: Comment | PageTypeJson["comments"][number], opts?: { validateReplies?: boolean }) {

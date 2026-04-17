@@ -1809,7 +1809,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         if (typeof authorName === "string") {
             if (rolesToCheckAgainst.includes(this.roles[authorName]?.role as CommunityRoleNameUnion)) return true;
             if (this._pkc.resolveAuthorNames && isStringDomain(authorName)) {
-                const resolvedSignerAddress = await this._pkc.resolveAuthorName({ name: authorName });
+                const { resolvedAuthorName: resolvedSignerAddress } = await this._pkc.resolveAuthorName({ name: authorName });
                 if (resolvedSignerAddress !== signerAddress) return false;
                 if (rolesToCheckAgainst.includes(this.roles[resolvedSignerAddress]?.role as CommunityRoleNameUnion)) return true;
             }
@@ -1858,7 +1858,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         if (authorName && isStringDomain(authorName) && this._pkc.resolveAuthorNames) {
             let resolvedAddress: string | null;
             try {
-                resolvedAddress = await this._pkc.resolveAuthorName({ name: authorName });
+                ({ resolvedAuthorName: resolvedAddress } = await this._pkc.resolveAuthorName({ name: authorName }));
             } catch (e) {
                 log("Rejecting publication with unresolvable author domain", authorName, e);
                 return messages.ERR_FAILED_TO_RESOLVE_AUTHOR_DOMAIN;
@@ -3162,7 +3162,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     private async _assertDomainResolvesCorrectly(newAddressAsDomain: string) {
         if (isStringDomain(newAddressAsDomain)) {
             const resolvedIpnsFromNewDomain = await this._clientsManager.resolveCommunityNameIfNeeded({
-                communityAddress: newAddressAsDomain
+                communityName: newAddressAsDomain
             });
             if (resolvedIpnsFromNewDomain !== this.signer.address)
                 throw new PKCError("ERR_DOMAIN_COMMUNITY_ADDRESS_TXT_RECORD_POINT_TO_DIFFERENT_ADDRESS", {
@@ -3259,7 +3259,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             if (isStringDomain(roleAddress)) {
                 let resolved: string | null;
                 try {
-                    resolved = await this._pkc.resolveAuthorName({ name: roleAddress });
+                    ({ resolvedAuthorName: resolved } = await this._pkc.resolveAuthorName({ name: roleAddress }));
                 } catch {
                     resolved = null;
                 }

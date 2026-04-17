@@ -9,8 +9,9 @@ import type { RpcLocalCommunityJson, RpcLocalCommunityUpdateResultType, RpcRemot
 import { z } from "zod";
 import { PKCError } from "../pkc-error.js";
 import type { AuthorNameRpcParam, CidRpcParam } from "../clients/rpc-client/types.js";
-import { parseRpcAuthorNameParam, parseRpcCidParam } from "../clients/rpc-client/rpc-schema-util.js";
+import { parseRpcAuthorNameParam, parseRpcCidParam, parseRpcFetchCidParam } from "../clients/rpc-client/rpc-schema-util.js";
 import { listStartedCommunities } from "./tracked-instance-registry-util.js";
+import { CommentJson } from "../publications/comment/types.js";
 
 // This is a helper class for separating RPC-client logic from main PKC
 // Not meant to be used with end users
@@ -49,7 +50,7 @@ export class PKCWithRpcClient extends PKC {
     }
 
     override async fetchCid(cid: CidRpcParam) {
-        const parsedCid = parseRpcCidParam(cid).cid;
+        const parsedCid = parseRpcFetchCidParam(cid).cid;
         return this._pkcRpcClient.fetchCid({ cid: parsedCid });
     }
 
@@ -68,9 +69,8 @@ export class PKCWithRpcClient extends PKC {
 
     override async getComment(commentCid: CidRpcParam) {
         const parsedArgs = parseRpcCidParam(commentCid);
-
         const commentIpfs = await this._pkcRpcClient.getComment(parsedArgs);
-        return this.createComment({ raw: { comment: commentIpfs }, cid: parsedArgs.cid });
+        return this.createComment({ ...parsedArgs, raw: { ...(parsedArgs as CommentJson)?.raw, comment: commentIpfs } });
     }
 
     override async createCommunity(
