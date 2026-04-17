@@ -9,8 +9,11 @@ import {
     describeSkipIfRpc,
     describeIfRpc,
     waitTillPostInCommunityPages,
-    mockPKCV2
+    mockPKCV2,
+    mockRpcServerPKC,
+    mockRpcServerForTests
 } from "../../../dist/node/test/test-util.js";
+import PKCWsServer from "../../../dist/node/rpc/src/index.js";
 import { timestamp } from "../../../dist/node/util.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import fs from "fs";
@@ -25,6 +28,7 @@ import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-c
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 import type { CommunityEditOptions } from "../../../dist/node/community/types.js";
+import type { NameResolver } from "../../../dist/node/types.js";
 
 describeSkipIfRpc(`community.edit`, async () => {
     let pkc: PKCType;
@@ -62,7 +66,7 @@ describeSkipIfRpc(`community.edit`, async () => {
         const resolvedSubAddress = await remotePKC._clientsManager.resolveCommunityNameIfNeeded({ communityAddress: bsoNameAddress });
         expect(resolvedSubAddress).to.equal(community.signer.address);
 
-        await pkc.resolveAuthorName({ address: "esteban.bso" });
+        await pkc.resolveAuthorName({ name: "esteban.bso" });
         await community.start();
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
         await publishRandomPost({ communityAddress: community.address, pkc: pkc });
@@ -807,6 +811,73 @@ describeIfRpc(`community.edit (RPC)`, async () => {
             await remotePKCInstance.destroy();
         })
     );
+
+    it(`Editing roles with an unresolvable domain via RPC throws ERR_ROLE_ADDRESS_NAME_COULD_NOT_BE_RESOLVED`, async () => {
+        // "nonexistent.bso" is not in the test server's mock resolver records
+        await expect(community.edit({ roles: { "nonexistent.bso": { role: "moderator" } } })).rejects.toMatchObject({
+            code: "ERR_ROLE_ADDRESS_NAME_COULD_NOT_BE_RESOLVED"
+        });
+    }, 10_000);
+});
+
+// These tests create their own RPC server with a hanging resolver to reproduce the production bug
+// where .eth domains without a pkc-author-address text record cause resolveAuthorNameIfNeeded to hang indefinitely.
+// They use describeSkipIfRpc because they spin up their own RPC server and must not conflict with the shared test server.
+describeSkipIfRpc(`resolveAuthorNameIfNeeded hanging resolver timeout`, async () => {
+    let rpcServer: Awaited<ReturnType<typeof PKCWsServer.PKCWsServer>>;
+    let clientPKC: PKCType;
+    let community: LocalCommunity | RpcLocalCommunity;
+    const rpcPort = 13579; // unique port to avoid conflicts with shared test server
+
+    // Resolver that hangs forever for "hanging-domain.eth", normal for everything else
+    const hangingResolver: NameResolver = {
+        key: "hanging-resolver",
+        canResolve: ({ name }) => name === "hanging-domain.eth",
+        resolve: async () => new Promise(() => {}), // never resolves
+        provider: "mock"
+    };
+    const normalResolver = createMockNameResolver({ includeDefaultRecords: true });
+
+    beforeAll(async () => {
+        // Create RPC server with the hanging resolver
+        rpcServer = await PKCWsServer.PKCWsServer({ port: rpcPort });
+        const serverPKC = await mockRpcServerPKC({
+            nameResolvers: [hangingResolver, normalResolver]
+        });
+        // Override timeout to 2s so tests don't wait 60s
+        serverPKC._timeouts["resolve-author-name"] = 2000;
+        // @ts-expect-error — accessing private method for test setup (same pattern as test/server/pkc-ws-server.js)
+        rpcServer._initPKC(serverPKC);
+        mockRpcServerForTests(rpcServer);
+
+        // Create client connecting to our custom server
+        clientPKC = await mockPKC({ pkcRpcClientsOptions: [`ws://localhost:${rpcPort}`] });
+        const signer = await clientPKC.createSigner();
+        community = (await clientPKC.createCommunity({ signer })) as LocalCommunity | RpcLocalCommunity;
+        await community.start();
+        await resolveWhenConditionIsTrue({
+            toUpdate: community,
+            predicate: async () => typeof community.updatedAt === "number"
+        });
+    });
+
+    afterAll(async () => {
+        await community?.delete();
+        await clientPKC?.destroy();
+        await rpcServer?.destroy();
+    });
+
+    // Test A: _parseRolesToEdit hangs when resolver never returns
+    it(`community.edit with a hanging role address domain rejects with ERR_ROLE_ADDRESS_NAME_COULD_NOT_BE_RESOLVED`, async () => {
+        await expect(community.edit({ roles: { "hanging-domain.eth": { role: "moderator" } } })).rejects.toMatchObject({
+            code: "ERR_ROLE_ADDRESS_NAME_COULD_NOT_BE_RESOLVED"
+        });
+    }, 10_000);
+
+    // Test B: pkc.resolveAuthorName hangs when resolver never returns
+    it(`pkc.resolveAuthorName with a hanging domain rejects instead of hanging`, async () => {
+        await expect(clientPKC.resolveAuthorName({ name: "hanging-domain.eth" })).rejects.toBeTruthy();
+    }, 10_000);
 });
 
 describeSkipIfRpc(`.eth <-> .bso alias address transitions`, async () => {

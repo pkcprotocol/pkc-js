@@ -203,7 +203,8 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         "comment-ipfs": 60 * 1000, // 1 min
         "comment-update-ipfs": 2 * 60 * 1000, // 2 min
         "page-ipfs": 30 * 1000, // 30s for pages
-        "generic-ipfs": 30 * 1000 // 30s generic ipfs
+        "generic-ipfs": 30 * 1000, // 30s generic ipfs
+        "resolve-author-name": 60 * 1000 // 1 min, for resolving author name domains (e.g. .eth, .bso)
     }; // timeout in ms for each load type when we're loading from kubo/helia/gateway
 
     constructor(options: InputPKCOptions) {
@@ -1048,9 +1049,13 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         delete this._pubsubSubscriptions[parsedTopic];
     }
 
-    async resolveAuthorName(resolveAuthorAddressArgs: AuthorNameRpcParam) {
-        const parsedArgs = parseRpcAuthorNameParam(resolveAuthorAddressArgs);
-        const resolved = await this._clientsManager.resolveAuthorNameIfNeeded({ authorAddress: parsedArgs.address });
+    // TODO function below should return an object {resolvedAuthorName}
+    async resolveAuthorName(reolveAuthorNameArgs: AuthorNameRpcParam) {
+        const parsedArgs = parseRpcAuthorNameParam(reolveAuthorNameArgs);
+        const resolved = await this._clientsManager.resolveAuthorNameIfNeeded({
+            authorAddress: parsedArgs.name,
+            abortSignal: AbortSignal.timeout(this._timeouts["resolve-author-name"])
+        });
         return resolved;
     }
 

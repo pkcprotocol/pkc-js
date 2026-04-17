@@ -179,7 +179,7 @@ describeSkipIfRpc('community.features.pseudonymityMode="per-author"', () => {
             const domainAuthorSigner = await context.publisherPKC.createSigner(signers[3]);
             const domainAddress = "plebbit.bso";
 
-            const resolvedAddress = await context.publisherPKC.resolveAuthorName({ address: domainAddress });
+            const resolvedAddress = await context.publisherPKC.resolveAuthorName({ name: domainAddress });
             expect(resolvedAddress).to.equal(domainAuthorSigner.address);
 
             const domainPost = await context.publisherPKC.createComment({

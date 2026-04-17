@@ -26,6 +26,7 @@ import type { PKCRpcClientEvents } from "../../types.js";
 import type { RpcPublishResult } from "../../publications/types.js";
 import { messages } from "../../errors.js";
 import type {
+    AuthorNameRpcParam,
     CommunityAddressRpcParam,
     CommunityLookupRpcParam,
     CidRpcParam,
@@ -434,9 +435,9 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         return res;
     }
 
-    async resolveAuthorName(parsedAuthorAddress: CommunityAddressRpcParam) {
-        const resolveAuthorAddressArgs = parseRpcAuthorNameParam(parsedAuthorAddress);
-        const res = <{ resolvedAddress: string | null }>await this._webSocketClient.call("resolveAuthorName", [resolveAuthorAddressArgs]);
+    async resolveAuthorName(parsedAuthorName: AuthorNameRpcParam) {
+        const resolveAuthorNameArgs = parseRpcAuthorNameParam(parsedAuthorName);
+        const res = <{ resolvedAddress: string | null }>await this._webSocketClient.call("resolveAuthorName", [resolveAuthorNameArgs]); // TODO use actual type from rpc server instead of manual type. It should also be {resolvedAuthorName}
         if (typeof res?.resolvedAddress !== "string" && res?.resolvedAddress !== null)
             throw Error("RPC function resolveAuthorName should respond with { resolvedAddress: string | null }");
         return res.resolvedAddress;

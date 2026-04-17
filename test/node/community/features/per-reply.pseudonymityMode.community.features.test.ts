@@ -742,7 +742,7 @@ describeSkipIfRpc('community.features.pseudonymityMode="per-reply"', () => {
             });
             await waitForStoredCommentUpdateWithAssertions(context.community as LocalCommunity, post);
 
-            const resolvedAddress = await context.publisherPKC.resolveAuthorName({ address: domainAddress });
+            const resolvedAddress = await context.publisherPKC.resolveAuthorName({ name: domainAddress });
             expect(resolvedAddress).to.equal(domainSigner.address);
 
             const domainReply = await context.publisherPKC.createComment({

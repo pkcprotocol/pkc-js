@@ -35,7 +35,7 @@ describe("Comments with Authors as domains", async () => {
             title: "Mock post title",
             communityAddress: signers[0].address
         });
-        const resolvedAuthorAddress = await pkc.resolveAuthorName({ address: mockPost.author.address });
+        const resolvedAuthorAddress = await pkc.resolveAuthorName({ name: mockPost.author.address });
         expect(resolvedAuthorAddress).to.equal(signers[3].address);
 
         expect(mockPost.author.address).to.equal("plebbit.bso");
@@ -166,7 +166,7 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
             }
         });
 
-        const resolved = await pkc.resolveAuthorName({ address: "testauthor.bso" });
+        const resolved = await pkc.resolveAuthorName({ name: "testauthor.bso" });
         expect(resolved).to.equal(expectedAuthorAddress);
         await pkc.destroy();
     });
@@ -906,7 +906,7 @@ describeSkipIfRpc("Class-based name resolvers", () => {
         });
 
         // This should not throw "Cannot read properties of undefined (reading 'createClient')"
-        const result = await pkc.resolveAuthorName({ address: "something.test" });
+        const result = await pkc.resolveAuthorName({ name: "something.test" });
         expect(result).to.equal(signers[0].address);
 
         await pkc.destroy();

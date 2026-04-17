@@ -1,6 +1,14 @@
 import { PKC } from "../pkc/pkc.js";
 import assert from "assert";
-import { calculateIpfsCidV0, hideClassPrivateProps, isAbortError, isIpns, isStringDomain, throwIfAbortSignalAborted } from "../util.js";
+import {
+    calculateIpfsCidV0,
+    createAbortError,
+    hideClassPrivateProps,
+    isAbortError,
+    isIpns,
+    isStringDomain,
+    throwIfAbortSignalAborted
+} from "../util.js";
 import { sha256 } from "js-sha256";
 import { getPKCAddressFromPublicKey } from "../signer/util.js";
 import { nativeFunctions } from "../runtime/node/util.js";
@@ -697,11 +705,11 @@ export class BaseClientsManager {
     postResolveNameResolverFailure(opts: PostResolveNameResolverFailureOptions) {}
 
     private async _resolveViaNameResolvers({
-        address,
+        name: address,
         resolveType,
         abortSignal
     }: {
-        address: string;
+        name: string;
         resolveType: ResolveType;
         abortSignal?: AbortSignal;
     }): Promise<string | null> {
@@ -723,7 +731,17 @@ export class BaseClientsManager {
             this.preResolveNameResolver({ address, resolveType, resolverKey: nameResolver.key });
             try {
                 throwIfAbortSignalAborted(abortSignal);
-                const result = await nameResolver.resolve({ name: address, provider: nameResolver.provider, abortSignal });
+                const resolvePromise = nameResolver.resolve({ name: address, provider: nameResolver.provider, abortSignal });
+                // Race resolve() against abort signal so resolvers that ignore the signal still get interrupted
+                const result = abortSignal
+                    ? await Promise.race([
+                          resolvePromise,
+                          new Promise<never>((_, reject) => {
+                              if (abortSignal.aborted) reject(createAbortError());
+                              else abortSignal.addEventListener("abort", () => reject(createAbortError()), { once: true });
+                          })
+                      ])
+                    : await resolvePromise;
                 throwIfAbortSignalAborted(abortSignal);
                 value = result?.publicKey;
             } catch (e) {
@@ -755,23 +773,24 @@ export class BaseClientsManager {
     }): Promise<string | null> {
         assert(typeof communityAddress === "string", "communityAddress needs to be a string to be resolved");
         if (!isStringDomain(communityAddress)) return communityAddress;
-        const result = await this._resolveViaNameResolvers({ address: communityAddress, resolveType: "community", abortSignal });
+        const result = await this._resolveViaNameResolvers({ name: communityAddress, resolveType: "community", abortSignal });
         if (typeof result === "string" && !isIpns(result))
             throw new PKCError("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: communityAddress });
         return result;
     }
 
+    // TODO function below should return an object {resolvedAuthorName}
     async resolveAuthorNameIfNeeded({
-        authorAddress,
+        authorAddress: authorName,
         abortSignal
     }: {
         authorAddress: string;
         abortSignal?: AbortSignal;
     }): Promise<string | null> {
-        if (!isStringDomain(authorAddress)) throw new PKCError("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58", { authorAddress });
-        const result = await this._resolveViaNameResolvers({ address: authorAddress, resolveType: "author", abortSignal });
+        if (!isStringDomain(authorName)) throw new PKCError("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58", { authorAddress: authorName });
+        const result = await this._resolveViaNameResolvers({ name: authorName, resolveType: "author", abortSignal });
         if (typeof result === "string" && !isIpns(result))
-            throw new PKCError("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: authorAddress });
+            throw new PKCError("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: authorName });
         return result;
     }
 
