@@ -1,5 +1,13 @@
-import { privateKeyFromRaw, privateKeyToProtobuf, publicKeyFromRaw, publicKeyToProtobuf } from "@libp2p/crypto/keys";
-import PeerId from "peer-id";
+import {
+    privateKeyFromRaw,
+    privateKeyToProtobuf,
+    privateKeyFromProtobuf,
+    publicKeyFromRaw,
+    publicKeyToProtobuf
+} from "@libp2p/crypto/keys";
+import { peerIdFromString, peerIdFromMultihash, peerIdFromPrivateKey, peerIdFromPublicKey } from "@libp2p/peer-id";
+import type { PeerId } from "@libp2p/interface";
+import * as Digest from "multiformats/hashes/digest";
 import * as ed from "@noble/ed25519";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
@@ -15,26 +23,25 @@ export const generatePrivateKey = async (): Promise<string> => {
 
 export const getPKCAddressFromPrivateKey = async (privateKeyBase64: string) => {
     const peerId = await getPeerIdFromPrivateKey(privateKeyBase64);
-    return peerId.toB58String().trim();
+    return peerId.toString().trim();
 };
 
-export const getPKCAddressFromPublicKey = async (publicKeyBase64: string) => {
-    const peerId = await getPeerIdFromPublicKey(publicKeyBase64);
-    return peerId.toB58String().trim();
+export const getPKCAddressFromPublicKey = (publicKeyBase64: string) => {
+    const peerId = getPeerIdFromPublicKey(publicKeyBase64);
+    return peerId.toString().trim();
 };
 
-export const getPKCAddressFromPublicKeyBuffer = async (publicKeyBuffer: Uint8Array) => {
+export const getPKCAddressFromPublicKeyBuffer = (publicKeyBuffer: Uint8Array) => {
     // the PeerId public key is not a raw public key, it adds a suffix
-    const peerId = await getPeerIdFromPublicKeyBuffer(publicKeyBuffer);
+    const peerId = getPeerIdFromPublicKeyBuffer(publicKeyBuffer);
 
-    return peerId.toB58String().trim();
+    return peerId.toString().trim();
 };
 
-export const getBufferedPKCAddressFromPublicKey = async (publicKeyBase64: string) => {
-    const peerId = await getPeerIdFromPublicKey(publicKeyBase64);
-    const buffered = uint8ArrayFromString(publicKeyBase64, "base64");
+export const getBufferedPKCAddressFromPublicKey = (publicKeyBase64: string) => {
+    const peerId = getPeerIdFromPublicKey(publicKeyBase64);
 
-    return peerId.toBytes();
+    return peerId.toMultihash().bytes;
 };
 
 export const getIpfsKeyFromPrivateKey = async (privateKeyBase64: string) => {
@@ -80,11 +87,11 @@ export const getPublicKeyFromPrivateKey = async (privateKeyBase64: string) => {
 export const getPeerIdFromPrivateKey = async (privateKeyBase64: string) => {
     const ipfsKey = await getIpfsKeyFromPrivateKey(privateKeyBase64);
     // the PeerId private key is not a raw private key, it's an "ipfs key"
-    const peerId = await PeerId.createFromPrivKey(ipfsKey);
+    const peerId = peerIdFromPrivateKey(privateKeyFromProtobuf(ipfsKey));
     return peerId;
 };
 
-export const getPeerIdFromPublicKey = async (publicKeyBase64: string) => {
+export const getPeerIdFromPublicKey = (publicKeyBase64: string) => {
     if (!publicKeyBase64 || typeof publicKeyBase64 !== "string")
         throw Error(`getPeerIdFromPublicKey publicKeyBase64 '${publicKeyBase64}' not a string`);
     let publicKeyBuffer: Uint8Array;
@@ -101,11 +108,11 @@ export const getPeerIdFromPublicKey = async (publicKeyBase64: string) => {
 
     // the PeerId public key is not a raw public key, it adds a suffix
     const ed25519PublicKeyInstance = publicKeyFromRaw(publicKeyBuffer);
-    const peerId = await PeerId.createFromPubKey(publicKeyToProtobuf(ed25519PublicKeyInstance));
+    const peerId = peerIdFromPublicKey(ed25519PublicKeyInstance);
     return peerId;
 };
 
-export const getPeerIdFromPublicKeyBuffer = async (publicKeyBuffer: Uint8Array) => {
+export const getPeerIdFromPublicKeyBuffer = (publicKeyBuffer: Uint8Array) => {
     if (publicKeyBuffer.length !== 32)
         throw Error(
             `getPeerIdFromPublicKeyBuffer publicKeyBuffer ed25519 public key length not 32 bytes (${publicKeyBuffer.length} bytes)`
@@ -113,7 +120,7 @@ export const getPeerIdFromPublicKeyBuffer = async (publicKeyBuffer: Uint8Array) 
 
     // the PeerId public key is not a raw public key, it adds a suffix
     const ed25519PublicKeyInstance = publicKeyFromRaw(publicKeyBuffer);
-    const peerId = await PeerId.createFromPubKey(publicKeyToProtobuf(ed25519PublicKeyInstance));
+    const peerId = peerIdFromPublicKey(ed25519PublicKeyInstance);
     return peerId;
 };
 
@@ -121,14 +128,14 @@ export const convertBase58IpnsNameToBase36Cid = (ipnsName: string): string => {
     const log = Logger("pkc-js:signer:util:convertBase58IpnsNameToBase32");
     let peerId: PeerId;
     try {
-        peerId = PeerId.createFromB58String(ipnsName);
+        peerId = peerIdFromString(ipnsName);
     } catch (error) {
         log.error("Error creating peer id from ipns name:", error);
         throw error;
     }
 
     try {
-        return CID.parse(peerId.toString()).toString(bases.base36);
+        return peerId.toCID().toString(bases.base36);
     } catch (e) {
         log.error(`Failed to convert peer id to CIDv1base36`, e);
         throw e;
@@ -137,9 +144,9 @@ export const convertBase58IpnsNameToBase36Cid = (ipnsName: string): string => {
 
 export function convertBase32ToBase58btc(base32String: string) {
     // Decode base32 to bytes
-    const test = CID.parse(base32String);
-    const peerId = PeerId.createFromBytes(test.bytes);
-    return peerId.toB58String().trim();
+    const cid = CID.parse(base32String);
+    const peerId = peerIdFromMultihash(cid.multihash);
+    return peerId.toString().trim();
 }
 
 export const getPKCAddressFromPublicKeySync = (publicKeyBase64: string): string => {
@@ -169,6 +176,6 @@ export const getPKCAddressFromPublicKeySync = (publicKeyBase64: string): string 
     multihash.set(publicKeyBytes, 2); // the public key bytes themselves
 
     // Create PeerId from the multihash bytes and return as base58 string
-    const peerId = PeerId.createFromBytes(multihash);
-    return peerId.toB58String().trim();
+    const peerId = peerIdFromMultihash(Digest.decode(multihash));
+    return peerId.toString().trim();
 };

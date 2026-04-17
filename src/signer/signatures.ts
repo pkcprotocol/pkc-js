@@ -11,7 +11,7 @@ import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import * as ed from "@noble/ed25519";
 
-import PeerId from "peer-id";
+import { peerIdFromString } from "@libp2p/peer-id";
 import { areEquivalentCommunityAddresses, isStringDomain, removeNullUndefinedEmptyObjectsValuesRecursively, timestamp } from "../util.js";
 import { getCommunityNameFromWire, getCommunityPublicKeyFromWire } from "../publications/publication-community.js";
 import { PKCError } from "../pkc-error.js";
@@ -628,8 +628,8 @@ export async function verifyCommunity({
             }
         }
 
-    const communityPeerId = PeerId.createFromB58String(communityIpnsName);
-    const signaturePeerId = await getPeerIdFromPublicKey(community.signature.publicKey);
+    const communityPeerId = peerIdFromString(communityIpnsName);
+    const signaturePeerId = getPeerIdFromPublicKey(community.signature.publicKey);
     if (!communityPeerId.equals(signaturePeerId))
         return { valid: false, reason: messages.ERR_COMMUNITY_IPNS_NAME_DOES_NOT_MATCH_SIGNATURE_PUBLIC_KEY };
     clientsManager._pkc._memCaches.communityVerificationCache.set(cacheKey, true);
@@ -748,7 +748,7 @@ function _maximumTimestamp() {
 }
 
 async function _validateChallengeRequestId(msg: ChallengeRequestMessageType | ChallengeAnswerMessageType): Promise<ValidationResult> {
-    const signaturePublicKeyPeerId = await getPeerIdFromPublicKeyBuffer(msg.signature.publicKey);
+    const signaturePublicKeyPeerId = getPeerIdFromPublicKeyBuffer(msg.signature.publicKey);
     if (!signaturePublicKeyPeerId.equals(msg.challengeRequestId))
         return { valid: false, reason: messages.ERR_CHALLENGE_REQUEST_ID_NOT_DERIVED_FROM_SIGNATURE };
     else return { valid: true };

@@ -40,7 +40,7 @@ import { base32 } from "multiformats/bases/base32";
 import { PKC } from "./pkc/pkc.js";
 import Logger from "./logger.js";
 import retry from "retry";
-import PeerId from "peer-id";
+import { peerIdFromString } from "@libp2p/peer-id";
 import { unmarshalIPNSRecord } from "ipns";
 import { importFile } from "ipfs-unixfs-importer";
 import { MemoryBlockstore } from "blockstore-core";
@@ -620,7 +620,7 @@ export function ipnsNameToIpnsOverPubsubTopic(ipnsName: string) {
     // for ipns over pubsub, the topic is '/record/' + Base64Url(Uint8Array('/ipns/') + Uint8Array('12D...'))
     // https://github.com/ipfs/helia/blob/1561e4a106074b94e421a77b0b8776b065e48bc5/packages/ipns/src/routing/pubsub.ts#L169
     const ipnsNamespaceBytes = new TextEncoder().encode("/ipns/");
-    const ipnsNameBytes = PeerId.parse(ipnsName).toBytes(); // accepts base58 (12D...) and base36 (k51...)
+    const ipnsNameBytes = peerIdFromString(ipnsName).toMultihash().bytes; // accepts base58 (12D...) and base36 (k51...)
     const ipnsNameBytesWithNamespace = new Uint8Array(ipnsNamespaceBytes.length + ipnsNameBytes.length);
     ipnsNameBytesWithNamespace.set(ipnsNamespaceBytes, 0);
     ipnsNameBytesWithNamespace.set(ipnsNameBytes, ipnsNamespaceBytes.length);
