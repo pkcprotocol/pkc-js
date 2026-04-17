@@ -18,7 +18,8 @@ import type {
     InputPKCOptions,
     AuthorPubsubType,
     PKCMemCaches,
-    CreatePublicationOptions
+    CreatePublicationOptions,
+    GetCommunityArgs
 } from "../types.js";
 import { Comment } from "../publications/comment/comment.js";
 import {
@@ -430,7 +431,10 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         hideClassPrivateProps(this);
     }
 
-    async getCommunity(getCommunityArgs: { address?: string; name?: string; publicKey?: string }) {
+    async getCommunity(getCommunityArgs: GetCommunityArgs) {
+        if (!getCommunityArgs.address && !getCommunityArgs.name && !getCommunityArgs.publicKey) {
+            throw new Error("At least one of address, name, or publicKey must be provided");
+        }
         const community = await this.createCommunity(getCommunityArgs);
 
         if (typeof community.createdAt === "number") return <RpcLocalCommunity | LocalCommunity>community; // It's a local community, and already has been loaded, no need to wait

@@ -1,6 +1,6 @@
 import Logger from "../logger.js";
 import { PKC } from "./pkc.js";
-import type { InputPKCOptions } from "../types.js";
+import type { InputPKCOptions, GetCommunityArgs } from "../types.js";
 import { parseCreateRpcCommunityFunctionArgumentSchemaWithPKCErrorIfItFails } from "../schema/schema-util.js";
 import { CreateRpcCommunityFunctionArgumentSchema } from "../community/schema.js";
 import { RpcLocalCommunity } from "../community/rpc-local-community.js";
@@ -71,6 +71,13 @@ export class PKCWithRpcClient extends PKC {
         const parsedArgs = parseRpcCidParam(commentCid);
         const commentIpfs = await this._pkcRpcClient.getComment(parsedArgs);
         return this.createComment({ ...parsedArgs, raw: { ...(parsedArgs as CommentJson)?.raw, comment: commentIpfs } });
+    }
+
+    override async getCommunity(getCommunityArgs: GetCommunityArgs) {
+        if (!getCommunityArgs.address && !getCommunityArgs.name && !getCommunityArgs.publicKey) {
+            throw new Error("At least one of address, name, or publicKey must be provided");
+        }
+        return super.getCommunity(getCommunityArgs);
     }
 
     override async createCommunity(

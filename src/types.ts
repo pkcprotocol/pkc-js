@@ -27,6 +27,8 @@ export type NameResolver = z.infer<typeof NameResolverSchema>;
 export type InputPKCOptions = z.input<typeof PKCUserOptionsSchema>;
 export type ParsedPKCOptions = z.output<typeof PKCParsedOptionsSchema>;
 
+export type GetCommunityArgs = { address?: string; name?: CommunityIpfsType["name"]; publicKey?: string };
+
 export type AuthorPubsubType = z.infer<typeof AuthorPubsubSchema>;
 
 export type AuthorTypeWithCommentUpdate = z.infer<typeof AuthorWithOptionalCommentUpdateSchema>;

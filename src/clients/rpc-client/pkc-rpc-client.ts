@@ -375,11 +375,14 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     }
 
     async editCommunity(args: EditCommunityRpcParam): Promise<RpcLocalCommunityUpdateResultType> {
-        const parsedArgs = parseRpcEditCommunityParam({
+        // Validate with original values (schema accepts undefined but not null)
+        parseRpcEditCommunityParam(args);
+        // Convert undefined→null for JSON wire format, send without re-validating
+        const wireArgs: EditCommunityRpcParam = {
             ...args,
-            editOptions: replaceXWithY(args.editOptions, undefined, null)
-        });
-        const rawRes = <RpcLocalCommunityUpdateResultType>await this._webSocketClient.call("editCommunity", [parsedArgs]);
+            editOptions: replaceXWithY(args.editOptions, undefined, null) as EditCommunityRpcParam["editOptions"]
+        };
+        const rawRes = <RpcLocalCommunityUpdateResultType>await this._webSocketClient.call("editCommunity", [wireArgs]);
         return rawRes;
     }
 

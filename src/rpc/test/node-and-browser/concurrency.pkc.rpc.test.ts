@@ -521,10 +521,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
             try {
                 const freshCommunity = await createSubWithNoChallenge({ title: "temp community " + Date.now(), description: "tmp" }, pkcB);
                 const freshAddress = freshCommunity.address;
-                const startCommunityId = await (pkcB._pkcRpcClient as unknown as RpcClientWithInternals)._webSocketClient.call(
-                    "startCommunity",
-                    [{ publicKey: freshAddress }]
-                );
+                const { subscriptionId: startCommunityId } = await pkcB._pkcRpcClient.startCommunity({ publicKey: freshAddress });
 
                 const currentSettings = await waitForSettings(pkcA._pkcRpcClient);
                 const updatedOptions = {
