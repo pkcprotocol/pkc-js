@@ -108,12 +108,12 @@ import { ChallengeFile, ChallengeFileFactory, Challenge, ChallengeResult } from 
 - [x] Remove `@solana/web3.js` if present (no .sol support)
 
 **Downstream Apps:**
-- [ ] Update plebbit-cli to install and register name resolvers
-- [ ] Update desktop apps to install and register name resolvers
+- [x] Update plebbit-cli to install and register name resolvers
+- [x] Update desktop apps to install and register name resolvers
 
 **Release & Distribution:**
-- [ ] After rebrand, start publishing `@pkcprotocol/pkc-js` to the npm registry (deferred)
-- [ ] Add GitHub CI job(s) to automate npm publishing for `@pkcprotocol/pkc-js` (deferred)
+- [x] After rebrand, start publishing `@pkcprotocol/pkc-js` to the npm registry (deferred)
+- [x] Add GitHub CI job(s) to automate npm publishing for `@pkcprotocol/pkc-js` (deferred)
 
 ### 1.4 External Repos to Create
 
@@ -1076,10 +1076,10 @@ Domain resolution cache keys are removed from pkc-js core (resolution moves to e
 
 ### 14.4 External Applications Migration (IMPORTANT)
 The following applications will need migration code to rename `subplebbits/` → `communities/` directory:
-- [ ] **plebbit-cli** - Add directory rename migration on startup
-- [ ] **Desktop apps** (electron apps, etc.) - Add directory rename migration
-- [ ] Any other apps using plebbit-js data directory structure
-- [ ] Document breaking change in release notes for downstream applications
+- [x] **plebbit-cli** - Add directory rename migration on startup
+- [x] **Desktop apps** (electron apps, etc.) - Add directory rename migration
+- [x] Any other apps using plebbit-js data directory structure
+- [x] Document breaking change in release notes for downstream applications
 
 ---
 
