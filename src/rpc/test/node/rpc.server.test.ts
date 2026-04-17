@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, describe, it } from "vitest";
 import PKCWsServer from "../../../../dist/node/rpc/src/index.js";
 import { describeSkipIfRpc, mockPKC } from "../../../../dist/node/test/test-util.js";
-import tempy from "tempy";
+import { temporaryDirectory } from "tempy";
 
 import os from "os";
 import PKC from "../../../../dist/node/index.js";
@@ -316,7 +316,7 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
                 pkcOptions: {
                     kuboRpcClientsOptions: pkc.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
                     httpRoutersOptions: pkc.httpRoutersOptions,
-                    dataPath: tempy.directory()
+                    dataPath: temporaryDirectory()
                 }
             };
             const rpcServer = await PKCWsServer.PKCWsServer(options);

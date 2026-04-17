@@ -3,7 +3,7 @@ import signers from "../../fixtures/signers.js";
 
 import path from "path";
 import fs from "fs";
-import tempy from "tempy";
+import { temporaryDirectory } from "tempy";
 import {
     mockPKC,
     generateMockPost,
@@ -34,7 +34,7 @@ interface DatabaseToMigrate {
 
 const getTemporaryPKCOptions = (): InputPKCOptions => {
     return {
-        dataPath: tempy.directory(),
+        dataPath: temporaryDirectory(),
         kuboRpcClientsOptions: ["http://localhost:15004/api/v0"],
         pubsubKuboRpcClientsOptions: ["http://localhost:15005/api/v0"]
     };

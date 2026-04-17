@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, describe, it, expect, beforeEach, afterEach } from "vitest";
 import PKCWsServer from "../../../../dist/node/rpc/src/index.js";
 import { describeSkipIfRpc, mockPKC } from "../../../../dist/node/test/test-util.js";
-import tempy from "tempy";
+import { temporaryDirectory } from "tempy";
 import path from "path";
 import Database from "better-sqlite3";
 
@@ -56,7 +56,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
 
     describe("Scenario 1: Was running (not stopped explicitly) + startStartedCommunitiesOnStartup=true", () => {
         it("should auto-start the community on RPC server restart", async () => {
-            const dataPath = tempy.directory();
+            const dataPath = temporaryDirectory();
             const rpcServerPort = 19150;
 
             // Create first RPC server and start a community
@@ -118,7 +118,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
 
     describe("Scenario 2: Was running (not stopped explicitly) + startStartedCommunitiesOnStartup=false", () => {
         it("should NOT auto-start the community on RPC server restart", async () => {
-            const dataPath = tempy.directory();
+            const dataPath = temporaryDirectory();
             const rpcServerPort = 19151;
 
             // Create first RPC server with auto-start enabled to create the state
@@ -176,7 +176,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
 
     describe("Scenario 3: Was stopped explicitly by user + startStartedCommunitiesOnStartup=true", () => {
         it("should NOT auto-start the community that was explicitly stopped", async () => {
-            const dataPath = tempy.directory();
+            const dataPath = temporaryDirectory();
             const rpcServerPort = 19152;
 
             const options1: CreatePKCWsServerOptions = {
@@ -233,7 +233,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
 
     describe("Scenario 4: Was stopped explicitly by user + startStartedCommunitiesOnStartup=false", () => {
         it("should NOT auto-start the community", async () => {
-            const dataPath = tempy.directory();
+            const dataPath = temporaryDirectory();
             const rpcServerPort = 19153;
 
             const options1: CreatePKCWsServerOptions = {
@@ -288,7 +288,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
 
     describe("Scenario 5: Never started in this RPC session + startStartedCommunitiesOnStartup=true", () => {
         it("should NOT auto-start a community that was never started", async () => {
-            const dataPath = tempy.directory();
+            const dataPath = temporaryDirectory();
             const rpcServerPort = 19154;
 
             const options1: CreatePKCWsServerOptions = {
@@ -342,7 +342,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
 
     describe("Scenario 6: Never started in this RPC session + startStartedCommunitiesOnStartup=false", () => {
         it("should NOT auto-start a community that was never started", async () => {
-            const dataPath = tempy.directory();
+            const dataPath = temporaryDirectory();
             const rpcServerPort = 19155;
 
             const options1: CreatePKCWsServerOptions = {
@@ -395,7 +395,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
 
     describe("Edge cases", () => {
         it("should handle deleted community gracefully (clean up stale state)", async () => {
-            const dataPath = tempy.directory();
+            const dataPath = temporaryDirectory();
             const rpcServerPort = 19156;
 
             const options1: CreatePKCWsServerOptions = {
@@ -462,7 +462,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
         });
 
         it("should handle first run with no state DB gracefully", async () => {
-            const dataPath = tempy.directory();
+            const dataPath = temporaryDirectory();
             const rpcServerPort = 19157;
 
             const options: CreatePKCWsServerOptions = {
@@ -491,7 +491,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
         });
 
         it("should handle first run with no state DB and no dataPath directory", async () => {
-            const dataPath = tempy.directory();
+            const dataPath = temporaryDirectory();
             const rpcServerPort = 19158;
 
             const options: CreatePKCWsServerOptions = {
@@ -522,7 +522,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
         it("should update state DB when community address changes via edit", async () => {
             // Note: This test would need domain resolution support to fully work
             // For now, we just verify the state tracking mechanism
-            const dataPath = tempy.directory();
+            const dataPath = temporaryDirectory();
             const rpcServerPort = 19159;
 
             const options: CreatePKCWsServerOptions = {
@@ -560,7 +560,7 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
         });
 
         it("should handle rapid concurrent state updates without errors", async () => {
-            const dataPath = tempy.directory();
+            const dataPath = temporaryDirectory();
             const rpcServerPort = 19160;
 
             const options: CreatePKCWsServerOptions = {

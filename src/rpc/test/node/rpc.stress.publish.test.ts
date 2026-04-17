@@ -1,5 +1,5 @@
 import { beforeAll, afterAll, afterEach } from "vitest";
-import tempy from "tempy";
+import { temporaryDirectory } from "tempy";
 import net from "node:net";
 
 import PKCWsServerModule from "../../../../dist/node/rpc/src/index.js";
@@ -77,11 +77,11 @@ describeSkipIfRpc("PKC RPC server stress publish", function () {
     }
 
     beforeAll(async () => {
-        setPKCJs(async (options: Record<string, unknown>) => mockRpcServerPKC({ dataPath: tempy.directory(), ...(options || {}) }));
+        setPKCJs(async (options: Record<string, unknown>) => mockRpcServerPKC({ dataPath: temporaryDirectory(), ...(options || {}) }));
 
         const port = await getAvailablePort();
         rpcPort = port;
-        const dataPath = tempy.directory();
+        const dataPath = temporaryDirectory();
         rpcServer = await createPKCWsServer({ port, pkcOptions: { dataPath } });
         mockRpcServerForTests(rpcServer);
         rpcServer?.pkc?.setMaxListeners?.(1000);

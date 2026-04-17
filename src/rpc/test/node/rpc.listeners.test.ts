@@ -1,5 +1,5 @@
 import { beforeAll, afterAll, afterEach } from "vitest";
-import tempy from "tempy";
+import { temporaryDirectory } from "tempy";
 
 import PKCWsServerModule from "../../../../dist/node/rpc/src/index.js";
 import { restorePKCJs } from "../../../../dist/node/rpc/src/lib/pkc-js/index.js";
@@ -53,7 +53,7 @@ describeSkipIfRpc("PKCWsServer listener lifecycle", function () {
     let rpcServer: PKCWsServerType | undefined;
 
     beforeAll(() => {
-        setPKCJs(async (options: Record<string, unknown>) => mockRpcServerPKC({ dataPath: tempy.directory(), ...(options || {}) }));
+        setPKCJs(async (options: Record<string, unknown>) => mockRpcServerPKC({ dataPath: temporaryDirectory(), ...(options || {}) }));
     });
 
     afterAll(() => {

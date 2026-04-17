@@ -13,7 +13,7 @@ import {
 import { timestamp } from "../../../dist/node/util.js";
 import signers from "../../fixtures/signers.js";
 import { describe, beforeAll, afterAll, it, expect } from "vitest";
-import tempy from "tempy";
+import { temporaryDirectory } from "tempy";
 import PKCWsServer from "../../../dist/node/rpc/src/index.js";
 import PKC from "../../../dist/node/index.js";
 import type { CreatePKCWsServerOptions } from "../../../dist/node/rpc/src/types.js";
@@ -312,7 +312,7 @@ describe(`pkc.createCommunity - performance regression`, async () => {
     itSkipIfRpc(`createCommunity({address}) over RPC for a stopped local community should not trigger IPNS resolution`, async () => {
         // This test creates its own RPC server to test the RPC-specific code path
         // The direct (non-RPC) case is covered by the test above
-        const dataPath = tempy.directory();
+        const dataPath = temporaryDirectory();
         const rpcServerPort = 19170;
 
         const options: CreatePKCWsServerOptions = {

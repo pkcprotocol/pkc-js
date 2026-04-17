@@ -22,6 +22,7 @@ interface FetchError extends Error {
 }
 
 interface NetworkError extends NodeJS.ErrnoException {
+    cause?: unknown;
     address?: string;
     port?: number;
 }
