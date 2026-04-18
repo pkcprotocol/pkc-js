@@ -709,6 +709,9 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
             this._updatingCommunityInstanceWithListeners.community.state !== "stopped"
         ) {
             log("Cleaning up pkc._updatingCommunities", this.address, "There are no communities using it for updates");
+            // Untrack before stop() to prevent findUpdatingCommunity from returning a dying entry
+            // during the async stop window
+            untrackUpdatingCommunity(this._pkc, this._updatingCommunityInstanceWithListeners.community);
             await this._updatingCommunityInstanceWithListeners.community.stop();
         }
         this._updatingCommunityInstanceWithListeners = undefined;

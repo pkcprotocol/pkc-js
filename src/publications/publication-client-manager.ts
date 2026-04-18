@@ -14,7 +14,7 @@ import {
 import { CommentIpfsGatewayClient, CommentKuboRpcClient } from "./comment/comment-clients.js";
 import type { CommunityEvents, CommunityIpfsType } from "../community/types.js";
 import { waitForUpdateInCommunityInstanceWithErrorAndTimeout } from "../util.js";
-import { findStartedCommunity, findUpdatingCommunity } from "../pkc/tracked-instance-registry-util.js";
+import { findStartedCommunity, findUpdatingCommunity, untrackUpdatingCommunity } from "../pkc/tracked-instance-registry-util.js";
 
 export class PublicationClientsManager extends PKCClientsManager {
     override clients!: {
@@ -326,8 +326,12 @@ export class PublicationClientsManager extends PKCClientsManager {
             if (
                 this._communityForUpdating.community._numOfListenersForUpdatingInstance <= 0 &&
                 this._communityForUpdating.community.state === "updating"
-            )
+            ) {
+                // Untrack before stop() to prevent findUpdatingCommunity from returning a dying entry
+                // during the async stop window
+                untrackUpdatingCommunity(this._pkc, this._communityForUpdating.community);
                 await this._communityForUpdating.community.stop();
+            }
         }
         this._communityForUpdating = undefined;
     }

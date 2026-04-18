@@ -324,6 +324,9 @@ export class RpcRemoteCommunity extends RemoteCommunity {
         ) {
             const log = Logger("pkc-js:rpc-remote-community:_cleanupMirroringUpdatingCommunity");
             log("Cleaning up pkc._updatingCommunities", this.address, "There are no communities using it for updates");
+            // Untrack before stop() to prevent findUpdatingCommunity from returning a dying entry
+            // during the async stop window (stop() awaits RPC unsubscribe)
+            untrackUpdatingCommunity(this._pkc, this._updatingRpcCommunityInstanceWithListeners.community);
             await this._updatingRpcCommunityInstanceWithListeners.community.stop();
         }
         this._updatingRpcCommunityInstanceWithListeners = undefined;

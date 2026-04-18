@@ -392,6 +392,73 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await communityByDomain.stop();
         });
 
+        // Regression: reproduces the race condition from the CI failure in update.community.test.ts:99.
+        // When _numOfListenersForUpdatingInstance drops to 0, the underlying community's stop() is async.
+        // During the async window, findUpdatingCommunity still finds the dying entry, and a new
+        // community that mirrors it gets killed when the pending stop cascades.
+        it(`update() called during async stop window should not mirror a dying _updatingCommunities entry`, async () => {
+            const nameCommunitySigner = signers[3];
+
+            // 1. Create a community by IPNS key — after update, its name becomes 'plebbit.bso',
+            //    so _updatingCommunities gets an entry aliased under both the key AND 'plebbit.bso'
+            const communityByKey = await pkc.createCommunity({ address: nameCommunitySigner.address });
+            await communityByKey.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: communityByKey,
+                predicate: async () => typeof communityByKey.updatedAt === "number"
+            });
+
+            // Verify _updatingCommunities has an entry reachable by both the key and domain alias
+            expect(pkc._updatingCommunities[nameCommunitySigner.address]).to.exist;
+            expect(pkc._updatingCommunities["plebbit.bso"]).to.exist;
+            // Both aliases point to the same underlying entry
+            expect(pkc._updatingCommunities[nameCommunitySigner.address]).to.equal(pkc._updatingCommunities["plebbit.bso"]);
+
+            // 2. One-shot fetch of the domain community to get initial data
+            const communityByDomain = await pkc.getCommunity({ address: "plebbit.bso" });
+            const oldUpdatedAt = communityByDomain.updatedAt;
+            expect(oldUpdatedAt).to.be.a("number");
+
+            // After getCommunity, communityByKey's entry should still be there
+            expect(pkc._updatingCommunities[nameCommunitySigner.address]).to.exist;
+
+            // 3. Stop communityByKey WITHOUT awaiting — creates the race window.
+            //    Internally: _numOfListenersForUpdatingInstance drops to 0,
+            //    underlying.stop() starts but is awaiting RPC unsubscribe.
+            //    The entry is still in _updatingCommunities during this window.
+            const stopPromise = communityByKey.stop();
+
+            // 4. Immediately call update() on the domain community.
+            //    BUG: findUpdatingCommunity finds the dying entry via "plebbit.bso" alias,
+            //    mirrors it, then the pending stop cascades and kills this community.
+            //    FIX: The entry should be untracked before stop(), so it's not found.
+            await communityByDomain.update();
+
+            // 5. Let the stop complete
+            await stopPromise;
+
+            // 6. After the stop, communityByDomain should still be updating with a fresh entry
+            expect(communityByDomain.state).to.equal("updating");
+            expect(pkc._updatingCommunities["plebbit.bso"]).to.exist;
+
+            // 7. Publish a post to trigger a new community IPNS record
+            await publishRandomPost({ communityAddress: "plebbit.bso", pkc });
+
+            // 8. communityByDomain should still receive updates
+            await resolveWhenConditionIsTrue({
+                toUpdate: communityByDomain,
+                predicate: async () => oldUpdatedAt !== communityByDomain.updatedAt
+            });
+            expect(communityByDomain.updatedAt).to.not.equal(oldUpdatedAt);
+
+            await communityByDomain.stop();
+
+            // 9. After stopping, _updatingCommunities should be fully cleaned up
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            expect(pkc._updatingCommunities["plebbit.bso"]).to.be.undefined;
+            expect(pkc._updatingCommunities[nameCommunitySigner.address]).to.be.undefined;
+        });
+
         itIfRpc(`Updating a comment over RPC should not populate _updatingCommunities`, async () => {
             const community = await pkc.getCommunity({ address: communityAddress });
             const postCid = community.posts.pages.hot.comments[0].cid;
