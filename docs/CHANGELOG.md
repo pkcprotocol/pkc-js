@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.0.17](https://github.com/pkcprotocol/pkc-js/compare/v0.0.16...v0.0.17) (2026-04-18)
+
+### Bug Fixes
+
+* add timeout to resolveAuthorNameIfNeeded to prevent hanging on unresolvable domains ([15adb88](https://github.com/pkcprotocol/pkc-js/commit/15adb8813b05b03feec93ef5f0def474c37bee7f))
+* break circular dependency in schema imports ([717fe1a](https://github.com/pkcprotocol/pkc-js/commit/717fe1a91e3d2ef665dafe4234fa7ff8462f4e80))
+* bypass Vite 8 JSON recursion limit on large test fixtures ([fef14c0](https://github.com/pkcprotocol/pkc-js/commit/fef14c0473e429d8b9e0a54de81559464bea1c52))
+* don't throw retriable errors immediately in getCommunity ([944b7ad](https://github.com/pkcprotocol/pkc-js/commit/944b7adb8a142ab015d0e536f9f66652f0568d72))
+* downgrade release-it to 19.2.4 to resolve peer dependency conflict ([f5f6a73](https://github.com/pkcprotocol/pkc-js/commit/f5f6a73f98129588ebe14d4837f1eedfa5362bf7))
+* downgrade Vite 8 to 7.3.2 to fix JSON recursion limit on test fixtures ([f80d04b](https://github.com/pkcprotocol/pkc-js/commit/f80d04b312a234e87eff3571e11fc062a2b163ef))
+* reduce npm audit vulnerabilities from 16 to 11 ([de9fdfd](https://github.com/pkcprotocol/pkc-js/commit/de9fdfd60d97e6df7d00aa09a6fc1095f24f0ac3)), closes [cz-cli#1011](https://github.com/pkcprotocol/cz-cli/issues/1011) [#1007](https://github.com/pkcprotocol/pkc-js/issues/1007) [#963](https://github.com/pkcprotocol/pkc-js/issues/963)
+* resolve author names through community's client manager and update RPC test params ([aca0e21](https://github.com/pkcprotocol/pkc-js/commit/aca0e217b17669a1efcf69b973fc364e10c263c5))
+* resolve RPC test failures from shared RPC types refactoring ([f1241eb](https://github.com/pkcprotocol/pkc-js/commit/f1241eb2988563f41b668dfa8033acb888524b34))
+* resolve TypeScript errors in test files for tempy imports and NetworkError type ([3752139](https://github.com/pkcprotocol/pkc-js/commit/3752139813305f9f89391c88cee9ebe67c6b7eb9))
+* route browser debug output through per-test stderr logs ([f5783fd](https://github.com/pkcprotocol/pkc-js/commit/f5783fd09a8cd8fbdb7ae390a7abdd70e8d7d085))
+* skip ignoreChallenge tests until feature is implemented ([ac0a1c0](https://github.com/pkcprotocol/pkc-js/commit/ac0a1c07065e9c80d8a396afdb7217ab9a79eefe))
+* **test:** stabilize flaky browser gateway tests ([bc317a3](https://github.com/pkcprotocol/pkc-js/commit/bc317a303990329098acc2080ccc9916ad934139))
+* untrack updating community before async stop to prevent race condition ([5699f5c](https://github.com/pkcprotocol/pkc-js/commit/5699f5cfb68074fe95e64e95e449367cdea77d22))
+
 ## [0.0.16](https://github.com/pkcprotocol/pkc-js/compare/v0.0.15...v0.0.16) (2026-04-16)
 
 ### Features
