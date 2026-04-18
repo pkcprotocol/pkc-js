@@ -1809,7 +1809,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         if (typeof authorName === "string") {
             if (rolesToCheckAgainst.includes(this.roles[authorName]?.role as CommunityRoleNameUnion)) return true;
             if (this._pkc.resolveAuthorNames && isStringDomain(authorName)) {
-                const { resolvedAuthorName: resolvedSignerAddress } = await this._pkc.resolveAuthorName({ name: authorName });
+                const { resolvedAuthorName: resolvedSignerAddress } = await this._clientsManager.resolveAuthorNameIfNeeded({
+                    authorName,
+                    abortSignal: AbortSignal.timeout(this._pkc._timeouts["resolve-author-name"])
+                });
                 if (resolvedSignerAddress !== signerAddress) return false;
                 if (rolesToCheckAgainst.includes(this.roles[resolvedSignerAddress]?.role as CommunityRoleNameUnion)) return true;
             }
@@ -1855,10 +1858,14 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         }
 
         // Reject publications with author domains that can't be resolved or don't match the signer
+        // Use this._clientsManager (not this._pkc) so nameResolver state changes emit on the community's clients
         if (authorName && isStringDomain(authorName) && this._pkc.resolveAuthorNames) {
             let resolvedAddress: string | null;
             try {
-                ({ resolvedAuthorName: resolvedAddress } = await this._pkc.resolveAuthorName({ name: authorName }));
+                ({ resolvedAuthorName: resolvedAddress } = await this._clientsManager.resolveAuthorNameIfNeeded({
+                    authorName,
+                    abortSignal: AbortSignal.timeout(this._pkc._timeouts["resolve-author-name"])
+                }));
             } catch (e) {
                 log("Rejecting publication with unresolvable author domain", authorName, e);
                 return messages.ERR_FAILED_TO_RESOLVE_AUTHOR_DOMAIN;
@@ -3256,10 +3263,14 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     ): Promise<NonNullable<InternalCommunityRecordAfterFirstUpdateType["roles"]>> {
         for (const [roleAddress, roleValue] of Object.entries(newRawRoles)) {
             if (roleValue === undefined || roleValue === null) continue; // skip removals
+            // Use this._clientsManager (not this._pkc) so nameResolver state changes emit on the community's clients
             if (isStringDomain(roleAddress)) {
                 let resolved: string | null;
                 try {
-                    ({ resolvedAuthorName: resolved } = await this._pkc.resolveAuthorName({ name: roleAddress }));
+                    ({ resolvedAuthorName: resolved } = await this._clientsManager.resolveAuthorNameIfNeeded({
+                        authorName: roleAddress,
+                        abortSignal: AbortSignal.timeout(this._pkc._timeouts["resolve-author-name"])
+                    }));
                 } catch {
                     resolved = null;
                 }

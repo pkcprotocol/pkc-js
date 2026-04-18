@@ -122,8 +122,8 @@ describeSkipIfRpc("PKCWsServer listener lifecycle", function () {
         };
 
         try {
-            const subscriptionId = await rpcServer.startCommunity([{ address }], connectionId);
-            expect(subscriptionId).to.be.a("number");
+            const result = await rpcServer.startCommunity([{ publicKey: address }], connectionId);
+            expect(result.subscriptionId).to.be.a("number");
             expect(capturedCommunity).to.exist;
 
             const rpcServerWithPrivate = rpcServer as unknown as PKCWsServerPrivateAccess;
@@ -143,7 +143,7 @@ describeSkipIfRpc("PKCWsServer listener lifecycle", function () {
 
             const trackedSnapshot = cloneTrackedListeners(tracked!);
 
-            await rpcServer.stopCommunity([{ address }]);
+            await rpcServer.stopCommunity([{ publicKey: address }]);
 
             expect(trackedListenersMap.get(capturedCommunity!)).to.equal(undefined, "Tracked listeners should be removed after stop");
 
@@ -177,7 +177,7 @@ describeSkipIfRpc("PKCWsServer listener lifecycle", function () {
         };
 
         try {
-            await rpcServer.startCommunity([{ address }], connectionId);
+            await rpcServer.startCommunity([{ publicKey: address }], connectionId);
             expect(capturedCommunity).to.exist;
 
             const rpcServerWithPrivate = rpcServer as unknown as PKCWsServerPrivateAccess;
@@ -186,8 +186,8 @@ describeSkipIfRpc("PKCWsServer listener lifecycle", function () {
             expect(tracked).to.exist;
             const trackedSnapshot = cloneTrackedListeners(tracked!);
 
-            const deleteResult = await rpcServer.deleteCommunity([{ address }]);
-            expect(deleteResult).to.equal(true);
+            const deleteResult = await rpcServer.deleteCommunity([{ publicKey: address }]);
+            expect(deleteResult.success).to.equal(true);
 
             expect(trackedListenersMap.get(capturedCommunity!)).to.equal(undefined, "Tracked listeners should be removed after delete");
             expect(findStartedCommunity(rpcServer.pkc, { publicKey: address })).to.equal(
