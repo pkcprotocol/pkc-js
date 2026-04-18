@@ -87,7 +87,8 @@ const browserProject = defineProject({
             DEBUG: process.env.DEBUG,
             NO_COLOR: process.env.NO_COLOR,
             FORCE_COLOR: process.env.FORCE_COLOR,
-            CI: process.env.CI
+            CI: process.env.CI,
+            PER_TEST_LOG_DIR: process.env.PER_TEST_LOG_DIR
         },
         passWithNoTests: true,
         reporters: sharedReporters,
@@ -101,7 +102,8 @@ const browserProject = defineProject({
         "process.env.PKC_CONFIGS": JSON.stringify(process.env.PKC_CONFIGS),
         "process.env.DEBUG": JSON.stringify(process.env.DEBUG),
         "globalThis.PKC_CONFIGS": JSON.stringify(process.env.PKC_CONFIGS),
-        "window.PKC_CONFIGS": JSON.stringify(process.env.PKC_CONFIGS)
+        "window.PKC_CONFIGS": JSON.stringify(process.env.PKC_CONFIGS),
+        "process.env.PER_TEST_LOG_DIR": JSON.stringify(process.env.PER_TEST_LOG_DIR)
     },
     resolve: {
         alias: [
