@@ -9,14 +9,14 @@ import {
     PKCTimestampSchema,
     ProtocolVersionSchema,
     SignerWithAddressPublicKeySchema,
-    CommunityAddressSchema
+    CommunityAddressSchema,
+    nonNegativeIntStringSchema
 } from "../schema/schema.js";
 import { ModQueuePagesIpfsSchema, PostsPagesIpfsSchema } from "../pages/schema.js";
-import { LocalCommunity } from "../runtime/node/community/local-community.js";
+import type { LocalCommunity } from "../runtime/node/community/local-community.js";
 import * as remeda from "remeda";
 import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../pubsub-messages/types.js";
 import { messages } from "../errors.js";
-import { nonNegativeIntStringSchema } from "../schema.js";
 
 // Other props of Community Ipfs here
 export const CommunityEncryptionSchema = z.looseObject({

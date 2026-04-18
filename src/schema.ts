@@ -11,12 +11,7 @@ import type { ChallengeFileFactoryInput } from "./community/types.js";
 
 export const ChainTickerSchema = z.string().min(1);
 
-export const nonNegativeIntStringSchema = z
-    .string()
-    .regex(/^\d+$/)
-    .refine((val) => parseInt(val) >= 0, {
-        message: "Must be a non-negative integer"
-    });
+export { nonNegativeIntStringSchema } from "./schema/schema.js";
 
 export const Uint8ArraySchema = z.custom<Uint8Array<ArrayBufferLike>>(
     (value): value is Uint8Array<ArrayBufferLike> => value instanceof Uint8Array,

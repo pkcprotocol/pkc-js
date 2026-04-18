@@ -3,6 +3,13 @@ import { CID } from "kubo-rpc-client";
 import { messages } from "../errors.js";
 import * as remeda from "remeda";
 
+export const nonNegativeIntStringSchema = z
+    .string()
+    .regex(/^\d+$/)
+    .refine((val) => parseInt(val) >= 0, {
+        message: "Must be a non-negative integer"
+    });
+
 // TODO add validation for private key here
 export const CreateSignerSchema = z.object({ type: z.enum(["ed25519"]), privateKey: z.string() });
 
