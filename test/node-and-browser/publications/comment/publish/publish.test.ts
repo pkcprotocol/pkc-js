@@ -1,5 +1,5 @@
 import signers from "../../../../fixtures/signers.js";
-import { it, describe, beforeAll, afterAll } from "vitest";
+import { it, describe, expect, beforeAll, afterAll } from "vitest";
 import {
     generateMockPost,
     publishRandomReply,
@@ -271,7 +271,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(remotePost.link).to.equal("https://google.com");
         });
 
-        it(`A post with author.wallet = {} doesn't cause issues with pages or signatures`, async () => {
+        it.sequential(`A post with author.wallet = {} doesn't cause issues with pages or signatures`, async () => {
             const post = await generateMockPost({
                 communityAddress: communityAddress,
                 pkc: pkc,

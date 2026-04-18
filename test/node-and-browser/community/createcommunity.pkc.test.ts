@@ -16,7 +16,7 @@ import { stringify as deterministicStringify } from "safe-stable-stringify";
 import * as remeda from "remeda";
 import validCommunityJsonfiedFixture from "../../fixtures/signatures/community/valid_community_jsonfied.json" with { type: "json" };
 import validCommunityJsonfiedOldWireFormatFixture from "../../fixtures/signatures/community/valid_community_jsonfied_old_wire_format.json" with { type: "json" };
-import { describe, it, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";

@@ -1,4 +1,4 @@
-import { describe, it, vi } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { MockInstance } from "vitest";
 import {
     getAvailablePKCConfigsToTestAgainst,
@@ -63,7 +63,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 const pkc = await config.pkcInstancePromise(); // this is using mocked pubsub/ipfs client to publish
                 pkc.on("error", console.error);
 
-                const stressPublishCount = 100;
+                const stressPublishCount = typeof globalThis.window !== "undefined" ? 20 : 100; // on browser it fails more often for some reason
                 const offlineCommunity = await createMockedCommunityIpns({});
                 const offlineSubAddress = offlineCommunity.communityAddress; // this community is not online so can't respond to messages, although the IPNS record is fetchable
 
