@@ -66,7 +66,6 @@ const playwrightProvider = playwright(
 );
 
 const browserProject = defineProject({
-    json: { stringify: true },
     name: "browser",
     test: {
         browser: {
@@ -120,7 +119,6 @@ const browserProject = defineProject({
 const isWindows = process.platform === "win32";
 
 const nodeProject = defineProject({
-    json: { stringify: true },
     name: "node",
     test: {
         environment: "node",
