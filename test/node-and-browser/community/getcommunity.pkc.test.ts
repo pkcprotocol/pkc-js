@@ -131,7 +131,6 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`pkc.getCommunity should throw if it loads a record with invalid json`, async () => {
-            // this test fails sometimes
             const ipnsObj = await createNewIpns();
             await ipnsObj.publishToIpns("<html>hello this is not a valid json</html>");
 
@@ -165,6 +164,40 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 ]).to.include((e as { code: string }).code);
             } finally {
                 await ipnsObj.pkc.destroy();
+            }
+        });
+
+        it(`pkc.getCommunity should throw a retriable error (not generic timeout) when only retriable errors occur`, async () => {
+            const doesNotExistCommunityAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zx";
+            const customPKC = await config.pkcInstancePromise();
+            customPKC._timeouts["community-ipns"] = 5 * 1000;
+
+            try {
+                await customPKC.getCommunity({ address: doesNotExistCommunityAddress });
+                expect.fail("should not succeed");
+            } catch (e) {
+                const pkcErr = e as PKCError;
+                if (isPKCFetchingUsingGateways(customPKC)) {
+                    // Gateways respond quickly, so retriable errors are captured before timeout.
+                    // The last retriable error is surfaced instead of a generic ERR_GET_COMMUNITY_TIMED_OUT.
+                    expect(pkcErr.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
+                    expect(pkcErr.details.retriableError).to.equal(true);
+                    expect(pkcErr.details.countOfLoadAttempts).to.be.a("number");
+                } else {
+                    // P2P/RPC: IPNS resolution takes the full timeout so no intermediate errors
+                    // are captured before the outer timeout fires
+                    expect([
+                        "ERR_FAILED_TO_RESOLVE_IPNS_VIA_IPFS_P2P",
+                        "ERR_IPNS_RESOLUTION_P2P_TIMEOUT",
+                        "ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED",
+                        "ERR_GET_COMMUNITY_TIMED_OUT"
+                    ]).to.include(pkcErr.code);
+                    if (pkcErr.code !== "ERR_GET_COMMUNITY_TIMED_OUT") {
+                        expect(pkcErr.details.retriableError).to.equal(true);
+                    }
+                }
+            } finally {
+                await customPKC.destroy();
             }
         });
 

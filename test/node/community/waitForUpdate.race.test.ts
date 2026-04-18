@@ -37,4 +37,62 @@ describe("waitForUpdateInCommunityInstanceWithErrorAndTimeout - race condition",
         // Should resolve in well under 1s, not wait for the 5s timeout
         expect(elapsed).toBeLessThan(1000);
     });
+
+    it("does not throw on retriable errors, waits for update", async () => {
+        // When the retry loop emits a retriable error (e.g. transient IPNS timeout),
+        // waitForUpdate should NOT throw — it should wait for the retry to succeed.
+        const mockCommunity = new EventEmitter() as EventEmitter & Partial<RemoteCommunity>;
+        (mockCommunity as any).state = "stopped";
+        (mockCommunity as any).raw = { communityIpfs: undefined };
+        (mockCommunity as any)._pkc = { _updatingCommunities: {} };
+        (mockCommunity as any).publicKey = "12D3KooWTest";
+        (mockCommunity as any).address = "12D3KooWTest";
+        (mockCommunity as any).update = async () => {
+            (mockCommunity as any).state = "updating";
+            // Emit a retriable error (like a transient IPNS resolution failure)
+            const retriableErr = new PKCError("ERR_FAILED_TO_RESOLVE_IPNS_VIA_IPFS_P2P", {
+                retriableError: true
+            });
+            mockCommunity.emit("error", retriableErr);
+            // Shortly after, the retry succeeds and emits update
+            setTimeout(() => {
+                (mockCommunity as any).raw = { communityIpfs: { updatedAt: 123 } };
+                mockCommunity.emit("update", mockCommunity);
+            }, 50);
+        };
+        (mockCommunity as any).stop = async () => {
+            (mockCommunity as any).state = "stopped";
+        };
+
+        // Should NOT throw — the retriable error is ignored, waits for the update event
+        await waitForUpdateInCommunityInstanceWithErrorAndTimeout(mockCommunity as unknown as RemoteCommunity, 5000);
+    });
+
+    it("throws last retriable error on timeout when no non-retriable error occurs", async () => {
+        // When only retriable errors fire and the timeout expires, the last retriable
+        // error should be thrown (not a generic ERR_GET_COMMUNITY_TIMED_OUT) since
+        // it's more informative about what actually went wrong.
+        const mockCommunity = new EventEmitter() as EventEmitter & Partial<RemoteCommunity>;
+        (mockCommunity as any).state = "stopped";
+        (mockCommunity as any).raw = { communityIpfs: undefined };
+        (mockCommunity as any)._pkc = { _updatingCommunities: {} };
+        (mockCommunity as any).publicKey = "12D3KooWTest";
+        (mockCommunity as any).address = "12D3KooWTest";
+        (mockCommunity as any).update = async () => {
+            (mockCommunity as any).state = "updating";
+            // Emit retriable errors but never succeed
+            const retriableErr = new PKCError("ERR_FAILED_TO_RESOLVE_IPNS_VIA_IPFS_P2P", {
+                retriableError: true
+            });
+            mockCommunity.emit("error", retriableErr);
+        };
+        (mockCommunity as any).stop = async () => {
+            (mockCommunity as any).state = "stopped";
+        };
+
+        // Should throw the retriable error (not ERR_GET_COMMUNITY_TIMED_OUT)
+        await expect(waitForUpdateInCommunityInstanceWithErrorAndTimeout(mockCommunity as unknown as RemoteCommunity, 200)).rejects.toThrow(
+            "Failed to resolve IPNS through IPFS P2P"
+        );
+    });
 });

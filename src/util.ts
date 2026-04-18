@@ -570,27 +570,44 @@ export async function waitForUpdateInCommunityInstanceWithErrorAndTimeout(commun
         };
         community.on("update", updateListener);
     });
-    let updateError: PKCError | Error | undefined;
-    const errorListener = (err: PKCError | Error) => (updateError = err);
+    // Track all errors for debugging context, but only throw immediately on non-retriable errors.
+    // Retriable errors (details.retriableError === true) are handled by the retry loop —
+    // throwing on them would abort the retry before it can succeed.
+    const errors: (PKCError | Error)[] = [];
+    let criticalError: PKCError | Error | undefined;
+    let nonRetriableErrorResolve: (() => void) | undefined;
+    const nonRetriableErrorPromise = new Promise<void>((resolve) => {
+        nonRetriableErrorResolve = resolve;
+    });
+    const errorListener = (err: PKCError | Error) => {
+        errors.push(err);
+        const isRetriable = "details" in err && (err as any).details?.retriableError === true;
+        if (!isRetriable) {
+            criticalError = err;
+            nonRetriableErrorResolve?.();
+        }
+    };
     community.on("error", errorListener);
     try {
         if (community.state !== "started") await community.update();
-        if (updateError) throw updateError; // Error may have fired synchronously during update (e.g. RPC emitAllPendingMessages replay)
-        await pTimeout(Promise.race([updatePromise, new Promise((resolve) => community.once("error", resolve))]), {
+        if (criticalError) throw criticalError; // Non-retriable error may have fired synchronously during update (e.g. RPC emitAllPendingMessages replay)
+        await pTimeout(Promise.race([updatePromise, nonRetriableErrorPromise]), {
             milliseconds: timeoutMs,
             message:
-                updateError ||
+                criticalError ||
+                errors.at(-1) ||
                 new PKCError("ERR_GET_COMMUNITY_TIMED_OUT", {
                     communityAddress: community.address,
                     timeoutMs,
-                    error: updateError,
+                    errors,
                     updatingStates,
                     community
                 })
         });
-        if (updateError) throw updateError;
+        if (criticalError) throw criticalError;
     } catch (e) {
-        if (updateError) throw updateError;
+        if (criticalError) throw criticalError;
+        if (errors.length > 0) throw errors.at(-1);
         const updatingCommunity = findUpdatingCommunity(community._pkc, { publicKey: community.publicKey, name: community.name });
         if (updatingCommunity?._clientsManager._ipnsLoadingOperation?.mainError())
             throw updatingCommunity._clientsManager._ipnsLoadingOperation.mainError();
