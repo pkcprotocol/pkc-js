@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.18](https://github.com/pkcprotocol/pkc-js/compare/v0.0.17...v0.0.18) (2026-04-19)
+
+### Bug Fixes
+
+* **test:** use direct vitest imports instead of unreliable globals ([fd82e48](https://github.com/pkcprotocol/pkc-js/commit/fd82e4830e690a02d700605f2fa5e833894f1d3b))
+
 ## [0.0.17](https://github.com/pkcprotocol/pkc-js/compare/v0.0.16...v0.0.17) (2026-04-18)
 
 ### Bug Fixes
