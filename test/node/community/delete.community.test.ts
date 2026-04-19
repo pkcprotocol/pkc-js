@@ -1,5 +1,6 @@
 import { beforeAll, afterAll, describe, it } from "vitest";
-import { itSkipIfRpc, mockPKCV2, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
+import { mockPKCV2, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
+import { itSkipIfRpc } from "../../helpers/conditional-tests.js";
 
 import path from "path";
 import fs from "fs";

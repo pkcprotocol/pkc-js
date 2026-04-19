@@ -1,7 +1,7 @@
 import { beforeEach, afterEach, describe, it } from "vitest";
 import assert from "assert";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
-import { describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { CommentIpfsSchema } from "../../../dist/node/publications/comment/schema.js";
 import { CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema } from "../../../dist/node/publications/comment-edit/schema.js";
 import { CommentModerationPubsubMessagePublicationSchema } from "../../../dist/node/publications/comment-moderation/schema.js";

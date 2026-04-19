@@ -1,11 +1,5 @@
-import {
-    mockPKC,
-    publishRandomPost,
-    createSubWithNoChallenge,
-    itSkipIfRpc,
-    itIfRpc,
-    resolveWhenConditionIsTrue
-} from "../../../dist/node/test/test-util.js";
+import { mockPKC, publishRandomPost, createSubWithNoChallenge, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
+import { itSkipIfRpc, itIfRpc } from "../../helpers/conditional-tests.js";
 import { describe, beforeAll, afterAll, it } from "vitest";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";

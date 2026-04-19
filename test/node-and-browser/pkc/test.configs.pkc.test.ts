@@ -1,5 +1,6 @@
-import { describe, it, beforeAll, afterAll } from "vitest";
-import { getAvailablePKCConfigsToTestAgainst, isRpcFlagOn, isRunningInBrowser, itIfRpc } from "../../../dist/node/test/test-util.js";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
+import { getAvailablePKCConfigsToTestAgainst, isRpcFlagOn, isRunningInBrowser } from "../../../dist/node/test/test-util.js";
+import { itIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 
 const DEFAULT_IPFS_GATEWAYS = ["https://ipfsgateway.xyz", "https://gateway.plebpubsub.xyz", "https://gateway.forumindex.com"];

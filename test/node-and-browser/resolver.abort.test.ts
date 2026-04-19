@@ -1,4 +1,6 @@
-import { describeSkipIfRpc, mockPKCV2 } from "../../dist/node/test/test-util.js";
+import { mockPKCV2 } from "../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../helpers/conditional-tests.js";
+import { expect } from "vitest";
 
 function createAbortError(message: string) {
     const error = new Error(message);

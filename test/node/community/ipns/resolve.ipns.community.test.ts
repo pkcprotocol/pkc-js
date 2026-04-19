@@ -1,5 +1,6 @@
 import { beforeAll, afterAll, it } from "vitest";
-import { createSubWithNoChallenge, describeSkipIfRpc, mockPKC, resolveWhenConditionIsTrue } from "../../../../dist/node/test/test-util.js";
+import { createSubWithNoChallenge, mockPKC, resolveWhenConditionIsTrue } from "../../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { getIpnsRecordInLocalKuboNode } from "../../../../dist/node/util.js";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";

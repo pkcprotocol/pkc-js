@@ -7,9 +7,9 @@ import {
     isRunningInBrowser,
     addStringToIpfs,
     mockPKCV2,
-    describeIfRpc,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
+import { describeIfRpc } from "../../helpers/conditional-tests.js";
 
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 

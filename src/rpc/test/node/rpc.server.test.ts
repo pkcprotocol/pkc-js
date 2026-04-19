@@ -1,6 +1,7 @@
 import { beforeAll, afterAll, describe, it } from "vitest";
 import PKCWsServer from "../../../../dist/node/rpc/src/index.js";
-import { describeSkipIfRpc, mockPKC } from "../../../../dist/node/test/test-util.js";
+import { mockPKC } from "../../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../../../test/helpers/conditional-tests.js";
 import { temporaryDirectory } from "tempy";
 
 import os from "os";

@@ -1,4 +1,4 @@
-import { describeSkipIfRpc } from "../../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { beforeEach, it } from "vitest";
 import { PageGenerator } from "../../../../dist/node/runtime/node/community/page-generator.js";
 import { Buffer } from "buffer";

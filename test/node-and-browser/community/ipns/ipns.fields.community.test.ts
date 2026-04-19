@@ -1,10 +1,10 @@
-import { beforeAll, afterAll } from "vitest";
+import { beforeAll, afterAll, expect } from "vitest";
 import {
     createMockNameResolver,
     getAvailablePKCConfigsToTestAgainst,
-    resolveWhenConditionIsTrue,
-    describeSkipIfRpc
+    resolveWhenConditionIsTrue
 } from "../../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import signers from "../../../fixtures/signers.js";
 import { ipnsNameToIpnsOverPubsubTopic, pubsubTopicToDhtKey } from "../../../../dist/node/util.js";
 

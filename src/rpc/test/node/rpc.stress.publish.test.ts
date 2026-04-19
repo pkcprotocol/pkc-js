@@ -5,7 +5,6 @@ import net from "node:net";
 import PKCWsServerModule from "../../../../dist/node/rpc/src/index.js";
 import { restorePKCJs } from "../../../../dist/node/rpc/src/lib/pkc-js/index.js";
 import {
-    describeSkipIfRpc,
     mockRpcServerForTests,
     mockRpcServerPKC,
     publishWithExpectedResult,
@@ -13,6 +12,7 @@ import {
     createPendingApprovalChallenge,
     publishCommentToModQueue
 } from "../../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../../../test/helpers/conditional-tests.js";
 import PKC from "../../../../dist/node/index.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { createMockPubsubClient } from "../../../../dist/node/test/mock-ipfs-client.js";

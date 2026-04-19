@@ -1,4 +1,4 @@
-import { beforeAll, afterAll, it } from "vitest";
+import { beforeAll, afterAll, it, expect } from "vitest";
 import signers from "../../../../fixtures/signers.js";
 import {
     createMockNameResolver,
@@ -8,9 +8,9 @@ import {
     mockPKCV2,
     resolveWhenConditionIsTrue,
     publishRandomReply,
-    waitTillReplyInParentPages,
-    describeSkipIfRpc
+    waitTillReplyInParentPages
 } from "../../../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../../../helpers/conditional-tests.js";
 import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
 import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
 

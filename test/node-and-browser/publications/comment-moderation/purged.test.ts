@@ -11,16 +11,16 @@ import {
     getAvailablePKCConfigsToTestAgainst,
     waitTillReplyInParentPages,
     mockPKCNoDataPathWithOnlyKuboClient,
-    mockPKCNoDataPathWithOnlyKuboClientNoAdd,
-    itSkipIfRpc
+    mockPKCNoDataPathWithOnlyKuboClientNoAdd
 } from "../../../../dist/node/test/test-util.js";
+import { itSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { CID } from "kubo-rpc-client";
 
 import * as remeda from "remeda";
 import { findCommentInPageInstanceRecursively } from "../../../../dist/node/pages/util.js";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
-import { describe, it, beforeAll, afterAll } from "vitest";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";

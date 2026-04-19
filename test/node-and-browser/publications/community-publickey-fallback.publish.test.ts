@@ -4,7 +4,7 @@ import {
     getAvailablePKCConfigsToTestAgainst,
     publishWithExpectedResult
 } from "../../../dist/node/test/test-util.js";
-import { afterAll, beforeAll, it, vi } from "vitest";
+import { afterAll, beforeAll, it, vi, expect } from "vitest";
 
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type Publication from "../../../dist/node/publications/publication.js";

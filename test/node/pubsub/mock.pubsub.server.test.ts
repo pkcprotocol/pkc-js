@@ -4,7 +4,7 @@ import { io as createSocketClient, Socket as ClientSocket } from "socket.io-clie
 import { randomUUID } from "crypto";
 import { Buffer } from "buffer";
 import { createMockPubsubClient } from "../../../dist/node/test/mock-ipfs-client.js";
-import { describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { IpfsHttpClientPubsubMessage } from "../../../dist/node/types.js";
 import type { EventEmitter } from "events";
 

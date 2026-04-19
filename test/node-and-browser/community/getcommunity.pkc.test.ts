@@ -5,11 +5,11 @@ import {
     createNewIpns,
     getAvailablePKCConfigsToTestAgainst,
     createMockedCommunityIpns,
-    itSkipIfRpc,
     isPKCFetchingUsingGateways
 } from "../../../dist/node/test/test-util.js";
+import { itSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { convertBase58IpnsNameToBase36Cid } from "../../../dist/node/signer/util.js";
-import { describe, it, beforeAll, afterAll } from "vitest";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";

@@ -2,7 +2,6 @@ import { beforeAll, afterAll, it } from "vitest";
 import Logger from "@pkcprotocol/pkc-logger";
 import {
     createSubWithNoChallenge,
-    describeSkipIfRpc,
     disableValidationOfSignatureBeforePublishing,
     ensurePublicationIsSigned,
     mockPKC,
@@ -10,6 +9,7 @@ import {
     publishWithExpectedResult,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { messages } from "../../../dist/node/errors.js";
 import { _signJson, cleanUpBeforePublishing } from "../../../dist/node/signer/signatures.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";

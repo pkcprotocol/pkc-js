@@ -6,10 +6,10 @@ import {
     getCommentWithCommentUpdateProps,
     publishToModQueueWithDepth,
     generateMockVote,
-    itSkipIfRpc,
     getAvailablePKCConfigsToTestAgainst,
     createPendingApprovalChallenge
 } from "../../../../dist/node/test/test-util.js";
+import { itSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { describe, it, vi, beforeAll, afterAll } from "vitest";
 import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";

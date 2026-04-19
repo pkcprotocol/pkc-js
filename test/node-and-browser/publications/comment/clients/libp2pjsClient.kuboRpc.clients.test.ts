@@ -9,7 +9,7 @@ import {
     resolveWhenConditionIsTrue,
     mockPostToReturnSpecificCommentUpdate
 } from "../../../../../dist/node/test/test-util.js";
-import { describe, it, beforeAll, afterAll } from "vitest";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
 import type { PKCError } from "../../../../../dist/node/pkc-error.js";
 

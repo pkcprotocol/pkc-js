@@ -1,12 +1,7 @@
 // Test that dbHandler.queryComment returns quotedCids as a proper array, not a JSON string
 
-import {
-    mockPKC,
-    publishRandomPost,
-    publishRandomReply,
-    resolveWhenConditionIsTrue,
-    describeSkipIfRpc
-} from "../../../dist/node/test/test-util.js";
+import { mockPKC, publishRandomPost, publishRandomReply, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { it, beforeAll, afterAll, expect } from "vitest";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";

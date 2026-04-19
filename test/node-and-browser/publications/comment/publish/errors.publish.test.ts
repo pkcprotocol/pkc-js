@@ -1,14 +1,14 @@
 import signers from "../../../../fixtures/signers.js";
-import { it } from "vitest";
+import { it, expect } from "vitest";
 import {
     generateMockPost,
     publishWithExpectedResult,
     mockRemotePKC,
     mockGatewayPKC,
-    describeSkipIfRpc,
     mockPKCV2,
     resolveWhenConditionIsTrue
 } from "../../../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../../../helpers/conditional-tests.js";
 import { messages } from "../../../../../dist/node/errors.js";
 import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
 import type { PKCError } from "../../../../../dist/node/pkc-error.js";

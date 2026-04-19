@@ -1,7 +1,6 @@
 import { describe, it, beforeAll, afterAll } from "vitest";
 import {
     createSubWithNoChallenge,
-    describeSkipIfRpc,
     getAvailablePKCConfigsToTestAgainst,
     mockPKC,
     publishRandomPost,
@@ -14,6 +13,7 @@ import {
     waitTillReplyInParentPages,
     waitTillReplyInParentPagesInstance
 } from "../../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { timestamp } from "../../../../dist/node/util.js";
 import { createSigner, SignerWithPublicKeyAddress } from "../../../../dist/node/signer/index.js";

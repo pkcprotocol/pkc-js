@@ -1,14 +1,13 @@
-import { beforeAll, afterAll, describe, it } from "vitest";
+import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import PKC from "../../../dist/node/index.js";
 import signers from "../../fixtures/signers.js";
 import {
     mockRemotePKC,
-    itIfRpc,
-    describeIfRpc,
     mockPKCNoDataPathWithOnlyKuboClient,
     resolveWhenConditionIsTrue,
     mockRpcRemotePKC
 } from "../../../dist/node/test/test-util.js";
+import { itIfRpc, describeIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { SignerType } from "../../../dist/node/signer/types.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";

@@ -2,13 +2,12 @@ import PKC from "../../../dist/node/index.js";
 import { describe, it } from "vitest";
 import {
     createSubWithNoChallenge,
-    itIfRpc,
     publishRandomPost,
-    itSkipIfRpc,
     mockPKC,
     mockPKCNoDataPathWithOnlyKuboClient,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
+import { itIfRpc, itSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";

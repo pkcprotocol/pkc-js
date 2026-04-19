@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, it } from "vitest";
 import { randomBytes } from "node:crypto";
-import { describeSkipIfRpc, mockPKCNoDataPathWithOnlyKuboClient } from "../../../dist/node/test/test-util.js";
+import { mockPKCNoDataPathWithOnlyKuboClient } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { calculateStringSizeSameAsIpfsAddCidV0 } from "../../../dist/node/util.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { KuboRpcClient } from "../../../dist/node/types.js";

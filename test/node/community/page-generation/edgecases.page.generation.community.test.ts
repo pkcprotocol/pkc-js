@@ -1,4 +1,5 @@
-import { describeSkipIfRpc, mockPKC } from "../../../../dist/node/test/test-util.js";
+import { mockPKC } from "../../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { it, vi } from "vitest";
 import { of as calculateIpfsCidV0Lib } from "typestub-ipfs-only-hash";
 import { randomUUID } from "node:crypto";

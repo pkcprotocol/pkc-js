@@ -9,7 +9,7 @@ import {
     createNewIpns,
     resolveWhenConditionIsTrue
 } from "../../../../../dist/node/test/test-util.js";
-import { describe, beforeAll, afterAll, it } from "vitest";
+import { describe, beforeAll, afterAll, it, expect } from "vitest";
 import type { PKCError } from "../../../../../dist/node/pkc-error.js";
 import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
 

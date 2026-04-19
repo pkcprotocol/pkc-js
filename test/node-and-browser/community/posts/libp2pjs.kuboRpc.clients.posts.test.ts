@@ -1,12 +1,8 @@
-import { beforeAll, afterAll } from "vitest";
+import { beforeAll, afterAll, expect } from "vitest";
 import signers from "../../../fixtures/signers.js";
 
-import {
-    describeSkipIfRpc,
-    mockGatewayPKC,
-    getAvailablePKCConfigsToTestAgainst,
-    addStringToIpfs
-} from "../../../../dist/node/test/test-util.js";
+import { mockGatewayPKC, getAvailablePKCConfigsToTestAgainst, addStringToIpfs } from "../../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 
 import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 

@@ -1,5 +1,6 @@
 import { describe, it } from "vitest";
-import { addStringToIpfs, describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
+import { addStringToIpfs } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { loadAllPagesUnderCommunityToFindComment } from "../../../dist/node/publications/comment/comment-util.js";
 import type { PageIpfs } from "../../../dist/node/pages/types.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";

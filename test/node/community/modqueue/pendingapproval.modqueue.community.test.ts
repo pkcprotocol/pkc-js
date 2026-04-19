@@ -14,10 +14,9 @@ import {
     publishToModQueueWithDepth,
     generateMockVote,
     generateMockComment,
-    itSkipIfRpc,
-    createPendingApprovalChallenge,
-    describeSkipIfRpc
+    createPendingApprovalChallenge
 } from "../../../../dist/node/test/test-util.js";
+import { itSkipIfRpc, describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
 import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";

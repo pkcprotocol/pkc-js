@@ -1,7 +1,6 @@
 import signers from "../../fixtures/signers.js";
 
 import {
-    describeSkipIfRpc,
     getAvailablePKCConfigsToTestAgainst,
     isRpcFlagOn,
     mockRemotePKC,
@@ -9,8 +8,9 @@ import {
     mockPKCNoDataPathWithOnlyKuboClient,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 
-import { describe, it, afterAll } from "vitest";
+import { describe, it, afterAll, expect } from "vitest";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";

@@ -1,4 +1,4 @@
-import { describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import signers from "../../fixtures/signers.js";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";

@@ -1,4 +1,4 @@
-import { beforeAll, afterAll, beforeEach } from "vitest";
+import { beforeAll, afterAll, beforeEach, expect } from "vitest";
 import { addStringToIpfs, getAvailablePKCConfigsToTestAgainst, isPKCFetchingUsingGateways } from "../../../dist/node/test/test-util.js";
 import signers from "../../fixtures/signers.js";
 import { sha256 } from "js-sha256";

@@ -3,7 +3,7 @@ import {
     mockPKCToTimeoutFetchingCid,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
-import { describe, it, beforeAll, afterAll } from "vitest";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
 
 import { _signJson } from "../../../dist/node/signer/signatures.js";
 

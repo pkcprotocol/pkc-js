@@ -7,15 +7,15 @@ import {
     generateMockPost,
     publishChallengeVerificationMessageWithEncryption,
     mockPostToReturnSpecificCommentUpdate,
-    itSkipIfRpc,
     isPKCFetchingUsingGateways
 } from "../../../../dist/node/test/test-util.js";
+import { itSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { _signJson } from "../../../../dist/node/signer/signatures.js";
 import validCommentUpdateFixture from "../../../fixtures/signatures/comment/commentUpdate/valid_comment_update.json" with { type: "json" };
 import * as remeda from "remeda";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
-import { describe, it, beforeAll, afterAll } from "vitest";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import Logger from "@pkcprotocol/pkc-logger";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";

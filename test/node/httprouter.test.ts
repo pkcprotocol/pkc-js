@@ -1,6 +1,7 @@
 import { beforeAll, afterAll } from "vitest";
 import PKC from "../../dist/node/index.js";
-import { createSubWithNoChallenge, describeSkipIfRpc, resolveWhenConditionIsTrue } from "../../dist/node/test/test-util.js";
+import { createSubWithNoChallenge, resolveWhenConditionIsTrue } from "../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../helpers/conditional-tests.js";
 import { MockHttpRouter } from "../../dist/node/runtime/node/test/mock-http-router.js";
 import type { PKC as PKCType } from "../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";

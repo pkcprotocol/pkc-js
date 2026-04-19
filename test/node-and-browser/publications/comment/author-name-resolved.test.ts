@@ -4,13 +4,13 @@ import {
     publishWithExpectedResult,
     publishRandomPost,
     publishRandomReply,
-    itSkipIfRpc,
     createMockNameResolver,
     resolveWhenConditionIsTrue,
     getAvailablePKCConfigsToTestAgainst,
     createStaticCommunityRecordForComment,
     addStringToIpfs
 } from "../../../../dist/node/test/test-util.js";
+import { itSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { PageIpfs } from "../../../../dist/node/pages/types.js";
 import type Publication from "../../../../dist/node/publications/publication.js";

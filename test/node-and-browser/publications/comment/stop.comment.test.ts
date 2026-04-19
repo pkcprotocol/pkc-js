@@ -1,7 +1,6 @@
 import signers from "../../../fixtures/signers.js";
-import { describe, it, beforeAll, afterAll } from "vitest";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import {
-    describeSkipIfRpc,
     mockRemotePKC,
     mockGatewayPKC,
     mockPKCNoDataPathWithOnlyKuboClient,
@@ -9,6 +8,7 @@ import {
     resolveWhenConditionIsTrue,
     getAvailablePKCConfigsToTestAgainst
 } from "../../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { sha256 } from "js-sha256";
 
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";

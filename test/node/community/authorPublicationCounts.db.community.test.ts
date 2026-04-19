@@ -1,6 +1,6 @@
 import assert from "assert";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
-import { describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { CommentsTableRowInsert } from "../../../dist/node/publications/comment/types.js";
 
 interface InsertCommentOptions

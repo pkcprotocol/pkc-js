@@ -5,12 +5,12 @@ import {
     createCommentUpdateWithInvalidSignature,
     mockCommentToNotUsePagesForUpdates,
     resolveWhenConditionIsTrue,
-    describeSkipIfRpc,
     getAvailablePKCConfigsToTestAgainst,
     addStringToIpfs,
     createStaticCommunityRecordForComment
 } from "../../../../../dist/node/test/test-util.js";
-import { describe, it, beforeAll, afterAll } from "vitest";
+import { describeSkipIfRpc } from "../../../../helpers/conditional-tests.js";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { PKCError } from "../../../../../dist/node/pkc-error.js";
 import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
 import type { PKC } from "../../../../../dist/node/pkc/pkc.js";

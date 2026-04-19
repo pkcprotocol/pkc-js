@@ -1,5 +1,5 @@
 import signers from "../../../../fixtures/signers.js";
-import { describe, it, beforeAll, afterAll } from "vitest";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import validCommentFixture from "../../../../fixtures/signatures/comment/commentUpdate/valid_comment_ipfs.json" with { type: "json" };
 import {
     publishRandomPost,
@@ -13,9 +13,9 @@ import {
     getAvailablePKCConfigsToTestAgainst,
     mockPostToReturnSpecificCommentUpdate,
     isPKCFetchingUsingGateways,
-    itSkipIfRpc,
     waitTillReplyInParentPagesInstance
 } from "../../../../../dist/node/test/test-util.js";
+import { itSkipIfRpc } from "../../../../helpers/conditional-tests.js";
 import { cleanUpBeforePublishing } from "../../../../../dist/node/signer/signatures.js";
 import { messages } from "../../../../../dist/node/errors.js";
 import type { PKCError } from "../../../../../dist/node/pkc-error.js";

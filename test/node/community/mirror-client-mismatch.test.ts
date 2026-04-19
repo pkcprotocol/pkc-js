@@ -1,5 +1,6 @@
 import { it, expect } from "vitest";
-import { mockPKC, describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
+import { mockPKC } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 
 describeSkipIfRpc(`mirror() should not crash when client URLs mismatch between community instances`, () => {

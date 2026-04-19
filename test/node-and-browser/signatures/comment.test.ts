@@ -1,5 +1,6 @@
-import { beforeAll, afterAll } from "vitest";
-import { mockRemotePKC, describeSkipIfRpc, resolveWhenConditionIsTrue, createMockNameResolver } from "../../../dist/node/test/test-util.js";
+import { beforeAll, afterAll, expect } from "vitest";
+import { mockRemotePKC, resolveWhenConditionIsTrue, createMockNameResolver } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import {
     signComment,
     verifyCommentUpdate,

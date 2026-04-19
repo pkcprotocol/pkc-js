@@ -5,6 +5,7 @@ import { createNewIpns, resolveWhenConditionIsTrue, getAvailablePKCConfigsToTest
 import { signCommunity } from "../../../dist/node/signer/signatures.js";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import { expect } from "vitest";
 
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] }).map((config) => {
     describe(`community.clients.pkcRpcClients (remote community)`, async () => {

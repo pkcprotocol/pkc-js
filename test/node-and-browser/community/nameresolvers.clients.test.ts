@@ -2,8 +2,8 @@ import signers from "../../fixtures/signers.js";
 
 import { createMockNameResolver, processAllCommentsRecursively, mockPKCV2, createNewIpns } from "../../../dist/node/test/test-util.js";
 import { signCommunity } from "../../../dist/node/signer/signatures.js";
-import { it } from "vitest";
-import { describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
+import { it, expect } from "vitest";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { InputPKCOptions } from "../../../dist/node/types.js";
 
 const communityAddress = signers[9].address;

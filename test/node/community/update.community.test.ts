@@ -1,12 +1,7 @@
 import lockfile from "@pkcprotocol/proper-lock-file";
 import path from "path";
-import {
-    createSubWithNoChallenge,
-    itSkipIfRpc,
-    mockPKC,
-    publishRandomPost,
-    resolveWhenConditionIsTrue
-} from "../../../dist/node/test/test-util.js";
+import { createSubWithNoChallenge, mockPKC, publishRandomPost, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
+import { itSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { describe, beforeAll, afterAll, it } from "vitest";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";

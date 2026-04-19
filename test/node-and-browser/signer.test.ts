@@ -1,4 +1,4 @@
-import { beforeAll, afterAll, describe, it } from "vitest";
+import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import { mockPKCNoDataPathWithOnlyKuboClient } from "../../dist/node/test/test-util.js";
 import fixtureSigners from "../fixtures/signers.js";
 import { signBufferEd25519, verifyBufferEd25519 } from "../../dist/node/signer/signatures.js";

@@ -1,4 +1,4 @@
-import { beforeAll, afterAll, describe, it } from "vitest";
+import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import signers from "../../../../fixtures/signers.js";
 import {
     generateMockPost,

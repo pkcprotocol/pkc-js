@@ -1,4 +1,4 @@
-import { beforeAll, afterAll } from "vitest";
+import { beforeAll, afterAll, expect } from "vitest";
 import signers from "../../fixtures/signers.js";
 import { getAvailablePKCConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
 import * as remeda from "remeda";

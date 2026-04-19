@@ -1,12 +1,8 @@
 import signers from "../../../fixtures/signers.js";
-import {
-    getAvailablePKCConfigsToTestAgainst,
-    addStringToIpfs,
-    itSkipIfRpc,
-    isPKCFetchingUsingGateways
-} from "../../../../dist/node/test/test-util.js";
+import { getAvailablePKCConfigsToTestAgainst, addStringToIpfs, isPKCFetchingUsingGateways } from "../../../../dist/node/test/test-util.js";
+import { itSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
-import { describe, it, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, beforeAll, afterAll, vi, expect } from "vitest";
 import { CID } from "kubo-rpc-client";
 import validCommentFixture from "../../../fixtures/signatures/comment/commentUpdate/valid_comment_ipfs.json" with { type: "json" };
 import validCommentAuthorAddressDomainFixture from "../../../fixtures/signatures/comment/valid_comment_author_address_as_domain.json" with { type: "json" };

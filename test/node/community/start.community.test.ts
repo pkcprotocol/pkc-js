@@ -5,13 +5,12 @@ import {
     createSubWithNoChallenge,
     publishWithExpectedResult,
     mockPKCNoDataPathWithOnlyKuboClient,
-    itSkipIfRpc,
-    itIfRpc,
     resolveWhenConditionIsTrue,
     waitTillPostInCommunityPages,
     mockPKCV2,
     iterateThroughPagesToFindCommentInParentPagesInstance
 } from "../../../dist/node/test/test-util.js";
+import { itSkipIfRpc, itIfRpc } from "../../helpers/conditional-tests.js";
 import path from "path";
 import fs from "fs";
 import signers from "../../fixtures/signers.js";

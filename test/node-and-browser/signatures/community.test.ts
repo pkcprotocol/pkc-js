@@ -1,12 +1,7 @@
-import { beforeAll, afterAll } from "vitest";
+import { beforeAll, afterAll, expect } from "vitest";
 import signers from "../../fixtures/signers.js";
-import {
-    createMockNameResolver,
-    mockRemotePKC,
-    describeSkipIfRpc,
-    resolveWhenConditionIsTrue,
-    mockPKCV2
-} from "../../../dist/node/test/test-util.js";
+import { createMockNameResolver, mockRemotePKC, resolveWhenConditionIsTrue, mockPKCV2 } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { messages } from "../../../dist/node/errors.js";
 import { verifyCommunity, signCommunity, cleanUpBeforePublishing, _signJson } from "../../../dist/node/signer/signatures.js";
 import * as remeda from "remeda";

@@ -1,6 +1,5 @@
 import {
     createSubWithNoChallenge,
-    describeSkipIfRpc,
     getAvailablePKCConfigsToTestAgainst,
     mockPKC,
     publishCommentWithDepth,
@@ -8,6 +7,7 @@ import {
     publishRandomReply,
     resolveWhenConditionIsTrue
 } from "../../../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../../../helpers/conditional-tests.js";
 
 import { describe, it, beforeAll, afterAll } from "vitest";
 import type { PKC as PKCType } from "../../../../../dist/node/pkc/pkc.js";

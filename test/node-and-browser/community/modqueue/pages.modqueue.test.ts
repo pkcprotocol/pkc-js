@@ -2,9 +2,9 @@ import {
     mockGatewayPKC,
     addStringToIpfs,
     getAvailablePKCConfigsToTestAgainst,
-    isPKCFetchingUsingGateways,
-    itSkipIfRpc
+    isPKCFetchingUsingGateways
 } from "../../../../dist/node/test/test-util.js";
+import { itSkipIfRpc } from "../../../helpers/conditional-tests.js";
 
 import validModQueuePage from "../../../fixtures/valid_modqueue_page.json" with { type: "json" };
 
@@ -12,7 +12,7 @@ import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { Buffer } from "buffer";
 import { messages } from "../../../../dist/node/errors.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
-import { describe, it } from "vitest";
+import { describe, it, expect } from "vitest";
 
 import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 import type { PKCError } from "../../../../dist/node/pkc-error.js";

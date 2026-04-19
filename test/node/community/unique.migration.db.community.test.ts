@@ -1,6 +1,6 @@
 import { it, beforeEach, afterEach } from "vitest";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
-import { describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { JsonSignature } from "../../../dist/node/signer/types.js";
 import type { CommentsTableRowInsert } from "../../../dist/node/publications/comment/types.js";
 import type { CommentEditsTableRowInsert } from "../../../dist/node/publications/comment-edit/types.js";

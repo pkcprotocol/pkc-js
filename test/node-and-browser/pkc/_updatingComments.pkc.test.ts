@@ -1,15 +1,15 @@
-import { beforeAll, describe, it, beforeEach, afterEach } from "vitest";
+import { beforeAll, describe, it, beforeEach, afterEach, expect } from "vitest";
 import {
     getAvailablePKCConfigsToTestAgainst,
     findOrPublishCommentWithDepth,
     isPKCFetchingUsingGateways,
-    itSkipIfRpc,
     publishRandomPost,
     publishRandomReply,
     resolveWhenConditionIsTrue,
     addStringToIpfs,
     createMockedCommunityIpns
 } from "../../../dist/node/test/test-util.js";
+import { itSkipIfRpc } from "../../helpers/conditional-tests.js";
 import signers from "../../fixtures/signers.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";

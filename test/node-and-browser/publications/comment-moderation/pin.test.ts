@@ -13,7 +13,7 @@ import {
 import { messages } from "../../../../dist/node/errors.js";
 import * as remeda from "remeda";
 import { POSTS_SORT_TYPES } from "../../../../dist/node/pages/util.js";
-import { describe, it, beforeAll, afterAll } from "vitest";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { CommentIpfsWithCidDefined, CommentWithinRepliesPostsPageJson } from "../../../../dist/node/publications/comment/types.js";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";

@@ -2523,21 +2523,6 @@ export async function getRandomPostCidFromSub(communityAddress: string, pkc: PKC
     return lastPostCid;
 }
 
-const skipFunction = (_: any) => {};
-skipFunction.skip = () => {};
-
-//@ts-expect-error
-export const describeSkipIfRpc = globalThis["describe"]?.runIf(!isRpcFlagOn());
-
-//@ts-expect-error
-export const describeIfRpc = globalThis["describe"]?.runIf(isRpcFlagOn());
-
-//@ts-expect-error
-export const itSkipIfRpc = globalThis["it"]?.runIf(!isRpcFlagOn());
-
-//@ts-expect-error
-export const itIfRpc = globalThis["it"]?.runIf(isRpcFlagOn());
-
 export function mockNameResolvers<T extends { name: string; provider: string }>({
     pkc,
     resolveFunction

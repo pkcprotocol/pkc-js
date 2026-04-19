@@ -4,9 +4,9 @@ import {
     publishRandomPost,
     createSubWithNoChallenge,
     resolveWhenConditionIsTrue,
-    describeSkipIfRpc,
     mockPKCV2
 } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { verifyCommentIpfs } from "../../../dist/node/signer/signatures.js";
 
 import { v4 as uuidV4 } from "uuid";

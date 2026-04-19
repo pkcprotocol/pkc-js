@@ -13,7 +13,7 @@ import {
 import { messages } from "../../../../dist/node/errors.js";
 import { _signJson } from "../../../../dist/node/signer/signatures.js";
 import { getPKCAddressFromPublicKeySync } from "../../../../dist/node/signer/util.js";
-import { describe, it, beforeAll, afterAll } from "vitest";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import validPageIpfsFixture from "../../../fixtures/valid_page.json" with { type: "json" };
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";

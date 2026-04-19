@@ -13,7 +13,7 @@ import {
     findReplyInParentCommentPagesInstancePreloadedAndPageCids
 } from "../../../../dist/node/test/test-util.js";
 import validCommentWithRepliesFixture from "../../../fixtures/signatures/comment/valid_comment_with_replies_raw.json" with { type: "json" };
-import { describe, it, beforeAll, afterAll } from "vitest";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import { calculateIpfsCidV0 } from "../../../../dist/node/util.js";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";

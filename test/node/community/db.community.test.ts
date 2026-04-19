@@ -8,13 +8,13 @@ import {
     mockPKC,
     generateMockPost,
     publishWithExpectedResult,
-    describeSkipIfRpc,
     waitUntilPKCCommunitiesIncludeSubAddress,
     publishRandomPost,
     createSubWithNoChallenge,
     resolveWhenConditionIsTrue,
     waitTillPostInCommunityInstancePages
 } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import * as cborg from "cborg";
 
 import pkcVersion from "../../../dist/node/version.js";

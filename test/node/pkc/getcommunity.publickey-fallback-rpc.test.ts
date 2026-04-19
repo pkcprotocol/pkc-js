@@ -6,10 +6,10 @@ import PKCWsServer from "../../../dist/node/rpc/src/index.js";
 import {
     createMockedCommunityIpns,
     createMockNameResolver,
-    itIfRpc,
     mockRpcServerForTests,
     mockRpcServerPKC
 } from "../../../dist/node/test/test-util.js";
+import { itIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { InputPKCOptions } from "../../../dist/node/types.js";
 

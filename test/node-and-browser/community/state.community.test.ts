@@ -2,6 +2,7 @@ import { getAvailablePKCConfigsToTestAgainst } from "../../../dist/node/test/tes
 import signers from "../../fixtures/signers.js";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import { expect } from "vitest";
 
 const communityAddress = signers[0].address;
 getAvailablePKCConfigsToTestAgainst().map((config) => {

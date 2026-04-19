@@ -1,6 +1,6 @@
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import assert from "assert";
-import { describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type Database from "better-sqlite3";
 import type { CommentsTableRowInsert, CommentUpdatesTableRowInsert } from "../../../dist/node/publications/comment/types.js";
 import type { VotesTableRowInsert } from "../../../dist/node/publications/vote/types.js";

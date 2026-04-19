@@ -1,5 +1,6 @@
-import { beforeAll, afterAll } from "vitest";
-import { mockRemotePKC, describeSkipIfRpc, createMockNameResolver } from "../../../dist/node/test/test-util.js";
+import { beforeAll, afterAll, expect } from "vitest";
+import { mockRemotePKC, createMockNameResolver } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { verifyPage } from "../../../dist/node/signer/signatures.js";
 import { messages } from "../../../dist/node/errors.js";
 import signers from "../../fixtures/signers.js";

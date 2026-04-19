@@ -7,9 +7,9 @@ import {
     mockPKC,
     publishRandomPost,
     resolveWhenConditionIsTrue,
-    describeSkipIfRpc,
     publishRandomReply
 } from "../../../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../../../helpers/conditional-tests.js";
 import { POST_REPLIES_SORT_TYPES, REPLY_REPLIES_SORT_TYPES } from "../../../../../dist/node/pages/util.js";
 import { testCommentFieldsInPageJson, testPageCommentsIfSortedCorrectly } from "../../../../node-and-browser/pages/pages-test-util.js";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";

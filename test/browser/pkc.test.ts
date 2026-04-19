@@ -1,4 +1,5 @@
 import PKC from "../../dist/node/index.js";
+import { expect } from "vitest";
 // example of browser only tests
 
 describe("pkc", () => {

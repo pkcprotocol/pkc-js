@@ -5,10 +5,9 @@ import {
     mockPKCNoDataPathWithOnlyKuboClient,
     publishRandomPost,
     resolveWhenConditionIsTrue,
-    itSkipIfRpc,
-    waitTillPostInCommunityPages,
-    describeIfRpc
+    waitTillPostInCommunityPages
 } from "../../../../dist/node/test/test-util.js";
+import { itSkipIfRpc, describeIfRpc } from "../../../helpers/conditional-tests.js";
 import { describe, it, beforeAll, afterAll } from "vitest";
 import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";

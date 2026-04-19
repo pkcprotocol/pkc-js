@@ -6,12 +6,12 @@ import {
     publishWithExpectedResult,
     publishRandomPost,
     getAvailablePKCConfigsToTestAgainst,
-    itSkipIfRpc,
     iterateThroughPagesToFindCommentInParentPagesInstance,
     waitTillPostInCommunityInstancePages,
     waitTillReplyInParentPagesInstance,
     publishCommentWithDepth
 } from "../../../../../dist/node/test/test-util.js";
+import { itSkipIfRpc } from "../../../../helpers/conditional-tests.js";
 import { signComment } from "../../../../../dist/node/signer/signatures.js";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import type { PKCError } from "../../../../../dist/node/pkc-error.js";

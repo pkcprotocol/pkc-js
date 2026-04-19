@@ -6,11 +6,11 @@ import {
     isPKCFetchingUsingGateways,
     createNewIpns,
     resolveWhenConditionIsTrue,
-    itSkipIfRpc,
     createMockedCommunityIpns,
     publishCommunityRecordWithExtraProp,
     createMockNameResolver
 } from "../../../dist/node/test/test-util.js";
+import { itSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { convertBase58IpnsNameToBase36Cid } from "../../../dist/node/signer/util.js";
 
 import * as remeda from "remeda";

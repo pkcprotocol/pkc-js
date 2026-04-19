@@ -3,7 +3,6 @@ import {
     publishRandomPost,
     createSubWithNoChallenge,
     publishRandomReply,
-    describeSkipIfRpc,
     mockCommentToNotUsePagesForUpdates,
     resolveWhenConditionIsTrue,
     waitTillPostInCommunityPages,
@@ -11,6 +10,7 @@ import {
     forceLocalSubPagesToAlwaysGenerateMultipleChunks,
     publishCommentWithDepth
 } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import Logger from "@pkcprotocol/pkc-logger";
 import { describe, it, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 

@@ -7,9 +7,9 @@ import {
     publishRandomPost,
     generateMockComment,
     createPendingApprovalChallenge,
-    describeSkipIfRpc,
     publishRandomReply
 } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { messages } from "../../../dist/node/errors.js";
 import { it, beforeAll, afterAll, expect } from "vitest";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";

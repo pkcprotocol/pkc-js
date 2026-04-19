@@ -3,7 +3,7 @@ import {
     resolveWhenConditionIsTrue,
     createMockedCommunityIpns
 } from "../../../dist/node/test/test-util.js";
-import { describe, it, beforeAll, afterAll } from "vitest";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 

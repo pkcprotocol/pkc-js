@@ -6,15 +6,15 @@ import {
     loadAllPagesBySortName,
     isPKCFetchingUsingGateways,
     waitTillReplyInParentPagesInstance,
-    resolveWhenConditionIsTrue,
-    itSkipIfRpc
+    resolveWhenConditionIsTrue
 } from "../../../../../dist/node/test/test-util.js";
+import { itSkipIfRpc } from "../../../../helpers/conditional-tests.js";
 import { POST_REPLIES_SORT_TYPES, REPLY_REPLIES_SORT_TYPES } from "../../../../../dist/node/pages/util.js";
 import signers from "../../../../fixtures/signers.js";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { messages } from "../../../../../dist/node/errors.js";
 import { testCommentFieldsInPageJson } from "../../../pages/pages-test-util.js";
-import { describe, it, beforeAll, afterAll } from "vitest";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { PKCError } from "../../../../../dist/node/pkc-error.js";
 import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
 import type { PKC } from "../../../../../dist/node/pkc/pkc.js";

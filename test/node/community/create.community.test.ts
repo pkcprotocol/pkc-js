@@ -7,9 +7,9 @@ import {
     mockPKCNoDataPathWithOnlyKuboClient,
     resolveWhenConditionIsTrue,
     jsonifyCommunityAndRemoveInternalProps,
-    waitTillPostInCommunityPages,
-    itSkipIfRpc
+    waitTillPostInCommunityPages
 } from "../../../dist/node/test/test-util.js";
+import { itSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { timestamp } from "../../../dist/node/util.js";
 import signers from "../../fixtures/signers.js";
 import { describe, beforeAll, afterAll, it, expect } from "vitest";

@@ -1,10 +1,5 @@
-import {
-    itSkipIfRpc,
-    mockPKC,
-    resolveWhenConditionIsTrue,
-    publishRandomPost,
-    createSubWithNoChallenge
-} from "../../../dist/node/test/test-util.js";
+import { mockPKC, resolveWhenConditionIsTrue, publishRandomPost, createSubWithNoChallenge } from "../../../dist/node/test/test-util.js";
+import { itSkipIfRpc } from "../../helpers/conditional-tests.js";
 import {
     findStartedCommunity,
     findUpdatingComment,

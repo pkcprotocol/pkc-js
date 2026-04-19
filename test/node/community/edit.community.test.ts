@@ -6,13 +6,12 @@ import {
     createSubWithNoChallenge,
     mockPKCNoDataPathWithOnlyKuboClient,
     resolveWhenConditionIsTrue,
-    describeSkipIfRpc,
-    describeIfRpc,
     waitTillPostInCommunityPages,
     mockPKCV2,
     mockRpcServerPKC,
     mockRpcServerForTests
 } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc, describeIfRpc } from "../../helpers/conditional-tests.js";
 import PKCWsServer from "../../../dist/node/rpc/src/index.js";
 import { timestamp } from "../../../dist/node/util.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";

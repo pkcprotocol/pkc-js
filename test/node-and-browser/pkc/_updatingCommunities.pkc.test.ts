@@ -1,12 +1,7 @@
-import {
-    getAvailablePKCConfigsToTestAgainst,
-    itSkipIfRpc,
-    resolveWhenConditionIsTrue,
-    itIfRpc,
-    publishRandomPost
-} from "../../../dist/node/test/test-util.js";
+import { getAvailablePKCConfigsToTestAgainst, resolveWhenConditionIsTrue, publishRandomPost } from "../../../dist/node/test/test-util.js";
+import { itSkipIfRpc, itIfRpc } from "../../helpers/conditional-tests.js";
 import signers from "../../fixtures/signers.js";
-import { describe, it, beforeEach, afterEach } from "vitest";
+import { describe, it, beforeEach, afterEach, expect } from "vitest";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
 // Type helper for accessing internal properties

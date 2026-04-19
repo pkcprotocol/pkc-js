@@ -5,9 +5,9 @@ import {
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
     createSubWithNoChallenge,
-    mockPKCV2,
-    describeSkipIfRpc
+    mockPKCV2
 } from "../../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { timestamp } from "../../../../dist/node/util.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";

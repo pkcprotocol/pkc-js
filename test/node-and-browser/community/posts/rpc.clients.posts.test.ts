@@ -1,4 +1,4 @@
-import { beforeAll, afterAll } from "vitest";
+import { beforeAll, afterAll, expect } from "vitest";
 import { getAvailablePKCConfigsToTestAgainst, addStringToIpfs } from "../../../../dist/node/test/test-util.js";
 import signers from "../../../fixtures/signers.js";
 import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";

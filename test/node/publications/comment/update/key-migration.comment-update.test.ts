@@ -1,12 +1,12 @@
 import { describe, expect } from "vitest";
 import {
     getAvailablePKCConfigsToTestAgainst,
-    itSkipIfRpc,
     createMockedCommunityIpns,
     addStringToIpfs,
     resolveWhenConditionIsTrue,
     mockPKCNoDataPathWithOnlyKuboClient
 } from "../../../../../dist/node/test/test-util.js";
+import { itSkipIfRpc } from "../../../../helpers/conditional-tests.js";
 import type { PKCError } from "../../../../../dist/node/pkc-error.js";
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {

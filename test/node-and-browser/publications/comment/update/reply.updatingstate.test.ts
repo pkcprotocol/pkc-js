@@ -2,12 +2,12 @@ import signers from "../../../../fixtures/signers.js";
 import {
     resolveWhenConditionIsTrue,
     publishRandomReply,
-    describeSkipIfRpc,
     getAvailablePKCConfigsToTestAgainst,
     publishRandomPost,
     createStaticCommunityRecordForComment
 } from "../../../../../dist/node/test/test-util.js";
-import { describe, it, beforeAll, afterAll } from "vitest";
+import { describeSkipIfRpc } from "../../../../helpers/conditional-tests.js";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { PKCError } from "../../../../../dist/node/pkc-error.js";
 import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
 import type { PKC } from "../../../../../dist/node/pkc/pkc.js";

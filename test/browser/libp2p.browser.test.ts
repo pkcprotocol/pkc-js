@@ -1,4 +1,4 @@
-import { beforeAll } from "vitest";
+import { beforeAll, expect } from "vitest";
 // In this test we're gonna publish a couple of publications to the online sub we started in test-server.js
 import PKC from "../../dist/node/index.js";
 import {

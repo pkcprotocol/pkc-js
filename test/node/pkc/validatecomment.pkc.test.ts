@@ -1,6 +1,5 @@
 import {
     mockRemotePKC,
-    describeSkipIfRpc,
     resolveWhenConditionIsTrue,
     getAvailablePKCConfigsToTestAgainst,
     mockPKC,
@@ -8,6 +7,7 @@ import {
     publishRandomPost,
     forceLocalSubPagesToAlwaysGenerateMultipleChunks
 } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { PKCError } from "../../../dist/node/pkc-error.js";
 import signers from "../../fixtures/signers.js";
 import * as remeda from "remeda";

@@ -5,11 +5,10 @@ import {
     resolveWhenConditionIsTrue,
     getCommentWithCommentUpdateProps,
     publishToModQueueWithDepth,
-    itSkipIfRpc,
     mockPKCNoDataPathWithOnlyKuboClient,
-    createPendingApprovalChallenge,
-    describeSkipIfRpc
+    createPendingApprovalChallenge
 } from "../../../../dist/node/test/test-util.js";
+import { itSkipIfRpc, describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { messages } from "../../../../dist/node/errors.js";
 import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";

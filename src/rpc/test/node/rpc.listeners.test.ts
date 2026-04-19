@@ -4,7 +4,8 @@ import { temporaryDirectory } from "tempy";
 import PKCWsServerModule from "../../../../dist/node/rpc/src/index.js";
 import { restorePKCJs } from "../../../../dist/node/rpc/src/lib/pkc-js/index.js";
 import { findStartedCommunity } from "../../../../dist/node/pkc/tracked-instance-registry-util.js";
-import { describeSkipIfRpc, mockRpcServerForTests, mockRpcServerPKC } from "../../../../dist/node/test/test-util.js";
+import { mockRpcServerForTests, mockRpcServerPKC } from "../../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../../../test/helpers/conditional-tests.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 
 const { PKCWsServer: createPKCWsServer, setPKCJs } = PKCWsServerModule;

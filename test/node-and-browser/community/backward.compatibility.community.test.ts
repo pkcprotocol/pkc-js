@@ -9,7 +9,7 @@ import {
 } from "../../../dist/node/test/test-util.js";
 import { _signJson } from "../../../dist/node/signer/signatures.js";
 import Logger from "@pkcprotocol/pkc-logger";
-import { describe, it, afterAll, beforeAll } from "vitest";
+import { describe, it, afterAll, beforeAll, expect } from "vitest";
 
 import type { PKCError } from "../../../dist/node/pkc-error.js";
 import type { CommunityIpfsType } from "../../../dist/node/community/types.js";

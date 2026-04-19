@@ -1,4 +1,4 @@
-import { beforeAll, afterAll, describe, it } from "vitest";
+import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import fixtureSigners from "../fixtures/signers.js";
 import type { SignerType, Encrypted } from "../../dist/node/signer/types.js";
 import type { PKC } from "../../dist/node/pkc/pkc.js";

@@ -3,10 +3,10 @@ import {
     mockPKC,
     resolveWhenConditionIsTrue,
     publishToModQueueWithDepth,
-    itSkipIfRpc,
     mockPKCNoDataPathWithOnlyKuboClient,
     createPendingApprovalChallenge
 } from "../../../../dist/node/test/test-util.js";
+import { itSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";

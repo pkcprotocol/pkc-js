@@ -1,7 +1,6 @@
 import {
     mockPKC,
     createSubWithNoChallenge,
-    describeSkipIfRpc,
     generateMockPost,
     generateMockComment,
     publishWithExpectedResult,
@@ -9,6 +8,7 @@ import {
     resolveWhenConditionIsTrue,
     publishRandomPost
 } from "../../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";

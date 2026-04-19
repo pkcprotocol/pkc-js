@@ -7,7 +7,7 @@ import {
     resolveWhenConditionIsTrue
 } from "../../../../../dist/node/test/test-util.js";
 
-import { describe, it } from "vitest";
+import { describe, it, expect } from "vitest";
 import type { PKCError } from "../../../../../dist/node/pkc-error.js";
 import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
 

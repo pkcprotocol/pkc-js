@@ -1,4 +1,4 @@
-import { beforeAll, afterAll, describe, it } from "vitest";
+import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import signers from "../fixtures/signers.js";
 import { messages } from "../../dist/node/errors.js";
 import {
@@ -6,11 +6,10 @@ import {
     mockRemotePKC,
     publishWithExpectedResult,
     publishRandomPost,
-    itSkipIfRpc,
-    describeSkipIfRpc,
     mockNameResolvers,
     mockPKCV2
 } from "../../dist/node/test/test-util.js";
+import { itSkipIfRpc, describeSkipIfRpc } from "../helpers/conditional-tests.js";
 import type { PKC } from "../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../dist/node/community/remote-community.js";
 import type { Comment } from "../../dist/node/publications/comment/comment.js";

@@ -5,7 +5,7 @@ import { CommentUpdateTableRowSchema, CommentsTableRowSchema } from "../../../di
 import { createSchemaRowParser } from "../../../dist/node/schema/schema-util.js";
 import { parseCommentsTableRow } from "../../../dist/node/runtime/node/community/db-row-parser.js";
 import { parseDbResponses } from "../../../dist/node/util.js";
-import { describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 
 import { JsonSignatureSchema } from "../../../dist/node/schema/schema.js";
 import type { z } from "zod";

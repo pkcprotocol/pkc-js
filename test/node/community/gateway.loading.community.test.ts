@@ -1,10 +1,10 @@
 import {
-    describeSkipIfRpc,
     mockGatewayPKC,
     mockPKC,
     mockPKCNoDataPathWithOnlyKuboClient,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { describe, beforeAll, afterAll, it } from "vitest";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";

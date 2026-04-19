@@ -1,6 +1,6 @@
 import signers from "../../fixtures/signers.js";
 
-import { describe, it, beforeAll, afterAll } from "vitest";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import {
     publishRandomPost,
     publishCommunityRecordWithExtraProp,

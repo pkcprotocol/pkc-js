@@ -4,14 +4,11 @@ import {
     createSubWithNoChallenge,
     publishRandomReply,
     generateMockPost,
-    itSkipIfRpc,
-    itIfRpc,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
-    describeSkipIfRpc,
-    describeIfRpc,
     waitTillPostInCommunityPages
 } from "../../../dist/node/test/test-util.js";
+import { itSkipIfRpc, itIfRpc, describeSkipIfRpc, describeIfRpc } from "../../helpers/conditional-tests.js";
 import { describe, beforeAll, afterAll, it } from "vitest";
 
 import signers from "../../fixtures/signers.js";

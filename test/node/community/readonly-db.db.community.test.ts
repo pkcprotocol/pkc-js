@@ -1,6 +1,6 @@
 import { it, describe, beforeAll, afterAll, expect } from "vitest";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
-import { describeSkipIfRpc } from "../../../dist/node/test/test-util.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type Database from "better-sqlite3";
 import * as os from "os";

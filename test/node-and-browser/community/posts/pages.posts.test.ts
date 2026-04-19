@@ -7,9 +7,9 @@ import {
     publishRandomReply,
     loadAllPagesBySortName,
     isPKCFetchingUsingGateways,
-    resolveWhenConditionIsTrue,
-    itSkipIfRpc
+    resolveWhenConditionIsTrue
 } from "../../../../dist/node/test/test-util.js";
+import { itSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { testCommentFieldsInPageJson, testPageCommentsIfSortedCorrectly } from "../../pages/pages-test-util.js";
 import signers from "../../../fixtures/signers.js";
 import * as remeda from "remeda";
@@ -17,7 +17,7 @@ import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { Buffer } from "buffer";
 import { messages } from "../../../../dist/node/errors.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
-import { describe, it, beforeAll, afterAll } from "vitest";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
 
 import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../../dist/node/community/remote-community.js";
