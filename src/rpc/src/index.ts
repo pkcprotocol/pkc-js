@@ -1,3 +1,4 @@
+import pLimit from "p-limit";
 import { Server as RpcWebsocketsServer } from "rpc-websockets";
 import { mkdirSync } from "fs";
 import path from "path";
@@ -122,13 +123,16 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
     private _startedCommunities: { [address: string]: "pending" | LocalCommunity } = {};
     private _autoStartOnBoot: boolean = false;
+    private _autoStartConcurrency: number;
     private _rpcStateDb: BetterSqlite3Database | undefined;
 
-    constructor({ port, server, pkc, authKey, startStartedCommunitiesOnStartup }: PKCWsServerClassOptions) {
+    constructor({ port, server, pkc, authKey, startStartedCommunitiesOnStartup, autoStartConcurrency }: PKCWsServerClassOptions) {
         super();
         const log = Logger("pkc-js:PKCWsServer");
         this.authKey = authKey;
         this._autoStartOnBoot = startStartedCommunitiesOnStartup ?? true;
+        // Clamp to at least 1 since pLimit(0) throws. 0 or 1 means sequential (no parallelism)
+        this._autoStartConcurrency = Math.max(1, autoStartConcurrency ?? 5);
         // don't instantiate pkc in constructor because it's an async function
         this._initPKC(pkc);
         this.rpcWebsockets = new RpcWebsocketsServer({
@@ -320,6 +324,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const pkc = await this._getPKCInstance();
         const localCommunities = pkc.communities;
 
+        // Filter phase: determine which communities need starting
+        const communitiesToStart: string[] = [];
         for (const row of rows) {
             if (!localCommunities.includes(row.address)) {
                 autoStartLog(`Skipping auto-start for ${row.address} - community no longer exists`);
@@ -332,15 +338,32 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
                 continue;
             }
 
-            autoStartLog(`Auto-starting community: ${row.address}`);
-            try {
-                await this._internalStartCommunity(row.address);
-                autoStartLog(`Successfully auto-started: ${row.address}`);
-            } catch (e) {
-                autoStartLog.error(`Failed to auto-start community ${row.address}`, e);
-                this._emitError(e instanceof Error ? e : new Error(`Failed to auto-start ${row.address}: ${String(e)}`));
-            }
+            communitiesToStart.push(row.address);
         }
+
+        if (communitiesToStart.length === 0) {
+            autoStartLog("No communities to auto-start");
+            return;
+        }
+
+        // Startup phase: start communities in parallel with bounded concurrency
+        autoStartLog(`Auto-starting ${communitiesToStart.length} communities with concurrency limit of ${this._autoStartConcurrency}`);
+
+        const limit = pLimit(this._autoStartConcurrency);
+        await Promise.allSettled(
+            communitiesToStart.map((address) =>
+                limit(async () => {
+                    autoStartLog(`Auto-starting community: ${address}`);
+                    try {
+                        await this._internalStartCommunity(address);
+                        autoStartLog(`Successfully auto-started: ${address}`);
+                    } catch (e) {
+                        autoStartLog.error(`Failed to auto-start community ${address}`, e);
+                        this._emitError(e instanceof Error ? e : new Error(`Failed to auto-start ${address}: ${String(e)}`));
+                    }
+                })
+            )
+        );
     }
 
     private async _internalStartCommunity(address: string): Promise<LocalCommunity> {
@@ -1535,7 +1558,8 @@ const createPKCWsServer = async (options: CreatePKCWsServerOptions) => {
         port: parsedOptions.port,
         server: parsedOptions.server,
         authKey: parsedOptions.authKey,
-        startStartedCommunitiesOnStartup: parsedOptions.startStartedCommunitiesOnStartup
+        startStartedCommunitiesOnStartup: parsedOptions.startStartedCommunitiesOnStartup,
+        autoStartConcurrency: parsedOptions.autoStartConcurrency
     });
 
     // Auto-start previously started communities (fire-and-forget, non-blocking)

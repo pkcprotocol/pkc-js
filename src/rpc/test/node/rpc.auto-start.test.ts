@@ -560,6 +560,72 @@ describeSkipIfRpc(`RPC Server Auto-Start Communities`, async () => {
             await rpcServer.destroy();
         });
 
+        it("should auto-start multiple communities in parallel", async () => {
+            const dataPath = temporaryDirectory();
+            const rpcServerPort = 19161;
+            const communityCount = 3;
+
+            // Create first RPC server and start multiple communities
+            const options1: CreatePKCWsServerOptions = {
+                port: rpcServerPort,
+                pkcOptions: {
+                    kuboRpcClientsOptions: basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
+                    httpRoutersOptions: basePKC.httpRoutersOptions,
+                    dataPath
+                },
+                startStartedCommunitiesOnStartup: true
+            };
+
+            const rpcServer1 = await PKCWsServer.PKCWsServer(options1);
+            const rpcUrl = `ws://localhost:${rpcServerPort}`;
+            const clientPKC1 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+
+            const communityAddresses: string[] = [];
+            for (let i = 0; i < communityCount; i++) {
+                const community = (await clientPKC1.createCommunity({})) as RpcLocalCommunity;
+                communityAddresses.push(community.address);
+                await community.start();
+            }
+
+            // Destroy without stopping (simulating crash/restart)
+            await clientPKC1.destroy();
+            await rpcServer1.destroy();
+
+            // Create second RPC server — communities should auto-start in parallel
+            const options2: CreatePKCWsServerOptions = {
+                port: rpcServerPort,
+                pkcOptions: {
+                    kuboRpcClientsOptions: basePKC.kuboRpcClientsOptions as CreatePKCWsServerOptions["pkcOptions"]["kuboRpcClientsOptions"],
+                    httpRoutersOptions: basePKC.httpRoutersOptions,
+                    dataPath
+                },
+                startStartedCommunitiesOnStartup: true,
+                autoStartConcurrency: 5
+            };
+
+            const rpcServer2 = await PKCWsServer.PKCWsServer(options2);
+
+            // Wait for all communities to be auto-started
+            await Promise.all(communityAddresses.map((address) => waitForCommunityToBeStarted(rpcServer2, address)));
+
+            // Verify all were auto-started
+            const privateAccess = rpcServer2 as unknown as PKCWsServerPrivateAccess;
+            for (const address of communityAddresses) {
+                expect(address in privateAccess._startedCommunities).to.be.true;
+                expect(privateAccess._startedCommunities[address]).to.not.equal("pending");
+            }
+
+            // Clean up
+            const clientPKC2 = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+            for (const address of communityAddresses) {
+                const community = (await clientPKC2.createCommunity({ address })) as RpcLocalCommunity;
+                await community.stop();
+                await community.delete();
+            }
+            await clientPKC2.destroy();
+            await rpcServer2.destroy();
+        });
+
         it("should handle rapid concurrent state updates without errors", async () => {
             const dataPath = temporaryDirectory();
             const rpcServerPort = 19160;

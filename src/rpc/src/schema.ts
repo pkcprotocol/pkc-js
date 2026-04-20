@@ -17,7 +17,10 @@ export const CreatePKCWsServerOptionsSchema = z
     .object({
         pkcOptions: z.custom<InputPKCOptions>().optional(), // no need to validate here, will be validated with await PKC()
         authKey: z.string().optional(),
-        startStartedCommunitiesOnStartup: z.boolean().optional()
+        startStartedCommunitiesOnStartup: z.boolean().optional(),
+        // Controls how many communities are auto-started in parallel on boot.
+        // 0 or 1 disables parallelism (sequential start). Default: 5
+        autoStartConcurrency: z.number().int().nonnegative().optional()
     })
     .merge(WsServerClassOptions)
     .loose();
