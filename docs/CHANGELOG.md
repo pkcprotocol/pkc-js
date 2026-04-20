@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.19](https://github.com/pkcprotocol/pkc-js/compare/v0.0.18...v0.0.19) (2026-04-20)
+
+### Features
+
+* **rpc:** start communities in parallel during auto-start ([8a2812f](https://github.com/pkcprotocol/pkc-js/commit/8a2812f71486651684dad19bc870d704185f5021))
+
+### Bug Fixes
+
+* derive communityPublicKey/communityName in page parser for old-format wire records ([99fbb11](https://github.com/pkcprotocol/pkc-js/commit/99fbb11e35f561d2a5a0a754c34e9319d142949e))
+
 ## [0.0.18](https://github.com/pkcprotocol/pkc-js/compare/v0.0.17...v0.0.18) (2026-04-19)
 
 ### Bug Fixes
