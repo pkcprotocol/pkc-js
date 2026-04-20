@@ -17,6 +17,9 @@ import type { Comment } from "../../../dist/node/publications/comment/comment.js
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { CommentWithinRepliesPostsPageJson } from "../../../dist/node/publications/comment/types.js";
+import type { PageIpfs } from "../../../dist/node/pages/types.js";
+import { parsePageIpfs } from "../../../dist/node/pages/util.js";
+import legacyPageIpfsFixture from "../../fixtures/valid_page_legacy_communityAddress.json" with { type: "json" };
 
 interface ValidateCommentTestEnvironment {
     communityAddress: string;
@@ -431,6 +434,32 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
                     expect((e as PKCError).code).to.equal("ERR_COMMENT_MISSING_POST_CID");
                 }
             });
+        });
+    });
+});
+
+getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map((config) => {
+    // RPC tests don't need to run this because clients of RPC trust RPC response and won't validate
+    describeSkipIfRpc(`pkc.validateComment legacy old-format page comments - ${config.name}`, async () => {
+        let pkc: PKC;
+
+        beforeAll(async () => {
+            pkc = await config.pkcInstancePromise();
+        });
+
+        afterAll(async () => {
+            if (pkc) await pkc.destroy();
+        });
+
+        it("should validate a page comment parsed from an old-format wire record", async () => {
+            const pageJson = parsePageIpfs(remeda.clone(legacyPageIpfsFixture) as PageIpfs);
+            const firstComment = pageJson.comments[0];
+            // The fixture uses an IPNS-key subplebbitAddress (not a domain), so the page parser
+            // should derive communityPublicKey from it while communityName stays undefined
+            expect(firstComment.communityAddress).to.be.a("string");
+            expect(firstComment.communityPublicKey).to.be.a("string");
+            expect(firstComment.communityName).to.be.undefined;
+            await pkc.validateComment(firstComment);
         });
     });
 });

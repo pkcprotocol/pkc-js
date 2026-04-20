@@ -71,6 +71,8 @@ export interface CommentIpfsWithCidPostCidDefined extends CommentIpfsWithCidDefi
 // community.posts.pages.hot.comments[0] will have this shape
 export interface CommentWithinRepliesPostsPageJson extends CommentIpfsWithCidPostCidDefined, Omit<CommentUpdateType, "replies"> {
     communityAddress: string;
+    communityPublicKey?: string;
+    communityName?: string;
     shortCid: string;
     shortCommunityAddress: string;
     author: AuthorWithShortCommunityAddress;
@@ -81,6 +83,8 @@ export interface CommentWithinRepliesPostsPageJson extends CommentIpfsWithCidPos
 
 export interface CommentWithinModQueuePageJson extends CommentIpfsWithCidPostCidDefined, CommentUpdateForChallengeVerification {
     communityAddress: string;
+    communityPublicKey?: string;
+    communityName?: string;
     shortCid: string;
     shortCommunityAddress: string;
     author: AuthorWithShortCommunityAddress;

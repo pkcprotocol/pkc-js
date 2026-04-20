@@ -5,6 +5,7 @@ import type { RpcLocalCommunity } from "../community/rpc-local-community.js";
 import type { RpcRemoteCommunity } from "../community/rpc-remote-community.js";
 import type { PKC } from "./pkc.js";
 import type { TrackedInstanceRegistry } from "./tracked-instance-registry.js";
+import { PKCError } from "../pkc-error.js";
 
 type TrackedCommunity = RemoteCommunity | RpcRemoteCommunity | RpcLocalCommunity | LocalCommunity;
 type StartedCommunity = LocalCommunity | RpcLocalCommunity;
@@ -68,10 +69,7 @@ function persistAliases<T extends object>(target: T, aliases: string[]): string[
 
 export function getCommunityRegistryAliases(community: CommunityWithAliases): string[] {
     const aliases = dedupeAliases([community.address, community.name, community.publicKey, community.signer?.address]);
-    if (aliases.length === 0)
-        throw new Error(
-            "getCommunityRegistryAliases: no aliases found — at least one of address, name, publicKey, or signer.address must be defined"
-        );
+    if (aliases.length === 0) throw new PKCError("ERR_COMMUNITY_REGISTRY_LOOKUP_HAS_NO_ALIASES", { community });
 
     return dedupeAliases(
         aliases.flatMap((alias) => {

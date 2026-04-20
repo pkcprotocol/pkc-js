@@ -19,7 +19,11 @@ import type { CommentWithinModQueuePageJson, CommentWithinRepliesPostsPageJson, 
 import { shortifyAddress, shortifyCid } from "../util.js";
 import { RemoteCommunity } from "../community/remote-community.js";
 import { getAuthorDomainFromWire } from "../publications/publication-author.js";
-import { getCommunityAddressFromRecord } from "../publications/publication-community.js";
+import {
+    getCommunityAddressFromRecord,
+    getCommunityPublicKeyFromWire,
+    getCommunityNameFromWire
+} from "../publications/publication-community.js";
 import { sha256 } from "js-sha256";
 import type { LRUCache } from "lru-cache";
 import { BaseClientsManager } from "../clients/base-client-manager.js";
@@ -148,7 +152,10 @@ export function mapModqueuePageIpfsCommentToModQueuePageJsonComment(
         signaturePublicKey: pageComment.comment.signature.publicKey
     });
 
-    const communityAddr = getCommunityAddressFromRecord(pageComment.comment as unknown as Record<string, unknown>)!;
+    const wireRecord = pageComment.comment as unknown as Record<string, unknown>;
+    const communityAddr = getCommunityAddressFromRecord(wireRecord)!;
+    const communityPublicKey = getCommunityPublicKeyFromWire(wireRecord);
+    const communityName = getCommunityNameFromWire(wireRecord);
     return {
         ...pageComment.comment,
         ...pageComment.commentUpdate,
@@ -160,6 +167,8 @@ export function mapModqueuePageIpfsCommentToModQueuePageJsonComment(
             flairs: pageComment.commentUpdate?.author?.community?.flairs || runtimeAuthor.flairs
         },
         communityAddress: communityAddr,
+        ...(communityPublicKey ? { communityPublicKey } : {}),
+        ...(communityName ? { communityName } : {}),
         shortCid: shortifyCid(pageComment.commentUpdate.cid),
         shortCommunityAddress: shortifyAddress(communityAddr),
         postCid,
@@ -193,7 +202,10 @@ export function mapPageIpfsCommentToPageJsonComment(pageComment: PageIpfs["comme
               ? pageComment.commentUpdate.edit?.nsfw
               : pageComment.comment.nsfw;
 
-    const communityAddr = getCommunityAddressFromRecord(pageComment.comment as unknown as Record<string, unknown>)!;
+    const wireRecord = pageComment.comment as unknown as Record<string, unknown>;
+    const communityAddr = getCommunityAddressFromRecord(wireRecord)!;
+    const communityPublicKey = getCommunityPublicKeyFromWire(wireRecord);
+    const communityName = getCommunityNameFromWire(wireRecord);
     return {
         ...pageComment.comment,
         ...pageComment.commentUpdate,
@@ -208,6 +220,8 @@ export function mapPageIpfsCommentToPageJsonComment(pageComment: PageIpfs["comme
                 runtimeAuthor.flairs
         },
         communityAddress: communityAddr,
+        ...(communityPublicKey ? { communityPublicKey } : {}),
+        ...(communityName ? { communityName } : {}),
         shortCid: shortifyCid(pageComment.commentUpdate.cid),
         shortCommunityAddress: shortifyAddress(communityAddr),
         deleted: pageComment.commentUpdate.edit?.deleted,
