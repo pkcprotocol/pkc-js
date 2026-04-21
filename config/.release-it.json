@@ -31,6 +31,6 @@
     }
   },
   "hooks": {
-    "before:git:release": "git add docs/CHANGELOG.md package.json && git commit -m 'chore(release): ${version} [skip ci]'"
+    "before:git:release": "npm i --package-lock-only && git add docs/CHANGELOG.md package.json package-lock.json && git commit -m 'chore(release): ${version} [skip ci]'"
   }
 }
