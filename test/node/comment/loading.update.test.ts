@@ -632,7 +632,7 @@ async function waitForStoredCommentUpdate(community: LocalCommunity, cid: string
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
         const stored = community._dbHandler.queryStoredCommentUpdate({ cid });
-        if (stored) return stored as CommentUpdateType;
+        if (stored) return stored as unknown as CommentUpdateType;
         await new Promise((resolve) => setTimeout(resolve, 50));
     }
     throw new Error(`Timed out waiting for stored comment update for ${cid}`);
@@ -658,7 +658,7 @@ async function waitForStoredParentPageCids(community: LocalCommunity, parentCid:
     while (Date.now() - start < timeoutMs) {
         const storedUpdate = community._dbHandler.queryStoredCommentUpdate({ cid: parentCid });
         const pageCids = storedUpdate?.replies?.pageCids;
-        if (pageCids && Object.keys(pageCids).length > 0) return storedUpdate as CommentUpdateType;
+        if (pageCids && Object.keys(pageCids).length > 0) return storedUpdate as unknown as CommentUpdateType;
         await new Promise((resolve) => setTimeout(resolve, 50));
     }
     throw new Error(`Timed out waiting for parent comment ${parentCid} to have replies.pageCids in stored update`);

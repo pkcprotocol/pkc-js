@@ -219,7 +219,7 @@ describe("local community garbage collection", () => {
             commentTableRow: { cid: purgeCid },
             commentUpdateTableRow: {
                 postUpdatesBucket: 86400,
-                replies: { pageCids: { best: "QmRepliesPage" }, pages: {} }
+                replies: { best: { allPageCids: ["QmRepliesPage"] } }
             }
         });
 

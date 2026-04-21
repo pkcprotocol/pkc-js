@@ -203,10 +203,20 @@ export const CommentsTableRowSchema = CommentIpfsSchema.extend({
     postNumber: z.number().int().positive().optional()
 }).strict();
 
+// DB replies format: flat per-sort CID references instead of full inline page data
+export const DbRepliesSortEntrySchema = z.object({
+    commentCids: z.array(CidStringSchema).optional(), // sorted child CIDs (preloaded sorts only)
+    nextCid: CidStringSchema.optional(), // link to page 2 (preloaded sorts only)
+    allPageCids: z.array(CidStringSchema).optional() // ALL IPFS page CIDs for this sort
+});
+
+export const DbRepliesSchema = z.record(z.string().min(1), DbRepliesSortEntrySchema);
+
 export const CommentUpdateTableRowSchema = CommentUpdateSchema.extend({
     insertedAt: PKCTimestampSchema,
     postUpdatesBucket: z.int().nonnegative().optional(), // the post updates bucket of post CommentUpdate, not applicable to replies
-    publishedToPostUpdatesMFS: z.boolean() // whether the comment latest update has been published
+    publishedToPostUpdatesMFS: z.boolean(), // whether the comment latest update has been published
+    replies: DbRepliesSchema.optional() // Override: DB stores CID refs, not wire format
 });
 
 // Comment pubsub reserved fields

@@ -11,7 +11,9 @@ import {
     CommentUpdateSchema,
     CommentUpdateSignedPropertyNames,
     CommentUpdateTableRowSchema,
-    CreateCommentOptionsSchema
+    CreateCommentOptionsSchema,
+    DbRepliesSchema,
+    DbRepliesSortEntrySchema
 } from "./schema.js";
 import { CommunityAuthorSchema } from "../../schema/schema.js";
 import { RpcCommentEventResultSchema, RpcCommentUpdateResultSchema } from "../../clients/rpc-client/schema.js";
@@ -151,6 +153,9 @@ export type CommentsTableRow = z.infer<typeof CommentsTableRowSchema>;
 export interface CommentsTableRowInsert extends Omit<CommentsTableRow, "rowid"> {}
 
 // CommentUpdates table
+
+export type DbRepliesSortEntry = z.infer<typeof DbRepliesSortEntrySchema>;
+export type DbRepliesFormat = z.infer<typeof DbRepliesSchema>;
 
 export type CommentUpdatesRow = z.infer<typeof CommentUpdateTableRowSchema>;
 export type CommentUpdatesTableRowInsert = CommentUpdatesRow;

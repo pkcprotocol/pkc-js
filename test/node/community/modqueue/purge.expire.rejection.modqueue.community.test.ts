@@ -13,7 +13,7 @@ import type { Comment } from "../../../../dist/node/publications/comment/comment
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
 import type { SignerType } from "../../../../dist/node/signer/types.js";
-import type { CommentUpdateType } from "../../../../dist/node/publications/comment/types.js";
+import type { CommentUpdateType, CommentUpdatesRow } from "../../../../dist/node/publications/comment/types.js";
 
 const pendingApprovalCommentProps = { challengeRequest: { challengeAnswers: ["pending"] } };
 
@@ -219,9 +219,9 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
         let disapprovedComment: Comment;
         let commentBeforePurge: ReturnType<LocalCommunity["_dbHandler"]["queryComment"]>;
         let parentCid: string | undefined;
-        let parentUpdateBefore: CommentUpdateType | undefined;
-        let parentUpdateAfterPurge: CommentUpdateType | undefined;
-        let parentUpdateAfterRefresh: CommentUpdateType | undefined;
+        let parentUpdateBefore: CommentUpdatesRow | undefined;
+        let parentUpdateAfterPurge: CommentUpdatesRow | undefined;
+        let parentUpdateAfterRefresh: CommentUpdatesRow | undefined;
 
         beforeAll(async () => {
             ctx = await createTestContext({ retentionSeconds });
@@ -280,7 +280,6 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
             if (!parentCid) return;
             expect(parentUpdateBefore).to.exist;
             expect(parentUpdateAfterPurge).to.exist;
-            // @ts-expect-error - accessing internal property
             expect(parentUpdateAfterPurge?.publishedToPostUpdatesMFS).to.be.false;
         });
 
@@ -304,7 +303,7 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
         let commentCid: string;
         let parentCid: string | undefined;
         let commentBeforeModeration: ReturnType<LocalCommunity["_dbHandler"]["queryComment"]>;
-        let parentUpdateAfterImmediatePurge: CommentUpdateType | undefined;
+        let parentUpdateAfterImmediatePurge: CommentUpdatesRow | undefined;
 
         beforeAll(async () => {
             ctx = await createTestContext({ retentionSeconds: ONE_MINUTE });
@@ -371,7 +370,6 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
         it("forces parent comment to refresh", () => {
             if (!parentCid) return;
             expect(parentUpdateAfterImmediatePurge).to.exist;
-            // @ts-expect-error - accessing internal property
             expect(parentUpdateAfterImmediatePurge?.publishedToPostUpdatesMFS).to.be.false;
         });
     });
