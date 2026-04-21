@@ -9,7 +9,7 @@ import {
 import * as cborg from "cborg";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
-import * as ed from "@noble/ed25519";
+import { ed25519 } from "@noble/curves/ed25519.js";
 
 import { peerIdFromString } from "@libp2p/peer-id";
 import { areEquivalentCommunityAddresses, isStringDomain, removeNullUndefinedEmptyObjectsValuesRecursively, timestamp } from "../util.js";
@@ -110,7 +110,7 @@ export const signBufferEd25519 = async (bufferToSign: Uint8Array, privateKeyBase
     if (privateKeyBuffer.length !== 32)
         throw Error(`verifyBufferEd25519 publicKeyBase64 ed25519 public key length not 32 bytes (${privateKeyBuffer.length} bytes)`);
     // do not use to sign strings, it doesn't encode properly in the browser
-    const signature = await ed.sign(bufferToSign, privateKeyBuffer);
+    const signature = ed25519.sign(bufferToSign, privateKeyBuffer);
     return signature;
 };
 
@@ -124,7 +124,7 @@ export const verifyBufferEd25519 = async (bufferToSign: Uint8Array, bufferSignat
         throw Error(
             `verifyBufferEd25519 publicKeyBase64 '${publicKeyBase64}' ed25519 public key length not 32 bytes (${publicKeyBuffer.length} bytes)`
         );
-    const isValid = await ed.verify(bufferSignature, bufferToSign, publicKeyBuffer);
+    const isValid = ed25519.verify(bufferSignature, bufferToSign, publicKeyBuffer);
     return isValid;
 };
 

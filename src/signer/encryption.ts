@@ -1,7 +1,7 @@
 import forge from "node-forge";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
-import * as ed from "@noble/ed25519";
+import { ed25519, x25519 } from "@noble/curves/ed25519.js";
 import type { Encrypted } from "./types.js";
 
 const isProbablyBuffer = (arg: any) => arg && typeof arg !== "string" && typeof arg !== "number";
@@ -21,7 +21,7 @@ export const encryptStringAesGcm = async (plaintext: string, key: Uint8Array, iv
 
     // use random 12 bytes uint8 array for iv
     if (!iv) {
-        iv = ed.utils.randomPrivateKey().slice(0, 12);
+        iv = ed25519.utils.randomSecretKey().slice(0, 12);
     }
 
     // node-forge doesn't accept uint8Array
@@ -89,7 +89,9 @@ export const encryptEd25519AesGcmPublicKeyBuffer = async (plaintext: string, pri
 
     // compute the shared secret of the sender and recipient and use it as the encryption key
     // do not publish this secret https://datatracker.ietf.org/doc/html/rfc7748#section-6.1
-    const aesGcmKey = await ed.getSharedSecret(privateKeyBuffer, publicKeyBuffer);
+    const x25519Priv = ed25519.utils.toMontgomerySecret(privateKeyBuffer);
+    const x25519Pub = ed25519.utils.toMontgomery(publicKeyBuffer);
+    const aesGcmKey = x25519.getSharedSecret(x25519Priv, x25519Pub);
     // use 16 bytes key for AES-128
     const aesGcmKey16Bytes = aesGcmKey.slice(0, 16);
 
@@ -129,7 +131,9 @@ export const decryptEd25519AesGcmPublicKeyBuffer = async (encrypted: Encrypted, 
 
     // compute the shared secret of the sender and recipient and use it as the encryption key
     // do not publish this secret https://datatracker.ietf.org/doc/html/rfc7748#section-6.1
-    const aesGcmKey = await ed.getSharedSecret(privateKeyBuffer, publicKeyBuffer);
+    const x25519Priv = ed25519.utils.toMontgomerySecret(privateKeyBuffer);
+    const x25519Pub = ed25519.utils.toMontgomery(publicKeyBuffer);
+    const aesGcmKey = x25519.getSharedSecret(x25519Priv, x25519Pub);
     // use 16 bytes key for AES-128
     const aesGcmKey16Bytes = aesGcmKey.slice(0, 16);
 

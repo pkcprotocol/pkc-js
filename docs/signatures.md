@@ -3,33 +3,33 @@
 - 'ed25519':
 
 ```js
-const ed = require('@noble/ed25519')
+const {ed25519} = require('@noble/curves/ed25519')
 const {fromString: uint8ArrayFromString} = require('uint8arrays/from-string')
 const {toString: uint8ArrayToString} = require('uint8arrays/to-string')
 const cborg = require('cborg')
 
 const generatePrivateKey = async () => {
-  const privateKeyBuffer = ed.utils.randomPrivateKey()
+  const privateKeyBuffer = ed25519.utils.randomSecretKey()
   const privateKeyBase64 = uint8ArrayToString(privateKeyBuffer, 'base64')
   return privateKeyBase64
 }
 
 const getPublicKeyFromPrivateKey = async (privateKeyBase64) => {
   const privateKeyBuffer = uint8ArrayFromString(privateKeyBase64, 'base64')
-  const publicKeyBuffer = await ed.getPublicKey(privateKeyBuffer)
+  const publicKeyBuffer = ed25519.getPublicKey(privateKeyBuffer)
   return uint8ArrayToString(publicKeyBuffer, 'base64')
 }
 
 const signBufferEd25519 = async (bufferToSign, privateKeyBase64) => {
   const privateKeyBuffer = uint8ArrayFromString(privateKeyBase64, 'base64')
   // do not use to sign strings, it doesn't encode properly in the browser
-  const signature = await ed.sign(bufferToSign, privateKeyBuffer)
+  const signature = ed25519.sign(bufferToSign, privateKeyBuffer)
   return signature
 }
 
 const verifyBufferEd25519 = async (bufferToSign, bufferSignature, publicKeyBase64) => {
   const publicKeyBuffer = uint8ArrayFromString(publicKeyBase64, 'base64')
-  const isValid = await ed.verify(bufferSignature, bufferToSign, publicKeyBuffer)
+  const isValid = ed25519.verify(bufferSignature, bufferToSign, publicKeyBuffer)
   return isValid
 }
 

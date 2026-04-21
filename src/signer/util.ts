@@ -8,7 +8,7 @@ import {
 import { peerIdFromString, peerIdFromMultihash, peerIdFromPrivateKey, peerIdFromPublicKey } from "@libp2p/peer-id";
 import type { PeerId } from "@libp2p/interface";
 import * as Digest from "multiformats/hashes/digest";
-import * as ed from "@noble/ed25519";
+import { ed25519 } from "@noble/curves/ed25519.js";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import { CID } from "multiformats/cid";
@@ -16,7 +16,7 @@ import { bases } from "multiformats/basics";
 import Logger from "../logger.js";
 
 export const generatePrivateKey = async (): Promise<string> => {
-    const privateKeyBuffer = ed.utils.randomPrivateKey();
+    const privateKeyBuffer = ed25519.utils.randomSecretKey();
     const privateKeyBase64 = uint8ArrayToString(privateKeyBuffer, "base64");
     return privateKeyBase64;
 };
@@ -55,7 +55,7 @@ export const getIpfsKeyFromPrivateKey = async (privateKeyBase64: string) => {
     }
     if (privateKeyBuffer.length !== 32)
         throw Error(`getIpfsKeyFromPrivateKey privateKeyBase64 ed25519 private key length not 32 bytes (${privateKeyBuffer.length} bytes)`);
-    const publicKeyBuffer = await ed.getPublicKey(privateKeyBuffer);
+    const publicKeyBuffer = ed25519.getPublicKey(privateKeyBuffer);
 
     // ipfs ed25519 private keys format are private (32 bytes) + public (32 bytes) (64 bytes total)
     const privateAndPublicKeyBuffer = new Uint8Array(64);
@@ -80,7 +80,7 @@ export const getPublicKeyFromPrivateKey = async (privateKeyBase64: string) => {
         throw Error(
             `getPublicKeyFromPrivateKey privateKeyBase64 ed25519 private key length not 32 bytes (${privateKeyBuffer.length} bytes)`
         );
-    const publicKeyBuffer = await ed.getPublicKey(privateKeyBuffer);
+    const publicKeyBuffer = ed25519.getPublicKey(privateKeyBuffer);
     return uint8ArrayToString(publicKeyBuffer, "base64");
 };
 

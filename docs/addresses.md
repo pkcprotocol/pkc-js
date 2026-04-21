@@ -3,27 +3,27 @@
 - 'ed25519':
 
 ```js
-import * as ed from "@noble/ed25519";
+import { ed25519 } from "@noble/curves/ed25519.js";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import { privateKeyFromRaw, privateKeyToProtobuf, publicKeyFromRaw, publicKeyToProtobuf } from "@libp2p/crypto/keys";
 import PeerId from "peer-id";
 
 const generatePrivateKey = async () => {
-  const privateKeyBuffer = ed.utils.randomPrivateKey();
+  const privateKeyBuffer = ed25519.utils.randomSecretKey();
   const privateKeyBase64 = uint8ArrayToString(privateKeyBuffer, "base64");
   return privateKeyBase64;
 };
 
 const getPublicKeyFromPrivateKey = async (privateKeyBase64) => {
   const privateKeyBuffer = uint8ArrayFromString(privateKeyBase64, "base64");
-  const publicKeyBuffer = await ed.getPublicKey(privateKeyBuffer);
+  const publicKeyBuffer = ed25519.getPublicKey(privateKeyBuffer);
   return uint8ArrayToString(publicKeyBuffer, "base64");
 };
 
 const getIpfsKeyFromPrivateKey = async (privateKeyBase64) => {
   const privateKeyBuffer = uint8ArrayFromString(privateKeyBase64, "base64");
-  const publicKeyBuffer = await ed.getPublicKey(privateKeyBuffer);
+  const publicKeyBuffer = ed25519.getPublicKey(privateKeyBuffer);
 
   // ipfs ed25519 private keys format are private (32 bytes) + public (32 bytes) (64 bytes total)
   const privateAndPublicKeyBuffer = new Uint8Array(64);

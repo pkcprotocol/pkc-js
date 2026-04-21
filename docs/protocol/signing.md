@@ -11,7 +11,7 @@ Every publication and record in the protocol is Ed25519 signed. Each type declar
 1. Determine `signedPropertyNames` for the type (defined per-schema, derived from schema keys minus `keysToOmitFromSignedPropertyNames`)
 2. Extract only the named properties from the object, **excluding null/undefined values**
 3. CBORG-encode the extracted object (deterministic binary encoding)
-4. Sign the CBORG buffer with Ed25519 (`@noble/ed25519`)
+4. Sign the CBORG buffer with Ed25519 (`@noble/curves/ed25519`)
 5. Attach signature object: `{ signature, publicKey, signedPropertyNames, type: "ed25519" }`
 
 ## Who Signs What

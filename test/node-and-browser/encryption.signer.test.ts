@@ -10,7 +10,7 @@ import { encryptEd25519AesGcm, decryptEd25519AesGcm, encryptStringAesGcm, decryp
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import { mockRemotePKC } from "../../dist/node/test/test-util.js";
-import * as ed from "@noble/ed25519";
+import { ed25519 } from "@noble/curves/ed25519.js";
 
 describe("encryption", () => {
     let pkc: PKC;
@@ -33,7 +33,7 @@ describe("encryption", () => {
             let tag: Uint8Array;
             beforeAll(async () => {
                 // key must be 16 bytes for aes-gcm 128
-                key = ed.utils.randomPrivateKey().slice(0, 16);
+                key = ed25519.utils.randomSecretKey().slice(0, 16);
                 const res = await encryptStringAesGcm(JSON.stringify(fixtureComment), key);
                 ciphertext = res.ciphertext;
                 iv = res.iv;
