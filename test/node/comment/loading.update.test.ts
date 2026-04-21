@@ -18,7 +18,7 @@ import { describe, it, beforeAll, afterAll } from "vitest";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
-import type { CommentUpdateType } from "../../../dist/node/publications/comment/types.js";
+import type { CommentUpdateType, CommentUpdatesRow } from "../../../dist/node/publications/comment/types.js";
 
 // this test is testing the loading logic of Comment at a different depths
 // it was made because testing it on test-server.js subs take too long
@@ -49,7 +49,7 @@ interface ReplyDepthTestContext {
     leafCid: string;
     leafParentCid: string;
     expectedLeafUpdate: CommentUpdateType;
-    forcedParentStoredUpdate?: CommentUpdateType;
+    forcedParentStoredUpdate?: CommentUpdatesRow;
     cleanup: () => Promise<void>;
 }
 
@@ -362,12 +362,10 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
                     try {
                         const storedParentUpdate = paginationContext.forcedParentStoredUpdate;
                         expect(storedParentUpdate).to.exist;
-                        expect(storedParentUpdate?.replies?.pageCids).to.exist;
-                        expect(Object.keys(storedParentUpdate?.replies?.pageCids ?? {})).to.not.be.empty;
-                        const storedParentPreloadedPages = storedParentUpdate?.replies?.pages || {};
-                        Object.values(storedParentPreloadedPages).forEach((page) => {
-                            if (page?.comments) expect(page.comments).to.deep.equal([]);
-                        });
+                        // DB stores replies in CID-ref format: { best: { allPageCids: [...] }, ... }
+                        expect(storedParentUpdate?.replies).to.exist;
+                        const hasAllPageCids = Object.values(storedParentUpdate?.replies ?? {}).some((s) => s?.allPageCids?.length);
+                        expect(hasAllPageCids).to.be.true;
 
                         await replyComment.update();
                         mockReplyToUseParentPagesForUpdates(replyComment);
@@ -399,12 +397,10 @@ describeSkipIfRpc("comment.update loading depth coverage", function () {
                         expect(replyComment.parentCid).to.equal(paginationContext.leafParentCid);
                         const storedParentUpdate = paginationContext.forcedParentStoredUpdate;
                         expect(storedParentUpdate).to.exist;
-                        expect(storedParentUpdate?.replies?.pageCids).to.exist;
-                        expect(Object.keys(storedParentUpdate?.replies?.pageCids ?? {})).to.not.be.empty;
-                        const storedParentPreloadedPages = storedParentUpdate?.replies?.pages || {};
-                        Object.values(storedParentPreloadedPages).forEach((page) => {
-                            if (page?.comments) expect(page.comments).to.deep.equal([]);
-                        });
+                        // DB stores replies in CID-ref format: { best: { allPageCids: [...] }, ... }
+                        expect(storedParentUpdate?.replies).to.exist;
+                        const hasAllPageCids = Object.values(storedParentUpdate?.replies ?? {}).some((s) => s?.allPageCids?.length);
+                        expect(hasAllPageCids).to.be.true;
                         const updatingReply = replyComment._pkc._updatingComments[replyComment.cid!];
                         expect(updatingReply).to.exist;
                         const parentFirstPageCidsAlreadyLoaded = (
@@ -553,7 +549,7 @@ async function createReplyDepthTestEnvironment({
 
     const chain = await buildReplyDepthChain({ replyDepth, pkc: publisherPKC, community: community as LocalCommunity });
 
-    let forcedParentStoredUpdate: CommentUpdateType | undefined;
+    let forcedParentStoredUpdate: CommentUpdatesRow | undefined;
     if (forceParentRepliesPageCids) {
         if (!chain.parentOfLeafCid) throw new Error("parent cid is required to force page generation");
         const parentComment = await publisherPKC.createComment({ cid: chain.parentOfLeafCid });
@@ -652,16 +648,18 @@ async function waitForPostToStartUpdating(postComment: Comment): Promise<void> {
     });
 }
 
-async function waitForStoredParentPageCids(community: LocalCommunity, parentCid: string): Promise<CommentUpdateType> {
+async function waitForStoredParentPageCids(community: LocalCommunity, parentCid: string): Promise<CommentUpdatesRow> {
     const timeoutMs = 60000;
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
         const storedUpdate = community._dbHandler.queryStoredCommentUpdate({ cid: parentCid });
-        const pageCids = storedUpdate?.replies?.pageCids;
-        if (pageCids && Object.keys(pageCids).length > 0) return storedUpdate as unknown as CommentUpdateType;
+        // DB stores replies in CID-ref format: { best: { allPageCids: [...] }, ... }
+        // allPageCids[0] is the pageCid for that sort
+        const hasPageCids = storedUpdate?.replies && Object.values(storedUpdate.replies).some((s) => s?.allPageCids?.length);
+        if (hasPageCids) return storedUpdate!;
         await new Promise((resolve) => setTimeout(resolve, 50));
     }
-    throw new Error(`Timed out waiting for parent comment ${parentCid} to have replies.pageCids in stored update`);
+    throw new Error(`Timed out waiting for parent comment ${parentCid} to have replies with allPageCids in stored update`);
 }
 
 function clearCommunityPreloadedPages(community: { posts?: { pages?: Record<string, { comments?: unknown[] }> } }): void {

@@ -1421,59 +1421,70 @@ export class DbHandler {
             }
         }
 
-        if (allCids.length === 0) return entries;
-
-        // Fetch all descendant trees starting from these CIDs using a recursive CTE
-        const placeholders = allCids.map(() => "?").join(",");
-        const commentUpdateSelects = commentUpdateCols.map((col) => `cu.${col} AS commentUpdate_${col}`);
-        const commentIpfsSelects = commentIpfsCols.map((col) => `c.${col} AS commentIpfs_${col}`);
-        const recCommentUpdateSelects = commentUpdateCols.map((col) => `cu2.${col} AS commentUpdate_${col}`);
-        const recCommentIpfsSelects = commentIpfsCols.map((col) => `c2.${col} AS commentIpfs_${col}`);
-
-        const queryStr = `
-            WITH RECURSIVE reply_tree AS (
-                SELECT ${commentIpfsSelects.join(", ")}, ${commentUpdateSelects.join(", ")},
-                       c.parentCid AS tree_parent
-                FROM ${TABLES.COMMENTS} c
-                INNER JOIN ${TABLES.COMMENT_UPDATES} cu ON c.cid = cu.cid
-                WHERE c.cid IN (${placeholders})
-
-                UNION ALL
-
-                SELECT ${recCommentIpfsSelects.join(", ")}, ${recCommentUpdateSelects.join(", ")},
-                       rt.commentUpdate_cid AS tree_parent
-                FROM reply_tree rt
-                CROSS JOIN json_each(
-                    json_extract(rt.commentUpdate_replies, '$.best.commentCids')
-                ) child_ref
-                JOIN ${TABLES.COMMENTS} c2 ON c2.cid = child_ref.value
-                JOIN ${TABLES.COMMENT_UPDATES} cu2 ON c2.cid = cu2.cid
-                WHERE rt.commentUpdate_replies IS NOT NULL
-                  AND json_type(rt.commentUpdate_replies, '$.best.commentCids') = 'array'
-            )
-            SELECT * FROM reply_tree
-        `;
-
-        const rowsRaw = this._db.prepare(queryStr).all(...allCids) as (PrefixedCommentRow & { tree_parent: string })[];
-
-        // Build lookup: cid -> parsed entry
+        // Build lookup maps from recursive query (only if we have CIDs to resolve)
         const parsedByCid = new Map<string, { comment: CommentIpfsType; commentUpdate: CommentUpdateType }>();
         const childrenByParent = new Map<string, { comment: CommentIpfsType; commentUpdate: CommentUpdateType }[]>();
-        for (const row of rowsRaw) {
-            const { comment, commentUpdate } = this._parsePrefixedComment(row);
-            parsedByCid.set(commentUpdate.cid, { comment, commentUpdate });
-            const parent = row.tree_parent;
-            if (!childrenByParent.has(parent)) childrenByParent.set(parent, []);
-            childrenByParent.get(parent)!.push({ comment, commentUpdate });
+
+        if (allCids.length > 0) {
+            // Fetch all descendant trees starting from these CIDs using a recursive CTE
+            const placeholders = allCids.map(() => "?").join(",");
+            const commentUpdateSelects = commentUpdateCols.map((col) => `cu.${col} AS commentUpdate_${col}`);
+            const commentIpfsSelects = commentIpfsCols.map((col) => `c.${col} AS commentIpfs_${col}`);
+            const recCommentUpdateSelects = commentUpdateCols.map((col) => `cu2.${col} AS commentUpdate_${col}`);
+            const recCommentIpfsSelects = commentIpfsCols.map((col) => `c2.${col} AS commentIpfs_${col}`);
+
+            const queryStr = `
+                WITH RECURSIVE reply_tree AS (
+                    SELECT ${commentIpfsSelects.join(", ")}, ${commentUpdateSelects.join(", ")},
+                           c.parentCid AS tree_parent
+                    FROM ${TABLES.COMMENTS} c
+                    INNER JOIN ${TABLES.COMMENT_UPDATES} cu ON c.cid = cu.cid
+                    WHERE c.cid IN (${placeholders})
+
+                    UNION ALL
+
+                    SELECT ${recCommentIpfsSelects.join(", ")}, ${recCommentUpdateSelects.join(", ")},
+                           rt.commentUpdate_cid AS tree_parent
+                    FROM reply_tree rt
+                    CROSS JOIN json_each(
+                        json_extract(rt.commentUpdate_replies, '$.best.commentCids')
+                    ) child_ref
+                    JOIN ${TABLES.COMMENTS} c2 ON c2.cid = child_ref.value
+                    JOIN ${TABLES.COMMENT_UPDATES} cu2 ON c2.cid = cu2.cid
+                    WHERE rt.commentUpdate_replies IS NOT NULL
+                      AND json_type(rt.commentUpdate_replies, '$.best.commentCids') = 'array'
+                )
+                SELECT * FROM reply_tree
+            `;
+
+            const rowsRaw = this._db.prepare(queryStr).all(...allCids) as (PrefixedCommentRow & { tree_parent: string })[];
+
+            // Build lookup: cid -> parsed entry
+            for (const row of rowsRaw) {
+                const { comment, commentUpdate } = this._parsePrefixedComment(row);
+                parsedByCid.set(commentUpdate.cid, { comment, commentUpdate });
+                const parent = row.tree_parent;
+                if (!childrenByParent.has(parent)) childrenByParent.set(parent, []);
+                childrenByParent.get(parent)!.push({ comment, commentUpdate });
+            }
         }
 
-        // Build a commentUpdate for wire format: strip DB replies, only add resolved replies if present
+        // Build a commentUpdate for wire format: strip DB replies, attach resolved replies or reconstruct pageCids
         const buildWireCommentUpdate = (
             commentUpdate: CommentUpdateType,
             resolvedReplies: CommentUpdateType["replies"] | undefined
         ): CommentUpdateType => {
-            const { replies: _dbReplies, ...rest } = commentUpdate;
+            const { replies: dbReplies, ...rest } = commentUpdate;
             if (resolvedReplies) return { ...rest, replies: resolvedReplies } as CommentUpdateType;
+            // If no resolved inline replies but DB has allPageCids, reconstruct pageCids so clients can fetch pages
+            if (dbReplies) {
+                const dbEntries = dbReplies as Record<string, { allPageCids?: string[] }>;
+                const pageCids: Record<string, string> = {};
+                for (const [sortName, sortEntry] of Object.entries(dbEntries)) {
+                    if (sortEntry?.allPageCids?.[0]) pageCids[sortName] = sortEntry.allPageCids[0];
+                }
+                if (Object.keys(pageCids).length > 0) return { ...rest, replies: { pages: {}, pageCids } } as CommentUpdateType;
+            }
             return rest as CommentUpdateType;
         };
 
@@ -1494,25 +1505,36 @@ export class DbHandler {
 
         // Resolve each entry's CID-ref replies into full nested data
         return entries.map((entry) => {
-            const replies = entry.commentUpdate.replies as Record<string, { commentCids?: string[] }> | undefined;
+            const replies = entry.commentUpdate.replies as
+                | Record<string, { commentCids?: string[]; allPageCids?: string[]; nextCid?: string }>
+                | undefined;
             if (!replies) return entry;
 
-            // Check if it's CID-ref format (has commentCids arrays)
-            const hasCidRefs = Object.values(replies).some((s) => s?.commentCids);
-            if (!hasCidRefs) return entry;
+            // Check if it's DB CID-ref format (has commentCids or allPageCids)
+            const isDbFormat = Object.values(replies).some((s) => s?.commentCids || s?.allPageCids);
+            if (!isDbFormat) return entry;
 
-            // Build resolved pages from CID refs
+            // Build resolved pages and pageCids from CID refs
             const resolvedPages: Record<string, PageIpfs> = {};
+            const resolvedPageCids: Record<string, string> = {};
             for (const [sortName, sortEntry] of Object.entries(replies)) {
-                if (!sortEntry?.commentCids) continue;
-                const resolvedComments = sortEntry.commentCids
-                    .map((cid) => parsedByCid.get(cid))
-                    .filter(Boolean)
-                    .map((child) => ({
-                        comment: child!.comment,
-                        commentUpdate: buildWireCommentUpdate(child!.commentUpdate, attachReplies(child!.commentUpdate.cid))
-                    }));
-                resolvedPages[sortName] = { comments: resolvedComments };
+                if (sortEntry?.commentCids) {
+                    const resolvedComments = sortEntry.commentCids
+                        .map((cid) => parsedByCid.get(cid))
+                        .filter(Boolean)
+                        .map((child) => ({
+                            comment: child!.comment,
+                            commentUpdate: buildWireCommentUpdate(child!.commentUpdate, attachReplies(child!.commentUpdate.cid))
+                        }));
+                    resolvedPages[sortName] = {
+                        comments: resolvedComments,
+                        ...(sortEntry.nextCid ? { nextCid: sortEntry.nextCid } : {})
+                    };
+                }
+                // Derive pageCid from allPageCids[0] (first page CID for this sort)
+                if (sortEntry?.allPageCids?.[0]) {
+                    resolvedPageCids[sortName] = sortEntry.allPageCids[0];
+                }
             }
 
             const { replies: _dbReplies, ...entryCommentUpdateRest } = entry.commentUpdate;
@@ -1520,7 +1542,10 @@ export class DbHandler {
                 ...entry,
                 commentUpdate: {
                     ...entryCommentUpdateRest,
-                    replies: { pages: resolvedPages }
+                    replies: {
+                        pages: resolvedPages,
+                        ...(Object.keys(resolvedPageCids).length > 0 ? { pageCids: resolvedPageCids } : {})
+                    }
                 } as CommentUpdateType
             };
         });
