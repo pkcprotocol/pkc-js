@@ -1377,8 +1377,17 @@ export class DbHandler {
             commentUpdate: CommentUpdateType,
             resolvedReplies: CommentUpdateType["replies"] | undefined
         ): CommentUpdateType => {
-            const { replies: _dbReplies, ...rest } = commentUpdate;
+            const { replies: dbReplies, ...rest } = commentUpdate;
             if (resolvedReplies) return { ...rest, replies: resolvedReplies } as CommentUpdateType;
+            // If no resolved inline replies but DB has allPageCids, reconstruct pageCids so clients can fetch pages
+            if (dbReplies) {
+                const dbEntries = dbReplies as Record<string, DbRepliesSortEntry>;
+                const pageCids: Record<string, string> = {};
+                for (const [sortName, sortEntry] of Object.entries(dbEntries)) {
+                    if (sortEntry?.allPageCids?.[0]) pageCids[sortName] = sortEntry.allPageCids[0];
+                }
+                if (Object.keys(pageCids).length > 0) return { ...rest, replies: { pages: {}, pageCids } } as CommentUpdateType;
+            }
             return rest as CommentUpdateType;
         };
 
