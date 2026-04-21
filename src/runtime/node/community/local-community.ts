@@ -20,6 +20,7 @@ import type {
 import { LRUCache } from "lru-cache";
 import { PageGenerator } from "./page-generator.js";
 import { DbHandler } from "./db-handler.js";
+import { deriveDbReplies } from "../util.js";
 import type { PseudonymityAliasRow, PurgedCommentTableRows } from "./db-handler-types.js";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import {
@@ -136,6 +137,8 @@ import type {
     CommentsTableRow,
     CommentUpdatesTableRowInsert,
     CommentUpdateType,
+    DbRepliesFormat,
+    DbRepliesSortEntry,
     PostPubsubMessageWithCommunityAuthor,
     ReplyPubsubMessageWithCommunityAuthor
 } from "../../../publications/comment/types.js";
@@ -189,45 +192,6 @@ import {
     untrackStartedCommunity,
     untrackUpdatingCommunity
 } from "../../../pkc/tracked-instance-registry-util.js";
-
-type DbRepliesSortEntry = {
-    commentCids?: string[];
-    nextCid?: string;
-    allPageCids?: string[];
-};
-
-export type DbRepliesFormat = Record<string, DbRepliesSortEntry>;
-
-function deriveDbReplies(opts: {
-    replies: CommentUpdateType["replies"];
-    allPageCids?: Record<string, string[]>;
-}): DbRepliesFormat | undefined {
-    const { replies, allPageCids } = opts;
-    if (!replies) return undefined;
-    const result: DbRepliesFormat = {};
-
-    // Preloaded sort(s): store commentCids + nextCid + allPageCids
-    if (replies.pages) {
-        for (const [sortName, page] of Object.entries(replies.pages)) {
-            result[sortName] = {
-                commentCids: page.comments.map((c) => c.commentUpdate.cid),
-                ...(page.nextCid ? { nextCid: page.nextCid } : {}),
-                ...(allPageCids?.[sortName]?.length ? { allPageCids: allPageCids[sortName] } : {})
-            };
-        }
-    }
-
-    // Non-preloaded sorts: store only allPageCids
-    if (allPageCids) {
-        for (const [sortName, cids] of Object.entries(allPageCids)) {
-            if (!result[sortName] && cids.length > 0) {
-                result[sortName] = { allPageCids: cids };
-            }
-        }
-    }
-
-    return Object.keys(result).length > 0 ? result : undefined;
-}
 
 type CommentUpdateToWriteToDbAndPublishToIpfs = {
     newCommentUpdate: CommentUpdateType;
@@ -2711,7 +2675,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         // Unpin old page CIDs that are no longer in the new generation
         {
-            const oldDbReplies = storedCommentUpdate?.replies as Record<string, { allPageCids?: string[] }> | undefined;
+            const oldDbReplies = storedCommentUpdate?.replies as Record<string, DbRepliesSortEntry> | undefined;
             const oldCids = new Set(oldDbReplies ? Object.values(oldDbReplies).flatMap((sort) => sort?.allPageCids ?? []) : []);
             const newCids = new Set(allPageCids ? Object.values(allPageCids).flat() : []);
             for (const cid of oldCids) {
@@ -3140,7 +3104,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         }
         if (purgedCommentAndCommentUpdate?.commentUpdateTableRow?.replies) {
             // replies is DbRepliesFormat — flat per-sort with allPageCids
-            const dbReplies = purgedCommentAndCommentUpdate.commentUpdateTableRow.replies as Record<string, { allPageCids?: string[] }>;
+            const dbReplies = purgedCommentAndCommentUpdate.commentUpdateTableRow.replies as Record<string, DbRepliesSortEntry>;
             for (const sortEntry of Object.values(dbReplies)) {
                 if (sortEntry?.allPageCids) {
                     for (const cid of sortEntry.allPageCids) {

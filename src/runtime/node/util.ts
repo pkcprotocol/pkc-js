@@ -24,7 +24,8 @@ import type {
     CommentPubsubMessagePublication,
     CommentPubsubMessagPublicationSignature,
     CommentsTableRow,
-    CommentUpdateType
+    CommentUpdateType,
+    DbRepliesFormat
 } from "../../publications/comment/types.js";
 import { DbHandler } from "./community/db-handler.js";
 import Database from "better-sqlite3";
@@ -475,4 +476,34 @@ export function calculateInlineRepliesBudget({
     const inlineBudgetFromPage = Math.max(0, maxPageBytes - pageSafetyMarginBytes - inlineMetadataBytes - entryWithoutRepliesSize);
 
     return Math.max(0, Math.min(inlineBudgetFromComment, inlineBudgetFromPage));
+}
+
+export function deriveDbReplies(opts: {
+    replies: CommentUpdateType["replies"];
+    allPageCids?: Record<string, string[]>;
+}): DbRepliesFormat | undefined {
+    const { replies, allPageCids } = opts;
+    if (!replies) return undefined;
+    const result: DbRepliesFormat = {};
+
+    // Preloaded sort(s): store commentCids + allPageCids
+    if (replies.pages) {
+        for (const [sortName, page] of Object.entries(replies.pages)) {
+            result[sortName] = {
+                commentCids: page.comments.map((c) => c.commentUpdate.cid),
+                ...(allPageCids?.[sortName]?.length ? { allPageCids: allPageCids[sortName] } : {})
+            };
+        }
+    }
+
+    // Non-preloaded sorts: store only allPageCids
+    if (allPageCids) {
+        for (const [sortName, cids] of Object.entries(allPageCids)) {
+            if (!result[sortName] && cids.length > 0) {
+                result[sortName] = { allPageCids: cids };
+            }
+        }
+    }
+
+    return Object.keys(result).length > 0 ? result : undefined;
 }

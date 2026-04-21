@@ -39,7 +39,8 @@ import type {
     CommentUpdatesRow,
     CommentUpdatesTableRowInsert,
     CommentUpdateType,
-    CommunityAuthor
+    CommunityAuthor,
+    DbRepliesSortEntry
 } from "../../../publications/comment/types.js";
 import { CommentIpfsSchema, CommentUpdateSchema } from "../../../publications/comment/schema.js";
 import { verifyCommentEdit, verifyCommentIpfs } from "../../../signer/signatures.js";
@@ -1414,7 +1415,7 @@ export class DbHandler {
         // Gather all CIDs from CID-ref replies across all entries
         const allCids: string[] = [];
         for (const entry of entries) {
-            const replies = entry.commentUpdate.replies as Record<string, { commentCids?: string[] }> | undefined;
+            const replies = entry.commentUpdate.replies as Record<string, DbRepliesSortEntry> | undefined;
             if (!replies) continue;
             for (const sortEntry of Object.values(replies)) {
                 if (sortEntry?.commentCids) allCids.push(...sortEntry.commentCids);
@@ -1478,7 +1479,7 @@ export class DbHandler {
             if (resolvedReplies) return { ...rest, replies: resolvedReplies } as CommentUpdateType;
             // If no resolved inline replies but DB has allPageCids, reconstruct pageCids so clients can fetch pages
             if (dbReplies) {
-                const dbEntries = dbReplies as Record<string, { allPageCids?: string[] }>;
+                const dbEntries = dbReplies as Record<string, DbRepliesSortEntry>;
                 const pageCids: Record<string, string> = {};
                 for (const [sortName, sortEntry] of Object.entries(dbEntries)) {
                     if (sortEntry?.allPageCids?.[0]) pageCids[sortName] = sortEntry.allPageCids[0];
@@ -1505,9 +1506,7 @@ export class DbHandler {
 
         // Resolve each entry's CID-ref replies into full nested data
         return entries.map((entry) => {
-            const replies = entry.commentUpdate.replies as
-                | Record<string, { commentCids?: string[]; allPageCids?: string[]; nextCid?: string }>
-                | undefined;
+            const replies = entry.commentUpdate.replies as Record<string, DbRepliesSortEntry> | undefined;
             if (!replies) return entry;
 
             // Check if it's DB CID-ref format (has commentCids or allPageCids)
@@ -1526,9 +1525,11 @@ export class DbHandler {
                             comment: child!.comment,
                             commentUpdate: buildWireCommentUpdate(child!.commentUpdate, attachReplies(child!.commentUpdate.cid))
                         }));
+                    // Derive nextCid from allPageCids[0]; fall back to legacy nextCid field for old DB rows
+                    const nextCidForSort = sortEntry.allPageCids?.[0] ?? (sortEntry as { nextCid?: string }).nextCid;
                     resolvedPages[sortName] = {
                         comments: resolvedComments,
-                        ...(sortEntry.nextCid ? { nextCid: sortEntry.nextCid } : {})
+                        ...(nextCidForSort ? { nextCid: nextCidForSort } : {})
                     };
                 }
                 // Derive pageCid from allPageCids[0] (first page CID for this sort)
@@ -3050,7 +3051,7 @@ export class DbHandler {
             const allPageCids: string[] = [];
             if (typeof row.replies === "string" && row.replies.length > 0) {
                 try {
-                    const parsed = JSON.parse(row.replies) as Record<string, { allPageCids?: string[] }>;
+                    const parsed = JSON.parse(row.replies) as Record<string, DbRepliesSortEntry>;
                     for (const sortEntry of Object.values(parsed)) {
                         if (sortEntry?.allPageCids) allPageCids.push(...sortEntry.allPageCids);
                     }

@@ -206,8 +206,6 @@ export const CommentsTableRowSchema = CommentIpfsSchema.extend({
 // DB replies format: flat per-sort CID references instead of full inline page data
 export const DbRepliesSortEntrySchema = z.object({
     commentCids: z.array(CidStringSchema).optional(), // sorted child CIDs (preloaded sorts only)
-    // TODO, do we actually need to store nextCid? Isn't it represented by `allPageCids[1]`?
-    nextCid: CidStringSchema.optional(), // link to page 2 (preloaded sorts only)
     allPageCids: z.array(CidStringSchema).optional() // ALL IPFS page CIDs for this sort (first element = pageCid for that sort)
 });
 
