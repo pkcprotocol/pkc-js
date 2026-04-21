@@ -355,7 +355,9 @@ export class PageGenerator {
         return res;
     }
 
-    private _generationResToPages(res: (PageGenerationRes | undefined)[]): PagesTypeIpfs | undefined {
+    private _generationResToPages(
+        res: (PageGenerationRes | undefined)[]
+    ): (PagesTypeIpfs & { allPageCids: Record<string, string[]> }) | undefined {
         const filteredGeneratedPages = res.filter(Boolean); // Take out undefined values
         if (filteredGeneratedPages.length === 0) return undefined;
         const mergedObject: PageGenerationRes = Object.assign({}, ...filteredGeneratedPages);
@@ -364,6 +366,12 @@ export class PageGenerator {
             pageCids: Object.assign(
                 {},
                 ...Object.entries(mergedObject).map(([sortName, pages]) => (pages.cids ? { [sortName]: pages!.cids[0] } : undefined))
+            ),
+            allPageCids: Object.assign(
+                {},
+                ...Object.entries(mergedObject).map(([sortName, data]) =>
+                    data.cids ? { [sortName]: data!.cids.filter((c: string | undefined): c is string => typeof c === "string") } : undefined
+                )
             )
         };
     }
@@ -384,8 +392,10 @@ export class PageGenerator {
             firstPageSizeBytes: preloadedPageSizeBytes
         };
         // Sorting posts on a community level
-        const rawPosts = this._community._dbHandler.queryPostsWithActiveScore(pageOptions);
-        if (rawPosts.length === 0) return undefined;
+        const rawPostsUnresolved = this._community._dbHandler.queryPostsWithActiveScore(pageOptions);
+        if (rawPostsUnresolved.length === 0) return undefined;
+        // Resolve CID-ref replies for each post so pages have full nested reply trees
+        const rawPosts = this._community._dbHandler.resolveRepliesCidRefsForEntries(rawPostsUnresolved);
 
         const preloadedChunk = await this.sortAndChunkComments(rawPosts, preloadedPageSortName, pageOptions);
         const firstChunkSize = await getSerializedCommentsSize(preloadedChunk[0], preloadedChunk.length > 1);
@@ -415,7 +425,9 @@ export class PageGenerator {
             })
         );
 
-        const generatedPages = <PostsPagesTypeIpfs | undefined>this._generationResToPages(sortResults);
+        const generatedPages = this._generationResToPages(sortResults) as
+            | (PostsPagesTypeIpfs & { allPageCids: Record<string, string[]> })
+            | undefined;
         if (!generatedPages) return undefined;
         return generatedPages;
     }
@@ -473,7 +485,8 @@ export class PageGenerator {
             baseTimestamp: timestamp()
         };
 
-        const hierarchalReplies = this._community._dbHandler.queryPageComments(pageOptions);
+        // Use recursive query that follows CID-ref lists in DB replies to build nested trees
+        const hierarchalReplies = this._community._dbHandler.queryPageCommentsWithResolvedReplies(pageOptions);
         if (hierarchalReplies.length === 0) return undefined;
 
         const preloadedChunk = await this.sortAndChunkComments(hierarchalReplies, preloadedReplyPageSortName, {
@@ -514,9 +527,11 @@ export class PageGenerator {
             })
         );
 
-        const generatedPages = <RepliesPagesTypeIpfs | undefined>this._generationResToPages(sortResults);
+        const generatedPages = this._generationResToPages(sortResults) as
+            | (RepliesPagesTypeIpfs & { allPageCids: Record<string, string[]> })
+            | undefined;
         if (!generatedPages) return undefined;
-        if (disablePreload) return { pageCids: generatedPages.pageCids, pages: {} };
+        if (disablePreload) return { pageCids: generatedPages.pageCids, pages: {}, allPageCids: generatedPages.allPageCids };
         else return generatedPages;
     }
 
@@ -524,7 +539,9 @@ export class PageGenerator {
         comment: Pick<CommentsTableRow, "cid" | "depth">,
         preloadedReplyPageSortName: keyof typeof REPLY_REPLIES_SORT_TYPES,
         preloadedPageSizeBytes: number
-    ): Promise<RepliesPagesTypeIpfs | { singlePreloadedPage: SinglePreloadedPageRes } | undefined> {
+    ): Promise<
+        (RepliesPagesTypeIpfs & { allPageCids: Record<string, string[]> }) | { singlePreloadedPage: SinglePreloadedPageRes } | undefined
+    > {
         const pageOptions = {
             excludeCommentsWithDifferentCommunityAddress: true,
             excludeDeletedComments: false,
@@ -536,7 +553,8 @@ export class PageGenerator {
             excludeCommentWithApprovedFalse: false
         };
 
-        const hierarchalReplies = this._community._dbHandler.queryPageComments(pageOptions);
+        // Use recursive query that follows CID-ref lists in DB replies to build nested trees
+        const hierarchalReplies = this._community._dbHandler.queryPageCommentsWithResolvedReplies(pageOptions);
         if (hierarchalReplies.length === 0) return undefined;
 
         const preloadedChunk = await this.sortAndChunkComments(hierarchalReplies, preloadedReplyPageSortName, {
@@ -576,9 +594,11 @@ export class PageGenerator {
             })
         );
 
-        const generatedPages = <RepliesPagesTypeIpfs | undefined>this._generationResToPages(sortResults);
+        const generatedPages = this._generationResToPages(sortResults) as
+            | (RepliesPagesTypeIpfs & { allPageCids: Record<string, string[]> })
+            | undefined;
         if (!generatedPages) return undefined;
-        if (disablePreload) return { pageCids: generatedPages.pageCids, pages: {} };
+        if (disablePreload) return { pageCids: generatedPages.pageCids, pages: {}, allPageCids: generatedPages.allPageCids };
         else return generatedPages;
     }
 

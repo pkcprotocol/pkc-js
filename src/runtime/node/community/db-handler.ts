@@ -65,7 +65,7 @@ import {
 } from "./db-row-parser.js";
 import { ZodError } from "zod";
 import { messages } from "../../../errors.js";
-import type { PseudonymityAliasRow, CommentCidWithReplies, PurgedCommentTableRows } from "./db-handler-types.js";
+import type { PseudonymityAliasRow, PurgedCommentTableRows } from "./db-handler-types.js";
 import { getAuthorDomainFromWire } from "../../../publications/publication-author.js";
 
 const TABLES = Object.freeze({
@@ -1284,6 +1284,217 @@ export class DbHandler {
         });
     }
 
+    queryPageCommentsWithResolvedReplies(options: Omit<PageOptions, "firstPageSizeBytes">): PageIpfs["comments"] {
+        // Fetch ALL descendants by following CID-ref lists stored in the DB `replies` column.
+        // Base case: direct children of parentCid.
+        // Recursive case: follow $.best.commentCids from each node's replies JSON.
+        // Returns flat rows with tree_parent for JS tree assembly.
+
+        const commentUpdateCols = remeda.keys.strict(CommentUpdateSchema.shape);
+        const commentIpfsCols = [...remeda.keys.strict(CommentIpfsSchema.shape), "extraProps"];
+
+        // Base case uses full table names (not aliases) to match _buildPageQueryParts WHERE clauses
+        const baseCommentUpdateSelects = commentUpdateCols.map((col) => `${TABLES.COMMENT_UPDATES}.${col} AS commentUpdate_${col}`);
+        const baseCommentIpfsSelects = commentIpfsCols.map((col) => `${TABLES.COMMENTS}.${col} AS commentIpfs_${col}`);
+
+        // Recursive part uses aliases since it joins fresh tables
+        const recCommentUpdateSelects = commentUpdateCols.map((col) => `cu2.${col} AS commentUpdate_${col}`);
+        const recCommentIpfsSelects = commentIpfsCols.map((col) => `c2.${col} AS commentIpfs_${col}`);
+
+        const { whereClauses, params } = this._buildPageQueryParts(options);
+
+        const queryStr = `
+            WITH RECURSIVE reply_tree AS (
+                -- Base: direct children of the target comment
+                SELECT ${baseCommentIpfsSelects.join(", ")}, ${baseCommentUpdateSelects.join(", ")},
+                       ${TABLES.COMMENTS}.parentCid AS tree_parent
+                FROM ${TABLES.COMMENTS}
+                INNER JOIN ${TABLES.COMMENT_UPDATES} ON ${TABLES.COMMENTS}.cid = ${TABLES.COMMENT_UPDATES}.cid
+                WHERE ${whereClauses.join(" AND ")}
+
+                UNION ALL
+
+                -- Recursive: follow commentCids from each parent's replies
+                SELECT ${recCommentIpfsSelects.join(", ")}, ${recCommentUpdateSelects.join(", ")},
+                       rt.commentUpdate_cid AS tree_parent
+                FROM reply_tree rt
+                CROSS JOIN json_each(
+                    json_extract(rt.commentUpdate_replies, '$.best.commentCids')
+                ) child_ref
+                JOIN ${TABLES.COMMENTS} c2 ON c2.cid = child_ref.value
+                JOIN ${TABLES.COMMENT_UPDATES} cu2 ON c2.cid = cu2.cid
+                WHERE rt.commentUpdate_replies IS NOT NULL
+                  AND json_type(rt.commentUpdate_replies, '$.best.commentCids') = 'array'
+            )
+            SELECT * FROM reply_tree
+        `;
+
+        const rowsRaw = this._db.prepare(queryStr).all(...params) as (PrefixedCommentRow & { tree_parent: string })[];
+
+        // Group by tree_parent to reconstruct the hierarchy
+        const childrenByParent = new Map<string, { comment: CommentIpfsType; commentUpdate: CommentUpdateType }[]>();
+        for (const row of rowsRaw) {
+            const { comment, commentUpdate } = this._parsePrefixedComment(row);
+            const parent = row.tree_parent;
+            if (!childrenByParent.has(parent)) childrenByParent.set(parent, []);
+            childrenByParent.get(parent)!.push({ comment, commentUpdate });
+        }
+
+        // Build a commentUpdate for wire format: strip DB replies, only add resolved replies if present
+        const buildWireCommentUpdate = (
+            commentUpdate: CommentUpdateType,
+            resolvedReplies: CommentUpdateType["replies"] | undefined
+        ): CommentUpdateType => {
+            const { replies: _dbReplies, ...rest } = commentUpdate;
+            if (resolvedReplies) return { ...rest, replies: resolvedReplies } as CommentUpdateType;
+            return rest as CommentUpdateType;
+        };
+
+        // Recursively attach nested replies
+        const attachReplies = (cid: string): CommentUpdateType["replies"] | undefined => {
+            const children = childrenByParent.get(cid);
+            if (!children?.length) return undefined;
+            return {
+                pages: {
+                    best: {
+                        comments: children.map((child) => ({
+                            comment: child.comment,
+                            commentUpdate: buildWireCommentUpdate(child.commentUpdate, attachReplies(child.commentUpdate.cid))
+                        }))
+                    }
+                }
+            };
+        };
+
+        // Direct children with nested replies attached
+        const directChildren = childrenByParent.get(options.parentCid!) ?? [];
+        return directChildren.map((child) => ({
+            comment: child.comment,
+            commentUpdate: buildWireCommentUpdate(child.commentUpdate, attachReplies(child.commentUpdate.cid))
+        }));
+    }
+
+    resolveRepliesCidRefsForEntries(entries: PageIpfs["comments"]): PageIpfs["comments"] {
+        // For entries whose replies are in CID-ref format, resolve them by fetching descendants.
+        // Collects all root CIDs from all entries, runs a single recursive query, then distributes results.
+        const commentUpdateCols = remeda.keys.strict(CommentUpdateSchema.shape);
+        const commentIpfsCols = [...remeda.keys.strict(CommentIpfsSchema.shape), "extraProps"];
+
+        // Gather all CIDs from CID-ref replies across all entries
+        const allCids: string[] = [];
+        for (const entry of entries) {
+            const replies = entry.commentUpdate.replies as Record<string, { commentCids?: string[] }> | undefined;
+            if (!replies) continue;
+            for (const sortEntry of Object.values(replies)) {
+                if (sortEntry?.commentCids) allCids.push(...sortEntry.commentCids);
+            }
+        }
+
+        if (allCids.length === 0) return entries;
+
+        // Fetch all descendant trees starting from these CIDs using a recursive CTE
+        const placeholders = allCids.map(() => "?").join(",");
+        const commentUpdateSelects = commentUpdateCols.map((col) => `cu.${col} AS commentUpdate_${col}`);
+        const commentIpfsSelects = commentIpfsCols.map((col) => `c.${col} AS commentIpfs_${col}`);
+        const recCommentUpdateSelects = commentUpdateCols.map((col) => `cu2.${col} AS commentUpdate_${col}`);
+        const recCommentIpfsSelects = commentIpfsCols.map((col) => `c2.${col} AS commentIpfs_${col}`);
+
+        const queryStr = `
+            WITH RECURSIVE reply_tree AS (
+                SELECT ${commentIpfsSelects.join(", ")}, ${commentUpdateSelects.join(", ")},
+                       c.parentCid AS tree_parent
+                FROM ${TABLES.COMMENTS} c
+                INNER JOIN ${TABLES.COMMENT_UPDATES} cu ON c.cid = cu.cid
+                WHERE c.cid IN (${placeholders})
+
+                UNION ALL
+
+                SELECT ${recCommentIpfsSelects.join(", ")}, ${recCommentUpdateSelects.join(", ")},
+                       rt.commentUpdate_cid AS tree_parent
+                FROM reply_tree rt
+                CROSS JOIN json_each(
+                    json_extract(rt.commentUpdate_replies, '$.best.commentCids')
+                ) child_ref
+                JOIN ${TABLES.COMMENTS} c2 ON c2.cid = child_ref.value
+                JOIN ${TABLES.COMMENT_UPDATES} cu2 ON c2.cid = cu2.cid
+                WHERE rt.commentUpdate_replies IS NOT NULL
+                  AND json_type(rt.commentUpdate_replies, '$.best.commentCids') = 'array'
+            )
+            SELECT * FROM reply_tree
+        `;
+
+        const rowsRaw = this._db.prepare(queryStr).all(...allCids) as (PrefixedCommentRow & { tree_parent: string })[];
+
+        // Build lookup: cid -> parsed entry
+        const parsedByCid = new Map<string, { comment: CommentIpfsType; commentUpdate: CommentUpdateType }>();
+        const childrenByParent = new Map<string, { comment: CommentIpfsType; commentUpdate: CommentUpdateType }[]>();
+        for (const row of rowsRaw) {
+            const { comment, commentUpdate } = this._parsePrefixedComment(row);
+            parsedByCid.set(commentUpdate.cid, { comment, commentUpdate });
+            const parent = row.tree_parent;
+            if (!childrenByParent.has(parent)) childrenByParent.set(parent, []);
+            childrenByParent.get(parent)!.push({ comment, commentUpdate });
+        }
+
+        // Build a commentUpdate for wire format: strip DB replies, only add resolved replies if present
+        const buildWireCommentUpdate = (
+            commentUpdate: CommentUpdateType,
+            resolvedReplies: CommentUpdateType["replies"] | undefined
+        ): CommentUpdateType => {
+            const { replies: _dbReplies, ...rest } = commentUpdate;
+            if (resolvedReplies) return { ...rest, replies: resolvedReplies } as CommentUpdateType;
+            return rest as CommentUpdateType;
+        };
+
+        const attachReplies = (cid: string): CommentUpdateType["replies"] | undefined => {
+            const children = childrenByParent.get(cid);
+            if (!children?.length) return undefined;
+            return {
+                pages: {
+                    best: {
+                        comments: children.map((child) => ({
+                            comment: child.comment,
+                            commentUpdate: buildWireCommentUpdate(child.commentUpdate, attachReplies(child.commentUpdate.cid))
+                        }))
+                    }
+                }
+            };
+        };
+
+        // Resolve each entry's CID-ref replies into full nested data
+        return entries.map((entry) => {
+            const replies = entry.commentUpdate.replies as Record<string, { commentCids?: string[] }> | undefined;
+            if (!replies) return entry;
+
+            // Check if it's CID-ref format (has commentCids arrays)
+            const hasCidRefs = Object.values(replies).some((s) => s?.commentCids);
+            if (!hasCidRefs) return entry;
+
+            // Build resolved pages from CID refs
+            const resolvedPages: Record<string, PageIpfs> = {};
+            for (const [sortName, sortEntry] of Object.entries(replies)) {
+                if (!sortEntry?.commentCids) continue;
+                const resolvedComments = sortEntry.commentCids
+                    .map((cid) => parsedByCid.get(cid))
+                    .filter(Boolean)
+                    .map((child) => ({
+                        comment: child!.comment,
+                        commentUpdate: buildWireCommentUpdate(child!.commentUpdate, attachReplies(child!.commentUpdate.cid))
+                    }));
+                resolvedPages[sortName] = { comments: resolvedComments };
+            }
+
+            const { replies: _dbReplies, ...entryCommentUpdateRest } = entry.commentUpdate;
+            return {
+                ...entry,
+                commentUpdate: {
+                    ...entryCommentUpdateRest,
+                    replies: { pages: resolvedPages }
+                } as CommentUpdateType
+            };
+        });
+    }
+
     queryFlattenedPageReplies(options: Omit<PageOptions, "firstPageSizeBytes"> & { parentCid: string }): PageIpfs["comments"] {
         const commentUpdateCols = remeda.keys.strict(
             options.commentUpdateFieldsToExclude
@@ -1368,6 +1579,31 @@ export class DbHandler {
             | undefined;
         if (!row) return undefined;
         return this._parseCommentUpdatesRow(row);
+    }
+
+    queryCommentUpdateTimestampBucketReplies(opts: {
+        cid: string;
+    }): Pick<CommentUpdatesRow, "updatedAt" | "postUpdatesBucket" | "replies"> | undefined {
+        const row = this._db
+            .prepare(`SELECT updatedAt, postUpdatesBucket, replies FROM ${TABLES.COMMENT_UPDATES} WHERE cid = ?`)
+            .get(opts.cid) as { updatedAt: number; postUpdatesBucket: number | null; replies: string | null } | undefined;
+        if (!row) return undefined;
+        return {
+            updatedAt: row.updatedAt,
+            postUpdatesBucket: row.postUpdatesBucket ?? undefined,
+            replies: typeof row.replies === "string" ? JSON.parse(row.replies) : undefined
+        } as Pick<CommentUpdatesRow, "updatedAt" | "postUpdatesBucket" | "replies">;
+    }
+
+    queryCommentUpdateBucketAndReplies(opts: { cid: string }): Pick<CommentUpdatesRow, "postUpdatesBucket" | "replies"> | undefined {
+        const row = this._db.prepare(`SELECT postUpdatesBucket, replies FROM ${TABLES.COMMENT_UPDATES} WHERE cid = ?`).get(opts.cid) as
+            | { postUpdatesBucket: number | null; replies: string | null }
+            | undefined;
+        if (!row) return undefined;
+        return {
+            postUpdatesBucket: row.postUpdatesBucket ?? undefined,
+            replies: typeof row.replies === "string" ? JSON.parse(row.replies) : undefined
+        } as Pick<CommentUpdatesRow, "postUpdatesBucket" | "replies">;
     }
 
     hasCommentWithSignatureEncoded(signatureEncoded: string): boolean {
@@ -1499,42 +1735,22 @@ export class DbHandler {
                 WHERE (parent.pendingApproval IS NULL OR parent.pendingApproval != 1)
                   AND COALESCE(lc.actual_last_child_cid, '') != COALESCE(cu_parent.lastChildCid, '')
             ),
-            replies_json AS (
-                SELECT
-                    cu_parent.cid AS parentCid,
-                    json_extract(comment_entry.value, '$.comment.cid') AS comment_child_cid,
-                    json_extract(comment_entry.value, '$.commentUpdate.cid') AS update_child_cid,
-                    json_extract(comment_entry.value, '$.commentUpdate.updatedAt') AS json_child_updated_at
+            stale_replies AS (
+                SELECT DISTINCT cu_parent.cid
                 FROM ${TABLES.COMMENT_UPDATES} cu_parent
-                INNER JOIN ${TABLES.COMMENTS} parent ON parent.cid = cu_parent.cid
-                JOIN json_each(cu_parent.replies, '$.pages') pages
-                JOIN json_each(pages.value, '$.comments') comment_entry
+                CROSS JOIN json_each(
+                    json_extract(cu_parent.replies, '$.best.commentCids')
+                ) child_ref
+                JOIN ${TABLES.COMMENT_UPDATES} cu_child ON cu_child.cid = child_ref.value
                 WHERE cu_parent.replies IS NOT NULL
-                  AND json_type(cu_parent.replies, '$.pages') = 'object'
-                  AND (parent.pendingApproval IS NULL OR parent.pendingApproval != 1)
-            ),
-            stale_replies_json AS (
-                SELECT r.parentCid AS cid
-                FROM replies_json r
-                LEFT JOIN ${TABLES.COMMENTS} existing_child ON existing_child.cid = COALESCE(r.comment_child_cid, r.update_child_cid)
-                LEFT JOIN ${TABLES.COMMENT_UPDATES} actual_child_update ON actual_child_update.cid = COALESCE(r.comment_child_cid, r.update_child_cid)
-                WHERE COALESCE(r.comment_child_cid, r.update_child_cid) IS NOT NULL
-                  AND (
-                      existing_child.cid IS NULL
-                      OR actual_child_update.cid IS NULL
-                      OR (
-                          r.json_child_updated_at IS NOT NULL
-                              AND actual_child_update.cid IS NOT NULL
-                              AND CAST(r.json_child_updated_at AS INTEGER) < actual_child_update.updatedAt
-                      )
-                  )
-                GROUP BY r.parentCid
+                  AND json_type(cu_parent.replies, '$.best.commentCids') = 'array'
+                  AND cu_child.updatedAt > cu_parent.insertedAt
             ),
             base_updates AS (
                 SELECT * FROM direct_updates
                 UNION SELECT c.* FROM ${TABLES.COMMENTS} c JOIN stale_child_counts scc ON c.cid = scc.cid
                 UNION SELECT c.* FROM ${TABLES.COMMENTS} c JOIN stale_last_child_cids slc ON c.cid = slc.cid
-                UNION SELECT c.* FROM ${TABLES.COMMENTS} c JOIN stale_replies_json srj ON c.cid = srj.cid
+                UNION SELECT c.* FROM ${TABLES.COMMENTS} c JOIN stale_replies sr ON c.cid = sr.cid
             ),
             authors_to_update AS (SELECT DISTINCT authorSignerAddress FROM base_updates),
             author_comments AS (
@@ -2568,7 +2784,7 @@ export class DbHandler {
             this._db.prepare(`DELETE FROM ${TABLES.COMMENT_EDITS} WHERE commentCid = ?`).run(cid);
             this._db.prepare(`DELETE FROM ${TABLES.PSEUDONYMITY_ALIASES} WHERE commentCid = ?`).run(cid);
 
-            const commentUpdate = this.queryStoredCommentUpdate({ cid });
+            const commentUpdate = this.queryCommentUpdateBucketAndReplies({ cid });
             if (commentUpdate) {
                 this._db.prepare(`DELETE FROM ${TABLES.COMMENT_UPDATES} WHERE cid = ?`).run(cid);
             }
@@ -2763,42 +2979,30 @@ export class DbHandler {
             .run(...commentCids);
     }
 
-    queryAllCommentCidsAndTheirReplies(): CommentCidWithReplies[] {
+    queryAllCommentCidsAndTheirReplies(): { cid: string; allPageCids: string[] }[] {
         const log = Logger("pkc-js:local-community:db-handler:queryAllCidsUnderThisCommunity");
 
         const rows = this._db
             .prepare(
-                `SELECT 
-                     c.cid AS cid,
-                     CASE
-                         WHEN cu.replies IS NULL THEN NULL
-                         ELSE json_set(
-                             cu.replies,
-                             '$.pages',
-                             (
-                                 SELECT json_group_object(
-                                     pages.key,
-                                     json_set(pages.value, '$.comments', json('[]'))
-                                 )
-                                 FROM json_each(cu.replies, '$.pages') AS pages
-                             )
-                         )
-                     END AS replies
+                `SELECT c.cid AS cid, cu.replies AS replies
                  FROM ${TABLES.COMMENTS} c
                  LEFT JOIN ${TABLES.COMMENT_UPDATES} cu ON c.cid = cu.cid`
             )
             .all() as { cid: string; replies?: string | null }[];
 
         return rows.map((row) => {
-            let parsedReplies: CommentUpdatesRow["replies"];
+            const allPageCids: string[] = [];
             if (typeof row.replies === "string" && row.replies.length > 0) {
                 try {
-                    parsedReplies = JSON.parse(row.replies) as CommentUpdatesRow["replies"];
+                    const parsed = JSON.parse(row.replies) as Record<string, { allPageCids?: string[] }>;
+                    for (const sortEntry of Object.values(parsed)) {
+                        if (sortEntry?.allPageCids) allPageCids.push(...sortEntry.allPageCids);
+                    }
                 } catch (e) {
                     log.error(`Failed to parse replies JSON for comment ${row.cid} when collecting cids`, e);
                 }
             }
-            return { cid: row.cid, replies: parsedReplies };
+            return { cid: row.cid, allPageCids };
         });
     }
 

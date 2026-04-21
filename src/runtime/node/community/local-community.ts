@@ -195,6 +195,45 @@ import {
     untrackUpdatingCommunity
 } from "../../../pkc/tracked-instance-registry-util.js";
 
+type DbRepliesSortEntry = {
+    commentCids?: string[];
+    nextCid?: string;
+    allPageCids?: string[];
+};
+
+export type DbRepliesFormat = Record<string, DbRepliesSortEntry>;
+
+function deriveDbReplies(opts: {
+    replies: CommentUpdateType["replies"];
+    allPageCids?: Record<string, string[]>;
+}): DbRepliesFormat | undefined {
+    const { replies, allPageCids } = opts;
+    if (!replies) return undefined;
+    const result: DbRepliesFormat = {};
+
+    // Preloaded sort(s): store commentCids + nextCid + allPageCids
+    if (replies.pages) {
+        for (const [sortName, page] of Object.entries(replies.pages)) {
+            result[sortName] = {
+                commentCids: page.comments.map((c) => c.commentUpdate.cid),
+                ...(page.nextCid ? { nextCid: page.nextCid } : {}),
+                ...(allPageCids?.[sortName]?.length ? { allPageCids: allPageCids[sortName] } : {})
+            };
+        }
+    }
+
+    // Non-preloaded sorts: store only allPageCids
+    if (allPageCids) {
+        for (const [sortName, cids] of Object.entries(allPageCids)) {
+            if (!result[sortName] && cids.length > 0) {
+                result[sortName] = { allPageCids: cids };
+            }
+        }
+    }
+
+    return Object.keys(result).length > 0 ? result : undefined;
+}
+
 type CommentUpdateToWriteToDbAndPublishToIpfs = {
     newCommentUpdate: CommentUpdateType;
     newCommentUpdateToWriteToDb: CommentUpdatesTableRowInsert;
@@ -2620,7 +2659,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         // This comment will have the local new CommentUpdate, which we will publish to IPFS fiels
         // It includes new author.community as well as updated values in CommentUpdate (except for replies field)
-        const storedCommentUpdate = this._dbHandler.queryStoredCommentUpdate(comment);
+        const storedCommentUpdate = this._dbHandler.queryCommentUpdateTimestampBucketReplies({ cid: comment.cid });
         const authorDomain = getAuthorDomainFromWire(comment.author);
         const calculatedCommentUpdate = this._dbHandler.queryCalculatedCommentUpdate({ comment, authorDomain });
         log.trace(
@@ -2671,9 +2710,19 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             }
         }
 
-        this._addOldPageCidsToCidsToUnpin(storedCommentUpdate?.replies, commentUpdatePriorToSigning.replies).catch((err) =>
-            log.error("Failed to add old page cids of comment.replies to _cidsToUnpin", err)
-        );
+        // Extract allPageCids from the generation result (not available for singlePreloadedPage case)
+        const allPageCids =
+            generatedRepliesPages && !("singlePreloadedPage" in generatedRepliesPages) ? generatedRepliesPages.allPageCids : undefined;
+
+        // Unpin old page CIDs that are no longer in the new generation
+        {
+            const oldDbReplies = storedCommentUpdate?.replies as Record<string, { allPageCids?: string[] }> | undefined;
+            const oldCids = new Set(oldDbReplies ? Object.values(oldDbReplies).flatMap((sort) => sort?.allPageCids ?? []) : []);
+            const newCids = new Set(allPageCids ? Object.values(allPageCids).flat() : []);
+            for (const cid of oldCids) {
+                if (!newCids.has(cid)) this._cidsToUnPin.add(cid);
+            }
+        }
 
         const newCommentUpdate: CommentUpdateType = {
             ...commentUpdatePriorToSigning,
@@ -2701,12 +2750,13 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         }
         const newCommentUpdateDbRecord = <CommentUpdatesTableRowInsert>{
             ...newCommentUpdate,
+            // Store CID refs instead of full inline page data — see deriveDbReplies()
+            replies: deriveDbReplies({ replies: newCommentUpdate.replies, allPageCids }),
             postUpdatesBucket: newPostUpdateBucket,
             publishedToPostUpdatesMFS: false,
 
             insertedAt: timestamp()
         };
-        if (!generatedRepliesPages) newCommentUpdateDbRecord.replies = undefined;
         return {
             newCommentUpdate,
             newCommentUpdateToWriteToDb: newCommentUpdateDbRecord,
@@ -3084,7 +3134,6 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     }
 
     async _addAllCidsUnderPurgedCommentToBeRemoved(purgedCommentAndCommentUpdate: PurgedCommentTableRows) {
-        const log = Logger("pkc-js:_addAllCidsUnderPurgedCommentToBeRemoved");
         this._cidsToUnPin.add(purgedCommentAndCommentUpdate.commentTableRow.cid);
         this._blocksToRm.push(purgedCommentAndCommentUpdate.commentTableRow.cid);
         if (typeof purgedCommentAndCommentUpdate.commentUpdateTableRow?.postUpdatesBucket === "number") {
@@ -3094,10 +3143,18 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             );
             this._mfsPathsToRemove.add(localCommentUpdatePath);
         }
-        if (purgedCommentAndCommentUpdate?.commentUpdateTableRow?.replies)
-            await this._addOldPageCidsToCidsToUnpin(purgedCommentAndCommentUpdate?.commentUpdateTableRow?.replies, undefined, true).catch(
-                (err) => log.error("Failed to add purged page cids to be unpinned and removed", err)
-            );
+        if (purgedCommentAndCommentUpdate?.commentUpdateTableRow?.replies) {
+            // replies is DbRepliesFormat — flat per-sort with allPageCids
+            const dbReplies = purgedCommentAndCommentUpdate.commentUpdateTableRow.replies as Record<string, { allPageCids?: string[] }>;
+            for (const sortEntry of Object.values(dbReplies)) {
+                if (sortEntry?.allPageCids) {
+                    for (const cid of sortEntry.allPageCids) {
+                        this._cidsToUnPin.add(cid);
+                        this._blocksToRm.push(cid);
+                    }
+                }
+            }
+        }
     }
 
     private async _purgeDisapprovedCommentsOlderThan() {
@@ -3815,14 +3872,12 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             await this.initDbHandlerIfNeeded();
             await this._dbHandler.initDbIfNeeded();
             const cidsAndReplies = this._dbHandler.queryAllCommentCidsAndTheirReplies();
-            cidsAndReplies.forEach((comment) => this._cidsToUnPin.add(comment.cid));
-            await Promise.all(
-                cidsAndReplies
-                    .filter((comment) => comment.replies)
-                    .map(async (commentWithReplies) => {
-                        await this._addOldPageCidsToCidsToUnpin(commentWithReplies.replies, undefined);
-                    })
-            );
+            for (const comment of cidsAndReplies) {
+                this._cidsToUnPin.add(comment.cid);
+                for (const pageCid of comment.allPageCids) {
+                    this._cidsToUnPin.add(pageCid);
+                }
+            }
         } catch (e) {
             log.error("Failed to query all cids under this community to delete them", e);
         }
