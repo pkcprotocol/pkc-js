@@ -100,6 +100,7 @@ async function createPublishingTestContext({ targetDepth }: { targetDepth: numbe
         _cidsToUnPin: new Set<string>(),
         _mfsPathsToRemove: new Set<string>(),
         _dbHandler: {
+            queryCommentUpdateTimestampBucketReplies: (): undefined => undefined,
             queryStoredCommentUpdate: (): undefined => undefined,
             queryCalculatedCommentUpdate: (opts: Parameters<DbHandler["queryCalculatedCommentUpdate"]>[0]) =>
                 clone(calculatedUpdates.get(opts.comment.cid))

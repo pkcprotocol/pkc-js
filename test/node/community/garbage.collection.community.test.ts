@@ -212,21 +212,19 @@ describe("local community garbage collection", () => {
     it("collects purged comment tree cids, mfs paths, and blocks for cleanup", async () => {
         const { community } = createTestCommunity();
         const purgeCid = VALID_CID_A;
-        const replyCids = [VALID_CID_B, "QmReplyExtraCid11111111111111111111111111111111111"];
-        const iterateSpy = vi.spyOn(pagesUtil, "iterateOverPageCidsToFindAllCids").mockResolvedValue(replyCids);
+        const replyPageCids = ["QmRepliesPage1111111111111111111111111111111111111", "QmRepliesPage2222222222222222222222222222222222222"];
 
         await community._addAllCidsUnderPurgedCommentToBeRemoved({
             commentTableRow: { cid: purgeCid },
             commentUpdateTableRow: {
                 postUpdatesBucket: 86400,
-                replies: { best: { allPageCids: ["QmRepliesPage"] } }
+                replies: { best: { allPageCids: replyPageCids } }
             }
         });
 
-        expect(Array.from(community._cidsToUnPin)).to.include.members([purgeCid, ...replyCids]);
-        expect(community._blocksToRm).to.include.members([purgeCid, ...replyCids]);
+        expect(Array.from(community._cidsToUnPin)).to.include.members([purgeCid, ...replyPageCids]);
+        expect(community._blocksToRm).to.include.members([purgeCid, ...replyPageCids]);
         expect(community._mfsPathsToRemove.has(`/${community.address}/postUpdates/86400/${purgeCid}/update`)).to.equal(true);
-        expect(iterateSpy.mock.calls.length).to.equal(1);
     });
 
     it("unpins stale cids and clears the queue even when pins are already removed", async () => {
@@ -334,8 +332,8 @@ describe("local community garbage collection", () => {
             _dbHandler: {
                 initDbIfNeeded: vi.fn(),
                 queryAllCommentCidsAndTheirReplies: vi.fn().mockReturnValue([
-                    { cid: "QmComment1", replies: { pageCids: { best: "QmReplyPage" }, pages: {} } },
-                    { cid: "QmComment2", replies: undefined }
+                    { cid: "QmComment1", allPageCids: ["QmReplyPage"] },
+                    { cid: "QmComment2", allPageCids: [] }
                 ]),
                 destoryConnection: vi.fn()
             },

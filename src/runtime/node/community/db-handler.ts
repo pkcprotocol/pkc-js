@@ -1315,6 +1315,23 @@ export class DbHandler {
 
         const { whereClauses, params } = this._buildPageQueryParts(options);
 
+        // Build recursive filter clauses (same pattern as queryFlattenedPageReplies)
+        const recursiveFilterClauses: string[] = [];
+        if (options.excludeCommentsWithDifferentCommunityAddress) {
+            const { clause, params: addrParams } = this._communityAddressClause("c2");
+            recursiveFilterClauses.push(clause);
+            params.push(...addrParams);
+        }
+        if (options.excludeCommentPendingApproval) recursiveFilterClauses.push(this._pendingApprovalClause("c2"));
+        if (options.excludeRemovedComments) recursiveFilterClauses.push(this._removedClause("cu2"));
+        if (options.excludeDeletedComments) recursiveFilterClauses.push(this._deletedFromLookupClause("d2"));
+        if (options.excludeCommentWithApprovedFalse) recursiveFilterClauses.push(this._approvedClause("cu2"));
+        const recursiveWhereExtra = recursiveFilterClauses.length > 0 ? `AND ${recursiveFilterClauses.join(" AND ")}` : "";
+
+        const deletedLookupJoin = options.excludeDeletedComments
+            ? `LEFT JOIN (SELECT cid, json_extract(edit, '$.deleted') AS deleted_flag FROM ${TABLES.COMMENT_UPDATES}) AS d2 ON c2.cid = d2.cid`
+            : "";
+
         const queryStr = `
             WITH RECURSIVE reply_tree AS (
                 -- Base: direct children of the target comment
@@ -1335,8 +1352,10 @@ export class DbHandler {
                 ) child_ref
                 JOIN ${TABLES.COMMENTS} c2 ON c2.cid = child_ref.value
                 JOIN ${TABLES.COMMENT_UPDATES} cu2 ON c2.cid = cu2.cid
+                ${deletedLookupJoin}
                 WHERE rt.commentUpdate_replies IS NOT NULL
                   AND json_type(rt.commentUpdate_replies, '$.best.commentCids') = 'array'
+                  ${recursiveWhereExtra}
             )
             SELECT * FROM reply_tree
         `;

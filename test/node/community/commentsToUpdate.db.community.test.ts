@@ -1324,34 +1324,10 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
             replyCount: 1
         });
 
+        // Use CID-reference DB format (DbRepliesFormat) — the stale_replies CTE queries $.best.commentCids
         const repliesSnapshot = JSON.stringify({
-            pages: {
-                best: {
-                    comments: [
-                        {
-                            comment: {
-                                cid: child.cid,
-                                parentCid: reply.cid,
-                                postCid: post.cid,
-                                depth: child.depth,
-                                communityAddress: communityAddress
-                            },
-                            commentUpdate: {
-                                cid: child.cid,
-                                replyCount: 0,
-                                childCount: 0,
-                                updatedAt: childInitialUpdatedAt,
-                                protocolVersion,
-                                author: {
-                                    community: {
-                                        firstCommentTimestamp: child.timestamp,
-                                        lastCommentCid: child.cid
-                                    }
-                                }
-                            }
-                        }
-                    ]
-                }
+            best: {
+                commentCids: [child.cid]
             }
         });
 
