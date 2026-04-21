@@ -38,13 +38,8 @@ export function getAuthorNameFromWire(author?: LooseAuthor): string | undefined 
     return undefined;
 }
 
-export function getAuthorDomainFromWire(author?: LooseAuthor): string | undefined {
-    const name = getAuthorNameFromWire(author);
-    return typeof name === "string" && isStringDomain(name) ? name : undefined;
-}
-
-export function getAuthorDomainFromRuntime(author?: Pick<RuntimeAuthorType, "name" | "address"> | undefined): string | undefined {
-    if (typeof author?.name === "string" && isStringDomain(author.name)) return author.name;
+export function getAuthorNameFromRuntime(author?: Pick<RuntimeAuthorType, "name" | "address"> | undefined): string | undefined {
+    if (typeof author?.name === "string") return author.name;
     if (typeof author?.address === "string" && isStringDomain(author.address)) return author.address;
     return undefined;
 }

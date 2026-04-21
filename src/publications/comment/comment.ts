@@ -47,7 +47,7 @@ import { CommentClientsManager } from "./comment-client-manager.js";
 import type { CommunityIpfsType } from "../../community/types.js";
 import { CID } from "kubo-rpc-client";
 import type { PublicationEventArgs, PublicationEvents } from "../types.js";
-import { getAuthorDomainFromRuntime } from "../publication-author.js";
+import { getAuthorNameFromRuntime } from "../publication-author.js";
 import { sha256 } from "js-sha256";
 import {
     findStartedCommunity,
@@ -246,7 +246,7 @@ export class Comment
     }
 
     private _setAuthorNameResolvedFromCache() {
-        const domain = getAuthorDomainFromRuntime(this.author);
+        const domain = getAuthorNameFromRuntime(this.author);
         if (!domain) return; // no domain → nameResolved stays undefined
         const cached = this._pkc._memCaches.nameResolvedCache.get(sha256(domain + this.signature.publicKey));
         if (typeof cached === "boolean") this.author.nameResolved = cached;
@@ -260,7 +260,7 @@ export class Comment
         if (!this._pkc.resolveAuthorNames) return;
 
         // Collect comment's own author if nameResolved is not yet set
-        const domain = getAuthorDomainFromRuntime(this.author);
+        const domain = getAuthorNameFromRuntime(this.author);
         const ownAuthor =
             domain && typeof this.author.nameResolved !== "boolean"
                 ? [{ authorName: domain, signaturePublicKey: this.signature.publicKey }]
@@ -272,7 +272,7 @@ export class Comment
             for (const page of Object.values(this.replies.pages)) {
                 if (!page) continue;
                 for (const comment of page.comments) {
-                    const commentDomain = getAuthorDomainFromRuntime(comment.author);
+                    const commentDomain = getAuthorNameFromRuntime(comment.author);
                     if (commentDomain && typeof comment.author.nameResolved !== "boolean") {
                         replyAuthors.push({ authorName: commentDomain, signaturePublicKey: comment.signature.publicKey });
                     }

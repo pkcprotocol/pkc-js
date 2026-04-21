@@ -37,7 +37,7 @@ import {
     CommunityPKCRpcStateClient
 } from "./community-clients.js";
 import { CID } from "kubo-rpc-client";
-import { getAuthorDomainFromRuntime } from "../publications/publication-author.js";
+import { getAuthorNameFromRuntime } from "../publications/publication-author.js";
 
 type CommunityGatewayFetch = {
     [gatewayUrl: string]: {
@@ -411,7 +411,7 @@ export class CommunityClientsManager extends PKCClientsManager {
         for (const page of Object.values(pages)) {
             if (!page) continue;
             for (const comment of page.comments) {
-                const domain = getAuthorDomainFromRuntime(comment.author);
+                const domain = getAuthorNameFromRuntime(comment.author);
                 if (domain && typeof comment.author.nameResolved !== "boolean") {
                     authors.push({ authorName: domain, signaturePublicKey: comment.signature.publicKey });
                 }

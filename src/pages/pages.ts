@@ -13,7 +13,7 @@ import { Comment } from "../publications/comment/comment.js";
 import { RemoteCommunity } from "../community/remote-community.js";
 import { PKC } from "../pkc/pkc.js";
 import { parsePageCidParams } from "./schema-util.js";
-import { getAuthorDomainFromRuntime } from "../publications/publication-author.js";
+import { getAuthorNameFromRuntime } from "../publications/publication-author.js";
 import { sha256 } from "js-sha256";
 import type { PageRuntimeFields } from "./util.js";
 
@@ -65,7 +65,7 @@ export class BasePages {
     _applyNameResolvedCacheToPage(page: PageTypeJson | ModQueuePageTypeJson) {
         const cache = this._clientsManager._pkc._memCaches.nameResolvedCache;
         for (const comment of page.comments) {
-            const domain = getAuthorDomainFromRuntime(comment.author);
+            const domain = getAuthorNameFromRuntime(comment.author);
             if (!domain) continue;
             const cacheKey = sha256(domain + comment.signature.publicKey);
             const cached = cache.get(cacheKey);

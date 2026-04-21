@@ -114,12 +114,7 @@ import env from "../../../version.js";
 import { getIpfsKeyFromPrivateKey, getPKCAddressFromPublicKey, getPublicKeyFromPrivateKey } from "../../../signer/util.js";
 import { RpcLocalCommunity } from "../../../community/rpc-local-community.js";
 import * as remeda from "remeda";
-import {
-    buildRuntimeAuthor,
-    cleanWireAuthor,
-    getAuthorDomainFromWire,
-    getAuthorNameFromWire
-} from "../../../publications/publication-author.js";
+import { buildRuntimeAuthor, cleanWireAuthor, getAuthorNameFromWire } from "../../../publications/publication-author.js";
 import { getCommunityPublicKeyFromWire, getCommunityNameFromWire } from "../../../publications/publication-community.js";
 
 import type {
@@ -1123,11 +1118,11 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             // Check if the comment was published with pseudonymity - if so, get the original author address/domain
             const aliasInfo = this._dbHandler.queryPseudonymityAliasByCommentCid(commentModRaw.commentCid);
             if (aliasInfo) {
-                targetAuthorSignerAddress = await getPKCAddressFromPublicKey(aliasInfo.originalAuthorSignerPublicKey);
-                targetAuthorDomain = aliasInfo.originalAuthorDomain || undefined;
+                targetAuthorSignerAddress = await getPKCAddressFromPublicKey(aliasInfo.originalAuthorPublicKey);
+                targetAuthorDomain = aliasInfo.originalAuthorName || undefined;
             } else {
                 targetAuthorSignerAddress = commentToBeEdited.authorSignerAddress;
-                targetAuthorDomain = getAuthorDomainFromWire(commentToBeEdited.author);
+                targetAuthorDomain = getAuthorNameFromWire(commentToBeEdited.author);
             }
         }
 
@@ -1299,13 +1294,13 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
     private async _resolveAliasPrivateKeyForCommentPublication(opts: {
         mode: PseudonymityAliasRow["mode"];
-        originalAuthorSignerPublicKey: PseudonymityAliasRow["originalAuthorSignerPublicKey"];
+        originalAuthorPublicKey: PseudonymityAliasRow["originalAuthorPublicKey"];
         postCid?: string;
     }): Promise<string> {
         if (opts.mode === "per-post") {
             // For a new post (no postCid yet), always generate a fresh alias; once stored the postCid will be used for reuse.
             if (opts.postCid) {
-                const existing = this._dbHandler.queryPseudonymityAliasForPost(opts.originalAuthorSignerPublicKey, opts.postCid);
+                const existing = this._dbHandler.queryPseudonymityAliasForPost(opts.originalAuthorPublicKey, opts.postCid);
                 if (existing?.aliasPrivateKey) return existing.aliasPrivateKey;
             }
             return (await this._pkc.createSigner()).privateKey;
@@ -1313,7 +1308,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             const signer = await this._pkc.createSigner();
             return signer.privateKey;
         } else if (opts.mode === "per-author") {
-            const existing = this._dbHandler.queryPseudonymityAliasForAuthor(opts.originalAuthorSignerPublicKey);
+            const existing = this._dbHandler.queryPseudonymityAliasForAuthor(opts.originalAuthorPublicKey);
             if (existing?.aliasPrivateKey) return existing.aliasPrivateKey;
             const signer = await this._pkc.createSigner();
             return signer.privateKey;
@@ -1324,7 +1319,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         publication: CommentPubsubMessagePublication;
         anonymity?: {
             aliasPrivateKey: PseudonymityAliasRow["aliasPrivateKey"];
-            originalAuthorSignerPublicKey: PseudonymityAliasRow["originalAuthorSignerPublicKey"];
+            originalAuthorPublicKey: PseudonymityAliasRow["originalAuthorPublicKey"];
             mode: PseudonymityAliasRow["mode"];
             originalComment: CommentPubsubMessagePublication;
         };
@@ -1336,11 +1331,11 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         const isAuthorMod = await this._isPublicationAuthorPartOfRoles(originalComment, ["owner", "admin", "moderator"]);
         if (isAuthorMod) return { publication: originalComment };
 
-        const originalAuthorSignerPublicKey = originalComment.signature.publicKey;
+        const originalAuthorPublicKey = originalComment.signature.publicKey;
         const postCid = originalComment.postCid;
         const aliasPrivateKey = await this._resolveAliasPrivateKeyForCommentPublication({
             mode,
-            originalAuthorSignerPublicKey,
+            originalAuthorPublicKey,
             postCid
         });
         const aliasSigner = await this._pkc.createSigner({ privateKey: aliasPrivateKey, type: "ed25519" });
@@ -1363,7 +1358,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             publication: anonymizedComment,
             anonymity: {
                 aliasPrivateKey,
-                originalAuthorSignerPublicKey,
+                originalAuthorPublicKey,
                 mode,
                 originalComment
             }
@@ -1507,8 +1502,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                     {
                         commentCid: storedComment.cid,
                         aliasPrivateKey: anonymity.aliasPrivateKey,
-                        originalAuthorSignerPublicKey: anonymity.originalAuthorSignerPublicKey,
-                        originalAuthorDomain: getAuthorDomainFromWire(anonymity.originalComment.author) || null,
+                        originalAuthorPublicKey: anonymity.originalAuthorPublicKey,
+                        originalAuthorName: getAuthorNameFromWire(anonymity.originalComment.author) || null,
                         mode: anonymity.mode,
                         insertedAt: timestamp()
                     }
@@ -1675,7 +1670,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             log("Returning idempotent success for duplicate comment", existingComment.cid);
 
             const authorSignerAddress = await getPKCAddressFromPublicKey(existingComment.signature.publicKey);
-            const authorDomain = getAuthorDomainFromWire(existingComment.author);
+            const authorDomain = getAuthorNameFromWire(existingComment.author);
             const authorCommunity = this._dbHandler.queryCommunityAuthor(authorSignerAddress, authorDomain);
             if (!authorCommunity) {
                 return this._publishFailedChallengeVerification({ reason: duplicateReason }, challengeRequestId);
@@ -1743,7 +1738,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         const commentAfterAddingToIpfs = await this.storePublication(request, pendingApproval);
         if (!commentAfterAddingToIpfs) return undefined;
         const authorSignerAddress = await getPKCAddressFromPublicKey(commentAfterAddingToIpfs.comment.signature.publicKey);
-        const authorDomain = getAuthorDomainFromWire(commentAfterAddingToIpfs.comment.author);
+        const authorDomain = getAuthorNameFromWire(commentAfterAddingToIpfs.comment.author);
 
         const authorCommunity = this._dbHandler.queryCommunityAuthor(authorSignerAddress, authorDomain);
         if (!authorCommunity) throw Error("author.community can never be undefined after adding a comment");
@@ -2232,7 +2227,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             const aliasSignerOfComment = this._dbHandler.queryPseudonymityAliasByCommentCid(commentToBeEdited.cid);
             if (aliasSignerOfComment) {
                 const editSignedByOriginalAuthor =
-                    commentEditPublication.signature.publicKey === aliasSignerOfComment.originalAuthorSignerPublicKey;
+                    commentEditPublication.signature.publicKey === aliasSignerOfComment.originalAuthorPublicKey;
                 if (!editSignedByOriginalAuthor) return messages.ERR_COMMENT_EDIT_CAN_NOT_EDIT_COMMENT_IF_NOT_ORIGINAL_AUTHOR;
             } else {
                 const editSignedByOriginalAuthor = commentEditPublication.signature.publicKey === commentToBeEdited.signature.publicKey;
@@ -2432,7 +2427,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         }
 
         const authorSignerAddress = await getPKCAddressFromPublicKey(publication.signature.publicKey);
-        const authorDomain = getAuthorDomainFromWire(publication.author);
+        const authorDomain = getAuthorNameFromWire(publication.author);
 
         // Check publication props validity
         const communityAuthor = this._dbHandler.queryCommunityAuthor(authorSignerAddress, authorDomain);
@@ -2660,7 +2655,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         // This comment will have the local new CommentUpdate, which we will publish to IPFS fiels
         // It includes new author.community as well as updated values in CommentUpdate (except for replies field)
         const storedCommentUpdate = this._dbHandler.queryCommentUpdateTimestampBucketReplies({ cid: comment.cid });
-        const authorDomain = getAuthorDomainFromWire(comment.author);
+        const authorDomain = getAuthorNameFromWire(comment.author);
         const calculatedCommentUpdate = this._dbHandler.queryCalculatedCommentUpdate({ comment, authorDomain });
         log.trace(
             "Calculated comment update for comment",

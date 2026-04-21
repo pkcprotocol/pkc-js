@@ -15,8 +15,8 @@ type PseudonymityMode = NonNullable<Features["pseudonymityMode"]>;
 export type PseudonymityAliasRow = {
     commentCid: CommentsTableRow["cid"];
     aliasPrivateKey: SignerType["privateKey"];
-    originalAuthorSignerPublicKey: NonNullable<SignerType["publicKey"]>;
-    originalAuthorDomain: string | null; // the original author's domain address (e.g., user.bso) if they used one
+    originalAuthorPublicKey: NonNullable<SignerType["publicKey"]>;
+    originalAuthorName: string | null; // the original author's name (e.g., user.bso) if they used one
     mode: PseudonymityMode;
     insertedAt: number;
 };

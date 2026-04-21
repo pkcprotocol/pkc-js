@@ -66,7 +66,7 @@ import {
 import { ZodError } from "zod";
 import { messages } from "../../../errors.js";
 import type { PseudonymityAliasRow, PurgedCommentTableRows } from "./db-handler-types.js";
-import { getAuthorDomainFromWire } from "../../../publications/publication-author.js";
+import { getAuthorNameFromWire } from "../../../publications/publication-author.js";
 
 const TABLES = Object.freeze({
     COMMENTS: "comments",
@@ -420,8 +420,8 @@ export class DbHandler {
             CREATE TABLE IF NOT EXISTS ${tableName} (
                 commentCid TEXT NOT NULL PRIMARY KEY UNIQUE REFERENCES ${TABLES.COMMENTS}(cid) ON DELETE CASCADE,
                 aliasPrivateKey TEXT NOT NULL,
-                originalAuthorSignerPublicKey TEXT NOT NULL,
-                originalAuthorDomain TEXT NULLABLE, -- the original author's domain address (e.g., user.eth) if they used one
+                originalAuthorPublicKey TEXT NOT NULL,
+                originalAuthorName TEXT NULLABLE, -- the original author's name (e.g., user.eth) if they used one
                 mode TEXT NOT NULL CHECK(mode IN ('per-post', 'per-reply', 'per-author')),
                 insertedAt INTEGER NOT NULL
             )
@@ -599,7 +599,7 @@ export class DbHandler {
             .prepare(
                 `
             SELECT cm.rowid, cm.commentCid, c.authorSignerAddress,
-                   pa.originalAuthorSignerPublicKey
+                   pa.originalAuthorPublicKey
             FROM ${TABLES.COMMENT_MODERATIONS} cm
             LEFT JOIN ${TABLES.COMMENTS} c ON cm.commentCid = c.cid
             LEFT JOIN ${TABLES.PSEUDONYMITY_ALIASES} pa ON cm.commentCid = pa.commentCid
@@ -611,7 +611,7 @@ export class DbHandler {
             rowid: number;
             commentCid: string;
             authorSignerAddress: string | null;
-            originalAuthorSignerPublicKey: string | null;
+            originalAuthorPublicKey: string | null;
         }[];
 
         if (moderationsToUpdate.length === 0) return;
@@ -623,9 +623,9 @@ export class DbHandler {
                 let targetAddress: string | null = null;
 
                 // If the comment was published with pseudonymity, use the original author's address
-                if (mod.originalAuthorSignerPublicKey) {
+                if (mod.originalAuthorPublicKey) {
                     try {
-                        targetAddress = getPKCAddressFromPublicKeySync(mod.originalAuthorSignerPublicKey);
+                        targetAddress = getPKCAddressFromPublicKeySync(mod.originalAuthorPublicKey);
                     } catch {
                         // If we can't derive the address from the public key, fall back to authorSignerAddress
                         targetAddress = mod.authorSignerAddress;
@@ -653,7 +653,7 @@ export class DbHandler {
             .prepare(
                 `
             SELECT cm.rowid, c.author as commentAuthor,
-                   pa.originalAuthorDomain
+                   pa.originalAuthorName
             FROM ${TABLES.COMMENT_MODERATIONS} cm
             LEFT JOIN ${TABLES.COMMENTS} c ON cm.commentCid = c.cid
             LEFT JOIN ${TABLES.PSEUDONYMITY_ALIASES} pa ON cm.commentCid = pa.commentCid
@@ -664,7 +664,7 @@ export class DbHandler {
             .all() as {
             rowid: number;
             commentAuthor: string | null;
-            originalAuthorDomain: string | null;
+            originalAuthorName: string | null;
         }[];
 
         if (moderationsToUpdate.length === 0) return;
@@ -677,12 +677,12 @@ export class DbHandler {
                 let targetDomain: string | null = null;
 
                 // If the comment was published with pseudonymity, use the original author's domain
-                if (mod.originalAuthorDomain) {
-                    targetDomain = mod.originalAuthorDomain;
+                if (mod.originalAuthorName) {
+                    targetDomain = mod.originalAuthorName;
                 } else if (mod.commentAuthor) {
                     try {
                         const author = JSON.parse(mod.commentAuthor) as { address?: string; name?: string };
-                        targetDomain = getAuthorDomainFromWire(author) || null;
+                        targetDomain = getAuthorNameFromWire(author) || null;
                     } catch {
                         // Ignore parse errors
                     }
@@ -767,6 +767,18 @@ export class DbHandler {
                         typeof srcRecord.extraProps === "string" ? JSON.parse(srcRecord.extraProps) : srcRecord.extraProps || {};
                     srcRecord.extraProps = { ...existingExtra, subplebbitAddress: addr };
                     delete srcRecord["subplebbitAddress"];
+                }
+
+                // Rename pseudonymityAliases columns (v38 → v39)
+                if (currentDbVersion < 39 && srcTable === TABLES.PSEUDONYMITY_ALIASES) {
+                    if (srcRecord["originalAuthorSignerPublicKey"] !== undefined) {
+                        srcRecord["originalAuthorPublicKey"] = srcRecord["originalAuthorSignerPublicKey"];
+                        delete srcRecord["originalAuthorSignerPublicKey"];
+                    }
+                    if (srcRecord["originalAuthorDomain"] !== undefined) {
+                        srcRecord["originalAuthorName"] = srcRecord["originalAuthorDomain"];
+                        delete srcRecord["originalAuthorDomain"];
+                    }
                 }
 
                 // Prepare record for insertion (stringify JSONs, convert booleans)
@@ -1037,8 +1049,8 @@ export class DbHandler {
         const processedAliases = this._processRecordsForDbBeforeInsert(aliases);
         const stmt = this._db.prepare(`
             INSERT OR REPLACE INTO ${TABLES.PSEUDONYMITY_ALIASES}
-            (commentCid, aliasPrivateKey, originalAuthorSignerPublicKey, originalAuthorDomain, mode, insertedAt)
-            VALUES (@commentCid, @aliasPrivateKey, @originalAuthorSignerPublicKey, @originalAuthorDomain, @mode, @insertedAt)
+            (commentCid, aliasPrivateKey, originalAuthorPublicKey, originalAuthorName, mode, insertedAt)
+            VALUES (@commentCid, @aliasPrivateKey, @originalAuthorPublicKey, @originalAuthorName, @mode, @insertedAt)
         `);
 
         const insertMany = this._db.transaction((items: PseudonymityAliasRow[]) => {
@@ -1886,19 +1898,19 @@ export class DbHandler {
             const aliasesQuery = `
                 SELECT DISTINCT
                     comments.authorSignerAddress AS aliasSignerAddress,
-                    alias.originalAuthorSignerPublicKey AS originalAuthorSignerPublicKey
+                    alias.originalAuthorPublicKey AS originalAuthorPublicKey
                 FROM ${TABLES.PSEUDONYMITY_ALIASES} AS alias
                 INNER JOIN ${TABLES.COMMENTS} AS comments ON comments.cid = alias.commentCid
                 WHERE comments.authorSignerAddress IN (${aliasPlaceholders})
             `;
             const aliasRows = this._db.prepare(aliasesQuery).all(...uniqueActiveAddresses) as {
                 aliasSignerAddress: string;
-                originalAuthorSignerPublicKey: string;
+                originalAuthorPublicKey: string;
             }[];
             for (const aliasRow of aliasRows) {
                 let originalAuthorAddress: string;
                 try {
-                    originalAuthorAddress = getPKCAddressFromPublicKeySync(aliasRow.originalAuthorSignerPublicKey);
+                    originalAuthorAddress = getPKCAddressFromPublicKeySync(aliasRow.originalAuthorPublicKey);
                 } catch {
                     throw new Error(`Failed to resolve original author address for alias signer address ${aliasRow.aliasSignerAddress}`);
                 }
@@ -2015,40 +2027,40 @@ export class DbHandler {
     queryPseudonymityAliasByCommentCid(commentCid: string): PseudonymityAliasRow | undefined {
         const row = this._db
             .prepare(
-                `SELECT commentCid, aliasPrivateKey, originalAuthorSignerPublicKey, originalAuthorDomain, mode, insertedAt FROM ${TABLES.PSEUDONYMITY_ALIASES} WHERE commentCid = ?`
+                `SELECT commentCid, aliasPrivateKey, originalAuthorPublicKey, originalAuthorName, mode, insertedAt FROM ${TABLES.PSEUDONYMITY_ALIASES} WHERE commentCid = ?`
             )
             .get(commentCid) as PseudonymityAliasRow | undefined;
         return row;
     }
 
-    queryPseudonymityAliasForPost(originalAuthorSignerPublicKey: string, postCid: string): PseudonymityAliasRow | undefined {
+    queryPseudonymityAliasForPost(originalAuthorPublicKey: string, postCid: string): PseudonymityAliasRow | undefined {
         const row = this._db
             .prepare(
                 `
-            SELECT alias.commentCid, alias.aliasPrivateKey, alias.originalAuthorSignerPublicKey, alias.originalAuthorDomain, alias.mode, alias.insertedAt
+            SELECT alias.commentCid, alias.aliasPrivateKey, alias.originalAuthorPublicKey, alias.originalAuthorName, alias.mode, alias.insertedAt
             FROM ${TABLES.PSEUDONYMITY_ALIASES} AS alias
             INNER JOIN ${TABLES.COMMENTS} AS comments ON comments.cid = alias.commentCid
-            WHERE alias.mode = 'per-post' AND alias.originalAuthorSignerPublicKey = ? AND comments.postCid = ?
+            WHERE alias.mode = 'per-post' AND alias.originalAuthorPublicKey = ? AND comments.postCid = ?
             ORDER BY alias.insertedAt ASC
             LIMIT 1
         `
             )
-            .get(originalAuthorSignerPublicKey, postCid) as PseudonymityAliasRow | undefined;
+            .get(originalAuthorPublicKey, postCid) as PseudonymityAliasRow | undefined;
         return row;
     }
 
-    queryPseudonymityAliasForAuthor(originalAuthorSignerPublicKey: string): PseudonymityAliasRow | undefined {
+    queryPseudonymityAliasForAuthor(originalAuthorPublicKey: string): PseudonymityAliasRow | undefined {
         const row = this._db
             .prepare(
                 `
-            SELECT commentCid, aliasPrivateKey, originalAuthorSignerPublicKey, originalAuthorDomain, mode, insertedAt
+            SELECT commentCid, aliasPrivateKey, originalAuthorPublicKey, originalAuthorName, mode, insertedAt
             FROM ${TABLES.PSEUDONYMITY_ALIASES}
-            WHERE mode = 'per-author' AND originalAuthorSignerPublicKey = ?
+            WHERE mode = 'per-author' AND originalAuthorPublicKey = ?
             ORDER BY insertedAt ASC
             LIMIT 1
         `
             )
-            .get(originalAuthorSignerPublicKey) as PseudonymityAliasRow | undefined;
+            .get(originalAuthorPublicKey) as PseudonymityAliasRow | undefined;
         return row;
     }
 
@@ -2591,14 +2603,14 @@ export class DbHandler {
         const aliasRowsForOriginal = this._db
             .prepare(
                 `
-            SELECT alias.commentCid, alias.originalAuthorSignerPublicKey
+            SELECT alias.commentCid, alias.originalAuthorPublicKey
             FROM ${TABLES.PSEUDONYMITY_ALIASES} AS alias
         `
             )
-            .all() as Pick<PseudonymityAliasRow, "commentCid" | "originalAuthorSignerPublicKey">[];
+            .all() as Pick<PseudonymityAliasRow, "commentCid" | "originalAuthorPublicKey">[];
         for (const aliasRow of aliasRowsForOriginal) {
             try {
-                const originalAddress = getPKCAddressFromPublicKeySync(aliasRow.originalAuthorSignerPublicKey);
+                const originalAddress = getPKCAddressFromPublicKeySync(aliasRow.originalAuthorPublicKey);
                 if (originalAddress === authorSignerAddress) {
                     const commentRow = this._db
                         .prepare(`SELECT authorSignerAddress FROM ${TABLES.COMMENTS} WHERE cid = ?`)
@@ -2614,16 +2626,16 @@ export class DbHandler {
         const aliasRowsForAliasAddress = this._db
             .prepare(
                 `
-            SELECT alias.originalAuthorSignerPublicKey
+            SELECT alias.originalAuthorPublicKey
             FROM ${TABLES.PSEUDONYMITY_ALIASES} AS alias
             INNER JOIN ${TABLES.COMMENTS} AS comments ON comments.cid = alias.commentCid
             WHERE comments.authorSignerAddress = ?
         `
             )
-            .all(authorSignerAddress) as Pick<PseudonymityAliasRow, "originalAuthorSignerPublicKey">[];
+            .all(authorSignerAddress) as Pick<PseudonymityAliasRow, "originalAuthorPublicKey">[];
         for (const aliasRow of aliasRowsForAliasAddress) {
             try {
-                const originalAddress = getPKCAddressFromPublicKeySync(aliasRow.originalAuthorSignerPublicKey);
+                const originalAddress = getPKCAddressFromPublicKeySync(aliasRow.originalAuthorPublicKey);
                 authorSignerAddresses.add(originalAddress);
             } catch {
                 // ignore malformed keys
@@ -2706,7 +2718,7 @@ export class DbHandler {
         // Get original author's address for mod edits (bans/flairs are applied to original author)
         const modEditAddresses = [authorSignerAddress];
         try {
-            const originalAddress = getPKCAddressFromPublicKeySync(aliasRow.originalAuthorSignerPublicKey);
+            const originalAddress = getPKCAddressFromPublicKeySync(aliasRow.originalAuthorPublicKey);
             if (originalAddress !== authorSignerAddress) {
                 modEditAddresses.push(originalAddress);
             }
@@ -2715,7 +2727,7 @@ export class DbHandler {
         }
 
         // For mod edits (bans/flairs), use the original author's domain if available
-        const modEditDomain = aliasRow.originalAuthorDomain || authorDomain;
+        const modEditDomain = aliasRow.originalAuthorName || authorDomain;
 
         // Query karma for just this alias, but mod edits from both alias and original
         return this._queryCommunityAuthorByAddresses([authorSignerAddress], modEditAddresses, modEditDomain);

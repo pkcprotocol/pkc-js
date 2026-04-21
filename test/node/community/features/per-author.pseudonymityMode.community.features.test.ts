@@ -54,7 +54,7 @@ interface AnonymityTransitionContext {
     cleanup: () => Promise<void>;
 }
 
-type AliasRow = Pick<PseudonymityAliasRow, "mode" | "aliasPrivateKey" | "originalAuthorSignerPublicKey">;
+type AliasRow = Pick<PseudonymityAliasRow, "mode" | "aliasPrivateKey" | "originalAuthorPublicKey">;
 type StoredCommentUpdate = Pick<
     CommentUpdatesRow,
     "cid" | "updatedAt" | "replyCount" | "protocolVersion" | "signature" | "edit" | "author"
@@ -525,7 +525,7 @@ describeSkipIfRpc('community.features.pseudonymityMode="per-author"', () => {
                 authorSigner.publicKey
             ) as AliasRow;
             expect(aliasRow).to.exist;
-            expect(aliasRow.originalAuthorSignerPublicKey).to.equal(authorSigner.publicKey);
+            expect(aliasRow.originalAuthorPublicKey).to.equal(authorSigner.publicKey);
 
             const aliasSigner = await context.publisherPKC.createSigner({ privateKey: aliasRow.aliasPrivateKey, type: "ed25519" });
             expect(aliasSigner.address).to.be.a("string");
@@ -1357,7 +1357,7 @@ describeSkipIfRpc('community.features.pseudonymityMode="per-author"', () => {
                 // Verify the alias is different from the original author
                 const aliasRow = (community as LocalCommunity)._dbHandler.queryPseudonymityAliasByCommentCid(pseudonymousPost.cid);
                 expect(aliasRow).to.exist;
-                expect(aliasRow?.originalAuthorSignerPublicKey).to.equal(author.publicKey);
+                expect(aliasRow?.originalAuthorPublicKey).to.equal(author.publicKey);
 
                 // Double-check: original author's karma should still be 1
                 const originalAuthorKarmaAfter = (community as LocalCommunity)._dbHandler.queryCommunityAuthor(author.address);

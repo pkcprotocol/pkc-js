@@ -267,7 +267,7 @@ describeSkipIfRpc("Domain bans with pseudonymity mode", () => {
         await pkc.destroy();
     });
 
-    it.sequential("should store originalAuthorDomain in pseudonymityAliases when author uses domain", async () => {
+    it.sequential("should store originalAuthorName in pseudonymityAliases when author uses domain", async () => {
         // Publish a comment with domain address
         const commentWithDomain = await generateMockPost({
             communityAddress: community.address,
@@ -282,8 +282,8 @@ describeSkipIfRpc("Domain bans with pseudonymity mode", () => {
         // Verify the pseudonymity alias stores the original author's domain
         const aliasRow = community._dbHandler.queryPseudonymityAliasByCommentCid(commentWithDomain.cid);
         expect(aliasRow).to.exist;
-        expect(aliasRow!.originalAuthorSignerPublicKey).to.equal(domainAuthorSigner.publicKey);
-        expect(aliasRow!.originalAuthorDomain).to.equal(testDomain);
+        expect(aliasRow!.originalAuthorPublicKey).to.equal(domainAuthorSigner.publicKey);
+        expect(aliasRow!.originalAuthorName).to.equal(testDomain);
     });
 
     it.sequential("banning via pseudonymous comment should store original author's domain", async () => {

@@ -166,7 +166,7 @@ describeSkipIfRpc("Ban then purge with per-post pseudonymity mode", () => {
         // Verify the comment was anonymized
         const aliasRow = community._dbHandler.queryPseudonymityAliasByCommentCid(commentToBeBanned.cid);
         expect(aliasRow).to.exist;
-        expect(aliasRow?.originalAuthorSignerPublicKey).to.equal(authorSigner.publicKey);
+        expect(aliasRow?.originalAuthorPublicKey).to.equal(authorSigner.publicKey);
 
         const banMod = await pkc.createCommentModeration({
             communityAddress: community.address,
@@ -207,7 +207,7 @@ describeSkipIfRpc("Ban then purge with per-post pseudonymity mode", () => {
 
     it.sequential(`Author ban persists after purging the anonymized comment`, async () => {
         // The ban should persist because targetAuthorSignerAddress stores the original
-        // author's address (resolved from pseudonymityAliases.originalAuthorSignerPublicKey)
+        // author's address (resolved from pseudonymityAliases.originalAuthorPublicKey)
         const newCommentByBannedAuthor = await generateMockPost({
             communityAddress: community.address,
             pkc: pkc,
@@ -273,7 +273,7 @@ describeSkipIfRpc("Ban then purge with per-author pseudonymity mode", () => {
         const aliasRow = community._dbHandler.queryPseudonymityAliasByCommentCid(commentToBeBanned.cid);
         expect(aliasRow).to.exist;
         expect(aliasRow?.mode).to.equal("per-author");
-        expect(aliasRow?.originalAuthorSignerPublicKey).to.equal(authorSigner.publicKey);
+        expect(aliasRow?.originalAuthorPublicKey).to.equal(authorSigner.publicKey);
 
         const banMod = await pkc.createCommentModeration({
             communityAddress: community.address,

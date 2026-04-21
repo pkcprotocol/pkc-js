@@ -237,7 +237,7 @@ describe(`community.statsCid`, function () {
 
     function insertPseudonymityAlias(opts: {
         commentCid: string;
-        originalAuthorSignerPublicKey: string;
+        originalAuthorPublicKey: string;
         aliasPrivateKey?: string;
         insertedAt?: number;
         mode?: "per-post" | "per-reply" | "per-author";
@@ -247,8 +247,8 @@ describe(`community.statsCid`, function () {
             {
                 commentCid: opts.commentCid,
                 aliasPrivateKey: opts.aliasPrivateKey ?? `alias-private-key-${opts.commentCid}`,
-                originalAuthorSignerPublicKey: opts.originalAuthorSignerPublicKey,
-                originalAuthorDomain: null,
+                originalAuthorPublicKey: opts.originalAuthorPublicKey,
+                originalAuthorName: null,
                 mode: opts.mode ?? "per-post",
                 insertedAt: opts.insertedAt ?? currentTimestamp()
             }
@@ -340,12 +340,12 @@ describe(`community.statsCid`, function () {
             const firstAliasPost = insertPost({ authorSignerAddress: "alias-author-one" });
             insertPseudonymityAlias({
                 commentCid: firstAliasPost.cid,
-                originalAuthorSignerPublicKey: originalSigner.publicKey
+                originalAuthorPublicKey: originalSigner.publicKey
             });
             const secondAliasPost = insertPost({ authorSignerAddress: "alias-author-two" });
             insertPseudonymityAlias({
                 commentCid: secondAliasPost.cid,
-                originalAuthorSignerPublicKey: originalSigner.publicKey
+                originalAuthorPublicKey: originalSigner.publicKey
             });
             const statsAfter = queryStats();
             expectDelta(activeUserCountKeys, statsBefore, statsAfter, 1);
@@ -356,7 +356,7 @@ describe(`community.statsCid`, function () {
             const pseudonymousPost = insertPost({ authorSignerAddress: "alias-transition-author" });
             insertPseudonymityAlias({
                 commentCid: pseudonymousPost.cid,
-                originalAuthorSignerPublicKey: originalSigner.publicKey
+                originalAuthorPublicKey: originalSigner.publicKey
             });
             const statsBefore = queryStats();
             insertPost({ authorSignerAddress: originalSigner.address });
@@ -371,13 +371,13 @@ describe(`community.statsCid`, function () {
             const firstReply = insertReply({ parent: post, authorSignerAddress: "per-reply-alias-one" });
             insertPseudonymityAlias({
                 commentCid: firstReply.cid,
-                originalAuthorSignerPublicKey: originalSigner.publicKey,
+                originalAuthorPublicKey: originalSigner.publicKey,
                 mode: "per-reply"
             });
             const secondReply = insertReply({ parent: post, authorSignerAddress: "per-reply-alias-two" });
             insertPseudonymityAlias({
                 commentCid: secondReply.cid,
-                originalAuthorSignerPublicKey: originalSigner.publicKey,
+                originalAuthorPublicKey: originalSigner.publicKey,
                 mode: "per-reply"
             });
             const statsAfter = queryStats();
@@ -389,7 +389,7 @@ describe(`community.statsCid`, function () {
             const pseudonymousPost = insertPost({ authorSignerAddress: "per-author-alias" });
             insertPseudonymityAlias({
                 commentCid: pseudonymousPost.cid,
-                originalAuthorSignerPublicKey: originalSigner.publicKey,
+                originalAuthorPublicKey: originalSigner.publicKey,
                 mode: "per-author"
             });
             const statsBefore = queryStats();
@@ -404,7 +404,7 @@ describe(`community.statsCid`, function () {
             const pseudonymousReply = insertReply({ parent: post, authorSignerAddress: "alias-comment-author" });
             insertPseudonymityAlias({
                 commentCid: pseudonymousReply.cid,
-                originalAuthorSignerPublicKey: originalSigner.publicKey
+                originalAuthorPublicKey: originalSigner.publicKey
             });
             const statsBefore = queryStats();
             insertVote(post, { authorSignerAddress: originalSigner.address });
@@ -416,7 +416,7 @@ describe(`community.statsCid`, function () {
             const pseudonymousPost = insertPost({ authorSignerAddress: "invalid-alias-author" });
             insertPseudonymityAlias({
                 commentCid: pseudonymousPost.cid,
-                originalAuthorSignerPublicKey: "invalid-public-key"
+                originalAuthorPublicKey: "invalid-public-key"
             });
             expect(() => queryStats()).to.throw("Failed to resolve original author address for alias signer address invalid-alias-author");
         });

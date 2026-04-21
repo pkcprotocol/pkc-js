@@ -832,8 +832,8 @@ describeSkipIfRpc("v29 production data → v37 migration", function () {
 
     // ── Schema migration ──
 
-    it("DB version is updated to 37", () => {
-        expect(dbHandler!.getDbVersion()).to.equal(37);
+    it("DB version is updated to latest", () => {
+        expect(dbHandler!.getDbVersion()).to.equal(39);
     });
 
     it("subplebbitAddress column removed from comments, commentEdits, commentModerations", () => {
@@ -867,10 +867,13 @@ describeSkipIfRpc("v29 production data → v37 migration", function () {
         expect(columns).to.include("targetAuthorDomain");
     });
 
-    it("originalAuthorDomain column exists in pseudonymityAliases", () => {
+    it("originalAuthorName and originalAuthorPublicKey columns exist in pseudonymityAliases", () => {
         const priv = getPrivate(dbHandler!);
         const columns = (priv._db.pragma("table_info(pseudonymityAliases)") as { name: string }[]).map((c) => c.name);
-        expect(columns).to.include("originalAuthorDomain");
+        expect(columns).to.include("originalAuthorName");
+        expect(columns).to.include("originalAuthorPublicKey");
+        expect(columns).not.to.include("originalAuthorDomain");
+        expect(columns).not.to.include("originalAuthorSignerPublicKey");
     });
 
     // ── Comments: IPNS-key address migration ──

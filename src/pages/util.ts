@@ -18,7 +18,7 @@ import * as remeda from "remeda";
 import type { CommentWithinModQueuePageJson, CommentWithinRepliesPostsPageJson, CommentUpdateType } from "../publications/comment/types.js";
 import { shortifyAddress, shortifyCid } from "../util.js";
 import { RemoteCommunity } from "../community/remote-community.js";
-import { getAuthorDomainFromWire } from "../publications/publication-author.js";
+import { getAuthorNameFromWire } from "../publications/publication-author.js";
 import {
     getCommunityAddressFromRecord,
     getCommunityPublicKeyFromWire,
@@ -359,7 +359,7 @@ function _buildCommentRuntimeFields(
     comment: PageIpfs["comments"][0] | ModQueuePageIpfs["comments"][0],
     cache: LRUCache<string, boolean>
 ): CommentRuntimeFields {
-    const domain = getAuthorDomainFromWire(comment.comment.author);
+    const domain = getAuthorNameFromWire(comment.comment.author);
     if (!domain) return {};
     const key = sha256(domain + comment.comment.signature.publicKey);
     const cached = cache.get(key);
