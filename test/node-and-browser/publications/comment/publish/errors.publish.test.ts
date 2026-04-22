@@ -177,6 +177,55 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
         expect(mockPost.clients.pubsubKuboRpcClients[offlinePubsubUrls[0]].state).to.equal("stopped");
         expect(mockPost.clients.pubsubKuboRpcClients[offlinePubsubUrls[1]].state).to.equal("stopped");
     });
+    it(`ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS error details contain per-provider error messages and no encrypted ciphertext`, async () => {
+        const offlinePubsubUrls = ["http://localhost:23425", "http://localhost:23426"];
+        const offlinePubsubPKC = await mockRemotePKC({
+            pkcOptions: { pubsubKuboRpcClientsOptions: offlinePubsubUrls }
+        });
+        const mockPost = await generateMockPost({ communityAddress: signers[1].address, pkc: offlinePubsubPKC });
+        // Pre-set _community to skip the network IPNS fetch in _initCommunity(),
+        // which is flaky in CI. This isolates the test to only exercise the pubsub failure path.
+        (mockPost as any)._community = {
+            encryption: { type: "ed25519-aes-gcm", publicKey: signers[1].publicKey },
+            pubsubTopic: signers[1].address,
+            address: signers[1].address
+        };
+
+        try {
+            await mockPost.publish();
+            expect.fail("Should have thrown");
+        } catch (e) {
+            const err = e as PKCError;
+            expect(err.code).to.equal("ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS");
+
+            const exchanges = err.details.challengeExchanges;
+            expect(exchanges).to.be.an("array").with.lengthOf(2);
+
+            for (const exchange of exchanges) {
+                // Per-provider error should have message and stack
+                expect(exchange.challengeRequestPublishError).to.exist;
+                expect(exchange.challengeRequestPublishError.message).to.be.a("string").that.is.not.empty;
+                expect(exchange.challengeRequestPublishError.stack).to.be.a("string");
+
+                // encrypted field should be stripped from challenge messages
+                if (exchange.challengeRequest) {
+                    expect(exchange.challengeRequest).to.not.have.property("encrypted");
+                }
+
+                // signer should not be present
+                expect(exchange).to.not.have.property("signer");
+            }
+
+            // Verify the error serializes to JSON without losing per-provider errors
+            const json = err.toJSON();
+            const jsonExchanges = json.details.challengeExchanges;
+            for (const exchange of jsonExchanges) {
+                expect(exchange.challengeRequestPublishError.message).to.be.a("string").that.is.not.empty;
+            }
+        } finally {
+            await offlinePubsubPKC.destroy();
+        }
+    });
     it.sequential(`comment emits error when pubsub provider 1 is not responding and pubsub provider 2 throws an error`, async () => {
         // First provider waits, second provider fails to subscribe
         // second provider should update its state to be stopped, but it should not emit an error until the first provider is done with waiting

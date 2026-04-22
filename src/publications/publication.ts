@@ -977,8 +977,27 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     private _challengeExchangesFormattedForErrors() {
+        const serializeError = (error: Error | PKCError | undefined) => {
+            if (!error) return undefined;
+            if ("toJSON" in error && typeof error.toJSON === "function") return error.toJSON();
+            return { message: error.message, stack: error.stack, code: (error as NodeJS.ErrnoException).code };
+        };
+
+        const omitEncrypted = <T extends { encrypted?: unknown }>(msg: T | undefined) => {
+            if (!msg) return undefined;
+            return remeda.omit(msg, ["encrypted"]);
+        };
+
         return Object.values(this._challengeExchanges).map((exchange) => ({
-            ...exchange,
+            challengeRequest: omitEncrypted(exchange.challengeRequest),
+            challengeAnswer: omitEncrypted(exchange.challengeAnswer),
+            challenge: omitEncrypted(exchange.challenge),
+            challengeVerification: omitEncrypted(exchange.challengeVerification),
+            challengeRequestPublishTimestamp: exchange.challengeRequestPublishTimestamp,
+            challengeAnswerPublishTimestamp: exchange.challengeAnswerPublishTimestamp,
+            providerUrl: exchange.providerUrl,
+            challengeRequestPublishError: serializeError(exchange.challengeRequestPublishError),
+            challengeAnswerPublishError: serializeError(exchange.challengeAnswerPublishError),
             timedoutWaitingForChallengeRequestResponse:
                 !exchange.challengeVerification &&
                 !exchange.challenge &&
