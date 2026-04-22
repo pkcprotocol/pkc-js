@@ -1364,9 +1364,11 @@ export class DbHandler {
         const rowsRaw = this._db.prepare(queryStr).all(...params) as (PrefixedCommentRow & { tree_parent: string })[];
 
         // Group by tree_parent to reconstruct the hierarchy
+        const parsedByCid = new Map<string, { comment: CommentIpfsType; commentUpdate: CommentUpdateType }>();
         const childrenByParent = new Map<string, { comment: CommentIpfsType; commentUpdate: CommentUpdateType }[]>();
         for (const row of rowsRaw) {
             const { comment, commentUpdate } = this._parsePrefixedComment(row);
+            parsedByCid.set(commentUpdate.cid, { comment, commentUpdate });
             const parent = row.tree_parent;
             if (!childrenByParent.has(parent)) childrenByParent.set(parent, []);
             childrenByParent.get(parent)!.push({ comment, commentUpdate });
@@ -1395,10 +1397,21 @@ export class DbHandler {
         const attachReplies = (cid: string): CommentUpdateType["replies"] | undefined => {
             const children = childrenByParent.get(cid);
             if (!children?.length) return undefined;
+
+            // Sort children by the parent's commentCids order.
+            // SQLite's recursive CTE does not guarantee row order matches json_each array order
+            // when additional JOINs are involved, so we must explicitly reorder.
+            const parent = parsedByCid.get(cid);
+            const parentDbReplies = parent?.commentUpdate?.replies as Record<string, DbRepliesSortEntry> | undefined;
+            const cidOrder = parentDbReplies?.best?.commentCids;
+            const orderedChildren = cidOrder
+                ? (cidOrder.map((childCid) => children.find((c) => c.commentUpdate.cid === childCid)).filter(Boolean) as typeof children)
+                : children;
+
             return {
                 pages: {
                     best: {
-                        comments: children.map((child) => ({
+                        comments: orderedChildren.map((child) => ({
                             comment: child.comment,
                             commentUpdate: buildWireCommentUpdate(child.commentUpdate, attachReplies(child.commentUpdate.cid))
                         }))
@@ -1501,10 +1514,21 @@ export class DbHandler {
         const attachReplies = (cid: string): CommentUpdateType["replies"] | undefined => {
             const children = childrenByParent.get(cid);
             if (!children?.length) return undefined;
+
+            // Sort children by the parent's commentCids order.
+            // SQLite's recursive CTE does not guarantee row order matches json_each array order
+            // when additional JOINs are involved, so we must explicitly reorder.
+            const parent = parsedByCid.get(cid);
+            const parentDbReplies = parent?.commentUpdate?.replies as Record<string, DbRepliesSortEntry> | undefined;
+            const cidOrder = parentDbReplies?.best?.commentCids;
+            const orderedChildren = cidOrder
+                ? (cidOrder.map((childCid) => children.find((c) => c.commentUpdate.cid === childCid)).filter(Boolean) as typeof children)
+                : children;
+
             return {
                 pages: {
                     best: {
-                        comments: children.map((child) => ({
+                        comments: orderedChildren.map((child) => ({
                             comment: child.comment,
                             commentUpdate: buildWireCommentUpdate(child.commentUpdate, attachReplies(child.commentUpdate.cid))
                         }))
