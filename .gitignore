@@ -134,3 +134,6 @@ src/generated-version.ts
 .pkc-rpc-settings-challenges-test/
 .pkc-rpc-settings-nameresolvers-test/
 .pkc-rpc-getcommunity-publickey-fallback-test-*/
+
+# Test logs
+.tmp/

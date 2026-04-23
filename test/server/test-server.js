@@ -15,37 +15,40 @@ import url from "url";
 import querystring from "querystring";
 
 import fs from "fs";
-import os from "os";
 import startPKCWebSocketServers from "./pkc-ws-server.js";
 
 process.env["PKC_CONFIGS"] = process.env["PKC_CONFIGS"] || "local-kubo-rpc";
 process.env["DEBUG"] = process.env["DEBUG"] || "*";
 
-// Capture test-server.js stdout and stderr to a single log file in /tmp
 const pkcConfig = process.env["PKC_CONFIGS"] || "local-kubo-rpc";
-const logTimestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-const testServerLogFile = `${os.tmpdir()}/test-server-${pkcConfig}-${logTimestamp}.log`;
 
-const testServerLogStream = fs.createWriteStream(testServerLogFile, { flags: "a" });
+// setupTestServerLog is called after .tmp/ cleanup in the main IIFE
+const setupTestServerLog = () => {
+    const logTimestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const testServerLogFile = path.join(process.cwd(), `.tmp/test-server-${pkcConfig}-${logTimestamp}.log`);
+    fs.mkdirSync(path.join(process.cwd(), ".tmp"), { recursive: true });
 
-const originalStdoutWrite = process.stdout.write;
-const originalStderrWrite = process.stderr.write;
+    const testServerLogStream = fs.createWriteStream(testServerLogFile, { flags: "a" });
 
-process.stdout.write = function (chunk, encoding, fd) {
-    testServerLogStream.write(chunk);
-    return originalStdoutWrite.call(process.stdout, chunk, encoding, fd);
+    const originalStdoutWrite = process.stdout.write;
+    const originalStderrWrite = process.stderr.write;
+
+    process.stdout.write = function (chunk, encoding, fd) {
+        testServerLogStream.write(chunk);
+        return originalStdoutWrite.call(process.stdout, chunk, encoding, fd);
+    };
+
+    process.stderr.write = function (chunk, encoding, fd) {
+        testServerLogStream.write(chunk);
+        return originalStderrWrite.call(process.stderr, chunk, encoding, fd);
+    };
+
+    process.on("exit", () => {
+        testServerLogStream.end();
+    });
+
+    console.log(`📝 Test server log: ${testServerLogFile}`);
 };
-
-process.stderr.write = function (chunk, encoding, fd) {
-    testServerLogStream.write(chunk);
-    return originalStderrWrite.call(process.stderr, chunk, encoding, fd);
-};
-
-process.on("exit", () => {
-    testServerLogStream.end();
-});
-
-console.log(`📝 Test server log: ${testServerLogFile}`);
 
 const ipfsPath = getIpfsPath();
 
@@ -682,6 +685,7 @@ const setUpMockPubsubServer = async () => {
         ".pkc2",
         ".pkc-rpc-server",
         ".pkc-rpc-server-remote",
+        ".tmp",
         "test-server", // Add test-server directory cleanup
         ...ipfsNodesToRun.map((node) => path.basename(node.dir))
     ];
@@ -691,6 +695,8 @@ const setUpMockPubsubServer = async () => {
         } catch (e) {
             console.warn("Failed to remove ", dirsToDelete, "skipping for now", e);
         }
+
+    setupTestServerLog();
 
     await startIpfsNodes();
 
