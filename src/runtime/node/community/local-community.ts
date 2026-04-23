@@ -20,7 +20,7 @@ import type {
 import { LRUCache } from "lru-cache";
 import { PageGenerator } from "./page-generator.js";
 import { DbHandler } from "./db-handler.js";
-import { deriveDbReplies } from "../util.js";
+import { deriveDbReplies, deriveDbPosts, resolveDbPostsCidRefs } from "../util.js";
 import type { PseudonymityAliasRow, PurgedCommentTableRows } from "./db-handler-types.js";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import {
@@ -139,6 +139,7 @@ import type {
     CommentUpdateType,
     DbRepliesFormat,
     DbRepliesSortEntry,
+    DbPostsFormat,
     PostPubsubMessageWithCommunityAuthor,
     ReplyPubsubMessageWithCommunityAuthor
 } from "../../../publications/comment/types.js";
@@ -192,6 +193,7 @@ import {
     untrackStartedCommunity,
     untrackUpdatingCommunity
 } from "../../../pkc/tracked-instance-registry-util.js";
+import { AllPageCids } from "../../../pages/types.js";
 
 type CommentUpdateToWriteToDbAndPublishToIpfs = {
     newCommentUpdate: CommentUpdateType;
@@ -280,6 +282,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     > = undefined; // The pkc._startedCommunities we're subscribed to
     private _pendingEditProps: Partial<ParsedCommunityEditOptions & { editId: string }>[] = [];
     _blocksToRm: string[] = [];
+    private _postsAllPageCids: AllPageCids | undefined = undefined;
 
     constructor(pkc: PKC) {
         super(pkc);
@@ -309,7 +312,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         hideClassPrivateProps(this);
     }
 
-    // This will be stored in DB
+    // This will be stored in DB and also shared between instances via _updateInstancePropsWithStartedCommunityOrDb.
+    // Must NOT convert posts to CID-ref format here — that's only for DB storage (done in _updateDbInternalState).
+    // CID-ref conversion strips preloaded page data which breaks reply CommentUpdate resolution
+    // when other instances read the shared state.
     toJSONInternalAfterFirstUpdate(): InternalCommunityRecordAfterFirstUpdateType {
         const rpcJson = this.toJSONInternalRpcAfterFirstUpdate();
         return {
@@ -374,6 +380,27 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     }
 
     async initInternalCommunityAfterFirstUpdateNoMerge(newProps: InternalCommunityRecordAfterFirstUpdateType) {
+        // Detect CID-ref format posts from DB: wire format always has 'pages' key, CID-ref format doesn't
+        if (newProps.posts && !("pages" in newProps.posts)) {
+            const dbPosts = newProps.posts as unknown as DbPostsFormat;
+            // Extract allPageCids for future unpinning
+            const allPageCids: Record<string, string[]> = {};
+            for (const [sortName, entry] of Object.entries(dbPosts)) {
+                if (entry?.allPageCids?.length) allPageCids[sortName] = entry.allPageCids;
+            }
+            this._postsAllPageCids = Object.keys(allPageCids).length > 0 ? allPageCids : undefined;
+            // Lightweight conversion: just pageCids from allPageCids[0], preloaded pages regenerated on next update.
+            // Never use resolveDbPostsCidRefs here — this method is called from many code paths
+            // where _dbHandler._db may not be initialized (e.g. updateListener from a mirrored community).
+            const pageCids: Record<string, string> = {};
+            for (const [sortName, entry] of Object.entries(dbPosts)) {
+                if (entry?.allPageCids?.[0]) pageCids[sortName] = entry.allPageCids[0];
+            }
+            newProps = {
+                ...newProps,
+                posts: { pages: {}, ...(Object.keys(pageCids).length > 0 ? { pageCids } : {}) } as CommunityIpfsType["posts"]
+            };
+        }
         const keysOfCommunityIpfs = <(keyof CommunityIpfsType)[]>[...CommunitySignedPropertyNames, "signature"];
         this.initRpcInternalCommunityAfterFirstUpdateNoMerge({
             community: remeda.pick(newProps, keysOfCommunityIpfs) as CommunityIpfsType,
@@ -505,7 +532,18 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             await this._dbHandler.lockCommunityState();
             lockedIt = true;
             const internalStateBefore = await this._getDbInternalState(false);
-            const mergedInternalState = { ...internalStateBefore, ...props };
+            // Convert posts to CID-ref format for compact DB storage (strip preloaded page data)
+            const propsToStore =
+                "posts" in props && props.posts
+                    ? {
+                          ...props,
+                          posts: deriveDbPosts({
+                              posts: props.posts as CommunityIpfsType["posts"],
+                              allPageCids: this._postsAllPageCids
+                          }) as typeof props.posts
+                      }
+                    : props;
+            const mergedInternalState = { ...internalStateBefore, ...propsToStore };
             await this._dbHandler.keyvSet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY], mergedInternalState);
             this._internalStateUpdateId = props._internalStateUpdateId;
             log.trace("Updated community", this.address, "internal state in db with new props", Object.keys(props));
@@ -551,6 +589,13 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         const currentDbState = await this._getDbInternalState(false);
 
         if ("updatedAt" in currentDbState) {
+            // Resolve CID-ref posts from DB back to full wire format with preloaded pages.
+            // DB stores posts in compact CID-ref format (no preloaded page data).
+            // _dbHandler is guaranteed to be initialized here since we're loading from DB.
+            if (currentDbState.posts && !("pages" in currentDbState.posts)) {
+                const dbPosts = currentDbState.posts as unknown as DbPostsFormat;
+                currentDbState.posts = resolveDbPostsCidRefs({ dbPosts, dbHandler: this._dbHandler }) as typeof currentDbState.posts;
+            }
             await this.initInternalCommunityAfterFirstUpdateNoMerge(currentDbState);
         } else await this.initInternalCommunityBeforeFirstUpdateNoMerge(currentDbState);
     }
@@ -791,6 +836,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         // posts should not be cleaned up because we want to make sure not to modify authors' posts
 
+        // Extract allPageCids from generation result for DB CID-ref storage and unpinning
+        const newPostsAllPageCids = generatedPosts && !("singlePreloadedPage" in generatedPosts) ? generatedPosts.allPageCids : undefined;
+
         if (generatedPosts) {
             if ("singlePreloadedPage" in generatedPosts) newIpns.posts = { pages: generatedPosts.singlePreloadedPage };
             else if (generatedPosts.pageCids) {
@@ -802,12 +850,17 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             }
         } else {
             await this._updateDbInternalState({ posts: undefined }); // make sure db resets posts as well
-            // TODO make sure to capture this.posts cids to unpin
         }
 
-        this._addOldPageCidsToCidsToUnpin(this.raw.communityIpfs?.posts, newIpns.posts).catch((err) =>
-            log.error("Failed to add old page cids of community.posts to _cidsToUnpin", err)
-        );
+        // Unpin old posts page CIDs using direct allPageCids comparison (no IPFS fetches needed)
+        {
+            const oldCids = new Set(this._postsAllPageCids ? Object.values(this._postsAllPageCids).flat() : []);
+            const newCids = new Set(newPostsAllPageCids ? Object.values(newPostsAllPageCids).flat() : []);
+            for (const cid of oldCids) {
+                if (!newCids.has(cid)) this._cidsToUnPin.add(cid);
+            }
+        }
+        this._postsAllPageCids = newPostsAllPageCids;
 
         if (newModQueue) {
             newIpns.modQueue = { pageCids: newModQueue.pageCids };
