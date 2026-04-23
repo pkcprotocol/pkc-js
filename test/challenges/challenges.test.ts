@@ -421,6 +421,228 @@ describe("getChallengeVerification", () => {
     });
 });
 
+// TODO: un-skip once https://github.com/pkcprotocol/pkc-js/issues/81 is fixed
+describe.skip("excluded challenge should not have getChallenge() called", () => {
+    it("getChallenge() should not be invoked for an excluded challenge (exclude.challenges)", async () => {
+        // Import the tracking challenge whose getChallenge() increments a call counter
+        // @ts-expect-error — no declaration file for temp challenge fixture
+        const trackingChallenge = (await import("/tmp/tracking-challenge.mjs")) as {
+            getCallCount: () => number;
+            resetCallCount: () => void;
+        };
+        trackingChallenge.resetCallCount();
+
+        const trackingChallengePath = "/tmp/tracking-challenge.mjs";
+
+        const author = { address: getRandomAddress() };
+        const localCommunity = {
+            settings: {
+                challenges: [
+                    // Challenge 0: question challenge — auto-succeeds via preanswer
+                    {
+                        name: "question",
+                        options: {
+                            question: "What is the password?",
+                            answer: "password"
+                        }
+                    },
+                    // Challenge 1: tracking challenge — excluded if challenge 0 succeeds
+                    // getChallenge() should NOT be called since it's excluded
+                    {
+                        path: trackingChallengePath,
+                        exclude: [{ challenges: [0] }]
+                    }
+                ]
+            },
+            _pkc: PKC()
+        } as unknown as LocalCommunity;
+
+        const challengeRequestMessage = {
+            comment: { author },
+            challengeAnswers: ["password"]
+        } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+
+        const result = (await getPendingChallengesOrChallengeVerification(
+            challengeRequestMessage,
+            localCommunity
+        )) as ChallengeVerificationResult & {
+            challengeSuccess?: boolean;
+        };
+
+        // Challenge 0 succeeds, challenge 1 is excluded → overall success
+        expect(result.challengeSuccess).to.equal(true);
+
+        // Excluded challenge should not have getChallenge() called
+        expect(trackingChallenge.getCallCount()).to.equal(0);
+    });
+});
+
+// TODO: un-skip once https://github.com/pkcprotocol/pkc-js/issues/81 is fixed
+describe.skip("real-world config: AI moderation getChallenge() fires even when excluded", () => {
+    // Reproduces the production challenge config where:
+    //   C0: publication-match (immediate — checks author.name regex)
+    //   C1: whitelist (immediate — checks author address)
+    //   C2: spam-blocker (pending iframe)
+    //   C3: ai-moderation "allow" branch (calls OpenAI)
+    //   C4: ai-moderation "review" branch (calls OpenAI)
+    //
+    // Desired: AI moderation (C3, C4) should only run if spam-blocker (C2) succeeds,
+    // and should NOT run if publication-match (C0) or whitelist (C1) already passed.
+    //
+    // Actual: getChallenge() is called for ALL challenges before exclude rules are checked.
+
+    let spamBlockerCallCount = 0;
+    let aiModerationAllowCallCount = 0;
+    let aiModerationReviewCallCount = 0;
+
+    const resetCallCounts = () => {
+        spamBlockerCallCount = 0;
+        aiModerationAllowCallCount = 0;
+        aiModerationReviewCallCount = 0;
+    };
+
+    // Mock spam-blocker: returns a pending iframe challenge, tracks calls
+    const mockSpamBlockerFactory = () => ({
+        type: "url/iframe" as const,
+        getChallenge: async () => {
+            spamBlockerCallCount++;
+            return {
+                challenge: "https://spamblocker.example.com/verify",
+                verify: async () => ({ success: true as const }),
+                type: "url/iframe" as const
+            };
+        }
+    });
+
+    // Mock AI moderation (allow branch): returns immediate success, tracks calls
+    const mockAiModerationAllowFactory = () => ({
+        type: "text/plain" as const,
+        getChallenge: async () => {
+            aiModerationAllowCallCount++;
+            return { success: true as const };
+        }
+    });
+
+    // Mock AI moderation (review branch): returns immediate success with pendingApproval, tracks calls
+    const mockAiModerationReviewFactory = () => ({
+        type: "text/plain" as const,
+        getChallenge: async () => {
+            aiModerationReviewCallCount++;
+            return { success: true as const };
+        }
+    });
+
+    const createCommunity = () => {
+        const pkc = PKC() as ReturnType<typeof PKC> & { settings: { challenges: Record<string, unknown> } };
+        pkc.settings = {
+            challenges: {
+                "mock-spam-blocker": mockSpamBlockerFactory,
+                "mock-ai-moderation-allow": mockAiModerationAllowFactory,
+                "mock-ai-moderation-review": mockAiModerationReviewFactory
+            }
+        };
+        return {
+            settings: {
+                challenges: [
+                    // C0: publication-match — succeeds if author.name ends with .bso
+                    {
+                        name: "publication-match",
+                        options: {
+                            matches: '[{"propertyName":"author.name","regexp":"\\\\.(bso)$"}]',
+                            error: "Posting requires a name ending with .bso"
+                        },
+                        exclude: [{ role: ["moderator", "admin", "owner"] }, { challenges: [1] }, { challenges: [2] }]
+                    },
+                    // C1: whitelist — succeeds if author address is whitelisted
+                    {
+                        name: "whitelist",
+                        options: { addresses: "whitelisted-author.bso" },
+                        exclude: [{ role: ["moderator", "admin", "owner"] }, { challenges: [0] }, { challenges: [2] }]
+                    },
+                    // C2: spam-blocker — pending iframe
+                    {
+                        name: "mock-spam-blocker",
+                        exclude: [{ challenges: [0] }, { challenges: [1] }, { role: ["owner", "admin", "moderator"] }]
+                    },
+                    // C3: ai-moderation "allow" — calls OpenAI
+                    {
+                        name: "mock-ai-moderation-allow",
+                        exclude: [{ challenges: [0] }, { challenges: [1] }, { challenges: [4] }, { role: ["owner", "admin", "moderator"] }]
+                    },
+                    // C4: ai-moderation "review" — calls OpenAI, pendingApproval
+                    {
+                        name: "mock-ai-moderation-review",
+                        exclude: [{ challenges: [0] }, { challenges: [1] }, { challenges: [3] }, { role: ["owner", "admin", "moderator"] }],
+                        pendingApproval: true
+                    }
+                ]
+            },
+            _pkc: pkc
+        };
+    };
+
+    it("publication-match succeeds → AI moderation getChallenge() should not be called", async () => {
+        resetCallCounts();
+        // Author name ends with .bso → publication-match (C0) succeeds
+        // C1-C4 should all be excluded, so getChallenge() should NOT fire for them
+        const community = createCommunity() as unknown as LocalCommunity;
+        const request = {
+            comment: { author: { address: getRandomAddress(), name: "testuser.bso" } }
+        } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+
+        const result = (await getPendingChallengesOrChallengeVerification(request, community)) as ChallengeVerificationResult & {
+            challengeSuccess?: boolean;
+        };
+
+        expect(result.challengeSuccess).to.equal(true);
+        // Excluded challenges should not have getChallenge() called at all
+        expect(spamBlockerCallCount).to.equal(0);
+        expect(aiModerationAllowCallCount).to.equal(0);
+        expect(aiModerationReviewCallCount).to.equal(0);
+    });
+
+    it("whitelist succeeds → AI moderation getChallenge() should not be called", async () => {
+        resetCallCounts();
+        // Author is whitelisted → C1 succeeds
+        // C0 excluded (by C1), C2-C4 excluded, so getChallenge() should NOT fire
+        const community = createCommunity() as unknown as LocalCommunity;
+        const request = {
+            comment: { author: { address: "whitelisted-author.bso" } }
+        } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+
+        const result = (await getPendingChallengesOrChallengeVerification(request, community)) as ChallengeVerificationResult & {
+            challengeSuccess?: boolean;
+        };
+
+        expect(result.challengeSuccess).to.equal(true);
+        // Excluded challenges should not have getChallenge() called at all
+        expect(spamBlockerCallCount).to.equal(0);
+        expect(aiModerationAllowCallCount).to.equal(0);
+        expect(aiModerationReviewCallCount).to.equal(0);
+    });
+
+    it("neither match nor whitelist → AI moderation should not run before spam-blocker is solved", async () => {
+        resetCallCounts();
+        // Author doesn't match .bso name and isn't whitelisted
+        // C0 fails, C1 fails → C2 pending (iframe) → C3, C4 should NOT run yet
+        const community = createCommunity() as unknown as LocalCommunity;
+        const request = {
+            comment: { author: { address: getRandomAddress(), name: "no-bso-name" } }
+        } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+
+        const result = (await getPendingChallengesOrChallengeVerification(request, community)) as ChallengeVerificationResult & {
+            challengeSuccess?: boolean;
+            pendingChallenges?: unknown[];
+        };
+
+        // Spam-blocker is pending (not yet solved), so overall result is pending
+        expect(result.challengeSuccess).to.equal(undefined);
+        // AI moderation should only fire AFTER spam-blocker verify returns success
+        expect(aiModerationAllowCallCount).to.equal(0);
+        expect(aiModerationReviewCallCount).to.equal(0);
+    });
+});
+
 // TODO: enable once ignoreChallenge is implemented (see challenge-optional-flag-proposal.md)
 describe.skip("cascading challenge fallthrough (whitelist → mintpass → spam-blocker)", () => {
     // These tests reproduce the scenario described in challenge-optional-flag-proposal.md.
