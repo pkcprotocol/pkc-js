@@ -11,6 +11,7 @@ Concise protocol reference for AI agents and contributors. Each doc covers one d
 | [signing.md](signing.md) | Ed25519 signatures, signedPropertyNames, CBORG encoding |
 | [pages.md](pages.md) | Pagination, sort types, ephemeral nature of pages |
 | [challenge-flow.md](challenge-flow.md) | 4-message encrypted challenge exchange |
+| [challenge-settings.md](challenge-settings.md) | Private (`settings.challenges`) vs public (`challenges`) boundary, sensitive options |
 | [data-permanence.md](data-permanence.md) | What is permanent (IPFS CIDs) vs ephemeral (regenerated) |
 | [db-subplebbit-address-migration.md](db-subplebbit-address-migration.md) | DB v37 migration: subplebbitAddress → communityPublicKey/communityName, CID preservation |
 | [data-path-migration.md](data-path-migration.md) | Directory layout migration for downstream apps: `.plebbit/` → `.pkc/`, `subplebbits/` → `communities/` |

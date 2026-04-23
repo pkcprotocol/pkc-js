@@ -82,17 +82,9 @@ On **failure**:
 - `challengeErrors`: `{ [challengeIndex]: errorMessage }`
 - `reason`: human-readable failure reason
 
-## Subplebbit Challenge Configuration
+## Community Challenge Configuration
 
-```typescript
-// In SubplebbitIpfs.challenges[]
-{
-  challenge: string;        // challenge type name (e.g., "text-math")
-  options?: object;         // challenge-specific options
-  exclude?: Exclude[];      // skip conditions
-  description?: string;     // human description
-}
-```
+The community owner configures challenges privately via `community.settings.challenges[]`. Only sanitized metadata is published publicly to `community.challenges[]` — the `options` field (containing answers, passwords, address lists) is always stripped. See [challenge-settings.md](challenge-settings.md) for the full private/public boundary.
 
 ## Key Files
 
