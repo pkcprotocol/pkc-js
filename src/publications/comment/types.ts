@@ -13,7 +13,8 @@ import {
     CommentUpdateTableRowSchema,
     CreateCommentOptionsSchema,
     DbRepliesSchema,
-    DbRepliesSortEntrySchema
+    DbRepliesSortEntrySchema,
+    DbPostsSchema
 } from "./schema.js";
 import { CommunityAuthorSchema } from "../../schema/schema.js";
 import { RpcCommentEventResultSchema, RpcCommentUpdateResultSchema } from "../../clients/rpc-client/schema.js";
@@ -156,6 +157,8 @@ export interface CommentsTableRowInsert extends Omit<CommentsTableRow, "rowid"> 
 
 export type DbRepliesSortEntry = z.infer<typeof DbRepliesSortEntrySchema>;
 export type DbRepliesFormat = z.infer<typeof DbRepliesSchema>;
+
+export type DbPostsFormat = z.infer<typeof DbPostsSchema>;
 
 export type CommentUpdatesRow = z.infer<typeof CommentUpdateTableRowSchema>;
 export type CommentUpdatesTableRowInsert = CommentUpdatesRow;

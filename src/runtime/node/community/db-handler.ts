@@ -1585,6 +1585,28 @@ export class DbHandler {
         });
     }
 
+    queryCommentAndCommentUpdateByCids(
+        cids: string[],
+        opts: { commentUpdateCols: string[]; commentIpfsCols: string[] }
+    ): PageIpfs["comments"] {
+        if (cids.length === 0) return [];
+        const placeholders = cids.map(() => "?").join(",");
+        const commentUpdateSelects = opts.commentUpdateCols.map((col) => `cu.${col} AS commentUpdate_${col}`);
+        const commentIpfsSelects = opts.commentIpfsCols.map((col) => `c.${col} AS commentIpfs_${col}`);
+
+        const queryStr = `
+            SELECT ${commentIpfsSelects.join(", ")}, ${commentUpdateSelects.join(", ")}
+            FROM ${TABLES.COMMENTS} c
+            INNER JOIN ${TABLES.COMMENT_UPDATES} cu ON c.cid = cu.cid
+            WHERE c.cid IN (${placeholders})
+        `;
+        const rows = this._db.prepare(queryStr).all(...cids) as PrefixedCommentRow[];
+        return rows.map((row) => {
+            const { comment, commentUpdate } = this._parsePrefixedComment(row);
+            return { comment, commentUpdate };
+        });
+    }
+
     queryFlattenedPageReplies(options: Omit<PageOptions, "firstPageSizeBytes"> & { parentCid: string }): PageIpfs["comments"] {
         const commentUpdateCols = remeda.keys.strict(
             options.commentUpdateFieldsToExclude

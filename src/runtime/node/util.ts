@@ -25,11 +25,13 @@ import type {
     CommentPubsubMessagPublicationSignature,
     CommentsTableRow,
     CommentUpdateType,
-    DbRepliesFormat
+    DbRepliesFormat,
+    DbPostsFormat
 } from "../../publications/comment/types.js";
 import { DbHandler } from "./community/db-handler.js";
 import Database from "better-sqlite3";
-import { CommentIpfsSchema } from "../../publications/comment/schema.js";
+import { CommentIpfsSchema, CommentUpdateSchema } from "../../publications/comment/schema.js";
+import type { PageIpfs } from "../../pages/types.js";
 import { MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE } from "../../publications/comment/comment-client-manager.js";
 
 export const getDefaultDataPath = () => path.join(process.cwd(), ".pkc");
@@ -506,4 +508,80 @@ export function deriveDbReplies(opts: {
     }
 
     return Object.keys(result).length > 0 ? result : undefined;
+}
+
+export function deriveDbPosts(opts: {
+    posts: CommunityIpfsType["posts"];
+    allPageCids?: Record<string, string[]>;
+}): DbPostsFormat | undefined {
+    const { posts, allPageCids } = opts;
+    if (!posts) return undefined;
+    const result: DbPostsFormat = {};
+
+    // Preloaded sort(s): store commentCids + allPageCids
+    if (posts.pages) {
+        for (const [sortName, page] of Object.entries(posts.pages)) {
+            result[sortName] = {
+                commentCids: page.comments.map((c) => c.commentUpdate.cid),
+                ...(allPageCids?.[sortName]?.length ? { allPageCids: allPageCids[sortName] } : {})
+            };
+        }
+    }
+
+    // Non-preloaded sorts: store only allPageCids
+    if (allPageCids) {
+        for (const [sortName, cids] of Object.entries(allPageCids)) {
+            if (!result[sortName] && cids.length > 0) {
+                result[sortName] = { allPageCids: cids };
+            }
+        }
+    }
+
+    // pageCids without allPageCids (e.g. restoring from old wire format with only pageCids)
+    if (posts.pageCids) {
+        for (const [sortName, cid] of Object.entries(posts.pageCids)) {
+            if (!result[sortName] && cid) {
+                result[sortName] = { allPageCids: [cid] };
+            }
+        }
+    }
+
+    return Object.keys(result).length > 0 ? result : undefined;
+}
+
+export function resolveDbPostsCidRefs(opts: { dbPosts: DbPostsFormat; dbHandler: DbHandler }): CommunityIpfsType["posts"] {
+    // Resolve CID-ref format posts back to wire format for in-memory state on startup.
+    // For preloaded sorts (with commentCids): query those posts from DB and resolve their nested replies.
+    // For non-preloaded sorts (allPageCids only): reconstruct pageCids.
+    const { dbPosts, dbHandler } = opts;
+    const commentUpdateCols = remeda.keys.strict(CommentUpdateSchema.shape);
+    const commentIpfsCols = [...remeda.keys.strict(CommentIpfsSchema.shape), "extraProps"];
+
+    const pages: Record<string, PageIpfs> = {};
+    const pageCids: Record<string, string> = {};
+
+    for (const [sortName, sortEntry] of Object.entries(dbPosts)) {
+        if (sortEntry?.commentCids?.length) {
+            // Query posts by their CIDs and resolve nested replies
+            const entries = dbHandler.queryCommentAndCommentUpdateByCids(sortEntry.commentCids, {
+                commentUpdateCols,
+                commentIpfsCols
+            });
+
+            // Preserve commentCids order
+            const byCid = new Map<string, PageIpfs["comments"][0]>(entries.map((e) => [e.commentUpdate.cid, e]));
+            const orderedEntries = sortEntry.commentCids.map((cid) => byCid.get(cid)).filter((e): e is PageIpfs["comments"][0] => !!e);
+
+            const resolved = dbHandler.resolveRepliesCidRefsForEntries(orderedEntries);
+            pages[sortName] = { comments: resolved };
+        }
+        if (sortEntry?.allPageCids?.[0]) {
+            pageCids[sortName] = sortEntry.allPageCids[0];
+        }
+    }
+
+    return {
+        pages,
+        ...(Object.keys(pageCids).length > 0 ? { pageCids } : {})
+    };
 }

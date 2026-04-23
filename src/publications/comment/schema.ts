@@ -211,6 +211,9 @@ export const DbRepliesSortEntrySchema = z.object({
 
 export const DbRepliesSchema = z.record(z.string().min(1), DbRepliesSortEntrySchema);
 
+// DB posts format: same CID-ref structure as replies, used for community.posts in internal state
+export const DbPostsSchema = z.record(z.string().min(1), DbRepliesSortEntrySchema);
+
 export const CommentUpdateTableRowSchema = CommentUpdateSchema.extend({
     insertedAt: PKCTimestampSchema,
     postUpdatesBucket: z.int().nonnegative().optional(), // the post updates bucket of post CommentUpdate, not applicable to replies

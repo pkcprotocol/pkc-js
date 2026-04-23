@@ -16,6 +16,8 @@ vi.mock("../../../dist/node/runtime/node/util.js", () => ({
     calculateExpectedSignatureSize: vi.fn(() => 0),
     calculateInlineRepliesBudget: vi.fn(() => 0),
     deriveCommentIpfsFromCommentTableRow: vi.fn((row: Record<string, string>) => row),
+    deriveDbPosts: vi.fn(),
+    resolveDbPostsCidRefs: vi.fn(),
     getThumbnailPropsOfLink: vi.fn(),
     importSignerIntoKuboNode: vi.fn(),
     moveCommunityDbToDeletedDirectory: vi.fn()

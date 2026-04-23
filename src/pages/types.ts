@@ -28,6 +28,8 @@ export type PagesTypeIpfs = RepliesPagesTypeIpfs | PostsPagesTypeIpfs;
 export type PostSortName = z.infer<typeof PostSortNameSchema>;
 export type ReplySortName = z.infer<typeof ReplySortNameSchema>;
 
+export type AllPageCids = Record<ReplySortName | PostSortName, NonNullable<PageIpfs["nextCid"]>[]>;
+
 export type ModQueueSortName = "pendingApproval";
 
 export type Timeframe = "HOUR" | "DAY" | "WEEK" | "MONTH" | "YEAR" | "ALL";

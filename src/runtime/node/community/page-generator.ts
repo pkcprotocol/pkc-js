@@ -2,6 +2,7 @@ import { calculateStringSizeSameAsIpfsAddCidV0, hideClassPrivateProps, retryKubo
 import { LocalCommunity } from "./local-community.js";
 import assert from "assert";
 import type {
+    AllPageCids,
     ModQueueCommentInPage,
     ModQueuePageIpfs,
     PageIpfs,
@@ -352,9 +353,7 @@ export class PageGenerator {
         return res;
     }
 
-    private _generationResToPages(
-        res: (PageGenerationRes | undefined)[]
-    ): (PagesTypeIpfs & { allPageCids: Record<string, string[]> }) | undefined {
+    private _generationResToPages(res: (PageGenerationRes | undefined)[]): (PagesTypeIpfs & { allPageCids: AllPageCids }) | undefined {
         const filteredGeneratedPages = res.filter(Boolean); // Take out undefined values
         if (filteredGeneratedPages.length === 0) return undefined;
         const mergedObject: PageGenerationRes = Object.assign({}, ...filteredGeneratedPages);
@@ -376,7 +375,7 @@ export class PageGenerator {
     async generateCommunityPosts(
         preloadedPageSortName: PostSortName,
         preloadedPageSizeBytes: number
-    ): Promise<PostsPagesTypeIpfs | { singlePreloadedPage: SinglePreloadedPageRes } | undefined> {
+    ): Promise<(PostsPagesTypeIpfs & { allPageCids: AllPageCids }) | { singlePreloadedPage: SinglePreloadedPageRes } | undefined> {
         const pageOptions: PageOptions = {
             excludeCommentsWithDifferentCommunityAddress: true,
             excludeDeletedComments: true,
@@ -422,9 +421,7 @@ export class PageGenerator {
             })
         );
 
-        const generatedPages = this._generationResToPages(sortResults) as
-            | (PostsPagesTypeIpfs & { allPageCids: Record<string, string[]> })
-            | undefined;
+        const generatedPages = this._generationResToPages(sortResults) as (PostsPagesTypeIpfs & { allPageCids: AllPageCids }) | undefined;
         if (!generatedPages) return undefined;
         return generatedPages;
     }
@@ -524,9 +521,7 @@ export class PageGenerator {
             })
         );
 
-        const generatedPages = this._generationResToPages(sortResults) as
-            | (RepliesPagesTypeIpfs & { allPageCids: Record<string, string[]> })
-            | undefined;
+        const generatedPages = this._generationResToPages(sortResults) as (RepliesPagesTypeIpfs & { allPageCids: AllPageCids }) | undefined;
         if (!generatedPages) return undefined;
         if (disablePreload) return { pageCids: generatedPages.pageCids, pages: {}, allPageCids: generatedPages.allPageCids };
         else return generatedPages;
@@ -536,9 +531,7 @@ export class PageGenerator {
         comment: Pick<CommentsTableRow, "cid" | "depth">,
         preloadedReplyPageSortName: keyof typeof REPLY_REPLIES_SORT_TYPES,
         preloadedPageSizeBytes: number
-    ): Promise<
-        (RepliesPagesTypeIpfs & { allPageCids: Record<string, string[]> }) | { singlePreloadedPage: SinglePreloadedPageRes } | undefined
-    > {
+    ): Promise<(RepliesPagesTypeIpfs & { allPageCids: AllPageCids }) | { singlePreloadedPage: SinglePreloadedPageRes } | undefined> {
         const pageOptions = {
             excludeCommentsWithDifferentCommunityAddress: true,
             excludeDeletedComments: false,
@@ -591,9 +584,7 @@ export class PageGenerator {
             })
         );
 
-        const generatedPages = this._generationResToPages(sortResults) as
-            | (RepliesPagesTypeIpfs & { allPageCids: Record<string, string[]> })
-            | undefined;
+        const generatedPages = this._generationResToPages(sortResults) as (RepliesPagesTypeIpfs & { allPageCids: AllPageCids }) | undefined;
         if (!generatedPages) return undefined;
         if (disablePreload) return { pageCids: generatedPages.pageCids, pages: {}, allPageCids: generatedPages.allPageCids };
         else return generatedPages;
