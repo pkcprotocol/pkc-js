@@ -65,6 +65,11 @@ export class CommentClientsManager extends PublicationClientsManager {
     private _fetchingUpdateForReplyUsingPageCidsPromise?:
         | ReturnType<CommentClientsManager["usePageCidsOfParentToFetchCommentUpdateForReply"]>
         | undefined;
+    // Aborted when `handleUpdateEventFromCommunity` / `handleUpdateEventFromPostToFetchReplyCommentUpdate`
+    // is re-entered with newer parent state. Any in-flight retry loop for the previous invocation
+    // honours this signal and bails early, so we don't keep retrying a stale postUpdate path or page CID
+    // when the parent has already moved on.
+    private _freshHandlerAbortController?: AbortController;
 
     constructor(comment: Comment) {
         super(comment);
@@ -72,6 +77,25 @@ export class CommentClientsManager extends PublicationClientsManager {
         this._fetchingUpdateForReplyUsingPageCidsPromise = undefined;
         this._parentFirstPageCidsAlreadyLoaded = new Set<string>();
         hideClassPrivateProps(this);
+    }
+
+    // Aborts any in-flight retry (so stale fetches give up quickly) and returns a fresh signal for
+    // the new handler invocation. Call at the top of `handleUpdateEventFromCommunity` /
+    // `handleUpdateEventFromPostToFetchReplyCommentUpdate`.
+    private _resetFreshHandlerAbortController() {
+        if (this._freshHandlerAbortController) this._freshHandlerAbortController.abort();
+        this._freshHandlerAbortController = new AbortController();
+    }
+
+    // Combines the comment's stop signal with the fresh-handler signal, so retries bail on either
+    // user-initiated stop or a newer handler invocation superseding this one.
+    private _combinedAbortSignalForRetry(): AbortSignal | undefined {
+        const stopSignal = this._comment._getStopAbortSignal();
+        const freshSignal = this._freshHandlerAbortController?.signal;
+        const signals = [stopSignal, freshSignal].filter((s): s is AbortSignal => Boolean(s));
+        if (signals.length === 0) return undefined;
+        if (signals.length === 1) return signals[0];
+        return AbortSignal.any(signals);
     }
 
     protected override _initKuboRpcClients(): void {
@@ -153,12 +177,20 @@ export class CommentClientsManager extends PublicationClientsManager {
             this._updateKuboRpcClientOrHeliaState("fetching-update-ipfs", kuboRpcOrHelia);
             let res: string;
             const commentUpdateTimeoutMs = this._pkc._timeouts["comment-update-ipfs"];
+            // Use a combined abort signal: the comment's stop signal (for user-initiated stop) and
+            // `_freshHandlerAbortController.signal` (aborted when `handleUpdateEventFromCommunity` is
+            // re-entered with newer community state, so we don't keep retrying stale post-update paths).
+            const abortSignal = this._combinedAbortSignalForRetry();
             try {
-                res = await this._fetchCidP2P(path, {
-                    maxFileSizeBytes: MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE,
-                    timeoutMs: commentUpdateTimeoutMs,
-                    abortSignal: this._comment._getStopAbortSignal()
-                });
+                res = await this._retryTransientP2PFetch(
+                    () =>
+                        this._fetchCidP2P(path, {
+                            maxFileSizeBytes: MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE,
+                            timeoutMs: commentUpdateTimeoutMs,
+                            abortSignal
+                        }),
+                    { abortSignal, log, context: `post-update ${path}` }
+                );
             } catch (e) {
                 // failed to load the record, maybe our node is offline or the content is unreachable
                 log.trace(`Failed to fetch CommentUpdate from path (${path}) with IPFS P2P. Trying the next timestamp range`);
@@ -630,6 +662,10 @@ export class CommentClientsManager extends PublicationClientsManager {
         // let's try to find a CommentUpdate in community pages, or _updatingComments
         // this._communityForUpdating!.community.raw.communityIpfs?.posts.
 
+        // A fresh push has arrived — abort any in-flight retry loop from a previous invocation so
+        // we don't keep fetching stale postUpdate paths. The new fetch below runs under a new signal.
+        this._resetFreshHandlerAbortController();
+
         const postInUpdatingCommunity = this._findCommentInPagesOfUpdatingCommentsOrCommunity({ community });
 
         if (
@@ -942,6 +978,9 @@ export class CommentClientsManager extends PublicationClientsManager {
         if (!this._comment.cid) throw Error("comment.cid should be defined");
         const log = Logger("pkc-js:comment:update:handleUpdateEventFromPost");
         log("Received update event from post", postInstance.cid, "for reply", this._comment.cid, "with depth", this._comment.depth);
+        // A fresh post update has arrived — abort any in-flight retry loop from a previous invocation
+        // so we don't keep fetching page CIDs that may be stale under the new post state.
+        this._resetFreshHandlerAbortController();
         if (Object.keys(postInstance.replies.pageCids).length === 0 && Object.keys(postInstance.replies.pages).length === 0) {
             log(
                 "Post",

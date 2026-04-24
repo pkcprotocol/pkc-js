@@ -1000,3 +1000,54 @@ export async function calculateStringSizeSameAsIpfsAddCidV0(content: string): Pr
     });
     return Number(entry.size);
 }
+
+export type NetworkErrorDetails = {
+    name: string;
+    message: string;
+    code?: string;
+    errno?: number;
+    syscall?: string;
+    address?: string;
+    port?: number;
+    causes?: NetworkErrorDetails[];
+};
+
+// Unwraps `TypeError("fetch failed")` and similar wrappers so the thrown PKCError carries
+// the real socket-level detail (ECONNREFUSED, ECONNRESET, UND_ERR_SOCKET, etc.) that Node's
+// default inspect hides as "[AggregateError]" or "[cause]". Walks `cause` chains and expands
+// AggregateError.errors recursively. Depth-capped to avoid cycles.
+export function extractNetworkErrorDetails(err: unknown, depth = 0): NetworkErrorDetails | undefined {
+    if (depth > 4 || !err || typeof err !== "object") return undefined;
+    const e = err as Error & {
+        code?: string;
+        errno?: number;
+        syscall?: string;
+        address?: string;
+        port?: number;
+        cause?: unknown;
+        errors?: unknown[];
+    };
+    const details: NetworkErrorDetails = {
+        name: e.name || "Error",
+        message: typeof e.message === "string" ? e.message : String(e)
+    };
+    if (typeof e.code === "string") details.code = e.code;
+    if (typeof e.errno === "number") details.errno = e.errno;
+    if (typeof e.syscall === "string") details.syscall = e.syscall;
+    if (typeof e.address === "string") details.address = e.address;
+    if (typeof e.port === "number") details.port = e.port;
+
+    const nested: NetworkErrorDetails[] = [];
+    if (Array.isArray(e.errors)) {
+        for (const sub of e.errors) {
+            const subDetails = extractNetworkErrorDetails(sub, depth + 1);
+            if (subDetails) nested.push(subDetails);
+        }
+    }
+    if (e.cause !== undefined && e.cause !== null) {
+        const causeDetails = extractNetworkErrorDetails(e.cause, depth + 1);
+        if (causeDetails) nested.push(causeDetails);
+    }
+    if (nested.length > 0) details.causes = nested;
+    return details;
+}

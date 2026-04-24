@@ -227,6 +227,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
         // default validator; subclasses can override
         return parsePageIpfsSchemaWithPKCErrorIfItFails(json as any);
     }
+    // TODO below should be a single paramter {} with options
 
     private async _fetchPageWithKuboOrHeliaP2P(
         pageCid: string,
@@ -238,9 +239,11 @@ export class BasePagesClientsManager extends BaseClientsManager {
         this._updateKuboRpcClientOrHeliaState("fetching-ipfs", heliaOrKubo, sortTypes);
         const pageTimeoutMs = this._pkc._timeouts["page-ipfs"];
         try {
-            return this.parsePageJson(
-                parseJsonWithPKCErrorIfFails(await this._fetchCidP2P(pageCid, { maxFileSizeBytes: pageMaxSize, timeoutMs: pageTimeoutMs }))
-            ) as PageIpfs;
+            const rawJson = await this._retryTransientP2PFetch(
+                () => this._fetchCidP2P(pageCid, { maxFileSizeBytes: pageMaxSize, timeoutMs: pageTimeoutMs }),
+                { log, context: `page ${pageCid}` }
+            );
+            return this.parsePageJson(parseJsonWithPKCErrorIfFails(rawJson)) as PageIpfs;
         } catch (e) {
             //@ts-expect-error
             e.details = { ...e.details, pageCid, sortTypes, pageMaxSize };
@@ -250,6 +253,8 @@ export class BasePagesClientsManager extends BaseClientsManager {
             this._updateKuboRpcClientOrHeliaState("stopped", heliaOrKubo, sortTypes);
         }
     }
+
+    // TODO below should be a single paramter {} with options
 
     async _fetchPageFromGateways(pageCid: string, log: Logger, pageMaxSize: number): Promise<PageIpfs | ModQueuePageIpfs> {
         // No need to validate schema for every gateway, because the cid validation will make sure it's the page ipfs we're looking for
@@ -267,6 +272,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
 
         return pageIpfs;
     }
+    // TODO below should be a single paramter {} with options
     async fetchPage(
         pageCid: string,
         overridePageMaxSize?: number

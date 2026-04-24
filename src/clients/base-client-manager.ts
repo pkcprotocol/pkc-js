@@ -3,6 +3,7 @@ import assert from "assert";
 import {
     calculateIpfsCidV0,
     createAbortError,
+    extractNetworkErrorDetails,
     hideClassPrivateProps,
     isAbortError,
     isIpns,
@@ -13,6 +14,7 @@ import { sha256 } from "js-sha256";
 import { getPKCAddressFromPublicKey } from "../signer/util.js";
 import { nativeFunctions } from "../runtime/node/util.js";
 import pLimit from "p-limit";
+import pRetry, { AbortError as PRetryAbortError } from "p-retry";
 import {
     FailedToFetchCommentIpfsFromGatewaysError,
     FailedToFetchCommentUpdateFromGatewaysError,
@@ -672,17 +674,58 @@ export class BaseClientsManager {
             else if (e instanceof Error && e.name === "TimeoutError")
                 throw new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { cid: cidV0, error: e, loadOpts });
             else {
-                log.error(`Failed to fetch CID ${cidV0}: ${(e as Error)?.message} (${(e as Error)?.name})`);
+                const networkErrorDetails = extractNetworkErrorDetails(e);
+                log.error(`Failed to fetch CID ${cidV0}: ${(e as Error)?.message} (${(e as Error)?.name})`, networkErrorDetails);
                 throw new PKCError("ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P", {
                     cid: cidV0,
                     error: e,
                     errorMessage: (e as Error)?.message,
                     errorName: (e as Error)?.name,
                     errorCode: (e as { code?: string })?.code,
+                    networkErrorDetails,
                     loadOpts
                 });
             }
         }
+    }
+
+    // Retry helper for callers of `_fetchCidP2P`. Retries only on transient socket-level errors
+    // (undici TypeError("fetch failed") with an AggregateError of ECONNREFUSED/ECONNRESET/UND_ERR_SOCKET,
+    // surfaced through _fetchCidP2P as ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P). Content-level errors
+    // (CID mismatch, schema, over-download, invalid signature) and timeouts/aborts are NOT retried —
+    // they either indicate a real problem or should be respected. The abortSignal is passed to p-retry
+    // so callers can cancel a stale retry chain when fresher parent state arrives.
+    protected async _retryTransientP2PFetch<T>(
+        fetcher: () => Promise<T>,
+        opts: { abortSignal?: AbortSignal; retries?: number; log?: Logger; context?: string }
+    ): Promise<T> {
+        return pRetry(
+            async () => {
+                try {
+                    return await fetcher();
+                } catch (e) {
+                    // Only transient socket-level fetch failures are retriable. For anything else we
+                    // throw an AbortError which p-retry treats as a non-retriable stop.
+                    const isTransient = e instanceof PKCError && e.code === "ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P";
+                    if (!isTransient) throw e instanceof Error ? new PRetryAbortError(e) : e;
+                    throw e;
+                }
+            },
+            {
+                // 3 retries + initial attempt = up to 4 attempts. Backoff 1s, 2s, 4s between retries.
+                retries: opts.retries ?? 3,
+                factor: 2,
+                minTimeout: 1000,
+                maxTimeout: 4000,
+                signal: opts.abortSignal,
+                onFailedAttempt: ({ error, attemptNumber, retriesLeft }) => {
+                    opts.log?.trace(
+                        `Transient fetch failure on attempt ${attemptNumber}/${attemptNumber + retriesLeft}${opts.context ? ` (${opts.context})` : ""}`,
+                        error?.message
+                    );
+                }
+            }
+        );
     }
 
     private async _verifyGatewayResponseMatchesCid(
