@@ -1,6 +1,6 @@
 {
     "name": "@pkcprotocol/pkc-js",
-    "version": "0.0.19",
+    "version": "0.0.20",
     "type": "module",
     "scripts": {
         "prebuild": "node config/generate-version.js",

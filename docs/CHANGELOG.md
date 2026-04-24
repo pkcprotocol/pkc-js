@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.0.20](https://github.com/pkcprotocol/pkc-js/compare/v0.0.19...v0.0.20) (2026-04-24)
+
+### Features
+
+* add CID-ref posts storage format and DB query support ([6f5bc75](https://github.com/pkcprotocol/pkc-js/commit/6f5bc755daa021701c95df1392771aaaff951464))
+* reduce commentUpdate DB storage by 100-500x with CID references ([#80](https://github.com/pkcprotocol/pkc-js/issues/80)) ([c1b2280](https://github.com/pkcprotocol/pkc-js/commit/c1b2280a6ffc5d050873a7beb7831af118e3e945))
+* support abortSignal in getPage and cancel in-flight fetches on pkc.destroy() ([d341d41](https://github.com/pkcprotocol/pkc-js/commit/d341d417228c84303eb07c9bf1f84550acdf23af))
+
+### Bug Fixes
+
+* handle disablePreload replies in resolveRepliesCidRefsForEntries ([3a1b1b5](https://github.com/pkcprotocol/pkc-js/commit/3a1b1b5fa835fa4c04862bc16af1c58965b7610d))
+* include package-lock.json in release-it commit hook ([e6d6b15](https://github.com/pkcprotocol/pkc-js/commit/e6d6b15d5d41e40be497305d128aa843e2ee3f7c))
+* preserve commentCids order in attachReplies to fix page signature verification ([9896368](https://github.com/pkcprotocol/pkc-js/commit/9896368080f5a37bc9cf462b113f1c621e1b4e6d))
+* preserve preloaded posts pages when sharing community state between instances ([ac99d98](https://github.com/pkcprotocol/pkc-js/commit/ac99d980edae54fd93b465d35fcef45689aa4164))
+* properly serialize per-provider errors and strip ciphertext from pubsub error details ([b144bf0](https://github.com/pkcprotocol/pkc-js/commit/b144bf03422ef1b6022c9c6be45b0510f0ccbcb0))
+* reconstruct pageCids from allPageCids in queryPageCommentsWithResolvedReplies ([132a29a](https://github.com/pkcprotocol/pkc-js/commit/132a29aa4be54fa8da271c8721c94d47f448331e))
+* retry transient P2P fetches to recover from undici socket hiccups ([cdfc9f3](https://github.com/pkcprotocol/pkc-js/commit/cdfc9f3ebadfe1ab3ceb876d71188e2d764b7650)), closes [BaseClientsManager#_retryTransientP2PFetch](https://github.com/pkcprotocol/BaseClientsManager/issues/_retryTransientP2PFetch)
+* update tests and add recursive CTE filters after CID-references refactor ([5a5cad0](https://github.com/pkcprotocol/pkc-js/commit/5a5cad08093e8e587f4bf9427916bec28025b837))
+
+### Build
+
+* upgrade kubo from 0.40.1 to 0.41.0 ([7479625](https://github.com/pkcprotocol/pkc-js/commit/74796252641dbeeb9598303e541e9a840d514468))
+* upgrade package-lock.json ([b162706](https://github.com/pkcprotocol/pkc-js/commit/b162706a7e97f0c5c3f9cfcbbc40699f24f12d9e))
+
 ## [0.0.19](https://github.com/pkcprotocol/pkc-js/compare/v0.0.18...v0.0.19) (2026-04-20)
 
 ### Features
