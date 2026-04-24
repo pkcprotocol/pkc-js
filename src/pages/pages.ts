@@ -8,7 +8,7 @@ import {
     CommunityModQueueClientsManager
 } from "./pages-client-manager.js";
 import { PKCError } from "../pkc-error.js";
-import { deepMergeRuntimeFields, hideClassPrivateProps } from "../util.js";
+import { deepMergeRuntimeFields, hideClassPrivateProps, throwIfAbortSignalAborted } from "../util.js";
 import { Comment } from "../publications/comment/comment.js";
 import { RemoteCommunity } from "../community/remote-community.js";
 import { PKC } from "../pkc/pkc.js";
@@ -90,10 +90,17 @@ export class BasePages {
     async _fetchAndVerifyPage(opts: {
         pageCid: string;
         pageMaxSize?: number;
+        abortSignal?: AbortSignal;
     }): Promise<{ page: PageIpfs | ModQueuePageIpfs; runtimeFields?: PageRuntimeFields }> {
-        const { page: pageIpfs, runtimeFields } = await this._clientsManager.fetchPage(opts.pageCid, opts.pageMaxSize);
-        if (!this._clientsManager._pkc._pkcRpcClient && this._clientsManager._pkc.validatePages)
+        const { page: pageIpfs, runtimeFields } = await this._clientsManager.fetchPage({
+            pageCid: opts.pageCid,
+            pageMaxSize: opts.pageMaxSize,
+            abortSignal: opts.abortSignal
+        });
+        if (!this._clientsManager._pkc._pkcRpcClient && this._clientsManager._pkc.validatePages) {
+            throwIfAbortSignalAborted(opts.abortSignal);
             await this._validatePage(pageIpfs, opts.pageCid);
+        }
 
         return { page: pageIpfs, runtimeFields };
     }
@@ -102,12 +109,14 @@ export class BasePages {
         throw Error("should be implemented");
     }
 
-    async getPage(pageCid: GetPageParam): Promise<PageTypeJson | ModQueuePageTypeJson> {
+    async getPage(args: GetPageParam): Promise<PageTypeJson | ModQueuePageTypeJson> {
         if (!this._community?.publicKey && !this._community?.name)
             throw Error("Community publicKey or name needs to be defined under page");
-        const parsedArgs = parsePageCidParams(pageCid);
+        const { abortSignal, ...serializable } = args;
+        throwIfAbortSignalAborted(abortSignal);
+        const parsedArgs = parsePageCidParams(serializable);
 
-        const { page: pageIpfs, runtimeFields } = await this._fetchAndVerifyPage({ pageCid: parsedArgs.cid });
+        const { page: pageIpfs, runtimeFields } = await this._fetchAndVerifyPage({ pageCid: parsedArgs.cid, abortSignal });
         const parsed = this._parseRawPageIpfs(pageIpfs);
         this._applyNameResolvedCacheToPage(parsed);
         if (runtimeFields) deepMergeRuntimeFields(parsed, runtimeFields);
@@ -154,6 +163,7 @@ export class RepliesPages extends BasePages {
     override async _fetchAndVerifyPage(opts: {
         pageCid: string;
         pageMaxSize?: number;
+        abortSignal?: AbortSignal;
     }): Promise<{ page: PageIpfs; runtimeFields?: PageRuntimeFields }> {
         const result = await super._fetchAndVerifyPage(opts);
         return { page: result.page as PageIpfs, runtimeFields: result.runtimeFields };
@@ -262,6 +272,7 @@ export class PostsPages extends BasePages {
     override async _fetchAndVerifyPage(opts: {
         pageCid: string;
         pageMaxSize?: number;
+        abortSignal?: AbortSignal;
     }): Promise<{ page: PageIpfs; runtimeFields?: PageRuntimeFields }> {
         const result = await super._fetchAndVerifyPage(opts);
         return { page: result.page as PageIpfs, runtimeFields: result.runtimeFields };
@@ -326,6 +337,7 @@ export class ModQueuePages extends BasePages {
     override async _fetchAndVerifyPage(opts: {
         pageCid: string;
         pageMaxSize?: number;
+        abortSignal?: AbortSignal;
     }): Promise<{ page: ModQueuePageIpfs; runtimeFields?: PageRuntimeFields }> {
         const result = await super._fetchAndVerifyPage(opts);
         return { page: result.page as ModQueuePageIpfs, runtimeFields: result.runtimeFields };

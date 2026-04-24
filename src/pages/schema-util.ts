@@ -1,3 +1,3 @@
-import { GetPageParam } from "./schema.js";
+import { GetPageParamSchema } from "./schema.js";
 
-export const parsePageCidParams = (params: unknown) => GetPageParam.parse(params);
+export const parsePageCidParams = (params: unknown) => GetPageParamSchema.parse(params);

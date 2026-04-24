@@ -188,6 +188,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     _startedCommunities: IndexedTrackedInstanceRegistry<LocalCommunity | RpcLocalCommunity> =
         new TrackedInstanceRegistry() as IndexedTrackedInstanceRegistry<LocalCommunity | RpcLocalCommunity>; // storing community instances that are started rn
     private _communityFsWatchAbort?: AbortController;
+    private _destroyAbortController?: AbortController;
 
     private _addressRewriterDestroy?: () => Promise<void>;
     private _addressRewriterSetupPromise?: Promise<void>;
@@ -1116,10 +1117,18 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         return this._storageLRUs[opts.cacheName];
     }
 
+    _getDestroyAbortSignal(): AbortSignal {
+        if (!this._destroyAbortController) this._destroyAbortController = new AbortController();
+        return this._destroyAbortController.signal;
+    }
+
     async destroy() {
         const log = Logger("pkc-js:pkc:destroy");
         if (this.destroyed) return;
         this.destroyed = true;
+        // Fire destroy signal first so any in-flight fetches (e.g. getPage) reject immediately
+        // and don't block the sequential stop() awaits below.
+        this._destroyAbortController?.abort(new PKCError("ERR_PKC_IS_DESTROYED"));
         // Clean up connections
 
         for (const comment of listUpdatingComments(this)) await comment.stop();

@@ -63,7 +63,9 @@ export function isAbortError(error: unknown): error is Error {
 export function throwIfAbortSignalAborted(signal?: AbortSignal): void {
     if (!signal?.aborted) return;
     if (signal.reason instanceof Error) {
-        signal.reason.name = signal.reason.name || "AbortError";
+        // Avoid assigning to `.name` when it's already set — the default DOMException reason
+        // from `AbortController.abort()` (no arg) has `name` as a read-only getter.
+        if (!signal.reason.name) signal.reason.name = "AbortError";
         throw signal.reason;
     }
     if (typeof signal.reason === "string" && signal.reason.length > 0) throw createAbortError(signal.reason);

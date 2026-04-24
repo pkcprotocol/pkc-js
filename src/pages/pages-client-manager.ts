@@ -9,7 +9,7 @@ import {
     parseModQueuePageIpfsSchemaWithPKCErrorIfItFails,
     parsePageIpfsSchemaWithPKCErrorIfItFails
 } from "../schema/schema-util.js";
-import { hideClassPrivateProps } from "../util.js";
+import { hideClassPrivateProps, throwIfAbortSignalAborted } from "../util.js";
 import { PKC } from "../pkc/pkc.js";
 import { sha256 } from "js-sha256";
 import { PagesIpfsGatewayClient, PagesKuboRpcClient, PagesLibp2pJsClient, PagesPKCRpcStateClient } from "./pages-clients.js";
@@ -227,21 +227,22 @@ export class BasePagesClientsManager extends BaseClientsManager {
         // default validator; subclasses can override
         return parsePageIpfsSchemaWithPKCErrorIfItFails(json as any);
     }
-    // TODO below should be a single paramter {} with options
 
-    private async _fetchPageWithKuboOrHeliaP2P(
-        pageCid: string,
-        log: Logger,
-        sortTypes: string[] | undefined,
-        pageMaxSize: number
-    ): Promise<PageIpfs | ModQueuePageIpfs> {
+    private async _fetchPageWithKuboOrHeliaP2P(opts: {
+        pageCid: string;
+        log: Logger;
+        sortTypes: string[] | undefined;
+        pageMaxSize: number;
+        abortSignal?: AbortSignal;
+    }): Promise<PageIpfs | ModQueuePageIpfs> {
+        const { pageCid, log, sortTypes, pageMaxSize, abortSignal } = opts;
         const heliaOrKubo = this.getDefaultKuboRpcClientOrHelia();
         this._updateKuboRpcClientOrHeliaState("fetching-ipfs", heliaOrKubo, sortTypes);
         const pageTimeoutMs = this._pkc._timeouts["page-ipfs"];
         try {
             const rawJson = await this._retryTransientP2PFetch(
-                () => this._fetchCidP2P(pageCid, { maxFileSizeBytes: pageMaxSize, timeoutMs: pageTimeoutMs }),
-                { log, context: `page ${pageCid}` }
+                () => this._fetchCidP2P(pageCid, { maxFileSizeBytes: pageMaxSize, timeoutMs: pageTimeoutMs, abortSignal }),
+                { log, context: `page ${pageCid}`, abortSignal }
             );
             return this.parsePageJson(parseJsonWithPKCErrorIfFails(rawJson)) as PageIpfs;
         } catch (e) {
@@ -254,29 +255,35 @@ export class BasePagesClientsManager extends BaseClientsManager {
         }
     }
 
-    // TODO below should be a single paramter {} with options
-
-    async _fetchPageFromGateways(pageCid: string, log: Logger, pageMaxSize: number): Promise<PageIpfs | ModQueuePageIpfs> {
+    async _fetchPageFromGateways(opts: {
+        pageCid: string;
+        log: Logger;
+        pageMaxSize: number;
+        abortSignal?: AbortSignal;
+    }): Promise<PageIpfs | ModQueuePageIpfs> {
         // No need to validate schema for every gateway, because the cid validation will make sure it's the page ipfs we're looking for
         // we just need to validate the end result's schema
         const res = await this.fetchFromMultipleGateways({
-            root: pageCid,
+            root: opts.pageCid,
             recordIpfsType: "ipfs",
             recordPKCType: "page-ipfs",
             validateGatewayResponseFunc: async () => {},
-            maxFileSizeBytes: pageMaxSize,
+            maxFileSizeBytes: opts.pageMaxSize,
             timeoutMs: this._pkc._timeouts["page-ipfs"],
-            log
+            log: opts.log,
+            abortSignal: opts.abortSignal
         });
         const pageIpfs = this.parsePageJson(parseJsonWithPKCErrorIfFails(res.resText)) as PageIpfs;
 
         return pageIpfs;
     }
-    // TODO below should be a single paramter {} with options
-    async fetchPage(
-        pageCid: string,
-        overridePageMaxSize?: number
-    ): Promise<{ page: PageIpfs | ModQueuePageIpfs; runtimeFields?: PageRuntimeFields }> {
+
+    async fetchPage(opts: {
+        pageCid: string;
+        pageMaxSize?: number;
+        abortSignal?: AbortSignal;
+    }): Promise<{ page: PageIpfs | ModQueuePageIpfs; runtimeFields?: PageRuntimeFields }> {
+        const { pageCid } = opts;
         const log = Logger("pkc-js:pages:getPage");
         const sortTypesFromPageCids = remeda.keys
             .strict(this._pages.pageCids)
@@ -287,14 +294,22 @@ export class BasePagesClientsManager extends BaseClientsManager {
         const sortTypesFromMemcache: string[] | undefined = this._pkc._memCaches.pageCidToSortTypes.get(pageCid);
 
         const isFirstPage = Object.values(this._pages.pageCids).includes(pageCid) || remeda.isEmpty(this._pages.pageCids);
-        const pageMaxSize = overridePageMaxSize
-            ? overridePageMaxSize
+        const pageMaxSize = opts.pageMaxSize
+            ? opts.pageMaxSize
             : this._pkc._memCaches.pagesMaxSize.get(this._calculatePageMaxSizeCacheKey(pageCid))
               ? this._pkc._memCaches.pagesMaxSize.get(this._calculatePageMaxSizeCacheKey(pageCid))
               : isFirstPage
                 ? 1024 * 1024
                 : undefined;
         if (!pageMaxSize) throw Error("Failed to calculate max page size. Is this page cid under the correct community/comment?");
+
+        // Combine the user-provided abort signal with the PKC-level destroy signal so in-flight fetches
+        // reject promptly when pkc.destroy() runs instead of blocking its serial stop() awaits.
+        const destroySignal = this._pkc._getDestroyAbortSignal();
+        const signals = [opts.abortSignal, destroySignal].filter((s): s is AbortSignal => Boolean(s));
+        const combinedSignal = signals.length === 1 ? signals[0] : AbortSignal.any(signals);
+        throwIfAbortSignalAborted(combinedSignal);
+
         let result: { page: PageIpfs | ModQueuePageIpfs; runtimeFields?: PageRuntimeFields };
         try {
             if (this._pkc._pkcRpcClient) {
@@ -303,8 +318,16 @@ export class BasePagesClientsManager extends BaseClientsManager {
                 Object.keys(this._pkc.clients.kuboRpcClients).length > 0 ||
                 Object.keys(this._pkc.clients.libp2pJsClients).length > 0
             )
-                result = { page: await this._fetchPageWithKuboOrHeliaP2P(pageCid, log, sortTypesFromMemcache, pageMaxSize) };
-            else result = { page: await this._fetchPageFromGateways(pageCid, log, pageMaxSize) };
+                result = {
+                    page: await this._fetchPageWithKuboOrHeliaP2P({
+                        pageCid,
+                        log,
+                        sortTypes: sortTypesFromMemcache,
+                        pageMaxSize,
+                        abortSignal: combinedSignal
+                    })
+                };
+            else result = { page: await this._fetchPageFromGateways({ pageCid, log, pageMaxSize, abortSignal: combinedSignal }) };
         } catch (e) {
             //@ts-expect-error
             e.details = { ...e.details, pageCid, pageMaxSize, isFirstPage, sortTypesFromPageCids, sortTypesFromMemcache };
@@ -405,11 +428,12 @@ export class CommunityModQueueClientsManager extends BasePagesClientsManager {
         return ["pendingApproval"];
     }
 
-    override async fetchPage(
-        pageCid: string,
-        overridePageMaxSize?: number
-    ): Promise<{ page: ModQueuePageIpfs; runtimeFields?: PageRuntimeFields }> {
-        const result = await super.fetchPage(pageCid, overridePageMaxSize);
+    override async fetchPage(opts: {
+        pageCid: string;
+        pageMaxSize?: number;
+        abortSignal?: AbortSignal;
+    }): Promise<{ page: ModQueuePageIpfs; runtimeFields?: PageRuntimeFields }> {
+        const result = await super.fetchPage(opts);
         return { page: result.page as ModQueuePageIpfs, runtimeFields: result.runtimeFields };
     }
 

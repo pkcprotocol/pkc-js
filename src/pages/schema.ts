@@ -40,4 +40,4 @@ export const ModQueuePageIpfsSchema = z.object({
 });
 
 // getPage params
-export const GetPageParam = z.object({ cid: CidStringSchema });
+export const GetPageParamSchema = z.object({ cid: CidStringSchema });

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import {
-    GetPageParam,
+    GetPageParamSchema,
     PageIpfsSchema,
     PostSortNameSchema,
     PostsPagesIpfsSchema,
@@ -72,4 +72,4 @@ export type ModQueuePageTypeJson = {
 
 // GetPage param
 
-export type GetPageParam = z.infer<typeof GetPageParam>;
+export type GetPageParam = z.infer<typeof GetPageParamSchema> & { abortSignal?: AbortSignal };
