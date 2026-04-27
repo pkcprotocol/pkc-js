@@ -39,7 +39,7 @@ function createBlockedNameResolver(key: string) {
             key,
             canResolve: () => true,
             provider: `${key}-provider`,
-            resolve: async ({ name, abortSignal }: { name: string; provider: string; abortSignal?: AbortSignal }) => {
+            resolve: async ({ name, abortSignal }: { name: string; abortSignal?: AbortSignal }) => {
                 receivedName = name;
                 receivedSignal = abortSignal;
                 resolverCalled();

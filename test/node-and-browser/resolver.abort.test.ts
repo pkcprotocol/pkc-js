@@ -25,7 +25,7 @@ describeSkipIfRpc(`nameResolver abortSignal support`, async () => {
                         key: "signal-resolver",
                         canResolve: () => true,
                         provider: "signal-provider",
-                        resolve: async ({ abortSignal }: { name: string; provider: string; abortSignal?: AbortSignal }) => {
+                        resolve: async ({ abortSignal }: { name: string; abortSignal?: AbortSignal }) => {
                             receivedSignal = abortSignal;
                             resolverCalled();
                             if (!abortSignal) throw new Error("Expected abortSignal to be passed to the resolver");

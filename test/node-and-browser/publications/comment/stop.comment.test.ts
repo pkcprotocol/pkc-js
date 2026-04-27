@@ -48,7 +48,7 @@ function createBlockedNameResolver(key: string, onlyForName?: string) {
             key,
             canResolve: ({ name }: { name: string }) => (onlyForName ? name === onlyForName : true),
             provider: `${key}-provider`,
-            resolve: async ({ name, abortSignal }: { name: string; provider: string; abortSignal?: AbortSignal }) => {
+            resolve: async ({ name, abortSignal }: { name: string; abortSignal?: AbortSignal }) => {
                 receivedCalls.push({ name, signal: abortSignal });
                 resolveWaitersIfNeeded();
                 if (!abortSignal) throw new Error("Expected abortSignal to be passed to the resolver");

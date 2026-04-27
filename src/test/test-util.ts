@@ -2523,7 +2523,7 @@ export async function getRandomPostCidFromSub(communityAddress: string, pkc: PKC
     return lastPostCid;
 }
 
-export function mockNameResolvers<T extends { name: string; provider: string }>({
+export function mockNameResolvers<T extends { name: string }>({
     pkc,
     resolveFunction
 }: {

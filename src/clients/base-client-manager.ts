@@ -774,7 +774,7 @@ export class BaseClientsManager {
             this.preResolveNameResolver({ address: name, resolveType, resolverKey: nameResolver.key });
             try {
                 throwIfAbortSignalAborted(abortSignal);
-                const resolvePromise = nameResolver.resolve({ name, provider: nameResolver.provider, abortSignal });
+                const resolvePromise = nameResolver.resolve({ name, abortSignal });
                 // Race resolve() against abort signal so resolvers that ignore the signal still get interrupted
                 const result = abortSignal
                     ? await Promise.race([

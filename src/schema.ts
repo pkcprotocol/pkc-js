@@ -30,11 +30,7 @@ export interface NameResolverInterface {
     key: string;
     provider: string;
     dataPath?: string;
-    resolve: (opts: {
-        name: string;
-        provider: string;
-        abortSignal?: AbortSignal;
-    }) => Promise<{ publicKey: string; [key: string]: string } | undefined>;
+    resolve: (opts: { name: string; abortSignal?: AbortSignal }) => Promise<{ publicKey: string; [key: string]: string } | undefined>;
     canResolve: (opts: { name: string }) => boolean;
     destroy?: () => Promise<void>;
 }

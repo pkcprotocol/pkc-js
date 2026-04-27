@@ -136,7 +136,7 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
 
         mockNameResolvers({
             pkc: pkc,
-            resolveFunction: async ({ name }: { name: string; provider: string }) => {
+            resolveFunction: async ({ name }: { name: string }) => {
                 receivedName = name;
                 return { publicKey: expectedIpns };
             }
@@ -159,7 +159,7 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
 
         mockNameResolvers({
             pkc: pkc,
-            resolveFunction: async ({ name }: { name: string; provider: string }) => {
+            resolveFunction: async ({ name }: { name: string }) => {
                 if (name === "testauthor.bso") return { publicKey: expectedAuthorAddress };
                 return undefined;
             }
@@ -489,35 +489,6 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
     });
 });
 
-describeSkipIfRpc(`nameResolver provider argument passthrough`, async () => {
-    it(`Each resolver's provider field is passed as the provider argument to resolve`, async () => {
-        const expectedIpns = "12D3KooWJJcSwxH2F3sFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
-        let receivedProvider: string | undefined;
-
-        const pkc = await mockPKCV2({
-            remotePKC: true,
-            mockResolve: false,
-            pkcOptions: {
-                nameResolvers: [
-                    {
-                        key: "test-resolver",
-                        canResolve: () => true,
-                        resolve: async ({ provider }: { name: string; provider: string }) => {
-                            receivedProvider = provider;
-                            return { publicKey: expectedIpns };
-                        },
-                        provider: "my-custom-provider-url"
-                    }
-                ]
-            }
-        });
-
-        await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "test.bso" });
-        expect(receivedProvider).to.equal("my-custom-provider-url");
-        await pkc.destroy();
-    });
-});
-
 describeSkipIfRpc(`nameResolver abortSignal support`, async () => {
     it(`Resolver can use abortSignal to cancel resolution`, async () => {
         let receivedSignal: AbortSignal | undefined;
@@ -530,7 +501,7 @@ describeSkipIfRpc(`nameResolver abortSignal support`, async () => {
                     {
                         key: "signal-resolver",
                         canResolve: () => true,
-                        resolve: async ({ abortSignal }: { name: string; provider: string; abortSignal?: AbortSignal }) => {
+                        resolve: async ({ abortSignal }: { name: string; abortSignal?: AbortSignal }) => {
                             receivedSignal = abortSignal;
                             return { publicKey: "12D3KooWJJcSwxH2F3sFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y" };
                         },
