@@ -38,3 +38,9 @@ export const nativeFunctions = PKC.nativeFunctions;
 export const getShortCid = PKC.getShortCid;
 export const getShortAddress = PKC.getShortAddress;
 export const challenges = PKC.challenges;
+
+// Public re-exports: name-resolver contract — let third-party resolver
+// packages (e.g. @bitsocial/bso-resolver) consume these types directly from
+// the root entry instead of deep-importing from "./schema.js".
+export type { NameResolverInterface } from "./schema.js";
+export type { NameResolver } from "./types.js";
