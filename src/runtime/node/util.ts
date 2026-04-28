@@ -17,6 +17,7 @@ import { Agent as HttpsAgent } from "https";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { create as CreateKuboRpcClient } from "kubo-rpc-client";
 import Logger from "../../logger.js";
+import retry from "retry";
 import * as remeda from "remeda";
 import type { CommunityIpfsType } from "../../community/types.js";
 import type {
@@ -263,32 +264,53 @@ export async function importSignerIntoKuboNode(
     ipnsKeyName: string,
     ipfsKey: Uint8Array,
     kuboRpcClientOptions: KuboRpcClient["_clientOptions"]
-) {
+): Promise<{ id: string; name: string } | undefined> {
     const log = Logger("pkc-js:local-community:importSignerIntoKuboNode");
-    const data = new FormData();
     if (typeof ipnsKeyName !== "string") throw Error("ipnsKeyName needs to be defined before importing key into IPFS node");
     if (!ipfsKey || ipfsKey.constructor?.name !== "Uint8Array" || ipfsKey.byteLength <= 0)
         throw Error("ipfsKey needs to be defined before importing key into IPFS node");
 
     const normalizedKey = Uint8Array.from(ipfsKey);
-    data.append("file", new Blob([normalizedKey.buffer]));
     const kuboRpcUrl = kuboRpcClientOptions.url;
     if (!kuboRpcUrl) throw Error(`Can't figure out ipfs node URL from ipfsNode (${JSON.stringify(kuboRpcClientOptions)}`);
     const url = `${kuboRpcUrl}/key/import?arg=${ipnsKeyName}&ipns-base=b58mh`;
-    const res = await fetch(url, {
-        method: "POST",
-        body: data,
-        headers: kuboRpcClientOptions.headers
+
+    const numOfRetries = 3;
+    return new Promise((resolve, reject) => {
+        const operation = retry.operation({ retries: numOfRetries, factor: 2, minTimeout: 2000 });
+        operation.attempt(async (currentAttempt) => {
+            let res: Response;
+            try {
+                const data = new FormData();
+                data.append("file", new Blob([normalizedKey.buffer]));
+                res = await fetch(url, { method: "POST", body: data, headers: kuboRpcClientOptions.headers });
+            } catch (error) {
+                log.error(`Failed attempt ${currentAttempt}/${numOfRetries + 1} to import key into kubo node:`, error);
+                if (operation.retry(error as Error)) return;
+                reject(operation.mainError() || error);
+                return;
+            }
+
+            if (res.status === 500) {
+                resolve(undefined); // key already imported
+                return;
+            }
+            if (res.status !== 200) {
+                reject(new PKCError("ERR_FAILED_TO_IMPORT_IPFS_KEY", { url, status: res.status, statusText: res.statusText, ipnsKeyName }));
+                return;
+            }
+
+            try {
+                const resJson = (await res.json()) as { Id: string; Name: string };
+                log("Imported IPNS' signer into kubo node", resJson, " Onto kubo rpc URL", kuboRpcUrl);
+                resolve({ id: resJson.Id, name: resJson.Name });
+            } catch (error) {
+                log.error(`Failed attempt ${currentAttempt}/${numOfRetries + 1} to parse kubo key/import response:`, error);
+                if (operation.retry(error as Error)) return;
+                reject(operation.mainError() || error);
+            }
+        });
     });
-
-    if (res.status === 500) return; // key already imported
-
-    if (res.status !== 200)
-        throw new PKCError("ERR_FAILED_TO_IMPORT_IPFS_KEY", { url, status: res.status, statusText: res.statusText, ipnsKeyName });
-    const resJson = (await res.json()) as { Id: string; Name: string };
-
-    log("Imported IPNS' signer into kubo node", resJson, " Onto kubo rpc URL", kuboRpcUrl);
-    return { id: resJson.Id, name: resJson.Name };
 }
 
 export async function moveCommunityDbToDeletedDirectory(communityAddress: string, pkc: PKC) {
