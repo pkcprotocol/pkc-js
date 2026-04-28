@@ -1,9 +1,0 @@
-export var STORAGE_KEYS;
-(function (STORAGE_KEYS) {
-    STORAGE_KEYS[STORAGE_KEYS["INTERNAL_COMMUNITY"] = 0] = "INTERNAL_COMMUNITY";
-    STORAGE_KEYS[STORAGE_KEYS["PERSISTENT_DELETED_COMMUNITIES"] = 1] = "PERSISTENT_DELETED_COMMUNITIES";
-    STORAGE_KEYS[STORAGE_KEYS["LAST_IPNS_RECORD"] = 2] = "LAST_IPNS_RECORD";
-    STORAGE_KEYS[STORAGE_KEYS["COMBINED_HASH_OF_PENDING_COMMENTS"] = 3] = "COMBINED_HASH_OF_PENDING_COMMENTS"; // hash of all cids of pending comments. This is used to decide to publish a new mod queue or not
-})(STORAGE_KEYS || (STORAGE_KEYS = {}));
-// Configs for LRU storage
-//# sourceMappingURL=constants.js.map

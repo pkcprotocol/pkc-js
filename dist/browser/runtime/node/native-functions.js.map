@@ -1,1 +1,0 @@
-{"version":3,"file":"native-functions.js","sourceRoot":"","sources":["../../../../src/runtime/browser/native-functions.ts"],"names":[],"mappings":"AACA,OAAO,GAAG,MAAM,UAAU,CAAC;AAC3B,GAAG,CAAC,qBAAqB,CAAC,WAAW,CAAC,CAAC;AACvC,MAAM,eAAe,GAAoB;IACrC,KAAK,EAAE,KAAK,EAAE,GAAG,IAAI,EAAE,EAAE,CAAC,KAAK,CAAC,GAAG,IAAI,CAAC;CAC3C,CAAC;AAEF,eAAe,eAAe,CAAC"}

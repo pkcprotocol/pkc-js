@@ -27,6 +27,7 @@
         "test:server:node": "node test/server/test-server.js",
         "test:server:node:rpc": "cross-env START_RPC_SERVER=1 PKC_CONFIGS=remote-kubo-rpc node --es-module-specifier-resolution=node test/server/test-server.js",
         "test:server:wait-on": "wait-on http://localhost:14952 --timeout 300000",
+        "prepublishOnly": "npm run build",
         "clean": "rimraf dist",
         "prettier": "prettier {src,test,config}/**/*.{js,ts} --write --config config/prettier.config.js",
         "test:prettier": "prettier --check {src,test,config}/**/*.{js,ts} --config config/prettier.config.js",
