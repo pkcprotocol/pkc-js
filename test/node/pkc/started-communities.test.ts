@@ -45,7 +45,10 @@ describe.concurrent(`pkc._startedCommunities`, () => {
 
             await startedCommunity.start();
             await startedCommunity.edit({ address: bsoAddress });
-            await new Promise((resolve) => startedCommunity.once("update", resolve));
+            await resolveWhenConditionIsTrue({
+                toUpdate: startedCommunity,
+                predicate: async () => findStartedCommunity(isolatedPKC, { publicKey: originalAddress }) === startedCommunity
+            });
 
             const publicKey = startedCommunity.publicKey || startedCommunity.signer.address;
 
