@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.21](https://github.com/pkcprotocol/pkc-js/compare/v0.0.20...v0.0.21) (2026-04-28)
+
+### Bug Fixes
+
+* retry transient ETIMEDOUT in importSignerIntoKuboNode ([d50132d](https://github.com/pkcprotocol/pkc-js/commit/d50132d0e9c925352bb232b7c00347f06b4f63d2))
+
 ## [0.0.20](https://github.com/pkcprotocol/pkc-js/compare/v0.0.19...v0.0.20) (2026-04-24)
 
 ### Features
