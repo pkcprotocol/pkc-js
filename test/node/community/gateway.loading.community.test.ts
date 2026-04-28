@@ -41,27 +41,34 @@ const buildGatewayIpfsUrl = (gatewayPKC: PKCType, cid: string): string => {
     return new URL(`/ipfs/${cid}`, getGatewayBaseUrl(gatewayPKC)).toString();
 };
 
-const fetchGatewayJson = async (url: string, context: string): Promise<CommunityIpfsType> => {
-    console.log(`${context} attempt to ${url}`);
-    let res: Response;
-    try {
-        res = await fetch(url, { cache: "no-store" });
-    } catch (error) {
-        const err = error as NetworkError;
-        console.error(`${context} request threw before receiving a response`, {
-            url,
-            errorName: err?.name,
-            errorMessage: err?.message,
-            errorStack: err?.stack,
-            errorCause: err?.cause,
-            errorCode: err?.code,
-            errorErrno: err?.errno,
-            errorSyscall: err?.syscall,
-            errorAddress: err?.address,
-            errorPort: err?.port
-        });
-        throw error;
+const fetchWithRetryOnConnectError = async (url: string, context: string, init: RequestInit): Promise<Response> => {
+    const numOfRetries = 3;
+    for (let attempt = 1; ; attempt++) {
+        console.log(`${context} attempt ${attempt}/${numOfRetries + 1} to ${url}`);
+        try {
+            return await fetch(url, init);
+        } catch (error) {
+            const err = error as NetworkError;
+            console.error(`${context} request threw before receiving a response (attempt ${attempt}/${numOfRetries + 1})`, {
+                url,
+                errorName: err?.name,
+                errorMessage: err?.message,
+                errorStack: err?.stack,
+                errorCause: err?.cause,
+                errorCode: err?.code,
+                errorErrno: err?.errno,
+                errorSyscall: err?.syscall,
+                errorAddress: err?.address,
+                errorPort: err?.port
+            });
+            if (attempt > numOfRetries) throw error;
+            await new Promise((resolve) => setTimeout(resolve, 2000 * Math.pow(2, attempt - 1)));
+        }
     }
+};
+
+const fetchGatewayJson = async (url: string, context: string): Promise<CommunityIpfsType> => {
+    const res = await fetchWithRetryOnConnectError(url, context, { cache: "no-store" });
     const bodyText = await res.text();
     if (!res.ok) {
         const headers = Object.fromEntries(res.headers.entries());
