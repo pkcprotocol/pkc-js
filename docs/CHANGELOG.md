@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.22](https://github.com/pkcprotocol/pkc-js/compare/v0.0.21...v0.0.22) (2026-04-28)
+
+### Features
+
+* re-export NameResolverInterface and NameResolver from root entry ([a756a47](https://github.com/pkcprotocol/pkc-js/commit/a756a47f0aeaa6e030a0c4bbbffb3e59138faa88))
+
 ## [0.0.21](https://github.com/pkcprotocol/pkc-js/compare/v0.0.20...v0.0.21) (2026-04-28)
 
 ### Bug Fixes
