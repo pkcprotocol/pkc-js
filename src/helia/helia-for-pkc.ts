@@ -94,7 +94,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
         const pubsubEventHandler = new EventEmitter();
 
         helia.libp2p.services.pubsub.addEventListener("message", (evt) => {
-            log.trace(`Event from helia libp2p pubsub:`, `on topic ${evt.detail.topic}`);
+            log.trace(`Event from helia libp2p pubsub: on pubsub topic (string, e.g. community address) ${evt.detail.topic}`);
 
             //@ts-expect-error
             const msgFormatted: IpfsHttpClientPubsubMessage = { data: evt.detail.data, topic: evt.detail.topic, type: evt.detail.type };
@@ -198,7 +198,12 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     }
 
                     const res = await helia.libp2p.services.pubsub.publish(topic, data);
-                    log("Published new data to topic", topic, "And the result is", res);
+                    log(
+                        "Published new data to pubsub topic (string, e.g. community address)",
+                        topic,
+                        "Direct gossipsub recipients (libp2p peer IDs, NOT signer/community addresses):",
+                        res.recipients.map((p) => p.toString())
+                    );
                 },
                 subscribe: async (topic, handler, options) => {
                     throwIfHeliaIsStoppingOrStopped();

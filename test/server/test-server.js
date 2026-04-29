@@ -247,6 +247,15 @@ const startIpfsNode = async (nodeArgs) => {
         });
     await ipfsDaemonIsReady();
 
+    try {
+        const idRes = await fetch(`http://localhost:${nodeArgs.apiPort}/api/v0/id`, { method: "POST" }).then((res) => res.json());
+        console.log(
+            `Kubo ${nodeBaseName} ready: peerId=${idRes.ID} api=${nodeArgs.apiPort} swarm=${nodeArgs.swarmPort} addrs=[${(idRes.Addresses || []).join(",")}]`
+        );
+    } catch (e) {
+        console.error(`Failed to fetch /api/v0/id for kubo ${nodeBaseName}:`, e);
+    }
+
     // Restart on exit with port-wait retry logic
     ipfsProcess.on("exit", async () => {
         console.log("ipfs node", nodeArgs, "has been shut down. Will attempt to restart");
