@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.0.23](https://github.com/pkcprotocol/pkc-js/compare/v0.0.22...v0.0.23) (2026-04-29)
+
+### Bug Fixes
+
+* **helia:** await pubsub peer warmup before IPNS resolve ([0f9cc1c](https://github.com/pkcprotocol/pkc-js/commit/0f9cc1ce597f34ddee20b6ad80ad58c0889e6109))
+
+### Build
+
+* bump Node engines to >=22 and upgrade p-retry to 8 ([abe639a](https://github.com/pkcprotocol/pkc-js/commit/abe639a61349fc398b50716909a30db51e8c0b12))
+* upgrade helia/libp2p packages and drop custom IPNS fetch router ([a14fd22](https://github.com/pkcprotocol/pkc-js/commit/a14fd225de20176bb080acd9000a315114068d9a))
+
 ## [0.0.22](https://github.com/pkcprotocol/pkc-js/compare/v0.0.21...v0.0.22) (2026-04-28)
 
 ### Features
