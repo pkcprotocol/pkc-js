@@ -13,10 +13,9 @@ const configs = getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOn
 
 describe.concurrent("getAvailablePKCConfigsToTestAgainst", () => {
     it("returns the expected config codes for the current runtime", () => {
-        // NOTE: "remote-libp2pjs" is temporarily disabled due to stability issues
         const expectedCodes = isRunningInBrowser()
-            ? ["remote-kubo-rpc", "remote-ipfs-gateway"]
-            : ["local-kubo-rpc", "remote-kubo-rpc", "remote-ipfs-gateway"];
+            ? ["remote-kubo-rpc", "remote-ipfs-gateway", "remote-libp2pjs"]
+            : ["local-kubo-rpc", "remote-kubo-rpc", "remote-ipfs-gateway", "remote-libp2pjs"];
 
         if (isRpcFlagOn()) expectedCodes.push("remote-pkc-rpc");
 

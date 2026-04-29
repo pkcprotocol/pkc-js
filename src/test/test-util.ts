@@ -1618,13 +1618,12 @@ export function getAvailablePKCConfigsToTestAgainst(opts?: {
     includeAllPossibleConfigOnEnv?: boolean;
 }): PKCConfigWithName[] {
     if (opts?.includeAllPossibleConfigOnEnv) {
-        // if node, ["local-kubo-rpc", "remote-kubo-rpc", "remote-ipfs-gateway"], also 'remote-pkc-rpc' if isRpcFlagOn()
-        // if browser, ["remote-kubo-rpc", "remote-ipfs-gateway"]
-        // NOTE: "remote-libp2pjs" is temporarily disabled due to stability issues
+        // if node, ["local-kubo-rpc", "remote-kubo-rpc", "remote-libp2pjs", "remote-ipfs-gateway"], also 'remote-pkc-rpc' if isRpcFlagOn()
+        // if browser, ["remote-kubo-rpc", "remote-libp2pjs", "remote-ipfs-gateway"]
         const isBrowser = isRunningInBrowser();
         const pkcConfigCodes: PKCTestConfigCode[] = isBrowser
-            ? ["remote-kubo-rpc", "remote-ipfs-gateway"]
-            : ["local-kubo-rpc", "remote-kubo-rpc", "remote-ipfs-gateway"];
+            ? ["remote-kubo-rpc", "remote-libp2pjs", "remote-ipfs-gateway"]
+            : ["local-kubo-rpc", "remote-kubo-rpc", "remote-libp2pjs", "remote-ipfs-gateway"];
         if (!isBrowser && isRpcFlagOn()) pkcConfigCodes.push("remote-pkc-rpc");
         const availableConfigs = remeda.pick(testConfigCodeToPKCInstanceWithHumanName, pkcConfigCodes);
         if (opts.includeOnlyTheseTests?.length) {

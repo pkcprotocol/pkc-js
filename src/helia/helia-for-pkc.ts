@@ -19,6 +19,7 @@ import type { HeliaWithLibp2pPubsub } from "./types.js";
 import { PKCError } from "../pkc-error.js";
 import { Libp2pJsClient } from "./libp2pjsClient.js";
 import { connectToPubsubPeers } from "./util.js";
+import { ipnsNameToIpnsOverPubsubTopic } from "../util.js";
 
 const log = Logger("pkc-js:libp2p-js");
 
@@ -126,6 +127,26 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     async function* generator() {
                         const ipnsNameAsPeerId = typeof ipnsName === "string" ? peerIdFromString(ipnsName) : ipnsName;
                         log.trace("Resolving ipns name", ipnsName, "with options", options);
+
+                        // @helia/ipns 9.2.x pubsub router throws NotFoundError if zero subscribers exist
+                        // for the topic at .get() time. Await peer warmup so the resolver sees a populated
+                        // subscriber list (the wrapped pubsub.subscribe also kicks off warmup, but
+                        // fire-and-forget — too late for the first .get()).
+                        const ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(ipnsNameAsPeerId.toString());
+                        if (helia.libp2p.services.pubsub.getSubscribers(ipnsPubsubTopic).length === 0) {
+                            try {
+                                await connectToPubsubPeers({
+                                    helia,
+                                    pubsubTopic: ipnsPubsubTopic,
+                                    maxPeers: 2,
+                                    options,
+                                    log: Logger("pkc-js:helia:ipns:name.resolve:warmup")
+                                });
+                            } catch (warmupErr) {
+                                log.error("Pre-resolve peer warmup failed for", ipnsPubsubTopic, warmupErr);
+                            }
+                        }
+
                         try {
                             const result = await ipnsNameResolver.resolve(ipnsNameAsPeerId.toMultihash(), options);
                             yield result.record.value;

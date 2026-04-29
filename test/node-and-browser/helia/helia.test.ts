@@ -4,13 +4,20 @@ import {
     getAvailablePKCConfigsToTestAgainst,
     resolveWhenConditionIsTrue,
     mockPKCV2,
-    addStringToIpfs
+    addStringToIpfs,
+    createMockedCommunityIpns
 } from "../../../dist/node/test/test-util.js";
 import signers from "../../fixtures/signers.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { IpfsHttpClientPubsubMessage } from "../../../dist/node/types.js";
+import { ipnsNameToIpnsOverPubsubTopic } from "../../../dist/node/util.js";
+
+async function firstFromAsyncIterable<T>(iterable: AsyncIterable<T>): Promise<T> {
+    for await (const value of iterable) return value;
+    throw new Error("AsyncIterable produced no values");
+}
 
 const mathCliNoMockedPubsubCommunityAddress = signers[5].address; // this community is connected to a pkc instance whose pubsub is not mocked
 
@@ -224,5 +231,61 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             expect(referenceClient.countOfUsesOfInstance).to.equal(0);
             expect(referenceClient._helia.libp2p.status).to.equal("stopped");
         }, 30000);
+    });
+
+    // Regression tests for commit a14fd225d ("upgrade helia/libp2p packages and drop custom IPNS fetch router").
+    // @helia/ipns 9.2.x pubsub router throws NotFoundError when there are zero subscribers for the
+    // topic at .get() time, and the connectToPubsubPeers warmup wired into pubsub.subscribe is
+    // fire-and-forget — so the resolver router peeks at an empty subscriber list before the warmup
+    // has time to populate it.
+    describe(`IPNS resolve cold-start race - ${config.name}`, () => {
+        it("name.resolve resolves a freshly-published record on first cold call", async () => {
+            const { communityAddress } = await createMockedCommunityIpns({});
+
+            const resolverPKC = await config.pkcInstancePromise();
+            try {
+                const heliaShape = Object.values(resolverPKC.clients.libp2pJsClients)[0].heliaWithKuboRpcClientFunctions;
+                const resolved = await firstFromAsyncIterable(
+                    heliaShape.name.resolve(communityAddress, { nocache: true, recursive: true })
+                );
+                expect(resolved).to.be.a("string");
+                expect(resolved).to.match(/^\/ipfs\//);
+            } finally {
+                await resolverPKC.destroy();
+            }
+        });
+
+        it("name.resolve populates pubsub subscribers before @helia/ipns inspects them", async () => {
+            const { communityAddress } = await createMockedCommunityIpns({});
+            const resolverPKC = await config.pkcInstancePromise();
+            try {
+                const heliaClient = Object.values(resolverPKC.clients.libp2pJsClients)[0];
+                const heliaShape = heliaClient.heliaWithKuboRpcClientFunctions;
+                const pubsubSvc = heliaClient._helia.libp2p.services.pubsub;
+                const topic = ipnsNameToIpnsOverPubsubTopic(communityAddress);
+
+                expect(pubsubSvc.getSubscribers(topic).length).to.equal(0);
+
+                let lastReadCount: number | undefined;
+                const original = pubsubSvc.getSubscribers.bind(pubsubSvc);
+                pubsubSvc.getSubscribers = (t: string) => {
+                    const list = original(t);
+                    if (t === topic) lastReadCount = list.length;
+                    return list;
+                };
+
+                try {
+                    await firstFromAsyncIterable(heliaShape.name.resolve(communityAddress, { nocache: true, recursive: true }));
+                } finally {
+                    pubsubSvc.getSubscribers = original;
+                }
+
+                // The @helia/ipns pubsub router's final read (the for-loop over peers) must see
+                // a populated subscriber list — that's what the warmup is for.
+                expect(lastReadCount, "subscribers must be populated by the time @helia/ipns reads them").to.be.greaterThan(0);
+            } finally {
+                await resolverPKC.destroy();
+            }
+        });
     });
 });
