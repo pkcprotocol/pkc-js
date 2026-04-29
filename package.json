@@ -159,7 +159,7 @@
         "vitest": "4.0.15",
         "wait-on": "9.0.5"
     },
-    "description": "pkc-js is an NPM module to wrap around the IPFS APIs used by PKC. It is used in all clients: CLI, Electron (Desktop GUI) and Web.",
+    "description": "TypeScript SDK for PKC (Public Key Communities), a serverless, decentralized social protocol built on IPFS, IPNS, and libp2p pubsub. Powers all PKC clients: CLI, Electron desktop, and web.",
     "publishConfig": {
         "access": "public"
     },
