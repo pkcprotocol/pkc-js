@@ -9,7 +9,6 @@ import { MemoryBlockstore } from "blockstore-core";
 import { delegatedRoutingV1HttpApiClient } from "@helia/delegated-routing-v1-http-api-client";
 import { unixfs } from "@helia/unixfs";
 import { fetch as libp2pFetch } from "@libp2p/fetch";
-import { createIpnsFetchRouter, PKCIpnsGetOptions } from "./ipns-over-pubsub-with-fetch.js";
 import { pubsub as createIpnsPubusubRouter } from "@helia/ipns/routing";
 import Logger from "../logger.js";
 import type { AddResult, NameResolveOptions as KuboNameResolveOptions } from "kubo-rpc-client";
@@ -104,7 +103,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
         const heliaFs = unixfs(helia);
 
         const ipnsNameResolver = ipns(helia, {
-            routers: [createIpnsFetchRouter(helia), createIpnsPubusubRouter(helia)]
+            routers: [createIpnsPubusubRouter(helia)]
         });
 
         ipnsNameResolver.routers = ipnsNameResolver.routers.slice(1); // remove gateway ipns routing and keep only pubsub
@@ -128,10 +127,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                         const ipnsNameAsPeerId = typeof ipnsName === "string" ? peerIdFromString(ipnsName) : ipnsName;
                         log.trace("Resolving ipns name", ipnsName, "with options", options);
                         try {
-                            const result = await ipnsNameResolver.resolve(ipnsNameAsPeerId.toMultihash(), {
-                                ...options,
-                                ipnsName
-                            } as PKCIpnsGetOptions);
+                            const result = await ipnsNameResolver.resolve(ipnsNameAsPeerId.toMultihash(), options);
                             yield result.record.value;
                             return;
                         } catch (err) {
