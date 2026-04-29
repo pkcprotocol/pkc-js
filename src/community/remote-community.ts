@@ -137,7 +137,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         return this._stopAbortController;
     }
 
-    _getStopAbortSignal() {
+    _getStopAbortSignal(): AbortSignal | undefined {
         return this._stopAbortController?.signal;
     }
 

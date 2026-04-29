@@ -169,7 +169,7 @@ export class Comment
         return this._stopAbortController;
     }
 
-    _getStopAbortSignal() {
+    _getStopAbortSignal(): AbortSignal | undefined {
         return this._stopAbortController?.signal;
     }
 
