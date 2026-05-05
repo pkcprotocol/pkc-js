@@ -61,9 +61,16 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
             const community = await pkc.createCommunity({ address: "plebbit.bso" });
             const rpcUrl = Object.keys(pkc.clients.pkcRpcClients)[0];
             const recordedStates: string[] = [];
-            const expectedStates = ["resolving-community-name", "fetching-ipns", "fetching-ipfs", "stopped"];
+            const expectedStates = ["fetching-ipns", "fetching-ipfs", "stopped"];
 
-            community.clients.pkcRpcClients[rpcUrl].on("statechange", (newState: string) => recordedStates.push(newState));
+            // "resolving-community-name" is only emitted on a server-side name-resolution cache miss.
+            // The persistent 1h cache (src/clients/name-resolution-cache.ts) can be warmed by any earlier
+            // test in the same RPC server run, in which case the resolve returns synchronously and
+            // bypasses preResolveNameResolver. Filter the state out so the assertion is deterministic.
+            community.clients.pkcRpcClients[rpcUrl].on("statechange", (newState: string) => {
+                if (newState === "resolving-community-name") return;
+                recordedStates.push(newState);
+            });
 
             await community.update();
 
