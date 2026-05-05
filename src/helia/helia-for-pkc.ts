@@ -134,16 +134,32 @@ export async function createLibp2pJsClientOrUseExistingOne(
                         // subscriber list (the wrapped pubsub.subscribe also kicks off warmup, but
                         // fire-and-forget — too late for the first .get()).
                         const ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(ipnsNameAsPeerId.toString());
+                        type WarmupOutcome =
+                            | { attempted: false }
+                            | { attempted: true; durationMs: number; connectedPeerCount: number }
+                            | { attempted: true; durationMs: number; error: PKCError | Error };
+                        let warmupOutcome: WarmupOutcome = { attempted: false };
                         if (helia.libp2p.services.pubsub.getSubscribers(ipnsPubsubTopic).length === 0) {
+                            const warmupStart = Date.now();
                             try {
-                                await connectToPubsubPeers({
+                                const conns = await connectToPubsubPeers({
                                     helia,
                                     pubsubTopic: ipnsPubsubTopic,
                                     maxPeers: 2,
                                     options,
                                     log: Logger("pkc-js:helia:ipns:name.resolve:warmup")
                                 });
+                                warmupOutcome = {
+                                    attempted: true,
+                                    durationMs: Date.now() - warmupStart,
+                                    connectedPeerCount: conns.length
+                                };
                             } catch (warmupErr) {
+                                warmupOutcome = {
+                                    attempted: true,
+                                    durationMs: Date.now() - warmupStart,
+                                    error: warmupErr as Error
+                                };
                                 log.error("Pre-resolve peer warmup failed for", ipnsPubsubTopic, warmupErr);
                             }
                         }
@@ -158,7 +174,13 @@ export async function createLibp2pJsClientOrUseExistingOne(
                                 throw new PKCError("ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED", {
                                     heliaError: err,
                                     ipnsName,
-                                    ipnsResolveOptions: options
+                                    ipnsPubsubTopic,
+                                    ipnsResolveOptions: options,
+                                    warmupOutcome,
+                                    subscribersAtResolveTime: helia.libp2p.services.pubsub.getSubscribers(ipnsPubsubTopic).length,
+                                    heliaPeerCount: helia.libp2p.getPeers().length,
+                                    heliaStatus: helia.libp2p.status,
+                                    httpRouters: pkcOptions.httpRoutersOptions
                                 });
                             else throw err;
                         }
