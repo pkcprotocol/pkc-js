@@ -20,14 +20,15 @@ const communityAddress = signers[0].address;
 
 // Helper function to clean up state arrays by removing:
 // 1. All "waiting-retry" entries
-// 2. Adjacent duplicate entries (e.g., ["fetching-community-ipns", "fetching-community-ipns"] -> ["fetching-community-ipns"])
-// 3. Repeating pairs of ["fetching-community-ipns", "fetching-community-ipfs"]
+// 2. All "resolving-author-name" entries (orthogonal to comment update flow; covered by dedicated tests)
+// 3. Adjacent duplicate entries (e.g., ["fetching-community-ipns", "fetching-community-ipns"] -> ["fetching-community-ipns"])
+// 4. Repeating pairs of ["fetching-community-ipns", "fetching-community-ipfs"]
 const cleanupStateArray = (states: string[]): string[] => {
     const filteredStates = [...states];
 
-    // Remove standalone "waiting-retry" entries
+    // Remove standalone "waiting-retry" and "resolving-author-name" entries
     for (let i = 0; i < filteredStates.length; i++) {
-        if (filteredStates[i] === "waiting-retry") {
+        if (filteredStates[i] === "waiting-retry" || filteredStates[i] === "resolving-author-name") {
             filteredStates.splice(i, 1);
             i--; // Adjust index after removing element
         }

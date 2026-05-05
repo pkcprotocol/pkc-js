@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from "uuid";
 import { mockPKCV2 } from "../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../helpers/conditional-tests.js";
 import { expect } from "vitest";
@@ -15,6 +16,7 @@ describeSkipIfRpc(`nameResolver abortSignal support`, async () => {
         const waitUntilResolverCalled = new Promise<void>((resolve) => {
             resolverCalled = resolve;
         });
+        const resolverKey = `signal-resolver-${uuidv4()}`;
 
         const pkc = await mockPKCV2({
             remotePKC: true,
@@ -22,7 +24,7 @@ describeSkipIfRpc(`nameResolver abortSignal support`, async () => {
             pkcOptions: {
                 nameResolvers: [
                     {
-                        key: "signal-resolver",
+                        key: resolverKey,
                         canResolve: () => true,
                         provider: "signal-provider",
                         resolve: async ({ abortSignal }: { name: string; abortSignal?: AbortSignal }) => {
@@ -61,12 +63,12 @@ describeSkipIfRpc(`nameResolver abortSignal support`, async () => {
             await waitUntilResolverCalled;
 
             expect(receivedSignal).to.equal(abortController.signal);
-            expect(pkc._clientsManager.clients.nameResolvers["signal-resolver"].state).to.equal("resolving-community-name");
+            expect(pkc._clientsManager.clients.nameResolvers[resolverKey].state).to.equal("resolving-community-name");
 
             abortController.abort(createAbortError("Resolver aborted"));
 
             await expect(resolutionPromise).rejects.toMatchObject({ name: "AbortError", message: "Resolver aborted" });
-            expect(pkc._clientsManager.clients.nameResolvers["signal-resolver"].state).to.equal("stopped");
+            expect(pkc._clientsManager.clients.nameResolvers[resolverKey].state).to.equal("stopped");
         } finally {
             await pkc.destroy();
         }

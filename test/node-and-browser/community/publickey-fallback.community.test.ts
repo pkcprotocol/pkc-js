@@ -111,7 +111,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await community.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: community,
-                predicate: async () => typeof community.updatedAt === "number"
+                predicate: async () => typeof community.updatedAt === "number" && typeof community.nameResolved === "boolean"
             });
 
             expect(community.updatedAt).to.be.a("number");
@@ -141,7 +141,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await community.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: community,
-                predicate: async () => typeof community.updatedAt === "number"
+                predicate: async () => typeof community.updatedAt === "number" && typeof community.nameResolved === "boolean"
             });
 
             expect(community.updatedAt).to.be.a("number");
@@ -166,7 +166,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await community.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: community,
-                predicate: async () => typeof community.updatedAt === "number"
+                predicate: async () => typeof community.updatedAt === "number" && typeof community.nameResolved === "boolean"
             });
 
             expect(community.updatedAt).to.be.a("number");

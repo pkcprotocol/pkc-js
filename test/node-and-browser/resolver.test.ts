@@ -1,4 +1,5 @@
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
+import { v4 as uuidv4 } from "uuid";
 import signers from "../fixtures/signers.js";
 import { messages } from "../../dist/node/errors.js";
 import {
@@ -499,7 +500,7 @@ describeSkipIfRpc(`nameResolver abortSignal support`, async () => {
             pkcOptions: {
                 nameResolvers: [
                     {
-                        key: "signal-resolver",
+                        key: `signal-resolver-${uuidv4()}`,
                         canResolve: () => true,
                         resolve: async ({ abortSignal }: { name: string; abortSignal?: AbortSignal }) => {
                             receivedSignal = abortSignal;
