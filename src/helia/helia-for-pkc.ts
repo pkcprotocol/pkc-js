@@ -73,6 +73,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 services: {
                     identify: identify(),
                     pubsub: gossipsub(),
+                    // powers @helia/ipns pubsub fast-path: fetch latest record from new topic peers (PR ipfs/helia#906)
                     fetch: libp2pFetch(),
                     ...getDelegatedRoutingFields(pkcOptions.httpRoutersOptions),
                     ...pkcOptions.libp2pOptions?.services
