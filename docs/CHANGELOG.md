@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.24](https://github.com/pkcprotocol/pkc-js/compare/v0.0.23...v0.0.24) (2026-05-05)
+
+### Build
+
+* bump @libp2p/gossipsub to 15.0.21 ([3e8e679](https://github.com/pkcprotocol/pkc-js/commit/3e8e679344f872a8e2ccd753cc1a814353687ae6))
+
 ## [0.0.23](https://github.com/pkcprotocol/pkc-js/compare/v0.0.22...v0.0.23) (2026-04-29)
 
 ### Bug Fixes
