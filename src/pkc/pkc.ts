@@ -1058,6 +1058,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         const parsedArgs = parseRpcAuthorNameParam(resolveAuthorNameArgs);
         const res = await this._clientsManager.resolveAuthorNameIfNeeded({
             authorName: parsedArgs.name,
+            cache: parsedArgs.cache,
             abortSignal: AbortSignal.timeout(this._timeouts["resolve-author-name"])
         });
         return res;

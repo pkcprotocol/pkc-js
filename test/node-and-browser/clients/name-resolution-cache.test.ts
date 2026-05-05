@@ -107,6 +107,30 @@ describeSkipIfRpc("NameResolutionCache: cache hit / miss / freshness", () => {
         expect(calls.length).to.equal(2);
     });
 
+    it("pkc.resolveAuthorName plumbs cache.maxAge through to the cache (maxAge: 0 forces re-resolution)", async () => {
+        const { resolver, calls } = trackingResolver({ "alice.bso": signers[3].address });
+        pkc = await makeNoDataPKC({}, resolver);
+
+        const r1 = await pkc.resolveAuthorName({ name: "alice.bso" });
+        expect(r1.resolvedAuthorName).to.equal(signers[3].address);
+        expect(calls.length).to.equal(1);
+
+        // Without cache option: served from cache.
+        const r2 = await pkc.resolveAuthorName({ name: "alice.bso" });
+        expect(r2.resolvedAuthorName).to.equal(signers[3].address);
+        expect(calls.length).to.equal(1);
+
+        // cache.maxAge: 0 → bypass cache, force re-resolution.
+        const r3 = await pkc.resolveAuthorName({ name: "alice.bso", cache: { maxAge: 0 } });
+        expect(r3.resolvedAuthorName).to.equal(signers[3].address);
+        expect(calls.length).to.equal(2);
+
+        // cache.maxAge: 60 → cache entry is younger than 60s, served from cache.
+        const r4 = await pkc.resolveAuthorName({ name: "alice.bso", cache: { maxAge: 60 } });
+        expect(r4.resolvedAuthorName).to.equal(signers[3].address);
+        expect(calls.length).to.equal(2);
+    });
+
     it("failed resolution is not persisted (next call hits the resolver again)", async () => {
         // Resolver returns undefined for every name → all-resolvers-tried-no-result → null
         const { resolver, calls } = trackingResolver({});

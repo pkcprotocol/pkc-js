@@ -34,13 +34,14 @@ export interface NameResolverInterface {
     destroy?: () => Promise<void>;
 }
 
-// Per-call cache freshness control. Modeled on HTTP Cache-Control: max-age (seconds).
+// Per-call cache freshness control. Modeled on HTTP Cache-Control: max-age request directive (RFC 9111 §5.2.1.1).
 //   undefined → use cache freely (no freshness threshold)
 //   0         → bypass cache, always re-resolve
 //   N         → use cache entry only if it is younger than N seconds
-export type NameResolveCacheOptions = {
-    maxAge?: number;
-};
+export const NameResolveCacheOptionsSchema = z.object({
+    maxAge: z.number().int().nonnegative().optional()
+});
+export type NameResolveCacheOptions = z.infer<typeof NameResolveCacheOptionsSchema>;
 
 // z.custom() preserves the original object (including class instances) — z.object() would strip unknown keys and break class-based resolvers
 export const NameResolverSchema = z.custom<NameResolverInterface>(

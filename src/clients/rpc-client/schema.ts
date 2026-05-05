@@ -2,6 +2,7 @@ import { z } from "zod";
 import { CommentIpfsSchema, CommentUpdateSchema } from "../../publications/comment/schema.js";
 import { AuthorAddressSchema, ChallengeAnswersSchema, CidStringSchema } from "../../schema/schema.js";
 import { CommunityEditOptionsSchema } from "../../community/schema.js";
+import { NameResolveCacheOptionsSchema } from "../../schema.js";
 import type { EncodedDecryptedChallengeVerificationMessageType } from "../../pubsub-messages/types.js";
 export const SubscriptionIdSchema = z.number().positive().int();
 
@@ -32,7 +33,10 @@ export const RpcCommunityIdentifierParamSchema = z
     })
     .refine((args) => args.name || args.publicKey, "At least one of name or publicKey must be provided");
 export const RpcFetchCidParamSchema = z.object({ cid: CidStringSchema });
-export const RpcAuthorNameParamSchema = z.object({ name: AuthorAddressSchema });
+export const RpcAuthorNameParamSchema = z.object({
+    name: AuthorAddressSchema,
+    cache: NameResolveCacheOptionsSchema.optional()
+});
 export const RpcCommunityPageParamSchema = RpcCidParamSchema.extend({
     type: z.enum(["posts", "modqueue"]),
     pageMaxSize: z.number().positive().int()
