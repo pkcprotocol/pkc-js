@@ -576,7 +576,7 @@ describeSkipIfRpc(`nameResolver resolution behavior`, async () => {
         await pkc.destroy();
     });
 
-    it(`resolveCommunityNameIfNeeded re-resolves on each call`, async () => {
+    it(`resolveCommunityNameIfNeeded reuses the persistent cache when no cache option is given, and bypasses with cache.maxAge=0`, async () => {
         const firstIpns = "12D3KooWJJcSwxH2F3sFL7YCNDLD95kBczEfkHpPNdxcjZwR2X2Y";
         const secondIpns = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
         let callCount = 0;
@@ -600,12 +600,22 @@ describeSkipIfRpc(`nameResolver resolution behavior`, async () => {
             }
         });
 
+        // First call: populates the cache
         const resolved1 = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "cached.bso" });
         expect(resolved1).to.equal(firstIpns);
         expect(callCount).to.equal(1);
 
+        // No cache option → "use cache freely" → resolver is not called again, cached value returned
         const resolved2 = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "cached.bso" });
-        expect(resolved2).to.equal(secondIpns);
+        expect(resolved2).to.equal(firstIpns);
+        expect(callCount).to.equal(1);
+
+        // cache.maxAge=0 → bypass the cache and re-resolve
+        const resolved3 = await pkc._clientsManager.resolveCommunityNameIfNeeded({
+            communityName: "cached.bso",
+            cache: { maxAge: 0 }
+        });
+        expect(resolved3).to.equal(secondIpns);
         expect(callCount).to.equal(2);
         await pkc.destroy();
     });

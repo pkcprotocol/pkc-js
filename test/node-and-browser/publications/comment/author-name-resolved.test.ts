@@ -229,18 +229,50 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(comment.author.address).to.equal("plebbit.bso");
         });
 
-        it("nameResolved is false when the author's domain cannot be resolved", async () => {
-            const comment = await pkc.createComment({ cid: unresolvableDomainCommentCid });
+        itSkipIfRpc("nameResolved stays undefined when the resolver returns null (transient null preserves retry semantics)", async () => {
+            // The resolver canResolve returns true but resolve returns undefined: this is a "transient null"
+            // (could be no TXT record OR a network blip), so pkc-js leaves the verification cache undefined
+            // for retry on the next update — it does NOT cache `false`. This is itSkipIfRpc because the
+            // custom resolver below is local to the client and the RPC server uses its own resolver.
+            let resolverCalledResolve!: () => void;
+            const resolverCalled = new Promise<void>((resolve) => {
+                resolverCalledResolve = resolve;
+            });
+
+            const transientPKC = await config.pkcInstancePromise({
+                stubStorage: false,
+                mockResolve: false,
+                pkcOptions: {
+                    nameResolvers: [
+                        createMockNameResolver({
+                            includeDefaultRecords: true,
+                            resolveFunction: async ({ name }) => {
+                                if (name === "hello.scam") {
+                                    resolverCalledResolve();
+                                    return undefined;
+                                }
+                                return undefined;
+                            }
+                        })
+                    ]
+                }
+            });
+
+            const comment = await transientPKC.createComment({ cid: unresolvableDomainCommentCid });
             await comment.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: comment,
-                predicate: async () => comment.author?.nameResolved === false
+                predicate: async () => Boolean(comment.content)
             });
+            await resolverCalled;
+            // Yield once so resolveAuthorNamesInBackground's resolveOne returns and Promise.allSettled settles
+            await new Promise((r) => setImmediate(r));
             await comment.stop();
 
-            // Resolver returns null for unknown domain → null !== derivedAddress → nameResolved = false
-            expect(comment.author.nameResolved).to.equal(false);
+            expect(comment.author.nameResolved).to.be.undefined;
             expect(comment.author.address).to.equal("hello.scam");
+
+            await transientPKC.destroy();
         });
 
         itSkipIfRpc("nameResolved is undefined when resolveAuthorNames is false", async () => {
@@ -263,19 +295,48 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await noResolvePKC.destroy();
         });
 
-        it("nameResolved is false when resolver throws", async () => {
-            // Use unresolvableDomainCommentCid (author: "hello.scam") — no resolver has a record for it.
-            // Non-RPC: resolver returns null → null !== derivedAddress → nameResolved = false
-            // RPC: server resolver returns null → nameResolved = false → sent via runtimeFields
-            const comment = await pkc.createComment({ cid: unresolvableDomainCommentCid });
+        itSkipIfRpc("nameResolved stays undefined when the resolver throws (transient failure preserves retry semantics)", async () => {
+            // A thrown error other than ERR_NO_RESOLVER_FOR_NAME is treated as transient — the verification
+            // cache is left undefined so the next update retries. This is itSkipIfRpc because the resolver
+            // configured here is local to the client; the RPC server has its own resolver setup.
+            let resolverCalledResolve!: () => void;
+            const resolverCalled = new Promise<void>((resolve) => {
+                resolverCalledResolve = resolve;
+            });
+
+            const throwingPKC = await config.pkcInstancePromise({
+                stubStorage: false,
+                mockResolve: false,
+                pkcOptions: {
+                    nameResolvers: [
+                        createMockNameResolver({
+                            includeDefaultRecords: true,
+                            resolveFunction: async ({ name }) => {
+                                if (name === "hello.scam") {
+                                    resolverCalledResolve();
+                                    throw new Error("Simulated network failure");
+                                }
+                                return undefined;
+                            }
+                        })
+                    ]
+                }
+            });
+
+            const comment = await throwingPKC.createComment({ cid: unresolvableDomainCommentCid });
             await comment.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: comment,
-                predicate: async () => comment.author?.nameResolved === false
+                predicate: async () => Boolean(comment.content)
             });
+            await resolverCalled;
+            await new Promise((r) => setImmediate(r));
             await comment.stop();
 
-            expect(comment.author.nameResolved).to.equal(false);
+            expect(comment.author.nameResolved).to.be.undefined;
+            expect(comment.author.address).to.equal("hello.scam");
+
+            await throwingPKC.destroy();
         });
 
         it("multiple comment instances sharing same pkc use same nameResolved cache", async () => {
@@ -540,7 +601,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             }
         });
 
-        it("nameResolved is false when reader has no resolver for the author's TLD", async () => {
+        // itSkipIfRpc: this test passes a resolver with a restricted canResolve to the reader pkc to
+        // exercise the ERR_NO_RESOLVER_FOR_NAME definitive-false path. Under RPC, the resolver config
+        // stays local to the client and the server has its own (unrestricted) resolvers, so the
+        // ERR_NO_RESOLVER_FOR_NAME path isn't reached server-side and there's no way to assert this
+        // behavior against an RPC server we don't control.
+        itSkipIfRpc("nameResolved is false when reader has no resolver for the author's TLD", async () => {
             // Create a comment with .xyz TLD using default pkc (which accepts all TLDs)
             const xyzComment = await createStaticCommunityRecordForComment({
                 pkc: pkc,
@@ -550,8 +616,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 }
             });
 
-            // Create a reader pkc with a restricted resolver (only .eth/.bso)
-            // even for RPC servers they should not be able to resolve .xyz
+            // Create a reader pkc with a restricted resolver (only .eth/.bso) so .xyz triggers
+            // ERR_NO_RESOLVER_FOR_NAME — the definitive-false path.
             const readerPKC = await config.pkcInstancePromise({
                 stubStorage: false,
                 mockResolve: false,
