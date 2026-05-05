@@ -687,8 +687,9 @@ describeSkipIfRpc(`pkc._clientsManager.clients.nameResolvers initialization`, as
         const pkc = await mockPKCV2({ remotePKC: true, mockResolve: true });
         const keys = Object.keys(pkc._clientsManager.clients.nameResolvers);
         expect(keys.length).to.be.greaterThanOrEqual(1);
-        expect(keys).to.include("mock-resolver");
-        expect(pkc._clientsManager.clients.nameResolvers["mock-resolver"].state).to.equal("stopped");
+        const mockResolverKey = keys.find((k) => k.startsWith("mock-resolver"));
+        expect(mockResolverKey, `expected a key starting with "mock-resolver" in ${JSON.stringify(keys)}`).to.exist;
+        expect(pkc._clientsManager.clients.nameResolvers[mockResolverKey!].state).to.equal("stopped");
         await pkc.destroy();
     });
 

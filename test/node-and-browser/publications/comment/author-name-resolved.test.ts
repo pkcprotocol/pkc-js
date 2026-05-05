@@ -266,7 +266,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
             await resolverCalled;
             // Yield once so resolveAuthorNamesInBackground's resolveOne returns and Promise.allSettled settles
-            await new Promise((r) => setImmediate(r));
+            await new Promise((r) => setTimeout(r, 0));
             await comment.stop();
 
             expect(comment.author.nameResolved).to.be.undefined;
@@ -330,7 +330,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 predicate: async () => Boolean(comment.content)
             });
             await resolverCalled;
-            await new Promise((r) => setImmediate(r));
+            await new Promise((r) => setTimeout(r, 0));
             await comment.stop();
 
             expect(comment.author.nameResolved).to.be.undefined;

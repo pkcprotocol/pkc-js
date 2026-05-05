@@ -116,7 +116,7 @@ function getMockResolverRecord(records: MockResolverRecords | undefined, name: s
 export function createMockNameResolver({
     records,
     includeDefaultRecords = false,
-    key = "mock-resolver",
+    key = `mock-resolver-${uuidv4()}`,
     provider = "mock",
     canResolve,
     resolveFunction

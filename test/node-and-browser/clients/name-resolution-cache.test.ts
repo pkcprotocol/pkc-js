@@ -1,4 +1,5 @@
 import { it, expect, afterEach } from "vitest";
+import { v4 as uuidv4 } from "uuid";
 import signers from "../../fixtures/signers.js";
 import { createMockNameResolver, mockPKCV2 } from "../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
@@ -15,7 +16,7 @@ function trackingResolver(records: Record<string, string | undefined>, opts?: { 
     const calls: string[] = [];
     let failsRemaining = opts?.failNextN ?? 0;
     const resolver: NameResolver = createMockNameResolver({
-        key: opts?.key ?? "tracking-resolver",
+        key: opts?.key ?? `tracking-resolver-${uuidv4()}`,
         provider: opts?.provider ?? "mock://tracker",
         records,
         resolveFunction: async ({ name }) => {
