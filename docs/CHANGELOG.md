@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.26](https://github.com/pkcprotocol/pkc-js/compare/v0.0.25...v0.0.26) (2026-05-05)
+
+### Features
+
+* **helia.ipns:** enrich ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED details ([6f591d8](https://github.com/pkcprotocol/pkc-js/commit/6f591d8c24729bd6280fdb68fe1b67ee1318e59d))
+* **name-resolution:** expose cache.maxAge on pkc.resolveAuthorName ([646e191](https://github.com/pkcprotocol/pkc-js/commit/646e19173543964439346385a7dad0df6b880ac3))
+
 ## [0.0.25](https://github.com/pkcprotocol/pkc-js/compare/v0.0.24...v0.0.25) (2026-05-05)
 
 ### Features
