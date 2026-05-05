@@ -49,7 +49,7 @@ jobs:
               run: node test/run-test-config.js --environment node --per-test-logs ${{ runner.temp }}/per-test-logs test/challenges
             - name: Run node tests (local config)
               id: run_node_tests_local
-              run: DEBUG="pkc*" PKC_CONFIGS=local-kubo-rpc node test/run-test-config.js --parallel --environment node --run-timeout-ms 1740000 --log-prefix test_node_local --per-test-logs ${{ runner.temp }}/per-test-logs test/node src/rpc/test/node src/rpc/test/node-and-browser
+              run: DEBUG="pkc*" PKC_CONFIGS=local-kubo-rpc node test/run-test-config.js --parallel --environment node --run-timeout-ms 1740000 --log-prefix test_node_local --per-test-logs "${{ runner.temp }}/per-test-logs" test/node src/rpc/test/node src/rpc/test/node-and-browser
               shell: bash
             - name: Print failed node tests (local)
               if: ${{ failure() && steps.run_node_tests_local.outcome == 'failure' }}
