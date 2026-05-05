@@ -621,6 +621,13 @@ export async function mockPKC(pkcOptions?: InputPKCOptions, forceMockPubsub = fa
     if (stubStorage) {
         pkc._storage.getItem = async () => undefined;
         pkc._storage.setItem = async () => undefined;
+        const realCreateStorageLRU = pkc._createStorageLRU.bind(pkc);
+        pkc._createStorageLRU = async (opts) => {
+            const lru = await realCreateStorageLRU(opts);
+            lru.getItem = async () => undefined;
+            lru.setItem = async () => {};
+            return lru;
+        };
     }
 
     // TODO should have multiple pubsub providers here to emulate a real browser/mobile environment
