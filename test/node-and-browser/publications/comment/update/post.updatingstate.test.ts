@@ -355,9 +355,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 expect(createdComment.updatedAt).to.be.undefined; // should not accept the comment update
 
                 const expectedUpdateStates = ["fetching-ipfs", "succeeded", "fetching-community-ipns", "fetching-update-ipfs", "failed"];
-                expect(recordedStates.slice(0, expectedUpdateStates.length)).to.deep.equal(expectedUpdateStates);
+                const cleanedStates = cleanupStateArray(recordedStates);
+                expect(cleanedStates.slice(0, expectedUpdateStates.length)).to.deep.equal(expectedUpdateStates);
 
-                const restOfUpdatingStates = recordedStates.slice(expectedUpdateStates.length, recordedStates.length);
+                const restOfUpdatingStates = cleanedStates.slice(expectedUpdateStates.length, cleanedStates.length);
                 for (let i = 0; i < restOfUpdatingStates.length; i += 2) {
                     if (
                         restOfUpdatingStates[i] === "fetching-community-ipns" &&
