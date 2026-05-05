@@ -87,8 +87,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                # remote-libp2pjs disabled — see #82 / #74
-                config: [remote-kubo-rpc, remote-ipfs-gateway]
+                config: [remote-kubo-rpc, remote-ipfs-gateway, remote-libp2pjs]
         steps:
             - uses: actions/checkout@v4
             - uses: actions/setup-node@v4
@@ -148,8 +147,7 @@ jobs:
             fail-fast: false
             matrix:
                 environment: [chrome, firefox]
-                # remote-libp2pjs disabled — see #82 / #74
-                config: [remote-kubo-rpc, remote-ipfs-gateway]
+                config: [remote-kubo-rpc, remote-ipfs-gateway, remote-libp2pjs]
         steps:
             - uses: actions/checkout@v4
             - uses: actions/setup-node@v4
