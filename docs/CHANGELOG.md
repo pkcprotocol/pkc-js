@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.25](https://github.com/pkcprotocol/pkc-js/compare/v0.0.24...v0.0.25) (2026-05-05)
+
+### Features
+
+* **name-resolution:** own caching in pkc-js with per-call freshness control ([8bcec14](https://github.com/pkcprotocol/pkc-js/commit/8bcec140aca6afdd00ab207c1a450d2ff903e57a)), closes [#83](https://github.com/pkcprotocol/pkc-js/issues/83)
+
+### Reverts
+
+* Revert "test(name-resolution): stub LRU storage when stubStorage is set" ([d874123](https://github.com/pkcprotocol/pkc-js/commit/d874123db8fa369c8e65faaea593d2a93e08c0ec))
+
 ## [0.0.24](https://github.com/pkcprotocol/pkc-js/compare/v0.0.23...v0.0.24) (2026-05-05)
 
 ### Build
