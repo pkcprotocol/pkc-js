@@ -63,6 +63,13 @@ Visible Comment = CommentIpfs (permanent) + CommentUpdate (ephemeral)
 - Each HTTP router keeps provider announcements for only **24 hours**.
 - This means content that hasn't been re-announced within 24h may become unfindable via HTTP routers.
 
+## Local Caches (`${dataPath}/lru-storage/*.db`)
+
+The LRU storage layer (`src/runtime/node/lru-storage.ts` and the browser counterpart) backs caches whose contents are always recomputable from network sources — name resolutions, page-CID metadata, post timestamps, etc.
+
+- **Concurrency contract:** these cache files use SQLite WAL mode (Node) but no advisory lockfile. Multiple PKC instances on the same `dataPath` can open the same cache file safely; concurrent writes use last-write-wins semantics. Lost writes are not a correctness problem at this layer because the cache layer never carries data that can't be recomputed — at worst a lost write means an extra network round-trip on the next miss.
+- **Per-community DBs are different:** `${dataPath}/communities/${address}` is protected by `proper-lockfile`-based advisory locks and will throw `ERR_COMMUNITY_ALREADY_STARTED` on concurrent access. Do not put recomputable cache data in those DBs.
+
 ## Invariants
 
 - **Never modify a CommentIpfs** — once it has a CID, the content is immutable.

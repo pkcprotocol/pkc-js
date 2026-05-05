@@ -1862,7 +1862,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             if (this._pkc.resolveAuthorNames && isStringDomain(authorName)) {
                 const { resolvedAuthorName: resolvedSignerAddress } = await this._clientsManager.resolveAuthorNameIfNeeded({
                     authorName,
-                    abortSignal: AbortSignal.timeout(this._pkc._timeouts["resolve-author-name"])
+                    abortSignal: AbortSignal.timeout(this._pkc._timeouts["resolve-author-name"]),
+                    // Mod authority must reflect current state — bypass cache.
+                    cache: { maxAge: 0 }
                 });
                 if (resolvedSignerAddress !== signerAddress) return false;
                 if (rolesToCheckAgainst.includes(this.roles[resolvedSignerAddress]?.role as CommunityRoleNameUnion)) return true;
@@ -1915,7 +1917,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             try {
                 ({ resolvedAuthorName: resolvedAddress } = await this._clientsManager.resolveAuthorNameIfNeeded({
                     authorName,
-                    abortSignal: AbortSignal.timeout(this._pkc._timeouts["resolve-author-name"])
+                    abortSignal: AbortSignal.timeout(this._pkc._timeouts["resolve-author-name"]),
+                    // Incoming pub validation: 30m staleness window is acceptable; domain transfers are rare.
+                    cache: { maxAge: 1800 }
                 }));
             } catch (e) {
                 log("Rejecting publication with unresolvable author domain", authorName, e);
@@ -3238,7 +3242,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     private async _assertDomainResolvesCorrectly(newAddressAsDomain: string) {
         if (isStringDomain(newAddressAsDomain)) {
             const resolvedIpnsFromNewDomain = await this._clientsManager.resolveCommunityNameIfNeeded({
-                communityName: newAddressAsDomain
+                communityName: newAddressAsDomain,
+                // Admin domain edits don't need second-fresh data.
+                cache: { maxAge: 600 }
             });
             if (resolvedIpnsFromNewDomain !== this.signer.address)
                 throw new PKCError("ERR_DOMAIN_COMMUNITY_ADDRESS_TXT_RECORD_POINT_TO_DIFFERENT_ADDRESS", {
@@ -3338,7 +3344,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 try {
                     ({ resolvedAuthorName: resolved } = await this._clientsManager.resolveAuthorNameIfNeeded({
                         authorName: roleAddress,
-                        abortSignal: AbortSignal.timeout(this._pkc._timeouts["resolve-author-name"])
+                        abortSignal: AbortSignal.timeout(this._pkc._timeouts["resolve-author-name"]),
+                        // Role edits must apply to current state — bypass cache.
+                        cache: { maxAge: 0 }
                     }));
                 } catch {
                     resolved = null;

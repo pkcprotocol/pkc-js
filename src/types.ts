@@ -161,7 +161,10 @@ export interface StorageInterface {
     destroy: () => Promise<void>;
 }
 
-type LRUStorageCacheNames = "pkcjs_lrustorage_postTimestamp" | "pkcjs_lrustorage_commentPostUpdatesParentsPath";
+type LRUStorageCacheNames =
+    | "pkcjs_lrustorage_postTimestamp"
+    | "pkcjs_lrustorage_commentPostUpdatesParentsPath"
+    | "pkcjs_lrustorage_nameResolutions";
 
 export interface LRUStorageConstructor {
     maxItems: number; // Will start evicting after this number of items is stored

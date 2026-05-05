@@ -8,6 +8,7 @@ import { PKCClientsManager } from "../pkc/pkc-client-manager.js";
 import { FailedToFetchCommunityFromGatewaysError, PKCError } from "../pkc-error.js";
 import { ResultOfFetchingCommunity } from "../types.js";
 import { NameResolverClient } from "../clients/name-resolver-client.js";
+import type { NameResolveCacheOptions } from "../schema.js";
 import { RemoteCommunity } from "./remote-community.js";
 import * as remeda from "remeda";
 import type { CommunityIpfsType, CommunityJson } from "./types.js";
@@ -330,14 +331,16 @@ export class CommunityClientsManager extends PKCClientsManager {
 
     private async _resolveCommunityNameWithoutUpdatingState({
         communityName,
-        abortSignal
+        abortSignal,
+        cache
     }: {
         communityName: string;
         abortSignal?: AbortSignal;
+        cache?: NameResolveCacheOptions;
     }): Promise<string | null> {
         this._suppressUpdatingStateForNameResolution++;
         try {
-            return await this.resolveCommunityNameIfNeeded({ communityName, abortSignal });
+            return await this.resolveCommunityNameIfNeeded({ communityName, abortSignal, cache });
         } finally {
             this._suppressUpdatingStateForNameResolution--;
         }
@@ -356,7 +359,9 @@ export class CommunityClientsManager extends PKCClientsManager {
         };
         this._resolveCommunityNameWithoutUpdatingState({
             communityName: name,
-            abortSignal: this._community._getStopAbortSignal()
+            abortSignal: this._community._getStopAbortSignal(),
+            // Background drift detection — 1h staleness window.
+            cache: { maxAge: 3600 }
         })
             .then((resolved) => {
                 if (resolved && resolved !== this._community.publicKey) {
@@ -447,7 +452,9 @@ export class CommunityClientsManager extends PKCClientsManager {
                 // Name only or publicKey only: use existing resolution flow
                 ipnsName = await this.resolveCommunityNameIfNeeded({
                     communityName: subAddress,
-                    abortSignal: this._community._getStopAbortSignal()
+                    abortSignal: this._community._getStopAbortSignal(),
+                    // Subscribe-by-domain can ride the cache for up to 1h.
+                    cache: { maxAge: 3600 }
                 });
             }
 

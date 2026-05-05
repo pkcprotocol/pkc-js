@@ -33,6 +33,40 @@ Domains are resolved via the `nameResolvers` plugin system configured on the Ple
 - `nameResolved: boolean | undefined` — tracks whether domain resolution succeeded. This is a **runtime-only** field.
 - Resolution happens on the RPC server for browser clients — RPC clients don't need `nameResolvers` configured locally.
 
+## Caching responsibility
+
+**pkc-js owns name-resolution caching. Resolvers should be thin network wrappers.**
+
+- pkc-js maintains a persistent cache of raw `name → publicKey` resolutions at `${dataPath}/lru-storage/nameResolutions.db` (Node) or in localforage (browser). Falls back to in-memory under `noData: true`.
+- Cache entries record `{ publicKey, resolverKey, provider, resolvedAtMs }` and are keyed by `${name}::${resolverKey}::${sha256(provider)}` so that different resolvers or different RPC providers do not collide.
+- Resolvers should NOT implement their own cache. The contract is plug-in simplicity: `canResolve` + `resolve` + nothing else mandatory. A resolver implementation that just hits the network on every call is a fully valid implementation; pkc-js calls it sparingly.
+
+### Per-call freshness control
+
+Callers control cache freshness via an optional `cache` parameter on `resolveAuthorNameIfNeeded` and `resolveCommunityNameIfNeeded`, modeled on HTTP `Cache-Control: max-age` (seconds):
+
+```typescript
+type NameResolveCacheOptions = {
+    maxAge?: number;  // seconds. undefined = use cache freely; 0 = bypass; N = use if entry younger than N
+};
+```
+
+Defaults applied at each call site:
+
+| Call site | `maxAge` |
+|---|---|
+| Mod role check (incoming moderation actions) | `0` |
+| Incoming publication validation | `1800` (30m) |
+| Admin role assignment | `0` |
+| Admin domain edit verification | `600` (10m) |
+| Subscribe-by-domain (initial fetch) | `3600` (1h) |
+| Background community drift detection | `3600` |
+| Background author display-name resolution | `3600` |
+
+### Negative caching
+
+The persistent cache stores only successful resolutions. Failures are not persisted; the next caller retries. The in-memory verification cache (`PKC._memCaches.nameResolvedCache`) caches `(name + signaturePublicKey) → boolean` for sync hot-path lookups by `Comment._setAuthorNameResolvedFromCache` and friends; it stores `false` only for definitive non-matches and the definitive `ERR_NO_RESOLVER_FOR_NAME` case, never for transient errors.
+
 ## RPC-Side Resolution
 
 Name resolution happens on the **RPC server**, not the RPC client. This means:

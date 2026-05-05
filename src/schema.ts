@@ -29,11 +29,18 @@ const DirectoryPathSchema = z.string(); // TODO add validation for path
 export interface NameResolverInterface {
     key: string;
     provider: string;
-    dataPath?: string;
     resolve: (opts: { name: string; abortSignal?: AbortSignal }) => Promise<{ publicKey: string; [key: string]: string } | undefined>;
     canResolve: (opts: { name: string }) => boolean;
     destroy?: () => Promise<void>;
 }
+
+// Per-call cache freshness control. Modeled on HTTP Cache-Control: max-age (seconds).
+//   undefined → use cache freely (no freshness threshold)
+//   0         → bypass cache, always re-resolve
+//   N         → use cache entry only if it is younger than N seconds
+export type NameResolveCacheOptions = {
+    maxAge?: number;
+};
 
 // z.custom() preserves the original object (including class instances) — z.object() would strip unknown keys and break class-based resolvers
 export const NameResolverSchema = z.custom<NameResolverInterface>(
@@ -59,8 +66,7 @@ export const NameResolverSchema = z.custom<NameResolverInterface>(
 // Serialized variant without function props — for RPC transport where functions can't survive JSON serialization
 export const NameResolverSerializedSchema = z.object({
     key: z.string().min(1),
-    provider: z.string().min(1),
-    dataPath: z.string().optional()
+    provider: z.string().min(1)
 });
 
 const TransformKuboRpcClientOptionsSchema = KuboRpcCreateClientOptionSchema.array().transform((options) =>

@@ -31,6 +31,10 @@ export interface SqliteCacheConfiguration {
 async function initSqliteCache(configuration: SqliteCacheConfiguration) {
     const db = new Database(configuration.database, {});
 
+    // WAL mode reduces the lost-write window when multiple PKC instances share a dataPath.
+    // Same setting the per-community DB already uses. Skipped for `:memory:` (not applicable).
+    if (configuration.database !== ":memory:") db.pragma("journal_mode = WAL");
+
     db.transaction(() => {
         db.prepare(
             `CREATE TABLE IF NOT EXISTS ${configuration.cacheTableName} (

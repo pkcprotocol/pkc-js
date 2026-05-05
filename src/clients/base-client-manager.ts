@@ -38,6 +38,8 @@ import { CID } from "kubo-rpc-client";
 import { convertBase58IpnsNameToBase36Cid } from "../signer/util.js";
 import pTimeout from "p-timeout";
 import { InflightResourceTypes } from "../util/inflight-fetch-manager.js";
+import { NameResolutionCache } from "./name-resolution-cache.js";
+import type { NameResolveCacheOptions } from "../schema.js";
 
 export type LoadType = "community" | "comment-update" | "comment" | "page-ipfs" | "generic-ipfs";
 
@@ -747,14 +749,22 @@ export class BaseClientsManager {
     postResolveNameResolverSuccess(opts: PostResolveNameResolverSuccessOptions) {}
     postResolveNameResolverFailure(opts: PostResolveNameResolverFailureOptions) {}
 
+    private _nameResolutionCache?: NameResolutionCache;
+    private _getNameResolutionCache(): NameResolutionCache {
+        if (!this._nameResolutionCache) this._nameResolutionCache = new NameResolutionCache(this._pkc);
+        return this._nameResolutionCache;
+    }
+
     private async _resolveViaNameResolvers({
         name,
         resolveType,
-        abortSignal
+        abortSignal,
+        cache
     }: {
         name: string;
         resolveType: ResolveType;
         abortSignal?: AbortSignal;
+        cache?: NameResolveCacheOptions;
     }): Promise<string | null> {
         const log = Logger("pkc-js:client-manager:_resolveViaNameResolvers");
         const nameResolvers = this._pkc.nameResolvers;
@@ -764,12 +774,25 @@ export class BaseClientsManager {
 
         throwIfAbortSignalAborted(abortSignal);
 
+        const persistentCache = this._getNameResolutionCache();
         let value: string | undefined;
         let anyResolverCanHandle = false;
 
         for (const nameResolver of nameResolvers) {
             if (!nameResolver.canResolve({ name })) continue;
             anyResolverCanHandle = true;
+
+            // Persistent cache lookup (skipped when cache.maxAge === 0; obeys cache.maxAge threshold)
+            const cached = await persistentCache.get({
+                name,
+                resolverKey: nameResolver.key,
+                provider: nameResolver.provider,
+                cache
+            });
+            if (cached) {
+                value = cached.publicKey;
+                break;
+            }
 
             this.preResolveNameResolver({ address: name, resolveType, resolverKey: nameResolver.key });
             try {
@@ -797,7 +820,23 @@ export class BaseClientsManager {
             }
             this.postResolveNameResolverSuccess({ address: name, resolveType, resolverKey: nameResolver.key, resolvedValue: value });
 
-            if (value) break;
+            if (value) {
+                // Persist successful network resolution. Failures are not persisted (callers retry).
+                try {
+                    await persistentCache.set({
+                        name,
+                        entry: {
+                            publicKey: value,
+                            resolverKey: nameResolver.key,
+                            provider: nameResolver.provider,
+                            resolvedAtMs: Date.now()
+                        }
+                    });
+                } catch (e) {
+                    log.error("Failed to write name resolution to persistent cache", name, e);
+                }
+                break;
+            }
         }
 
         if (!anyResolverCanHandle) {
@@ -809,14 +848,16 @@ export class BaseClientsManager {
 
     async resolveCommunityNameIfNeeded({
         communityName,
-        abortSignal
+        abortSignal,
+        cache
     }: {
         communityName: string;
         abortSignal?: AbortSignal;
+        cache?: NameResolveCacheOptions;
     }): Promise<string | null> {
         assert(typeof communityName === "string", "communityName needs to be a string to be resolved");
         if (!isStringDomain(communityName)) return communityName;
-        const result = await this._resolveViaNameResolvers({ name: communityName, resolveType: "community", abortSignal });
+        const result = await this._resolveViaNameResolvers({ name: communityName, resolveType: "community", abortSignal, cache });
         if (typeof result === "string" && !isIpns(result))
             throw new PKCError("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: communityName });
         return result;
@@ -824,13 +865,15 @@ export class BaseClientsManager {
 
     async resolveAuthorNameIfNeeded({
         authorName,
-        abortSignal
+        abortSignal,
+        cache
     }: {
         authorName: string;
         abortSignal?: AbortSignal;
+        cache?: NameResolveCacheOptions;
     }): Promise<{ resolvedAuthorName: string | null }> {
         if (!isStringDomain(authorName)) throw new PKCError("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58", { authorAddress: authorName });
-        const result = await this._resolveViaNameResolvers({ name: authorName, resolveType: "author", abortSignal });
+        const result = await this._resolveViaNameResolvers({ name: authorName, resolveType: "author", abortSignal, cache });
         if (typeof result === "string" && !isIpns(result))
             throw new PKCError("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: authorName });
         return { resolvedAuthorName: result };
@@ -847,7 +890,7 @@ export class BaseClientsManager {
         abortSignal?: AbortSignal;
     }): void {
         const log = Logger("pkc-js:base-client-manager:resolveAuthorNamesInBackground");
-        const cache = this._pkc._memCaches.nameResolvedCache;
+        const verificationCache = this._pkc._memCaches.nameResolvedCache;
 
         // Deduplicate and skip already-cached entries
         const seen = new Set<string>();
@@ -857,7 +900,7 @@ export class BaseClientsManager {
             const cacheKey = sha256(authorName + signaturePublicKey);
             if (seen.has(cacheKey)) continue;
             seen.add(cacheKey);
-            if (typeof cache.get(cacheKey) === "boolean") continue;
+            if (typeof verificationCache.get(cacheKey) === "boolean") continue;
             toResolve.push({ authorName, signaturePublicKey, cacheKey });
         }
 
@@ -869,19 +912,26 @@ export class BaseClientsManager {
             try {
                 const { resolvedAuthorName: resolved } = await this.resolveAuthorNameIfNeeded({
                     authorName: entry.authorName,
-                    abortSignal
+                    abortSignal,
+                    cache: { maxAge: 3600 }
                 });
+                if (typeof resolved !== "string") {
+                    // null result: either no TXT record (definitive) or all resolvers errored (transient).
+                    // _resolveViaNameResolvers cannot distinguish these today, so leave the verification cache
+                    // undefined so the next pass retries. Failing-shut here would risk permanently rejecting an author after a brief outage.
+                    return false;
+                }
                 const signerAddress = await getPKCAddressFromPublicKey(entry.signaturePublicKey);
-                const matches = resolved === signerAddress;
-                cache.set(entry.cacheKey, matches);
+                verificationCache.set(entry.cacheKey, resolved === signerAddress);
                 return true; // newly set
             } catch (e) {
                 if (isAbortError(e)) return false;
-                log.error("Failed to resolve author name in background", entry.authorName, e);
                 if (e instanceof PKCError && e.code === "ERR_NO_RESOLVER_FOR_NAME") {
-                    cache.set(entry.cacheKey, false);
+                    // Definitive: no resolver in this PKC instance handles this TLD. Cache as false.
+                    verificationCache.set(entry.cacheKey, false);
                     return true; // newly set
                 }
+                log.error("Failed to resolve author name in background", entry.authorName, e);
                 // Transient failure — leave undefined for retry on next update
                 return false;
             }
