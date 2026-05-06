@@ -5,6 +5,34 @@ import Logger from "../logger.js";
 import { PKCError } from "../pkc-error.js";
 import { pubsubTopicToDhtKeyCid } from "../util.js";
 
+export interface HeliaDebugContext {
+    heliaPeerId: string;
+    heliaStatus: HeliaWithLibp2pPubsub["libp2p"]["status"];
+    connectedPeerCount: number;
+    connections: { peer: string; multiaddr: string; direction: string }[];
+}
+
+export function getHeliaDebugContext(helia: HeliaWithLibp2pPubsub): HeliaDebugContext {
+    const connections = helia.libp2p.getConnections();
+    return {
+        heliaPeerId: helia.libp2p.peerId.toString(),
+        heliaStatus: helia.libp2p.status,
+        connectedPeerCount: connections.length,
+        connections: connections.map((c) => ({
+            peer: c.remotePeer.toString(),
+            multiaddr: String(c.remoteAddr),
+            direction: c.direction
+        }))
+    };
+}
+
+interface PeerDialFailure {
+    multiaddrs: string[];
+    errorName: string;
+    errorMessage: string;
+    errorStack?: string;
+}
+
 export async function connectToPubsubPeers({
     helia,
     pubsubTopic,
@@ -22,7 +50,7 @@ export async function connectToPubsubPeers({
     const contentCid = pubsubTopicToDhtKeyCid(pubsubTopic);
     const peersWithContent: PeerInfo[] = [];
     const connectedPeersWithContent: Awaited<ReturnType<typeof helia.libp2p.dial>>[] = [];
-    const peerDialToError: Record<string, Error> = {};
+    const peerDialToError: Record<string, PeerDialFailure> = {};
 
     // Create an abort controller to handle hanging findProviders
     const abortController = new AbortController();
@@ -63,7 +91,13 @@ export async function connectToPubsubPeers({
                     break;
                 }
             } catch (e) {
-                peerDialToError[peer.id.toString()] = e as Error;
+                const err = e as Error;
+                peerDialToError[peer.id.toString()] = {
+                    multiaddrs: peer.multiaddrs.map(String),
+                    errorName: err.name,
+                    errorMessage: err.message,
+                    errorStack: err.stack
+                };
                 log.trace("Failed to dial IPNS-Over-Pubsub peer", peer.id.toString(), "Due to error", e);
             }
         }
@@ -76,7 +110,8 @@ export async function connectToPubsubPeers({
             maxPeersBeforeWeStopLookingForProviders: maxPeers,
             connectedPeersWithContent,
             peersWithContent,
-            peerDialToError
+            peerDialToError,
+            ...getHeliaDebugContext(helia)
         };
         throw e;
     } finally {
@@ -89,7 +124,8 @@ export async function connectToPubsubPeers({
             contentCid,
             peerDialToError,
             peersWithContent,
-            options
+            options,
+            ...getHeliaDebugContext(helia)
         });
         log.error(error);
         throw error;

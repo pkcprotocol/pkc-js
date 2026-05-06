@@ -34,6 +34,7 @@ import { deepMergeRuntimeFields, hideClassPrivateProps, isStringDomain, shortify
 import { TypedEmitter } from "tiny-typed-emitter";
 import { Comment } from "./comment/comment.js";
 import { PKCError } from "../pkc-error.js";
+import { getHeliaDebugContext, type HeliaDebugContext } from "../helia/util.js";
 import { getBufferedPKCAddressFromPublicKey } from "../signer/util.js";
 import * as cborg from "cborg";
 import * as remeda from "remeda";
@@ -1006,6 +1007,12 @@ class Publication extends TypedEmitter<PublicationEvents> {
         }));
     }
 
+    private _libp2pJsClientHeliaContexts(): Record<string, HeliaDebugContext> {
+        const contexts: Record<string, HeliaDebugContext> = {};
+        for (const [key, client] of Object.entries(this._pkc.clients.libp2pJsClients)) contexts[key] = getHeliaDebugContext(client._helia);
+        return contexts;
+    }
+
     private async _handleNotReceivingResponseToChallengeRequest({
         providers,
         currentPubsubProviderIndex,
@@ -1031,7 +1038,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
             await this._postSucessOrFailurePublishing();
             const error = new PKCError("ERR_PUBSUB_DID_NOT_RECEIVE_RESPONSE_AFTER_PUBLISHING_CHALLENGE_REQUEST", {
                 challengeExchanges: this._challengeExchangesFormattedForErrors(),
-                publishToDifferentProviderThresholdSeconds: this._publishToDifferentProviderThresholdSeconds
+                publishToDifferentProviderThresholdSeconds: this._publishToDifferentProviderThresholdSeconds,
+                providerHeliaContexts: this._libp2pJsClientHeliaContexts()
             });
 
             this._changePublicationStateEmitEventEmitStateChangeEvent({
@@ -1097,7 +1105,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     await this._postSucessOrFailurePublishing();
                     const allAttemptsFailedError = new PKCError("ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS", {
                         challengeExchanges: this._challengeExchangesFormattedForErrors(),
-                        pubsubTopic: this._communityPubsubTopicWithFallback()
+                        pubsubTopic: this._communityPubsubTopicWithFallback(),
+                        providerHeliaContexts: this._libp2pJsClientHeliaContexts()
                     });
                     log.error("All attempts to publish", this.getType(), "has failed", allAttemptsFailedError);
                     this._changePublicationStateEmitEventEmitStateChangeEvent({
@@ -1239,7 +1248,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     await this._postSucessOrFailurePublishing();
                     const allAttemptsFailedError = new PKCError("ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS", {
                         challengeExchanges: this._challengeExchangesFormattedForErrors(),
-                        pubsubTopic: this._communityPubsubTopicWithFallback()
+                        pubsubTopic: this._communityPubsubTopicWithFallback(),
+                        providerHeliaContexts: this._libp2pJsClientHeliaContexts()
                     });
                     log.error("All attempts to publish", this.getType(), "has failed", allAttemptsFailedError);
                     this._changePublicationStateEmitEventEmitStateChangeEvent({

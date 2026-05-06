@@ -18,7 +18,7 @@ import { EventEmitter } from "events";
 import type { HeliaWithLibp2pPubsub } from "./types.js";
 import { PKCError } from "../pkc-error.js";
 import { Libp2pJsClient } from "./libp2pjsClient.js";
-import { connectToPubsubPeers } from "./util.js";
+import { connectToPubsubPeers, getHeliaDebugContext } from "./util.js";
 import { ipnsNameToIpnsOverPubsubTopic } from "../util.js";
 
 const log = Logger("pkc-js:libp2p-js");
@@ -113,10 +113,9 @@ export async function createLibp2pJsClientOrUseExistingOne(
         const throwIfHeliaIsStoppingOrStopped = () => {
             if (helia.libp2p.status === "stopped" || helia.libp2p.status === "stopping")
                 throw new PKCError("ERR_HELIAS_STOPPING_OR_STOPPED", {
-                    heliaStatus: helia.libp2p.status,
                     heliaKey: pkcOptions.key,
-                    heliaPeerId: helia.libp2p.peerId.toString(),
-                    helia
+                    helia,
+                    ...getHeliaDebugContext(helia)
                 });
         };
 
@@ -178,9 +177,8 @@ export async function createLibp2pJsClientOrUseExistingOne(
                                     ipnsResolveOptions: options,
                                     warmupOutcome,
                                     subscribersAtResolveTime: helia.libp2p.services.pubsub.getSubscribers(ipnsPubsubTopic).length,
-                                    heliaPeerCount: helia.libp2p.getPeers().length,
-                                    heliaStatus: helia.libp2p.status,
-                                    httpRouters: pkcOptions.httpRoutersOptions
+                                    httpRouters: pkcOptions.httpRoutersOptions,
+                                    ...getHeliaDebugContext(helia)
                                 });
                             else throw err;
                         }
