@@ -532,12 +532,18 @@ An object which may have the following keys:
 
 | Name | Type | Default | Description |
 | ---- | ---- | ------- | ----------- |
-| ipfsGatewayUrls | `strings[]` or `undefined` | `['https://cloudflare-ipfs.com']` | Optional URLs of IPFS gateways |
-| kuboRpcClientsOptions | `(string \| kuboRpcClientsOptions)[]` or `undefined` | `undefined` | Optional URLs of Kubo IPFS APIs or [kuboRpcClientsOptions](https://www.npmjs.com/package/kubo-rpc-client#options), `'http://localhost:5001/api/v0'` to use a local Kubo IPFS node |
-| pubsubKuboRpcClientsOptions | `(string \| kuboRpcClientsOptions)[]` or `undefined` | `['https://pubsubprovider.xyz/api/v0']` | Optional URLs or [kuboRpcClientsOptions](https://www.npmjs.com/package/kubo-rpc-client#options) used for pubsub publishing when `kuboRpcClientsOptions` isn't available, like in the browser |
+| ipfsGatewayUrls | `string[]` or `undefined` | `['https://ipfsgateway.xyz', 'https://gateway.plebpubsub.xyz', 'https://gateway.forumindex.com']` | Optional URLs of IPFS gateways |
+| kuboRpcClientsOptions | `(string \| KuboRpcClientOptions)[]` or `undefined` | `undefined` | Optional URLs of Kubo IPFS APIs or [KuboRpcClientOptions](https://www.npmjs.com/package/kubo-rpc-client#options). Use `'http://localhost:5001/api/v0'` to point at a local Kubo node. Cannot be combined with `libp2pJsClientsOptions`. |
+| pubsubKuboRpcClientsOptions | `(string \| KuboRpcClientOptions)[]` or `undefined` | `[{url: 'https://pubsubprovider.xyz/api/v0'}, {url: 'https://plebpubsub.xyz/api/v0'}]` | Optional URLs or [KuboRpcClientOptions](https://www.npmjs.com/package/kubo-rpc-client#options) used for pubsub publishing when `kuboRpcClientsOptions` isn't available, like in the browser |
 | pkcRpcClientsOptions | `string[]` or `undefined` | `undefined` | Optional websocket URLs of PKC RPC servers, required to run a community from a browser/electron/webview |
-| dataPath | `string`  or `undefined` | .pkc folder in the current working directory | (Node only) Optional folder path to create/resume the user and community databases |
-| resolveAuthorNames | `boolean`  or `undefined` | `true` | Optionally disable resolving crypto domain author names, which can be done lazily later to save time |
+| httpRoutersOptions | `string[]` or `undefined` | `['https://peers.pleb.bot', 'https://routing.lol', 'https://peers.forumindex.com', 'https://peers.plebpubsub.xyz']` | URLs of HTTP delegated-routing endpoints used by `libp2pJsClientsOptions` for content/peer routing and IPNS lookups. Each URL must start with `http://` or `https://`. |
+| libp2pJsClientsOptions | `Array<{key: string, libp2pOptions?: Partial<Libp2pOptions>, heliaOptions?: Partial<HeliaOptions>}>` or `undefined` | `undefined` | Optional in-process libp2p/Helia client. When set, replaces `kuboRpcClientsOptions` and `pubsubKuboRpcClientsOptions` (which are then ignored). At most one entry; `key` is a unique identifier. `libp2pOptions` is forwarded to [Helia's libp2p](https://github.com/ipfs/helia) (e.g. `connectionGater`, `services`, transports), `heliaOptions` to [`createHelia`](https://github.com/ipfs/helia) (e.g. `blockstore`, `blockBrokers`). Requires `httpRoutersOptions` to be set. |
+| dataPath | `string` or `undefined` | `.pkc` folder in the current working directory | (Node only) Optional folder path to create/resume the user and community databases |
+| resolveAuthorNames | `boolean` or `undefined` | `true` | Optionally disable resolving crypto domain author names, which can be done lazily later to save time |
+| nameResolvers | `NameResolver[]` or `undefined` | `undefined` | Custom resolvers for crypto domain names. Each resolver: `{key, resolve, canResolve, provider, destroy?}`. |
+| validatePages | `boolean` or `undefined` | `true` | If `false`, pages returned in `commentUpdate` / `Community` / `getPage` are not validated. Use only when you trust the source. |
+| userAgent | `string` or `undefined` | `/pkc-js:<version>/` | User-agent string sent on outgoing HTTP requests. |
+| challenges | `Record<string, ChallengeFileFactory>` or `undefined` | `undefined` | Instance-level challenge registry; keys shadow built-in challenges with the same name. See [docs/protocol/challenge-flow.md](docs/protocol/challenge-flow.md). |
 
 #### Returns
 
@@ -550,7 +556,6 @@ An object which may have the following keys:
 ```js
 const PKC = require('@pkcprotocol/pkc-js')
 const options = {
-  ipfsGatewayUrls: ['https://cloudflare-ipfs.com'],
   kuboRpcClientsOptions: ['http://localhost:5001/api/v0'], // optional, must run an IPFS node to use localhost:5001/api/v0
   dataPath: __dirname
 }
@@ -740,7 +745,6 @@ An object which may have the following keys:
 ```js
 const PKC = require('@pkcprotocol/pkc-js')
 const pkcOptions = {
-  ipfsGatewayUrls: ['https://cloudflare-ipfs.com'],
   kuboRpcClientsOptions: ['http://localhost:5001/api/v0'], // optional, must run an IPFS node to use localhost:5001/api/v0
   dataPath: __dirname
 }
