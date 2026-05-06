@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.27](https://github.com/pkcprotocol/pkc-js/compare/v0.0.26...v0.0.27) (2026-05-06)
+
+### Features
+
+* **comment:** connect to community in parallel when loading by CID ([3298f1a](https://github.com/pkcprotocol/pkc-js/commit/3298f1aed2e0e92a150dcd39b2145045b496039a))
+* **errors:** enrich libp2p error details with peer dial and connection context ([072fc5c](https://github.com/pkcprotocol/pkc-js/commit/072fc5ca1b5e63afa27237e6ef6b33acae1726f0))
+
 ## [0.0.26](https://github.com/pkcprotocol/pkc-js/compare/v0.0.25...v0.0.26) (2026-05-05)
 
 ### Features
