@@ -421,18 +421,17 @@ describe("getChallengeVerification", () => {
     });
 });
 
-// TODO: un-skip once https://github.com/pkcprotocol/pkc-js/issues/81 is fixed
-describe.skip("excluded challenge should not have getChallenge() called", () => {
+describe("excluded challenge should not have getChallenge() called", () => {
     it("getChallenge() should not be invoked for an excluded challenge (exclude.challenges)", async () => {
         // Import the tracking challenge whose getChallenge() increments a call counter
-        // @ts-expect-error — no declaration file for temp challenge fixture
-        const trackingChallenge = (await import("/tmp/tracking-challenge.mjs")) as {
+        // @ts-expect-error — no declaration file for the .mjs challenge fixture
+        const trackingChallenge = (await import("./fixtures/challenges/tracking-challenge.mjs")) as {
             getCallCount: () => number;
             resetCallCount: () => void;
         };
         trackingChallenge.resetCallCount();
 
-        const trackingChallengePath = "/tmp/tracking-challenge.mjs";
+        const trackingChallengePath = new URL("./fixtures/challenges/tracking-challenge.mjs", import.meta.url).pathname;
 
         const author = { address: getRandomAddress() };
         const localCommunity = {
@@ -477,8 +476,7 @@ describe.skip("excluded challenge should not have getChallenge() called", () => 
     });
 });
 
-// TODO: un-skip once https://github.com/pkcprotocol/pkc-js/issues/81 is fixed
-describe.skip("real-world config: AI moderation getChallenge() fires even when excluded", () => {
+describe("real-world config: AI moderation getChallenge() fires even when excluded", () => {
     // Reproduces the production challenge config where:
     //   C0: publication-match (immediate — checks author.name regex)
     //   C1: whitelist (immediate — checks author address)
@@ -640,6 +638,291 @@ describe.skip("real-world config: AI moderation getChallenge() fires even when e
         // AI moderation should only fire AFTER spam-blocker verify returns success
         expect(aiModerationAllowCallCount).to.equal(0);
         expect(aiModerationReviewCallCount).to.equal(0);
+    });
+});
+
+describe("request-only excludes fire before getChallenge()", () => {
+    it("role exclude on a single challenge skips getChallenge()", async () => {
+        let callCount = 0;
+        const trackingFactory = () => ({
+            type: "text/plain" as const,
+            getChallenge: async () => {
+                callCount++;
+                return { success: true as const };
+            }
+        });
+        const pkc = PKC() as ReturnType<typeof PKC> & { settings: { challenges: Record<string, unknown> } };
+        pkc.settings = { challenges: { "tracking-role-exclude": trackingFactory } };
+
+        const community = {
+            settings: {
+                challenges: [
+                    {
+                        name: "tracking-role-exclude",
+                        exclude: [{ role: ["moderator", "admin", "owner"] }]
+                    }
+                ]
+            },
+            roles: { "mod-author.bso": { role: "moderator" } },
+            _pkc: pkc
+        } as unknown as LocalCommunity;
+
+        const request = {
+            comment: { author: { address: "mod-author.bso" } }
+        } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+
+        const result = (await getPendingChallengesOrChallengeVerification(request, community)) as ChallengeVerificationResult & {
+            challengeSuccess?: boolean;
+        };
+        expect(result.challengeSuccess).to.equal(true);
+        expect(callCount).to.equal(0);
+    });
+
+    it("karma exclude (postScore) on a single challenge skips getChallenge()", async () => {
+        let callCount = 0;
+        const trackingFactory = () => ({
+            type: "text/plain" as const,
+            getChallenge: async () => {
+                callCount++;
+                return { success: true as const };
+            }
+        });
+        const pkc = PKC() as ReturnType<typeof PKC> & { settings: { challenges: Record<string, unknown> } };
+        pkc.settings = { challenges: { "tracking-karma-exclude": trackingFactory } };
+
+        const community = {
+            settings: {
+                challenges: [
+                    {
+                        name: "tracking-karma-exclude",
+                        exclude: [{ postScore: 100 }]
+                    }
+                ]
+            },
+            _pkc: pkc
+        } as unknown as LocalCommunity;
+
+        const request = {
+            comment: {
+                author: { address: getRandomAddress(), community: { postScore: 200 } }
+            }
+        } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+
+        const result = (await getPendingChallengesOrChallengeVerification(request, community)) as ChallengeVerificationResult & {
+            challengeSuccess?: boolean;
+        };
+        expect(result.challengeSuccess).to.equal(true);
+        expect(callCount).to.equal(0);
+    });
+});
+
+describe("incremental cycle-break", () => {
+    it("two-challenge cycle: lowest index wins, other excluded", async () => {
+        let c0CallCount = 0;
+        let c1CallCount = 0;
+        const c0Factory = () => ({
+            type: "text/plain" as const,
+            getChallenge: async () => {
+                c0CallCount++;
+                return { success: true as const };
+            }
+        });
+        const c1Factory = () => ({
+            type: "text/plain" as const,
+            getChallenge: async () => {
+                c1CallCount++;
+                return { success: true as const };
+            }
+        });
+        const pkc = PKC() as ReturnType<typeof PKC> & { settings: { challenges: Record<string, unknown> } };
+        pkc.settings = { challenges: { "cycle-c0": c0Factory, "cycle-c1": c1Factory } };
+
+        const community = {
+            settings: {
+                challenges: [
+                    { name: "cycle-c0", exclude: [{ challenges: [1] }] },
+                    { name: "cycle-c1", exclude: [{ challenges: [0] }] }
+                ]
+            },
+            _pkc: pkc
+        } as unknown as LocalCommunity;
+
+        const request = {
+            comment: { author: { address: getRandomAddress() } }
+        } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+
+        const result = (await getPendingChallengesOrChallengeVerification(request, community)) as ChallengeVerificationResult & {
+            challengeSuccess?: boolean;
+        };
+        expect(result.challengeSuccess).to.equal(true);
+        expect(c0CallCount).to.equal(1);
+        expect(c1CallCount).to.equal(0);
+    });
+
+    it("two-challenge cycle: lowest fails, other called and recovers", async () => {
+        let c0CallCount = 0;
+        let c1CallCount = 0;
+        const c0Factory = () => ({
+            type: "text/plain" as const,
+            getChallenge: async () => {
+                c0CallCount++;
+                return { success: false as const, error: "c0 failed" };
+            }
+        });
+        const c1Factory = () => ({
+            type: "text/plain" as const,
+            getChallenge: async () => {
+                c1CallCount++;
+                return { success: true as const };
+            }
+        });
+        const pkc = PKC() as ReturnType<typeof PKC> & { settings: { challenges: Record<string, unknown> } };
+        pkc.settings = { challenges: { "cycle-fail-c0": c0Factory, "cycle-fail-c1": c1Factory } };
+
+        const community = {
+            settings: {
+                challenges: [
+                    { name: "cycle-fail-c0", exclude: [{ challenges: [1] }] },
+                    { name: "cycle-fail-c1", exclude: [{ challenges: [0] }] }
+                ]
+            },
+            _pkc: pkc
+        } as unknown as LocalCommunity;
+
+        const request = {
+            comment: { author: { address: getRandomAddress() } }
+        } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+
+        const result = (await getPendingChallengesOrChallengeVerification(request, community)) as ChallengeVerificationResult & {
+            challengeSuccess?: boolean;
+        };
+        // C0 failure is excluded by C1's success at classification → overall success.
+        expect(result.challengeSuccess).to.equal(true);
+        expect(c0CallCount).to.equal(1);
+        expect(c1CallCount).to.equal(1);
+    });
+});
+
+describe("deferred challenge resolution at verify time", () => {
+    // C0 is a mock pending iframe; C1 is excluded if C0 succeeds. The full getChallengeVerification
+    // flow must skip C1's getChallenge() when C0's verify returns success — the load-bearing case
+    // for issue #81 (AI moderation should not fire when spam-blocker passes).
+    const buildIframeAndDeferred = (verifyResult: { success: boolean; error?: string }) => {
+        let iframeGetChallengeCount = 0;
+        let iframeVerifyCount = 0;
+        let deferredGetChallengeCount = 0;
+        const iframeFactory = () => ({
+            type: "url/iframe" as const,
+            getChallenge: async () => {
+                iframeGetChallengeCount++;
+                return {
+                    challenge: "https://iframe.example.com/verify",
+                    type: "url/iframe" as const,
+                    verify: async () => {
+                        iframeVerifyCount++;
+                        return verifyResult as { success: true } | { success: false; error: string };
+                    }
+                };
+            }
+        });
+        const deferredFactory = () => ({
+            type: "text/plain" as const,
+            getChallenge: async () => {
+                deferredGetChallengeCount++;
+                return { success: true as const };
+            }
+        });
+        return {
+            iframeFactory,
+            deferredFactory,
+            counts: () => ({ iframeGetChallengeCount, iframeVerifyCount, deferredGetChallengeCount })
+        };
+    };
+
+    it("deferred challenge excluded when pending iframe verify returns success", async () => {
+        const { iframeFactory, deferredFactory, counts } = buildIframeAndDeferred({ success: true });
+        const pkc = PKC() as ReturnType<typeof PKC> & { settings: { challenges: Record<string, unknown> } };
+        pkc.settings = { challenges: { "iframe-defer": iframeFactory, "deferred-target": deferredFactory } };
+
+        const community = {
+            settings: {
+                challenges: [{ name: "iframe-defer" }, { name: "deferred-target", exclude: [{ challenges: [0] }] }]
+            },
+            _pkc: pkc
+        } as unknown as LocalCommunity;
+
+        const request = {
+            comment: { author: { address: getRandomAddress() } }
+        } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+
+        const getChallengeAnswers: GetChallengeAnswers = async () => ["any-answer"];
+        const result = await getChallengeVerification(request, community, getChallengeAnswers);
+
+        const c = counts();
+        expect(result.challengeSuccess).to.equal(true);
+        expect(c.iframeGetChallengeCount).to.equal(1);
+        expect(c.iframeVerifyCount).to.equal(1);
+        expect(c.deferredGetChallengeCount).to.equal(0);
+    });
+
+    it("deferred challenge runs when pending iframe verify returns failure", async () => {
+        const { iframeFactory, deferredFactory, counts } = buildIframeAndDeferred({ success: false, error: "iframe denied" });
+        const pkc = PKC() as ReturnType<typeof PKC> & { settings: { challenges: Record<string, unknown> } };
+        pkc.settings = { challenges: { "iframe-fail": iframeFactory, "deferred-after-fail": deferredFactory } };
+
+        const community = {
+            settings: {
+                challenges: [{ name: "iframe-fail" }, { name: "deferred-after-fail", exclude: [{ challenges: [0] }] }]
+            },
+            _pkc: pkc
+        } as unknown as LocalCommunity;
+
+        const request = {
+            comment: { author: { address: getRandomAddress() } }
+        } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+
+        const getChallengeAnswers: GetChallengeAnswers = async () => ["any-answer"];
+        const result = await getChallengeVerification(request, community, getChallengeAnswers);
+
+        const c = counts();
+        expect(result.challengeSuccess).to.equal(false);
+        expect(result.challengeErrors?.[0]).to.equal("iframe denied");
+        expect(c.iframeGetChallengeCount).to.equal(1);
+        expect(c.iframeVerifyCount).to.equal(1);
+        // C0 failure stands (it has no exclude.challenges of its own); C1 is resolved at verify time
+        // because its exclude.challenges = [0] does not match (C0 failed, not succeeded), so
+        // getChallenge fires for it.
+        expect(c.deferredGetChallengeCount).to.equal(1);
+    });
+
+    it("deferred bucket carried in pending response shape", async () => {
+        const { iframeFactory, deferredFactory } = buildIframeAndDeferred({ success: true });
+        const pkc = PKC() as ReturnType<typeof PKC> & { settings: { challenges: Record<string, unknown> } };
+        pkc.settings = { challenges: { "iframe-shape": iframeFactory, "deferred-shape": deferredFactory } };
+
+        const community = {
+            settings: {
+                challenges: [{ name: "iframe-shape" }, { name: "deferred-shape", exclude: [{ challenges: [0] }] }]
+            },
+            _pkc: pkc
+        } as unknown as LocalCommunity;
+
+        const request = {
+            comment: { author: { address: getRandomAddress() } }
+        } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+
+        const result = (await getPendingChallengesOrChallengeVerification(request, community)) as ChallengeVerificationResult & {
+            pendingChallenges?: { index: number }[];
+            deferredChallenges?: { index: number }[];
+            partialResults?: unknown[];
+        };
+
+        expect(result.pendingChallenges?.map((p) => p.index)).to.deep.equal([0]);
+        expect(result.deferredChallenges?.map((d) => d.index)).to.deep.equal([1]);
+        expect(result.partialResults).to.have.lengthOf(2);
+        // Slot 0 is the pending {challenge, verify, type}; slot 1 is undefined (deferred).
+        expect(result.partialResults?.[0]).to.have.property("verify");
+        expect(result.partialResults?.[1]).to.equal(undefined);
     });
 });
 
