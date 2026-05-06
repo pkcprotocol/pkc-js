@@ -815,7 +815,7 @@ export class BaseClientsManager {
                 this.postResolveNameResolverFailure({ address: name, resolveType, resolverKey: nameResolver.key, error });
                 if (abortSignal?.aborted) throwIfAbortSignalAborted(abortSignal);
                 if (isAbortError(error)) throw error;
-                log.error(`Resolver ${nameResolver.key} failed for ${name}`, error);
+                log.trace(`Resolver ${nameResolver.key} failed for ${name}`, error);
                 continue;
             }
             this.postResolveNameResolverSuccess({ address: name, resolveType, resolverKey: nameResolver.key, resolvedValue: value });
