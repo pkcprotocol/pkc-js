@@ -68,6 +68,7 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 ### Workflow
 
 - When given a prompt to implement a feature, create a GitHub issue for it using `gh issue create`. Keep the issue body up to date with your implementation plan and progress as work proceeds. Once the feature is fully implemented, close the issue with `gh issue close`.
+- Never include identifying information in GitHub issues, PR descriptions, or commit messages. This includes absolute home-directory paths (e.g. `/home/<username>/...`), usernames, machine hostnames, personal email addresses, or other local-machine details. Use repo-relative paths and generic placeholders instead.
 
 ## SHOULD Rules
 
