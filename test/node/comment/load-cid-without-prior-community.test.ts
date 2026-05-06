@@ -1,15 +1,13 @@
 // Documents the behavior of loading a comment by CID with no prior community
 // subscription. Two scenarios:
 //
-//   1. The comment IS reachable (community is up, CID is in pages or fetchable). The
-//      existing on-failure fallback in `_attemptToFetchCommentIpfsIfNeeded` →
-//      `_retryLoadingCommentIpfs` (line ~685 of comment.ts) creates a community
-//      instance and calls `update()` after the first cat() attempt fails. That
-//      community.update() naturally subscribes to pubsub, connects to provider peers,
-//      and either bitswap fetches the CID on a subsequent retry or
-//      `_fetchCommentIpfsFromPages` finds it directly. Eventually loads — slow
-//      (~60s+) on libp2pjs because the first cat() attempt has to time out, fast
-//      on kubo when the content is already local.
+//   1. The comment IS reachable (community is up, CID is fetchable from a community
+//      peer). The parallel community connect kicked off by
+//      `loadCommentIpfsAndStartCommentUpdateSubscription` fires 5s into the first
+//      cat() attempt: it calls `pkc.getCommunity` so we subscribe to the community's
+//      IPNS pubsub topic and connect to its peers, and bitswap then fetches the
+//      comment block from one of those peers. Loads within ~6s on libp2pjs even when
+//      no provider record exists for the comment CID; instant on kubo when local.
 //
 //   2. The comment is UNREACHABLE (CID doesn't exist anywhere). Behavior splits by
 //      caller:
@@ -19,7 +17,7 @@
 //        - `pkc.getComment(cid)` wraps the load in a 60s `comment-ipfs` timeout and
 //          throws a `TimeoutError`.
 
-import { describe, it, beforeAll, afterAll, expect } from "vitest";
+import { describe, it, beforeAll, afterAll, expect, vi } from "vitest";
 
 import {
     createSubWithNoChallenge,
@@ -113,10 +111,6 @@ afterAll(async () => {
     if (mockHttpRouter) await mockHttpRouter.destroy();
 });
 
-//
-// I think what we may need to do is have the first call to load CommentIpfs, we in parallel wait 5 seconds, and then try to load community in parallel
-// just being connected to nodes in IPNS pubsub topic will get Bitswap to query those nodes for the comment CID we want
-
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs", "remote-kubo-rpc"] }).map((config) => {
     describe(`Direct-thread URL: load comment by CID with community hint, no prior subscription - ${config.name}`, () => {
         it("mock http router has a provider for the community IPNS pubsub topic and none for the comment CID", () => {
@@ -130,40 +124,54 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
             expect(mockHttpRouter.hasProvidersFor(publishedPost.cid!)).to.be.false;
         });
 
-        it("eventually loads comment IPFS via the on-failure community-update fallback", async () => {
+        it("loads comment IPFS within 10s via the parallel community connect", async () => {
             // Fresh resolver PKC — simulates a user landing directly on /thread/<cid>.
             // No getCommunity / createCommunity / prior pubsub subscription on this instance.
             // For libp2pjs we point its single HTTP router at the mock router (which
-            // returns nothing for the comment CID, forcing the first cat() attempt to
-            // time out and the on-failure fallback to fire). The remote-kubo-rpc config
-            // shares the publisher's local kubo, so the comment block is already local
-            // and no router setup is needed there.
+            // returns nothing for the comment CID, so the in-flight cat() can't make
+            // progress and the parallel fallback has to carry the load). The
+            // remote-kubo-rpc config shares the publisher's local kubo, so the comment
+            // block is already local and no router setup is needed there.
             const isLibp2pjs = config.testConfigCode === "remote-libp2pjs";
             const resolverPkc = await config.pkcInstancePromise(
                 isLibp2pjs ? { pkcOptions: { httpRoutersOptions: [mockHttpRouter.url] } } : {}
             );
+            const getCommunitySpy = vi.spyOn(resolverPkc, "getCommunity");
             try {
                 const comment = await resolverPkc.createComment({
                     cid: publishedPost.cid!,
                     communityPublicKey: community.publicKey
                 });
+                const startedAt = Date.now();
                 await comment.update();
 
-                // The fallback at comment.ts:685 fires after the first attempt fails:
-                // it creates a community instance, calls update() (which subscribes
-                // to pubsub and connects peers), and `_fetchCommentIpfsFromPages`
-                // finds the comment via the loaded pages. Allow up to ~90s for the
-                // 60s comment-ipfs timeout + page load.
+                // Parallel community connect fires 5s into the first cat() attempt and
+                // bitswap fetches the comment block from a community peer shortly after,
+                // so total time should be well under 10s. The vitest timeout below is
+                // the per-test cap.
                 await resolveWhenConditionIsTrue({
                     toUpdate: comment,
                     predicate: async () => typeof comment.raw.comment === "object"
                 });
+                const elapsedMs = Date.now() - startedAt;
                 expect(comment.raw.comment, "comment IPFS should have loaded").to.be.an("object");
+                expect(elapsedMs, `comment IPFS should load within 10s (took ${elapsedMs}ms)`).to.be.lessThan(10_000);
+
+                // The kubo path resolves the cat() before the 5s timer fires (block is
+                // local), so the parallel connect is skipped. On libp2pjs the cat() has
+                // no provider, so the parallel pkc.getCommunity must fire.
+                if (isLibp2pjs) {
+                    expect(
+                        getCommunitySpy,
+                        "parallel community connect should have called pkc.getCommunity with the community's publicKey"
+                    ).toHaveBeenCalledWith(expect.objectContaining({ publicKey: community.publicKey }));
+                }
                 await comment.stop();
             } finally {
+                getCommunitySpy.mockRestore();
                 await resolverPkc.destroy();
             }
-        }, 120_000);
+        }, 30_000);
 
         it("comment.update() does NOT throw on unreachable CID — it emits 'error' events and retries forever", async () => {
             // Documents existing behavior: retriable errors (timeouts, no providers,

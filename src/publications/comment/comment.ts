@@ -239,6 +239,11 @@ export class Comment
 
         const unknownProps = remeda.difference(remeda.keys.strict(props), remeda.keys.strict(CommentIpfsSchema.shape));
         if (unknownProps.length > 0) {
+            // TODO we need to print the props + CID here
+            // in production we're getting this message and we need to understand why,
+            // pkc-js:comment:_initIpfsProps Found unknown props on loaded CommentIpfs +0ms
+            // Array(15) [ "publishingState", "state", "replies", "shortCid", "communityAddress", "shortCommunityAddress", "pendingApproval", "number", "upvoteCount", "downvoteCount", … ]
+            // Will set them on the Comment instance
             log("Found unknown props on loaded CommentIpfs", unknownProps, "Will set them on the Comment instance");
             Object.assign(this, remeda.pick(props, unknownProps));
         }
@@ -693,6 +698,31 @@ export class Comment
         });
     }
 
+    // Kicked off in parallel with the in-flight CommentIpfs fetch. After a short delay,
+    // if raw.comment still hasn't loaded, call pkc.getCommunity. Subscribing to the
+    // community's IPNS pubsub topic connects us to peers that likely have the comment
+    // block, and bitswap will then automatically fetch it from them. Without this, on
+    // libp2pjs with no provider record for the comment CID, we'd wait the full ~60s
+    // cat() timeout before any retry path tried to connect to community peers.
+    private _scheduleParallelCommunityConnect(log: Logger) {
+        if (!this.communityName && !this.communityPublicKey) return;
+        const stopSignal = this._getStopAbortSignal();
+        const timer = setTimeout(async () => {
+            if (this.raw.comment) return;
+            if (this._isStopAbortRequested() || this._pkc.destroyed) return;
+            log("Starting parallel pkc.getCommunity for", this.cid, "so bitswap can fetch the comment block from community peers");
+            try {
+                await this._pkc.getCommunity({ name: this.communityName, publicKey: this.communityPublicKey });
+            } catch (err) {
+                if (!isAbortError(err as Error)) log.error("Parallel pkc.getCommunity failed for", this.cid, err);
+            }
+        }, 5_000);
+        if (stopSignal) {
+            if (stopSignal.aborted) clearTimeout(timer);
+            else stopSignal.addEventListener("abort", () => clearTimeout(timer), { once: true });
+        }
+    }
+
     async _attemptToFetchCommentIpfsIfNeeded(log: Logger) {
         if (this.cid && !this.raw.comment) {
             // User may have attempted to call pkc.createComment({cid}).update
@@ -761,6 +791,7 @@ export class Comment
     async loadCommentIpfsAndStartCommentUpdateSubscription() {
         const log = Logger("pkc-js:update:loadCommentIpfsAndStartCommentUpdateSubscription");
         this._createStopAbortController();
+        this._scheduleParallelCommunityConnect(log);
         await this._attemptInfintelyToLoadCommentIpfs();
         if (!this.raw.comment) {
             if (this.state === "stopped" || this._isStopAbortRequested()) return;
