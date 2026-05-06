@@ -239,13 +239,15 @@ export class Comment
 
         const unknownProps = remeda.difference(remeda.keys.strict(props), remeda.keys.strict(CommentIpfsSchema.shape));
         if (unknownProps.length > 0) {
-            // TODO we need to print the props + CID here
-            // in production we're getting this message and we need to understand why,
-            // pkc-js:comment:_initIpfsProps Found unknown props on loaded CommentIpfs +0ms
-            // Array(15) [ "publishingState", "state", "replies", "shortCid", "communityAddress", "shortCommunityAddress", "pendingApproval", "number", "upvoteCount", "downvoteCount", … ]
-            // Will set them on the Comment instance
-            log("Found unknown props on loaded CommentIpfs", unknownProps, "Will set them on the Comment instance");
-            Object.assign(this, remeda.pick(props, unknownProps));
+            const unknownPropsWithValues = remeda.pick(props, unknownProps);
+            log(
+                `Found unknown props on loaded CommentIpfs (cid: ${this.cid})`,
+                unknownPropsWithValues,
+                "Full props:",
+                props,
+                "Will set them on the Comment instance"
+            );
+            Object.assign(this, unknownPropsWithValues);
         }
         this._setAuthorNameResolvedFromCache();
     }
