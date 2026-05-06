@@ -10,11 +10,11 @@ import { PKC } from "./fixtures/fixtures.ts";
 
 // Wrapper function for type assertion boilerplate
 const testGetChallengeVerification = (challengeRequestMessage: unknown, community: unknown, getChallengeAnswers: GetChallengeAnswers) => {
-    return getChallengeVerification(
-        challengeRequestMessage as DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
-        community as LocalCommunity,
+    return getChallengeVerification({
+        challengeRequestMessage: challengeRequestMessage as DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
+        community: community as LocalCommunity,
         getChallengeAnswers
-    );
+    });
 };
 
 interface MockChallengeSettings {
@@ -39,7 +39,10 @@ const createCommunityWithChallenges = async (
         _pkc: pkcInstance
     };
     community.challenges = await Promise.all(
-        challengeSettings.map((challenge) => getCommunityChallengeFromCommunityChallengeSettings(challenge))
+        challengeSettings.map(
+            async (challenge) =>
+                (await getCommunityChallengeFromCommunityChallengeSettings({ communityChallengeSettings: challenge })).communityChallenge
+        )
     );
     return community;
 };

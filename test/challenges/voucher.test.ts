@@ -23,10 +23,10 @@ const testGetPendingChallengesOrChallengeVerification = async (
     challengeRequestMessage: Record<string, unknown>,
     community: Record<string, unknown>
 ): Promise<ChallengeVerificationResult> => {
-    return getPendingChallengesOrChallengeVerification(
-        challengeRequestMessage as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
-        community as unknown as LocalCommunity
-    ) as Promise<ChallengeVerificationResult>;
+    return getPendingChallengesOrChallengeVerification({
+        challengeRequestMessage: challengeRequestMessage as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
+        community: community as unknown as LocalCommunity
+    }) as Promise<ChallengeVerificationResult>;
 };
 
 describe.skip("voucher challenge", () => {

@@ -656,7 +656,11 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         }
 
         this.challenges = await Promise.all(
-            this.settings.challenges!.map((cs) => getCommunityChallengeFromCommunityChallengeSettings(cs, this._pkc))
+            this.settings.challenges!.map(
+                async (cs) =>
+                    (await getCommunityChallengeFromCommunityChallengeSettings({ communityChallengeSettings: cs, pkc: this._pkc }))
+                        .communityChallenge
+            )
         );
 
         if (this._dbHandler.keyvHas(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY])) throw Error("Internal state exists already");
@@ -2509,7 +2513,11 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         // because some challenges are automatic and skip the challenge message
         let challengeVerification: Awaited<ReturnType<typeof getChallengeVerification>> & { reason?: string };
         try {
-            challengeVerification = await getChallengeVerification(decryptedRequestWithCommunityAuthor, this, getChallengeAnswers);
+            challengeVerification = await getChallengeVerification({
+                challengeRequestMessage: decryptedRequestWithCommunityAuthor,
+                community: this,
+                getChallengeAnswers
+            });
         } catch (e) {
             // getChallengeVerification will throw if one of the getChallenge function throws, which indicates a bug with the challenge script
             // notify the community owner that that one of his challenge is misconfigured via an error event
@@ -3362,7 +3370,11 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     ): Promise<NonNullable<Pick<InternalCommunityRecordAfterFirstUpdateType, "challenges" | "_usingDefaultChallenge">>> {
         return {
             challenges: await Promise.all(
-                newChallengeSettings.map((cs) => getCommunityChallengeFromCommunityChallengeSettings(cs, this._pkc))
+                newChallengeSettings.map(
+                    async (cs) =>
+                        (await getCommunityChallengeFromCommunityChallengeSettings({ communityChallengeSettings: cs, pkc: this._pkc }))
+                            .communityChallenge
+                )
             ),
             _usingDefaultChallenge: LocalCommunity._isDefaultChallengeStructure(newChallengeSettings)
         };
@@ -3564,7 +3576,11 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             await this._repinCommentUpdateIfNeeded();
             await this._listenToIncomingRequests();
             this.challenges = await Promise.all(
-                this.settings.challenges!.map((cs) => getCommunityChallengeFromCommunityChallengeSettings(cs, this._pkc))
+                this.settings.challenges!.map(
+                    async (cs) =>
+                        (await getCommunityChallengeFromCommunityChallengeSettings({ communityChallengeSettings: cs, pkc: this._pkc }))
+                            .communityChallenge
+                )
             ); // make sure community.challenges is using latest props from settings.challenges
         } catch (e) {
             await this.stop(); // Make sure to reset the community state

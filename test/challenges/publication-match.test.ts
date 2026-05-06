@@ -25,10 +25,10 @@ const testGetPendingChallengesOrChallengeVerification = async (
     challengeRequestMessage: unknown,
     community: unknown
 ): Promise<ChallengeVerificationResult> => {
-    return getPendingChallengesOrChallengeVerification(
-        challengeRequestMessage as DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
-        community as LocalCommunity
-    ) as Promise<ChallengeVerificationResult>;
+    return getPendingChallengesOrChallengeVerification({
+        challengeRequestMessage: challengeRequestMessage as DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
+        community: community as LocalCommunity
+    }) as Promise<ChallengeVerificationResult>;
 };
 
 interface ChallengeRequestOverrides {
@@ -111,7 +111,7 @@ describe("publication-match challenge", () => {
                 matchAll: "true"
             }
         };
-        const communityChallenge = await getCommunityChallengeFromCommunityChallengeSettings(communityChallengeSettings);
+        const { communityChallenge } = await getCommunityChallengeFromCommunityChallengeSettings({ communityChallengeSettings });
         expect(communityChallenge.type).to.equal("text/plain");
         expect(communityChallenge.description).to.equal("Match publication properties against regex patterns.");
     });
@@ -125,7 +125,7 @@ describe("publication-match challenge", () => {
                 description: "Authors must have .bso addresses"
             }
         };
-        const communityChallenge = await getCommunityChallengeFromCommunityChallengeSettings(communityChallengeSettings);
+        const { communityChallenge } = await getCommunityChallengeFromCommunityChallengeSettings({ communityChallengeSettings });
         expect(communityChallenge.type).to.equal("text/plain");
         expect(communityChallenge.description).to.equal("Authors must have .bso addresses");
     });
@@ -138,7 +138,7 @@ describe("publication-match challenge", () => {
                 matches: JSON.stringify([{ propertyName: "author.address", regexp: "\\.bso$" }])
             }
         };
-        const communityChallenge = await getCommunityChallengeFromCommunityChallengeSettings(communityChallengeSettings);
+        const { communityChallenge } = await getCommunityChallengeFromCommunityChallengeSettings({ communityChallengeSettings });
         expect(communityChallenge.type).to.equal("text/plain");
         expect(communityChallenge.description).to.equal("Match publication properties against regex patterns.");
     });

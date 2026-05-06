@@ -543,7 +543,15 @@ export class DbHandler {
                 const newSettings = this._migrateOldSettings(internalState.settings);
                 const newChallenges = newSettings.challenges
                     ? await Promise.all(
-                          newSettings.challenges?.map((cs) => getCommunityChallengeFromCommunityChallengeSettings(cs, this._community._pkc))
+                          newSettings.challenges?.map(
+                              async (cs) =>
+                                  (
+                                      await getCommunityChallengeFromCommunityChallengeSettings({
+                                          communityChallengeSettings: cs,
+                                          pkc: this._community._pkc
+                                      })
+                                  ).communityChallenge
+                          )
                       )
                     : newSettings.challenges;
                 await this._community._updateDbInternalState({

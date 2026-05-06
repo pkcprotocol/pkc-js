@@ -56,9 +56,15 @@ type PKCWithSettingsChallenges = {
     settings?: { challenges?: Record<string, ChallengeFileFactoryInput> };
 };
 
-const resolveChallengeFactoryByName = (name: string, pkc?: PKCWithSettingsChallenges): ChallengeFileFactoryInput | undefined => {
+const resolveChallengeFactoryByName = ({
+    name,
+    pkc
+}: {
+    name: string;
+    pkc?: PKCWithSettingsChallenges;
+}): { factory: ChallengeFileFactoryInput | undefined } => {
     // User-defined shadows built-ins
-    return pkc?.settings?.challenges?.[name] ?? pkcJsChallenges[name];
+    return { factory: pkc?.settings?.challenges?.[name] ?? pkcJsChallenges[name] };
 };
 
 const pkcJsChallenges: Record<string, ChallengeFileFactoryInput> = {
@@ -70,39 +76,70 @@ const pkcJsChallenges: Record<string, ChallengeFileFactoryInput> = {
     "publication-match": publicationMatch
 };
 
-const validateChallengeFileFactory = (challengeFileFactory: ChallengeFileFactory, challengeIndex: number, community: LocalCommunity) => {
+const validateChallengeFileFactory = ({
+    challengeFileFactory,
+    challengeIndex,
+    community
+}: {
+    challengeFileFactory: ChallengeFileFactory;
+    challengeIndex: number;
+    community: LocalCommunity;
+}): { ok: true } => {
     const communityChallengeSettings = community?.settings?.challenges?.[challengeIndex];
     if (typeof challengeFileFactory !== "function") {
         throw Error(
             `invalid challenge file factory export from community challenge '${communityChallengeSettings?.name || communityChallengeSettings?.path}' (challenge #${challengeIndex + 1})`
         );
     }
+    return { ok: true };
 };
 
-const validateChallengeFile = (challengeFile: ChallengeFile, challengeIndex: number, community: LocalCommunity) => {
+const validateChallengeFile = ({
+    challengeFile,
+    challengeIndex,
+    community
+}: {
+    challengeFile: ChallengeFile;
+    challengeIndex: number;
+    community: LocalCommunity;
+}): { ok: true } => {
     const communityChallengeSettings = community.settings?.challenges?.[challengeIndex];
     if (typeof challengeFile?.getChallenge !== "function") {
         throw Error(
             `invalid challenge file from community challenge '${communityChallengeSettings?.name || communityChallengeSettings?.path}' (challenge #${challengeIndex + 1})`
         );
     }
+    return { ok: true };
 };
 
-const validateChallengeResult = (challengeResult: ChallengeResult, challengeIndex: number, community: LocalCommunity) => {
+const validateChallengeResult = ({
+    challengeResult,
+    challengeIndex,
+    community
+}: {
+    challengeResult: ChallengeResult;
+    challengeIndex: number;
+    community: LocalCommunity;
+}): { ok: true } => {
     const communityChallengeSettings = community.settings?.challenges?.[challengeIndex];
     const error = `invalid challenge result from community challenge '${communityChallengeSettings?.name || communityChallengeSettings?.path}' (challenge #${challengeIndex + 1})`;
     if (typeof challengeResult?.success !== "boolean") {
         throw Error(error);
     }
+    return { ok: true };
 };
 
-const validateChallengeOrChallengeResult = (
-    challengeOrChallengeResult: Challenge | ChallengeResult,
-    challengeIndex: number,
-    community: LocalCommunity
-) => {
+const validateChallengeOrChallengeResult = ({
+    challengeOrChallengeResult,
+    challengeIndex,
+    community
+}: {
+    challengeOrChallengeResult: Challenge | ChallengeResult;
+    challengeIndex: number;
+    community: LocalCommunity;
+}): { ok: true } => {
     if ("success" in challengeOrChallengeResult) {
-        validateChallengeResult(challengeOrChallengeResult, challengeIndex, community);
+        validateChallengeResult({ challengeResult: challengeOrChallengeResult, challengeIndex, community });
     } else if (
         typeof challengeOrChallengeResult?.["challenge"] !== "string" ||
         typeof challengeOrChallengeResult?.["type"] !== "string" ||
@@ -110,24 +147,32 @@ const validateChallengeOrChallengeResult = (
     ) {
         throw Error("The challenge does not contain the correct {challenge, type, verify}");
     }
+    return { ok: true };
 };
 
 // load and validate a challenge factory + ChallengeFile for one challenge index
-const loadChallengeFile = async (
-    communityChallengeSettings: CommunityChallengeSetting,
-    challengeIndex: number,
-    community: LocalCommunity
-): Promise<ChallengeFile> => {
-    if (!communityChallengeSettings.path && !resolveChallengeFactoryByName(communityChallengeSettings.name!, community._pkc))
+const loadChallengeFile = async ({
+    communityChallengeSettings,
+    challengeIndex,
+    community
+}: {
+    communityChallengeSettings: CommunityChallengeSetting;
+    challengeIndex: number;
+    community: LocalCommunity;
+}): Promise<{ challengeFile: ChallengeFile }> => {
+    if (
+        !communityChallengeSettings.path &&
+        !resolveChallengeFactoryByName({ name: communityChallengeSettings.name!, pkc: community._pkc }).factory
+    )
         throw Error("You have to provide either path or a stored pkc-js challenge");
     let ChallengeFileFactory: ChallengeFileFactory;
     try {
         ChallengeFileFactory = ChallengeFileFactorySchema.parse(
             communityChallengeSettings.path
                 ? (await import(pathToFileURL(communityChallengeSettings.path).href)).default
-                : resolveChallengeFactoryByName(communityChallengeSettings.name!, community._pkc)
+                : resolveChallengeFactoryByName({ name: communityChallengeSettings.name!, pkc: community._pkc }).factory
         );
-        validateChallengeFileFactory(ChallengeFileFactory, challengeIndex, community);
+        validateChallengeFileFactory({ challengeFileFactory: ChallengeFileFactory, challengeIndex, community });
     } catch (e) {
         throw new PKCError("ERR_FAILED_TO_IMPORT_CHALLENGE_FILE_FACTORY", {
             path: communityChallengeSettings.path,
@@ -137,18 +182,24 @@ const loadChallengeFile = async (
         });
     }
     const challengeFile = ChallengeFileFactory({ challengeSettings: communityChallengeSettings });
-    validateChallengeFile(challengeFile, challengeIndex, community);
-    return challengeFile;
+    validateChallengeFile({ challengeFile, challengeIndex, community });
+    return { challengeFile };
 };
 
 // invoke getChallenge() with shared error handling and result validation
-const callGetChallenge = async (
-    challengeFile: ChallengeFile,
-    communityChallengeSettings: CommunityChallengeSetting,
-    challengeRequestMessage: DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
-    challengeIndex: number,
-    community: LocalCommunity
-): Promise<Challenge | ChallengeResult> => {
+const callGetChallenge = async ({
+    challengeFile,
+    communityChallengeSettings,
+    challengeRequestMessage,
+    challengeIndex,
+    community
+}: {
+    challengeFile: ChallengeFile;
+    communityChallengeSettings: CommunityChallengeSetting;
+    challengeRequestMessage: DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+    challengeIndex: number;
+    community: LocalCommunity;
+}): Promise<{ challengeOrChallengeResult: Challenge | ChallengeResult }> => {
     let challengeOrChallengeResult: Challenge | ChallengeResult;
     try {
         challengeOrChallengeResult = await challengeFile.getChallenge({
@@ -157,7 +208,7 @@ const callGetChallenge = async (
             challengeIndex,
             community
         });
-        validateChallengeOrChallengeResult(challengeOrChallengeResult, challengeIndex, community);
+        validateChallengeOrChallengeResult({ challengeOrChallengeResult, challengeIndex, community });
     } catch (e) {
         throw new PKCError("ERR_INVALID_RESULT_FROM_GET_CHALLENGE_FUNCTION", {
             communityChallengeSettings,
@@ -167,7 +218,7 @@ const callGetChallenge = async (
             error: e
         });
     }
-    return challengeOrChallengeResult;
+    return { challengeOrChallengeResult };
 };
 
 // Phase 2 decision for a single not-yet-decided challenge. Unlike `shouldExcludeChallengeSuccess`,
@@ -185,14 +236,19 @@ const callGetChallenge = async (
 // calling i has no influence on j's outcome — defer i and let verify decide (the issue #81 case:
 // AI moderation defers behind a one-way pending spam-blocker iframe).
 type PhaseExclusionDecision = "exclude" | "defer" | "ready" | "skip";
-const evaluatePhase2Exclusion = (
-    i: number,
-    communityChallenges: CommunityChallenge[],
-    decided: boolean[],
-    results: (Challenge | ChallengeResult | undefined)[]
-): PhaseExclusionDecision => {
+const evaluatePhase2Exclusion = ({
+    i,
+    communityChallenges,
+    decided,
+    results
+}: {
+    i: number;
+    communityChallenges: CommunityChallenge[];
+    decided: boolean[];
+    results: (Challenge | ChallengeResult | undefined)[];
+}): { decision: PhaseExclusionDecision } => {
     const communityChallenge = communityChallenges[i];
-    if (!communityChallenge.exclude?.length) return "ready";
+    if (!communityChallenge.exclude?.length) return { decision: "ready" };
     let allRulesEvaluable = true;
     let anyDeferRule = false;
     for (const item of communityChallenge.exclude) {
@@ -228,7 +284,7 @@ const evaluatePhase2Exclusion = (
             }
         }
         if (!allSuccessOrPending) continue;
-        if (!anyPending) return "exclude"; // all deps succeeded → definitively exclude i
+        if (!anyPending) return { decision: "exclude" }; // all deps succeeded → definitively exclude i
         // Tentative match (some pending). Defer only if no pending dep references i back —
         // otherwise calling i could affect the pending dep's exclusion, so we should call.
         let allOneWay = true;
@@ -242,14 +298,17 @@ const evaluatePhase2Exclusion = (
         }
         if (allOneWay) anyDeferRule = true;
     }
-    if (anyDeferRule) return "defer";
-    return allRulesEvaluable ? "ready" : "skip";
+    if (anyDeferRule) return { decision: "defer" };
+    return { decision: allRulesEvaluable ? "ready" : "skip" };
 };
 
-const getPendingChallengesOrChallengeVerification = async (
-    challengeRequestMessage: DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
-    community: LocalCommunity
-): Promise<ChallengeVerificationSuccess | ChallengeVerificationPending | ChallengeVerificationFailure> => {
+const getPendingChallengesOrChallengeVerification = async ({
+    challengeRequestMessage,
+    community
+}: {
+    challengeRequestMessage: DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+    community: LocalCommunity;
+}): Promise<ChallengeVerificationSuccess | ChallengeVerificationPending | ChallengeVerificationFailure> => {
     // if community has no challenges, no need to send a challenge
     if (!Array.isArray(community.settings?.challenges))
         return {
@@ -262,12 +321,24 @@ const getPendingChallengesOrChallengeVerification = async (
 
     // Phase 0: load CommunityChallenge records for every index in parallel.
     const communityChallenges = await Promise.all(
-        community.settings.challenges.map((s) => getCommunityChallengeFromCommunityChallengeSettings(s, community._pkc))
+        community.settings.challenges.map(
+            async (s) =>
+                (
+                    await getCommunityChallengeFromCommunityChallengeSettings({
+                        communityChallengeSettings: s,
+                        pkc: community._pkc
+                    })
+                ).communityChallenge
+        )
     );
 
     // Phase 0b: load challenge files (factories) for every index in parallel — needed for getChallenge calls
     // in phases 2/3. Loading them upfront avoids re-importing during the dependency-ordered loop.
-    const challengeFiles = await Promise.all(community.settings.challenges.map((s, i) => loadChallengeFile(s, i, community)));
+    const challengeFiles = await Promise.all(
+        community.settings.challenges.map(
+            async (s, i) => (await loadChallengeFile({ communityChallengeSettings: s, challengeIndex: i, community })).challengeFile
+        )
+    );
 
     // Phase 1: request-only excludes (parallel). Indexes excluded here never reach getChallenge.
     await Promise.all(
@@ -291,7 +362,7 @@ const getPendingChallengesOrChallengeVerification = async (
 
         for (let i = 0; i < challengeCount; i++) {
             if (decided[i]) continue;
-            const decision = evaluatePhase2Exclusion(i, communityChallenges, decided, results);
+            const { decision } = evaluatePhase2Exclusion({ i, communityChallenges, decided, results });
             if (decision === "skip") continue;
             if (decision === "exclude") {
                 decided[i] = true;
@@ -299,13 +370,15 @@ const getPendingChallengesOrChallengeVerification = async (
                 decided[i] = true;
                 deferred[i] = true;
             } else {
-                results[i] = await callGetChallenge(
-                    challengeFiles[i],
-                    community.settings.challenges[i],
-                    challengeRequestMessage,
-                    i,
-                    community
-                );
+                results[i] = (
+                    await callGetChallenge({
+                        challengeFile: challengeFiles[i],
+                        communityChallengeSettings: community.settings.challenges[i],
+                        challengeRequestMessage,
+                        challengeIndex: i,
+                        community
+                    })
+                ).challengeOrChallengeResult;
                 decided[i] = true;
             }
             progress = true;
@@ -327,13 +400,15 @@ const getPendingChallengesOrChallengeVerification = async (
             break;
         }
         // Phase 3: cycle-break by calling getChallenge for the lowest-index undecided challenge.
-        results[firstUndecided] = await callGetChallenge(
-            challengeFiles[firstUndecided],
-            community.settings.challenges[firstUndecided],
-            challengeRequestMessage,
-            firstUndecided,
-            community
-        );
+        results[firstUndecided] = (
+            await callGetChallenge({
+                challengeFile: challengeFiles[firstUndecided],
+                communityChallengeSettings: community.settings.challenges[firstUndecided],
+                challengeRequestMessage,
+                challengeIndex: firstUndecided,
+                community
+            })
+        ).challengeOrChallengeResult;
         decided[firstUndecided] = true;
     }
 
@@ -386,15 +461,23 @@ const getPendingChallengesOrChallengeVerification = async (
     };
 };
 
-const getChallengeVerificationFromChallengeAnswers = async (
-    pendingChallenges: PendingChallenge[],
-    challengeAnswers: DecryptedChallengeAnswer["challengeAnswers"],
-    community: LocalCommunity,
-    challengeRequestMessage?: DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
-    deferredChallenges?: DeferredChallenge[],
-    partialResults?: (Challenge | ChallengeResult | undefined)[],
-    communityChallenges?: CommunityChallenge[]
-): Promise<ChallengeVerificationSuccess | ChallengeVerificationFailure> => {
+const getChallengeVerificationFromChallengeAnswers = async ({
+    pendingChallenges,
+    challengeAnswers,
+    community,
+    challengeRequestMessage,
+    deferredChallenges,
+    partialResults,
+    communityChallenges
+}: {
+    pendingChallenges: PendingChallenge[];
+    challengeAnswers: DecryptedChallengeAnswer["challengeAnswers"];
+    community: LocalCommunity;
+    challengeRequestMessage?: DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+    deferredChallenges?: DeferredChallenge[];
+    partialResults?: (Challenge | ChallengeResult | undefined)[];
+    communityChallenges?: CommunityChallenge[];
+}): Promise<ChallengeVerificationSuccess | ChallengeVerificationFailure> => {
     if (!Array.isArray(community.settings?.challenges)) throw Error("community.settings?.challenges is not defined");
     const challengeCount = community.settings.challenges.length;
 
@@ -405,7 +488,11 @@ const getChallengeVerificationFromChallengeAnswers = async (
     }
     const challengeResultsWithPendingIndexes = await Promise.all(verifyChallengePromises);
     for (const i in challengeResultsWithPendingIndexes) {
-        validateChallengeResult(challengeResultsWithPendingIndexes[Number(i)], pendingChallenges[Number(i)].index, community);
+        validateChallengeResult({
+            challengeResult: challengeResultsWithPendingIndexes[Number(i)],
+            challengeIndex: pendingChallenges[Number(i)].index,
+            community
+        });
     }
 
     // Hydrate the result array from the persisted partial state. The pre-verify orchestrator marks
@@ -421,7 +508,15 @@ const getChallengeVerificationFromChallengeAnswers = async (
     const loadedCommunityChallenges =
         communityChallenges ??
         (await Promise.all(
-            community.settings.challenges.map((s) => getCommunityChallengeFromCommunityChallengeSettings(s, community._pkc))
+            community.settings.challenges.map(
+                async (s) =>
+                    (
+                        await getCommunityChallengeFromCommunityChallengeSettings({
+                            communityChallengeSettings: s,
+                            pkc: community._pkc
+                        })
+                    ).communityChallenge
+            )
         ));
 
     // Resolve the deferred bucket. By this point all originally-pending challenges have a verify
@@ -440,7 +535,13 @@ const getChallengeVerificationFromChallengeAnswers = async (
         const challengeFilesByIndex: Record<number, ChallengeFile> = {};
         const ensureChallengeFile = async (i: number): Promise<ChallengeFile> => {
             if (!challengeFilesByIndex[i]) {
-                challengeFilesByIndex[i] = await loadChallengeFile(community.settings!.challenges![i], i, community);
+                challengeFilesByIndex[i] = (
+                    await loadChallengeFile({
+                        communityChallengeSettings: community.settings!.challenges![i],
+                        challengeIndex: i,
+                        community
+                    })
+                ).challengeFile;
             }
             return challengeFilesByIndex[i];
         };
@@ -450,7 +551,12 @@ const getChallengeVerificationFromChallengeAnswers = async (
             for (const d of deferred) {
                 const i = d.index;
                 if (decided[i]) continue;
-                const decision = evaluatePhase2Exclusion(i, loadedCommunityChallenges, decided, results);
+                const { decision } = evaluatePhase2Exclusion({
+                    i,
+                    communityChallenges: loadedCommunityChallenges,
+                    decided,
+                    results
+                });
                 if (decision === "skip") continue;
                 if (decision === "exclude" || decision === "defer") {
                     // No more pending challenges at verify time, so "defer" collapses to "exclude":
@@ -461,7 +567,15 @@ const getChallengeVerificationFromChallengeAnswers = async (
                     decided[i] = true;
                 } else {
                     const file = await ensureChallengeFile(i);
-                    results[i] = await callGetChallenge(file, community.settings!.challenges![i], challengeRequestMessage, i, community);
+                    results[i] = (
+                        await callGetChallenge({
+                            challengeFile: file,
+                            communityChallengeSettings: community.settings!.challenges![i],
+                            challengeRequestMessage,
+                            challengeIndex: i,
+                            community
+                        })
+                    ).challengeOrChallengeResult;
                     decided[i] = true;
                 }
                 progress = true;
@@ -471,13 +585,15 @@ const getChallengeVerificationFromChallengeAnswers = async (
             if (firstUndecided === -1) break;
             // Cycle-break: lowest-index undecided deferred index.
             const file = await ensureChallengeFile(firstUndecided);
-            results[firstUndecided] = await callGetChallenge(
-                file,
-                community.settings!.challenges![firstUndecided],
-                challengeRequestMessage,
-                firstUndecided,
-                community
-            );
+            results[firstUndecided] = (
+                await callGetChallenge({
+                    challengeFile: file,
+                    communityChallengeSettings: community.settings!.challenges![firstUndecided],
+                    challengeRequestMessage,
+                    challengeIndex: firstUndecided,
+                    community
+                })
+            ).challengeOrChallengeResult;
             decided[firstUndecided] = true;
         }
     }
@@ -512,11 +628,15 @@ const getChallengeVerificationFromChallengeAnswers = async (
     };
 };
 
-const getChallengeVerification = async (
-    challengeRequestMessage: DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
-    community: LocalCommunity,
-    getChallengeAnswers: GetChallengeAnswers
-): Promise<Pick<ChallengeVerificationMessageType, "challengeErrors" | "challengeSuccess"> & { pendingApproval?: boolean }> => {
+const getChallengeVerification = async ({
+    challengeRequestMessage,
+    community,
+    getChallengeAnswers
+}: {
+    challengeRequestMessage: DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+    community: LocalCommunity;
+    getChallengeAnswers: GetChallengeAnswers;
+}): Promise<Pick<ChallengeVerificationMessageType, "challengeErrors" | "challengeSuccess"> & { pendingApproval?: boolean }> => {
     if (!challengeRequestMessage) {
         throw Error(`getChallengeVerification invalid challengeRequestMessage argument '${challengeRequestMessage}'`);
     }
@@ -528,7 +648,7 @@ const getChallengeVerification = async (
     }
     if (!Array.isArray(community.settings?.challenges)) throw Error("community.settings?.challenges is not defined");
 
-    const res = await getPendingChallengesOrChallengeVerification(challengeRequestMessage, community);
+    const res = await getPendingChallengesOrChallengeVerification({ challengeRequestMessage, community });
     let pendingApprovalSuccess = "pendingApprovalSuccess" in res ? res.pendingApprovalSuccess : false;
 
     let challengeVerification: Pick<ChallengeVerificationMessageType, "challengeSuccess" | "challengeErrors">;
@@ -537,15 +657,15 @@ const getChallengeVerification = async (
         const challengeAnswers = await getChallengeAnswers(
             res.pendingChallenges.map((challenge) => remeda.omit(challenge, ["index", "verify"]))
         );
-        const verificationFromPending = await getChallengeVerificationFromChallengeAnswers(
-            res.pendingChallenges,
+        const verificationFromPending = await getChallengeVerificationFromChallengeAnswers({
+            pendingChallenges: res.pendingChallenges,
             challengeAnswers,
             community,
             challengeRequestMessage,
-            res.deferredChallenges,
-            res.partialResults,
-            res.communityChallenges
-        );
+            deferredChallenges: res.deferredChallenges,
+            partialResults: res.partialResults,
+            communityChallenges: res.communityChallenges
+        });
         if ("pendingApprovalSuccess" in verificationFromPending) {
             pendingApprovalSuccess = pendingApprovalSuccess || verificationFromPending.pendingApprovalSuccess;
             challengeVerification = remeda.omit(verificationFromPending, ["pendingApprovalSuccess"]);
@@ -576,10 +696,13 @@ const getChallengeVerification = async (
 };
 
 // get the data to be published publicly to community.challenges
-const getCommunityChallengeFromCommunityChallengeSettings = async (
-    communityChallengeSettings: CommunityChallengeSetting,
-    pkc?: PKCWithSettingsChallenges
-): Promise<CommunityChallenge> => {
+const getCommunityChallengeFromCommunityChallengeSettings = async ({
+    communityChallengeSettings,
+    pkc
+}: {
+    communityChallengeSettings: CommunityChallengeSetting;
+    pkc?: PKCWithSettingsChallenges;
+}): Promise<{ communityChallenge: CommunityChallenge }> => {
     communityChallengeSettings = CommunityChallengeSettingSchema.parse(communityChallengeSettings);
 
     // if the challenge is an external file, fetch it and override the communityChallengeSettings values
@@ -602,18 +725,22 @@ const getCommunityChallengeFromCommunityChallengeSettings = async (
     }
     // else, the challenge is included with pkc-js or user-defined
     else if (communityChallengeSettings.name) {
-        const ChallengeFileFactory = ChallengeFileFactorySchema.parse(resolveChallengeFactoryByName(communityChallengeSettings.name, pkc));
+        const ChallengeFileFactory = ChallengeFileFactorySchema.parse(
+            resolveChallengeFactoryByName({ name: communityChallengeSettings.name, pkc }).factory
+        );
         challengeFile = ChallengeFileSchema.parse(ChallengeFileFactory({ challengeSettings: communityChallengeSettings }));
     }
     if (!challengeFile) throw Error("Failed to load challenge file");
     const { challenge, type } = challengeFile;
     return {
-        exclude: communityChallengeSettings.exclude,
-        description: communityChallengeSettings.description || challengeFile.description,
-        challenge,
-        type,
-        caseInsensitive: challengeFile.caseInsensitive,
-        pendingApproval: communityChallengeSettings.pendingApproval
+        communityChallenge: {
+            exclude: communityChallengeSettings.exclude,
+            description: communityChallengeSettings.description || challengeFile.description,
+            challenge,
+            type,
+            caseInsensitive: challengeFile.caseInsensitive,
+            pendingApproval: communityChallengeSettings.pendingApproval
+        }
     };
 };
 
