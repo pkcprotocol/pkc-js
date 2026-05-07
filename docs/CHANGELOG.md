@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.29](https://github.com/pkcprotocol/pkc-js/compare/v0.0.28...v0.0.29) (2026-05-07)
+
+### Features
+
+* **helia:** add @libp2p/webtransport browser transport ([fa74478](https://github.com/pkcprotocol/pkc-js/commit/fa74478a532ba2204e288a1451c75ca166354326)), closes [#85](https://github.com/pkcprotocol/pkc-js/issues/85)
+
+### Bug Fixes
+
+* **community:** flush each MFS write to avoid Kubo's global noFlushLimit ([fe5dbe2](https://github.com/pkcprotocol/pkc-js/commit/fe5dbe22b1786cc82b140599b90896d9099bc063)), closes [#86](https://github.com/pkcprotocol/pkc-js/issues/86)
+* **test:** retry name.publish in publishToIpns to tolerate Kubo ETIMEDOUT ([3ad7bdc](https://github.com/pkcprotocol/pkc-js/commit/3ad7bdc387b45ed8169fc33e4126b219cb3093f0))
+* **test:** use execFileSync for Kubo config to fix Windows CI ([62aea9b](https://github.com/pkcprotocol/pkc-js/commit/62aea9bec1c1c3dec494c3a0ebe46f3f4dfb56d5))
+
 ## [0.0.28](https://github.com/pkcprotocol/pkc-js/compare/v0.0.27...v0.0.28) (2026-05-07)
 
 ### Features
