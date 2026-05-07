@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.28](https://github.com/pkcprotocol/pkc-js/compare/v0.0.27...v0.0.28) (2026-05-07)
+
+### Features
+
+* **challenges:** dependency-ordered lazy getChallenge() evaluation ([6ea5d4f](https://github.com/pkcprotocol/pkc-js/commit/6ea5d4f44c86c419f2244214e37a6ad99bcb008c))
+
+### Bug Fixes
+
+* **community:** use 'name' key for ERR_DOMAIN_TXT_RECORD_NOT_FOUND details ([d1f8e36](https://github.com/pkcprotocol/pkc-js/commit/d1f8e36edab395eb543d5801dd90510a3b30c4af))
+* **test:** avoid race in rpc comment update test by waiting on raw fields ([8157294](https://github.com/pkcprotocol/pkc-js/commit/815729436565a15c8d89048a8b4e326b7ecbe587))
+* **test:** use fileURLToPath for tracking-challenge path on Windows ([781ca38](https://github.com/pkcprotocol/pkc-js/commit/781ca38beb9c6cdae52c5dc1e292e34f8a82083c))
+
 ## [0.0.27](https://github.com/pkcprotocol/pkc-js/compare/v0.0.26...v0.0.27) (2026-05-06)
 
 ### Features
