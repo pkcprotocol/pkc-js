@@ -49,13 +49,13 @@ jobs:
               run: node test/run-test-config.js --environment node --per-test-logs ${{ runner.temp }}/per-test-logs test/challenges
             - name: Run node tests (local config)
               id: run_node_tests_local
-              run: DEBUG="pkc*" PKC_CONFIGS=local-kubo-rpc node test/run-test-config.js --parallel --environment node --run-timeout-ms 1740000 --log-prefix test_node_local --per-test-logs "${{ runner.temp }}/per-test-logs" test/node src/rpc/test/node src/rpc/test/node-and-browser
+              run: DEBUG="pkc*" PKC_CONFIGS=local-kubo-rpc node test/run-test-config.js --parallel --environment node --log-prefix test_node_local --per-test-logs "${{ runner.temp }}/per-test-logs" test/node src/rpc/test/node src/rpc/test/node-and-browser
               shell: bash
             - name: Print failed node tests (local)
-              if: ${{ failure() && steps.run_node_tests_local.outcome == 'failure' }}
+              if: ${{ !success() && (steps.run_node_tests_local.outcome == 'failure' || steps.run_node_tests_local.outcome == 'cancelled') }}
               run: node .github/workflows/print-vitest-failures.cjs
             - name: Upload Vitest reports (node local)
-              if: ${{ failure() && steps.run_node_tests_local.outcome == 'failure' }}
+              if: ${{ !success() && (steps.run_node_tests_local.outcome == 'failure' || steps.run_node_tests_local.outcome == 'cancelled') }}
               uses: actions/upload-artifact@v4
               with:
                   name: vitest-node-local-${{ matrix.os }}
@@ -63,7 +63,7 @@ jobs:
                   include-hidden-files: true
                   if-no-files-found: ignore
             - name: Upload per-test logs (node local)
-              if: ${{ failure() && (steps.run_node_tests_local.outcome == 'failure' || steps.run_mocked_challenges.outcome == 'failure') }}
+              if: ${{ !success() && (steps.run_node_tests_local.outcome == 'failure' || steps.run_node_tests_local.outcome == 'cancelled' || steps.run_mocked_challenges.outcome == 'failure' || steps.run_mocked_challenges.outcome == 'cancelled') }}
               uses: actions/upload-artifact@v4
               with:
                   name: per-test-logs-node-local-${{ matrix.os }}
@@ -103,10 +103,10 @@ jobs:
               id: run_node_tests_remote
               run: DEBUG="pkc*" node test/run-test-config.js --parallel --pkc-config ${{ matrix.config }} --environment node --log-prefix test_node_${{ matrix.config }} --per-test-logs /tmp/per-test-logs test/node-and-browser src/rpc/test/node-and-browser
             - name: Print failed node tests
-              if: ${{ failure() && steps.run_node_tests_remote.outcome == 'failure' }}
+              if: ${{ !success() && (steps.run_node_tests_remote.outcome == 'failure' || steps.run_node_tests_remote.outcome == 'cancelled') }}
               run: node .github/workflows/print-vitest-failures.cjs
             - name: Upload Vitest reports (node remote)
-              if: ${{ failure() && steps.run_node_tests_remote.outcome == 'failure' }}
+              if: ${{ !success() && (steps.run_node_tests_remote.outcome == 'failure' || steps.run_node_tests_remote.outcome == 'cancelled') }}
               uses: actions/upload-artifact@v4
               with:
                   name: vitest-node-${{ matrix.config }}
@@ -114,7 +114,7 @@ jobs:
                   include-hidden-files: true
                   if-no-files-found: ignore
             - name: Upload test logs
-              if: ${{ failure() && steps.run_node_tests_remote.outcome == 'failure' }}
+              if: ${{ !success() && (steps.run_node_tests_remote.outcome == 'failure' || steps.run_node_tests_remote.outcome == 'cancelled') }}
               uses: actions/upload-artifact@v4
               with:
                   name: test-logs-${{ matrix.config }}
@@ -123,7 +123,7 @@ jobs:
                       test_node_${{ matrix.config }}.stderr.log
                   if-no-files-found: ignore
             - name: Upload per-test logs (node ${{ matrix.config }})
-              if: ${{ failure() && steps.run_node_tests_remote.outcome == 'failure' }}
+              if: ${{ !success() && (steps.run_node_tests_remote.outcome == 'failure' || steps.run_node_tests_remote.outcome == 'cancelled') }}
               uses: actions/upload-artifact@v4
               with:
                   name: per-test-logs-node-${{ matrix.config }}
@@ -170,11 +170,11 @@ jobs:
               run: DEBUG="pkc*" node test/run-test-config.js --parallel --pkc-config ${{ matrix.config }} --environment ${{ matrix.environment }} --per-test-logs /tmp/per-test-logs test/browser test/node-and-browser
 
             - name: Print failed browser tests
-              if: ${{ failure() && steps.run_browser_tests.outcome == 'failure' }}
+              if: ${{ !success() && (steps.run_browser_tests.outcome == 'failure' || steps.run_browser_tests.outcome == 'cancelled') }}
               run: node .github/workflows/print-vitest-failures.cjs
 
             - name: Upload Vitest browser reports
-              if: ${{ failure() && steps.run_browser_tests.outcome == 'failure' }}
+              if: ${{ !success() && (steps.run_browser_tests.outcome == 'failure' || steps.run_browser_tests.outcome == 'cancelled') }}
               uses: actions/upload-artifact@v4
               with:
                   name: vitest-browser-${{ matrix.environment }}-${{ matrix.config }}
@@ -183,7 +183,7 @@ jobs:
                   if-no-files-found: ignore
 
             - name: Upload per-test logs (browser ${{ matrix.environment }}-${{ matrix.config }})
-              if: ${{ failure() && steps.run_browser_tests.outcome == 'failure' }}
+              if: ${{ !success() && (steps.run_browser_tests.outcome == 'failure' || steps.run_browser_tests.outcome == 'cancelled') }}
               uses: actions/upload-artifact@v4
               with:
                   name: per-test-logs-browser-${{ matrix.environment }}-${{ matrix.config }}
@@ -219,10 +219,10 @@ jobs:
             - id: run_rpc_tests
               run: DEBUG="pkc*" USE_RPC=1 PKC_CONFIGS=remote-pkc-rpc node test/run-test-config.js --environment node --parallel --per-test-logs /tmp/per-test-logs test/node test/node-and-browser src/rpc/test/node src/rpc/test/node-and-browser
             - name: Print failed rpc tests
-              if: ${{ failure() && steps.run_rpc_tests.outcome == 'failure' }}
+              if: ${{ !success() && (steps.run_rpc_tests.outcome == 'failure' || steps.run_rpc_tests.outcome == 'cancelled') }}
               run: node .github/workflows/print-vitest-failures.cjs
             - name: Upload Vitest reports (rpc)
-              if: ${{ failure() && steps.run_rpc_tests.outcome == 'failure' }}
+              if: ${{ !success() && (steps.run_rpc_tests.outcome == 'failure' || steps.run_rpc_tests.outcome == 'cancelled') }}
               uses: actions/upload-artifact@v4
               with:
                   name: vitest-rpc
@@ -230,7 +230,7 @@ jobs:
                   include-hidden-files: true
                   if-no-files-found: ignore
             - name: Upload per-test logs (rpc)
-              if: ${{ failure() && steps.run_rpc_tests.outcome == 'failure' }}
+              if: ${{ !success() && (steps.run_rpc_tests.outcome == 'failure' || steps.run_rpc_tests.outcome == 'cancelled') }}
               uses: actions/upload-artifact@v4
               with:
                   name: per-test-logs-rpc
