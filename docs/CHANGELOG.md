@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.30](https://github.com/pkcprotocol/pkc-js/compare/v0.0.29...v0.0.30) (2026-05-07)
+
+### Bug Fixes
+
+* **helia:** wait for gossipsub graft before returning from IPNS warmup ([44a932c](https://github.com/pkcprotocol/pkc-js/commit/44a932cabf89a63c339cfc4a0c0302061a15e4a6))
+* **test:** re-dedup adjacent states after stripping fetching-community-ipns ([92620b4](https://github.com/pkcprotocol/pkc-js/commit/92620b4874289824f1b57e3ff1775af627389dd1))
+* **test:** tolerate parallel community connect race in reply.updatingstate ([4202ee0](https://github.com/pkcprotocol/pkc-js/commit/4202ee09e277c67bca20e8151ceffc9ba9fc765c))
+
 ## [0.0.29](https://github.com/pkcprotocol/pkc-js/compare/v0.0.28...v0.0.29) (2026-05-07)
 
 ### Features
