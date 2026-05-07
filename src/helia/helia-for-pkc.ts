@@ -1,7 +1,8 @@
-import { createHelia } from "helia";
+import { createHelia, libp2pDefaults } from "helia";
 import { ipns } from "@helia/ipns";
 import { gossipsub } from "@libp2p/gossipsub";
 import { identify } from "@libp2p/identify";
+import extraLibp2pTransports from "../runtime/node/libp2p-extra-transports.js";
 import { CID } from "multiformats/cid";
 import { peerIdFromString } from "@libp2p/peer-id";
 import { bitswap } from "@helia/block-brokers";
@@ -62,11 +63,14 @@ export async function createLibp2pJsClientOrUseExistingOne(
     }
 
     creatingLibp2pJsClients[pkcOptions.key] = (async () => {
+        const heliaLibp2pDefaults = libp2pDefaults();
         const mergedHeliaInit = {
             libp2p: {
                 // for now we're overwriting addresses
                 addresses: { listen: [] }, // TODO at some point we should use addresses, but right now it gets into an infinite loop with random walk
                 peerDiscovery: undefined,
+                // helia merges shallowly: setting `transports` overrides defaults entirely, so we re-spread helia's per-environment defaults and append browser-only extras (e.g. webTransport)
+                transports: [...(heliaLibp2pDefaults.transports ?? []), ...extraLibp2pTransports],
                 ...pkcOptions.libp2pOptions,
                 // Configure connection manager to handle more concurrent streams
 
