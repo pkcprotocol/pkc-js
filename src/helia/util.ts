@@ -1,9 +1,11 @@
 import type { HeliaWithLibp2pPubsub } from "./types.js";
-import type { PeerId, PeerInfo } from "@libp2p/interface";
+import type { PeerInfo } from "@libp2p/interface";
 import { CID } from "multiformats/cid";
 import Logger from "../logger.js";
 import { PKCError } from "../pkc-error.js";
 import { pubsubTopicToDhtKeyCid } from "../util.js";
+
+const TOPIC_SUBSCRIBER_WAIT_TIMEOUT_MS = 10_000;
 
 export interface HeliaDebugContext {
     heliaPeerId: string;
@@ -33,6 +35,64 @@ interface PeerDialFailure {
     errorStack?: string;
 }
 
+// Event-based wait for a remote peer to subscribe to `topic` on our gossipsub.
+// Resolves the moment gossipsub fires 'subscription-change' for the topic and the
+// subscriber list has actually become non-empty, or rejects on timeout/abort.
+// Used as both the in-loop abort trigger and the post-loop graft wait by
+// connectToPubsubPeers below.
+export function waitForTopicSubscriber({
+    helia,
+    topic,
+    timeoutMs,
+    abortSignal
+}: {
+    helia: HeliaWithLibp2pPubsub;
+    topic: string;
+    timeoutMs: number;
+    abortSignal?: AbortSignal;
+}): Promise<void> {
+    const pubsub = helia.libp2p.services.pubsub;
+    if (pubsub.getSubscribers(topic).length > 0) return Promise.resolve();
+    if (abortSignal?.aborted) return Promise.reject(new PKCError("ERR_PUBSUB_TOPIC_PEER_WAIT_ABORTED", { topic }));
+
+    return new Promise<void>((resolve, reject) => {
+        const cleanup = () => {
+            pubsub.removeEventListener("subscription-change", onChange);
+            clearInterval(safetyPoll);
+            clearTimeout(timer);
+            abortSignal?.removeEventListener("abort", onAbort);
+        };
+        const tryResolve = () => {
+            if (pubsub.getSubscribers(topic).length > 0) {
+                cleanup();
+                resolve();
+                return true;
+            }
+            return false;
+        };
+        const onChange = (e: CustomEvent<{ peerId: unknown; subscriptions: { topic: string; subscribe: boolean }[] }>) => {
+            if (e.detail.subscriptions.some((s) => s.topic === topic && s.subscribe)) tryResolve();
+        };
+        const onAbort = () => {
+            cleanup();
+            reject(new PKCError("ERR_PUBSUB_TOPIC_PEER_WAIT_ABORTED", { topic }));
+        };
+        const timer = setTimeout(() => {
+            cleanup();
+            reject(new PKCError("ERR_TIMEOUT_WAITING_FOR_PUBSUB_TOPIC_PEERS", { topic, timeoutMs }));
+        }, timeoutMs);
+        // Defensive safety poll: 'subscription-change' is the primary fast-path trigger, but we
+        // also re-check periodically in case the event already fired before this listener attached
+        // or gossipsub state and event delivery diverge briefly.
+        const safetyPoll = setInterval(tryResolve, 1000);
+        pubsub.addEventListener("subscription-change", onChange);
+        abortSignal?.addEventListener("abort", onAbort, { once: true });
+        // Race-safe re-check: a subscriber may have appeared in the window between the initial
+        // check and addEventListener. Without this, we could miss the only event we'll ever get.
+        tryResolve();
+    });
+}
+
 export async function connectToPubsubPeers({
     helia,
     pubsubTopic,
@@ -46,48 +106,46 @@ export async function connectToPubsubPeers({
     log: Logger;
     options?: { signal?: AbortSignal };
 }): Promise<Awaited<ReturnType<typeof helia.libp2p.dial>>[]> {
-    // TODO need to check if this hangs or not
     const contentCid = pubsubTopicToDhtKeyCid(pubsubTopic);
     const peersWithContent: PeerInfo[] = [];
     const connectedPeersWithContent: Awaited<ReturnType<typeof helia.libp2p.dial>>[] = [];
     const peerDialToError: Record<string, PeerDialFailure> = {};
 
-    // Create an abort controller to handle hanging findProviders
+    // Single abort signal feeds both findProviders and the topic-subscriber wait.
     const abortController = new AbortController();
     const combinedSignal = options?.signal ? AbortSignal.any([options.signal, abortController.signal]) : abortController.signal;
 
-    let shouldStop = false;
-    // Set up periodic check for pubsub subscribers
-    const checkInterval = setInterval(() => {
-        if (helia.libp2p.services.pubsub.getSubscribers(pubsubTopic).length > 0 && !abortController.signal.aborted) {
-            log.trace("Aborting findProviders iterator - found pubsub subscribers for topic", pubsubTopic);
-            abortController.abort();
-            shouldStop = true;
+    // Event-based watcher for a peer subscribing to our topic on gossipsub.
+    // Started immediately so we don't miss subscription-change events that fire during the dial loop.
+    // When it resolves, abort findProviders so the loop exits cleanly.
+    const subscriberAppearedPromise = waitForTopicSubscriber({
+        helia,
+        topic: pubsubTopic,
+        timeoutMs: TOPIC_SUBSCRIBER_WAIT_TIMEOUT_MS,
+        abortSignal: combinedSignal
+    });
+    subscriberAppearedPromise.then(
+        () => {
+            if (!abortController.signal.aborted) {
+                log.trace("Aborting findProviders iterator - gossipsub subscription-change observed for topic", pubsubTopic);
+                abortController.abort();
+            }
+        },
+        () => {
+            // swallow timeout/abort — handled in the post-loop await below
         }
-    }, 100); // Check every 100ms
+    );
 
     try {
         const findProvidersLabel = `findProviders:${pubsubTopic}`;
         console.time(findProvidersLabel);
         for await (const peer of helia.libp2p.contentRouting.findProviders(contentCid, { ...options, signal: combinedSignal })) {
-            if (shouldStop) {
-                log.trace("Breaking findProviders loop due to shouldStop flag (pubsub subscribers found)");
-                break;
-            }
             peersWithContent.push(peer as PeerInfo);
             try {
-                const conn = await helia.libp2p.dial(peer.id, options); // will be a no-op if we're already connected
-                // if it succeeds, means we can connect to this peer
-
+                const conn = await helia.libp2p.dial(peer.id, options); // no-op if already connected
                 connectedPeersWithContent.push(conn);
-                if (helia.libp2p.services.pubsub.getSubscribers(pubsubTopic).length > 0) {
-                    shouldStop = true;
-                    log.trace("Breaking findProviders loop after successful dial and finding pubsub subscribers");
-                    break;
-                }
                 if (connectedPeersWithContent.length >= maxPeers) {
                     log.trace("Breaking findProviders loop after reaching maxPeers", maxPeers);
-                    shouldStop = true;
                     break;
                 }
             } catch (e) {
@@ -103,22 +161,24 @@ export async function connectToPubsubPeers({
         }
         console.timeEnd(findProvidersLabel);
     } catch (e) {
-        (e as PKCError).details = {
-            ...(e as PKCError).details,
-            contentCid,
-            options,
-            maxPeersBeforeWeStopLookingForProviders: maxPeers,
-            connectedPeersWithContent,
-            peersWithContent,
-            peerDialToError,
-            ...getHeliaDebugContext(helia)
-        };
-        throw e;
-    } finally {
-        clearInterval(checkInterval);
+        // findProviders may throw the abort error we caused ourselves — that's fine, fall through.
+        if (!abortController.signal.aborted) {
+            (e as PKCError).details = {
+                ...(e as PKCError).details,
+                contentCid,
+                options,
+                maxPeersBeforeWeStopLookingForProviders: maxPeers,
+                connectedPeersWithContent,
+                peersWithContent,
+                peerDialToError,
+                ...getHeliaDebugContext(helia)
+            };
+            throw e;
+        }
     }
 
     log.trace("Connected to", connectedPeersWithContent.length, "peers", "for content", contentCid);
+
     if (connectedPeersWithContent.length === 0) {
         const error = new PKCError("ERR_FAILED_TO_DIAL_ANY_PEERS_PROVIDING_CID", {
             contentCid,
@@ -129,26 +189,17 @@ export async function connectToPubsubPeers({
         });
         log.error(error);
         throw error;
-    } else return connectedPeersWithContent;
-}
-
-export async function waitForTopicPeers(helia: HeliaWithLibp2pPubsub, topic: string, minPeers = 1, timeoutMs = 10000): Promise<PeerId[]> {
-    // after connecting to peers, we need to get the peers from the pubsub service
-    const startTime = Date.now();
-
-    while (Date.now() - startTime < timeoutMs) {
-        const subscribers = helia.libp2p.services.pubsub.getSubscribers(topic);
-        if (subscribers.length >= minPeers) {
-            return subscribers;
-        }
-
-        // Wait 100ms before checking again
-        await new Promise((resolve) => setTimeout(resolve, 100));
     }
 
-    throw new PKCError("ERR_TIMEOUT_WAITING_FOR_PUBSUB_TOPIC_PEERS", {
-        topic,
-        minPeers,
-        timeoutMs
-    });
+    // Post-loop graft wait: if findProviders exhausted or maxPeers was reached before
+    // any subscription-change event arrived, wait now so the immediately-following IPNS
+    // resolve doesn't walk an empty subscriber list and throw RecordNotFoundError.
+    try {
+        await subscriberAppearedPromise;
+    } catch (graftErr) {
+        log.trace("gossipsub subscription-change did not arrive within timeout after warmup; resolver may still fall back", graftErr);
+        // best-effort — don't surface as a warmup failure, let the resolver attempt anyway.
+    }
+
+    return connectedPeersWithContent;
 }

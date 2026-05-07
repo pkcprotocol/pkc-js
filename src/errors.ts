@@ -20,6 +20,7 @@ export enum messages {
     ERR_FAILED_TO_DIAL_ANY_PEERS_PROVIDING_CID = "Failed to dial and connect to any peers providing a CID",
     ERR_GET_COMMUNITY_TIMED_OUT = "pkc.getCommunity({address}) timed out",
     ERR_TIMEOUT_WAITING_FOR_PUBSUB_TOPIC_PEERS = "Timeout waiting for propagation of pubsub topic peers",
+    ERR_PUBSUB_TOPIC_PEER_WAIT_ABORTED = "Aborted while waiting for a peer to subscribe to a pubsub topic",
     ERR_TIMED_OUT_RM_MFS_FILE = "Timed out removing MFS paths. We may need to nuke the whole MFS directory and republish everything",
     ERR_ABORTED_RESOLVING_TEXT_RECORD = "Aborted resolving text record on domain",
     // PKC errors

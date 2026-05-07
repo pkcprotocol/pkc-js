@@ -287,5 +287,52 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 await resolverPKC.destroy();
             }
         });
+
+        // Deterministic repro for the firefox CI flake on
+        // https://github.com/pkcprotocol/pkc-js/actions/runs/25484199180:
+        // connectToPubsubPeers in src/helia/util.ts returns as soon as findProviders exhausts
+        // (or maxPeers is reached), without waiting for the gossipsub graft to register the
+        // dialed peer in pubsub.getSubscribers(topic). When the graft is slow, the warmup
+        // returns with subscribers=[], the resolver walks an empty list, and Helia throws
+        // RecordNotFoundError -> ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED.
+        // We simulate the slow graft by stubbing pubsub.getSubscribers to return [] for the
+        // first SUPPRESS_MS of the resolve. A correct warmup must keep waiting past the
+        // window so the resolver eventually sees real subscribers and resolve succeeds.
+        it("name.resolve waits past a slow gossipsub graft and resolves successfully", async () => {
+            const { communityAddress } = await createMockedCommunityIpns({});
+            const resolverPKC = await config.pkcInstancePromise();
+            try {
+                const heliaClient = Object.values(resolverPKC.clients.libp2pJsClients)[0];
+                const heliaShape = heliaClient.heliaWithKuboRpcClientFunctions;
+                const pubsubSvc = heliaClient._helia.libp2p.services.pubsub;
+                const topic = ipnsNameToIpnsOverPubsubTopic(communityAddress);
+
+                const SUPPRESS_MS = 5000;
+                const stubStart = Date.now();
+                const original = pubsubSvc.getSubscribers.bind(pubsubSvc);
+                let suppressedReadCount = 0;
+                pubsubSvc.getSubscribers = (t: string) => {
+                    if (t === topic && Date.now() - stubStart < SUPPRESS_MS) {
+                        suppressedReadCount++;
+                        return [];
+                    }
+                    return original(t);
+                };
+
+                try {
+                    const resolved = await firstFromAsyncIterable(
+                        heliaShape.name.resolve(communityAddress, { nocache: true, recursive: true })
+                    );
+                    expect(resolved).to.be.a("string");
+                    expect(resolved).to.match(/^\/ipfs\//);
+                } finally {
+                    pubsubSvc.getSubscribers = original;
+                }
+
+                expect(suppressedReadCount, "stub must intercept getSubscribers reads at least once").to.be.greaterThan(0);
+            } finally {
+                await resolverPKC.destroy();
+            }
+        }, 30000);
     });
 });
