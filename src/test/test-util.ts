@@ -1679,9 +1679,26 @@ export async function createNewIpns() {
 
     const publishToIpns = async (content: string) => {
         const cid = await addStringToIpfs(content);
-        await ipfsClient._client.name.publish(cid, {
-            key: signer.address,
-            allowOffline: true
+        // Wrapped in retry because Kubo can transiently ETIMEDOUT in CI
+        await new Promise<void>((resolve, reject) => {
+            const operation = retry.operation({
+                retries: 3,
+                factor: 2,
+                minTimeout: 2000
+            });
+
+            operation.attempt(async () => {
+                try {
+                    await ipfsClient._client.name.publish(cid, {
+                        key: signer.address,
+                        allowOffline: true
+                    });
+                    resolve();
+                } catch (error) {
+                    if (operation.retry(error as Error)) return;
+                    reject(operation.mainError() || error);
+                }
+            });
         });
 
         // Verify the IPNS record is resolvable before returning
