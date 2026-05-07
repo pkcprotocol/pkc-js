@@ -5,7 +5,8 @@ import {
     publishRandomPost,
     publishWithExpectedResult,
     getAvailablePKCConfigsToTestAgainst,
-    waitTillPostInCommunityPages
+    waitTillPostInCommunityPages,
+    resolveWhenConditionIsTrue
 } from "../../../../../dist/node/test/test-util.js";
 import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
@@ -65,9 +66,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
             postToUpdate.clients.pkcRpcClients[currentRpcUrl].on("statechange", (newState: string) => recordedStates.push(newState));
 
             await postToUpdate.update();
-
-            await new Promise((resolve) => postToUpdate.once("update", resolve)); // CommentIpfs update
-            await new Promise((resolve) => postToUpdate.once("update", resolve)); // CommentUpdate update
+            await resolveWhenConditionIsTrue({
+                toUpdate: postToUpdate,
+                predicate: async () => Boolean(postToUpdate.raw.comment && postToUpdate.raw.commentUpdate)
+            });
             await postToUpdate.stop();
 
             expect(postToUpdate.depth).to.be.a("number");
