@@ -1,5 +1,5 @@
 import { it, beforeAll, afterAll, expect } from "vitest";
-import { spawn, execSync, type ChildProcess } from "child_process";
+import { spawn, execFileSync, type ChildProcess } from "child_process";
 import path from "path";
 import fs from "fs";
 import { v4 as uuidv4 } from "uuid";
@@ -43,18 +43,18 @@ async function spawnIsolatedKuboDaemon(repoDir: string): Promise<ChildProcess> {
     fs.mkdirSync(repoDir, { recursive: true });
     const env = { ...process.env, IPFS_PATH: repoDir };
 
-    execSync(`${ipfsBin} init`, { stdio: "ignore", env });
+    execFileSync(ipfsBin, ["init"], { stdio: "ignore", env });
 
     // The bug: Kubo's Internal.MFSNoFlushLimit. Set it very low so a single
     // sync batch reliably exceeds it (instead of needing 256+ in-flight writes).
-    execSync(`${ipfsBin} config --json Internal.MFSNoFlushLimit ${SIMULATED_MFS_LIMIT}`, { env });
+    execFileSync(ipfsBin, ["config", "--json", "Internal.MFSNoFlushLimit", String(SIMULATED_MFS_LIMIT)], { env });
 
-    execSync(`${ipfsBin} config Addresses.API /ip4/127.0.0.1/tcp/${ISOLATED_KUBO_API_PORT}`, { env });
-    execSync(`${ipfsBin} config Addresses.Gateway /ip4/127.0.0.1/tcp/${ISOLATED_KUBO_GATEWAY_PORT}`, { env });
-    execSync(`${ipfsBin} config --json Addresses.Swarm '["/ip4/127.0.0.1/tcp/${ISOLATED_KUBO_SWARM_PORT}"]'`, { env });
-    execSync(`${ipfsBin} config --json API.HTTPHeaders.Access-Control-Allow-Origin '["*"]'`, { env });
-    execSync(`${ipfsBin} bootstrap rm --all`, { stdio: "ignore", env });
-    execSync(`${ipfsBin} config --json Discovery.MDNS.Enabled false`, { env });
+    execFileSync(ipfsBin, ["config", "Addresses.API", `/ip4/127.0.0.1/tcp/${ISOLATED_KUBO_API_PORT}`], { env });
+    execFileSync(ipfsBin, ["config", "Addresses.Gateway", `/ip4/127.0.0.1/tcp/${ISOLATED_KUBO_GATEWAY_PORT}`], { env });
+    execFileSync(ipfsBin, ["config", "--json", "Addresses.Swarm", `["/ip4/127.0.0.1/tcp/${ISOLATED_KUBO_SWARM_PORT}"]`], { env });
+    execFileSync(ipfsBin, ["config", "--json", "API.HTTPHeaders.Access-Control-Allow-Origin", '["*"]'], { env });
+    execFileSync(ipfsBin, ["bootstrap", "rm", "--all"], { stdio: "ignore", env });
+    execFileSync(ipfsBin, ["config", "--json", "Discovery.MDNS.Enabled", "false"], { env });
 
     const proc = spawn(ipfsBin, ["daemon", "--enable-namesys-pubsub"], {
         env,
