@@ -3076,7 +3076,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                             create: true,
                             truncate: true,
                             parents: true,
-                            flush: false
+                            // flush: true to avoid Kubo's global Internal.MFSNoFlushLimit (default 256).
+                            // Costs some throughput (each write self-flushes instead of batching) but
+                            // is safe under multi-community concurrency, which the global counter is not.
+                            flush: true
                         }
                     });
 
