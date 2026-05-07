@@ -103,6 +103,16 @@ const cleanupStateArray = (states: string[]): string[] => {
         }
     }
 
+    // Re-run adjacent-duplicate removal: stripping "fetching-community-ipns" can leave new
+    // adjacent dupes (e.g. ["succeeded", "succeeded"] when the gateway path went
+    // commentIpfs-succeeded → ipns → commentUpdate-succeeded).
+    for (let i = 0; i < filteredStates.length - 1; i++) {
+        if (filteredStates[i] === filteredStates[i + 1]) {
+            filteredStates.splice(i + 1, 1);
+            i--;
+        }
+    }
+
     return filteredStates;
 };
 
