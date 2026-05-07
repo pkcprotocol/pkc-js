@@ -141,8 +141,7 @@ export class CommunityClientsManager extends PKCClientsManager {
         super.postResolveNameResolverSuccess(opts);
         if (!opts.resolvedValue && this._community.state === "updating") {
             throw new PKCError("ERR_DOMAIN_TXT_RECORD_NOT_FOUND", {
-                communityAddress: opts.address,
-                textRecord: "bitsocial"
+                name: opts.address
             });
         }
     }
