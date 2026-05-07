@@ -1,4 +1,5 @@
 import { beforeAll } from "vitest";
+import { fileURLToPath } from "node:url";
 import {
     getPendingChallengesOrChallengeVerification,
     getChallengeVerificationFromChallengeAnswers,
@@ -431,7 +432,7 @@ describe("excluded challenge should not have getChallenge() called", () => {
         };
         trackingChallenge.resetCallCount();
 
-        const trackingChallengePath = new URL("./fixtures/challenges/tracking-challenge.mjs", import.meta.url).pathname;
+        const trackingChallengePath = fileURLToPath(new URL("./fixtures/challenges/tracking-challenge.mjs", import.meta.url));
 
         const author = { address: getRandomAddress() };
         const localCommunity = {
