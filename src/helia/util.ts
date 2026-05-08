@@ -93,6 +93,10 @@ export function waitForTopicSubscriber({
     });
 }
 
+// Ambient peer discovery for gossipsub. js-libp2p's pubsub intentionally does not discover
+// topic peers itself; that is the application's responsibility (same pattern Helia and
+// js-ipfs use): hash the topic to a CID, contentRouting.findProviders(), then dial.
+// See https://github.com/libp2p/js-libp2p/blob/main/doc/CONFIGURATION.md ("ambient peer discovery").
 export async function connectToPubsubPeers({
     helia,
     pubsubTopic,
