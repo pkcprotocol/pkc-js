@@ -140,12 +140,17 @@ export async function connectToPubsubPeers({
         }
     );
 
+    const findProvidersStart = Date.now();
     try {
-        const findProvidersLabel = `findProviders:${pubsubTopic}`;
-        console.time(findProvidersLabel);
         for await (const peer of helia.libp2p.contentRouting.findProviders(contentCid, { ...options, signal: combinedSignal })) {
             peersWithContent.push(peer as PeerInfo);
             try {
+                // Make sure dial-by-peerId can resolve addresses: not all content routers (notably
+                // delegated-routing-v1-http) auto-merge discovered multiaddrs into the peerstore,
+                // and dial(peerId) without addrs fails with "no addresses for peer".
+                if (peer.multiaddrs?.length) {
+                    await helia.libp2p.peerStore.merge(peer.id, { multiaddrs: peer.multiaddrs });
+                }
                 const conn = await helia.libp2p.dial(peer.id, options); // no-op if already connected
                 connectedPeersWithContent.push(conn);
                 if (connectedPeersWithContent.length >= maxPeers) {
@@ -163,7 +168,7 @@ export async function connectToPubsubPeers({
                 log.trace("Failed to dial IPNS-Over-Pubsub peer", peer.id.toString(), "Due to error", e);
             }
         }
-        console.timeEnd(findProvidersLabel);
+        log.trace("findProviders for", pubsubTopic, "took", Date.now() - findProvidersStart, "ms");
     } catch (e) {
         // findProviders may throw the abort error we caused ourselves — that's fine, fall through.
         if (!abortController.signal.aborted) {

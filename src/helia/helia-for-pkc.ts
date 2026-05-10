@@ -75,6 +75,12 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 // Configure connection manager to handle more concurrent streams
 
                 services: {
+                    // Helia's libp2pDefaults.services include relay (circuitRelayServer), autoTLS,
+                    // upnp, kadDHT, autoNAT, and a delegatedRouting client pointed at public-network
+                    // defaults. Spreading all of those in is wrong for a client-side node — we'd be
+                    // hosting a circuit relay, doing external TLS issuance, port-forwarding, and
+                    // querying the public IPFS network in addition to the routers the user configured.
+                    // Keep the service map narrow and explicit. (See review notes 2026-05-08.)
                     identify: identify(),
                     pubsub: gossipsub(),
                     // powers @helia/ipns pubsub fast-path: fetch latest record from new topic peers (PR ipfs/helia#906)
@@ -83,7 +89,10 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     ...pkcOptions.libp2pOptions?.services
                 }
             },
-            blockstore: new MemoryBlockstore(), // TODO use indexed db here
+            // MemoryBlockstore: blocks lost on restart, every cold start re-fetches from network.
+            // Future optimization: blockstore-fs (Node) / blockstore-idb (browser). Not prioritized
+            // - pkc-js is browser-first and per-session usage dominates today.
+            blockstore: new MemoryBlockstore(),
             blockBrokers: [bitswap()],
             start: false,
             ...pkcOptions.heliaOptions
@@ -91,8 +100,14 @@ export async function createLibp2pJsClientOrUseExistingOne(
 
         const helia = <HeliaWithLibp2pPubsub>await createHelia(mergedHeliaInit);
 
-        //@ts-expect-error
-        helia.routing.routers = [helia.routing.routers[0]]; // remove gateway routing
+        // Helia's default content routers are [Libp2pRouter, HTTPGatewayRouter]. We use our own
+        // gateway-fan-out logic in base-client-manager, so the HTTP gateway router here is
+        // redundant and adds latency. Filter by class name (not index) so a future helia release
+        // that re-orders the array can't silently leave the gateway in or drop libp2p routing.
+        //@ts-expect-error — helia.routing.routers is internal
+        helia.routing.routers = (helia.routing.routers as Array<{ constructor: { name: string } }>).filter(
+            (r) => r.constructor.name !== "HTTPGatewayRouter"
+        );
 
         log("Initialized libp2pjs helia with key", pkcOptions.key, "peer id", helia.libp2p.peerId.toString());
 
@@ -112,7 +127,39 @@ export async function createLibp2pJsClientOrUseExistingOne(
             routers: [createIpnsPubusubRouter(helia)]
         });
 
-        ipnsNameResolver.routers = ipnsNameResolver.routers.slice(1); // remove gateway ipns routing and keep only pubsub
+        // @helia/ipns constructs routers as [LocalStoreRouting, HeliaRouting, ...userRouters].
+        // We drop LocalStoreRouting because pkc-js never publishes IPNS via @helia/ipns (kubo
+        // does that), so the local cache is always empty and just adds a wasted lookup. Keep
+        // HeliaRouting (HTTP delegated routing via helia.routing.routers) and our PubSubRouting.
+        // Filter by class name so a future @helia/ipns release that re-orders the array can't
+        // silently drop our pubsub router.
+        ipnsNameResolver.routers = ipnsNameResolver.routers.filter((r) => r?.constructor?.name !== "LocalStoreRouting");
+
+        // Side-channel awaitable warmup: gossipsub's pubsub.subscribe(topic) is sync and returns
+        // void, so we can't make it awaitable without breaking @helia/ipns and other internal
+        // callers that expect the sync contract. Instead, we expose `warmupForTopic(topic)` and
+        // dedupe in-flight warmups via a per-topic Map, so concurrent callers share a single
+        // findProviders/dial cycle.
+        const WARMUP_MAX_PEERS = 4;
+        const warmupPromisesByTopic = new Map<string, Promise<void>>();
+        const warmupForTopic = (topic: string, options?: { signal?: AbortSignal }): Promise<void> => {
+            if (helia.libp2p.services.pubsub.getSubscribers(topic).length > 0) return Promise.resolve();
+            const existing = warmupPromisesByTopic.get(topic);
+            if (existing) return existing;
+            const p = connectToPubsubPeers({
+                helia,
+                pubsubTopic: topic,
+                maxPeers: WARMUP_MAX_PEERS,
+                options,
+                log: Logger("pkc-js:helia:pubsub:warmup")
+            })
+                .then(() => undefined)
+                .finally(() => {
+                    warmupPromisesByTopic.delete(topic);
+                });
+            warmupPromisesByTopic.set(topic, p);
+            return p;
+        };
 
         const throwIfHeliaIsStoppingOrStopped = () => {
             if (helia.libp2p.status === "stopped" || helia.libp2p.status === "stopping")
@@ -134,28 +181,22 @@ export async function createLibp2pJsClientOrUseExistingOne(
 
                         // @helia/ipns 9.2.x pubsub router throws NotFoundError if zero subscribers exist
                         // for the topic at .get() time. Await peer warmup so the resolver sees a populated
-                        // subscriber list (the wrapped pubsub.subscribe also kicks off warmup, but
-                        // fire-and-forget — too late for the first .get()).
+                        // subscriber list (the monkey-patched pubsub.subscribe also kicks off warmup,
+                        // but fire-and-forget — too late for the first .get()).
                         const ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(ipnsNameAsPeerId.toString());
                         type WarmupOutcome =
                             | { attempted: false }
-                            | { attempted: true; durationMs: number; connectedPeerCount: number }
+                            | { attempted: true; durationMs: number; subscribersAfterWarmup: number }
                             | { attempted: true; durationMs: number; error: PKCError | Error };
                         let warmupOutcome: WarmupOutcome = { attempted: false };
                         if (helia.libp2p.services.pubsub.getSubscribers(ipnsPubsubTopic).length === 0) {
                             const warmupStart = Date.now();
                             try {
-                                const conns = await connectToPubsubPeers({
-                                    helia,
-                                    pubsubTopic: ipnsPubsubTopic,
-                                    maxPeers: 2,
-                                    options,
-                                    log: Logger("pkc-js:helia:ipns:name.resolve:warmup")
-                                });
+                                await warmupForTopic(ipnsPubsubTopic, options);
                                 warmupOutcome = {
                                     attempted: true,
                                     durationMs: Date.now() - warmupStart,
-                                    connectedPeerCount: conns.length
+                                    subscribersAfterWarmup: helia.libp2p.services.pubsub.getSubscribers(ipnsPubsubTopic).length
                                 };
                             } catch (warmupErr) {
                                 warmupOutcome = {
@@ -210,16 +251,13 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 peers: async (topic, options) => helia.libp2p.services.pubsub.getSubscribers(topic),
                 publish: async (topic, data, options) => {
                     throwIfHeliaIsStoppingOrStopped();
-                    if (helia.libp2p.services.pubsub.getSubscribers(topic).length === 0) {
-                        console.log("before", "pubsub publish", "connectToPeersProvidingCid", topic);
-                        await connectToPubsubPeers({
-                            helia,
-                            pubsubTopic: topic,
-                            maxPeers: 2,
-                            options,
-                            log: Logger("pkc-js:helia:pubsub:publish:connectToPeersProvidingCid")
-                        });
-                        console.log("after", "pubsub publish", "connectToPeersProvidingCid", topic);
+                    // Gossipsub publish only delivers to MESH peers (not all subscribers). Gate on
+                    // mesh-peer count: a peer can be a subscriber but still in fanout / pending-graft.
+                    const meshPeerCount = helia.libp2p.services.pubsub.getMeshPeers(topic).length;
+                    if (meshPeerCount === 0) {
+                        log.trace("pubsub publish: no mesh peers, warming up for topic", topic);
+                        await warmupForTopic(topic, options);
+                        log.trace("pubsub publish: warmup complete for topic", topic);
                     }
 
                     const res = await helia.libp2p.services.pubsub.publish(topic, data);
@@ -232,18 +270,10 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 },
                 subscribe: async (topic, handler, options) => {
                     throwIfHeliaIsStoppingOrStopped();
-
-                    if (helia.libp2p.services.pubsub.getSubscribers(topic).length === 0) {
-                        console.log("before pubsub-subscribe", "connectToPeersProvidingCid", topic);
-                        await connectToPubsubPeers({
-                            helia,
-                            pubsubTopic: topic,
-                            maxPeers: 2,
-                            options,
-                            log: Logger("pkc-js:helia:pubsub:subscribe:connectToPeersProvidingCid")
-                        });
-                        console.log("after pubsub-subscribe", "connectToPeersProvidingCid", topic);
-                    }
+                    // Await warmup so the caller's first message arrives on a populated mesh.
+                    // The monkey-patched native subscribe (below) also kicks off warmup, but
+                    // fire-and-forget; this awaits the same in-flight promise via the dedup map.
+                    await warmupForTopic(topic, options);
 
                     //@ts-expect-error
                     pubsubEventHandler.on(topic, handler);
@@ -268,6 +298,24 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 if (clientFromMap.countOfUsesOfInstance <= 0) return; // stop already in progress or over-released
                 clientFromMap.countOfUsesOfInstance--;
                 if (clientFromMap.countOfUsesOfInstance === 0) {
+                    // Remove from the lookup map BEFORE awaiting helia.stop() so a concurrent
+                    // createLibp2pJsClientOrUseExistingOne() can't grab a mid-stopping client.
+                    delete libp2pJsClients[pkcOptions.key];
+
+                    // Tear down the IPNS pubsub router's internal subscription state.
+                    // PubSubRouting (from @helia/ipns/routing) implements Startable and tracks its
+                    // own subscriptions list — without stop() those subscriptions leak past helia.
+                    for (const router of ipnsNameResolver.routers) {
+                        const lifecycle = router as { stop?: () => void | Promise<void> };
+                        if (typeof lifecycle.stop === "function") {
+                            try {
+                                await lifecycle.stop();
+                            } catch (e) {
+                                log.error("Error stopping IPNS router", router?.constructor?.name, e);
+                            }
+                        }
+                    }
+
                     for (const topic of helia.libp2p.services.pubsub.getTopics()) helia.libp2p.services.pubsub.unsubscribe(topic);
                     try {
                         await helia.stop();
@@ -275,7 +323,6 @@ export async function createLibp2pJsClientOrUseExistingOne(
                         log.error("Error stopping helia", e);
                     }
 
-                    delete libp2pJsClients[pkcOptions.key];
                     log("Helia/libp2p-js stopped with key", pkcOptions.key, "and peer id", helia.libp2p.peerId.toString());
                 }
             }
@@ -283,21 +330,12 @@ export async function createLibp2pJsClientOrUseExistingOne(
 
         const originalSubscribe = helia.libp2p.services.pubsub.subscribe.bind(helia.libp2p.services.pubsub);
 
-        const connectToPeersProvidingTopic = async (topic: string) => {
-            console.log("before", "native pubsub-subscribe", "connectToPeersProvidingTopic", topic);
-            await connectToPubsubPeers({
-                helia,
-                pubsubTopic: topic,
-                maxPeers: 2,
-                log: Logger("pkc-js:helia:pubsub:subscribe:connectToPeersProvidingTopic")
-            });
-            console.log("after", "native pubsub-subscribe", "connectToPeersProvidingTopic", topic, "done");
-        };
-
+        // Monkey-patch the native pubsub.subscribe so internal callers (notably @helia/ipns) also
+        // get peer warmup. Sync return preserves the gossipsub contract; warmup runs fire-and-forget
+        // here and shares its in-flight promise with awaitable callers via warmupForTopic's dedup map.
         helia.libp2p.services.pubsub.subscribe = (topic) => {
             throwIfHeliaIsStoppingOrStopped();
-            if (helia.libp2p.services.pubsub.getSubscribers(topic).length === 0)
-                connectToPeersProvidingTopic(topic).catch((err) => log.error("Error connecting to peers providing topic", err));
+            warmupForTopic(topic).catch((err) => log.error("warmup failed for topic", topic, err));
             originalSubscribe(topic);
         };
 

@@ -8,7 +8,7 @@ import {
     createMockedCommunityIpns
 } from "../../../dist/node/test/test-util.js";
 import signers from "../../fixtures/signers.js";
-import { describe, it, beforeAll, afterAll, expect } from "vitest";
+import { describe, it, beforeAll, afterAll, expect, vi } from "vitest";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { IpfsHttpClientPubsubMessage } from "../../../dist/node/types.js";
@@ -334,5 +334,132 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 await resolverPKC.destroy();
             }
         }, 30000);
+    });
+
+    // The @helia/ipns IPNS class constructs `routers = [localStoreRouting, heliaRouting, ...userRouters]`.
+    // pkc-js passes `[ourPubsubRouter]` and then does `routers = routers.slice(1)`, leaving
+    // `[heliaRouting, ourPubsubRouter]`. This shape is load-bearing: future @helia/ipns
+    // versions could re-order the array and silently drop the pubsub router (or keep the
+    // local-store cache that nothing populates). This test pins the current shape so any
+    // upgrade that breaks it surfaces here instead of at runtime.
+    describe(`IPNS router shape - ${config.name}`, () => {
+        it("ipnsNameResolver.routers contains exactly heliaRouting and our pubsub router", async () => {
+            const pkc = await config.pkcInstancePromise();
+            try {
+                const heliaClient = Object.values(pkc.clients.libp2pJsClients)[0];
+                const routers = heliaClient._heliaIpnsRouter.routers;
+
+                expect(routers.length, `expected exactly 2 routers (heliaRouting + pubsub), got ${routers.length}`).to.equal(2);
+
+                const constructorNames = routers.map((r) => r?.constructor?.name);
+                // pubsub router should be present
+                expect(constructorNames, `routers: ${constructorNames.join(", ")}`).to.include("PubSubRouting");
+                // localStoreRouting should NOT be present (we slice it off intentionally so reads don't
+                // hit a cache we never populate)
+                expect(constructorNames, `localStoreRouting must be sliced off, got: ${constructorNames.join(", ")}`).to.not.include(
+                    "LocalStoreRouting"
+                );
+            } finally {
+                await pkc.destroy();
+            }
+        });
+
+        it("helia.routing.routers does not include the HTTP gateway router", async () => {
+            const pkc = await config.pkcInstancePromise();
+            try {
+                const heliaClient = Object.values(pkc.clients.libp2pJsClients)[0];
+                //@ts-expect-error — helia.routing.routers is internal
+                const routers: unknown[] = heliaClient._helia.routing.routers;
+                const constructorNames = routers.map((r) => (r as { constructor?: { name?: string } })?.constructor?.name);
+                // We slice helia.routing.routers down to a single non-gateway router (line 95 of helia-for-pkc.ts).
+                // Block requests over an HTTP gateway are not what we want via IPNS resolution.
+                expect(routers.length, `expected exactly 1 routing router, got ${routers.length}`).to.equal(1);
+                expect(
+                    constructorNames.some((n) => typeof n === "string" && n.toLowerCase().includes("gateway")),
+                    `helia.routing.routers must not include gateway-class router, got: ${constructorNames.join(", ")}`
+                ).to.be.false;
+            } finally {
+                await pkc.destroy();
+            }
+        });
+    });
+
+    // Regression test for B2 (helia-for-pkc.ts:30 TODO): the IPNS pubsub router (PubSubRouting)
+    // maintains its own list of subscribed topics in `getSubscriptions()`. When we destroy a
+    // PKC instance the wrapper unsubscribes pubsub topics on gossipsub but never calls the
+    // router's stop()/cancel(), so the router-level subscriptions outlive helia and leak.
+    describe(`IPNS pubsub router lifecycle - ${config.name}`, () => {
+        it("router subscriptions are torn down on destroy", async () => {
+            const { communityAddress } = await createMockedCommunityIpns({});
+            const pkc = await config.pkcInstancePromise();
+            const heliaClient = Object.values(pkc.clients.libp2pJsClients)[0];
+            const heliaShape = heliaClient.heliaWithKuboRpcClientFunctions;
+
+            // Trigger an IPNS resolve so the pubsub router records a subscription internally.
+            await firstFromAsyncIterable(heliaShape.name.resolve(communityAddress, { nocache: true, recursive: true }));
+
+            // Find the pubsub router by class name (matches the shape pinned in the
+            // "IPNS router shape" suite above).
+            const pubsubRouter = heliaClient._heliaIpnsRouter.routers.find((r) => r?.constructor?.name === "PubSubRouting") as
+                | (import("@helia/ipns/routing").PubsubRoutingComponents extends never ? never : unknown)
+                | undefined;
+            expect(pubsubRouter, "expected to find a PubSubRouting in _heliaIpnsRouter.routers").to.exist;
+
+            const routerWithLifecycle = pubsubRouter as {
+                getSubscriptions: () => string[];
+                stop: () => void | Promise<void>;
+            };
+            const subsBeforeDestroy = routerWithLifecycle.getSubscriptions();
+            expect(
+                subsBeforeDestroy.length,
+                `pubsub router should track at least one subscription after a successful resolve, got ${subsBeforeDestroy.length}`
+            ).to.be.greaterThan(0);
+
+            const stopSpy = vi.spyOn(routerWithLifecycle, "stop");
+
+            await pkc.destroy();
+
+            expect(
+                stopSpy.mock.calls.length,
+                "PubSubRouting.stop() must be called during PKC.destroy() so the router cleans up internal subscriptions"
+            ).to.be.greaterThan(0);
+        });
+    });
+
+    // Regression test for O4 (helia-for-pkc.ts:194-206): heliaFs.cat() must honor the caller's
+    // AbortSignal — without it, a fetch for a CID nobody is providing would hang forever.
+    describe(`Helia cat() honors AbortSignal - ${config.name}`, () => {
+        it("cat() rejects within the abort window when no peer has the block", async () => {
+            const pkc = await config.pkcInstancePromise();
+            try {
+                const heliaClient = Object.values(pkc.clients.libp2pJsClients)[0];
+                const heliaShape = heliaClient.heliaWithKuboRpcClientFunctions;
+
+                // A v0 CID for content nobody in the test environment is providing. Generated
+                // offline and pinned to this test (so it stays unknown).
+                const cidNoOneHas = "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG";
+
+                const TIMEOUT_MS = 2000;
+                const start = Date.now();
+                let rejected = false;
+                try {
+                    // cat() returns AsyncIterable<Uint8Array>; iterate to trigger fetching.
+                    for await (const _chunk of heliaShape.cat(cidNoOneHas, { signal: AbortSignal.timeout(TIMEOUT_MS) })) {
+                        // any chunk means someone served it - shouldn't happen in this test
+                    }
+                } catch (err) {
+                    rejected = true;
+                    const elapsed = Date.now() - start;
+                    // Allow generous slack for CI: must reject within 4x the timeout.
+                    expect(
+                        elapsed,
+                        `cat() rejected after ${elapsed}ms, expected within ${TIMEOUT_MS * 4}ms (signal must be forwarded)`
+                    ).to.be.lessThan(TIMEOUT_MS * 4);
+                }
+                expect(rejected, "cat() must reject when AbortSignal fires before any block arrives").to.be.true;
+            } finally {
+                await pkc.destroy();
+            }
+        }, 15000);
     });
 });
