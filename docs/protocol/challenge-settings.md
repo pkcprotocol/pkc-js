@@ -1,10 +1,8 @@
 # Challenge Settings: Private vs Public
 
-<!-- Note: "subplebbit" is being renamed to "community" — see RENAMING_GUIDE.md -->
-
 ## Summary
 
-Community challenge configuration has a strict private/public boundary. `community.settings.challenges[]` is private — accessible only to the community owner, either via local SQLite or via RPC when connected to the RPC server that owns the community. Only `community.challenges[]`, a sanitized derivative, is published to IPNS. The `options` field (containing answers, passwords, address lists) is **always stripped** before publication.
+Community challenge configuration has a strict private/public boundary. `community.settings.challenges[]` is private: accessible only to the community owner, either via local SQLite or via RPC when connected to the RPC server that owns the community. Only `community.challenges[]`, a sanitized derivative, is published to IPNS. The `options` field (containing answers, passwords, address lists) is **always stripped** before publication.
 
 ## The Two Schemas
 

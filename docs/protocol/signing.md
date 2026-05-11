@@ -1,10 +1,8 @@
 # Signing and Verification
 
-<!-- Note: "subplebbit" is being renamed to "community" — see RENAMING_GUIDE.md -->
-
 ## Summary
 
-Every publication and record in the protocol is Ed25519 signed. Each type declares its own `signedPropertyNames` — an explicit list of which fields the signature covers. Verification re-encodes those exact fields with CBORG and checks the Ed25519 signature.
+Every publication and record in the protocol is Ed25519 signed. Each type declares its own `signedPropertyNames`: an explicit list of which fields the signature covers. Verification re-encodes those exact fields with CBORG and checks the Ed25519 signature.
 
 ## How Signing Works
 
@@ -20,11 +18,11 @@ Every publication and record in the protocol is Ed25519 signed. Each type declar
 |--------|-----------|---------------|--------------------------|
 | `CommentPubsubMessage` | Author | `JsonSignature` | `CommentSignedPropertyNames` |
 | `CommentIpfs` | Author (preserved) | `JsonSignature` | `CommentSignedPropertyNames` |
-| `CommentUpdate` | Subplebbit owner | `JsonSignature` | `CommentUpdateSignedPropertyNames` |
+| `CommentUpdate` | Community owner | `JsonSignature` | `CommentUpdateSignedPropertyNames` |
 | `Vote` | Author | `JsonSignature` | `VoteSignedPropertyNames` |
 | `CommentEdit` | Author | `JsonSignature` | `CommentEditSignedPropertyNames` |
 | `CommentModeration` | Moderator | `JsonSignature` | `CommentModerationSignedPropertyNames` |
-| `SubplebbitIpfs` | Subplebbit owner | `JsonSignature` | `SubplebbitSignedPropertyNames` |
+| `CommunityIpfsType` | Community owner | `JsonSignature` | `CommunitySignedPropertyNames` |
 | Challenge messages | Sender | `PubsubSignature` | Per-message type (binary, not JSON) |
 
 ## Signature Object Shapes
@@ -75,26 +73,26 @@ All in `src/signer/signatures.ts`:
 | Function | Purpose |
 |----------|---------|
 | `signComment()` | Sign a CommentPubsubMessage |
-| `signCommentUpdate()` | Sign a CommentUpdate (subplebbit signs) |
+| `signCommentUpdate()` | Sign a CommentUpdate (community signs) |
 | `signVote()` | Sign a Vote |
 | `signCommentEdit()` | Sign a CommentEdit |
-| `signSubplebbit()` | Sign a SubplebbitIpfs record |
+| `signCommunity()` | Sign a `CommunityIpfsType` record |
 | `verifyComment()` | Verify CommentIpfs/CommentPubsubMessage signature |
-| `verifyCommentUpdate()` | Verify CommentUpdate was signed by the correct subplebbit |
-| `verifySubplebbit()` | Verify SubplebbitIpfs signature |
+| `verifyCommentUpdate()` | Verify CommentUpdate was signed by the correct community |
+| `verifyCommunity()` | Verify `CommunityIpfsType` signature |
 | `verifyPage()` | Verify all comments and updates in a page |
 
 ## Invariants
 
-- `signedPropertyNames` is self-describing — the signature only covers the listed fields.
+- `signedPropertyNames` is self-describing: the signature only covers the listed fields.
 - Null/undefined values are excluded before CBORG encoding.
 - The `signature` field itself is never in `signedPropertyNames`.
-- `CommentUpdate.edit.signature.publicKey` must match the original comment's `signature.publicKey` — prevents someone else's edit from being injected.
-- Old publications may have different `signedPropertyNames` than new ones (backward compat) — always use the list from the actual signature object, not a hardcoded const.
+- `CommentUpdate.edit.signature.publicKey` must match the original comment's `signature.publicKey`: prevents someone else's edit from being injected.
+- Old publications may have different `signedPropertyNames` than new ones (backward compat): always use the list from the actual signature object, not a hardcoded const.
 
 ## Common Mistakes
 
-- Including runtime fields in signing — fields like `address`, `publicKey`, `shortAddress` are not signed.
+- Including runtime fields in signing: fields like `address`, `publicKey`, `shortAddress` are not signed.
 - Adding non-deterministic fields (random IDs, variable timestamps) to signable objects.
-- Using the wrong signer — `CommentIpfs` must keep the author's signature; `CommentUpdate` must be signed by the subplebbit owner.
-- Assuming `signedPropertyNames` is the same across all versions — old records may differ.
+- Using the wrong signer: `CommentIpfs` must keep the author's signature; `CommentUpdate` must be signed by the community owner.
+- Assuming `signedPropertyNames` is the same across all versions: old records may differ.

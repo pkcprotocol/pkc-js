@@ -1,17 +1,15 @@
 # Challenge/Response Flow
 
-<!-- Note: "subplebbit" is being renamed to "community" — see RENAMING_GUIDE.md -->
-
 ## Summary
 
-Before a publication is accepted by a subplebbit, the author must complete a challenge exchange. This is a 4-message encrypted conversation over pubsub between the author and the subplebbit. The subplebbit defines which challenges to use in its `challenges[]` configuration.
+Before a publication is accepted by a community, the author must complete a challenge exchange. This is a 4-message encrypted conversation over pubsub between the author and the community. The community defines which challenges to use in its `challenges[]` configuration.
 
 ## The 4-Message Exchange
 
 ```
-Author                              Subplebbit
+Author                              Community
   │                                     │
-  │─── ChallengeRequestMessage ────────>│  Encrypted with subplebbit's public key
+  │─── ChallengeRequestMessage ────────>│  Encrypted with community's public key
   │    (contains the publication)       │  Contains: comment/vote/edit + challengeRequest options
   │                                     │
   │<── ChallengeMessage ───────────────│  Encrypted reply
@@ -31,21 +29,21 @@ All in `src/pubsub-messages/schema.ts`:
 
 | Message | Schema | Encrypted Payload |
 |---------|--------|-------------------|
-| `ChallengeRequestMessage` | `ChallengeRequestMessageSchema` | `DecryptedChallengeRequestSchema` — contains the publication + challenge options |
-| `ChallengeMessage` | `ChallengeMessageSchema` | `DecryptedChallengeSchema` — contains `challenges[]` to solve |
-| `ChallengeAnswerMessage` | `ChallengeAnswerMessageSchema` | `DecryptedChallengeAnswerSchema` — contains `challengeAnswers[]` |
-| `ChallengeVerificationMessage` | `ChallengeVerificationMessageSchema` | `DecryptedChallengeVerificationSchema` — contains `comment` + `commentUpdate` on success |
+| `ChallengeRequestMessage` | `ChallengeRequestMessageSchema` | `DecryptedChallengeRequestSchema`: contains the publication + challenge options |
+| `ChallengeMessage` | `ChallengeMessageSchema` | `DecryptedChallengeSchema`: contains `challenges[]` to solve |
+| `ChallengeAnswerMessage` | `ChallengeAnswerMessageSchema` | `DecryptedChallengeAnswerSchema`: contains `challengeAnswers[]` |
+| `ChallengeVerificationMessage` | `ChallengeVerificationMessageSchema` | `DecryptedChallengeVerificationSchema`: contains `comment` + `commentUpdate` on success |
 
 ## Encryption
 
 - Uses **AES-GCM** with a shared secret derived from Ed25519 key exchange
-- `ChallengeRequestMessage.encrypted`: encrypted with subplebbit's `encryption.publicKey`
-- Each request uses a **new keypair** — `challengeRequestId` = multihash of the request's `signature.publicKey`
+- `ChallengeRequestMessage.encrypted`: encrypted with community's `encryption.publicKey`
+- Each request uses a **new keypair**, `challengeRequestId` = multihash of the request's `signature.publicKey`
 - See `docs/encryption.md` for low-level details
 
 ## Challenge Types
 
-Built-in challenges defined in `src/runtime/node/subplebbit/challenges/`:
+Built-in challenges defined in `src/runtime/node/community/challenges/`:
 
 | Type | Description |
 |------|-------------|
@@ -56,11 +54,11 @@ Built-in challenges defined in `src/runtime/node/subplebbit/challenges/`:
 | `whitelist` | Allow only from lists |
 | `fail` | Always fails (for testing) |
 
-External challenges can be registered via `Plebbit.challenges` static object.
+External challenges can be registered via `PKC.challenges` static object.
 
 ## Exclude Rules
 
-Each challenge in `SubplebbitIpfs.challenges[]` can have `exclude` rules that skip the challenge for certain authors:
+Each challenge in `CommunityIpfsType.challenges[]` can have `exclude` rules that skip the challenge for certain authors:
 
 - Author karma thresholds (postScore, replyScore)
 - Account age
@@ -68,7 +66,7 @@ Each challenge in `SubplebbitIpfs.challenges[]` can have `exclude` rules that sk
 - Whether previous challenges in the array were already passed
 - Rate limiting
 
-Exclude logic: `src/runtime/node/subplebbit/challenges/exclude/exclude.ts`
+Exclude logic: `src/runtime/node/community/challenges/exclude/exclude.ts`
 
 ## ChallengeVerification Result
 
@@ -84,7 +82,7 @@ On **failure**:
 
 ## Community Challenge Configuration
 
-The community owner configures challenges privately via `community.settings.challenges[]`. Only sanitized metadata is published publicly to `community.challenges[]` — the `options` field (containing answers, passwords, address lists) is always stripped. See [challenge-settings.md](challenge-settings.md) for the full private/public boundary.
+The community owner configures challenges privately via `community.settings.challenges[]`. Only sanitized metadata is published publicly to `community.challenges[]`, the `options` field (containing answers, passwords, address lists) is always stripped. See [challenge-settings.md](challenge-settings.md) for the full private/public boundary.
 
 ## Key Files
 
@@ -92,12 +90,12 @@ The community owner configures challenges privately via `community.settings.chal
 |------|---------|
 | `src/pubsub-messages/schema.ts` | All message schemas |
 | `src/pubsub-messages/types.ts` | Message type definitions |
-| `src/runtime/node/subplebbit/challenges/index.ts` | Challenge processing logic (Node-only) |
-| `src/runtime/node/subplebbit/challenges/exclude/exclude.ts` | Exclude rule evaluation |
+| `src/runtime/node/community/challenges/index.ts` | Challenge processing logic (Node-only) |
+| `src/runtime/node/community/challenges/exclude/exclude.ts` | Exclude rule evaluation |
 | `src/publications/publication.ts` | Author-side publish flow |
 
 ## Common Mistakes
 
-- Forgetting that challenge messages are encrypted — you can't read them without the shared secret.
-- Confusing `SubplebbitIpfs.challenges[]` (configuration) with `ChallengeMessage.challenges[]` (actual challenges to solve).
-- Not handling `pendingApproval` — even on challenge success, the comment may go to mod queue.
+- Forgetting that challenge messages are encrypted, you can't read them without the shared secret.
+- Confusing `CommunityIpfsType.challenges[]` (configuration) with `ChallengeMessage.challenges[]` (actual challenges to solve).
+- Not handling `pendingApproval`, even on challenge success, the comment may go to mod queue.

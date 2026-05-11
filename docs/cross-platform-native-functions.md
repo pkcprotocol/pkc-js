@@ -1,26 +1,34 @@
 # Cross platform native functions
 
-`pkc-js` is written entirely in Javascript and can run in the browser. Some pkc functionalities require native functions like the file system and native HTTP requests. Electron and Android WebView allow injecting native functions into the browser renderer. Example:
+`pkc-js` is written entirely in JavaScript and can run in both Node.js and the browser. A small set of functionalities needs a platform-specific implementation, so pkc-js ships a default `fetch` per environment and lets you override it (for example, when running inside Electron or an Android WebView with an injected native HTTP client).
 
-```javascript
-import Pkc from '@pkcprotocol/pkc-js'
+## Current NativeFunctions surface
 
-const nativeFunctions = {
-  fetch: async () => {},
-  listCommunities: async () => {},
-  // ...no need to override all native functions
-}
+The type is defined in [src/types.ts](../src/types.ts):
 
-Pkc.setNativeFunctions(nativeFunctions)
+```ts
+export type NativeFunctions = {
+  fetch: typeof fetch;
+};
 ```
 
-# NativeFunctions API
+Today only `fetch` is overridable. Defaults are wired up in [src/index.ts](../src/index.ts) from `src/runtime/node/native-functions.ts` and `src/runtime/browser/native-functions.ts`, and the active platform is chosen by the bundler.
 
-- `nativeFunctions.fetch(url: string, fetchOptions: FetchOptions)`
-- `nativeFunctions.listCommunities()`
-- `nativeFunctions.deleteCommunity(communityAddress: string)`
-- `nativeFunctions.createIpfsClient(ipfsHttpClientOptions: IpfsHttpClientOptions)`
+## Overriding the defaults
 
-# TODO
+```js
+import PKC, { setNativeFunctions, nativeFunctions } from '@pkcprotocol/pkc-js';
 
-- Define SQL native functions to be able to run a community on Android
+// Replace the default fetch (e.g. with a native HTTP bridge from Electron / WebView)
+setNativeFunctions({ fetch: myNativeFetch });
+
+// You can still inspect the platform-specific defaults
+console.log(nativeFunctions.node.fetch);
+console.log(nativeFunctions.browser.fetch);
+```
+
+`setNativeFunctions` accepts a partial object; only the keys you pass are overridden. Re-call it with `{}` is a no-op rather than a reset.
+
+## TODO
+
+- Define SQL native functions to be able to run a community on Android.

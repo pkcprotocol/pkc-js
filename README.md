@@ -18,7 +18,7 @@ Note: IPFS files are immutable, fetched by their CID, which is a hash of their c
 ### Schema:
 
 ```js
-Address: string // a PKC author, community or multisub "address" can be a crypto domain like memes.bso, an IPNS name, an ethereum address, etc. How to resolve ENS names https://github.com/pkcprotocol/pkc-js/blob/master/docs/ens.md
+Address: string // a PKC author, community or multisub "address" can be a crypto domain like memes.bso, an IPNS name, an ethereum address, etc.
 Publication {
   author: Author
   communityPublicKey: string // IPNS public key of the community this publication is directed to
@@ -143,7 +143,7 @@ Nft {
   address: string // address of the NFT contract
   id: string // tokenId or index of the specific NFT used, must be string type, not number
   signature: Signature // proof that author.address owns the nft
-  // how to resolve and verify NFT signatures https://github.com/pkcprotocol/pkc-js/blob/master/docs/nft.md
+  // how to resolve and verify NFT signatures https://github.com/bitsocialnet/evm-contract-challenge/blob/master/docs/nft.md
 }
 Signature {
   signature: string // data in base64

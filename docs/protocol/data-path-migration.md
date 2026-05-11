@@ -27,7 +27,7 @@ The new directory layout:
 
 ## What pkc-js Handles Automatically
 
-- **DB schema migration (v36 → v37)**: When pkc-js opens an existing community database, it automatically migrates `subplebbitAddress` to `communityPublicKey`/`communityName` columns. See `docs/protocol/db-subplebbit-address-migration.md` for details.
+- **DB schema migration (v36 → v37)**: When pkc-js opens an existing community database, it automatically migrates `subplebbitAddress` to `communityPublicKey`/`communityName` columns. See `docs/protocol/db-community-address-migration.md` for details.
 - **Storage keys**: Internal storage keys (e.g., `PERSISTENT_DELETED_COMMUNITIES`) have been renamed. Old keys with old names become orphaned but harmless.
 
 ## What Downstream Apps Must Handle
