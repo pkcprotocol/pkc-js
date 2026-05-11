@@ -8,7 +8,7 @@ import {
     mockPKC,
     generateMockPost,
     publishWithExpectedResult,
-    waitUntilPKCCommunitiesIncludeSubAddress,
+    waitUntilPKCCommunitiesIncludeCommunityAddress,
     publishRandomPost,
     createSubWithNoChallenge,
     resolveWhenConditionIsTrue,
@@ -98,7 +98,7 @@ describeSkipIfRpc.sequential(`DB importing`, async () => {
             path: path.join(regularPKC.dataPath!, "communities", signers[0].address)
         };
         await copyDbToDataPath(databaseToMigrate, pkc);
-        await waitUntilPKCCommunitiesIncludeSubAddress(pkc, databaseToMigrate.address);
+        await waitUntilPKCCommunitiesIncludeCommunityAddress(pkc, databaseToMigrate.address);
         expect(pkc.communities).to.include(databaseToMigrate.address);
         await regularPKC.destroy();
     });
@@ -109,7 +109,7 @@ describeSkipIfRpc.sequential(`DB importing`, async () => {
         const tempPKC: PKCType = await mockPKC(getTemporaryPKCOptions());
         const srcDbPath = path.join(regularPKC.dataPath!, "communities", randomSub.address);
         await fs.promises.cp(srcDbPath, path.join(tempPKC.dataPath!, "communities", randomSub.address));
-        await waitUntilPKCCommunitiesIncludeSubAddress(tempPKC, randomSub.address);
+        await waitUntilPKCCommunitiesIncludeCommunityAddress(tempPKC, randomSub.address);
         // Should be included in tempPKC.communities now
         const community = (await tempPKC.createCommunity({ address: randomSub.address })) as LocalCommunity | RpcLocalCommunity;
         await community.edit({
@@ -154,7 +154,7 @@ describeSkipIfRpc.sequential(`DB importing`, async () => {
         const tempPKC: PKCType = await mockPKC(getTemporaryPKCOptions()); // different kubo, should use sequence in keyv
         const srcDbPath = path.join(regularPKC.dataPath!, "communities", randomSub.address);
         await fs.promises.cp(srcDbPath, path.join(tempPKC.dataPath!, "communities", randomSub.address));
-        await waitUntilPKCCommunitiesIncludeSubAddress(tempPKC, randomSub.address);
+        await waitUntilPKCCommunitiesIncludeCommunityAddress(tempPKC, randomSub.address);
         // Should be included in tempPKC.communities now
         const community = (await tempPKC.createCommunity({ address: randomSub.address })) as LocalCommunity | RpcLocalCommunity;
         await community.start();
@@ -205,7 +205,7 @@ describeSkipIfRpc.sequential("DB Migration", () => {
             );
             await copyDbToDataPath(databaseInfo, pkc);
 
-            await waitUntilPKCCommunitiesIncludeSubAddress(pkc, databaseInfo.address);
+            await waitUntilPKCCommunitiesIncludeCommunityAddress(pkc, databaseInfo.address);
 
             const community = (await pkc.createCommunity({ address: databaseInfo.address })) as LocalCommunity | RpcLocalCommunity;
             expect(community.started).to.be.a("boolean"); // make sure it's creating a local sub instance

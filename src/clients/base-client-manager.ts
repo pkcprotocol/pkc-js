@@ -955,9 +955,9 @@ export class BaseClientsManager {
     }
 
     protected async _withInflightCommunityFetch(
-        subAddress: string,
+        communityAddress: string,
         fetcher: () => Promise<ResultOfFetchingCommunity>
     ): Promise<ResultOfFetchingCommunity> {
-        return this._pkc._inflightFetchManager.withResource(InflightResourceTypes.COMMUNITY_IPNS, subAddress, fetcher);
+        return this._pkc._inflightFetchManager.withResource(InflightResourceTypes.COMMUNITY_IPNS, communityAddress, fetcher);
     }
 }

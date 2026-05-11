@@ -3588,7 +3588,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         } catch (e) {
             await this.stop(); // Make sure to reset the community state
             //@ts-expect-error
-            e.details = { ...e.details, subAddress: this.address };
+            e.details = { ...e.details, communityAddress: this.address };
             throw e;
         }
 

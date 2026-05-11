@@ -437,20 +437,20 @@ export class CommunityClientsManager extends PKCClientsManager {
         });
     }
 
-    async fetchNewUpdateForCommunity(subAddress: string): Promise<ResultOfFetchingCommunity> {
-        return this._withInflightCommunityFetch(subAddress, async () => {
+    async fetchNewUpdateForCommunity(communityAddress: string): Promise<ResultOfFetchingCommunity> {
+        return this._withInflightCommunityFetch(communityAddress, async () => {
             let ipnsName: string | null;
-            const isDomain = isStringDomain(subAddress);
+            const isDomain = isStringDomain(communityAddress);
 
             if (this._community.publicKey && (isDomain || (!isDomain && this._community.name && this._community.nameResolved === true))) {
                 // Once a domain has been verified against a public key, keep fetching through the current public key
                 // even if the immutable address on the instance is a raw IPNS key.
                 ipnsName = this._community.publicKey;
-                if (isDomain) this._resolveNameInBackground(subAddress);
+                if (isDomain) this._resolveNameInBackground(communityAddress);
             } else {
                 // Name only or publicKey only: use existing resolution flow
                 ipnsName = await this.resolveCommunityNameIfNeeded({
-                    communityName: subAddress,
+                    communityName: communityAddress,
                     abortSignal: this._community._getStopAbortSignal(),
                     // Subscribe-by-domain can ride the cache for up to 1h.
                     cache: { maxAge: 3600 }
@@ -494,7 +494,7 @@ export class CommunityClientsManager extends PKCClientsManager {
                         //@ts-expect-error
                         ...e.details,
                         ipnsName,
-                        subAddress,
+                        communityAddress,
                         ipnsPubsubTopic: this._community.ipnsPubsubTopic,
                         ipnsPubsubTopicRoutingCid: this._community.ipnsPubsubTopicRoutingCid
                     };

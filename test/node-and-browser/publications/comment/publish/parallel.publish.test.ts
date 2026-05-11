@@ -65,7 +65,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
 
                 const stressPublishCount = typeof globalThis.window !== "undefined" ? 20 : 100; // on browser it fails more often for some reason
                 const offlineCommunity = await createMockedCommunityIpns({});
-                const offlineSubAddress = offlineCommunity.communityAddress; // this community is not online so can't respond to messages, although the IPNS record is fetchable
+                const offlineCommunityAddress = offlineCommunity.communityAddress; // this community is not online so can't respond to messages, although the IPNS record is fetchable
 
                 const challengeRequestIds = new Set();
                 const externalPeerChallengeRequests = new Set();
@@ -80,7 +80,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                     externalPeer.once("connect", () => resolve());
                     externalPeer.once("connect_error", reject);
                 });
-                externalPeer.on(offlineSubAddress, (msg: unknown) => {
+                externalPeer.on(offlineCommunityAddress, (msg: unknown) => {
                     const asBytes = normalizeToUint8(msg);
                     if (!asBytes) return;
                     try {
@@ -96,7 +96,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                     const comments = await Promise.all(
                         new Array(stressPublishCount).fill(null).map(async (_, index) => {
                             const comment = await pkc.createComment({
-                                communityAddress: offlineSubAddress,
+                                communityAddress: offlineCommunityAddress,
                                 title: `parallel publish stress ${index}`,
                                 content: `parallel publish stress content ${index}`,
                                 signer: await pkc.createSigner()
@@ -115,12 +115,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                                 () =>
                                     reject(
                                         new Error(
-                                            `Timed out waiting for mock pubsub challenge requests on ${offlineSubAddress} after ${stressPublishCount} publishes`
+                                            `Timed out waiting for mock pubsub challenge requests on ${offlineCommunityAddress} after ${stressPublishCount} publishes`
                                         )
                                     ),
                                 20000
                             );
-                            externalPeer.on(offlineSubAddress, () => {
+                            externalPeer.on(offlineCommunityAddress, () => {
                                 if (externalPeerChallengeRequests.size >= stressPublishCount) {
                                     clearTimeout(timeout);
                                     resolve();

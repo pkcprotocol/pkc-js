@@ -1898,8 +1898,8 @@ export function jsonifyCommentAndRemoveInstanceProps(comment: Comment) {
     return remeda.omit(jsonfied, ["clients", "state", "updatingState", "state", "publishingState", "raw"]);
 }
 
-export async function waitUntilPKCCommunitiesIncludeSubAddress(pkc: PKC, subAddress: string) {
-    return pkc._awaitCommunitiesToIncludeCommunity(subAddress);
+export async function waitUntilPKCCommunitiesIncludeCommunityAddress(pkc: PKC, communityAddress: string) {
+    return pkc._awaitCommunitiesToIncludeCommunity(communityAddress);
 }
 
 export function isPKCFetchingUsingGateways(pkc: PKC): boolean {
@@ -2290,7 +2290,7 @@ export async function findOrPublishCommentWithDepthWithHttpServerShortcut({
 }): Promise<Comment> {
     const pkcWithDefault = pkc || community._pkc;
 
-    const queryUrl = `http://localhost:14953/find-comment-with-depth?subAddress=${community.address}&commentDepth=${depth}`;
+    const queryUrl = `http://localhost:14953/find-comment-with-depth?communityAddress=${community.address}&commentDepth=${depth}`;
 
     const commentWithSameDepthOrClosest: CommentsTableRow = <any>await (await fetch(queryUrl)).json();
 

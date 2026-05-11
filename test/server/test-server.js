@@ -306,11 +306,11 @@ const setUpMockGateways = async () => {
         else if (req.url === "/ipfs/bafybeicx52dlvj3dlxtvr2hbr4femfntkeikr4erlmsnxequm2tezud7rm")
             res.end("This string does not generate the CID in the URL. This should throw an error in pkc.fetchCid");
         else if (req.url.includes("/ipns")) {
-            const subAddress = convertBase32ToBase58btc(req.url.split("/")[2]);
-            const sub = await pkc.getCommunity({ address: subAddress });
-            res.setHeader("x-ipfs-roots", sub.updateCid);
-            res.setHeader("etag", sub.updateCid);
-            res.end(JSON.stringify(sub.raw.communityIpfs));
+            const communityAddress = convertBase32ToBase58btc(req.url.split("/")[2]);
+            const community = await pkc.getCommunity({ address: communityAddress });
+            res.setHeader("x-ipfs-roots", community.updateCid);
+            res.setHeader("etag", community.updateCid);
+            res.end(JSON.stringify(community.raw.communityIpfs));
         } else res.end((await pkc.fetchCid({ cid: req.url })).content);
     })
         .listen(13415, hostName)
@@ -761,18 +761,18 @@ const setUpMockPubsubServer = async () => {
             if (pathname === "/find-comment-with-depth") {
                 if (req.method !== "GET") throw new Error("Method not allowed for /find-comment-with-depth");
                 const query = querystring.parse(parsedUrl.query ?? "");
-                const subAddressParam = Array.isArray(query.subAddress) ? query.subAddress[0] : query.subAddress;
+                const communityAddressParam = Array.isArray(query.communityAddress) ? query.communityAddress[0] : query.communityAddress;
                 const depthParam = Array.isArray(query.commentDepth) ? query.commentDepth[0] : query.commentDepth;
 
-                if (typeof subAddressParam !== "string" || subAddressParam.trim().length === 0)
-                    throw new Error("subAddress query parameter is required");
+                if (typeof communityAddressParam !== "string" || communityAddressParam.trim().length === 0)
+                    throw new Error("communityAddress query parameter is required");
                 if (typeof depthParam !== "string" || depthParam.trim().length === 0)
                     throw new Error("commentDepth query parameter is required");
 
                 const commentDepth = Number(depthParam);
                 if (!Number.isInteger(commentDepth) || commentDepth < 0) throw new Error("commentDepth must be a non-negative integer");
 
-                const normalizedAddress = subAddressParam.trim();
+                const normalizedAddress = communityAddressParam.trim();
                 const [, communityInstance] = Object.entries(subs).find(([, sub]) => sub?.address === normalizedAddress) || [];
                 if (!communityInstance) throw new Error(`Community ${normalizedAddress} not found`);
 

@@ -28,9 +28,9 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
         const normalIpfsGateway = `http://localhost:18080`;
         const gatewayPKC = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [error429Gateway, normalIpfsGateway] } });
         const randomSigner = await gatewayPKC.createSigner();
-        const offlineSubAddress = randomSigner.address; // offline community
+        const offlineCommunityAddress = randomSigner.address; // offline community
 
-        const post = await generateMockPost({ communityAddress: offlineSubAddress, pkc: gatewayPKC });
+        const post = await generateMockPost({ communityAddress: offlineCommunityAddress, pkc: gatewayPKC });
 
         gatewayPKC._timeouts["community-ipns"] = 5000; // reduce timeout or otherwise it's gonna keep retrying for 5 minutes
 

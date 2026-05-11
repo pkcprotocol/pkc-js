@@ -62,8 +62,8 @@ describeSkipIfRpc(`community.edit`, async () => {
         pkcResolverRecords.set(bsoNameAddress, community.signer.address);
         remoteResolverRecords.set(bsoNameAddress, community.signer.address);
 
-        const resolvedSubAddress = await remotePKC._clientsManager.resolveCommunityNameIfNeeded({ communityName: bsoNameAddress });
-        expect(resolvedSubAddress).to.equal(community.signer.address);
+        const resolvedCommunityAddress = await remotePKC._clientsManager.resolveCommunityNameIfNeeded({ communityName: bsoNameAddress });
+        expect(resolvedCommunityAddress).to.equal(community.signer.address);
 
         await pkc.resolveAuthorName({ name: "esteban.bso" });
         await community.start();
@@ -420,10 +420,10 @@ describeSkipIfRpc(`Concurrency with community.edit`, async () => {
                 pkcResolverRecords.set(editArgs.address, communityInstance.signer.address);
                 pkc._storage.removeItem = () => Promise.resolve(false); // stop clearing cache when editing community address
 
-                const resolvedSubAddress = await pkc._clientsManager.resolveCommunityNameIfNeeded({
+                const resolvedCommunityAddress = await pkc._clientsManager.resolveCommunityNameIfNeeded({
                     communityName: editArgs.address
                 });
-                expect(resolvedSubAddress).to.equal(communityInstance.signer.address);
+                expect(resolvedCommunityAddress).to.equal(communityInstance.signer.address);
             }
 
             let editIsFinished: boolean;
@@ -620,10 +620,10 @@ describe(`Edit misc`, async () => {
         const customPKC = await mockPKCV2({ stubStorage: false, mockResolve: true });
         const newCommunity = (await customPKC.createCommunity()) as LocalCommunity | RpcLocalCommunity;
         if (!customPKC._pkcRpcClient) {
-            const resolvedSubAddress = await customPKC._clientsManager.resolveCommunityNameIfNeeded({
+            const resolvedCommunityAddress = await customPKC._clientsManager.resolveCommunityNameIfNeeded({
                 communityName: "no-sub-address.bso"
             });
-            expect(resolvedSubAddress).to.equal(null);
+            expect(resolvedCommunityAddress).to.equal(null);
         }
 
         // Has no community-address text record
