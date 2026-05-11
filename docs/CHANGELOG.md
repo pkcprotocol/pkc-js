@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.31](https://github.com/pkcprotocol/pkc-js/compare/v0.0.30...v0.0.31) (2026-05-11)
+
+### Bug Fixes
+
+* **helia:** hardening pass from setup review ([960573f](https://github.com/pkcprotocol/pkc-js/commit/960573ff110a4ba386bade0b09fda20dd8d7a912))
+* **test:** deflake key-migration cleared-state assertion under RPC ([d487a54](https://github.com/pkcprotocol/pkc-js/commit/d487a54e94d40ea4441709015048acdbdceeffa7))
+
 ## [0.0.30](https://github.com/pkcprotocol/pkc-js/compare/v0.0.29...v0.0.30) (2026-05-07)
 
 ### Bug Fixes
