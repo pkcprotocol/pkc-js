@@ -154,13 +154,6 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                         }
                     });
                 });
-                const clearedUpdatePromise = new Promise<void>((resolve) => {
-                    community.on("update", () => {
-                        if (community.publicKey === differentKey && community.updatedAt === undefined) {
-                            resolve();
-                        }
-                    });
-                });
 
                 await community.update();
 
@@ -175,13 +168,18 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(error.details.previousPublicKey).to.equal(ipnsKey);
                 expect(error.details.newPublicKey).to.equal(differentKey);
 
-                await clearedUpdatePromise;
-                // Data should be cleared
-                expect(community.updatedAt).to.be.undefined;
-                expect(community.raw.communityIpfs).to.be.undefined;
-                // publicKey updated to new key
+                // Predicate matching means the cleared state was observed during an "update" emit.
+                // Don't re-read these fields after the await — the update loop continues with
+                // the new key by design and may repopulate updatedAt before the next line runs.
+                await resolveWhenConditionIsTrue({
+                    toUpdate: community,
+                    predicate: async () =>
+                        community.publicKey === differentKey &&
+                        community.updatedAt === undefined &&
+                        community.raw.communityIpfs === undefined
+                });
+                // publicKey is stable post-migration; address is immutable
                 expect(community.publicKey).to.equal(differentKey);
-                // address stays immutable
                 expect(community.address).to.equal(ipnsKey);
 
                 await community.stop();
