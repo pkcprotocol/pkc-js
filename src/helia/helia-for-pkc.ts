@@ -69,7 +69,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 // for now we're overwriting addresses
                 addresses: { listen: [] }, // TODO at some point we should use addresses, but right now it gets into an infinite loop with random walk
                 peerDiscovery: undefined,
-                // helia merges shallowly: setting `transports` overrides defaults entirely, so we re-spread helia's per-environment defaults and append browser-only extras (e.g. webTransport)
+                // helia merges shallowly: setting `transports` overrides defaults entirely, so we re-spread helia's per-environment defaults and append per-runtime extras
                 transports: [...(heliaLibp2pDefaults.transports ?? []), ...extraLibp2pTransports],
                 ...pkcOptions.libp2pOptions,
                 // Configure connection manager to handle more concurrent streams

@@ -23,3 +23,7 @@ Tests in `./test/browser` and `.test/node-and-browser` are run fully in the brow
 The test files should be written in plain javascript and import the built files from `./dist/node`, not `./src`. The `node-and-browser` test files should still import from `./dist/node` because webpack will automatically replace it with `./dist/browser` (because of the `browser` property in `package.json`).
 
 The test files should import using commonjs (using require(), not ES import) and use the built files in`./dist` because we want our tests to run directly against the production builds to simulate a real user importing `pkc-js`.
+
+#### Gotcha: do not add `webTransport()` to the browser libp2p transports
+
+`./src/runtime/browser/libp2p-extra-transports.ts` is mirrored into the browser build (see step 2 above) and its array is appended to helia's default libp2p transports. Adding `webTransport()` here breaks pubsub IPNS resolution in the browser: ~93% of communities time out (60s "did not emit update") on every iteration, even though the dialed connections are all WS-TLS and webTransport never carries traffic. Its mere presence in the registered transport list breaks the pubsub fast-path. Reproduced via `npm run benchmark:ipns:pkc:browser` in `benchmarking_libp2p_on_plebbit-js` (0/15 iterations complete with webTransport, 15/15 clean without). Root cause is unidentified; keep this file's array empty until we understand it.
