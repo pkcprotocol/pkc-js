@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.32](https://github.com/pkcprotocol/pkc-js/compare/v0.0.31...v0.0.32) (2026-05-12)
+
+### Bug Fixes
+
+* **libp2p:** drop webTransport from browser transports ([210f4bd](https://github.com/pkcprotocol/pkc-js/commit/210f4bdd367aa02d03fcb617e03919a1a01cd01d))
+
 ## [0.0.31](https://github.com/pkcprotocol/pkc-js/compare/v0.0.30...v0.0.31) (2026-05-11)
 
 ### Bug Fixes
