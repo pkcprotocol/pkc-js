@@ -302,6 +302,36 @@ const evaluatePhase2Exclusion = ({
     return { decision: allRulesEvaluable ? "ready" : "skip" };
 };
 
+// A `success: false` result for challenge i is "final" if no `exclude.challenges` rule on i can still
+// fire — i.e. for every rule, at least one referenced dep is decided as non-success. If any dep is
+// still undecided, the rule could still succeed at a later phase and exclude i's failure, so the
+// failure isn't final yet. This lets the orchestrator stop calling further getChallenge()s once
+// Phase 5 is guaranteed to produce challengeSuccess: false anyway.
+const canFailedChallengeStillBeExcluded = (
+    i: number,
+    communityChallenges: CommunityChallenge[],
+    decided: boolean[],
+    results: (Challenge | ChallengeResult | undefined)[]
+): boolean => {
+    const cc = communityChallenges[i];
+    if (!cc.exclude?.length) return false;
+    for (const item of cc.exclude) {
+        if (!item.challenges?.length) continue;
+        let ruleCanStillFire = true;
+        for (const j of item.challenges) {
+            if (!decided[j]) continue; // still undecided → could succeed later
+            const r = results[j];
+            const succeeded = r !== undefined && "success" in r && r.success === true;
+            if (!succeeded) {
+                ruleCanStillFire = false;
+                break;
+            }
+        }
+        if (ruleCanStillFire) return true;
+    }
+    return false;
+};
+
 const getPendingChallengesOrChallengeVerification = async ({
     challengeRequestMessage,
     community
@@ -357,6 +387,20 @@ const getPendingChallengesOrChallengeVerification = async ({
     // `deferred[i] = true` means index i was decided but its result is not yet known — it will be
     // resolved at verify time once pending challenges produce verify outcomes.
     const deferred: boolean[] = new Array(challengeCount).fill(false);
+    // Set to true once a decided challenge has an unrecoverable failure — Phase 5 will short-circuit
+    // to challengeSuccess: false anyway, so further getChallenge() calls would be wasted (and would
+    // let a doomed publication spam expensive challenges like AI moderation).
+    let shortCircuitToFailure = false;
+    const anyDecidedFailureIsFinal = (): boolean => {
+        for (let k = 0; k < challengeCount; k++) {
+            const r = results[k];
+            if (!decided[k] || r === undefined) continue;
+            if ("success" in r && r.success === false && !canFailedChallengeStillBeExcluded(k, communityChallenges, decided, results)) {
+                return true;
+            }
+        }
+        return false;
+    };
     while (true) {
         let progress = false;
 
@@ -399,6 +443,15 @@ const getPendingChallengesOrChallengeVerification = async ({
             }
             break;
         }
+        // Before the cycle-break, check whether Phase 5 is already destined to short-circuit to
+        // failure (some decided challenge has a `success: false` result whose exclude rules can no
+        // longer fire). If so, defer the rest — otherwise we'd uselessly call a challenge such as
+        // ai-moderation (an OpenAI request) only to discard its result. This is the issue #81 case
+        // for *failed* dependencies; the pending-dependency case is handled by `hasPending` above.
+        if (anyDecidedFailureIsFinal()) {
+            shortCircuitToFailure = true;
+            break;
+        }
         // Phase 3: cycle-break by calling getChallenge for the lowest-index undecided challenge.
         results[firstUndecided] = (
             await callGetChallenge({
@@ -410,6 +463,15 @@ const getPendingChallengesOrChallengeVerification = async ({
             })
         ).challengeOrChallengeResult;
         decided[firstUndecided] = true;
+    }
+
+    if (shortCircuitToFailure) {
+        for (let i = 0; i < challengeCount; i++) {
+            if (!decided[i]) {
+                decided[i] = true;
+                deferred[i] = true;
+            }
+        }
     }
 
     // Phase 4: collect deferred-bucket entries.
@@ -583,6 +645,27 @@ const getChallengeVerificationFromChallengeAnswers = async ({
             if (progress) continue;
             const firstUndecided = decided.findIndex((d) => !d);
             if (firstUndecided === -1) break;
+            // Same final-failure short-circuit as the request-time loop: if a verify result (e.g.
+            // spam-blocker iframe) came back failed and its exclude rules can no longer fire, Phase 5
+            // will already report challengeSuccess: false — don't cycle-break into the deferred AI
+            // moderation challenges and burn an OpenAI/Grok call just to discard the result.
+            let anyFinalFailureAtVerify = false;
+            for (let k = 0; k < challengeCount; k++) {
+                const r = results[k];
+                if (!decided[k] || r === undefined) continue;
+                if (
+                    "success" in r &&
+                    r.success === false &&
+                    !canFailedChallengeStillBeExcluded(k, loadedCommunityChallenges, decided, results)
+                ) {
+                    anyFinalFailureAtVerify = true;
+                    break;
+                }
+            }
+            if (anyFinalFailureAtVerify) {
+                for (const d of deferred) if (!decided[d.index]) decided[d.index] = true;
+                break;
+            }
             // Cycle-break: lowest-index undecided deferred index.
             const file = await ensureChallengeFile(firstUndecided);
             results[firstUndecided] = (

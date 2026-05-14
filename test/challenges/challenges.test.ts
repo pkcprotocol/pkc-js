@@ -513,6 +513,15 @@ describe("real-world config: AI moderation getChallenge() fires even when exclud
         }
     });
 
+    // Mock spam-blocker that immediately fails (used to reproduce the AI-moderation-still-fires-after-failure bug)
+    const mockSpamBlockerFailFactory = () => ({
+        type: "text/plain" as const,
+        getChallenge: async () => {
+            spamBlockerCallCount++;
+            return { success: false as const, error: "spam-blocker rejected" };
+        }
+    });
+
     // Mock AI moderation (allow branch): returns immediate success, tracks calls
     const mockAiModerationAllowFactory = () => ({
         type: "text/plain" as const,
@@ -646,6 +655,73 @@ describe("real-world config: AI moderation getChallenge() fires even when exclud
         // Spam-blocker is pending (not yet solved), so overall result is pending
         expect(result.challengeSuccess).to.equal(undefined);
         // AI moderation should only fire AFTER spam-blocker verify returns success
+        expect(aiModerationAllowCallCount).to.equal(0);
+        expect(aiModerationReviewCallCount).to.equal(0);
+    });
+
+    // Same config as createCommunity() but C2 (spam-blocker) returns immediate failure instead of pending iframe.
+    const createCommunityWithFailingSpamBlocker = () => {
+        const pkc = PKC() as ReturnType<typeof PKC> & { settings: { challenges: Record<string, unknown> } };
+        pkc.settings = {
+            challenges: {
+                "mock-spam-blocker": mockSpamBlockerFailFactory,
+                "mock-ai-moderation-allow": mockAiModerationAllowFactory,
+                "mock-ai-moderation-review": mockAiModerationReviewFactory
+            }
+        };
+        return {
+            settings: {
+                challenges: [
+                    {
+                        name: "publication-match",
+                        options: {
+                            matches: '[{"propertyName":"author.name","regexp":"\\\\.(bso)$"}]',
+                            error: "Posting requires a name ending with .bso"
+                        },
+                        exclude: [{ role: ["moderator", "admin", "owner"] }, { challenges: [1] }, { challenges: [2] }]
+                    },
+                    {
+                        name: "whitelist",
+                        options: { addresses: "whitelisted-author.bso" },
+                        exclude: [{ role: ["moderator", "admin", "owner"] }, { challenges: [0] }, { challenges: [2] }]
+                    },
+                    {
+                        name: "mock-spam-blocker",
+                        exclude: [{ challenges: [0] }, { challenges: [1] }, { role: ["owner", "admin", "moderator"] }]
+                    },
+                    {
+                        name: "mock-ai-moderation-allow",
+                        exclude: [{ challenges: [0] }, { challenges: [1] }, { challenges: [4] }, { role: ["owner", "admin", "moderator"] }]
+                    },
+                    {
+                        name: "mock-ai-moderation-review",
+                        exclude: [{ challenges: [0] }, { challenges: [1] }, { challenges: [3] }, { role: ["owner", "admin", "moderator"] }],
+                        pendingApproval: true
+                    }
+                ]
+            },
+            _pkc: pkc
+        };
+    };
+
+    it("neither match, nor whitelist, and spam-blocker fails → AI moderation getChallenge() should not be called", async () => {
+        resetCallCounts();
+        // C0 fails (name doesn't end .bso), C1 fails (not whitelisted), C2 fails (spam-blocker rejects).
+        // The publication is doomed to fail anyway, so C3/C4 (the expensive AI-moderation calls) must not fire.
+        const community = createCommunityWithFailingSpamBlocker() as unknown as LocalCommunity;
+        const request = {
+            comment: { author: { address: getRandomAddress(), name: "no-bso-name" } }
+        } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+
+        const result = (await getPendingChallengesOrChallengeVerification({
+            challengeRequestMessage: request,
+            community
+        })) as ChallengeVerificationResult & {
+            challengeSuccess?: boolean;
+        };
+
+        expect(result.challengeSuccess).to.equal(false);
+        expect(spamBlockerCallCount).to.equal(1);
         expect(aiModerationAllowCallCount).to.equal(0);
         expect(aiModerationReviewCallCount).to.equal(0);
     });
@@ -1139,5 +1215,336 @@ describe("await getCommunityChallengeFromCommunityChallengeSettings", () => {
         });
         expect(communityChallenge.exclude).to.not.equal(undefined);
         expect(communityChallenge.exclude).to.deep.equal(community.settings.challenges[0].exclude);
+    });
+});
+
+describe("real-world bitsocial config: production-faithful coverage", () => {
+    // Mirrors the exact production settings.challenges from the bitsocial community:
+    //   C0 publication-match (with karma + role + mutual-challenge excludes)
+    //   C1 whitelist (with role + mutual-challenge excludes)
+    //   C2 spam-blocker (with role + publicationType + mutual-challenge excludes)
+    //   C3 ai-moderation "allow" branch
+    //   C4 ai-moderation "review" branch with pendingApproval
+    // Expensive challenges (C2/C3/C4) are mocked so we can count getChallenge() invocations
+    // and parameterise outcomes; C0/C1 use the real built-in publication-match / whitelist
+    // factories so production-faithful exclude rules are exercised end-to-end.
+
+    let spamBlockerCallCount = 0;
+    let aiAllowCount = 0;
+    let aiReviewCount = 0;
+    let iframeVerifyCount = 0;
+    const reset = () => {
+        spamBlockerCallCount = 0;
+        aiAllowCount = 0;
+        aiReviewCount = 0;
+        iframeVerifyCount = 0;
+    };
+
+    type SpamBlockerMode = "pending-success" | "pending-fail" | "succeed" | "fail";
+    const buildSpamBlockerFactory = (mode: SpamBlockerMode) => () => ({
+        type: "url/iframe" as const,
+        getChallenge: async () => {
+            spamBlockerCallCount++;
+            if (mode === "pending-success" || mode === "pending-fail") {
+                return {
+                    challenge: "https://spamblocker.example.com/verify",
+                    type: "url/iframe" as const,
+                    verify: async () => {
+                        iframeVerifyCount++;
+                        return mode === "pending-success"
+                            ? ({ success: true } as { success: true })
+                            : ({ success: false, error: "spam-blocker iframe rejected" } as { success: false; error: string });
+                    }
+                };
+            }
+            if (mode === "succeed") return { success: true as const };
+            return { success: false as const, error: "spam-blocker rejected" };
+        }
+    });
+
+    const buildAiAllowFactory = (success: boolean) => () => ({
+        type: "text/plain" as const,
+        getChallenge: async () => {
+            aiAllowCount++;
+            return success ? { success: true as const } : { success: false as const, error: "ai-moderation allow rejected" };
+        }
+    });
+
+    const buildAiReviewFactory = (success: boolean) => () => ({
+        type: "text/plain" as const,
+        getChallenge: async () => {
+            aiReviewCount++;
+            return success ? { success: true as const } : { success: false as const, error: "ai-moderation review rejected" };
+        }
+    });
+
+    type CommunityVariant = { spamBlocker: SpamBlockerMode; aiAllow?: boolean; aiReview?: boolean };
+    const MOD_ADDRESS = "mod-author.bso";
+    const WHITELISTED_ADDRESS = "whitelisted-author.bso";
+
+    const createCommunity = (variant: CommunityVariant) => {
+        const pkc = PKC() as ReturnType<typeof PKC> & { settings: { challenges: Record<string, unknown> } };
+        pkc.settings = {
+            challenges: {
+                "mock-spam-blocker": buildSpamBlockerFactory(variant.spamBlocker),
+                "mock-ai-moderation-allow": buildAiAllowFactory(variant.aiAllow ?? true),
+                "mock-ai-moderation-review": buildAiReviewFactory(variant.aiReview ?? true)
+            }
+        };
+        return {
+            settings: {
+                challenges: [
+                    {
+                        name: "publication-match",
+                        options: {
+                            matches: '[{"propertyName":"author.name","regexp":"\\\\.(bso)$"}]',
+                            error: "Posting requires a name ending with .bso"
+                        },
+                        exclude: [
+                            { role: ["moderator", "admin", "owner"] },
+                            { postScore: 3, replyScore: 0, firstCommentTimestamp: 2592000, rateLimit: 2 },
+                            { challenges: [1] },
+                            { challenges: [2] }
+                        ]
+                    },
+                    {
+                        name: "whitelist",
+                        options: { addresses: WHITELISTED_ADDRESS },
+                        exclude: [{ role: ["moderator", "admin", "owner"] }, { challenges: [0] }, { challenges: [2] }]
+                    },
+                    {
+                        name: "mock-spam-blocker",
+                        exclude: [
+                            { challenges: [0] },
+                            { challenges: [1] },
+                            { role: ["owner", "admin", "moderator"] },
+                            { publicationType: { commentModeration: true, communityEdit: true } }
+                        ]
+                    },
+                    {
+                        name: "mock-ai-moderation-allow",
+                        exclude: [
+                            { challenges: [0] },
+                            { challenges: [1] },
+                            { challenges: [4] },
+                            { role: ["owner", "admin", "moderator"] },
+                            { publicationType: { commentModeration: true, communityEdit: true } }
+                        ]
+                    },
+                    {
+                        name: "mock-ai-moderation-review",
+                        exclude: [
+                            { challenges: [0] },
+                            { challenges: [1] },
+                            { challenges: [3] },
+                            { role: ["owner", "admin", "moderator"] },
+                            { publicationType: { commentModeration: true, communityEdit: true } }
+                        ],
+                        pendingApproval: true
+                    }
+                ]
+            },
+            roles: { [MOD_ADDRESS]: { role: "moderator" } },
+            _pkc: pkc
+        };
+    };
+
+    type RequestVariant = {
+        author: {
+            address: string;
+            name?: string;
+            community?: { postScore?: number; replyScore?: number; firstCommentTimestamp?: number };
+        };
+        publicationType?: "commentModeration" | "communityEdit";
+    };
+    const buildRequest = (variant: RequestVariant) => {
+        const req: Record<string, unknown> = { comment: { author: variant.author } };
+        if (variant.publicationType === "commentModeration") req.commentModeration = { commentCid: "Qm-mod-target" };
+        if (variant.publicationType === "communityEdit") req.communityEdit = { communityAddress: "test.bso" };
+        return req as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+    };
+
+    it("scenario 1: mod publishes a regular comment → all challenges Phase-1-excluded by role", async () => {
+        reset();
+        // spam-blocker mode is irrelevant — should never be called
+        const community = createCommunity({ spamBlocker: "fail" }) as unknown as LocalCommunity;
+        const request = buildRequest({ author: { address: MOD_ADDRESS, name: "regular" } });
+        const result = (await getPendingChallengesOrChallengeVerification({
+            challengeRequestMessage: request,
+            community
+        })) as ChallengeVerificationResult & { challengeSuccess?: boolean };
+        expect(result.challengeSuccess).to.equal(true);
+        expect(spamBlockerCallCount).to.equal(0);
+        expect(aiAllowCount).to.equal(0);
+        expect(aiReviewCount).to.equal(0);
+    });
+
+    it("scenario 2: high-karma user (no .bso, not whitelisted) with failing spam-blocker → AI moderation skipped via final-failure short-circuit", async () => {
+        reset();
+        const community = createCommunity({ spamBlocker: "fail" }) as unknown as LocalCommunity;
+        // Karma exclude on C0: postScore≥3, replyScore≥0, firstCommentTimestamp older than 30 days.
+        const oldTimestamp = Math.floor(Date.now() / 1000) - 31 * 86400;
+        const request = buildRequest({
+            author: {
+                address: getRandomAddress(),
+                name: "no-bso-name",
+                community: { postScore: 5, replyScore: 0, firstCommentTimestamp: oldTimestamp }
+            }
+        });
+        const result = (await getPendingChallengesOrChallengeVerification({
+            challengeRequestMessage: request,
+            community
+        })) as ChallengeVerificationResult & { challengeSuccess?: boolean; challengeErrors?: Record<number, string> };
+        expect(result.challengeSuccess).to.equal(false);
+        expect(spamBlockerCallCount).to.equal(1);
+        expect(aiAllowCount).to.equal(0);
+        expect(aiReviewCount).to.equal(0);
+        // C0 was Phase-1-excluded by karma → no error reported for it
+        expect(result.challengeErrors?.[0]).to.equal(undefined);
+        expect(typeof result.challengeErrors?.[1]).to.equal("string");
+        expect(typeof result.challengeErrors?.[2]).to.equal("string");
+    });
+
+    it("scenario 3: comment-moderation publication by regular user → C2/C3/C4 publicationType-excluded; only C0/C1 evaluated", async () => {
+        reset();
+        const community = createCommunity({ spamBlocker: "succeed" }) as unknown as LocalCommunity;
+        const request = buildRequest({
+            author: { address: getRandomAddress(), name: "no-bso-name" },
+            publicationType: "commentModeration"
+        });
+        const result = (await getPendingChallengesOrChallengeVerification({
+            challengeRequestMessage: request,
+            community
+        })) as ChallengeVerificationResult & { challengeSuccess?: boolean; challengeErrors?: Record<number, string> };
+        expect(result.challengeSuccess).to.equal(false);
+        expect(spamBlockerCallCount).to.equal(0);
+        expect(aiAllowCount).to.equal(0);
+        expect(aiReviewCount).to.equal(0);
+        expect(typeof result.challengeErrors?.[0]).to.equal("string");
+        expect(typeof result.challengeErrors?.[1]).to.equal("string");
+    });
+
+    it("scenario 4: community-edit publication by mod → all Phase-1-excluded (role + publicationType combined)", async () => {
+        reset();
+        const community = createCommunity({ spamBlocker: "fail" }) as unknown as LocalCommunity;
+        const request = buildRequest({ author: { address: MOD_ADDRESS }, publicationType: "communityEdit" });
+        const result = (await getPendingChallengesOrChallengeVerification({
+            challengeRequestMessage: request,
+            community
+        })) as ChallengeVerificationResult & { challengeSuccess?: boolean };
+        expect(result.challengeSuccess).to.equal(true);
+        expect(spamBlockerCallCount).to.equal(0);
+        expect(aiAllowCount).to.equal(0);
+        expect(aiReviewCount).to.equal(0);
+    });
+
+    it("scenario 5: whitelisted author with would-fail spam-blocker → C1 success excludes the rest, no expensive call", async () => {
+        reset();
+        const community = createCommunity({ spamBlocker: "fail" }) as unknown as LocalCommunity;
+        const request = buildRequest({ author: { address: WHITELISTED_ADDRESS } });
+        const result = (await getPendingChallengesOrChallengeVerification({
+            challengeRequestMessage: request,
+            community
+        })) as ChallengeVerificationResult & { challengeSuccess?: boolean };
+        expect(result.challengeSuccess).to.equal(true);
+        expect(spamBlockerCallCount).to.equal(0);
+        expect(aiAllowCount).to.equal(0);
+        expect(aiReviewCount).to.equal(0);
+    });
+
+    it("scenario 6: .bso author with would-fail spam-blocker → C0 success excludes the rest, no expensive call", async () => {
+        reset();
+        const community = createCommunity({ spamBlocker: "fail" }) as unknown as LocalCommunity;
+        const request = buildRequest({ author: { address: getRandomAddress(), name: "user.bso" } });
+        const result = (await getPendingChallengesOrChallengeVerification({
+            challengeRequestMessage: request,
+            community
+        })) as ChallengeVerificationResult & { challengeSuccess?: boolean };
+        expect(result.challengeSuccess).to.equal(true);
+        expect(spamBlockerCallCount).to.equal(0);
+        expect(aiAllowCount).to.equal(0);
+        expect(aiReviewCount).to.equal(0);
+    });
+
+    it("scenario 7: regular user, spam-blocker succeeds, AI-allow succeeds → success; AI-review skipped via C3 success", async () => {
+        reset();
+        const community = createCommunity({
+            spamBlocker: "succeed",
+            aiAllow: true,
+            aiReview: true
+        }) as unknown as LocalCommunity;
+        const request = buildRequest({ author: { address: getRandomAddress(), name: "no-bso-name" } });
+        const result = (await getPendingChallengesOrChallengeVerification({
+            challengeRequestMessage: request,
+            community
+        })) as ChallengeVerificationResult & { challengeSuccess?: boolean };
+        expect(result.challengeSuccess).to.equal(true);
+        expect(spamBlockerCallCount).to.equal(1);
+        expect(aiAllowCount).to.equal(1);
+        expect(aiReviewCount).to.equal(0);
+    });
+
+    it("scenario 8: regular user, spam-blocker succeeds, AI-allow fails, AI-review succeeds → success with pendingApproval", async () => {
+        reset();
+        const community = createCommunity({
+            spamBlocker: "succeed",
+            aiAllow: false,
+            aiReview: true
+        }) as unknown as LocalCommunity;
+        const request = buildRequest({ author: { address: getRandomAddress(), name: "no-bso-name" } });
+        const result = (await getPendingChallengesOrChallengeVerification({
+            challengeRequestMessage: request,
+            community
+        })) as ChallengeVerificationResult & { challengeSuccess?: boolean; pendingApprovalSuccess?: boolean };
+        expect(result.challengeSuccess).to.equal(true);
+        expect(result.pendingApprovalSuccess).to.equal(true);
+        expect(spamBlockerCallCount).to.equal(1);
+        expect(aiAllowCount).to.equal(1);
+        expect(aiReviewCount).to.equal(1);
+    });
+
+    it("scenario 9: verify-time — spam-blocker pending → verify success → AI moderation runs at verify time", async () => {
+        reset();
+        const community = createCommunity({
+            spamBlocker: "pending-success",
+            aiAllow: true,
+            aiReview: true
+        }) as unknown as LocalCommunity;
+        const request = buildRequest({ author: { address: getRandomAddress(), name: "no-bso-name" } });
+        const getChallengeAnswers: GetChallengeAnswers = async () => ["any-answer"];
+        const result = await getChallengeVerification({
+            challengeRequestMessage: request,
+            community,
+            getChallengeAnswers
+        });
+        expect(result.challengeSuccess).to.equal(true);
+        expect(spamBlockerCallCount).to.equal(1);
+        expect(iframeVerifyCount).to.equal(1);
+        expect(aiAllowCount).to.equal(1);
+        expect(aiReviewCount).to.equal(0);
+    });
+
+    it("scenario 10: verify-time — spam-blocker pending → verify failure → AI moderation must NOT run at verify time", async () => {
+        reset();
+        const community = createCommunity({
+            spamBlocker: "pending-fail",
+            aiAllow: true,
+            aiReview: true
+        }) as unknown as LocalCommunity;
+        const request = buildRequest({ author: { address: getRandomAddress(), name: "no-bso-name" } });
+        const getChallengeAnswers: GetChallengeAnswers = async () => ["any-answer"];
+        const result = await getChallengeVerification({
+            challengeRequestMessage: request,
+            community,
+            getChallengeAnswers
+        });
+        expect(result.challengeSuccess).to.equal(false);
+        expect(spamBlockerCallCount).to.equal(1);
+        expect(iframeVerifyCount).to.equal(1);
+        // After spam-blocker rejects at verify time the publication is doomed; the verify-time
+        // cycle-break must short-circuit just like the request-time one — otherwise AI moderation
+        // (an OpenAI/Grok call) gets spammed for any post that fails the iframe.
+        expect(aiAllowCount).to.equal(0);
+        expect(aiReviewCount).to.equal(0);
     });
 });
