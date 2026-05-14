@@ -104,6 +104,10 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 - When a test times out, capture both stdout and stderr (e.g. `--stdout-log .tmp/out.log --stderr-log .tmp/err.log` or `DEBUG="pkc-js*,pkc-react-hooks*"`) and inspect them — timeouts usually indicate an uncaught error that isn't surfaced in the default output.
 - `FailedToFetchCommunityFromGatewaysError: Failed to fetch Community IPNS record from gateway` is a generic wrapper error — the message alone does not explain the root cause. Always inspect the error's `details` field and any nested/inner errors to find the actual failure reason.
 
+### Workflow
+
+- For changes under `src/` or `test/`, open a pull request rather than pushing directly to `master` so CodeRabbit can review. Direct push to `master` is fine for docs, config tweaks, `AGENTS.md`/`CLAUDE.md` edits, and hotfixes.
+
 ## Domain Notes
 
 - Each HTTP router keeps provider announcements for only 24 hours.
