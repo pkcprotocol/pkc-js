@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.33](https://github.com/pkcprotocol/pkc-js/compare/v0.0.32...v0.0.33) (2026-05-15)
+
+### Bug Fixes
+
+* **challenges:** skip downstream getChallenge() when prereqs have final-failed ([a50f33c](https://github.com/pkcprotocol/pkc-js/commit/a50f33c8d9d862238c2ec259c09e5d5605bd747d)), closes [#81](https://github.com/pkcprotocol/pkc-js/issues/81)
+* **libp2p:** disable connectionMonitor abort-on-ping-failure ([b29532b](https://github.com/pkcprotocol/pkc-js/commit/b29532b9df5f364839b696d8ea21c2f3076db120))
+
 ## [0.0.32](https://github.com/pkcprotocol/pkc-js/compare/v0.0.31...v0.0.32) (2026-05-12)
 
 ### Bug Fixes
