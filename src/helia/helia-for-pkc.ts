@@ -71,6 +71,12 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 peerDiscovery: undefined,
                 // helia merges shallowly: setting `transports` overrides defaults entirely, so we re-spread helia's per-environment defaults and append per-runtime extras
                 transports: [...(heliaLibp2pDefaults.transports ?? []), ...extraLibp2pTransports],
+                // libp2p's ConnectionMonitor pings every peer every 10s; on ping-timeout it
+                // aborts the connection (`abortConnectionOnPingFailure` defaults to true).
+                // Under our workload the publisher's ping response queues behind block-serving
+                // traffic and gets timed out, killing connections mid-fetch. Disable the abort
+                // (ping still runs as an RTT signal).
+                connectionMonitor: { abortConnectionOnPingFailure: false },
                 ...pkcOptions.libp2pOptions,
                 // Configure connection manager to handle more concurrent streams
 
