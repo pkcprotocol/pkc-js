@@ -785,7 +785,33 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         const stats = this._dbHandler.queryCommunityStats();
 
-        if (commentUpdateRowsToPublishToIpfs.length > 0) await this._syncPostUpdatesWithIpfs(commentUpdateRowsToPublishToIpfs);
+        if (commentUpdateRowsToPublishToIpfs.length > 0) {
+            try {
+                await this._syncPostUpdatesWithIpfs(commentUpdateRowsToPublishToIpfs);
+            } catch (e) {
+                const err = <Error>e;
+                const isMfsTimeout =
+                    err.message.includes("Timed out writing to MFS path") || err.message.includes("Timed out removing MFS paths");
+                if (isMfsTimeout) {
+                    // Workaround for ipfs/kubo#10842: deeply nested MFS paths hang, but rm of the community root is fast.
+                    log.error(
+                        `MFS sync stuck for community ${this.address} - auto-nuking /${this.address} and forcing a full republish. See https://github.com/ipfs/kubo/issues/10842 for upstream context.`
+                    );
+                    const kuboRpc = this._clientsManager.getDefaultKuboRpcClient();
+                    try {
+                        await kuboRpc._client.files.rm("/" + this.address, {
+                            recursive: true,
+                            //@ts-expect-error force is not in FilesRmOptions
+                            force: true
+                        });
+                    } catch (rmErr) {
+                        log.error(`Auto-nuke files.rm of /${this.address} failed:`, rmErr);
+                    }
+                    this._dbHandler.forceUpdateOnAllComments();
+                }
+                throw e;
+            }
+        }
 
         const newPostUpdates = await this._calculateNewPostUpdates();
         const newModQueue = await this._pageGenerator.generateModQueuePages();
