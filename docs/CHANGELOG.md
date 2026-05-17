@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.34](https://github.com/pkcprotocol/pkc-js/compare/v0.0.33...v0.0.34) (2026-05-17)
+
+### Bug Fixes
+
+* **local-community:** auto-nuke MFS subtree when sync hits kubo MFS hang ([8f80c25](https://github.com/pkcprotocol/pkc-js/commit/8f80c25e17bdb443c24da6da2b20c4f5a28eb8bf)), closes [ipfs/kubo#10842](https://github.com/ipfs/kubo/issues/10842)
+
 ## [0.0.33](https://github.com/pkcprotocol/pkc-js/compare/v0.0.32...v0.0.33) (2026-05-15)
 
 ### Bug Fixes
