@@ -295,6 +295,14 @@ export async function connectToPubsubPeers({
         else log.trace("Mesh peers count after wait", meshPeerCount, "for topic", pubsubTopic, "took", waitMs, "ms");
     }
 
+    // If the caller's abort signal fired and that's why graftError was set, propagate the
+    // abort rather than reporting success. We may have happened to connect to some peers
+    // via findProviders before the abort hit, but the caller asked us to stop — best-effort
+    // semantics apply to timeouts, not to explicit aborts.
+    if (graftError && options?.signal?.aborted) {
+        throw graftError;
+    }
+
     // Only treat zero successful dials as fatal when we also failed to observe a subscriber.
     // If a subscriber appeared (e.g. a peer we couldn't dial directly is still in our gossipsub
     // mesh via another path), the warmup achieved its goal even with zero dial successes.

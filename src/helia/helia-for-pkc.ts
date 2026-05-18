@@ -278,13 +278,18 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     throwIfHeliaIsStoppingOrStopped();
                     //@ts-expect-error
                     pubsubEventHandler.on(topic, handler);
-                    // Native subscribe must run before awaiting warmup. The monkey-patched
-                    // subscribe (below) kicks off warmupForTopic fire-and-forget; the await
-                    // picks up the same deduplicated in-flight promise. Order matters because
-                    // warmup now waits for a mesh edge to form, and gossipsub only grafts a
-                    // mesh edge for topics we're locally subscribed to.
+                    // Start warmup BEFORE native subscribe so the caller's abort signal lands
+                    // on the promise stored in warmupPromisesByTopic. The monkey-patched
+                    // pubsub.subscribe below also fires warmupForTopic, but with no options;
+                    // if it ran first the dedup map would hold a signal-less promise and the
+                    // caller's signal would be silently dropped. warmupForTopic returns
+                    // synchronously up to connectToPubsubPeers's first await, so by the time
+                    // its internal mesh-wait runs, the native subscribe call below has already
+                    // added us to gossipsub's topic set (mesh edges only form for topics we're
+                    // locally subscribed to).
+                    const warmupPromise = warmupForTopic(topic, options);
                     helia.libp2p.services.pubsub.subscribe(topic);
-                    await warmupForTopic(topic, options);
+                    await warmupPromise;
                 },
                 unsubscribe: async (topic, handler, options) => {
                     throwIfHeliaIsStoppingOrStopped();
