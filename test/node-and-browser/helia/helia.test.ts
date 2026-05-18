@@ -23,10 +23,8 @@ const mathCliNoMockedPubsubCommunityAddress = signers[5].address; // this commun
 
 // should connect to a kubo node and exchange pubsub messages with it
 // DO NOT MOCK PUBSUB
-//flaky
-// for(let i =0;i <50; i++)
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"] }).map((config) => {
-    describe(`Test publishing pubsub in real environment - ${config.name}`, { retry: 2 }, async () => {
+    describe(`Test publishing pubsub in real environment - ${config.name}`, async () => {
         let pkc: PKC;
         let publishedPost: Comment;
 

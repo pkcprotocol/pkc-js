@@ -6,6 +6,7 @@ import { PKCError } from "../pkc-error.js";
 import { pubsubTopicToDhtKeyCid } from "../util.js";
 
 const TOPIC_SUBSCRIBER_WAIT_TIMEOUT_MS = 10_000;
+const MESH_PEER_WAIT_TIMEOUT_MS = 3_000;
 
 export interface HeliaDebugContext {
     heliaPeerId: string;
@@ -89,6 +90,57 @@ export function waitForTopicSubscriber({
         abortSignal?.addEventListener("abort", onAbort, { once: true });
         // Race-safe re-check: a subscriber may have appeared in the window between the initial
         // check and addEventListener. Without this, we could miss the only event we'll ever get.
+        tryResolve();
+    });
+}
+
+// Event-based wait for gossipsub to GRAFT a peer into our local mesh for `topic`.
+// Resolves on the first graft for the topic, on timeout, or on abort. Never rejects —
+// callers proceed regardless; the wait is best-effort to avoid the graft-latency race
+// where a remote publishes within ~one heartbeat of our subscribe.
+function waitForMeshPeer({
+    helia,
+    topic,
+    timeoutMs,
+    abortSignal
+}: {
+    helia: HeliaWithLibp2pPubsub;
+    topic: string;
+    timeoutMs: number;
+    abortSignal?: AbortSignal;
+}): Promise<void> {
+    const pubsub = helia.libp2p.services.pubsub;
+    if (pubsub.getMeshPeers(topic).length > 0) return Promise.resolve();
+    if (abortSignal?.aborted) return Promise.resolve();
+
+    return new Promise<void>((resolve) => {
+        const cleanup = () => {
+            pubsub.removeEventListener("gossipsub:graft", onGraft);
+            clearTimeout(timer);
+            abortSignal?.removeEventListener("abort", onAbort);
+        };
+        const tryResolve = () => {
+            if (pubsub.getMeshPeers(topic).length > 0) {
+                cleanup();
+                resolve();
+                return true;
+            }
+            return false;
+        };
+        const onGraft = (e: CustomEvent<{ topic: string }>) => {
+            if (e.detail.topic === topic) tryResolve();
+        };
+        const onAbort = () => {
+            cleanup();
+            resolve();
+        };
+        const timer = setTimeout(() => {
+            cleanup();
+            resolve();
+        }, timeoutMs);
+        pubsub.addEventListener("gossipsub:graft", onGraft);
+        abortSignal?.addEventListener("abort", onAbort, { once: true });
+        // Race-safe re-check: a graft may have fired between the initial check and addEventListener.
         tryResolve();
     });
 }
@@ -226,6 +278,22 @@ export async function connectToPubsubPeers({
     }
 
     log.trace("Connected to", connectedPeersWithContent.length, "peers (snapshot at subscription-change)", "for content", contentCid);
+
+    // Wait for gossipsub to GRAFT a peer into our local mesh for this topic. subscription-change
+    // tells us a remote peer is subscribed, but gossipsub forwards via the mesh, and mesh edges
+    // form on heartbeat (default 1s). Without this wait, a publish from the remote node within
+    // ~one heartbeat of warmup-return is dropped because the remote hasn't yet processed our
+    // SUBSCRIBE or grafted us. Skip when we aren't locally subscribed (publish-only callers use
+    // fanout, not mesh, so mesh would never become non-empty).
+    const pubsub = helia.libp2p.services.pubsub;
+    if (!graftError && pubsub.getTopics().includes(pubsubTopic)) {
+        const meshWaitStart = Date.now();
+        await waitForMeshPeer({ helia, topic: pubsubTopic, timeoutMs: MESH_PEER_WAIT_TIMEOUT_MS, abortSignal: options?.signal });
+        const meshPeerCount = pubsub.getMeshPeers(pubsubTopic).length;
+        const waitMs = Date.now() - meshWaitStart;
+        if (meshPeerCount === 0) log.trace("Timed out waiting for mesh peers for topic", pubsubTopic, "after", waitMs, "ms");
+        else log.trace("Mesh peers count after wait", meshPeerCount, "for topic", pubsubTopic, "took", waitMs, "ms");
+    }
 
     // Only treat zero successful dials as fatal when we also failed to observe a subscriber.
     // If a subscriber appeared (e.g. a peer we couldn't dial directly is still in our gossipsub
