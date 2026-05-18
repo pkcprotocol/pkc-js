@@ -563,6 +563,24 @@ const pkc = await PKC(options) // should be independent instance, not singleton
 pkc.on('error', console.log)
 ```
 
+### Error handling
+
+A pkc instance is an EventEmitter, and so are the publications, communities, and comments it produces. Internal child objects forward their unhandled errors up to the pkc instance, but the pkc instance itself has no default error listener.
+
+You **must** attach an `'error'` listener on the pkc instance, or pkc-js can crash your Node.js process:
+
+```js
+pkc.on('error', (err) => console.error(err))
+```
+
+If you cannot attach a listener at the pkc level, install a process-wide fallback so an emitted error does not bring the process down:
+
+```js
+process.on('uncaughtException', (err) => console.error(err))
+```
+
+Attaching an `'error'` listener directly on a `community`, `comment`, or other publication object stops the bubble-up: in that case the error stays on the child and is not re-emitted on the pkc instance.
+
 ### `pkc.getMultisub(multisubAddress)` *(not yet implemented)*
 
 > Get a multisub by its `Address`. A multisub is a list of communities curated by the creator of the multisub. E.g. `'pkc.bso/#/m/john.bso'` would display a feed of the multisub communities curated by `'john.bso'` (multisub `Address` `'john.bso'`).
