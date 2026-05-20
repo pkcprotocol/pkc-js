@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.35](https://github.com/pkcprotocol/pkc-js/compare/v0.0.34...v0.0.35) (2026-05-20)
+
+### Bug Fixes
+
+* **libp2p:** gate pubsub warmup on local-mesh GRAFT ([#92](https://github.com/pkcprotocol/pkc-js/issues/92)) ([713e657](https://github.com/pkcprotocol/pkc-js/commit/713e6575bf8097880af908f1b93b371c3914e3b5))
+* **libp2p:** parallelize warmup dials and run them past subscription-change ([306c87b](https://github.com/pkcprotocol/pkc-js/commit/306c87bdc8c6f09712f929a3c6545ef07f15cb2e))
+
 ## [0.0.34](https://github.com/pkcprotocol/pkc-js/compare/v0.0.33...v0.0.34) (2026-05-17)
 
 ### Bug Fixes
