@@ -257,22 +257,29 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 peers: async (topic, options) => helia.libp2p.services.pubsub.getSubscribers(topic),
                 publish: async (topic, data, options) => {
                     throwIfHeliaIsStoppingOrStopped();
-                    // Gossipsub publish only delivers to MESH peers (not all subscribers). Gate on
-                    // mesh-peer count: a peer can be a subscriber but still in fanout / pending-graft.
-                    const meshPeerCount = helia.libp2p.services.pubsub.getMeshPeers(topic).length;
-                    if (meshPeerCount === 0) {
-                        log.trace("pubsub publish: no mesh peers, warming up for topic", topic);
+                    // Route publish through the mesh, not fanout. Gossipsub fanout selection requires
+                    // an outbound gossipsub stream to a topic peer (streamsOutbound check), and that
+                    // stream is set up asynchronously after libp2p's connection event — so warmup can
+                    // complete (getSubscribers(topic) > 0) while the outbound stream is still
+                    // negotiating, leaving res.recipients empty. The mesh path doesn't race because
+                    // gossipsub only emits gossipsub:graft once both ends have outbound streams. We
+                    // subscribe locally to force a graft, wait for it via waitForMeshPeer (called
+                    // inside warmupForTopic), then publish. wasAlreadySubscribed guard prevents
+                    // tearing down a subscription owned by another caller.
+                    const wasAlreadySubscribed = helia.libp2p.services.pubsub.getTopics().includes(topic);
+                    if (!wasAlreadySubscribed) helia.libp2p.services.pubsub.subscribe(topic);
+                    try {
                         await warmupForTopic(topic, options);
-                        log.trace("pubsub publish: warmup complete for topic", topic);
+                        const res = await helia.libp2p.services.pubsub.publish(topic, data);
+                        log(
+                            "Published new data to pubsub topic (string, e.g. community address)",
+                            topic,
+                            "Direct gossipsub recipients (libp2p peer IDs, NOT signer/community addresses):",
+                            res.recipients.map((p) => p.toString())
+                        );
+                    } finally {
+                        if (!wasAlreadySubscribed) helia.libp2p.services.pubsub.unsubscribe(topic);
                     }
-
-                    const res = await helia.libp2p.services.pubsub.publish(topic, data);
-                    log(
-                        "Published new data to pubsub topic (string, e.g. community address)",
-                        topic,
-                        "Direct gossipsub recipients (libp2p peer IDs, NOT signer/community addresses):",
-                        res.recipients.map((p) => p.toString())
-                    );
                 },
                 subscribe: async (topic, handler, options) => {
                     throwIfHeliaIsStoppingOrStopped();
