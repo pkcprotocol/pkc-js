@@ -23,10 +23,8 @@ const mathCliNoMockedPubsubCommunityAddress = signers[5].address; // this commun
 
 // should connect to a kubo node and exchange pubsub messages with it
 // DO NOT MOCK PUBSUB
-//flaky
-// for(let i =0;i <50; i++)
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"] }).map((config) => {
-    describe(`Test publishing pubsub in real environment - ${config.name}`, { retry: 2 }, async () => {
+    describe(`Test publishing pubsub in real environment - ${config.name}`, async () => {
         let pkc: PKC;
         let publishedPost: Comment;
 
@@ -457,6 +455,52 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                     ).to.be.lessThan(TIMEOUT_MS * 4);
                 }
                 expect(rejected, "cat() must reject when AbortSignal fires before any block arrives").to.be.true;
+            } finally {
+                await pkc.destroy();
+            }
+        }, 15000);
+    });
+
+    // Regression test for helia-for-pkc.ts:277-291: pubsub.subscribe() must honor the caller's
+    // AbortSignal. warmupForTopic dedupes in-flight warmups by topic, and the monkey-patched
+    // native pubsub.subscribe also kicks off a warmup with no options — if our explicit
+    // warmupForTopic(topic, options) ran AFTER it, the dedup would return the signal-less
+    // promise and silently drop the caller's signal. For a topic nobody subscribes to,
+    // warmup's subscriber-wait would otherwise hang for ~10s (TOPIC_SUBSCRIBER_WAIT_TIMEOUT_MS).
+    describe(`Helia pubsub.subscribe() honors AbortSignal - ${config.name}`, () => {
+        it("subscribe() rejects within the abort window when no peer subscribes to the topic", async () => {
+            // forceMockPubsub: false → use the real helia subscribe path (mockPKCWithHeliaConfig
+            // otherwise replaces heliaWithKuboRpcClientFunctions.pubsub with a stub that resolves
+            // immediately and never exercises this signal path).
+            const pkc = await config.pkcInstancePromise({ forceMockPubsub: false });
+            try {
+                const heliaShape = Object.values(pkc.clients.libp2pJsClients)[0].heliaWithKuboRpcClientFunctions;
+
+                // A unique random topic — no peer in the test environment is subscribed to it,
+                // so warmup will sit on subscriberAppearedPromise until aborted or timed out.
+                const unknownTopic = `abort-signal-test-${Math.random().toString(36).slice(2)}-${Date.now()}`;
+
+                const TIMEOUT_MS = 200;
+                const start = Date.now();
+                let rejected = false;
+                let resolvedDurationMs: number | undefined;
+                try {
+                    await heliaShape.pubsub.subscribe(unknownTopic, () => {}, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+                    resolvedDurationMs = Date.now() - start;
+                } catch {
+                    rejected = true;
+                    const elapsed = Date.now() - start;
+                    // Without signal propagation, warmup would run to its ~13s budget
+                    // (10s subscriber-wait + 3s mesh-wait). 2s gives generous CI slack.
+                    expect(
+                        elapsed,
+                        `subscribe() rejected after ${elapsed}ms, expected well under the ~13s warmup budget (signal must be forwarded)`
+                    ).to.be.lessThan(2000);
+                }
+                expect(
+                    rejected,
+                    `subscribe() must reject when AbortSignal fires before any peer subscribes (instead resolved in ${resolvedDurationMs}ms)`
+                ).to.be.true;
             } finally {
                 await pkc.destroy();
             }
