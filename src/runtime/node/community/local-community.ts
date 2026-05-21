@@ -240,6 +240,12 @@ import {
     updateInstanceStateWithDbState
 } from "./local-community/db-state.js";
 import { storePublication } from "./local-community/publication-store.js";
+import {
+    checkPublicationValidity,
+    isFlairInAllowedList,
+    isPublicationAuthorPartOfRoles,
+    respondWithErrorIfSignatureOfPublicationIsInvalid
+} from "./local-community/publication-validation.js";
 
 // This is a sub we have locally in our pkc datapath, in a NodeJS environment
 export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalCommunityParsedOptions {
@@ -812,46 +818,6 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         }
     }
 
-    private async _respondWithErrorIfSignatureOfPublicationIsInvalid(request: DecryptedChallengeRequestMessageType): Promise<void> {
-        let validity: ValidationResult;
-        if (request.comment)
-            validity = await verifyCommentPubsubMessage({
-                comment: request.comment,
-                resolveAuthorNames: this._pkc.resolveAuthorNames,
-                clientsManager: this._clientsManager
-            });
-        else if (request.commentEdit)
-            validity = await verifyCommentEdit({
-                edit: request.commentEdit,
-                resolveAuthorNames: this._pkc.resolveAuthorNames,
-                clientsManager: this._clientsManager
-            });
-        else if (request.vote)
-            validity = await verifyVote({
-                vote: request.vote,
-                resolveAuthorNames: this._pkc.resolveAuthorNames,
-                clientsManager: this._clientsManager
-            });
-        else if (request.commentModeration)
-            validity = await verifyCommentModeration({
-                moderation: request.commentModeration,
-                resolveAuthorNames: this._pkc.resolveAuthorNames,
-                clientsManager: this._clientsManager
-            });
-        else if (request.communityEdit)
-            validity = await verifyCommunityEdit({
-                communityEdit: request.communityEdit,
-                resolveAuthorNames: this._pkc.resolveAuthorNames,
-                clientsManager: this._clientsManager
-            });
-        else throw Error("Can't detect the type of publication");
-
-        if (!validity.valid) {
-            await this._publishFailedChallengeVerification({ reason: validity.reason }, request.challengeRequestId);
-            throw new PKCError(getErrorCodeFromMessage(validity.reason), { request, validity });
-        }
-    }
-
     private async _publishChallenges(
         challenges: Omit<Challenge, "verify">[],
         request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor
@@ -894,7 +860,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         });
     }
 
-    private async _publishFailedChallengeVerification(
+    async _publishFailedChallengeVerification(
         result: Pick<ChallengeVerificationMessageType, "challengeErrors" | "reason">,
         challengeRequestId: ChallengeRequestMessageType["challengeRequestId"]
     ) {
@@ -1113,461 +1079,6 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         }
     }
 
-    async _isPublicationAuthorPartOfRoles(
-        publication: Pick<CommentModerationPubsubMessagePublication, "author" | "signature">,
-        rolesToCheckAgainst: CommunityRoleNameUnion[]
-    ): Promise<boolean> {
-        if (!this.roles) return false;
-        // is the author of publication a moderator?
-        const signerAddress = await getPKCAddressFromPublicKey(publication.signature.publicKey);
-        if (rolesToCheckAgainst.includes(this.roles[signerAddress]?.role as CommunityRoleNameUnion)) return true;
-
-        const authorName = getAuthorNameFromWire(publication.author);
-        if (typeof authorName === "string") {
-            if (rolesToCheckAgainst.includes(this.roles[authorName]?.role as CommunityRoleNameUnion)) return true;
-            if (this._pkc.resolveAuthorNames && isStringDomain(authorName)) {
-                const { resolvedAuthorName: resolvedSignerAddress } = await this._clientsManager.resolveAuthorNameIfNeeded({
-                    authorName,
-                    abortSignal: AbortSignal.timeout(this._pkc._timeouts["resolve-author-name"]),
-                    // Mod authority must reflect current state — bypass cache.
-                    cache: { maxAge: 0 }
-                });
-                if (resolvedSignerAddress !== signerAddress) return false;
-                if (rolesToCheckAgainst.includes(this.roles[resolvedSignerAddress]?.role as CommunityRoleNameUnion)) return true;
-            }
-        }
-        return false;
-    }
-
-    private async _checkPublicationValidity(
-        request: DecryptedChallengeRequestMessageType,
-        publication: PublicationFromDecryptedChallengeRequest,
-        authorCommunity?: PublicationWithCommunityAuthorFromDecryptedChallengeRequest["author"]["community"]
-    ): Promise<messages | undefined> {
-        const log = Logger("pkc-js:local-community:handleChallengeRequest:checkPublicationValidity");
-
-        // Reject deprecated old wire format fields
-        if ("subplebbitAddress" in publication) return messages.ERR_PUBLICATION_USES_DEPRECATED_SUBPLEBBIT_ADDRESS;
-        // reject run time field
-        if ("communityAddress" in publication) return messages.ERR_PUBLICATION_USES_DEPRECATED_COMMUNITY_ADDRESS;
-
-        // communityPublicKey must be present and match this community's IPNS key
-        const pubCommunityPublicKey = getCommunityPublicKeyFromWire(publication as Record<string, unknown>);
-        if (!pubCommunityPublicKey || pubCommunityPublicKey !== this.signer.address)
-            return messages.ERR_PUBLICATION_INVALID_COMMUNITY_PUBLIC_KEY;
-
-        // communityName, if present, must match this community's address
-        const pubCommunityName = getCommunityNameFromWire(publication as Record<string, unknown>);
-        if (pubCommunityName && pubCommunityName !== this.address) return messages.ERR_PUBLICATION_INVALID_COMMUNITY_NAME;
-
-        if (publication.timestamp <= timestamp() - 5 * 60 || publication.timestamp >= timestamp() + 5 * 60)
-            return messages.ERR_PUBLICATION_TIMESTAMP_IS_NOT_IN_PROPER_RANGE;
-
-        if (typeof authorCommunity?.banExpiresAt === "number" && authorCommunity.banExpiresAt > timestamp())
-            return messages.ERR_AUTHOR_IS_BANNED;
-
-        if (publication.author && remeda.intersection(remeda.keys.strict(publication.author), AuthorReservedFields).length > 0)
-            return messages.ERR_PUBLICATION_AUTHOR_HAS_RESERVED_FIELD;
-
-        // Reject publications with non-domain author.name — author.name must be a domain or absent
-        const authorName = getAuthorNameFromWire(publication.author);
-        if (authorName && !isStringDomain(authorName)) {
-            log("Rejecting publication: author.name is not a domain", authorName);
-            return messages.ERR_AUTHOR_NAME_MUST_BE_A_DOMAIN;
-        }
-
-        // Reject publications with author domains that can't be resolved or don't match the signer
-        // Use this._clientsManager (not this._pkc) so nameResolver state changes emit on the community's clients
-        if (authorName && isStringDomain(authorName) && this._pkc.resolveAuthorNames) {
-            let resolvedAddress: string | null;
-            try {
-                ({ resolvedAuthorName: resolvedAddress } = await this._clientsManager.resolveAuthorNameIfNeeded({
-                    authorName,
-                    abortSignal: AbortSignal.timeout(this._pkc._timeouts["resolve-author-name"]),
-                    // Incoming pub validation: 30m staleness window is acceptable; domain transfers are rare.
-                    cache: { maxAge: 1800 }
-                }));
-            } catch (e) {
-                log("Rejecting publication with unresolvable author domain", authorName, e);
-                return messages.ERR_FAILED_TO_RESOLVE_AUTHOR_DOMAIN;
-            }
-            if (resolvedAddress === null) {
-                log("Rejecting publication: author domain could not be resolved", authorName);
-                return messages.ERR_FAILED_TO_RESOLVE_AUTHOR_DOMAIN;
-            }
-            const signerAddress = await getPKCAddressFromPublicKey(publication.signature.publicKey);
-            if (resolvedAddress !== signerAddress) {
-                log("Rejecting publication: author domain resolves to different signer", authorName, resolvedAddress, signerAddress);
-                return messages.ERR_AUTHOR_DOMAIN_RESOLVES_TO_DIFFERENT_SIGNER;
-            }
-        }
-
-        if ("commentCid" in publication || "parentCid" in publication) {
-            // vote or reply or commentEdit or commentModeration
-            // not post though
-            //@ts-expect-error
-            const parentCid: string | undefined = publication.parentCid || publication.commentCid;
-
-            if (typeof parentCid !== "string") return messages.ERR_COMMUNITY_PUBLICATION_PARENT_CID_NOT_DEFINED;
-
-            const parent = this._dbHandler.queryComment(parentCid);
-            if (!parent) return messages.ERR_PUBLICATION_PARENT_DOES_NOT_EXIST_IN_COMMUNITY;
-
-            const parentFlags = this._dbHandler.queryCommentFlagsSetByMod(parentCid);
-
-            if (parentFlags.removed && !request.commentModeration)
-                // not allowed to vote or reply under removed comments
-                return messages.ERR_COMMUNITY_PUBLICATION_PARENT_HAS_BEEN_REMOVED;
-
-            const isParentDeletedQueryRes = this._dbHandler.queryAuthorEditDeleted(parentCid);
-
-            if (isParentDeletedQueryRes?.deleted && !request.commentModeration)
-                return messages.ERR_COMMUNITY_PUBLICATION_PARENT_HAS_BEEN_DELETED; // not allowed to vote or reply under deleted comments
-
-            const postFlags = this._dbHandler.queryCommentFlagsSetByMod(parent.postCid);
-
-            if (postFlags.removed && !request.commentModeration) return messages.ERR_COMMUNITY_PUBLICATION_POST_HAS_BEEN_REMOVED;
-
-            const isPostDeletedQueryRes = this._dbHandler.queryAuthorEditDeleted(parent.postCid);
-
-            if (isPostDeletedQueryRes?.deleted && !request.commentModeration)
-                return messages.ERR_COMMUNITY_PUBLICATION_POST_HAS_BEEN_DELETED;
-
-            if (postFlags.locked && !request.commentModeration) return messages.ERR_COMMUNITY_PUBLICATION_POST_IS_LOCKED;
-
-            if (postFlags.archived && !request.commentModeration) return messages.ERR_COMMUNITY_PUBLICATION_POST_IS_ARCHIVED;
-
-            if (parent.timestamp > publication.timestamp) return messages.ERR_COMMUNITY_COMMENT_TIMESTAMP_IS_EARLIER_THAN_PARENT;
-
-            // if user publishes vote/reply/commentEdit under pending comment, it should fail
-            if (parent.pendingApproval && !("commentModeration" in request) && !(request.commentEdit?.deleted === true))
-                return messages.ERR_USER_PUBLISHED_UNDER_PENDING_COMMENT;
-
-            const isCommentDisapproved = this._dbHandler._queryIsCommentApproved(parent);
-            if (
-                isCommentDisapproved &&
-                !isCommentDisapproved.approved &&
-                !("commentModeration" in request) &&
-                !(request.commentEdit?.deleted === true)
-            )
-                return messages.ERR_USER_PUBLISHED_UNDER_DISAPPROVED_COMMENT;
-        }
-
-        // Reject publications if their size is over 40kb
-        const publicationKilobyteSize = Buffer.byteLength(JSON.stringify(publication)) / 1000;
-
-        if (publicationKilobyteSize > 40) return messages.ERR_REQUEST_PUBLICATION_OVER_ALLOWED_SIZE;
-
-        if (request.comment) {
-            const commentPublication = request.comment;
-            if (remeda.intersection(remeda.keys.strict(commentPublication), CommentPubsubMessageReservedFields).length > 0)
-                return messages.ERR_COMMENT_HAS_RESERVED_FIELD;
-            if (
-                this.features?.requirePostLink &&
-                !commentPublication.parentCid &&
-                (!commentPublication.link || (!this.features?.requirePostLinkIsMedia && !isLinkValid(commentPublication.link)))
-            )
-                return messages.ERR_COMMENT_HAS_INVALID_LINK_FIELD;
-            if (
-                this.features?.requirePostLinkIsMedia &&
-                commentPublication.link &&
-                (!isLinkValid(commentPublication.link) || !isLinkOfMedia(commentPublication.link))
-            )
-                return messages.ERR_POST_LINK_IS_NOT_OF_MEDIA;
-            if (
-                this.features?.requireReplyLink &&
-                commentPublication.parentCid &&
-                (!commentPublication.link || (!this.features?.requireReplyLinkIsMedia && !isLinkValid(commentPublication.link)))
-            )
-                return messages.ERR_REPLY_HAS_INVALID_LINK_FIELD;
-            if (
-                this.features?.requireReplyLinkIsMedia &&
-                commentPublication.parentCid &&
-                commentPublication.link &&
-                (!isLinkValid(commentPublication.link) || !isLinkOfMedia(commentPublication.link))
-            )
-                return messages.ERR_REPLY_LINK_IS_NOT_OF_MEDIA;
-
-            if (this.features?.noMarkdownImages && commentPublication.content && contentContainsMarkdownImages(commentPublication.content))
-                return messages.ERR_COMMENT_CONTENT_CONTAINS_MARKDOWN_IMAGE;
-
-            if (this.features?.noMarkdownVideos && commentPublication.content && contentContainsMarkdownVideos(commentPublication.content))
-                return messages.ERR_COMMENT_CONTENT_CONTAINS_MARKDOWN_VIDEO;
-
-            if (this.features?.noMarkdownAudio && commentPublication.content && contentContainsMarkdownAudio(commentPublication.content))
-                return messages.ERR_COMMENT_CONTENT_CONTAINS_MARKDOWN_AUDIO;
-
-            // noImages - block ALL comments with image links
-            if (this.features?.noImages && commentPublication.link && isLinkOfImage(commentPublication.link))
-                return messages.ERR_COMMENT_HAS_LINK_THAT_IS_IMAGE;
-
-            // noVideos - block ALL comments with video links (including animated images like GIF/APNG)
-            if (
-                this.features?.noVideos &&
-                commentPublication.link &&
-                (isLinkOfVideo(commentPublication.link) || isLinkOfAnimatedImage(commentPublication.link))
-            )
-                return messages.ERR_COMMENT_HAS_LINK_THAT_IS_VIDEO;
-
-            // noSpoilers - block ALL comments with spoiler=true
-            if (this.features?.noSpoilers && commentPublication.spoiler === true) return messages.ERR_COMMENT_HAS_SPOILER_ENABLED;
-
-            // noImageReplies - block only replies with image links
-            if (
-                this.features?.noImageReplies &&
-                commentPublication.parentCid &&
-                commentPublication.link &&
-                isLinkOfImage(commentPublication.link)
-            )
-                return messages.ERR_REPLY_HAS_LINK_THAT_IS_IMAGE;
-
-            // noVideoReplies - block only replies with video links (including animated images like GIF/APNG)
-            if (
-                this.features?.noVideoReplies &&
-                commentPublication.parentCid &&
-                commentPublication.link &&
-                (isLinkOfVideo(commentPublication.link) || isLinkOfAnimatedImage(commentPublication.link))
-            )
-                return messages.ERR_REPLY_HAS_LINK_THAT_IS_VIDEO;
-
-            // noAudio - block ALL comments with audio links
-            if (this.features?.noAudio && commentPublication.link && isLinkOfAudio(commentPublication.link))
-                return messages.ERR_COMMENT_HAS_LINK_THAT_IS_AUDIO;
-
-            // noAudioReplies - block only replies with audio links
-            if (
-                this.features?.noAudioReplies &&
-                commentPublication.parentCid &&
-                commentPublication.link &&
-                isLinkOfAudio(commentPublication.link)
-            )
-                return messages.ERR_REPLY_HAS_LINK_THAT_IS_AUDIO;
-
-            // noSpoilerReplies - block only replies with spoiler=true
-            if (this.features?.noSpoilerReplies && commentPublication.parentCid && commentPublication.spoiler === true)
-                return messages.ERR_REPLY_HAS_SPOILER_ENABLED;
-
-            // noNestedReplies - block replies with depth > 1 (replies to replies)
-            if (this.features?.noNestedReplies && commentPublication.parentCid) {
-                const parent = this._dbHandler.queryComment(commentPublication.parentCid);
-                if (parent && parent.depth > 0) {
-                    return messages.ERR_NESTED_REPLIES_NOT_ALLOWED;
-                }
-            }
-
-            // Post flairs validation (comment.flairs)
-            if (commentPublication.flairs && commentPublication.flairs.length > 0) {
-                if (!this.features?.postFlairs) {
-                    return messages.ERR_POST_FLAIRS_NOT_ALLOWED;
-                }
-                const allowedPostFlairs = this.flairs?.["post"] || [];
-                for (const flair of commentPublication.flairs) {
-                    if (!this._isFlairInAllowedList(flair, allowedPostFlairs)) {
-                        return messages.ERR_POST_FLAIR_NOT_IN_ALLOWED_FLAIRS;
-                    }
-                }
-            }
-
-            // requirePostFlairs - only for posts (depth=0)
-            if (this.features?.requirePostFlairs && !commentPublication.parentCid) {
-                if (!commentPublication.flairs || commentPublication.flairs.length === 0) {
-                    return messages.ERR_POST_FLAIRS_REQUIRED;
-                }
-            }
-
-            // Author flairs validation (comment.author.flairs)
-            if (commentPublication.author?.flairs && commentPublication.author.flairs.length > 0 && !this.features?.pseudonymityMode) {
-                if (!this.features?.authorFlairs) {
-                    return messages.ERR_AUTHOR_FLAIRS_NOT_ALLOWED;
-                }
-                const allowedAuthorFlairs = this.flairs?.["author"] || [];
-                for (const flair of commentPublication.author.flairs) {
-                    if (!this._isFlairInAllowedList(flair, allowedAuthorFlairs)) {
-                        return messages.ERR_AUTHOR_FLAIR_NOT_IN_ALLOWED_FLAIRS;
-                    }
-                }
-            }
-
-            // requireAuthorFlairs - for all comments (posts and replies)
-            if (this.features?.requireAuthorFlairs && !this.features?.pseudonymityMode) {
-                if (!commentPublication.author?.flairs || commentPublication.author.flairs.length === 0) {
-                    return messages.ERR_AUTHOR_FLAIRS_REQUIRED;
-                }
-            }
-
-            if (commentPublication.parentCid && !commentPublication.postCid) return messages.ERR_REPLY_HAS_NOT_DEFINED_POST_CID;
-
-            if (commentPublication.parentCid) {
-                // query parents, and make sure commentPublication.postCid is the final parent
-                const parentsOfComment = this._dbHandler.queryParentsCids({ parentCid: commentPublication.parentCid });
-                if (parentsOfComment[parentsOfComment.length - 1].cid !== commentPublication.postCid)
-                    return messages.ERR_REPLY_POST_CID_IS_NOT_PARENT_OF_REPLY;
-            }
-
-            // Validate quotedCids
-            if (commentPublication.quotedCids && commentPublication.quotedCids.length > 0) {
-                // Only replies can have quotedCids
-                if (!commentPublication.parentCid) {
-                    return messages.ERR_POST_CANNOT_HAVE_QUOTED_CIDS;
-                }
-
-                const threadPostCid = commentPublication.postCid!; // postCid is always defined for replies
-
-                for (const quotedCid of commentPublication.quotedCids) {
-                    // 1. Check existence
-                    const quotedComment = this._dbHandler.queryComment(quotedCid);
-                    if (!quotedComment) {
-                        return messages.ERR_QUOTED_CID_DOES_NOT_EXIST;
-                    }
-
-                    // 2. Check quoted comment is under the same post
-                    const quotedPostCid = quotedComment.depth === 0 ? quotedComment.cid : quotedComment.postCid;
-                    if (quotedPostCid !== threadPostCid) {
-                        return messages.ERR_QUOTED_CID_NOT_UNDER_POST;
-                    }
-
-                    // 3. Check not pending approval
-                    if (quotedComment.pendingApproval) {
-                        return messages.ERR_QUOTED_CID_IS_PENDING_APPROVAL;
-                    }
-                }
-            }
-
-            const isCommentDuplicate = this._dbHandler.hasCommentWithSignatureEncoded(commentPublication.signature.signature);
-            if (isCommentDuplicate) return messages.ERR_DUPLICATE_COMMENT;
-        } else if (request.vote) {
-            const votePublication = request.vote;
-            if (remeda.intersection(VotePubsubReservedFields, remeda.keys.strict(votePublication)).length > 0)
-                return messages.ERR_VOTE_HAS_RESERVED_FIELD;
-            if (this.features?.noUpvotes && votePublication.vote === 1) return messages.ERR_NOT_ALLOWED_TO_PUBLISH_UPVOTES;
-            if (this.features?.noDownvotes && votePublication.vote === -1) return messages.ERR_NOT_ALLOWED_TO_PUBLISH_DOWNVOTES;
-
-            const commentToVoteOn = this._dbHandler.queryComment(request.vote.commentCid)!;
-
-            if (this.features?.noPostDownvotes && commentToVoteOn!.depth === 0 && votePublication.vote === -1)
-                return messages.ERR_NOT_ALLOWED_TO_PUBLISH_POST_DOWNVOTES;
-            if (this.features?.noPostUpvotes && commentToVoteOn!.depth === 0 && votePublication.vote === 1)
-                return messages.ERR_NOT_ALLOWED_TO_PUBLISH_POST_UPVOTES;
-
-            if (this.features?.noReplyDownvotes && commentToVoteOn!.depth > 0 && votePublication.vote === -1)
-                return messages.ERR_NOT_ALLOWED_TO_PUBLISH_REPLY_DOWNVOTES;
-            if (this.features?.noReplyUpvotes && commentToVoteOn!.depth > 0 && votePublication.vote === 1)
-                return messages.ERR_NOT_ALLOWED_TO_PUBLISH_REPLY_UPVOTES;
-
-            const voteAuthorSignerAddress = await getPKCAddressFromPublicKey(votePublication.signature.publicKey);
-            const previousVote = this._dbHandler.queryVote(commentToVoteOn!.cid, voteAuthorSignerAddress);
-            if (!previousVote && votePublication.vote === 0) return messages.ERR_THERE_IS_NO_PREVIOUS_VOTE_TO_CANCEL;
-        } else if (request.commentModeration) {
-            const commentModerationPublication = request.commentModeration;
-            if (remeda.intersection(CommentModerationReservedFields, remeda.keys.strict(commentModerationPublication)).length > 0)
-                return messages.ERR_COMMENT_MODERATION_HAS_RESERVED_FIELD;
-
-            const isAuthorMod = await this._isPublicationAuthorPartOfRoles(commentModerationPublication, ["owner", "moderator", "admin"]);
-
-            if (!isAuthorMod) return messages.ERR_COMMENT_MODERATION_ATTEMPTED_WITHOUT_BEING_MODERATOR;
-
-            const commentToBeEdited = this._dbHandler.queryComment(commentModerationPublication.commentCid); // We assume commentToBeEdited to be defined because we already tested for its existence above
-            if (!commentToBeEdited) return messages.ERR_COMMENT_MODERATION_NO_COMMENT_TO_EDIT;
-
-            if (isAuthorMod && commentModerationPublication.commentModeration.locked && commentToBeEdited.depth !== 0)
-                return messages.ERR_COMMUNITY_COMMENT_MOD_CAN_NOT_LOCK_REPLY;
-            if (isAuthorMod && commentModerationPublication.commentModeration.archived && commentToBeEdited.depth !== 0)
-                return messages.ERR_COMMUNITY_COMMENT_MOD_CAN_NOT_ARCHIVE_REPLY;
-            const commentModInDb = this._dbHandler.hasCommentModerationWithSignatureEncoded(
-                commentModerationPublication.signature.signature
-            );
-            if (commentModInDb) return messages.ERR_DUPLICATE_COMMENT_MODERATION;
-            if ("approved" in commentModerationPublication.commentModeration && !commentToBeEdited.pendingApproval)
-                return messages.ERR_MOD_ATTEMPTING_TO_APPROVE_OR_DISAPPROVE_COMMENT_THAT_IS_NOT_PENDING;
-        } else if (request.communityEdit) {
-            const communityEdit = request.communityEdit;
-            if (remeda.intersection(CommunityEditPublicationPubsubReservedFields, remeda.keys.strict(communityEdit)).length > 0)
-                return messages.ERR_COMMUNITY_EDIT_HAS_RESERVED_FIELD;
-
-            if (communityEdit.communityEdit.roles || communityEdit.communityEdit.address) {
-                const isAuthorOwner = await this._isPublicationAuthorPartOfRoles(communityEdit, ["owner"]);
-                if (!isAuthorOwner) return messages.ERR_COMMUNITY_EDIT_ATTEMPTED_TO_MODIFY_OWNER_EXCLUSIVE_PROPS;
-            }
-
-            const isAuthorOwnerOrAdmin = await this._isPublicationAuthorPartOfRoles(communityEdit, ["owner", "admin"]);
-            if (!isAuthorOwnerOrAdmin) {
-                return messages.ERR_COMMUNITY_EDIT_ATTEMPTED_TO_MODIFY_COMMUNITY_WITHOUT_BEING_OWNER_OR_ADMIN;
-            }
-
-            const allowedCommunityEditKeys = [...remeda.keys.strict(CommunityIpfsSchema.shape), "address"] as string[];
-            if (remeda.difference(remeda.keys.strict(communityEdit.communityEdit), allowedCommunityEditKeys).length > 0) {
-                // should only be allowed to modify public props from CommunityIpfs
-                // shouldn't be able to modify settings for example
-                return messages.ERR_COMMUNITY_EDIT_ATTEMPTED_TO_NON_PUBLIC_PROPS;
-            }
-        } else if (request.commentEdit) {
-            const commentEditPublication = request.commentEdit;
-            if (remeda.intersection(CommentEditReservedFields, remeda.keys.strict(commentEditPublication)).length > 0)
-                return messages.ERR_COMMENT_EDIT_HAS_RESERVED_FIELD;
-
-            const commentToBeEdited = this._dbHandler.queryComment(commentEditPublication.commentCid); // We assume commentToBeEdited to be defined because we already tested for its existence above
-            if (!commentToBeEdited) return messages.ERR_COMMENT_EDIT_NO_COMMENT_TO_EDIT;
-
-            const commentEditInDb = this._dbHandler.hasCommentEditWithSignatureEncoded(commentEditPublication.signature.signature);
-            if (commentEditInDb) return messages.ERR_DUPLICATE_COMMENT_EDIT;
-
-            const aliasSignerOfComment = this._dbHandler.queryPseudonymityAliasByCommentCid(commentToBeEdited.cid);
-            if (aliasSignerOfComment) {
-                const editSignedByOriginalAuthor =
-                    commentEditPublication.signature.publicKey === aliasSignerOfComment.originalAuthorPublicKey;
-                if (!editSignedByOriginalAuthor) return messages.ERR_COMMENT_EDIT_CAN_NOT_EDIT_COMMENT_IF_NOT_ORIGINAL_AUTHOR;
-            } else {
-                const editSignedByOriginalAuthor = commentEditPublication.signature.publicKey === commentToBeEdited.signature.publicKey;
-
-                if (!editSignedByOriginalAuthor) return messages.ERR_COMMENT_EDIT_CAN_NOT_EDIT_COMMENT_IF_NOT_ORIGINAL_AUTHOR;
-            }
-
-            // Validate markdown content restrictions for comment edits
-            if (
-                this.features?.noMarkdownImages &&
-                commentEditPublication.content &&
-                contentContainsMarkdownImages(commentEditPublication.content)
-            )
-                return messages.ERR_COMMENT_CONTENT_CONTAINS_MARKDOWN_IMAGE;
-
-            if (
-                this.features?.noMarkdownVideos &&
-                commentEditPublication.content &&
-                contentContainsMarkdownVideos(commentEditPublication.content)
-            )
-                return messages.ERR_COMMENT_CONTENT_CONTAINS_MARKDOWN_VIDEO;
-
-            if (
-                this.features?.noMarkdownAudio &&
-                commentEditPublication.content &&
-                contentContainsMarkdownAudio(commentEditPublication.content)
-            )
-                return messages.ERR_COMMENT_CONTENT_CONTAINS_MARKDOWN_AUDIO;
-
-            // noSpoilers - block ALL comment edits that set spoiler=true
-            if (this.features?.noSpoilers && commentEditPublication.spoiler === true) return messages.ERR_COMMENT_HAS_SPOILER_ENABLED;
-
-            // noSpoilerReplies - block only reply edits that set spoiler=true
-            if (this.features?.noSpoilerReplies && commentToBeEdited.depth > 0 && commentEditPublication.spoiler === true)
-                return messages.ERR_REPLY_HAS_SPOILER_ENABLED;
-
-            // Post flairs validation for comment edits
-            if (commentEditPublication.flairs && commentEditPublication.flairs.length > 0) {
-                if (!this.features?.postFlairs) {
-                    return messages.ERR_POST_FLAIRS_NOT_ALLOWED;
-                }
-                const allowedPostFlairs = this.flairs?.["post"] || [];
-                for (const flair of commentEditPublication.flairs) {
-                    if (!this._isFlairInAllowedList(flair, allowedPostFlairs)) {
-                        return messages.ERR_POST_FLAIR_NOT_IN_ALLOWED_FLAIRS;
-                    }
-                }
-            }
-        }
-
-        return undefined;
-    }
-
     private async _parseChallengeRequestPublicationOrRespondWithFailure(
         request: ChallengeRequestMessageType,
         decryptedRawString: string
@@ -1725,7 +1236,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         });
 
         try {
-            await this._respondWithErrorIfSignatureOfPublicationIsInvalid(decryptedRequestMsg); // This function will throw an error if signature is invalid
+            await respondWithErrorIfSignatureOfPublicationIsInvalid(this, decryptedRequestMsg); // This function will throw an error if signature is invalid
         } catch (e) {
             log.error(
                 "Signature of challengerequest.publication is invalid, emitting an error event and aborting the challenge exchange",
@@ -1739,7 +1250,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         this.emit("challengerequest", decryptedRequestWithCommunityAuthor);
 
-        const publicationInvalidityReason = await this._checkPublicationValidity(decryptedRequestMsg, publication, communityAuthor);
+        const publicationInvalidityReason = await checkPublicationValidity(this, decryptedRequestMsg, publication, communityAuthor);
         if (publicationInvalidityReason) {
             if (DUPLICATE_PUBLICATION_ERRORS.has(publicationInvalidityReason)) {
                 const sig = publication.signature.signature;
@@ -1800,10 +1311,6 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         this._challengeAnswerPromises.delete(challengeRequestIdString);
         this._challengeAnswerResolveReject.delete(challengeRequestIdString);
         delete this._challengeExchangesFromLocalPublishers[challengeRequestIdString];
-    }
-
-    private _isFlairInAllowedList(flair: Flair, allowedFlairs: Flair[]): boolean {
-        return allowedFlairs.some((allowed) => remeda.isDeepEqual(allowed, flair));
     }
 
     private async _parseChallengeAnswerOrRespondWithFailure(challengeAnswer: ChallengeAnswerMessageType, decryptedRawString: string) {

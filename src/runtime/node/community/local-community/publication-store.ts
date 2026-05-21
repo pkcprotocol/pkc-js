@@ -16,6 +16,7 @@ import { CommentIpfsSchema, CommentPubsubMessagePublicationSchema } from "../../
 import { CommentModerationPubsubMessagePublicationSchema } from "../../../../publications/comment-moderation/schema.js";
 import { VotePubsubMessagePublicationSchema } from "../../../../publications/vote/schema.js";
 import { addAllCidsUnderPurgedCommentToBeRemoved, rmUnneededMfsPaths } from "./cleanup.js";
+import { isPublicationAuthorPartOfRoles } from "./publication-validation.js";
 import type { CommentEditPubsubMessagePublication, CommentEditsTableRow } from "../../../../publications/comment-edit/types.js";
 import type {
     CommentIpfsType,
@@ -120,7 +121,7 @@ export async function prepareCommentWithAnonymity(
     if (!mode) return { publication: originalComment };
 
     // Mods (owner, admin, moderator) are never pseudonymized
-    const isAuthorMod = await community._isPublicationAuthorPartOfRoles(originalComment, ["owner", "admin", "moderator"]);
+    const isAuthorMod = await isPublicationAuthorPartOfRoles(community, originalComment, ["owner", "admin", "moderator"]);
     if (isAuthorMod) return { publication: originalComment };
 
     const originalAuthorPublicKey = originalComment.signature.publicKey;
