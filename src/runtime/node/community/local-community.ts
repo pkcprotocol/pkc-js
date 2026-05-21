@@ -200,6 +200,7 @@ import {
     generateDefaultChallenges,
     isDefaultChallengeStructure
 } from "./local-community/defaults.js";
+import { listenToIncomingRequests, providePubsubTopicRoutingCidsIfNeeded } from "./local-community/pubsub.js";
 
 const processStartedCommunities = new TrackedInstanceRegistry<LocalCommunity>(); // A global registry on process level to track started communities
 
@@ -235,7 +236,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     private _updateLoopAbortController?: AbortController;
     private _firstUpdateAfterStart: boolean = true;
     private _internalStateUpdateId: InternalCommunityRecordBeforeFirstUpdateType["_internalStateUpdateId"] = "";
-    private _lastPubsubTopicRoutingProvideAt?: number = undefined;
+    _lastPubsubTopicRoutingProvideAt?: number = undefined;
     private _mirroredStartedOrUpdatingCommunity?: { community: LocalCommunity } & Pick<
         CommunityEvents,
         | "error"
@@ -2593,7 +2594,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         challengeAnswerPromise.resolve(decryptedChallengeAnswerPubsubMessage.challengeAnswers);
     }
 
-    private async handleChallengeExchange(pubsubMsg: IpfsHttpClientPubsubMessage) {
+    async handleChallengeExchange(pubsubMsg: IpfsHttpClientPubsubMessage) {
         const log = Logger("pkc-js:local-community:handleChallengeExchange");
 
         const timeReceived = timestamp();
@@ -2798,20 +2799,6 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         }
     }
 
-    private async _listenToIncomingRequests() {
-        const log = Logger("pkc-js:local-community:sync:_listenToIncomingRequests");
-        // Make sure community listens to pubsub topic
-        // Code below is to handle in case the ipfs node restarted and the subscription got lost or something
-        const pubsubClient = this._clientsManager.getDefaultKuboPubsubClient();
-        const subscribedTopics = await pubsubClient._client.pubsub.ls();
-        if (!subscribedTopics.includes(this.pubsubTopicWithfallback())) {
-            await this._clientsManager.pubsubUnsubscribe(this.pubsubTopicWithfallback(), this.handleChallengeExchange); // Make sure it's not hanging
-            await this._clientsManager.pubsubSubscribe(this.pubsubTopicWithfallback(), this.handleChallengeExchange);
-            this._clientsManager.updateKuboRpcPubsubState("waiting-challenge-requests", pubsubClient.url);
-            log(`Waiting for publications on pubsub topic (${this.pubsubTopicWithfallback()})`);
-        }
-    }
-
     private async _movePostUpdatesFolderToNewAddress(oldAddress: string, newAddress: string) {
         const log = Logger("pkc-js:local-community:_movePostUpdatesFolderToNewAddress");
         const kuboRpc = this._clientsManager.getDefaultKuboRpcClient();
@@ -3009,7 +2996,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             }
         } else return [];
     }
-    private pubsubTopicWithfallback() {
+    pubsubTopicWithfallback() {
         return this.pubsubTopic || this.address;
     }
 
@@ -3126,31 +3113,6 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         }
     }
 
-    private async _providePubsubTopicRoutingCidsIfNeeded(force = false) {
-        const log = Logger("pkc-js:local-community:_providePubsubTopicRoutingCidsIfNeeded");
-        const reprovideIntervalMs = 6 * 60 * 60 * 1000;
-        const now = Date.now();
-        if (!force && this._lastPubsubTopicRoutingProvideAt && now - this._lastPubsubTopicRoutingProvideAt < reprovideIntervalMs) return;
-
-        const pubsubTopic = this.pubsubTopicWithfallback();
-        const topics = [pubsubTopic, this.ipnsPubsubTopic].filter((topic): topic is string => typeof topic === "string");
-        if (topics.length === 0) return;
-
-        this._lastPubsubTopicRoutingProvideAt = now;
-        const kuboRpcClient = this._clientsManager.getDefaultKuboRpcClient()._client;
-        for (const topic of topics) {
-            try {
-                await retryKuboBlockPutPinAndProvidePubsubTopic({
-                    ipfsClient: kuboRpcClient,
-                    log,
-                    pubsubTopic: topic
-                });
-            } catch (error) {
-                log.error("Failed to reprovide pubsub topic routing block", { topic, error });
-            }
-        }
-    }
-
     async _addAllCidsUnderPurgedCommentToBeRemoved(purgedCommentAndCommentUpdate: PurgedCommentTableRows) {
         this._cidsToUnPin.add(purgedCommentAndCommentUpdate.commentTableRow.cid);
         this._blocksToRm.push(purgedCommentAndCommentUpdate.commentTableRow.cid);
@@ -3209,8 +3171,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         const kuboRpc = this._clientsManager.getDefaultKuboRpcClient();
         try {
-            await this._listenToIncomingRequests();
-            await this._providePubsubTopicRoutingCidsIfNeeded();
+            await listenToIncomingRequests(this);
+            await providePubsubTopicRoutingCidsIfNeeded(this);
             await this._adjustPostUpdatesBucketsIfNeeded();
             this._setStartedStateWithEmission("publishing-ipns");
             this._clientsManager.updateKuboRpcState("publishing-ipns", kuboRpc.url);
@@ -3562,13 +3524,13 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             await this._setChallengesToDefaultIfNotDefined(log);
             // Import community keys onto ipfs node
             await this._importCommunitySignerIntoIpfsIfNeeded();
-            await this._providePubsubTopicRoutingCidsIfNeeded(true);
+            await providePubsubTopicRoutingCidsIfNeeded(this, true);
 
             this._communityUpdateTrigger = true;
             this._setStartedStateWithEmission("publishing-ipns");
             await this._repinCommentsIPFSIfNeeded();
             await this._repinCommentUpdateIfNeeded();
-            await this._listenToIncomingRequests();
+            await listenToIncomingRequests(this);
             this.challenges = await Promise.all(
                 this.settings.challenges!.map(
                     async (cs) =>
