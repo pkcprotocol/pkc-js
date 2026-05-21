@@ -51,8 +51,13 @@ import { repinCommentsIPFSIfNeeded } from "./local-community/cleanup.js";
 import {
     handleChallengeAnswer as handleChallengeAnswerFreeFunction,
     handleChallengeExchange as handleChallengeExchangeFreeFunction,
-    handleChallengeRequest as handleChallengeRequestFreeFunction
+    handleChallengeRequest as handleChallengeRequestFreeFunction,
+    publishChallengeVerification,
+    publishIdempotentDuplicateVerification
 } from "./local-community/challenges.js";
+import { checkPublicationValidity } from "./local-community/publication-validation.js";
+import { calculateLocalMfsPathForCommentUpdate, updateCommentsThatNeedToBeUpdated } from "./local-community/comment-updates.js";
+import { purgeDisapprovedCommentsOlderThan } from "./local-community/cleanup.js";
 import {
     addOldPageCidsToCidsToUnpin,
     calculateLatestUpdateTrigger,
@@ -425,5 +430,39 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
     async _updateDbInternalState(props: Parameters<typeof updateDbInternalState>[1]) {
         return updateDbInternalState(this, props);
+    }
+
+    // Method facades for additional private helpers that integration tests
+    // (unique.publishing, purge.expire.rejection, edgecases.page.generation)
+    // invoke directly on the instance via `(ctx.community as LocalCommunity)._foo(...)`.
+    async _updateCommentsThatNeedToBeUpdated() {
+        return updateCommentsThatNeedToBeUpdated(this);
+    }
+
+    async _purgeDisapprovedCommentsOlderThan() {
+        return purgeDisapprovedCommentsOlderThan(this);
+    }
+
+    async _publishChallengeVerification(
+        challengeResult: Parameters<typeof publishChallengeVerification>[1],
+        request: Parameters<typeof publishChallengeVerification>[2]
+    ) {
+        return publishChallengeVerification(this, challengeResult, request);
+    }
+
+    async _publishIdempotentDuplicateVerification(
+        ...args: Parameters<typeof publishIdempotentDuplicateVerification> extends [unknown, ...infer Rest] ? Rest : never
+    ) {
+        return publishIdempotentDuplicateVerification(this, ...args);
+    }
+
+    async _checkPublicationValidity(...args: Parameters<typeof checkPublicationValidity> extends [unknown, ...infer Rest] ? Rest : never) {
+        return checkPublicationValidity(this, ...args);
+    }
+
+    _calculateLocalMfsPathForCommentUpdate(
+        ...args: Parameters<typeof calculateLocalMfsPathForCommentUpdate> extends [unknown, ...infer Rest] ? Rest : never
+    ) {
+        return calculateLocalMfsPathForCommentUpdate(this, ...args);
     }
 }
