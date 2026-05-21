@@ -26,6 +26,7 @@ import type {
 import { LocalCommunity } from "./local-community.js";
 import { isDefaultChallengeStructure } from "./local-community/defaults.js";
 import { addAllCidsUnderPurgedCommentToBeRemoved } from "./local-community/cleanup.js";
+import { updateDbInternalState } from "./local-community/db-state.js";
 import { getPKCAddressFromPublicKey, getPKCAddressFromPublicKeySync } from "../../../signer/util.js";
 import * as remeda from "remeda";
 import type {
@@ -556,7 +557,7 @@ export class DbHandler {
                           )
                       )
                     : newSettings.challenges;
-                await this._community._updateDbInternalState({
+                await updateDbInternalState(this._community, {
                     posts: undefined,
                     challenges: newChallenges,
                     settings: newSettings,

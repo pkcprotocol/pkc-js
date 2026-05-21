@@ -278,7 +278,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         }
     }
 
-    protected _updateIpnsPubsubPropsIfNeeded(newProps: CommunityJson | CreateRemoteCommunityOptions | CommunityIpfsType) {
+    _updateIpnsPubsubPropsIfNeeded(newProps: CommunityJson | CreateRemoteCommunityOptions | CommunityIpfsType) {
         if ("ipnsName" in newProps && newProps.ipnsName) {
             this.ipnsName = newProps.ipnsName;
             this.ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(this.ipnsName);

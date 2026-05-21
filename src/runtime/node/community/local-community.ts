@@ -225,6 +225,20 @@ import {
     parseRolesToEdit,
     validateNewAddressBeforeEditing
 } from "./local-community/editing.js";
+import {
+    createNewLocalCommunityDb,
+    getDbInternalState,
+    importCommunitySignerIntoIpfsIfNeeded,
+    initDbHandlerIfNeeded,
+    initInternalCommunityAfterFirstUpdateNoMerge,
+    initInternalCommunityBeforeFirstUpdateNoMerge,
+    initNewLocalCommunityPropsNoMerge,
+    initSignerProps,
+    setChallengesToDefaultIfNotDefined,
+    updateDbInternalState,
+    updateInstancePropsWithStartedCommunityOrDb,
+    updateInstanceStateWithDbState
+} from "./local-community/db-state.js";
 
 // This is a sub we have locally in our pkc datapath, in a NodeJS environment
 export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalCommunityParsedOptions {
@@ -257,7 +271,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     private _updateLoopPromise?: Promise<void> = undefined;
     private _updateLoopAbortController?: AbortController;
     private _firstUpdateAfterStart: boolean = true;
-    private _internalStateUpdateId: InternalCommunityRecordBeforeFirstUpdateType["_internalStateUpdateId"] = "";
+    _internalStateUpdateId: InternalCommunityRecordBeforeFirstUpdateType["_internalStateUpdateId"] = "";
     _lastPubsubTopicRoutingProvideAt?: number = undefined;
     private _mirroredStartedOrUpdatingCommunity?: { community: LocalCommunity } & Pick<
         CommunityEvents,
@@ -273,7 +287,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     > = undefined; // The pkc._startedCommunities we're subscribed to
     _pendingEditProps: Partial<ParsedCommunityEditOptions & { editId: string }>[] = [];
     _blocksToRm: string[] = [];
-    private _postsAllPageCids: AllPageCids | undefined = undefined;
+    _postsAllPageCids: AllPageCids | undefined = undefined;
 
     constructor(pkc: PKC) {
         super(pkc);
@@ -357,311 +371,19 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     }
 
     async initNewLocalCommunityPropsNoMerge(newProps: CreateNewLocalCommunityParsedOptions) {
-        await this._initSignerProps(newProps.signer);
-        this.title = newProps.title;
-        this.description = newProps.description;
-        this.setAddress(newProps.address);
-        this.pubsubTopic = newProps.pubsubTopic;
-        this.roles = newProps.roles;
-        this.features = newProps.features;
-        this.suggested = newProps.suggested;
-        this.rules = newProps.rules;
-        this.flairs = newProps.flairs;
-        if (newProps.settings) this.settings = newProps.settings;
+        return initNewLocalCommunityPropsNoMerge(this, newProps);
     }
 
     async initInternalCommunityAfterFirstUpdateNoMerge(newProps: InternalCommunityRecordAfterFirstUpdateType) {
-        // Detect CID-ref format posts from DB: wire format always has 'pages' key, CID-ref format doesn't
-        if (newProps.posts && !("pages" in newProps.posts)) {
-            const dbPosts = newProps.posts as unknown as DbPostsFormat;
-            // Extract allPageCids for future unpinning
-            const allPageCids: Record<string, string[]> = {};
-            for (const [sortName, entry] of Object.entries(dbPosts)) {
-                if (entry?.allPageCids?.length) allPageCids[sortName] = entry.allPageCids;
-            }
-            this._postsAllPageCids = Object.keys(allPageCids).length > 0 ? allPageCids : undefined;
-            // Lightweight conversion: just pageCids from allPageCids[0], preloaded pages regenerated on next update.
-            // Never use resolveDbPostsCidRefs here — this method is called from many code paths
-            // where _dbHandler._db may not be initialized (e.g. updateListener from a mirrored community).
-            const pageCids: Record<string, string> = {};
-            for (const [sortName, entry] of Object.entries(dbPosts)) {
-                if (entry?.allPageCids?.[0]) pageCids[sortName] = entry.allPageCids[0];
-            }
-            newProps = {
-                ...newProps,
-                posts: { pages: {}, ...(Object.keys(pageCids).length > 0 ? { pageCids } : {}) } as CommunityIpfsType["posts"]
-            };
-        }
-        const keysOfCommunityIpfs = <(keyof CommunityIpfsType)[]>[...CommunitySignedPropertyNames, "signature"];
-        this.initRpcInternalCommunityAfterFirstUpdateNoMerge({
-            community: remeda.pick(newProps, keysOfCommunityIpfs) as CommunityIpfsType,
-            localCommunity: {
-                signer: remeda.pick(newProps.signer as SignerWithPublicKeyAddress, ["publicKey", "address", "shortAddress", "type"]),
-                settings: newProps.settings,
-                _usingDefaultChallenge: newProps._usingDefaultChallenge,
-                address: newProps.address,
-                started: this.started,
-                startedState: this.startedState
-            },
-            runtimeFields: { updateCid: newProps.updateCid }
-        });
-        await this._initSignerProps(newProps.signer);
-        this._internalStateUpdateId = newProps._internalStateUpdateId;
-        if (Array.isArray(newProps._cidsToUnPin)) newProps._cidsToUnPin.forEach((cid) => this._cidsToUnPin.add(cid));
-        if (Array.isArray(newProps._mfsPathsToRemove)) newProps._mfsPathsToRemove.forEach((path) => this._mfsPathsToRemove.add(path));
-        this._updateIpnsPubsubPropsIfNeeded(newProps);
-        if (processStartedCommunities.has(this)) syncCommunityRegistryEntry(processStartedCommunities, this);
-        if (this.updateCid) this.raw.localCommunity = this.toJSONInternalRpcAfterFirstUpdate();
+        return initInternalCommunityAfterFirstUpdateNoMerge(this, newProps);
     }
 
     async initInternalCommunityBeforeFirstUpdateNoMerge(newProps: InternalCommunityRecordBeforeFirstUpdateType) {
-        this.initRpcInternalCommunityBeforeFirstUpdateNoMerge({
-            localCommunity: {
-                ...remeda.omit(newProps, ["signer", "_internalStateUpdateId", "_pendingEditProps"]),
-                signer: remeda.pick(newProps.signer as SignerWithPublicKeyAddress, ["publicKey", "address", "shortAddress", "type"]),
-                started: this.started,
-                startedState: this.startedState
-            }
-        });
-        await this._initSignerProps(newProps.signer);
-        this._internalStateUpdateId = newProps._internalStateUpdateId;
-        this._updateIpnsPubsubPropsIfNeeded(newProps);
-        this.ipnsName = newProps.signer.address;
-        this.ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(this.ipnsName);
-        this.ipnsPubsubTopicRoutingCid = pubsubTopicToDhtKey(this.ipnsPubsubTopic);
-        if (processStartedCommunities.has(this)) syncCommunityRegistryEntry(processStartedCommunities, this);
-        this.raw.localCommunity = this.toJSONInternalRpcBeforeFirstUpdate();
+        return initInternalCommunityBeforeFirstUpdateNoMerge(this, newProps);
     }
 
     async initDbHandlerIfNeeded() {
-        if (!this._dbHandler) {
-            this._dbHandler = new DbHandler(this);
-            await this._dbHandler.initDbConfigIfNeeded();
-            this._pageGenerator = new PageGenerator(this);
-        }
-    }
-
-    async _updateInstancePropsWithStartedCommunityOrDb() {
-        // if it's started in the same pkc instance, we will load it from the started community instance
-        // if it's started in another process, we will throw an error
-        // if community is not started, load the InternalCommunity props from the local db
-
-        const log = Logger("pkc-js:local-community:_updateInstancePropsWithStartedCommunityOrDb");
-        const startedCommunity = <LocalCommunity | undefined>(
-            (findStartedCommunity(this._pkc, { publicKey: this.publicKey, name: this.name }) ||
-                findCommunityInRegistry(processStartedCommunities, { publicKey: this.publicKey, name: this.name }))
-        );
-        if (startedCommunity) {
-            log("Loading local community", this.address, "from started community instance");
-            if (startedCommunity.updatedAt)
-                await this.initInternalCommunityAfterFirstUpdateNoMerge(startedCommunity.toJSONInternalAfterFirstUpdate());
-            else await this.initInternalCommunityBeforeFirstUpdateNoMerge(startedCommunity.toJSONInternalBeforeFirstUpdate());
-            this.started = true;
-        } else {
-            await this.initDbHandlerIfNeeded();
-            try {
-                await this._updateStartedValue();
-
-                const communityDbExists = this._dbHandler.communityDbExists();
-                if (!communityDbExists)
-                    throw new PKCError("CAN_NOT_LOAD_LOCAL_COMMUNITY_IF_DB_DOES_NOT_EXIST", {
-                        address: this.address,
-                        dataPath: this._pkc.dataPath
-                    });
-
-                const dbConfig = this.state === "updating" ? { readonly: true } : undefined;
-                await this._dbHandler.initDbIfNeeded(dbConfig);
-
-                await this._updateInstanceStateWithDbState(); // Load InternalCommunity from DB here
-                if (!this.signer) throw new PKCError("ERR_LOCAL_COMMUNITY_HAS_NO_SIGNER_IN_INTERNAL_STATE", { address: this.address });
-
-                await this._updateStartedValue();
-                log("Loaded local community", this.address, "from db");
-            } catch (e) {
-                throw e;
-            } finally {
-                this._dbHandler.destoryConnection(); // Need to destory connection so process wouldn't hang
-            }
-        }
-
-        // need to validate schema of Community IPFS
-        if (this.raw.communityIpfs)
-            try {
-                parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(this.raw.communityIpfs);
-            } catch (e) {
-                if (e instanceof Error) {
-                    log(
-                        "Local community",
-                        this.address,
-                        "has an invalid communityIpfs schema from DB, clearing for re-generation after migration:",
-                        e.message
-                    );
-                    this.raw.communityIpfs = undefined;
-                }
-            }
-    }
-    private async _importCommunitySignerIntoIpfsIfNeeded() {
-        if (!this.signer.ipnsKeyName) throw Error("community.signer.ipnsKeyName is not defined");
-        if (!this.signer.ipfsKey) throw Error("community.signer.ipfsKey is not defined");
-
-        await importSignerIntoKuboNode(this.signer.ipnsKeyName, this.signer.ipfsKey, {
-            url: this._pkc.kuboRpcClientsOptions![0].url!.toString(),
-            headers: this._pkc.kuboRpcClientsOptions![0].headers
-        });
-    }
-
-    async _updateDbInternalState(
-        props: Partial<InternalCommunityRecordBeforeFirstUpdateType | InternalCommunityRecordAfterFirstUpdateType>
-    ): Promise<InternalCommunityRecordBeforeFirstUpdateType | InternalCommunityRecordAfterFirstUpdateType> {
-        const log = Logger("pkc-js:local-community:_updateDbInternalState");
-        if (remeda.isEmpty(props)) throw Error("props to update DB internal state should not be empty");
-        await this._dbHandler.initDbIfNeeded();
-
-        props._internalStateUpdateId = uuidV4();
-        let lockedIt = false;
-        try {
-            await this._dbHandler.lockCommunityState();
-            lockedIt = true;
-            const internalStateBefore = await this._getDbInternalState(false);
-            // Convert posts to CID-ref format for compact DB storage (strip preloaded page data)
-            const propsToStore =
-                "posts" in props && props.posts
-                    ? {
-                          ...props,
-                          posts: deriveDbPosts({
-                              posts: props.posts as CommunityIpfsType["posts"],
-                              allPageCids: this._postsAllPageCids
-                          }) as typeof props.posts
-                      }
-                    : props;
-            const mergedInternalState = { ...internalStateBefore, ...propsToStore };
-            await this._dbHandler.keyvSet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY], mergedInternalState);
-            this._internalStateUpdateId = props._internalStateUpdateId;
-            log.trace("Updated community", this.address, "internal state in db with new props", Object.keys(props));
-            if (this.updateCid && this.raw.communityIpfs) {
-                this.raw.localCommunity = this.toJSONInternalRpcAfterFirstUpdate();
-            } else if (this.settings) {
-                this.raw.localCommunity = this.toJSONInternalRpcBeforeFirstUpdate();
-            }
-            return mergedInternalState as InternalCommunityRecordBeforeFirstUpdateType | InternalCommunityRecordAfterFirstUpdateType;
-        } catch (e) {
-            log.error("Failed to update community", this.address, "internal state in db with new props", Object.keys(props), e);
-            throw e;
-        } finally {
-            if (lockedIt) await this._dbHandler.unlockCommunityState();
-        }
-    }
-
-    private async _getDbInternalState(
-        lock: boolean
-    ): Promise<InternalCommunityRecordAfterFirstUpdateType | InternalCommunityRecordBeforeFirstUpdateType> {
-        const log = Logger("pkc-js:local-community:_getDbInternalState");
-        if (!this._dbHandler.keyvHas(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY]))
-            throw new PKCError("ERR_COMMUNITY_HAS_NO_INTERNAL_STATE", { address: this.address, dataPath: this._pkc.dataPath });
-        let lockedIt = false;
-        try {
-            if (lock) {
-                await this._dbHandler.lockCommunityState();
-                lockedIt = true;
-            }
-            const internalState = await this._dbHandler.keyvGet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY]);
-            if (!internalState)
-                throw new PKCError("ERR_COMMUNITY_HAS_NO_INTERNAL_STATE", { address: this.address, dataPath: this._pkc.dataPath });
-            return internalState as InternalCommunityRecordAfterFirstUpdateType | InternalCommunityRecordBeforeFirstUpdateType;
-        } catch (e) {
-            log.error("Failed to get community", this.address, "internal state from db", e);
-            throw e;
-        } finally {
-            if (lockedIt) await this._dbHandler.unlockCommunityState();
-        }
-    }
-
-    private async _updateInstanceStateWithDbState() {
-        const currentDbState = await this._getDbInternalState(false);
-
-        if ("updatedAt" in currentDbState) {
-            // Resolve CID-ref posts from DB back to full wire format with preloaded pages.
-            // DB stores posts in compact CID-ref format (no preloaded page data).
-            // _dbHandler is guaranteed to be initialized here since we're loading from DB.
-            if (currentDbState.posts && !("pages" in currentDbState.posts)) {
-                const dbPosts = currentDbState.posts as unknown as DbPostsFormat;
-                currentDbState.posts = resolveDbPostsCidRefs({ dbPosts, dbHandler: this._dbHandler }) as typeof currentDbState.posts;
-            }
-            await this.initInternalCommunityAfterFirstUpdateNoMerge(currentDbState);
-        } else await this.initInternalCommunityBeforeFirstUpdateNoMerge(currentDbState);
-    }
-
-    async _setChallengesToDefaultIfNotDefined(log: Logger) {
-        if (this._usingDefaultChallenge !== false && (!this.settings?.challenges || isDefaultChallengeStructure(this.settings?.challenges)))
-            this._usingDefaultChallenge = true;
-
-        if (this._usingDefaultChallenge) {
-            const currentAnswer = this.settings?.challenges?.[0]?.options?.answer;
-            if (currentAnswer && isDefaultChallengeStructure(this._defaultCommunityChallenges)) {
-                // Preserve the existing per-community random answer in the template
-                this._defaultCommunityChallenges = generateDefaultChallenges(currentAnswer);
-            }
-
-            if (!remeda.isDeepEqual(this.settings?.challenges, this._defaultCommunityChallenges)) {
-                await this.edit({ settings: { ...this.settings, challenges: this._defaultCommunityChallenges } });
-                // edit() recalculates _usingDefaultChallenge via _isDefaultChallengeStructure,
-                // which may return false for non-standard defaults (e.g. []).
-                // Re-assert true since we know this is still a default-driven upgrade.
-                this._usingDefaultChallenge = true;
-                log(
-                    `Upgraded default challenge for community (${this.address})`,
-                    this._defaultCommunityChallenges[0]?.options?.answer
-                        ? `with answer: ${this._defaultCommunityChallenges[0].options!.answer}`
-                        : `to ${this._defaultCommunityChallenges.length} challenge(s)`
-                );
-            }
-        }
-    }
-
-    async _createNewLocalCommunityDb() {
-        // We're creating a totally new community here with a new db
-        // This function should be called only once per community
-        const log = Logger("pkc-js:local-community:_createNewLocalCommunityDb");
-        await this.initDbHandlerIfNeeded();
-        await this._dbHandler.initDbIfNeeded({ fileMustExist: false });
-        await this._dbHandler.createOrMigrateTablesIfNeeded();
-        await this._initSignerProps(this.signer); // init this.encryption as well
-
-        if (!this.pubsubTopic) this.pubsubTopic = remeda.clone(this.signer.address);
-        if (typeof this.createdAt !== "number") this.createdAt = timestamp();
-        if (!this.protocolVersion) this.protocolVersion = env.PROTOCOL_VERSION;
-        if (!this.settings?.maxPendingApprovalCount) this.settings = { ...this.settings, maxPendingApprovalCount: 500 };
-        if (!this.settings?.challenges) {
-            this.settings = { ...this.settings, challenges: this._defaultCommunityChallenges };
-            this._usingDefaultChallenge = true;
-            log(
-                `Generated default challenge for community (${this.address}) with answer:`,
-                this._defaultCommunityChallenges[0].options!.answer
-            );
-        }
-        if (typeof this.settings?.purgeDisapprovedCommentsOlderThan !== "number") {
-            this.settings = { ...this.settings, purgeDisapprovedCommentsOlderThan: 1.21e6 }; // two weeks
-        }
-
-        this.challenges = await Promise.all(
-            this.settings.challenges!.map(
-                async (cs) =>
-                    (await getCommunityChallengeFromCommunityChallengeSettings({ communityChallengeSettings: cs, pkc: this._pkc }))
-                        .communityChallenge
-            )
-        );
-
-        if (this._dbHandler.keyvHas(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY])) throw Error("Internal state exists already");
-
-        await this._dbHandler.keyvSet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY], this.toJSONInternalBeforeFirstUpdate());
-
-        await this._updateStartedValue();
-
-        this._dbHandler.destoryConnection(); // Need to destory connection so process wouldn't hang
-        this._updateIpnsPubsubPropsIfNeeded({
-            ...this.toJSONInternalBeforeFirstUpdate(), //@ts-expect-error
-            signature: { publicKey: this.signer.publicKey }
-        });
+        return initDbHandlerIfNeeded(this);
     }
 
     private async _calculateNewPostUpdates(): Promise<CommunityIpfsType["postUpdates"]> {
@@ -867,7 +589,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 };
             }
         } else {
-            await this._updateDbInternalState({ posts: undefined }); // make sure db resets posts as well
+            await updateDbInternalState(this, { posts: undefined }); // make sure db resets posts as well
         }
 
         // Unpin old posts page CIDs using direct allPageCids comparison (no IPFS fetches needed)
@@ -883,7 +605,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         if (newModQueue) {
             newIpns.modQueue = { pageCids: newModQueue.pageCids };
         } else {
-            await this._updateDbInternalState({ modQueue: undefined });
+            await updateDbInternalState(this, { modQueue: undefined });
             this.modQueue.resetPages();
         }
 
@@ -982,7 +704,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         log.trace("Updated combined hash of pending comments to", this._combinedHashOfPendingCommentsCids);
 
-        await this._updateDbInternalState(this.toJSONInternalAfterFirstUpdate());
+        await updateDbInternalState(this, this.toJSONInternalAfterFirstUpdate());
 
         this._changeStateEmitEventEmitStateChangeEvent({
             newStartedState: "succeeded",
@@ -2761,19 +2483,6 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         }
     }
 
-    private async _initSignerProps(newSignerProps: InternalCommunityRecordBeforeFirstUpdateType["signer"]) {
-        this.signer = new SignerWithPublicKeyAddress(newSignerProps);
-        if (!this.signer?.ipfsKey?.byteLength || this.signer?.ipfsKey?.byteLength <= 0)
-            this.signer.ipfsKey = new Uint8Array(await getIpfsKeyFromPrivateKey(this.signer.privateKey));
-        if (!this.signer.ipnsKeyName) this.signer.ipnsKeyName = this.signer.address;
-        if (!this.signer.publicKey) this.signer.publicKey = await getPublicKeyFromPrivateKey(this.signer.privateKey);
-
-        this.encryption = {
-            type: "ed25519-aes-gcm",
-            publicKey: this.signer.publicKey
-        };
-    }
-
     private async _publishLoop(syncIntervalMs: number) {
         const log = Logger("pkc-js:local-community:_publishLoop");
         // we need to continue the loop if there's at least one pending edit
@@ -2867,11 +2576,11 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             await this._updateStartedValue();
             await this._dbHandler.initDbIfNeeded();
             await this._dbHandler.createOrMigrateTablesIfNeeded();
-            await this._updateInstanceStateWithDbState(); // sync in-memory state after potential migration
+            await updateInstanceStateWithDbState(this); // sync in-memory state after potential migration
 
-            await this._setChallengesToDefaultIfNotDefined(log);
+            await setChallengesToDefaultIfNotDefined(this, log);
             // Import community keys onto ipfs node
-            await this._importCommunitySignerIntoIpfsIfNeeded();
+            await importCommunitySignerIntoIpfsIfNeeded(this);
             await providePubsubTopicRoutingCidsIfNeeded(this, true);
 
             this._communityUpdateTrigger = true;
@@ -3036,7 +2745,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             // this community is not started or updated anywhere, but maybe another process will call edit() on it
             trackUpdatingCommunity(this._pkc, this);
             const oldUpdateId = remeda.clone(this._internalStateUpdateId);
-            await this._updateInstancePropsWithStartedCommunityOrDb(); // will update this instance props with DB
+            await updateInstancePropsWithStartedCommunityOrDb(this); // will update this instance props with DB
             if (this._internalStateUpdateId !== oldUpdateId) {
                 log(
                     `Local Community (${this.address}) received a new update from db with updatedAt (${this.updatedAt}). Will emit an update event`
@@ -3121,7 +2830,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             }
 
             try {
-                await this._updateDbInternalState(
+                await updateDbInternalState(
+                    this,
                     this.updateCid ? this.toJSONInternalAfterFirstUpdate() : this.toJSONInternalBeforeFirstUpdate()
                 );
             } catch (e) {
@@ -3231,7 +2941,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         }
 
         try {
-            await this._updateDbInternalState(
+            await updateDbInternalState(
+                this,
                 typeof this.updatedAt === "number" ? this.toJSONInternalAfterFirstUpdate() : this.toJSONInternalBeforeFirstUpdate()
             );
         } catch (e) {

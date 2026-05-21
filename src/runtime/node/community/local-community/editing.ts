@@ -21,6 +21,7 @@ import type {
 import type { LocalCommunity } from "../local-community.js";
 import { isDefaultChallengeStructure } from "./defaults.js";
 import { processStartedCommunities } from "./registry.js";
+import { updateDbInternalState, updateInstancePropsWithStartedCommunityOrDb } from "./db-state.js";
 
 export async function movePostUpdatesFolderToNewAddress(community: LocalCommunity, oldAddress: string, newAddress: string) {
     const log = Logger("pkc-js:local-community:_movePostUpdatesFolderToNewAddress");
@@ -166,7 +167,7 @@ export async function editPropsOnNotStartedCommunity(
         await community._dbHandler.initDbIfNeeded();
         community.setAddress(parsedEditOptions.address);
     }
-    const mergedInternalState = await community._updateDbInternalState(parsedEditOptions);
+    const mergedInternalState = await updateDbInternalState(community, parsedEditOptions);
 
     if ("updatedAt" in mergedInternalState && mergedInternalState.updatedAt)
         await community.initInternalCommunityAfterFirstUpdateNoMerge(mergedInternalState);
@@ -192,7 +193,7 @@ export async function edit(community: LocalCommunity, newCommunityOptions: Commu
         const editRes = await startedCommunity.edit(newCommunityOptions);
 
         community.setAddress(editRes.address); // need to force an update of the address for this instance
-        await community._updateInstancePropsWithStartedCommunityOrDb();
+        await updateInstancePropsWithStartedCommunityOrDb(community);
         return community;
     }
 
