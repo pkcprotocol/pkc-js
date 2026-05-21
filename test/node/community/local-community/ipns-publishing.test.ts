@@ -201,7 +201,11 @@ describe("ipns-publishing: updateCommunityIpnsIfNeeded", () => {
                 queryLatestCommentCid: () => ({ cid: "QmComment" }),
                 queryCommunityStats
             },
-            _clientsManager: {}
+            _clientsManager: {},
+            // The orchestrator delegates the trigger calculation through this facade method
+            // so integration tests can monkey-patch it; we no-op it here so the early-return
+            // path stays intact.
+            _calculateLatestUpdateTrigger: vi.fn()
         } as unknown as LocalCommunity;
 
         await updateCommunityIpnsIfNeeded(community, []);
