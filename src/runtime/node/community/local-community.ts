@@ -19,7 +19,13 @@ import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { calculateStringSizeSameAsIpfsAddCidV0, hideClassPrivateProps, isStringDomain, retryKuboIpfsAddAndProvide } from "../../../util.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { PKCError } from "../../../pkc-error.js";
-import type { ChallengeAnswerMessageType, ChallengeRequestMessageType, DecryptedChallengeAnswer } from "../../../pubsub-messages/types.js";
+import type {
+    ChallengeAnswerMessageType,
+    ChallengeRequestMessageType,
+    DecryptedChallengeAnswer,
+    DecryptedChallengeRequestMessageType
+} from "../../../pubsub-messages/types.js";
+import { storePublication } from "./local-community/publication-store.js";
 import type { IpfsHttpClientPubsubMessage } from "../../../types.js";
 import { verifyCommunity } from "../../../signer/signatures.js";
 import { deriveCommentIpfsFromCommentTableRow } from "../util.js";
@@ -363,5 +369,13 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
     async _repinCommentsIPFSIfNeeded() {
         return repinCommentsIPFSIfNeeded(this);
+    }
+
+    // Kept as a method (in addition to the free function) because the pseudonymityMode
+    // integration tests in test/node/community/features/ invoke it directly on the
+    // community instance to set up parent comments. Not on master's public API surface,
+    // but treated as one by those tests.
+    async storePublication(request: DecryptedChallengeRequestMessageType, pendingApproval?: boolean) {
+        return storePublication(this, request, pendingApproval);
     }
 }
