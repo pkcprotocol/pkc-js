@@ -19,7 +19,7 @@ import type { CommentUpdateToWriteToDbAndPublishToIpfs } from "./defaults.js";
 import { adjustPostUpdatesBucketsIfNeeded, syncPostUpdatesWithIpfs, updateCommentsThatNeedToBeUpdated } from "./comment-updates.js";
 import { cleanUpIpfsRepoRarely, purgeDisapprovedCommentsOlderThan, unpinStaleCids } from "./cleanup.js";
 import { updateDbInternalState } from "./db-state.js";
-import { listenToIncomingRequests, providePubsubTopicRoutingCidsIfNeeded } from "./pubsub.js";
+import { providePubsubTopicRoutingCidsIfNeeded } from "./pubsub.js";
 
 export async function calculateNewPostUpdates(community: LocalCommunity): Promise<CommunityIpfsType["postUpdates"]> {
     const postUpdates: CommunityIpfsType["postUpdates"] = {};
@@ -397,7 +397,7 @@ export async function syncIpnsWithDb(community: LocalCommunity) {
 
     const kuboRpc = community._clientsManager.getDefaultKuboRpcClient();
     try {
-        await listenToIncomingRequests(community);
+        await community._listenToIncomingRequests();
         await providePubsubTopicRoutingCidsIfNeeded(community);
         await adjustPostUpdatesBucketsIfNeeded(community);
         community._setStartedStateWithEmission("publishing-ipns");

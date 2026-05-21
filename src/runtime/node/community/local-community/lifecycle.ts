@@ -19,8 +19,8 @@ import {
 import { LocalCommunity } from "../local-community.js";
 import { processStartedCommunities } from "./registry.js";
 import { pubsubTopicWithfallback } from "./comment-updates.js";
-import { listenToIncomingRequests, providePubsubTopicRoutingCidsIfNeeded } from "./pubsub.js";
-import { repinCommentUpdateIfNeeded, repinCommentsIPFSIfNeeded, unpinStaleCids } from "./cleanup.js";
+import { providePubsubTopicRoutingCidsIfNeeded } from "./pubsub.js";
+import { repinCommentUpdateIfNeeded, unpinStaleCids } from "./cleanup.js";
 import {
     importCommunitySignerIntoIpfsIfNeeded,
     setChallengesToDefaultIfNotDefined,
@@ -132,9 +132,9 @@ export async function start(community: LocalCommunity) {
 
         community._communityUpdateTrigger = true;
         community._setStartedStateWithEmission("publishing-ipns");
-        await repinCommentsIPFSIfNeeded(community);
+        await community._repinCommentsIPFSIfNeeded();
         await repinCommentUpdateIfNeeded(community);
-        await listenToIncomingRequests(community);
+        await community._listenToIncomingRequests();
         community.challenges = await Promise.all(
             community.settings.challenges!.map(
                 async (cs) =>

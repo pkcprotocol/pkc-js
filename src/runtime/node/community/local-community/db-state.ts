@@ -87,7 +87,7 @@ export async function updateDbInternalState(
     try {
         await community._dbHandler.lockCommunityState();
         lockedIt = true;
-        const internalStateBefore = await getDbInternalState(community, false);
+        const internalStateBefore = await community._getDbInternalState(false);
         // Convert posts to CID-ref format for compact DB storage (strip preloaded page data)
         const propsToStore =
             "posts" in props && props.posts
@@ -118,7 +118,7 @@ export async function updateDbInternalState(
 }
 
 export async function updateInstanceStateWithDbState(community: LocalCommunity) {
-    const currentDbState = await getDbInternalState(community, false);
+    const currentDbState = await community._getDbInternalState(false);
 
     if ("updatedAt" in currentDbState) {
         // Resolve CID-ref posts from DB back to full wire format with preloaded pages.

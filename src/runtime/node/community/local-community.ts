@@ -1,6 +1,7 @@
 import Logger from "../../../logger.js";
 import { PKC } from "../../../pkc/pkc.js";
 import type {
+    CommunityEditOptions,
     CreateNewLocalCommunityParsedOptions,
     InternalCommunityRecordBeforeFirstUpdateType,
     InternalCommunityRecordAfterFirstUpdateType,
@@ -32,11 +33,14 @@ import { sha256 } from "js-sha256";
 import { AllPageCids } from "../../../pages/types.js";
 import { generateDefaultChallenges } from "./local-community/defaults.js";
 import {
+    getDbInternalState,
     initDbHandlerIfNeeded,
     initInternalCommunityAfterFirstUpdateNoMerge,
     initInternalCommunityBeforeFirstUpdateNoMerge,
     initNewLocalCommunityPropsNoMerge
 } from "./local-community/db-state.js";
+import { listenToIncomingRequests } from "./local-community/pubsub.js";
+import { repinCommentsIPFSIfNeeded } from "./local-community/cleanup.js";
 import {
     handleChallengeAnswer as handleChallengeAnswerFreeFunction,
     handleChallengeExchange as handleChallengeExchangeFreeFunction,
@@ -44,6 +48,7 @@ import {
 } from "./local-community/challenges.js";
 import { shouldResolveDomainForVerification } from "./local-community/ipns-publishing.js";
 import { deleteCommunity, start as lifecycleStart, stop as lifecycleStop, update as lifecycleUpdate } from "./local-community/lifecycle.js";
+import { edit as editCommunity } from "./local-community/editing.js";
 
 // This is a sub we have locally in our pkc datapath, in a NodeJS environment
 export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalCommunityParsedOptions {
@@ -337,5 +342,26 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
     override async delete() {
         return deleteCommunity(this);
+    }
+
+    override async edit(newCommunityOptions: CommunityEditOptions): Promise<typeof this> {
+        return (await editCommunity(this, newCommunityOptions)) as typeof this;
+    }
+
+    // The three helpers below stay as methods (in addition to being free functions in their
+    // respective modules) because integration tests in test/node/community/ monkey-patch
+    // community._xxx = async () => { throw ... } to inject failures into the start/publish
+    // loops. Production callers in lifecycle.ts/db-state.ts/etc. go through these methods
+    // (not the bare imports) so the patches still take effect.
+    async _getDbInternalState(includeMutable: boolean = false) {
+        return getDbInternalState(this, includeMutable);
+    }
+
+    async _listenToIncomingRequests() {
+        return listenToIncomingRequests(this);
+    }
+
+    async _repinCommentsIPFSIfNeeded() {
+        return repinCommentsIPFSIfNeeded(this);
     }
 }
