@@ -251,6 +251,16 @@ import {
     handleChallengeExchange as handleChallengeExchangeFreeFunction,
     handleChallengeRequest as handleChallengeRequestFreeFunction
 } from "./local-community/challenges.js";
+import {
+    addOldPageCidsToCidsToUnpin,
+    calculateLatestUpdateTrigger,
+    calculateNewPostUpdates,
+    requireCommunityUpdateIfModQueueChanged,
+    resolveIpnsAndLogIfPotentialProblematicSequence,
+    shouldResolveDomainForVerification,
+    syncIpnsWithDb,
+    updateCommunityIpnsIfNeeded
+} from "./local-community/ipns-publishing.js";
 
 // This is a sub we have locally in our pkc datapath, in a NodeJS environment
 export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalCommunityParsedOptions {
@@ -274,7 +284,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     _cidsToUnPin: Set<string> = new Set<string>();
     _mfsPathsToRemove: Set<string> = new Set<string>();
     _communityUpdateTrigger: boolean = false;
-    private _combinedHashOfPendingCommentsCids: string = sha256("");
+    _combinedHashOfPendingCommentsCids: string = sha256("");
 
     _pageGenerator!: PageGenerator;
     _dbHandler!: DbHandler;
@@ -282,7 +292,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     private _publishLoopPromise?: Promise<void> = undefined;
     private _updateLoopPromise?: Promise<void> = undefined;
     private _updateLoopAbortController?: AbortController;
-    private _firstUpdateAfterStart: boolean = true;
+    _firstUpdateAfterStart: boolean = true;
     _internalStateUpdateId: InternalCommunityRecordBeforeFirstUpdateType["_internalStateUpdateId"] = "";
     _lastPubsubTopicRoutingProvideAt?: number = undefined;
     private _mirroredStartedOrUpdatingCommunity?: { community: LocalCommunity } & Pick<
@@ -398,337 +408,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         return initDbHandlerIfNeeded(this);
     }
 
-    private async _calculateNewPostUpdates(): Promise<CommunityIpfsType["postUpdates"]> {
-        const postUpdates: CommunityIpfsType["postUpdates"] = {};
-        const kuboRpcClient = this._clientsManager.getDefaultKuboRpcClient()._client;
-        for (const timeBucket of this._postUpdatesBuckets) {
-            try {
-                const statRes = await kuboRpcClient.files.stat(`/${this.address}/postUpdates/${timeBucket}`);
-                if (statRes.blocks !== 0) postUpdates[String(timeBucket)] = String(statRes.cid);
-            } catch {}
-        }
-        if (remeda.isEmpty(postUpdates)) return undefined;
-        return postUpdates;
-    }
-
-    private _calculateLatestUpdateTrigger() {
-        const lastPublishTooOld = (this.updatedAt || 0) < timestamp() - 60 * 15; // Publish a community record every 15 minutes at least
-
-        // these two checks below are for rare cases where a purged comments or post is not forcing community for a new update
-        const lastPostCidChanged = this.lastPostCid !== this._dbHandler.queryLatestPostCid()?.cid;
-        const lastCommentCidChanged = this.lastCommentCid !== this._dbHandler.queryLatestCommentCid()?.cid;
-
-        this._communityUpdateTrigger =
-            this._communityUpdateTrigger ||
-            lastPublishTooOld ||
-            this._pendingEditProps.length > 0 ||
-            this._blocksToRm.length > 0 ||
-            lastCommentCidChanged ||
-            lastPostCidChanged; // we have at least one edit to include in new ipns
-    }
-
-    private _requireCommunityUpdateIfModQueueChanged() {
-        const combinedHashOfAllQueuedComments = this._dbHandler.queryCombinedHashOfPendingComments();
-
-        if (this._combinedHashOfPendingCommentsCids !== combinedHashOfAllQueuedComments) this._communityUpdateTrigger = true;
-    }
-
-    async _resolveIpnsAndLogIfPotentialProblematicSequence() {
-        const log = Logger("pkc-js:local-community:_resolveIpnsAndLogIfPotentialProblematicSequence");
-        if (!this.signer.ipnsKeyName) throw Error("IPNS key name is not defined");
-        if (!this.updateCid) return;
-        try {
-            const ipnsCid = await this._clientsManager.resolveIpnsToCidP2P(this.signer.ipnsKeyName, { timeoutMs: 120000 });
-            log.trace("Resolved community", this.address, "IPNS key", this.signer.ipnsKeyName, "to", ipnsCid);
-
-            if (ipnsCid && this.updateCid && ipnsCid !== this.updateCid) {
-                log.error(
-                    "community",
-                    this.address,
-                    "IPNS key",
-                    this.signer.ipnsKeyName,
-                    "points to",
-                    ipnsCid,
-                    "but we expected it to point to",
-                    this.updateCid,
-                    "This could result an IPNS record with invalid sequence number"
-                );
-            }
-        } catch (e) {
-            log.trace("Failed to resolve community before publishing", this.address, "IPNS key", this.signer.ipnsKeyName, e);
-        }
-    }
-
-    private async _addOldPageCidsToCidsToUnpin(
-        curPages: CommentUpdateType["replies"] | CommunityIpfsType["posts"] | CommunityIpfsType["modQueue"],
-        newPages: CommentUpdateType["replies"] | CommunityIpfsType["posts"] | CommunityIpfsType["modQueue"],
-        addToBlockRm?: boolean
-    ) {
-        if (!curPages && !newPages) return;
-        else if (curPages && !newPages) {
-            // we had to reset our community pages, maybe because we purged all comments or changed community address
-            const allPageCidsUnderCurPages = await iterateOverPageCidsToFindAllCids({
-                pages: curPages,
-                clientManager: this._clientsManager
-            });
-            allPageCidsUnderCurPages.forEach((cid) => {
-                this._cidsToUnPin.add(cid);
-                if (addToBlockRm) this._blocksToRm.push(cid);
-            });
-        } else if (curPages && newPages) {
-            // need to find cids for both, and compare them and only keep ones in newPages
-            const allPageCidsUnderCurPages = await iterateOverPageCidsToFindAllCids({
-                pages: curPages,
-                clientManager: this._clientsManager
-            });
-            const allPageCidsUnderNewPages = await iterateOverPageCidsToFindAllCids({
-                pages: newPages,
-                clientManager: this._clientsManager
-            });
-            const cidsToUnpin = remeda.difference(allPageCidsUnderCurPages, allPageCidsUnderNewPages);
-            cidsToUnpin.forEach((cid) => {
-                this._cidsToUnPin.add(cid);
-                if (addToBlockRm) this._blocksToRm.push(cid);
-            });
-        }
-    }
-
-    private async updateCommunityIpnsIfNeeded(commentUpdateRowsToPublishToIpfs: CommentUpdateToWriteToDbAndPublishToIpfs[]) {
-        const log = Logger("pkc-js:local-community:start:updateCommunityIpnsIfNeeded");
-
-        this._calculateLatestUpdateTrigger();
-
-        if (!this._communityUpdateTrigger) return; // No reason to update
-
-        this._dbHandler.createTransaction();
-        const latestPost = this._dbHandler.queryLatestPostCid();
-        const latestComment = this._dbHandler.queryLatestCommentCid();
-        this._dbHandler.commitTransaction();
-
-        const stats = this._dbHandler.queryCommunityStats();
-
-        if (commentUpdateRowsToPublishToIpfs.length > 0) {
-            try {
-                await syncPostUpdatesWithIpfs(this, commentUpdateRowsToPublishToIpfs);
-            } catch (e) {
-                const err = <Error>e;
-                const isMfsTimeout =
-                    err.message.includes("Timed out writing to MFS path") || err.message.includes("Timed out removing MFS paths");
-                if (isMfsTimeout) {
-                    // Workaround for ipfs/kubo#10842: deeply nested MFS paths hang, but rm of the community root is fast.
-                    log.error(
-                        `MFS sync stuck for community ${this.address} - auto-nuking /${this.address} and forcing a full republish. See https://github.com/ipfs/kubo/issues/10842 for upstream context.`
-                    );
-                    const kuboRpc = this._clientsManager.getDefaultKuboRpcClient();
-                    try {
-                        await kuboRpc._client.files.rm("/" + this.address, {
-                            recursive: true,
-                            //@ts-expect-error force is not in FilesRmOptions
-                            force: true
-                        });
-                    } catch (rmErr) {
-                        log.error(`Auto-nuke files.rm of /${this.address} failed:`, rmErr);
-                    }
-                    this._dbHandler.forceUpdateOnAllComments();
-                }
-                throw e;
-            }
-        }
-
-        const newPostUpdates = await this._calculateNewPostUpdates();
-        const newModQueue = await this._pageGenerator.generateModQueuePages();
-
-        const kuboRpcClient = this._clientsManager.getDefaultKuboRpcClient();
-
-        const statsCid = (
-            await retryKuboIpfsAddAndProvide({
-                ipfsClient: kuboRpcClient._client,
-                log,
-                content: deterministicStringify(stats),
-                addOptions: { pin: true },
-                provideOptions: { recursive: true },
-                provideInBackground: true
-            })
-        ).path;
-        if (this.statsCid && statsCid !== this.statsCid) this._cidsToUnPin.add(this.statsCid);
-
-        const currentTimestamp = timestamp();
-        const updatedAt = typeof this?.updatedAt === "number" && this.updatedAt >= currentTimestamp ? this.updatedAt + 1 : currentTimestamp;
-        const editIdsToIncludeInNextUpdate = this._pendingEditProps.map((editProps) => editProps.editId);
-        const pendingCommunityIpfsEditProps = Object.assign(
-            {}, //@ts-expect-error
-            ...this._pendingEditProps.map((editProps) => remeda.pick(editProps, remeda.keys.strict(CommunityIpfsSchema.shape)))
-        );
-        if (this._pendingEditProps.length > 0) log("Including edit props in next IPNS update", this._pendingEditProps);
-        const newIpns: Omit<CommunityIpfsType, "signature"> = {
-            ...cleanUpBeforePublishing({
-                ...remeda.omit(this._toJSONIpfsBaseNoPosts(), ["signature"]),
-                ...pendingCommunityIpfsEditProps,
-                lastPostCid: latestPost?.cid,
-                lastCommentCid: latestComment?.cid,
-                statsCid,
-                updatedAt,
-                postUpdates: newPostUpdates,
-                protocolVersion: env.PROTOCOL_VERSION
-            })
-        };
-
-        const preloadedPostsPages = "hot";
-        // Calculate size taken by community without posts and signature
-        const communityWithoutPostsSignatureSize = Buffer.byteLength(JSON.stringify(newIpns), "utf8");
-
-        // Calculate expected signature size
-        const expectedSignatureSize = calculateExpectedSignatureSize(newIpns);
-
-        // Calculate remaining space for posts
-        const availablePostsSize =
-            MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS - communityWithoutPostsSignatureSize - expectedSignatureSize - 1000;
-
-        const generatedPosts = await this._pageGenerator.generateCommunityPosts(preloadedPostsPages, availablePostsSize);
-
-        // posts should not be cleaned up because we want to make sure not to modify authors' posts
-
-        // Extract allPageCids from generation result for DB CID-ref storage and unpinning
-        const newPostsAllPageCids = generatedPosts && !("singlePreloadedPage" in generatedPosts) ? generatedPosts.allPageCids : undefined;
-
-        if (generatedPosts) {
-            if ("singlePreloadedPage" in generatedPosts) newIpns.posts = { pages: generatedPosts.singlePreloadedPage };
-            else if (generatedPosts.pageCids) {
-                // multiple pages
-                newIpns.posts = {
-                    pageCids: generatedPosts.pageCids,
-                    pages: remeda.pick(generatedPosts.pages, [preloadedPostsPages])
-                };
-            }
-        } else {
-            await updateDbInternalState(this, { posts: undefined }); // make sure db resets posts as well
-        }
-
-        // Unpin old posts page CIDs using direct allPageCids comparison (no IPFS fetches needed)
-        {
-            const oldCids = new Set(this._postsAllPageCids ? Object.values(this._postsAllPageCids).flat() : []);
-            const newCids = new Set(newPostsAllPageCids ? Object.values(newPostsAllPageCids).flat() : []);
-            for (const cid of oldCids) {
-                if (!newCids.has(cid)) this._cidsToUnPin.add(cid);
-            }
-        }
-        this._postsAllPageCids = newPostsAllPageCids;
-
-        if (newModQueue) {
-            newIpns.modQueue = { pageCids: newModQueue.pageCids };
-        } else {
-            await updateDbInternalState(this, { modQueue: undefined });
-            this.modQueue.resetPages();
-        }
-
-        const signature = await signCommunity({ community: newIpns, signer: this.signer });
-        const newCommunityRecord = <CommunityIpfsType>{ ...newIpns, signature };
-
-        await this._validateCommunitySizeSchemaAndSignatureBeforePublishing(newCommunityRecord);
-
-        const contentToPublish = deterministicStringify(newCommunityRecord);
-        const file = await retryKuboIpfsAddAndProvide({
-            ipfsClient: kuboRpcClient._client,
-            log,
-            content: contentToPublish, // you need to do deterministic here or otherwise cids in commentUpdate.replies won't match up correctly
-            addOptions: { pin: true },
-            provideOptions: { recursive: true },
-            provideInBackground: false
-        });
-        if (file.size > MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS) {
-            throw new PKCError("ERR_LOCAL_COMMUNITY_RECORD_TOO_LARGE", {
-                calculatedSizeOfNewCommunityRecord: file.size,
-                maxSize: MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS,
-                newCommunityRecord,
-                address: this.address
-            });
-        }
-
-        if (!this.signer.ipnsKeyName) throw Error("IPNS key name is not defined");
-        // after kubo 0.40 implements fetching IPNS record from local blockstore, we don't need line below anymore
-        if (this._firstUpdateAfterStart) await this._resolveIpnsAndLogIfPotentialProblematicSequence();
-        const ttl = `${this._pkc.publishInterval * 3}ms`; // default publish interval is 20s, so default ttl is 60s
-        const lastPublishedIpnsRecordData = <any | undefined>await this._dbHandler.keyvGet(STORAGE_KEYS[STORAGE_KEYS.LAST_IPNS_RECORD]);
-        const decodedIpnsRecord: any | undefined = lastPublishedIpnsRecordData
-            ? cborg.decode(new Uint8Array(Object.values(lastPublishedIpnsRecordData)))
-            : undefined;
-        const ipnsSequence: BigInt | undefined = decodedIpnsRecord ? BigInt(decodedIpnsRecord.sequence) + 1n : undefined;
-        const publishRes = await kuboRpcClient._client.name.publish(file.path, {
-            key: this.signer.ipnsKeyName,
-            allowOffline: true,
-            resolve: true,
-            ttl
-            // enable below line after kubo fixes their problems with fetching IPNS records from local blockstore
-            // ...(ipnsSequence ? { sequence: ipnsSequence } : undefined)
-        });
-        log(
-            `Published a new IPNS record for community(${this.address}) on IPNS (${publishRes.name}) that points to file (${publishRes.value}) with updatedAt (${newCommunityRecord.updatedAt}) and TTL (${ttl})`
-        );
-
-        this._clientsManager.updateKuboRpcState("stopped", kuboRpcClient.url);
-        this._addOldPageCidsToCidsToUnpin(this.raw.communityIpfs?.modQueue, newIpns.modQueue).catch((err) =>
-            log.error("Failed to add old page cids of community.modQueue to _cidsToUnpin", err)
-        );
-        await unpinStaleCids(this);
-        if (this._blocksToRm.length > 0) {
-            const removedBlocks = await removeBlocksFromKuboNode({
-                ipfsClient: this._clientsManager.getDefaultKuboRpcClient()._client,
-                log,
-                cids: this._blocksToRm,
-                options: { force: true }
-            });
-            log("Removed blocks", removedBlocks, "from kubo node");
-            this._blocksToRm = this._blocksToRm.filter((blockCid) => !removedBlocks.includes(blockCid));
-        }
-        if (this.updateCid) this._cidsToUnPin.add(this.updateCid); // add old cid of community to be unpinned
-        this.initCommunityIpfsPropsNoMerge(newCommunityRecord);
-        this.updateCid = file.path;
-        this._pendingEditProps = this._pendingEditProps.filter((editProps) => !editIdsToIncludeInNextUpdate.includes(editProps.editId));
-
-        // Re-apply remaining pending edits to in-memory state.
-        // initCommunityIpfsPropsNoMerge above overwrites all CommunityIpfs properties from the
-        // published IPNS record. If edit() was called during the long IPNS publish await,
-        // those edits are still in _pendingEditProps but their in-memory values were overwritten.
-        if (this._pendingEditProps.length > 0) {
-            const remainingEditProps = Object.assign(
-                {}, //@ts-expect-error
-                ...this._pendingEditProps.map((editProps) => remeda.pick(editProps, remeda.keys.strict(CommunityIpfsSchema.shape)))
-            );
-            Object.assign(this, remainingEditProps);
-        }
-
-        this._communityUpdateTrigger = false;
-        this._firstUpdateAfterStart = false;
-
-        try {
-            // this call will fail if we have http routers + kubo 0.38 and earlier
-            const ipnsRecord = await getIpnsRecordInLocalKuboNode(kuboRpcClient, this.signer.address);
-
-            await this._dbHandler.keyvSet(STORAGE_KEYS[STORAGE_KEYS.LAST_IPNS_RECORD], cborg.encode(ipnsRecord));
-        } catch (e) {
-            log.trace(
-                "Failed to update IPNS record in sqlite record, not a critical error and will most likely be fixed by kubo past 0.38",
-                e
-            );
-        }
-
-        this._combinedHashOfPendingCommentsCids = newModQueue?.combinedHashOfCids || sha256("");
-
-        log.trace("Updated combined hash of pending comments to", this._combinedHashOfPendingCommentsCids);
-
-        await updateDbInternalState(this, this.toJSONInternalAfterFirstUpdate());
-
-        this._changeStateEmitEventEmitStateChangeEvent({
-            newStartedState: "succeeded",
-            event: { name: "update", args: [this] }
-        });
-    }
-
-    private shouldResolveDomainForVerification() {
-        return this.address.includes(".") && Math.random() < 0.005; // Resolving domain should be a rare process because default rpcs throttle if we resolve too much
-    }
-
-    private async _validateCommunitySizeSchemaAndSignatureBeforePublishing(recordToPublishRaw: CommunityIpfsType) {
+    async _validateCommunitySizeSchemaAndSignatureBeforePublishing(recordToPublishRaw: CommunityIpfsType) {
         const log = Logger("pkc-js:local-community:_validateCommunitySchemaAndSignatureBeforePublishing");
 
         const stringifiedNewCommunityRecord = deterministicStringify(recordToPublishRaw);
@@ -797,7 +477,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             throw e;
         }
 
-        if (this.shouldResolveDomainForVerification()) {
+        if (shouldResolveDomainForVerification(this)) {
             try {
                 log(`Resolving domain ${this.address} to make sure it's the same as signer.address ${this.signer.address}`);
                 await this._assertDomainResolvesCorrectly(this.address);
@@ -842,43 +522,6 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         log.trace("Pinned comment", unpinnedCommentRow.cid, "of community", this.address, "to IPFS node");
     }
 
-    private async syncIpnsWithDb() {
-        const log = Logger("pkc-js:local-community:sync");
-
-        const kuboRpc = this._clientsManager.getDefaultKuboRpcClient();
-        try {
-            await listenToIncomingRequests(this);
-            await providePubsubTopicRoutingCidsIfNeeded(this);
-            await adjustPostUpdatesBucketsIfNeeded(this);
-            this._setStartedStateWithEmission("publishing-ipns");
-            this._clientsManager.updateKuboRpcState("publishing-ipns", kuboRpc.url);
-            await purgeDisapprovedCommentsOlderThan(this);
-            const commentUpdateRows = await updateCommentsThatNeedToBeUpdated(this);
-            this._requireCommunityUpdateIfModQueueChanged();
-            await this.updateCommunityIpnsIfNeeded(commentUpdateRows);
-            await cleanUpIpfsRepoRarely(this);
-        } catch (e) {
-            //@ts-expect-error
-            e.details = { ...e.details, communityAddress: this.address };
-            const errorTyped = <Error>e;
-            this._setStartedStateWithEmission("failed");
-            this._clientsManager.updateKuboRpcState("stopped", kuboRpc.url);
-
-            log.error(
-                `Failed to sync community`,
-                this.address,
-                `due to error,`,
-                errorTyped,
-                "Error.message",
-                errorTyped.message,
-                "Error keys",
-                Object.keys(errorTyped)
-            );
-
-            throw e;
-        }
-    }
-
     async _assertDomainResolvesCorrectly(newAddressAsDomain: string) {
         if (isStringDomain(newAddressAsDomain)) {
             const resolvedIpnsFromNewDomain = await this._clientsManager.resolveCommunityNameIfNeeded({
@@ -910,7 +553,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             await new Promise((resolve) => {
                 const checkInterval = setInterval(() => {
                     const syncIntervalMsPassedSinceDoneWithLoop = Date.now() - doneWithLoopTime >= syncIntervalMs;
-                    this._calculateLatestUpdateTrigger(); // will update this._communityUpdateTrigger
+                    calculateLatestUpdateTrigger(this); // will update this._communityUpdateTrigger
                     if (this._communityUpdateTrigger || shouldStopPublishLoop() || syncIntervalMsPassedSinceDoneWithLoop) {
                         clearInterval(checkInterval);
                         resolve(1);
@@ -921,7 +564,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         while (!shouldStopPublishLoop()) {
             try {
-                await this.syncIpnsWithDb();
+                await syncIpnsWithDb(this);
             } catch (e) {
                 this.emit("error", e as Error);
             } finally {
@@ -1326,7 +969,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         // scenario 4: we call delete() on a community that is not started, but the same community is started in pkc._startedCommunities[address]
 
         try {
-            await this._addOldPageCidsToCidsToUnpin(this.raw?.communityIpfs?.posts, undefined);
+            await addOldPageCidsToCidsToUnpin(this, this.raw?.communityIpfs?.posts, undefined);
         } catch (e) {
             log.error("Failed to add old page cids from community.posts to be unpinned", e);
         }
