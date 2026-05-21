@@ -40,9 +40,7 @@ describe(`community.startedState`, async () => {
 
     itSkipIfRpc(`community.startedState = failed if a failure occurs`, async () => {
         const localCommunity = community as LocalCommunity;
-        // @ts-expect-error _getDbInternalState is private but we need to mock it for testing
         const originalFunction = localCommunity._getDbInternalState.bind(localCommunity);
-        // @ts-expect-error _getDbInternalState is private but we need to mock it for testing
         localCommunity._getDbInternalState = async () => {
             throw Error("Failed to load sub from db ");
         };
@@ -53,7 +51,6 @@ describe(`community.startedState`, async () => {
             eventName: "startedstatechange"
         });
         expect(community.startedState).to.equal("failed");
-        // @ts-expect-error _getDbInternalState is private but we need to restore it for testing
         localCommunity._getDbInternalState = originalFunction;
     });
 });

@@ -61,7 +61,6 @@ describe(`community.start`, async () => {
         const localCommunity = community as LocalCommunity;
         await localCommunity._pkc._clientsManager
             .getDefaultKuboPubsubClient()!
-            // @ts-expect-error handleChallengeExchange is private but we need to access it for testing pubsub unsubscribe
             ._client.pubsub.unsubscribe(localCommunity.pubsubTopic!, localCommunity.handleChallengeExchange);
         const listedTopics = async () => await localCommunity._pkc._clientsManager.getDefaultKuboPubsubClient()!._client.pubsub.ls();
         expect(await listedTopics()).to.not.include(community.address);
@@ -90,9 +89,7 @@ describe(`community.start`, async () => {
         const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
         await community.start();
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
-        // @ts-expect-error _getDbInternalState is private but we need to mock it for testing
         const originalFunc = community._getDbInternalState.bind(community);
-        // @ts-expect-error _getDbInternalState is private but we need to mock it for testing
         community._getDbInternalState = async () => {
             throw Error("Mocking a failure in getting db internal state in tests");
         };
@@ -104,7 +101,6 @@ describe(`community.start`, async () => {
         });
         expect(community.startedState).to.equal("failed");
 
-        // @ts-expect-error _getDbInternalState is private but we need to restore it for testing
         community._getDbInternalState = originalFunc;
 
         await resolveWhenConditionIsTrue({
@@ -317,7 +313,6 @@ describe(`Start lock`, async () => {
     itSkipIfRpc(`Community states are reset if community.start() throws`, async () => {
         const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
 
-        // @ts-expect-error _repinCommentsIPFSIfNeeded is private but we need to mock it for testing
         community._repinCommentsIPFSIfNeeded = async () => {
             throw Error("Mocking a failure in repinning comments in tests");
         };
