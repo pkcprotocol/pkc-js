@@ -28,7 +28,7 @@ import {
     updateInstancePropsWithStartedCommunityOrDb,
     updateInstanceStateWithDbState
 } from "./db-state.js";
-import { addOldPageCidsToCidsToUnpin, calculateLatestUpdateTrigger, syncIpnsWithDb } from "./ipns-publishing.js";
+import { calculateLatestUpdateTrigger, syncIpnsWithDb } from "./ipns-publishing.js";
 import type { CommunityState, CommunityUpdatingState } from "../../../../community/types.js";
 import type { DecryptedChallengeAnswer } from "../../../../pubsub-messages/types.js";
 import type { RemoteCommunity } from "../../../../community/remote-community.js";
@@ -465,7 +465,7 @@ export async function deleteCommunity(community: LocalCommunity) {
     // scenario 4: we call delete() on a community that is not started, but the same community is started in pkc._startedCommunities[address]
 
     try {
-        await addOldPageCidsToCidsToUnpin(community, community.raw?.communityIpfs?.posts, undefined);
+        await community._addOldPageCidsToCidsToUnpin(community.raw?.communityIpfs?.posts, undefined);
     } catch (e) {
         log.error("Failed to add old page cids from community.posts to be unpinned", e);
     }

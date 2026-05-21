@@ -52,7 +52,11 @@ import {
     handleChallengeExchange as handleChallengeExchangeFreeFunction,
     handleChallengeRequest as handleChallengeRequestFreeFunction
 } from "./local-community/challenges.js";
-import { shouldResolveDomainForVerification } from "./local-community/ipns-publishing.js";
+import {
+    addOldPageCidsToCidsToUnpin,
+    shouldResolveDomainForVerification,
+    updateCommunityIpnsIfNeeded
+} from "./local-community/ipns-publishing.js";
 import { deleteCommunity, start as lifecycleStart, stop as lifecycleStop, update as lifecycleUpdate } from "./local-community/lifecycle.js";
 import { edit as editCommunity } from "./local-community/editing.js";
 
@@ -271,7 +275,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             throw e;
         }
 
-        if (shouldResolveDomainForVerification(this)) {
+        if (this.shouldResolveDomainForVerification()) {
             try {
                 log(`Resolving domain ${this.address} to make sure it's the same as signer.address ${this.signer.address}`);
                 await this._assertDomainResolvesCorrectly(this.address);
@@ -377,5 +381,25 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     // but treated as one by those tests.
     async storePublication(request: DecryptedChallengeRequestMessageType, pendingApproval?: boolean) {
         return storePublication(this, request, pendingApproval);
+    }
+
+    // Method facades for helpers stubbed/called as methods by garbage.collection and
+    // start.community integration tests. Internal production callers in lifecycle.ts
+    // and the facade above go through these methods (not the bare imports) so test
+    // stubs intercept correctly.
+    async updateCommunityIpnsIfNeeded(args: { commentUpdateRowsToPublishToIpfs: Parameters<typeof updateCommunityIpnsIfNeeded>[1] }) {
+        return updateCommunityIpnsIfNeeded(this, args.commentUpdateRowsToPublishToIpfs);
+    }
+
+    async _addOldPageCidsToCidsToUnpin(
+        curPages: Parameters<typeof addOldPageCidsToCidsToUnpin>[1],
+        newPages: Parameters<typeof addOldPageCidsToCidsToUnpin>[2],
+        addToBlockRm?: boolean
+    ) {
+        return addOldPageCidsToCidsToUnpin(this, curPages, newPages, addToBlockRm);
+    }
+
+    shouldResolveDomainForVerification() {
+        return shouldResolveDomainForVerification(this);
     }
 }
