@@ -1,6 +1,7 @@
 import Logger from "../../../../logger.js";
 import { retryKuboBlockPutPinAndProvidePubsubTopic } from "../../../../util.js";
 import type { LocalCommunity } from "../local-community.js";
+import { pubsubTopicWithfallback } from "./comment-updates.js";
 
 export async function listenToIncomingRequests(community: LocalCommunity) {
     const log = Logger("pkc-js:local-community:sync:_listenToIncomingRequests");
@@ -8,11 +9,12 @@ export async function listenToIncomingRequests(community: LocalCommunity) {
     // Code below is to handle in case the ipfs node restarted and the subscription got lost or something
     const pubsubClient = community._clientsManager.getDefaultKuboPubsubClient();
     const subscribedTopics = await pubsubClient._client.pubsub.ls();
-    if (!subscribedTopics.includes(community.pubsubTopicWithfallback())) {
-        await community._clientsManager.pubsubUnsubscribe(community.pubsubTopicWithfallback(), community.handleChallengeExchange); // Make sure it's not hanging
-        await community._clientsManager.pubsubSubscribe(community.pubsubTopicWithfallback(), community.handleChallengeExchange);
+    const topic = pubsubTopicWithfallback(community);
+    if (!subscribedTopics.includes(topic)) {
+        await community._clientsManager.pubsubUnsubscribe(topic, community.handleChallengeExchange); // Make sure it's not hanging
+        await community._clientsManager.pubsubSubscribe(topic, community.handleChallengeExchange);
         community._clientsManager.updateKuboRpcPubsubState("waiting-challenge-requests", pubsubClient.url);
-        log(`Waiting for publications on pubsub topic (${community.pubsubTopicWithfallback()})`);
+        log(`Waiting for publications on pubsub topic (${topic})`);
     }
 }
 
@@ -23,7 +25,7 @@ export async function providePubsubTopicRoutingCidsIfNeeded(community: LocalComm
     if (!force && community._lastPubsubTopicRoutingProvideAt && now - community._lastPubsubTopicRoutingProvideAt < reprovideIntervalMs)
         return;
 
-    const pubsubTopic = community.pubsubTopicWithfallback();
+    const pubsubTopic = pubsubTopicWithfallback(community);
     const topics = [pubsubTopic, community.ipnsPubsubTopic].filter((topic): topic is string => typeof topic === "string");
     if (topics.length === 0) return;
 

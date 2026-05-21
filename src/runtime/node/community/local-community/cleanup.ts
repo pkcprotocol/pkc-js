@@ -5,6 +5,7 @@ import { genToArray, removeMfsFilesSafely } from "../../../../util.js";
 import type { DbRepliesSortEntry } from "../../../../publications/comment/types.js";
 import type { PurgedCommentTableRows } from "../db-handler-types.js";
 import type { LocalCommunity } from "../local-community.js";
+import { calculateLocalMfsPathForCommentUpdate } from "./comment-updates.js";
 
 export async function repinCommentsIPFSIfNeeded(community: LocalCommunity) {
     const log = Logger("pkc-js:local-community:start:_repinCommentsIPFSIfNeeded");
@@ -148,7 +149,8 @@ export async function addAllCidsUnderPurgedCommentToBeRemoved(
     community._cidsToUnPin.add(purgedCommentAndCommentUpdate.commentTableRow.cid);
     community._blocksToRm.push(purgedCommentAndCommentUpdate.commentTableRow.cid);
     if (typeof purgedCommentAndCommentUpdate.commentUpdateTableRow?.postUpdatesBucket === "number") {
-        const localCommentUpdatePath = community._calculateLocalMfsPathForCommentUpdate(
+        const localCommentUpdatePath = calculateLocalMfsPathForCommentUpdate(
+            community,
             purgedCommentAndCommentUpdate.commentTableRow,
             purgedCommentAndCommentUpdate.commentUpdateTableRow?.postUpdatesBucket
         );

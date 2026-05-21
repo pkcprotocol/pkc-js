@@ -210,6 +210,12 @@ import {
     rmUnneededMfsPaths,
     unpinStaleCids
 } from "./local-community/cleanup.js";
+import {
+    adjustPostUpdatesBucketsIfNeeded,
+    pubsubTopicWithfallback,
+    syncPostUpdatesWithIpfs,
+    updateCommentsThatNeedToBeUpdated
+} from "./local-community/comment-updates.js";
 
 const processStartedCommunities = new TrackedInstanceRegistry<LocalCommunity>(); // A global registry on process level to track started communities
 
@@ -217,7 +223,7 @@ const processStartedCommunities = new TrackedInstanceRegistry<LocalCommunity>();
 export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalCommunityParsedOptions {
     override signer!: SignerWithPublicKeyAddress;
     override raw: RpcLocalCommunity["raw"] = {};
-    private _postUpdatesBuckets = [86400, 604800, 2592000, 3153600000]; // 1 day, 1 week, 1 month, 100 years. Expecting to be sorted from smallest to largest
+    _postUpdatesBuckets = [86400, 604800, 2592000, 3153600000]; // 1 day, 1 week, 1 month, 100 years. Expecting to be sorted from smallest to largest
 
     _defaultCommunityChallenges: CommunityChallengeSetting[] = generateDefaultChallenges();
 
@@ -234,10 +240,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
     _cidsToUnPin: Set<string> = new Set<string>();
     _mfsPathsToRemove: Set<string> = new Set<string>();
-    private _communityUpdateTrigger: boolean = false;
+    _communityUpdateTrigger: boolean = false;
     private _combinedHashOfPendingCommentsCids: string = sha256("");
 
-    private _pageGenerator!: PageGenerator;
+    _pageGenerator!: PageGenerator;
     _dbHandler!: DbHandler;
     private _stopHasBeenCalled: boolean; // we use this to track if community.stop() has been called after community.start() or community.update()
     private _publishLoopPromise?: Promise<void> = undefined;
@@ -762,7 +768,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         if (commentUpdateRowsToPublishToIpfs.length > 0) {
             try {
-                await this._syncPostUpdatesWithIpfs(commentUpdateRowsToPublishToIpfs);
+                await syncPostUpdatesWithIpfs(this, commentUpdateRowsToPublishToIpfs);
             } catch (e) {
                 const err = <Error>e;
                 const isMfsTimeout =
@@ -1620,9 +1626,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         // we only publish over pubsub if the challenge exchange is not ongoing for local publishers
         if (!this._challengeExchangesFromLocalPublishers[request.challengeRequestId.toString()])
-            await this._clientsManager.pubsubPublish(this.pubsubTopicWithfallback(), challengeMessage);
+            await this._clientsManager.pubsubPublish(pubsubTopicWithfallback(this), challengeMessage);
         log(
-            `Community ${this.address} with pubsub topic ${this.pubsubTopicWithfallback()} published ${challengeMessage.type} over pubsub: `,
+            `Community ${this.address} with pubsub topic ${pubsubTopicWithfallback(this)} published ${challengeMessage.type} over pubsub: `,
             remeda.pick(toSignChallenge, ["timestamp"]),
             toEncryptChallenge.challenges.map((challenge) => challenge.type)
         );
@@ -1659,12 +1665,12 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         const pubsubClient = this._clientsManager.getDefaultKuboPubsubClient();
         this._clientsManager.updateKuboRpcPubsubState("publishing-challenge-verification", pubsubClient.url);
         log(
-            `Will publish ${challengeVerification.type} over pubsub topic ${this.pubsubTopicWithfallback()} on community ${this.address}:`,
+            `Will publish ${challengeVerification.type} over pubsub topic ${pubsubTopicWithfallback(this)} on community ${this.address}:`,
             remeda.omit(toSignVerification, ["challengeRequestId"])
         );
 
         if (!this._challengeExchangesFromLocalPublishers[challengeRequestId.toString()])
-            await this._clientsManager.pubsubPublish(this.pubsubTopicWithfallback(), challengeVerification);
+            await this._clientsManager.pubsubPublish(pubsubTopicWithfallback(this), challengeVerification);
         this._clientsManager.updateKuboRpcPubsubState("waiting-challenge-requests", pubsubClient.url);
 
         this.emit("challengeverification", challengeVerification);
@@ -1743,7 +1749,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         const pubsubClient = this._clientsManager.getDefaultKuboPubsubClient();
         this._clientsManager.updateKuboRpcPubsubState("publishing-challenge-verification", pubsubClient.url);
         if (!this._challengeExchangesFromLocalPublishers[challengeRequestId.toString()])
-            await this._clientsManager.pubsubPublish(this.pubsubTopicWithfallback(), challengeVerification);
+            await this._clientsManager.pubsubPublish(pubsubTopicWithfallback(this), challengeVerification);
         this._clientsManager.updateKuboRpcPubsubState("waiting-challenge-requests", pubsubClient.url);
 
         const objectToEmit = <DecryptedChallengeVerificationMessageType>{ ...challengeVerification, ...toEncryptDecrypted };
@@ -1836,7 +1842,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             this._clientsManager.updateKuboRpcPubsubState("publishing-challenge-verification", pubsubClient.url);
 
             if (!this._challengeExchangesFromLocalPublishers[request.challengeRequestId.toString()])
-                await this._clientsManager.pubsubPublish(this.pubsubTopicWithfallback(), challengeVerification);
+                await this._clientsManager.pubsubPublish(pubsubTopicWithfallback(this), challengeVerification);
 
             this._clientsManager.updateKuboRpcPubsubState("waiting-challenge-requests", pubsubClient.url);
 
@@ -1846,7 +1852,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             delete this._challengeExchangesFromLocalPublishers[request.challengeRequestId.toString()];
             this._cleanUpChallengeAnswerPromise(request.challengeRequestId.toString());
             log.trace(
-                `Published ${challengeVerification.type} over pubsub topic ${this.pubsubTopicWithfallback()}:`,
+                `Published ${challengeVerification.type} over pubsub topic ${pubsubTopicWithfallback(this)}:`,
                 remeda.omit(objectToEmit, ["signature", "encrypted", "challengeRequestId"])
             );
         }
@@ -2671,143 +2677,6 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         }
     }
 
-    _calculateLocalMfsPathForCommentUpdate(postDbComment: Pick<CommentsTableRow, "cid">, timestampRange: number) {
-        // TODO Can optimize the call below by only asking for timestamp field
-        return ["/" + this.address, "postUpdates", timestampRange, postDbComment.cid, "update"].join("/");
-    }
-
-    private async _calculateNewCommentUpdate(comment: CommentsTableRow): Promise<CommentUpdateToWriteToDbAndPublishToIpfs> {
-        const log = Logger("pkc-js:local-community:_calculateNewCommentUpdate");
-
-        // If we're here that means we're gonna calculate the new update and publish it
-        log.trace(`Attempting to calculate new CommentUpdate for comment (${comment.cid}) on community`, this.address);
-
-        // This comment will have the local new CommentUpdate, which we will publish to IPFS fiels
-        // It includes new author.community as well as updated values in CommentUpdate (except for replies field)
-        const storedCommentUpdate = this._dbHandler.queryCommentUpdateTimestampBucketReplies({ cid: comment.cid });
-        const authorDomain = getAuthorNameFromWire(comment.author);
-        const calculatedCommentUpdate = this._dbHandler.queryCalculatedCommentUpdate({ comment, authorDomain });
-        log.trace(
-            "Calculated comment update for comment",
-            comment.cid,
-            "on community",
-            this.address,
-            "with reply count",
-            calculatedCommentUpdate.replyCount
-        );
-
-        const currentTimestamp = timestamp();
-
-        const newUpdatedAt =
-            typeof storedCommentUpdate?.updatedAt === "number" && storedCommentUpdate.updatedAt >= currentTimestamp
-                ? storedCommentUpdate.updatedAt + 1
-                : currentTimestamp;
-
-        const commentUpdatePriorToSigning: Omit<CommentUpdateType, "signature"> = {
-            ...cleanUpBeforePublishing({
-                ...calculatedCommentUpdate,
-                updatedAt: newUpdatedAt,
-                protocolVersion: env.PROTOCOL_VERSION
-            })
-        };
-
-        const preloadedRepliesPages = "best";
-        const inlineRepliesBudget = calculateInlineRepliesBudget({
-            comment,
-            commentUpdateWithoutReplies: commentUpdatePriorToSigning
-        });
-        const adjustedPreloadedRepliesPageSizeBytes = Math.max(inlineRepliesBudget, 1);
-
-        const generatedRepliesPages =
-            comment.depth === 0
-                ? await this._pageGenerator.generatePostPages(comment, preloadedRepliesPages, adjustedPreloadedRepliesPageSizeBytes)
-                : await this._pageGenerator.generateReplyPages(comment, preloadedRepliesPages, adjustedPreloadedRepliesPageSizeBytes);
-
-        // we have to make sure not clean up submissions of authors by calling cleanUpBeforePublishing
-        if (generatedRepliesPages) {
-            if ("singlePreloadedPage" in generatedRepliesPages)
-                commentUpdatePriorToSigning.replies = { pages: generatedRepliesPages.singlePreloadedPage };
-            else if (generatedRepliesPages.pageCids) {
-                commentUpdatePriorToSigning.replies = {
-                    pageCids: generatedRepliesPages.pageCids,
-                    pages: remeda.pick(generatedRepliesPages.pages, [preloadedRepliesPages])
-                };
-            }
-        }
-
-        // Extract allPageCids from the generation result (not available for singlePreloadedPage case)
-        const allPageCids =
-            generatedRepliesPages && !("singlePreloadedPage" in generatedRepliesPages) ? generatedRepliesPages.allPageCids : undefined;
-
-        // Unpin old page CIDs that are no longer in the new generation
-        {
-            const oldDbReplies = storedCommentUpdate?.replies as Record<string, DbRepliesSortEntry> | undefined;
-            const oldCids = new Set(oldDbReplies ? Object.values(oldDbReplies).flatMap((sort) => sort?.allPageCids ?? []) : []);
-            const newCids = new Set(allPageCids ? Object.values(allPageCids).flat() : []);
-            for (const cid of oldCids) {
-                if (!newCids.has(cid)) this._cidsToUnPin.add(cid);
-            }
-        }
-
-        const newCommentUpdate: CommentUpdateType = {
-            ...commentUpdatePriorToSigning,
-            signature: await signCommentUpdate({ update: commentUpdatePriorToSigning, signer: this.signer })
-        };
-
-        await this._validateCommentUpdateSignature(newCommentUpdate, comment, log);
-
-        const newPostUpdateBucket =
-            comment.depth === 0 ? this._postUpdatesBuckets.find((bucket) => timestamp() - bucket <= comment.timestamp) : undefined;
-        const newLocalMfsPath =
-            typeof newPostUpdateBucket === "number" ? this._calculateLocalMfsPathForCommentUpdate(comment, newPostUpdateBucket) : undefined;
-
-        if (
-            storedCommentUpdate?.postUpdatesBucket &&
-            newLocalMfsPath &&
-            newPostUpdateBucket &&
-            storedCommentUpdate.postUpdatesBucket !== newPostUpdateBucket
-        ) {
-            const oldPostUpdates = this._calculateLocalMfsPathForCommentUpdate(comment, storedCommentUpdate.postUpdatesBucket).replace(
-                "/update",
-                ""
-            );
-            this._mfsPathsToRemove.add(oldPostUpdates);
-        }
-        const newCommentUpdateDbRecord = <CommentUpdatesTableRowInsert>{
-            ...newCommentUpdate,
-            // Store CID refs instead of full inline page data — see deriveDbReplies()
-            replies: deriveDbReplies({ replies: newCommentUpdate.replies, allPageCids }),
-            postUpdatesBucket: newPostUpdateBucket,
-            publishedToPostUpdatesMFS: false,
-
-            insertedAt: timestamp()
-        };
-        return {
-            newCommentUpdate,
-            newCommentUpdateToWriteToDb: newCommentUpdateDbRecord,
-            localMfsPath: newLocalMfsPath,
-            pendingApproval: comment.pendingApproval
-        };
-    }
-
-    private async _validateCommentUpdateSignature(newCommentUpdate: CommentUpdateType, comment: CommentsTableRow, log: Logger) {
-        // This function should be deleted at some point, once the protocol ossifies
-        const verificationOpts = {
-            update: newCommentUpdate,
-            resolveAuthorNames: false,
-            clientsManager: this._clientsManager,
-            community: this,
-            comment,
-            validatePages: this._pkc.validatePages,
-            validateUpdateSignature: true
-        };
-        const validation = await verifyCommentUpdate(verificationOpts);
-        if (!validation.valid) {
-            log.error(`CommentUpdate (${comment.cid}) signature is invalid due to (${validation.reason}). This is a critical error`);
-            throw new PKCError("ERR_COMMENT_UPDATE_SIGNATURE_IS_INVALID", { validation, verificationOpts });
-        }
-    }
-
     private async _movePostUpdatesFolderToNewAddress(oldAddress: string, newAddress: string) {
         const log = Logger("pkc-js:local-community:_movePostUpdatesFolderToNewAddress");
         const kuboRpc = this._clientsManager.getDefaultKuboRpcClient();
@@ -2819,74 +2688,6 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 throw e; // A critical error
             }
         }
-    }
-
-    private async _updateCommentsThatNeedToBeUpdated(): Promise<CommentUpdateToWriteToDbAndPublishToIpfs[]> {
-        const log = Logger(`pkc-js:local-community:_updateCommentsThatNeedToBeUpdated`);
-
-        // Get all comments that need to be updated
-        const commentsToUpdate = this._dbHandler.queryCommentsToBeUpdated();
-
-        if (commentsToUpdate.length === 0) return [];
-
-        this._communityUpdateTrigger = true;
-        log(`Will update ${commentsToUpdate.length} comments in this update loop for community (${this.address})`);
-
-        // Group by postCid
-        const commentsByPostCid = remeda.groupBy.strict(commentsToUpdate, (x) => x.postCid);
-        const allCommentUpdateRows: CommentUpdateToWriteToDbAndPublishToIpfs[] = [];
-
-        // Process different post trees in parallel
-        const postLimit = pLimit(10); // Process up to 10 post trees concurrently
-
-        const postProcessingPromises = Object.entries(commentsByPostCid).map(([postCid, commentsForPost]) =>
-            postLimit(async () => {
-                try {
-                    // Group by depth
-                    const commentsByDepth = remeda.groupBy.strict(commentsForPost, (x) => x.depth);
-                    const depthsKeySorted = remeda.keys.strict(commentsByDepth).sort((a, b) => Number(b) - Number(a)); // Sort depths from highest to lowest
-
-                    const postUpdateRows: CommentUpdateToWriteToDbAndPublishToIpfs[] = [];
-
-                    // Process each depth level in sequence within this post tree
-                    for (const depthKey of depthsKeySorted) {
-                        const commentsAtDepth = commentsByDepth[depthKey];
-
-                        // Process all comments at this depth in parallel
-                        const depthLimit = pLimit(50);
-
-                        // Calculate updates for all comments at this depth in parallel
-                        const depthUpdatePromises = commentsAtDepth.map((comment) =>
-                            depthLimit(async () => await this._calculateNewCommentUpdate(comment))
-                        );
-
-                        // Wait for all comments at this depth to be calculated
-                        const depthResults = await Promise.all(depthUpdatePromises);
-
-                        // Batch write all updates for this depth to the database
-                        this._dbHandler.upsertCommentUpdates(depthResults.map((r) => r.newCommentUpdateToWriteToDb));
-
-                        // Add to our results
-                        postUpdateRows.push(...depthResults);
-                    }
-
-                    return postUpdateRows;
-                } catch (error) {
-                    log.error(`Failed to process post tree ${postCid}:`, error);
-                    throw error;
-                }
-            })
-        );
-
-        // Wait for all post trees to be processed
-        const postResults = await Promise.all(postProcessingPromises);
-
-        // Collect all results
-        for (const result of postResults) {
-            allCommentUpdateRows.push(...result);
-        }
-
-        return allCommentUpdateRows;
     }
 
     async _addCommentRowToIPFS(unpinnedCommentRow: CommentsTableRow, log: Logger) {
@@ -2911,83 +2712,6 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         log.trace("Pinned comment", unpinnedCommentRow.cid, "of community", this.address, "to IPFS node");
     }
 
-    pubsubTopicWithfallback() {
-        return this.pubsubTopic || this.address;
-    }
-
-    private async _syncPostUpdatesWithIpfs(commentUpdateRowsToPublishToIpfs: CommentUpdateToWriteToDbAndPublishToIpfs[]) {
-        const log = Logger("pkc-js:local-community:sync:_syncPostUpdatesFilesystemWithIpfs");
-
-        const postUpdatesDirectory = `/${this.address}`;
-        const commentUpdatesWithLocalPath = commentUpdateRowsToPublishToIpfs.filter(
-            (row): row is CommentUpdateToWriteToDbAndPublishToIpfs & { localMfsPath: string } => typeof row.localMfsPath === "string"
-        );
-
-        if (commentUpdatesWithLocalPath.length === 0)
-            throw Error("No comment updates of posts to publish to postUpdates directory. This is a critical bug");
-
-        const kuboRpc = this._clientsManager.getDefaultKuboRpcClient();
-        const removedMfsPaths: string[] = await rmUnneededMfsPaths(this);
-        let postUpdatesDirectoryCid: Awaited<ReturnType<typeof kuboRpc._client.files.flush>> | undefined;
-
-        const BATCH_SIZE = 50;
-        for (let index = 0; index < commentUpdatesWithLocalPath.length; index += BATCH_SIZE) {
-            const batch = commentUpdatesWithLocalPath.slice(index, index + BATCH_SIZE);
-
-            await Promise.all(
-                batch.map(async (row) => {
-                    const { localMfsPath, newCommentUpdate } = row;
-                    const content = deterministicStringify(newCommentUpdate);
-
-                    await writeKuboFilesWithTimeout({
-                        ipfsClient: kuboRpc._client,
-                        log,
-                        path: localMfsPath,
-                        content,
-                        options: {
-                            create: true,
-                            truncate: true,
-                            parents: true,
-                            // flush: true to avoid Kubo's global Internal.MFSNoFlushLimit (default 256).
-                            // Costs some throughput (each write self-flushes instead of batching) but
-                            // is safe under multi-community concurrency, which the global counter is not.
-                            flush: true
-                        }
-                    });
-
-                    removedMfsPaths.push(localMfsPath);
-                })
-            );
-
-            postUpdatesDirectoryCid = await kuboRpc._client.files.flush(postUpdatesDirectory);
-        }
-
-        const postUpdatesDirectoryCidString = postUpdatesDirectoryCid?.toString();
-        log(
-            "Community",
-            this.address,
-            "Synced",
-            commentUpdatesWithLocalPath.length,
-            "post CommentUpdates",
-            "with MFS postUpdates directory",
-            postUpdatesDirectoryCidString
-        );
-        this._dbHandler.markCommentsAsPublishedToPostUpdates(commentUpdateRowsToPublishToIpfs.map((row) => row.newCommentUpdate.cid));
-    }
-
-    private async _adjustPostUpdatesBucketsIfNeeded() {
-        if (!this.postUpdates) return;
-        // Look for posts whose buckets should be changed
-
-        const log = Logger("pkc-js:local-community:start:_adjustPostUpdatesBucketsIfNeeded");
-        const postsWithOutdatedPostUpdateBucket = this._dbHandler.queryPostsWithOutdatedBuckets(this._postUpdatesBuckets);
-        if (postsWithOutdatedPostUpdateBucket.length === 0) return;
-
-        this._dbHandler.forceUpdateOnAllCommentsWithCid(postsWithOutdatedPostUpdateBucket.map((post) => post.cid));
-
-        log(`Found ${postsWithOutdatedPostUpdateBucket.length} posts with outdated buckets and forced their updates`);
-    }
-
     private async syncIpnsWithDb() {
         const log = Logger("pkc-js:local-community:sync");
 
@@ -2995,11 +2719,11 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         try {
             await listenToIncomingRequests(this);
             await providePubsubTopicRoutingCidsIfNeeded(this);
-            await this._adjustPostUpdatesBucketsIfNeeded();
+            await adjustPostUpdatesBucketsIfNeeded(this);
             this._setStartedStateWithEmission("publishing-ipns");
             this._clientsManager.updateKuboRpcState("publishing-ipns", kuboRpc.url);
             await purgeDisapprovedCommentsOlderThan(this);
-            const commentUpdateRows = await this._updateCommentsThatNeedToBeUpdated();
+            const commentUpdateRows = await updateCommentsThatNeedToBeUpdated(this);
             this._requireCommunityUpdateIfModQueueChanged();
             await this.updateCommunityIpnsIfNeeded(commentUpdateRows);
             await cleanUpIpfsRepoRarely(this);
@@ -3575,7 +3299,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         if (this.state === "started") {
             log("Stopping running community", this.address);
             try {
-                await this._clientsManager.pubsubUnsubscribe(this.pubsubTopicWithfallback(), this.handleChallengeExchange);
+                await this._clientsManager.pubsubUnsubscribe(pubsubTopicWithfallback(this), this.handleChallengeExchange);
             } catch (e) {
                 log.error("Failed to unsubscribe from challenge exchange pubsub when stopping community", e);
             }
