@@ -201,6 +201,15 @@ import {
     isDefaultChallengeStructure
 } from "./local-community/defaults.js";
 import { listenToIncomingRequests, providePubsubTopicRoutingCidsIfNeeded } from "./local-community/pubsub.js";
+import {
+    addAllCidsUnderPurgedCommentToBeRemoved,
+    cleanUpIpfsRepoRarely,
+    purgeDisapprovedCommentsOlderThan,
+    repinCommentUpdateIfNeeded,
+    repinCommentsIPFSIfNeeded,
+    rmUnneededMfsPaths,
+    unpinStaleCids
+} from "./local-community/cleanup.js";
 
 const processStartedCommunities = new TrackedInstanceRegistry<LocalCommunity>(); // A global registry on process level to track started communities
 
@@ -913,7 +922,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         this._addOldPageCidsToCidsToUnpin(this.raw.communityIpfs?.modQueue, newIpns.modQueue).catch((err) =>
             log.error("Failed to add old page cids of community.modQueue to _cidsToUnpin", err)
         );
-        await this._unpinStaleCids();
+        await unpinStaleCids(this);
         if (this._blocksToRm.length > 0) {
             const removedBlocks = await removeBlocksFromKuboNode({
                 ipfsClient: this._clientsManager.getDefaultKuboRpcClient()._client,
@@ -1171,11 +1180,11 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             if (!commentToPurge) throw Error("Comment to purge not found");
             const purgedTableRows = this._dbHandler.purgeComment(modTableRow.commentCid);
 
-            for (const purgedTableRow of purgedTableRows) await this._addAllCidsUnderPurgedCommentToBeRemoved(purgedTableRow);
+            for (const purgedTableRow of purgedTableRows) await addAllCidsUnderPurgedCommentToBeRemoved(this, purgedTableRow);
 
             log("Purged comment", modTableRow.commentCid, "and its comment and comment update children", "out of DB and IPFS");
 
-            await this._rmUnneededMfsPaths(); // not sure if needed here
+            await rmUnneededMfsPaths(this); // not sure if needed here
             if (this.updateCid) {
                 // need to remove any update cids with reference to purged comment
                 this._blocksToRm.push(this.updateCid);
@@ -2662,7 +2671,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         }
     }
 
-    private _calculateLocalMfsPathForCommentUpdate(postDbComment: Pick<CommentsTableRow, "cid">, timestampRange: number) {
+    _calculateLocalMfsPathForCommentUpdate(postDbComment: Pick<CommentsTableRow, "cid">, timestampRange: number) {
         // TODO Can optimize the call below by only asking for timestamp field
         return ["/" + this.address, "postUpdates", timestampRange, postDbComment.cid, "update"].join("/");
     }
@@ -2880,7 +2889,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         return allCommentUpdateRows;
     }
 
-    private async _addCommentRowToIPFS(unpinnedCommentRow: CommentsTableRow, log: Logger) {
+    async _addCommentRowToIPFS(unpinnedCommentRow: CommentsTableRow, log: Logger) {
         const ipfsClient = this._clientsManager.getDefaultKuboRpcClient();
 
         const finalCommentIpfsJson = deriveCommentIpfsFromCommentTableRow(unpinnedCommentRow);
@@ -2902,123 +2911,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         log.trace("Pinned comment", unpinnedCommentRow.cid, "of community", this.address, "to IPFS node");
     }
 
-    private async _repinCommentsIPFSIfNeeded() {
-        const log = Logger("pkc-js:local-community:start:_repinCommentsIPFSIfNeeded");
-        const latestCommentCid = this._dbHandler.queryLatestCommentCid(); // latest comment ordered by id
-        if (!latestCommentCid) return;
-        const kuboRpcOrHelia = this._clientsManager.getDefaultKuboRpcClient();
-        try {
-            await genToArray(kuboRpcOrHelia._client.pin.ls({ paths: latestCommentCid.cid }));
-            return; // the comment is already pinned, we assume the rest of the comments are so too
-        } catch (e) {
-            if (!(<Error>e).message.includes("is not pinned")) throw e;
-        }
-
-        log("The latest comment is not pinned in the ipfs node, pkc-js will repin all existing comment ipfs for community", this.address);
-
-        // latestCommentCid should be the last in unpinnedCommentsFromDb array, in case we throw an error on a comment before it, it does not get pinned
-        const unpinnedCommentsFromDb = this._dbHandler.queryAllCommentsOrderedByIdAsc(); // we assume all comments are unpinned if latest comment is not pinned
-
-        // In the _repinCommentIpfs method:
-        const limit = pLimit(50);
-        const pinningPromises = unpinnedCommentsFromDb.map((unpinnedCommentRow) =>
-            limit(async () => {
-                if (unpinnedCommentRow.pendingApproval) return; // we don't pin comments waiting to get approved
-                await this._addCommentRowToIPFS(
-                    unpinnedCommentRow,
-                    Logger("pkc-js:local-community:start:_repinCommentsIPFSIfNeeded:_addCommentRowToIPFS")
-                );
-            })
-        );
-
-        await Promise.all(pinningPromises);
-
-        this._dbHandler.forceUpdateOnAllComments(); // force pkc-js to republish all comment updates
-
-        log(`${unpinnedCommentsFromDb.length} comments' IPFS have been repinned`);
-    }
-
-    private async _unpinStaleCids() {
-        const log = Logger("pkc-js:local-community:sync:unpinStaleCids");
-
-        if (this._cidsToUnPin.size > 0) {
-            const sizeBefore = this._cidsToUnPin.size;
-
-            // Create a concurrency limiter with a limit of 50
-            const limit = pLimit(50);
-
-            const kuboRpc = this._clientsManager.getDefaultKuboRpcClient();
-            // Process all unpinning in parallel with concurrency limit
-            await Promise.all(
-                Array.from(this._cidsToUnPin.values()).map((cid) =>
-                    limit(async () => {
-                        try {
-                            await kuboRpc._client.pin.rm(cid, { recursive: true });
-                            this._cidsToUnPin.delete(cid);
-                        } catch (e) {
-                            const error = <Error>e;
-                            if (error.message.startsWith("not pinned")) {
-                                this._cidsToUnPin.delete(cid);
-                            } else {
-                                log.trace("Failed to unpin cid", cid, "on community", this.address, "due to error", error);
-                            }
-                        }
-                    })
-                )
-            );
-
-            log.trace(`unpinned ${sizeBefore - this._cidsToUnPin.size} stale cids from ipfs node for community (${this.address})`);
-        }
-    }
-
-    private async _rmUnneededMfsPaths(): Promise<string[]> {
-        const log = Logger("pkc-js:local-community:sync:_rmUnneededMfsPaths");
-
-        if (this._mfsPathsToRemove.size > 0) {
-            const toDeleteMfsPaths = Array.from(this._mfsPathsToRemove.values());
-            const kuboRpc = this._clientsManager.getDefaultKuboRpcClient();
-            try {
-                await removeMfsFilesSafely({
-                    kuboRpcClient: kuboRpc,
-                    paths: toDeleteMfsPaths,
-                    log
-                });
-                toDeleteMfsPaths.forEach((path) => this._mfsPathsToRemove.delete(path));
-                return toDeleteMfsPaths;
-            } catch (e) {
-                const error = <Error>e;
-                if (error.message.includes("file does not exist"))
-                    return toDeleteMfsPaths; // file does not exist, we can return the paths that were not deleted
-                else {
-                    log.error("Failed to remove paths from MFS", toDeleteMfsPaths, e);
-                    throw error;
-                }
-            }
-        } else return [];
-    }
     pubsubTopicWithfallback() {
         return this.pubsubTopic || this.address;
-    }
-
-    private async _repinCommentUpdateIfNeeded() {
-        const log = Logger("pkc-js:start:_repinCommentUpdateIfNeeded");
-
-        // iterating on all comment updates is not efficient, we should figure out a better way
-        // Most of the time we run this function, the comment updates are already written to ipfs rpeo
-        const kuboRpc = this._clientsManager.getDefaultKuboRpcClient();
-        try {
-            await kuboRpc._client.files.stat(`/${this.address}`, { hash: true });
-            return; // if the directory of this community exists, we assume all the comment updates are there
-        } catch (e) {
-            if (!(<Error>e).message.includes("file does not exist")) throw e;
-        }
-
-        // community has no comment updates, we can return
-        if (!this.lastCommentCid) return;
-
-        log(`CommentUpdate directory`, this.address, "will republish all comment updates");
-
-        this._dbHandler.forceUpdateOnAllComments(); // pkc-js will recalculate and publish all comment updates
     }
 
     private async _syncPostUpdatesWithIpfs(commentUpdateRowsToPublishToIpfs: CommentUpdateToWriteToDbAndPublishToIpfs[]) {
@@ -3033,7 +2927,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             throw Error("No comment updates of posts to publish to postUpdates directory. This is a critical bug");
 
         const kuboRpc = this._clientsManager.getDefaultKuboRpcClient();
-        const removedMfsPaths: string[] = await this._rmUnneededMfsPaths();
+        const removedMfsPaths: string[] = await rmUnneededMfsPaths(this);
         let postUpdatesDirectoryCid: Awaited<ReturnType<typeof kuboRpc._client.files.flush>> | undefined;
 
         const BATCH_SIZE = 50;
@@ -3094,78 +2988,6 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         log(`Found ${postsWithOutdatedPostUpdateBucket.length} posts with outdated buckets and forced their updates`);
     }
 
-    private async _cleanUpIpfsRepoRarely(force = false) {
-        const log = Logger("pkc-js:local-community:syncIpnsWithDb:_cleanUpIpfsRepoRarely");
-        if (Math.random() < 0.00001 || force) {
-            let gcCids = 0;
-            const kuboRpc = this._clientsManager.getDefaultKuboRpcClient();
-
-            try {
-                for await (const res of kuboRpc._client.repo.gc({ quiet: true })) {
-                    if (res.cid) gcCids++;
-                    else log.error("Failed to GC ipfs repo due to error", res.err);
-                }
-            } catch (e) {
-                log.error("Failed to GC ipfs repo due to error", e);
-            }
-
-            log("GC cleaned", gcCids, "cids out of the IPFS node");
-        }
-    }
-
-    async _addAllCidsUnderPurgedCommentToBeRemoved(purgedCommentAndCommentUpdate: PurgedCommentTableRows) {
-        this._cidsToUnPin.add(purgedCommentAndCommentUpdate.commentTableRow.cid);
-        this._blocksToRm.push(purgedCommentAndCommentUpdate.commentTableRow.cid);
-        if (typeof purgedCommentAndCommentUpdate.commentUpdateTableRow?.postUpdatesBucket === "number") {
-            const localCommentUpdatePath = this._calculateLocalMfsPathForCommentUpdate(
-                purgedCommentAndCommentUpdate.commentTableRow,
-                purgedCommentAndCommentUpdate.commentUpdateTableRow?.postUpdatesBucket
-            );
-            this._mfsPathsToRemove.add(localCommentUpdatePath);
-        }
-        if (purgedCommentAndCommentUpdate?.commentUpdateTableRow?.replies) {
-            // replies is DbRepliesFormat — flat per-sort with allPageCids
-            const dbReplies = purgedCommentAndCommentUpdate.commentUpdateTableRow.replies as Record<string, DbRepliesSortEntry>;
-            for (const sortEntry of Object.values(dbReplies)) {
-                if (sortEntry?.allPageCids) {
-                    for (const cid of sortEntry.allPageCids) {
-                        this._cidsToUnPin.add(cid);
-                        this._blocksToRm.push(cid);
-                    }
-                }
-            }
-        }
-    }
-
-    private async _purgeDisapprovedCommentsOlderThan() {
-        if (typeof this.settings?.purgeDisapprovedCommentsOlderThan !== "number") return;
-
-        const log = Logger("pkc-js:local-community:_purgeDisapprovedCommentsOlderThan");
-        const purgedComments = this._dbHandler.purgeDisapprovedCommentsOlderThan(this.settings.purgeDisapprovedCommentsOlderThan);
-
-        if (!purgedComments || purgedComments.length === 0) return;
-
-        log(
-            "Purged disapproved comments",
-            purgedComments,
-            "because retention time has passed and it's time to purge them from DB and pages"
-        );
-
-        // need to clear out any commentUpdate.postUpdatesBucket
-        // need to clear out any comment.cid
-        // need to clear out any commentUpdate.replies
-
-        for (const purgedComment of purgedComments)
-            for (const purgedCommentAndCommentUpdate of purgedComment.purgedTableRows)
-                await this._addAllCidsUnderPurgedCommentToBeRemoved(purgedCommentAndCommentUpdate);
-
-        if (this._mfsPathsToRemove.size > 0) await this._rmUnneededMfsPaths();
-        if (this.updateCid) {
-            this._blocksToRm.push(this.updateCid); // we need to remove current updateCid which references purged comments
-            this._cidsToUnPin.add(this.updateCid);
-        }
-    }
-
     private async syncIpnsWithDb() {
         const log = Logger("pkc-js:local-community:sync");
 
@@ -3176,11 +2998,11 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             await this._adjustPostUpdatesBucketsIfNeeded();
             this._setStartedStateWithEmission("publishing-ipns");
             this._clientsManager.updateKuboRpcState("publishing-ipns", kuboRpc.url);
-            await this._purgeDisapprovedCommentsOlderThan();
+            await purgeDisapprovedCommentsOlderThan(this);
             const commentUpdateRows = await this._updateCommentsThatNeedToBeUpdated();
             this._requireCommunityUpdateIfModQueueChanged();
             await this.updateCommunityIpnsIfNeeded(commentUpdateRows);
-            await this._cleanUpIpfsRepoRarely();
+            await cleanUpIpfsRepoRarely(this);
         } catch (e) {
             //@ts-expect-error
             e.details = { ...e.details, communityAddress: this.address };
@@ -3528,8 +3350,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
             this._communityUpdateTrigger = true;
             this._setStartedStateWithEmission("publishing-ipns");
-            await this._repinCommentsIPFSIfNeeded();
-            await this._repinCommentUpdateIfNeeded();
+            await repinCommentsIPFSIfNeeded(this);
+            await repinCommentUpdateIfNeeded(this);
             await listenToIncomingRequests(this);
             this.challenges = await Promise.all(
                 this.settings.challenges!.map(
@@ -3767,7 +3589,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             }
 
             try {
-                await this._unpinStaleCids();
+                await unpinStaleCids(this);
             } catch (e) {
                 log.error("Failed to unpin stale cids and remove mfs paths before stopping", e);
             }
@@ -3877,7 +3699,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         if (this.statsCid) this._cidsToUnPin.add(this.statsCid);
 
         try {
-            await this._unpinStaleCids();
+            await unpinStaleCids(this);
         } catch (e) {
             log.error("Failed to unpin stale cids before deleting", e);
         }
