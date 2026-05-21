@@ -104,10 +104,10 @@ describe("pubsub: providePubsubTopicRoutingCidsIfNeeded", () => {
 
     it("early-returns when there are no topics to provide", async () => {
         const getDefaultKuboRpcClient = vi.fn();
-        // pubsubTopicWithfallback returns falsy only when both pubsubTopic and address are falsy,
-        // and the function then also requires ipnsPubsubTopic to be undefined for `topics.length === 0`.
+        // pubsubTopicWithfallback returns `pubsubTopic || address`, so both must be falsy
+        // (and ipnsPubsubTopic undefined) for topics.length to be 0.
         const community = {
-            address: "",
+            address: undefined,
             pubsubTopic: undefined,
             ipnsPubsubTopic: undefined,
             _lastPubsubTopicRoutingProvideAt: undefined,
@@ -119,7 +119,12 @@ describe("pubsub: providePubsubTopicRoutingCidsIfNeeded", () => {
     });
 
     it("forces a provide when force=true, bypassing the throttle", async () => {
-        const getClient = vi.fn().mockReturnValue({ _client: {}, url: "http://localhost:5001" });
+        // Throw from getDefaultKuboRpcClient so we don't need to fake the entire kubo
+        // block-put/provide stack. Reaching this throw proves the throttle was bypassed —
+        // a throttled call would early-return before touching _clientsManager.
+        const getClient = vi.fn().mockImplementation(() => {
+            throw new Error("reached kubo client");
+        });
         const community = {
             address: "force.bso",
             pubsubTopic: "force-topic",
@@ -128,10 +133,7 @@ describe("pubsub: providePubsubTopicRoutingCidsIfNeeded", () => {
             _clientsManager: { getDefaultKuboRpcClient: getClient }
         } as unknown as LocalCommunity;
 
-        // We don't try to mock the underlying provide call here — it's complex IO and would
-        // need a fake kubo client. We only assert that the throttle is bypassed and the
-        // kubo client is reached, which is the behaviour gate this test exercises.
-        await providePubsubTopicRoutingCidsIfNeeded(community, true);
+        await expect(providePubsubTopicRoutingCidsIfNeeded(community, true)).rejects.toThrow("reached kubo client");
         expect(getClient).toHaveBeenCalled();
     });
 });

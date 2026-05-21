@@ -94,7 +94,7 @@ describe("challenges: buildRuntimeChallengeRequestPublication", () => {
     it("attaches an author.community block to the publication via buildRuntimeAuthor", () => {
         const publication = {
             author: { displayName: "alice" },
-            signature: { publicKey: "pubKey" }
+            signature: { publicKey: "ojU0zK7ZudZomVjSQPir7/ZT1u0G7J0IvlqbSx7s1S0" }
         } as unknown as PublicationFromDecryptedChallengeRequest;
         const authorCommunity = { postScore: 10, replyScore: 5, firstCommentTimestamp: 1, lastCommentCid: "QmL" };
 
@@ -111,8 +111,11 @@ describe("challenges: buildRuntimeChallengeRequest", () => {
     it("clones the request and attaches author.community to whatever publication is present", () => {
         const request = {
             challengeRequestId: new Uint8Array([1, 2, 3]),
-            comment: { author: { displayName: "alice" }, signature: { publicKey: "p1" } },
-            signature: { publicKey: "p1" }
+            comment: {
+                author: { displayName: "alice" },
+                signature: { publicKey: "ojU0zK7ZudZomVjSQPir7/ZT1u0G7J0IvlqbSx7s1S0" }
+            },
+            signature: { publicKey: "ojU0zK7ZudZomVjSQPir7/ZT1u0G7J0IvlqbSx7s1S0" }
         } as unknown as DecryptedChallengeRequestMessageType;
         const authorCommunity = { postScore: 1, replyScore: 1, firstCommentTimestamp: 1, lastCommentCid: "QmFoo" };
 
@@ -126,8 +129,11 @@ describe("challenges: buildRuntimeChallengeRequest", () => {
     it("does not attach community to publications that aren't on the request", () => {
         const request = {
             challengeRequestId: new Uint8Array([1, 2, 3]),
-            vote: { author: { displayName: "voter" }, signature: { publicKey: "p2" } },
-            signature: { publicKey: "p2" }
+            vote: {
+                author: { displayName: "voter" },
+                signature: { publicKey: "ojU0zK7ZudZomVjSQPir7/ZT1u0G7J0IvlqbSx7s1S0" }
+            },
+            signature: { publicKey: "ojU0zK7ZudZomVjSQPir7/ZT1u0G7J0IvlqbSx7s1S0" }
         } as unknown as DecryptedChallengeRequestMessageType;
         const authorCommunity = { postScore: 1, replyScore: 1, firstCommentTimestamp: 1, lastCommentCid: "QmFoo" };
 

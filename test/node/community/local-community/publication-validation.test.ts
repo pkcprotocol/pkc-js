@@ -83,7 +83,7 @@ describe("publication-validation: isPublicationAuthorPartOfRoles", () => {
             community,
             {
                 author: undefined,
-                signature: { publicKey: "differentPub" }
+                signature: { publicKey: "ojU0zK7ZudZomVjSQPir7/ZT1u0G7J0IvlqbSx7s1S0" }
             } as unknown as Parameters<typeof isPublicationAuthorPartOfRoles>[1],
             ["owner", "admin"]
         );
