@@ -18,7 +18,6 @@ import type { LocalCommunity } from "../local-community.js";
 import type { CommentUpdateToWriteToDbAndPublishToIpfs } from "./defaults.js";
 import { adjustPostUpdatesBucketsIfNeeded, syncPostUpdatesWithIpfs, updateCommentsThatNeedToBeUpdated } from "./comment-updates.js";
 import { cleanUpIpfsRepoRarely, purgeDisapprovedCommentsOlderThan, unpinStaleCids } from "./cleanup.js";
-import { updateDbInternalState } from "./db-state.js";
 import { providePubsubTopicRoutingCidsIfNeeded } from "./pubsub.js";
 
 export async function calculateNewPostUpdates(community: LocalCommunity): Promise<CommunityIpfsType["postUpdates"]> {
@@ -173,7 +172,7 @@ async function calculateNextCommunityRecord(
         }
     }
 
-    const newPostUpdates = await calculateNewPostUpdates(community);
+    const newPostUpdates = await community._calculateNewPostUpdates();
     const newModQueue = await community._pageGenerator.generateModQueuePages();
 
     const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient();
@@ -239,7 +238,7 @@ async function calculateNextCommunityRecord(
             };
         }
     } else {
-        await updateDbInternalState(community, { posts: undefined }); // make sure db resets posts as well
+        await community._updateDbInternalState({ posts: undefined }); // make sure db resets posts as well
     }
 
     // Unpin old posts page CIDs using direct allPageCids comparison (no IPFS fetches needed)
@@ -255,7 +254,7 @@ async function calculateNextCommunityRecord(
     if (newModQueue) {
         newIpns.modQueue = { pageCids: newModQueue.pageCids };
     } else {
-        await updateDbInternalState(community, { modQueue: undefined });
+        await community._updateDbInternalState({ modQueue: undefined });
         community.modQueue.resetPages();
     }
 
@@ -300,7 +299,7 @@ async function publishCommunityRecordToIpns(
 
     if (!community.signer.ipnsKeyName) throw Error("IPNS key name is not defined");
     // after kubo 0.40 implements fetching IPNS record from local blockstore, we don't need line below anymore
-    if (community._firstUpdateAfterStart) await resolveIpnsAndLogIfPotentialProblematicSequence(community);
+    if (community._firstUpdateAfterStart) await community._resolveIpnsAndLogIfPotentialProblematicSequence();
     const ttl = `${community._pkc.publishInterval * 3}ms`; // default publish interval is 20s, so default ttl is 60s
     const lastPublishedIpnsRecordData = <any | undefined>await community._dbHandler.keyvGet(STORAGE_KEYS[STORAGE_KEYS.LAST_IPNS_RECORD]);
     const decodedIpnsRecord: any | undefined = lastPublishedIpnsRecordData
@@ -369,7 +368,7 @@ async function publishCommunityRecordToIpns(
 
     log.trace("Updated combined hash of pending comments to", community._combinedHashOfPendingCommentsCids);
 
-    await updateDbInternalState(community, community.toJSONInternalAfterFirstUpdate());
+    await community._updateDbInternalState(community.toJSONInternalAfterFirstUpdate());
 
     community._changeStateEmitEventEmitStateChangeEvent({
         newStartedState: "succeeded",
@@ -383,7 +382,7 @@ export async function updateCommunityIpnsIfNeeded(
 ) {
     const log = Logger("pkc-js:local-community:start:updateCommunityIpnsIfNeeded");
 
-    calculateLatestUpdateTrigger(community);
+    community._calculateLatestUpdateTrigger();
 
     if (!community._communityUpdateTrigger) return; // No reason to update
 

@@ -43,7 +43,8 @@ import {
     initDbHandlerIfNeeded,
     initInternalCommunityAfterFirstUpdateNoMerge,
     initInternalCommunityBeforeFirstUpdateNoMerge,
-    initNewLocalCommunityPropsNoMerge
+    initNewLocalCommunityPropsNoMerge,
+    updateDbInternalState
 } from "./local-community/db-state.js";
 import { listenToIncomingRequests } from "./local-community/pubsub.js";
 import { repinCommentsIPFSIfNeeded } from "./local-community/cleanup.js";
@@ -54,6 +55,9 @@ import {
 } from "./local-community/challenges.js";
 import {
     addOldPageCidsToCidsToUnpin,
+    calculateLatestUpdateTrigger,
+    calculateNewPostUpdates,
+    resolveIpnsAndLogIfPotentialProblematicSequence,
     shouldResolveDomainForVerification,
     updateCommunityIpnsIfNeeded
 } from "./local-community/ipns-publishing.js";
@@ -401,5 +405,25 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
     shouldResolveDomainForVerification() {
         return shouldResolveDomainForVerification(this);
+    }
+
+    // Method facades for helpers stubbed by the garbage.collection.community test's
+    // mock community (it relies on these being instance methods for vi.fn() overrides).
+    // Production callers in ipns-publishing.ts/lifecycle.ts/editing.ts go through the
+    // methods so the stubs intercept.
+    async _calculateNewPostUpdates() {
+        return calculateNewPostUpdates(this);
+    }
+
+    _calculateLatestUpdateTrigger() {
+        return calculateLatestUpdateTrigger(this);
+    }
+
+    async _resolveIpnsAndLogIfPotentialProblematicSequence() {
+        return resolveIpnsAndLogIfPotentialProblematicSequence(this);
+    }
+
+    async _updateDbInternalState(props: Parameters<typeof updateDbInternalState>[1]) {
+        return updateDbInternalState(this, props);
     }
 }
