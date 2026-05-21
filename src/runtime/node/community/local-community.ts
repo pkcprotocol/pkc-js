@@ -194,20 +194,14 @@ import {
     untrackUpdatingCommunity
 } from "../../../pkc/tracked-instance-registry-util.js";
 import { AllPageCids } from "../../../pages/types.js";
+import {
+    CommentUpdateToWriteToDbAndPublishToIpfs,
+    DUPLICATE_PUBLICATION_ERRORS,
+    generateDefaultChallenges,
+    isDefaultChallengeStructure
+} from "./local-community/defaults.js";
 
-type CommentUpdateToWriteToDbAndPublishToIpfs = {
-    newCommentUpdate: CommentUpdateType;
-    newCommentUpdateToWriteToDb: CommentUpdatesTableRowInsert;
-    localMfsPath: string | undefined;
-    pendingApproval: CommentsTableRow["pendingApproval"];
-};
 const processStartedCommunities = new TrackedInstanceRegistry<LocalCommunity>(); // A global registry on process level to track started communities
-
-const DUPLICATE_PUBLICATION_ERRORS = new Set([
-    messages.ERR_DUPLICATE_COMMENT,
-    messages.ERR_DUPLICATE_COMMENT_EDIT,
-    messages.ERR_DUPLICATE_COMMENT_MODERATION
-]);
 
 // This is a sub we have locally in our pkc datapath, in a NodeJS environment
 export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalCommunityParsedOptions {
@@ -215,33 +209,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     override raw: RpcLocalCommunity["raw"] = {};
     private _postUpdatesBuckets = [86400, 604800, 2592000, 3153600000]; // 1 day, 1 week, 1 month, 100 years. Expecting to be sorted from smallest to largest
 
-    private static _defaultChallengeQuestionText =
-        "What is the answer to this community's challenge? (check community.settings.challenges to see the answer, or set your own challenge)";
-
-    static _generateDefaultChallenges(answer?: string): CommunityChallengeSetting[] {
-        return [
-            {
-                name: "question",
-                options: {
-                    question: LocalCommunity._defaultChallengeQuestionText,
-                    answer: answer ?? uuidV4()
-                }
-            }
-        ];
-    }
-
-    static _isDefaultChallengeStructure(challenges: CommunityChallengeSetting[] | undefined): boolean {
-        if (!challenges || challenges.length !== 1) return false;
-        const c = challenges[0];
-        return (
-            c.name === "question" &&
-            c.options?.question === LocalCommunity._defaultChallengeQuestionText &&
-            typeof c.options?.answer === "string" &&
-            c.options.answer.length > 0
-        );
-    }
-
-    _defaultCommunityChallenges: CommunityChallengeSetting[] = LocalCommunity._generateDefaultChallenges();
+    _defaultCommunityChallenges: CommunityChallengeSetting[] = generateDefaultChallenges();
 
     // These caches below will be used to facilitate challenges exchange with authors, they will expire after 10 minutes
     // Most of the time they will be delete and cleaned up automatically
@@ -601,17 +569,14 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     }
 
     async _setChallengesToDefaultIfNotDefined(log: Logger) {
-        if (
-            this._usingDefaultChallenge !== false &&
-            (!this.settings?.challenges || LocalCommunity._isDefaultChallengeStructure(this.settings?.challenges))
-        )
+        if (this._usingDefaultChallenge !== false && (!this.settings?.challenges || isDefaultChallengeStructure(this.settings?.challenges)))
             this._usingDefaultChallenge = true;
 
         if (this._usingDefaultChallenge) {
             const currentAnswer = this.settings?.challenges?.[0]?.options?.answer;
-            if (currentAnswer && LocalCommunity._isDefaultChallengeStructure(this._defaultCommunityChallenges)) {
+            if (currentAnswer && isDefaultChallengeStructure(this._defaultCommunityChallenges)) {
                 // Preserve the existing per-community random answer in the template
-                this._defaultCommunityChallenges = LocalCommunity._generateDefaultChallenges(currentAnswer);
+                this._defaultCommunityChallenges = generateDefaultChallenges(currentAnswer);
             }
 
             if (!remeda.isDeepEqual(this.settings?.challenges, this._defaultCommunityChallenges)) {
@@ -3405,7 +3370,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                             .communityChallenge
                 )
             ),
-            _usingDefaultChallenge: LocalCommunity._isDefaultChallengeStructure(newChallengeSettings)
+            _usingDefaultChallenge: isDefaultChallengeStructure(newChallengeSettings)
         };
     }
 

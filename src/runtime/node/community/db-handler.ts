@@ -24,6 +24,7 @@ import type {
     CommunityStats
 } from "../../../community/types.js";
 import { LocalCommunity } from "./local-community.js";
+import { isDefaultChallengeStructure } from "./local-community/defaults.js";
 import { getPKCAddressFromPublicKey, getPKCAddressFromPublicKeySync } from "../../../signer/util.js";
 import * as remeda from "remeda";
 import type {
@@ -535,7 +536,7 @@ export class DbHandler {
                     "_usingDefaultChallenge" in internalState
                         ? internalState._usingDefaultChallenge
                         : //@ts-expect-error - fallback for old DB records that predate _usingDefaultChallenge field
-                          LocalCommunity._isDefaultChallengeStructure(internalState?.settings?.challenges);
+                          isDefaultChallengeStructure(internalState?.settings?.challenges);
                 const updateCid: string =
                     "updateCid" in internalState && typeof internalState.updateCid === "string"
                         ? internalState.updateCid
