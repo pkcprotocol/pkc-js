@@ -42,6 +42,7 @@ import type {
     PublicationWithCommunityAuthorFromDecryptedChallengeRequest
 } from "../../../../pubsub-messages/types.js";
 import type { LocalCommunity } from "../local-community.js";
+import { publishFailedChallengeVerification } from "./challenges.js";
 
 export function isFlairInAllowedList(flair: Flair, allowedFlairs: Flair[]): boolean {
     return allowedFlairs.some((allowed) => remeda.isDeepEqual(allowed, flair));
@@ -112,7 +113,7 @@ export async function respondWithErrorIfSignatureOfPublicationIsInvalid(
     else throw Error("Can't detect the type of publication");
 
     if (!validity.valid) {
-        await community._publishFailedChallengeVerification({ reason: validity.reason }, request.challengeRequestId);
+        await publishFailedChallengeVerification(community, { reason: validity.reason }, request.challengeRequestId);
         throw new PKCError(getErrorCodeFromMessage(validity.reason), { request, validity });
     }
 }
