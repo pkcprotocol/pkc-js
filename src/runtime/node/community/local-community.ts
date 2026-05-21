@@ -1,266 +1,48 @@
 import Logger from "../../../logger.js";
 import { PKC } from "../../../pkc/pkc.js";
 import type {
-    Challenge,
     CreateNewLocalCommunityParsedOptions,
     InternalCommunityRecordBeforeFirstUpdateType,
     InternalCommunityRecordAfterFirstUpdateType,
     ParsedCommunityEditOptions,
     CommunityChallengeSetting,
-    CommunityEditOptions,
     CommunityIpfsType,
     RpcInternalCommunityRecordBeforeFirstUpdateType,
     RpcInternalCommunityRecordAfterFirstUpdateType,
-    CommunityUpdatingState,
-    CommunityState,
-    CommunityRoleNameUnion,
-    CommunityEvents,
-    Flair
+    CommunityEvents
 } from "../../../community/types.js";
 import { LRUCache } from "lru-cache";
 import { PageGenerator } from "./page-generator.js";
 import { DbHandler } from "./db-handler.js";
-import { deriveDbReplies, deriveDbPosts, resolveDbPostsCidRefs } from "../util.js";
-import type { PseudonymityAliasRow, PurgedCommentTableRows } from "./db-handler-types.js";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
-import {
-    derivePublicationFromChallengeRequest,
-    doesDomainAddressHaveCapitalLetter,
-    genToArray,
-    hideClassPrivateProps,
-    ipnsNameToIpnsOverPubsubTopic,
-    isLinkOfMedia,
-    isLinkOfImage,
-    isLinkOfVideo,
-    isLinkOfAnimatedImage,
-    isLinkValid,
-    isStringDomain,
-    pubsubTopicToDhtKey,
-    timestamp,
-    getErrorCodeFromMessage,
-    removeMfsFilesSafely,
-    removeBlocksFromKuboNode,
-    writeKuboFilesWithTimeout,
-    retryKuboIpfsAddAndProvide,
-    retryKuboBlockPutPinAndProvidePubsubTopic,
-    calculateIpfsCidV0,
-    calculateStringSizeSameAsIpfsAddCidV0,
-    getIpnsRecordInLocalKuboNode,
-    contentContainsMarkdownImages,
-    contentContainsMarkdownVideos,
-    isLinkOfAudio,
-    contentContainsMarkdownAudio,
-    areEquivalentCommunityAddresses
-} from "../../../util.js";
-import { STORAGE_KEYS } from "../../../constants.js";
+import { calculateStringSizeSameAsIpfsAddCidV0, hideClassPrivateProps, isStringDomain, retryKuboIpfsAddAndProvide } from "../../../util.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { PKCError } from "../../../pkc-error.js";
-
-import type {
-    ChallengeAnswerMessageType,
-    ChallengeMessageType,
-    ChallengeRequestMessageType,
-    ChallengeVerificationMessageType,
-    DecryptedChallenge,
-    DecryptedChallengeAnswerMessageType,
-    DecryptedChallengeRequest,
-    DecryptedChallengeRequestMessageType,
-    DecryptedChallengeVerificationMessageType,
-    DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
-    PublicationWithCommunityAuthorFromDecryptedChallengeRequest,
-    PublicationFromDecryptedChallengeRequest,
-    DecryptedChallengeVerification,
-    DecryptedChallengeAnswer
-} from "../../../pubsub-messages/types.js";
-
+import type { ChallengeAnswerMessageType, ChallengeRequestMessageType, DecryptedChallengeAnswer } from "../../../pubsub-messages/types.js";
 import type { IpfsHttpClientPubsubMessage } from "../../../types.js";
-import {
-    ValidationResult,
-    cleanUpBeforePublishing,
-    signChallengeMessage,
-    signChallengeVerification,
-    signComment,
-    signCommentEdit,
-    signCommentUpdate,
-    signCommentUpdateForChallengeVerification,
-    signCommunity,
-    verifyChallengeAnswer,
-    verifyChallengeRequest,
-    verifyCommentEdit,
-    verifyCommentModeration,
-    verifyCommentUpdate,
-    verifyCommunityEdit
-} from "../../../signer/signatures.js";
-import {
-    calculateExpectedSignatureSize,
-    calculateInlineRepliesBudget,
-    deriveCommentIpfsFromCommentTableRow,
-    getThumbnailPropsOfLink,
-    importSignerIntoKuboNode,
-    moveCommunityDbToDeletedDirectory
-} from "../util.js";
-import {
-    SignerWithPublicKeyAddress,
-    decryptEd25519AesGcmPublicKeyBuffer,
-    verifyCommentIpfs,
-    verifyCommentPubsubMessage,
-    verifyCommunity,
-    verifyVote
-} from "../../../signer/index.js";
-import { encryptEd25519AesGcmPublicKeyBuffer } from "../../../signer/encryption.js";
-import { messages } from "../../../errors.js";
-import { GetChallengeAnswers, getChallengeVerification, getCommunityChallengeFromCommunityChallengeSettings } from "./challenges/index.js";
-import * as cborg from "cborg";
-import env from "../../../version.js";
-import { getIpfsKeyFromPrivateKey, getPKCAddressFromPublicKey, getPublicKeyFromPrivateKey } from "../../../signer/util.js";
+import { verifyCommunity } from "../../../signer/signatures.js";
+import { deriveCommentIpfsFromCommentTableRow } from "../util.js";
+import { SignerWithPublicKeyAddress } from "../../../signer/index.js";
 import { RpcLocalCommunity } from "../../../community/rpc-local-community.js";
 import * as remeda from "remeda";
-import { buildRuntimeAuthor, cleanWireAuthor, getAuthorNameFromWire } from "../../../publications/publication-author.js";
-import { getCommunityPublicKeyFromWire, getCommunityNameFromWire } from "../../../publications/publication-community.js";
-
-import type {
-    CommentEditOptionsToSign,
-    CommentEditPubsubMessagePublication,
-    CommentEditsTableRow
-} from "../../../publications/comment-edit/types.js";
-import {
-    CommentEditPubsubMessagePublicationSchema,
-    CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema,
-    CommentEditReservedFields
-} from "../../../publications/comment-edit/schema.js";
-import type { VotePubsubMessagePublication, VotesTableRow } from "../../../publications/vote/types.js";
-import type {
-    CommentIpfsType,
-    CommentOptionsToSign,
-    CommentPubsubMessagePublication,
-    CommentPubsubMessagPublicationSignature,
-    CommentsTableRow,
-    CommentUpdatesTableRowInsert,
-    CommentUpdateType,
-    DbRepliesFormat,
-    DbRepliesSortEntry,
-    DbPostsFormat,
-    PostPubsubMessageWithCommunityAuthor,
-    ReplyPubsubMessageWithCommunityAuthor
-} from "../../../publications/comment/types.js";
-import { CommunityIpfsSchema, CommunitySignedPropertyNames } from "../../../community/schema.js";
-import {
-    ChallengeAnswerMessageSchema,
-    ChallengeMessageSchema,
-    ChallengeRequestMessageSchema,
-    ChallengeVerificationMessageSchema,
-    DecryptedChallengeRequestPublicationSchema,
-    DecryptedChallengeRequestSchema
-} from "../../../pubsub-messages/schema.js";
-import {
-    parseDecryptedChallengeAnswerWithPKCErrorIfItFails,
-    parseJsonWithPKCErrorIfFails,
-    parseCommunityEditOptionsSchemaWithPKCErrorIfItFails,
-    parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails
-} from "../../../schema/schema-util.js";
-import {
-    CommentIpfsSchema,
-    CommentPubsubMessageReservedFields,
-    CommentPubsubMessagePublicationSchema
-} from "../../../publications/comment/schema.js";
-import { VotePubsubMessagePublicationSchema, VotePubsubReservedFields } from "../../../publications/vote/schema.js";
-import { v4 as uuidV4 } from "uuid";
-import { AuthorReservedFields } from "../../../schema/schema.js";
-import {
-    CommentModerationPubsubMessagePublicationSchema,
-    CommentModerationReservedFields
-} from "../../../publications/comment-moderation/schema.js";
-import type {
-    CommentModerationPubsubMessagePublication,
-    CommentModerationTableRow
-} from "../../../publications/comment-moderation/types.js";
-import { CommunityEditPublicationPubsubReservedFields } from "../../../publications/community-edit/schema.js";
-import type { CommunityEditPubsubMessagePublication } from "../../../publications/community-edit/types.js";
-import { default as lodashDeepMerge } from "lodash.merge"; // Importing only the `merge` function
+import type { CommentsTableRow } from "../../../publications/comment/types.js";
+import { CommunityIpfsSchema } from "../../../community/schema.js";
 import { MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS } from "../../../community/community-client-manager.js";
-import { RemoteCommunity } from "../../../community/remote-community.js";
-import pLimit from "p-limit";
 import { sha256 } from "js-sha256";
-import { iterateOverPageCidsToFindAllCids } from "../../../pages/util.js";
-import {
-    findStartedCommunity,
-    findCommunityInRegistry,
-    findUpdatingCommunity,
-    syncCommunityRegistryEntry,
-    trackStartedCommunity,
-    trackUpdatingCommunity,
-    untrackStartedCommunity,
-    untrackUpdatingCommunity
-} from "../../../pkc/tracked-instance-registry-util.js";
-import { processStartedCommunities } from "./local-community/registry.js";
 import { AllPageCids } from "../../../pages/types.js";
+import { generateDefaultChallenges } from "./local-community/defaults.js";
 import {
-    CommentUpdateToWriteToDbAndPublishToIpfs,
-    DUPLICATE_PUBLICATION_ERRORS,
-    generateDefaultChallenges,
-    isDefaultChallengeStructure
-} from "./local-community/defaults.js";
-import { listenToIncomingRequests, providePubsubTopicRoutingCidsIfNeeded } from "./local-community/pubsub.js";
-import {
-    addAllCidsUnderPurgedCommentToBeRemoved,
-    cleanUpIpfsRepoRarely,
-    purgeDisapprovedCommentsOlderThan,
-    repinCommentUpdateIfNeeded,
-    repinCommentsIPFSIfNeeded,
-    rmUnneededMfsPaths,
-    unpinStaleCids
-} from "./local-community/cleanup.js";
-import {
-    adjustPostUpdatesBucketsIfNeeded,
-    pubsubTopicWithfallback,
-    syncPostUpdatesWithIpfs,
-    updateCommentsThatNeedToBeUpdated
-} from "./local-community/comment-updates.js";
-import {
-    edit as editCommunity,
-    editPropsOnNotStartedCommunity,
-    editPropsOnStartedCommunity,
-    movePostUpdatesFolderToNewAddress,
-    parseChallengesToEdit,
-    parseRolesToEdit,
-    validateNewAddressBeforeEditing
-} from "./local-community/editing.js";
-import {
-    createNewLocalCommunityDb,
-    getDbInternalState,
-    importCommunitySignerIntoIpfsIfNeeded,
     initDbHandlerIfNeeded,
     initInternalCommunityAfterFirstUpdateNoMerge,
     initInternalCommunityBeforeFirstUpdateNoMerge,
-    initNewLocalCommunityPropsNoMerge,
-    initSignerProps,
-    setChallengesToDefaultIfNotDefined,
-    updateDbInternalState,
-    updateInstancePropsWithStartedCommunityOrDb,
-    updateInstanceStateWithDbState
+    initNewLocalCommunityPropsNoMerge
 } from "./local-community/db-state.js";
-import { storePublication } from "./local-community/publication-store.js";
-import {
-    checkPublicationValidity,
-    isFlairInAllowedList,
-    isPublicationAuthorPartOfRoles,
-    respondWithErrorIfSignatureOfPublicationIsInvalid
-} from "./local-community/publication-validation.js";
 import {
     handleChallengeAnswer as handleChallengeAnswerFreeFunction,
     handleChallengeExchange as handleChallengeExchangeFreeFunction,
     handleChallengeRequest as handleChallengeRequestFreeFunction
 } from "./local-community/challenges.js";
-import {
-    addOldPageCidsToCidsToUnpin,
-    calculateLatestUpdateTrigger,
-    calculateNewPostUpdates,
-    requireCommunityUpdateIfModQueueChanged,
-    resolveIpnsAndLogIfPotentialProblematicSequence,
-    shouldResolveDomainForVerification,
-    syncIpnsWithDb,
-    updateCommunityIpnsIfNeeded
-} from "./local-community/ipns-publishing.js";
+import { shouldResolveDomainForVerification } from "./local-community/ipns-publishing.js";
 import { deleteCommunity, start as lifecycleStart, stop as lifecycleStop, update as lifecycleUpdate } from "./local-community/lifecycle.js";
 
 // This is a sub we have locally in our pkc datapath, in a NodeJS environment

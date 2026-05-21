@@ -1,5 +1,4 @@
 import pLimit from "p-limit";
-import { stringify as deterministicStringify } from "safe-stable-stringify";
 import Logger from "../../../../logger.js";
 import { genToArray, removeMfsFilesSafely } from "../../../../util.js";
 import type { DbRepliesSortEntry } from "../../../../publications/comment/types.js";

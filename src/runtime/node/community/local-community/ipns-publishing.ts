@@ -3,20 +3,13 @@ import * as remeda from "remeda";
 import * as cborg from "cborg";
 import { sha256 } from "js-sha256";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
-import {
-    calculateStringSizeSameAsIpfsAddCidV0,
-    getIpnsRecordInLocalKuboNode,
-    isStringDomain,
-    removeBlocksFromKuboNode,
-    retryKuboIpfsAddAndProvide,
-    timestamp
-} from "../../../../util.js";
+import { getIpnsRecordInLocalKuboNode, removeBlocksFromKuboNode, retryKuboIpfsAddAndProvide, timestamp } from "../../../../util.js";
 import env from "../../../../version.js";
 import { PKCError } from "../../../../pkc-error.js";
 import { STORAGE_KEYS } from "../../../../constants.js";
 import { calculateExpectedSignatureSize } from "../../util.js";
 import { iterateOverPageCidsToFindAllCids } from "../../../../pages/util.js";
-import { cleanUpBeforePublishing, signCommunity, verifyCommunity } from "../../../../signer/signatures.js";
+import { cleanUpBeforePublishing, signCommunity } from "../../../../signer/signatures.js";
 import { CommunityIpfsSchema } from "../../../../community/schema.js";
 import { MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS } from "../../../../community/community-client-manager.js";
 import type { CommunityIpfsType } from "../../../../community/types.js";

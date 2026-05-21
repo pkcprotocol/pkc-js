@@ -1,5 +1,5 @@
 import { v4 as uuidV4 } from "uuid";
-import type { CommunityChallengeSetting, CommunityIpfsType } from "../../../../community/types.js";
+import type { CommunityChallengeSetting } from "../../../../community/types.js";
 import type { CommentsTableRow, CommentUpdatesTableRowInsert, CommentUpdateType } from "../../../../publications/comment/types.js";
 import { messages } from "../../../../errors.js";
 
