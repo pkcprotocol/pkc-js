@@ -182,7 +182,6 @@ import { RemoteCommunity } from "../../../community/remote-community.js";
 import pLimit from "p-limit";
 import { sha256 } from "js-sha256";
 import { iterateOverPageCidsToFindAllCids } from "../../../pages/util.js";
-import { TrackedInstanceRegistry } from "../../../pkc/tracked-instance-registry.js";
 import {
     findStartedCommunity,
     findCommunityInRegistry,
@@ -193,6 +192,7 @@ import {
     untrackStartedCommunity,
     untrackUpdatingCommunity
 } from "../../../pkc/tracked-instance-registry-util.js";
+import { processStartedCommunities } from "./local-community/registry.js";
 import { AllPageCids } from "../../../pages/types.js";
 import {
     CommentUpdateToWriteToDbAndPublishToIpfs,
@@ -216,8 +216,15 @@ import {
     syncPostUpdatesWithIpfs,
     updateCommentsThatNeedToBeUpdated
 } from "./local-community/comment-updates.js";
-
-const processStartedCommunities = new TrackedInstanceRegistry<LocalCommunity>(); // A global registry on process level to track started communities
+import {
+    edit as editCommunity,
+    editPropsOnNotStartedCommunity,
+    editPropsOnStartedCommunity,
+    movePostUpdatesFolderToNewAddress,
+    parseChallengesToEdit,
+    parseRolesToEdit,
+    validateNewAddressBeforeEditing
+} from "./local-community/editing.js";
 
 // This is a sub we have locally in our pkc datapath, in a NodeJS environment
 export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalCommunityParsedOptions {
@@ -264,7 +271,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         | "challenge"
         | "challengeanswer"
     > = undefined; // The pkc._startedCommunities we're subscribed to
-    private _pendingEditProps: Partial<ParsedCommunityEditOptions & { editId: string }>[] = [];
+    _pendingEditProps: Partial<ParsedCommunityEditOptions & { editId: string }>[] = [];
     _blocksToRm: string[] = [];
     private _postsAllPageCids: AllPageCids | undefined = undefined;
 
@@ -345,7 +352,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         };
     }
 
-    private async _updateStartedValue() {
+    async _updateStartedValue() {
         this.started = await this._dbHandler.isCommunityStartLocked(this.address);
     }
 
@@ -426,7 +433,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         this.raw.localCommunity = this.toJSONInternalRpcBeforeFirstUpdate();
     }
 
-    private async initDbHandlerIfNeeded() {
+    async initDbHandlerIfNeeded() {
         if (!this._dbHandler) {
             this._dbHandler = new DbHandler(this);
             await this._dbHandler.initDbConfigIfNeeded();
@@ -2677,19 +2684,6 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         }
     }
 
-    private async _movePostUpdatesFolderToNewAddress(oldAddress: string, newAddress: string) {
-        const log = Logger("pkc-js:local-community:_movePostUpdatesFolderToNewAddress");
-        const kuboRpc = this._clientsManager.getDefaultKuboRpcClient();
-        try {
-            await kuboRpc._client.files.mv(`/${oldAddress}`, `/${newAddress}`); // Could throw
-        } catch (e) {
-            if (e instanceof Error && e.message !== "file does not exist") {
-                log.error("Failed to move directory of post updates in MFS", this.address, e);
-                throw e; // A critical error
-            }
-        }
-    }
-
     async _addCommentRowToIPFS(unpinnedCommentRow: CommentsTableRow, log: Logger) {
         const ipfsClient = this._clientsManager.getDefaultKuboRpcClient();
 
@@ -2749,7 +2743,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         }
     }
 
-    private async _assertDomainResolvesCorrectly(newAddressAsDomain: string) {
+    async _assertDomainResolvesCorrectly(newAddressAsDomain: string) {
         if (isStringDomain(newAddressAsDomain)) {
             const resolvedIpnsFromNewDomain = await this._clientsManager.resolveCommunityNameIfNeeded({
                 communityName: newAddressAsDomain,
@@ -2843,200 +2837,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         await this._dbHandler.initDbIfNeeded();
     }
 
-    private async _parseRolesToEdit(
-        newRawRoles: NonNullable<CommunityEditOptions["roles"]>
-    ): Promise<NonNullable<InternalCommunityRecordAfterFirstUpdateType["roles"]>> {
-        for (const [roleAddress, roleValue] of Object.entries(newRawRoles)) {
-            if (roleValue === undefined || roleValue === null) continue; // skip removals
-            // Use this._clientsManager (not this._pkc) so nameResolver state changes emit on the community's clients
-            if (isStringDomain(roleAddress)) {
-                let resolved: string | null;
-                try {
-                    ({ resolvedAuthorName: resolved } = await this._clientsManager.resolveAuthorNameIfNeeded({
-                        authorName: roleAddress,
-                        abortSignal: AbortSignal.timeout(this._pkc._timeouts["resolve-author-name"]),
-                        // Role edits must apply to current state — bypass cache.
-                        cache: { maxAge: 0 }
-                    }));
-                } catch {
-                    resolved = null;
-                }
-                if (!resolved) throw new PKCError("ERR_ROLE_ADDRESS_NAME_COULD_NOT_BE_RESOLVED", { roleAddress });
-            }
-        }
-        return <NonNullable<CommunityIpfsType["roles"]>>remeda.omitBy(newRawRoles, (val, key) => val === undefined || val === null);
-    }
-
-    private async _parseChallengesToEdit(
-        newChallengeSettings: NonNullable<NonNullable<CommunityEditOptions["settings"]>["challenges"]>
-    ): Promise<NonNullable<Pick<InternalCommunityRecordAfterFirstUpdateType, "challenges" | "_usingDefaultChallenge">>> {
-        return {
-            challenges: await Promise.all(
-                newChallengeSettings.map(
-                    async (cs) =>
-                        (await getCommunityChallengeFromCommunityChallengeSettings({ communityChallengeSettings: cs, pkc: this._pkc }))
-                            .communityChallenge
-                )
-            ),
-            _usingDefaultChallenge: isDefaultChallengeStructure(newChallengeSettings)
-        };
-    }
-
-    async _validateNewAddressBeforeEditing(newAddress: string, log: Logger) {
-        if (doesDomainAddressHaveCapitalLetter(newAddress))
-            throw new PKCError("ERR_COMMUNITY_NAME_HAS_CAPITAL_LETTER", { communityAddress: newAddress });
-        // Check if any existing community (other than this one) already has an equivalent address
-        // This handles both exact matches and .eth/.bso alias equivalence
-        const existingEquivalent = this._pkc.communities.find(
-            (existing) => areEquivalentCommunityAddresses(existing, newAddress) && !areEquivalentCommunityAddresses(existing, this.address)
-        );
-        if (existingEquivalent)
-            throw new PKCError("ERR_COMMUNITY_OWNER_ATTEMPTED_EDIT_NEW_ADDRESS_THAT_ALREADY_EXISTS", {
-                currentCommunityAddress: this.address,
-                newCommunityAddress: newAddress,
-                currentSubs: this._pkc.communities
-            });
-        this._assertDomainResolvesCorrectly(newAddress).catch((err: PKCError) => {
-            log.error(err);
-            this.emit("error", err);
-        });
-    }
-
-    async _editPropsOnStartedCommunity(parsedEditOptions: ParsedCommunityEditOptions): Promise<typeof this> {
-        // 'this' is the started community with state="started"
-        // this._pkc._startedCommunities[this.address] === this
-        const log = Logger("pkc-js:local-community:start:editPropsOnStartedCommunity");
-        const oldAddress = remeda.clone(this.address);
-        if (typeof parsedEditOptions.address === "string" && this.address !== parsedEditOptions.address) {
-            await this._validateNewAddressBeforeEditing(parsedEditOptions.address, log);
-
-            log(`Attempting to edit community.address from ${oldAddress} to ${parsedEditOptions.address}. We will stop community first`);
-            await this.stop();
-            await this._dbHandler.changeDbFilename(oldAddress, parsedEditOptions.address);
-            this.setAddress(parsedEditOptions.address);
-            await this._dbHandler.initDbIfNeeded();
-            await this.start();
-            await this._movePostUpdatesFolderToNewAddress(oldAddress, parsedEditOptions.address);
-        }
-
-        const uniqueEditId = sha256(deterministicStringify(parsedEditOptions));
-        this._pendingEditProps.push({ ...parsedEditOptions, editId: uniqueEditId });
-
-        if (this.updateCid)
-            await this.initInternalCommunityAfterFirstUpdateNoMerge({
-                ...this.toJSONInternalAfterFirstUpdate(),
-                ...parsedEditOptions,
-                _internalStateUpdateId: uniqueEditId
-            });
-        else
-            await this.initInternalCommunityBeforeFirstUpdateNoMerge({
-                ...this.toJSONInternalBeforeFirstUpdate(),
-                ...parsedEditOptions,
-                _internalStateUpdateId: uniqueEditId
-            });
-        this._communityUpdateTrigger = true;
-        log(
-            `Community (${this.address}) props (${remeda.keys.strict(parsedEditOptions)}) has been edited. Will be including edited props in next update: `,
-            remeda.pick(this, remeda.keys.strict(parsedEditOptions))
-        );
-        this.emit("update", this);
-        if (this.address !== oldAddress) {
-            trackStartedCommunity(this._pkc, this);
-            syncCommunityRegistryEntry(processStartedCommunities, this);
-        }
-        return this;
-    }
-
-    async _editPropsOnNotStartedCommunity(parsedEditOptions: ParsedCommunityEditOptions): Promise<typeof this> {
-        // sceneario 3, the community is not running anywhere, we need to edit the db and update this instance
-        const log = Logger("pkc-js:local-community:edit:editPropsOnNotStartedCommunity");
-        const oldAddress = remeda.clone(this.address);
-        await this.initDbHandlerIfNeeded();
-        await this._dbHandler.initDbIfNeeded();
-        if (typeof parsedEditOptions.address === "string" && this.address !== parsedEditOptions.address) {
-            await this._validateNewAddressBeforeEditing(parsedEditOptions.address, log);
-
-            log(`Attempting to edit community.address from ${oldAddress} to ${parsedEditOptions.address}`);
-
-            // in this sceneario we're editing a community that's not started anywhere
-            log("will rename the community", this.address, "db in edit() because the community is not being ran anywhere else");
-            await this._movePostUpdatesFolderToNewAddress(this.address, parsedEditOptions.address);
-            this._dbHandler.destoryConnection();
-            await this._dbHandler.changeDbFilename(this.address, parsedEditOptions.address);
-            await this._dbHandler.initDbIfNeeded();
-            this.setAddress(parsedEditOptions.address);
-        }
-        const mergedInternalState = await this._updateDbInternalState(parsedEditOptions);
-
-        if ("updatedAt" in mergedInternalState && mergedInternalState.updatedAt)
-            await this.initInternalCommunityAfterFirstUpdateNoMerge(mergedInternalState);
-        else await this.initInternalCommunityBeforeFirstUpdateNoMerge(mergedInternalState);
-        await this._dbHandler.destoryConnection();
-        this.emit("update", this);
-        return this;
-    }
-
     override async edit(newCommunityOptions: CommunityEditOptions): Promise<typeof this> {
-        // scenearios
-        // 1 - calling edit() on a community instance that's not running, but the it's started in pkc._startedCommunities (should edit the started community)
-        // 2 - calling edit() on a community that's started in another process (should throw)
-        // 3 - calling edit() on a community that's not started (should load db and edit it)
-        // 4 - calling edit() on the community that's started (should edit the started community)
-
-        const startedCommunity = <LocalCommunity | undefined>(
-            (findStartedCommunity(this._pkc, { publicKey: this.publicKey, name: this.name }) ||
-                findCommunityInRegistry(processStartedCommunities, { publicKey: this.publicKey, name: this.name }))
-        );
-        if (startedCommunity && this.state !== "started") {
-            // sceneario 1
-            const editRes = await startedCommunity.edit(newCommunityOptions);
-
-            this.setAddress(editRes.address); // need to force an update of the address for this instance
-            await this._updateInstancePropsWithStartedCommunityOrDb();
-            return this;
-        }
-
-        await this.initDbHandlerIfNeeded();
-        await this._updateStartedValue();
-        if (this.started && this.state !== "started") {
-            // sceneario 2
-            this._dbHandler.destoryConnection();
-            throw new PKCError("ERR_CAN_NOT_EDIT_A_LOCAL_COMMUNITY_THAT_IS_ALREADY_STARTED_IN_ANOTHER_PROCESS", {
-                address: this.address,
-                dataPath: this._pkc.dataPath
-            });
-        }
-
-        const parsedEditOptions = parseCommunityEditOptionsSchemaWithPKCErrorIfItFails(newCommunityOptions);
-
-        // Convert backward-compat address → name for wire format when address is a domain
-        const editWithDerivedName =
-            typeof parsedEditOptions.address === "string" && isStringDomain(parsedEditOptions.address)
-                ? { ...parsedEditOptions, name: parsedEditOptions.address }
-                : parsedEditOptions;
-
-        const newInternalProps = <Pick<InternalCommunityRecordAfterFirstUpdateType, "roles" | "challenges" | "_usingDefaultChallenge">>{
-            ...(editWithDerivedName.roles ? { roles: await this._parseRolesToEdit(editWithDerivedName.roles) } : undefined),
-            ...(editWithDerivedName?.settings?.challenges
-                ? await this._parseChallengesToEdit(editWithDerivedName.settings.challenges)
-                : undefined)
-        };
-
-        const newProps = <ParsedCommunityEditOptions>{
-            ...remeda.omit(editWithDerivedName, ["roles"]), // we omit here to make tsc shut up
-            ...newInternalProps
-        };
-
-        if (!this.started && !startedCommunity) {
-            // sceneario 3
-            return this._editPropsOnNotStartedCommunity(newProps);
-        }
-
-        if (findStartedCommunity(this._pkc, { publicKey: this.publicKey, name: this.name }) === this) {
-            // sceneario 4
-            return this._editPropsOnStartedCommunity(newProps);
-        }
-        throw new Error("Can't edit a community that's started in another process");
+        return (await editCommunity(this, newCommunityOptions)) as typeof this;
     }
 
     override async start() {
