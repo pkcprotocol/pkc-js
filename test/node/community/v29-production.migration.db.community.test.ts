@@ -833,7 +833,7 @@ describeSkipIfRpc("v29 production data → v37 migration", function () {
     // ── Schema migration ──
 
     it("DB version is updated to latest", () => {
-        expect(dbHandler!.getDbVersion()).to.equal(39);
+        expect(dbHandler!.getDbVersion()).to.equal(40);
     });
 
     it("subplebbitAddress column removed from comments, commentEdits, commentModerations", () => {

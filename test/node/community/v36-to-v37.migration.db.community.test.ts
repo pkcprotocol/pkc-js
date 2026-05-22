@@ -450,7 +450,7 @@ describeSkipIfRpc("v36 → v37 DB migration (subplebbitAddress → communityPubl
         });
 
         it("DB version is updated to latest", () => {
-            expect(dbHandler!.getDbVersion()).to.equal(39);
+            expect(dbHandler!.getDbVersion()).to.equal(40);
         });
 
         it("subplebbitAddress column no longer exists in comments table", () => {
