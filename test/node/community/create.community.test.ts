@@ -27,7 +27,7 @@ import type { LocalCommunity } from "../../../dist/node/runtime/node/community/l
 import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 import type { CreateNewLocalCommunityUserOptions } from "../../../dist/node/community/types.js";
 
-describe.concurrent(`pkc.createCommunity (local)`, async () => {
+describe(`pkc.createCommunity (local)`, async () => {
     let pkc: PKCType;
     let remotePKC: PKCType;
     beforeAll(async () => {
