@@ -154,6 +154,28 @@ export const CommentUpdateSchema = z
 
 export const CommentUpdateSignedPropertyNames = remeda.keys.strict(remeda.omit(CommentUpdateSchema.shape, ["signature"]));
 
+// Community-computed fields on CommentUpdate. Challenges may not set these via the `commentUpdate`
+// field on a ChallengeResult; any other key (including new unknown ones invented by external
+// challenges) is allowed and shallow-merged with lowest priority. `satisfies` ties each entry to a
+// real CommentUpdate key so renaming a field on CommentUpdateSchema surfaces a stale entry at compile time.
+export const CommentUpdateChallengeReservedFieldNames = [
+    "signature",
+    "cid",
+    "upvoteCount",
+    "downvoteCount",
+    "replyCount",
+    "childCount",
+    "number",
+    "postNumber",
+    "updatedAt",
+    "lastChildCid",
+    "lastReplyTimestamp",
+    "replies",
+    "edit",
+    "protocolVersion",
+    "author"
+] as const satisfies readonly (keyof z.infer<typeof CommentUpdateSchema>)[];
+
 export const CommentUpdateForDisapprovedPendingComment = CommentUpdateSchema.pick({
     author: true,
     cid: true,
@@ -174,6 +196,10 @@ export const CommentUpdateForDisapprovedPendingCommentSignedPropertyNames = reme
     remeda.omit(CommentUpdateForDisapprovedPendingComment.shape, ["signature"])
 );
 
+// Strict for declared fields; challenge-supplied unknown keys (e.g. `reason`, `countryCode`) are
+// merged in at runtime by storePublicationAndEncryptForChallengeVerification and the dynamic
+// signedPropertyNames is computed at sign time as the union of these picked fields plus the actual
+// extra keys present on the merged object.
 export const CommentUpdateForChallengeVerificationSchema = CommentUpdateSchema.pick({
     author: true,
     cid: true,
@@ -198,6 +224,9 @@ export const CommentsTableRowSchema = CommentIpfsSchema.extend({
     authorSignerAddress: SignerWithAddressPublicKeySchema.shape.address,
     originalCommentSignatureEncoded: CommentPubsubMessagePublicationSchema.shape.signature.shape.signature.optional(),
     extraProps: z.looseObject({}).optional(),
+    // challenge-supplied partial CommentUpdate, shallow-merged across successful challenges, seeded
+    // into queryCalculatedCommentUpdate with lowest priority (per-field overridden by mod queries).
+    challengeCommentUpdate: z.looseObject({}).optional(),
     pendingApproval: z.boolean().optional(),
     number: z.number().int().positive().optional(),
     postNumber: z.number().int().positive().optional()

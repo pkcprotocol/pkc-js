@@ -89,7 +89,23 @@ export const ChallengeOptionInputSchema = z.looseObject({
     required: z.boolean().optional() // If this is true, the challenge option is required, the challenge will throw without it
 }); // should be flexible
 
-export const ChallengeResultSchema = z.object({ success: z.literal(true) }).or(z.object({ success: z.literal(false), error: z.string() }));
+// `comment` and `commentUpdate` are typed as loose records here — allowed-key validation happens in
+// validateChallengeResultExtras during aggregation, so we can emit a precise PKCError with
+// {challengeIndex, offendingKey} instead of a generic Zod failure.
+export const ChallengeResultSchema = z
+    .object({
+        success: z.literal(true),
+        reason: z.string().optional(),
+        comment: z.looseObject({}).optional(),
+        commentUpdate: z.looseObject({}).optional()
+    })
+    .or(
+        z.object({
+            success: z.literal(false),
+            error: z.string(),
+            reason: z.string().optional()
+        })
+    );
 
 export const ChallengeFromGetChallengeSchema = z
     .object({

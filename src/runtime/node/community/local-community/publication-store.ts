@@ -35,6 +35,7 @@ import type { CommunityEditPubsubMessagePublication } from "../../../../publicat
 import type { PseudonymityAliasRow } from "../db-handler-types.js";
 import type { ChallengeRequestMessageType, DecryptedChallengeRequestMessageType } from "../../../../pubsub-messages/types.js";
 import type { LocalCommunity } from "../local-community.js";
+import type { ChallengeResultAggregate } from "../challenges/index.js";
 
 export function isPublicationReply(publication: CommentPubsubMessagePublication): publication is ReplyPubsubMessageWithCommunityAuthor {
     return Boolean(publication.parentCid);
@@ -399,17 +400,22 @@ export async function storeComment(
         pendingApproval?: boolean;
         pseudonymityMode?: PseudonymityAliasRow["mode"];
         originalCommentSignatureEncoded?: string;
+        challengeAggregate?: ChallengeResultAggregate;
     }
 ): Promise<{ comment: CommentIpfsType; cid: CommentUpdateType["cid"] }> {
-    const { commentPubsub, pendingApproval, pseudonymityMode, originalCommentSignatureEncoded } = opts;
+    const { commentPubsub, pendingApproval, pseudonymityMode, originalCommentSignatureEncoded, challengeAggregate } = opts;
     const log = Logger("pkc-js:local-community:handleChallengeExchange:storeComment");
 
+    // aggregatedComment is spread LAST: any key collision with author-signed keys is already blocked
+    // by validateChallengeResultExtras, so this only ever adds NEW top-level keys (e.g. countryCode)
+    // to the IPFS bytes. Author signature stays valid because no signed key is mutated.
     const commentIpfs = <CommentIpfsType>{
         ...commentPubsub,
         ...(await calculateLinkProps(community, commentPubsub.link)),
         ...(isPublicationPost(commentPubsub) && (await calculateLatestPostProps(community))),
         ...(isPublicationReply(commentPubsub) && (await calculateReplyProps(community, commentPubsub))),
-        ...(pseudonymityMode ? { pseudonymityMode } : {})
+        ...(pseudonymityMode ? { pseudonymityMode } : {}),
+        ...(challengeAggregate?.aggregatedComment ?? {})
     };
 
     // Normalize to new wire format: ensure communityPublicKey/communityName, remove old communityAddress
@@ -470,6 +476,9 @@ export async function storeComment(
         log("Found extra props on Comment", unknownProps, "Will be adding them to extraProps column");
         commentRow.extraProps = remeda.pick(commentPubsub, unknownProps);
     }
+    if (challengeAggregate?.aggregatedCommentUpdate && Object.keys(challengeAggregate.aggregatedCommentUpdate).length > 0) {
+        commentRow.challengeCommentUpdate = challengeAggregate.aggregatedCommentUpdate;
+    }
     if (originalCommentSignatureEncoded) commentRow.originalCommentSignatureEncoded = originalCommentSignatureEncoded;
 
     // we may need to query comment and verify its signature
@@ -496,7 +505,8 @@ export async function storeComment(
 export async function storePublication(
     community: LocalCommunity,
     request: DecryptedChallengeRequestMessageType,
-    pendingApproval?: boolean
+    pendingApproval?: boolean,
+    challengeAggregate?: ChallengeResultAggregate
 ) {
     if (request.vote) return storeVote(community, request.vote, request.challengeRequestId);
     else if (request.commentEdit) {
@@ -510,7 +520,8 @@ export async function storePublication(
             commentPubsub: publication,
             pendingApproval,
             pseudonymityMode: anonymity?.mode,
-            originalCommentSignatureEncoded: anonymity ? originalCommentSignatureEncoded : undefined
+            originalCommentSignatureEncoded: anonymity ? originalCommentSignatureEncoded : undefined,
+            challengeAggregate
         });
 
         if (anonymity)

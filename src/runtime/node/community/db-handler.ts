@@ -320,6 +320,7 @@ export class DbHandler {
                 pseudonymityMode TEXT NULLABLE,
                 quotedCids TEXT NULLABLE, -- JSON array
                 extraProps TEXT NULLABLE, -- JSON
+                challengeCommentUpdate TEXT NULLABLE, -- JSON: challenge-supplied partial CommentUpdate seeded into queryCalculatedCommentUpdate with lowest priority
                 protocolVersion TEXT NOT NULL,
                 insertedAt INTEGER NOT NULL
             )
@@ -1038,8 +1039,8 @@ export class DbHandler {
         // Adding a new column to the comments table requires updating this list manually, which is error-prone.
         const stmt = this._db.prepare(`
             INSERT INTO ${TABLES.COMMENTS}
-            (cid, authorSignerAddress, author, link, linkWidth, linkHeight, thumbnailUrl, thumbnailUrlWidth, thumbnailUrlHeight, parentCid, postCid, previousCid, communityPublicKey, communityName, content, timestamp, signature, originalCommentSignatureEncoded, title, depth, linkHtmlTagName, flairs, spoiler, pendingApproval, number, postNumber, nsfw, pseudonymityMode, quotedCids, extraProps, protocolVersion, insertedAt)
-            VALUES (@cid, @authorSignerAddress, @author, @link, @linkWidth, @linkHeight, @thumbnailUrl, @thumbnailUrlWidth, @thumbnailUrlHeight, @parentCid, @postCid, @previousCid, @communityPublicKey, @communityName, @content, @timestamp, @signature, @originalCommentSignatureEncoded, @title, @depth, @linkHtmlTagName, @flairs, @spoiler, @pendingApproval, @number, @postNumber, @nsfw, @pseudonymityMode, @quotedCids, @extraProps, @protocolVersion, @insertedAt)
+            (cid, authorSignerAddress, author, link, linkWidth, linkHeight, thumbnailUrl, thumbnailUrlWidth, thumbnailUrlHeight, parentCid, postCid, previousCid, communityPublicKey, communityName, content, timestamp, signature, originalCommentSignatureEncoded, title, depth, linkHtmlTagName, flairs, spoiler, pendingApproval, number, postNumber, nsfw, pseudonymityMode, quotedCids, extraProps, challengeCommentUpdate, protocolVersion, insertedAt)
+            VALUES (@cid, @authorSignerAddress, @author, @link, @linkWidth, @linkHeight, @thumbnailUrl, @thumbnailUrlWidth, @thumbnailUrlHeight, @parentCid, @postCid, @previousCid, @communityPublicKey, @communityName, @content, @timestamp, @signature, @originalCommentSignatureEncoded, @title, @depth, @linkHtmlTagName, @flairs, @spoiler, @pendingApproval, @number, @postNumber, @nsfw, @pseudonymityMode, @quotedCids, @extraProps, @challengeCommentUpdate, @protocolVersion, @insertedAt)
         `);
 
         // Create default object with null values for all columns
@@ -2579,7 +2580,9 @@ export class DbHandler {
     }
 
     queryCalculatedCommentUpdate(opts: {
-        comment: Pick<CommentsTableRow, "cid" | "authorSignerAddress" | "timestamp">;
+        comment: Pick<CommentsTableRow, "cid" | "authorSignerAddress" | "timestamp"> & {
+            challengeCommentUpdate?: Record<string, unknown>;
+        };
         authorDomain?: string;
     }): Omit<CommentUpdateType, "signature" | "updatedAt" | "replies" | "protocolVersion"> {
         const { comment, authorDomain } = opts;
@@ -2601,15 +2604,20 @@ export class DbHandler {
         const { number: commentNumber, postNumber } = this._calculateCommentNumbers(comment.cid);
 
         if (!authorCommunity) throw Error("Failed to query author.community in queryCalculatedCommentUpdate");
+        // Seed with challenge-supplied commentUpdate (lowest priority, per-field). Mod queries below
+        // overwrite individual keys (reason, flairs, flags, approved, ...) when the mod has actually
+        // published a moderation that set that key — challenge keys the mod never touched persist.
         return {
+            ...(comment.challengeCommentUpdate ?? {}),
             ...(removedFromApproved ? removedFromApproved : undefined),
             cid: comment.cid,
             ...(commentNumber !== undefined ? { number: commentNumber } : undefined),
             ...(postNumber !== undefined ? { postNumber } : undefined),
             ...commentUpdateCounts,
-            flairs: commentModFlairs?.flairs || authorEdit?.flairs,
+            flairs: commentModFlairs?.flairs || authorEdit?.flairs || (comment.challengeCommentUpdate?.flairs as CommentUpdateType["flairs"]),
             ...commentFlags,
-            reason: moderatorReason?.reason,
+            // moderatorReason wins when present, else fall back to the challenge-supplied reason (if any).
+            reason: moderatorReason?.reason ?? (comment.challengeCommentUpdate?.reason as string | undefined),
             author: { community: authorCommunity },
             ...lastChildAndLastReplyTimestamp,
             ...(authorEdit ? { edit: authorEdit } : undefined),
