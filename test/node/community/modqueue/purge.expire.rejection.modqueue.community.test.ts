@@ -244,7 +244,6 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
                   (ctx.community._dbHandler as LocalCommunity["_dbHandler"]).queryStoredCommentUpdate({ cid: parentCid })
                 : undefined;
             if (parentCid) {
-                // @ts-expect-error - accessing private _updateCommentsThatNeedToBeUpdated
                 await (ctx.community as LocalCommunity)._updateCommentsThatNeedToBeUpdated();
                 // @ts-expect-error - accessing private _dbHandler
                 parentUpdateAfterRefresh = (ctx.community._dbHandler as LocalCommunity["_dbHandler"]).queryStoredCommentUpdate({
@@ -403,7 +402,6 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
             expect(statBefore.size).to.be.greaterThan(0);
 
             backdateAllDisapprovals(ctx, disapprovedPost.cid!, retentionSeconds + 10);
-            // @ts-expect-error - accessing private _purgeDisapprovedCommentsOlderThan
             await (ctx.community as LocalCommunity)._purgeDisapprovedCommentsOlderThan();
         });
 

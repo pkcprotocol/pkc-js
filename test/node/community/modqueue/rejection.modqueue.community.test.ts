@@ -17,7 +17,7 @@ import type { Comment } from "../../../../dist/node/publications/comment/comment
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
 import type { SignerType } from "../../../../dist/node/signer/types.js";
-import type { CommentWithinRepliesPostsPageJson, CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
+import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 import type { CreateCommentModerationOptions } from "../../../../dist/node/publications/comment-moderation/types.js";
 
 const remotePKCConfigs = getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).filter(
@@ -45,7 +45,7 @@ const commentModProps: CreateCommentModerationOptions["commentModeration"][] = [
 interface CapturedChunkItem {
     commentUpdate?: { cid?: string; replies?: { pages?: { best?: { comments?: CapturedChunkItem[] } } } };
     cid?: string;
-    comment?: { cid?: string };
+    comment?: { cid?: string; [k: string]: unknown };
     replies?: { pages?: { best?: { comments?: CapturedChunkItem[] } } };
 }
 
@@ -639,16 +639,11 @@ for (const commentMod of commentModProps) {
     }
 }
 
-async function capturePostsGeneration(
-    community: LocalCommunity,
-    preloadedSortName: string,
-    preloadedPageSizeBytes: number
-): Promise<{ generated: CommentWithinRepliesPostsPageJson | undefined; capturedChunks: CapturedChunkItem[][] }> {
+async function capturePostsGeneration(community: LocalCommunity, preloadedSortName: string, preloadedPageSizeBytes: number) {
     return captureSortChunks({
         community,
         matchParentCid: null,
         matchSortName: preloadedSortName,
-        // @ts-expect-error - accessing private _pageGenerator
         generate: () => community._pageGenerator.generateCommunityPosts(preloadedSortName, preloadedPageSizeBytes)
     });
 }
@@ -665,18 +660,17 @@ async function captureRepliesGeneration({
     parentDepth: number;
     preloadedSortName: string;
     preloadedPageSizeBytes: number;
-}): Promise<{ generated: CommentWithinRepliesPostsPageJson | undefined; capturedChunks: CapturedChunkItem[][] }> {
-    const generator =
-        parentDepth === 0
-            ? // @ts-expect-error - accessing private _pageGenerator
-              () => community._pageGenerator.generatePostPages({ cid: parentCid }, preloadedSortName, preloadedPageSizeBytes)
-            : () =>
-                  // @ts-expect-error - accessing private _pageGenerator
-                  community._pageGenerator.generateReplyPages(
-                      { cid: parentCid, depth: parentDepth },
-                      preloadedSortName,
-                      preloadedPageSizeBytes
-                  );
+}) {
+    const generator = async () => {
+        if (parentDepth === 0) {
+            return community._pageGenerator.generatePostPages({ cid: parentCid }, preloadedSortName, preloadedPageSizeBytes);
+        }
+        return community._pageGenerator.generateReplyPages(
+            { cid: parentCid, depth: parentDepth },
+            preloadedSortName,
+            preloadedPageSizeBytes
+        );
+    };
 
     return captureSortChunks({
         community,
@@ -698,9 +692,7 @@ async function captureSortChunks<T>({
     generate: () => Promise<T>;
 }): Promise<{ generated: T; capturedChunks: CapturedChunkItem[][] }> {
     const capturedChunks: CapturedChunkItem[][] = [];
-    // @ts-expect-error - accessing private _pageGenerator
     const originalSortAndChunk = community._pageGenerator.sortAndChunkComments.bind(community._pageGenerator);
-    // @ts-expect-error - accessing private _pageGenerator
     const sortSpy = vi.spyOn(community._pageGenerator, "sortAndChunkComments").mockImplementation(async (...args) => {
         const result = await originalSortAndChunk(...args);
         const [, sortName, options] = args as [unknown, string, { parentCid?: string | null }?];

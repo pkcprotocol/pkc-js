@@ -15,7 +15,6 @@ import type { Comment } from "../../../../dist/node/publications/comment/comment
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
 import type { SignerType } from "../../../../dist/node/signer/types.js";
-import type { CommentWithinRepliesPostsPageJson } from "../../../../dist/node/publications/comment/types.js";
 import type { PageIpfs } from "../../../../dist/node/pages/types.js";
 
 const depthsToTest = [0, 1, 2, 3, 11, 12, 15];
@@ -265,17 +264,18 @@ for (const batch of depthBatches) {
     });
 }
 
-async function capturePostsGeneration(
-    community: LocalCommunity,
-    preloadedSortName: string,
-    preloadedPageSizeBytes: number
-): Promise<{ generated: CommentWithinRepliesPostsPageJson | undefined; capturedChunks: ChunkItem[][] }> {
+type PageGen = LocalCommunity["_pageGenerator"];
+type PostSortArg = Parameters<PageGen["generateCommunityPosts"]>[0];
+type PostReplySortArg = Parameters<PageGen["generatePostPages"]>[1];
+type ReplyReplySortArg = Parameters<PageGen["generateReplyPages"]>[1];
+type SortAndChunk = PageGen["sortAndChunkComments"];
+
+async function capturePostsGeneration(community: LocalCommunity, preloadedSortName: string, preloadedPageSizeBytes: number) {
     return captureSortChunks({
         community,
         matchParentCid: null,
         matchSortName: preloadedSortName,
-        // @ts-expect-error - accessing private _pageGenerator
-        generate: () => community._pageGenerator.generateCommunityPosts(preloadedSortName, preloadedPageSizeBytes)
+        generate: () => community._pageGenerator.generateCommunityPosts(preloadedSortName as PostSortArg, preloadedPageSizeBytes)
     });
 }
 
@@ -291,18 +291,21 @@ async function captureRepliesGeneration({
     parentDepth: number;
     preloadedSortName: string;
     preloadedPageSizeBytes: number;
-}): Promise<{ generated: CommentWithinRepliesPostsPageJson | undefined; capturedChunks: ChunkItem[][] }> {
-    const generator =
-        parentDepth === 0
-            ? // @ts-expect-error - accessing private _pageGenerator
-              () => community._pageGenerator.generatePostPages({ cid: parentCid }, preloadedSortName, preloadedPageSizeBytes)
-            : () =>
-                  // @ts-expect-error - accessing private _pageGenerator
-                  community._pageGenerator.generateReplyPages(
-                      { cid: parentCid, depth: parentDepth },
-                      preloadedSortName,
-                      preloadedPageSizeBytes
-                  );
+}) {
+    const generator = async () => {
+        if (parentDepth === 0) {
+            return community._pageGenerator.generatePostPages(
+                { cid: parentCid },
+                preloadedSortName as PostReplySortArg,
+                preloadedPageSizeBytes
+            );
+        }
+        return community._pageGenerator.generateReplyPages(
+            { cid: parentCid, depth: parentDepth },
+            preloadedSortName as ReplyReplySortArg,
+            preloadedPageSizeBytes
+        );
+    };
 
     return captureSortChunks({
         community,
@@ -324,11 +327,9 @@ async function captureSortChunks<T>({
     generate: () => Promise<T>;
 }): Promise<{ generated: T; capturedChunks: ChunkItem[][] }> {
     const capturedChunks: ChunkItem[][] = [];
-    // @ts-expect-error - accessing private _pageGenerator
-    const originalSortAndChunk = community._pageGenerator.sortAndChunkComments;
-    // @ts-expect-error - accessing private _pageGenerator
-    community._pageGenerator.sortAndChunkComments = async function (...args: [unknown, string, { parentCid?: string | null }?]) {
-        const result = await originalSortAndChunk.apply(this, args);
+    const originalSortAndChunk: SortAndChunk = community._pageGenerator.sortAndChunkComments.bind(community._pageGenerator);
+    community._pageGenerator.sortAndChunkComments = async function (...args: Parameters<SortAndChunk>) {
+        const result = await originalSortAndChunk(...args);
         const [, sortName, options] = args;
         if (sortName === matchSortName && (options?.parentCid ?? null) === (matchParentCid ?? null)) {
             capturedChunks.push(...result);
@@ -340,7 +341,6 @@ async function captureSortChunks<T>({
         const generated = await generate();
         return { generated, capturedChunks };
     } finally {
-        // @ts-expect-error - accessing private _pageGenerator
         community._pageGenerator.sortAndChunkComments = originalSortAndChunk;
     }
 }
