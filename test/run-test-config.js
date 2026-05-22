@@ -274,15 +274,39 @@ console.log("========================================");
 console.log(`Running tests in ${environment} environment`);
 
 const logPrefix = getLastOption(options, "log-prefix");
-const stdoutLogPath =
+let stdoutLogPath =
     resolveMaybePath(getLastOption(options, "stdout-log")) ?? (logPrefix ? resolveMaybePath(`${logPrefix}.stdout.log`) : undefined);
-const stderrLogPath =
+let stderrLogPath =
     resolveMaybePath(getLastOption(options, "stderr-log")) ?? (logPrefix ? resolveMaybePath(`${logPrefix}.stderr.log`) : undefined);
 
-const perTestLogDir = resolveMaybePath(getLastOption(options, "per-test-logs"));
+let perTestLogDir = resolveMaybePath(getLastOption(options, "per-test-logs"));
+
+// Default log destinations: mirror the test server's auto-logging pattern so
+// a bare `node test/run-test-config.js …` invocation still leaves logs on
+// disk for later inspection.
+if (!stdoutLogPath && !stderrLogPath && !perTestLogDir) {
+    const timestamp = new Date()
+        .toISOString()
+        .replace(/[:.]/g, "-")
+        .replace(/-\d{3}Z$/, "Z");
+    const configLabel = pkcConfigs ? pkcConfigs.replace(/,/g, "-") : "default";
+    const baseName = `test-run-${environment}-${configLabel}-${timestamp}`;
+    stdoutLogPath = resolveMaybePath(`.tmp/${baseName}.stdout.log`);
+    stderrLogPath = resolveMaybePath(`.tmp/${baseName}.stderr.log`);
+    perTestLogDir = resolveMaybePath(`.tmp/${baseName}-per-test`);
+}
+
 if (perTestLogDir) {
     env.PER_TEST_LOG_DIR = perTestLogDir;
 }
+
+const printLogCaptureSummary = () => {
+    if (!stdoutLogPath && !stderrLogPath && !perTestLogDir) return;
+    console.log("\nLog files:");
+    if (stdoutLogPath) console.log(`  stdout:    ${stdoutLogPath}`);
+    if (stderrLogPath) console.log(`  stderr:    ${stderrLogPath}`);
+    if (perTestLogDir) console.log(`  per-test:  ${perTestLogDir}/`);
+};
 
 if (options.has("mocha-spec")) {
     console.warn("The --mocha-spec flag is deprecated. Pass test paths as positional arguments instead.");
@@ -398,10 +422,11 @@ const runNodeTests = () => {
 
     console.log("Vitest CLI:", vitestCli);
     console.log("Vitest arguments:", vitestArgs.join(" "));
-    if (stdoutLogPath || stderrLogPath) {
+    if (stdoutLogPath || stderrLogPath || perTestLogDir) {
         console.log("Log capture:", {
             stdout: stdoutLogPath ?? "console only",
-            stderr: stderrLogPath ?? "console only"
+            stderr: stderrLogPath ?? "console only",
+            perTestLogs: perTestLogDir ?? "disabled"
         });
     }
 
@@ -464,6 +489,7 @@ const runNodeTests = () => {
             }
         }
 
+        printLogCaptureSummary();
         process.exit(code);
     };
 
@@ -562,6 +588,7 @@ const runBrowserTests = () => {
 
     vitestProcess.on("exit", (code) => {
         process.off("exit", terminateBrowserRunner);
+        printLogCaptureSummary();
         process.exit(code);
     });
 };
