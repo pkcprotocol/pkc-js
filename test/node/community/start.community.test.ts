@@ -1,8 +1,9 @@
-import { beforeAll, afterAll, describe, it } from "vitest";
+import { beforeAll, afterAll, describe, it, vi } from "vitest";
 import {
     publishRandomPost,
     mockPKC,
     createSubWithNoChallenge,
+    createMockNameResolver,
     publishWithExpectedResult,
     mockPKCNoDataPathWithOnlyKuboClient,
     resolveWhenConditionIsTrue,
@@ -509,27 +510,54 @@ describe(`Publish loop resiliency`, async () => {
         await community.delete();
     });
 
-    itSkipIfRpc(`Community can still publish an IPNS, even if its community-address text record resolves to null`, async () => {
-        const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
-        await community.edit({ address: `sub-does-not-exist-${uuidV4()}.bso` });
-        // @ts-expect-error shouldResolveDomainForVerification is private but we need to mock it for testing
-        community.shouldResolveDomainForVerification = () => true;
-        await community.start();
-        await new Promise((resolve) => community.once("update", resolve));
-        await community.delete();
+    itSkipIfRpc(`Community can still publish an IPNS, even if nameresolvers resolves to null`, async () => {
+        const customPkc = await mockPKCV2({
+            mockResolve: false,
+            pkcOptions: {
+                nameResolvers: [createMockNameResolver({ resolveFunction: async () => undefined })]
+            }
+        });
+        // Force the probabilistic gate in shouldResolveDomainForVerification (Math.random() < 0.005)
+        // so the publish-time verification path runs deterministically. The gate is private to throttle
+        // resolver calls in production.
+        const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+        try {
+            const community = (await createSubWithNoChallenge({}, customPkc)) as LocalCommunity;
+            community.on("error", () => {}); // expected: resolver returns undefined, verification emits an error
+            await community.edit({ address: `sub-does-not-exist-${uuidV4()}.bso` });
+            await community.start();
+            await new Promise((resolve) => community.once("update", resolve));
+            await community.delete();
+        } finally {
+            randomSpy.mockRestore();
+            await customPkc.destroy();
+        }
     });
     itSkipIfRpc(`Community can still publish an IPNS, even if all domain resolvers throw an error`, async () => {
-        const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
-        // @ts-expect-error _resolveTextRecordSingleChainProvider is private but we need to mock it for testing
-        community._clientsManager._resolveTextRecordSingleChainProvider = async () => {
-            return { error: new Error("test error") };
-        };
-        await community.edit({ address: `sub-does-not-exist-${uuidV4()}.bso` });
-        // @ts-expect-error shouldResolveDomainForVerification is private but we need to mock it for testing
-        community.shouldResolveDomainForVerification = () => true;
-        await community.start();
-        await new Promise((resolve) => community.once("update", resolve));
-        await community.delete();
+        const customPkc = await mockPKCV2({
+            mockResolve: false,
+            pkcOptions: {
+                nameResolvers: [
+                    createMockNameResolver({
+                        resolveFunction: async () => {
+                            throw new Error("test error");
+                        }
+                    })
+                ]
+            }
+        });
+        const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+        try {
+            const community = (await createSubWithNoChallenge({}, customPkc)) as LocalCommunity;
+            community.on("error", () => {}); // expected: resolver throws, verification emits an error
+            await community.edit({ address: `sub-does-not-exist-${uuidV4()}.bso` });
+            await community.start();
+            await new Promise((resolve) => community.once("update", resolve));
+            await community.delete();
+        } finally {
+            randomSpy.mockRestore();
+            await customPkc.destroy();
+        }
     });
 
     it(`A community doesn't resolve domain when verifying new IPNS record before publishing`);

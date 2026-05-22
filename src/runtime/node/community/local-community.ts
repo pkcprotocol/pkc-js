@@ -408,7 +408,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         return addOldPageCidsToCidsToUnpin(this, curPages, newPages, addToBlockRm);
     }
 
-    shouldResolveDomainForVerification() {
+    private shouldResolveDomainForVerification() {
         return shouldResolveDomainForVerification(this);
     }
 
