@@ -22,7 +22,9 @@ import {
     CommunitySuggestedSchema,
     RpcRemoteCommunityUpdateEventResultSchema,
     CommunitySignedPropertyNames,
-    CommunityRoleNames
+    CommunityRoleNames,
+    ExportCommunityUserOptionsSchema,
+    CommunityExportRecordSchema
 } from "./schema.js";
 import { RpcLocalCommunity } from "./rpc-local-community.js";
 import { LocalCommunity } from "../runtime/node/community/local-community.js";
@@ -228,8 +230,13 @@ export interface CommunityEvents {
 
     update: (updatedCommunity: RemoteCommunity) => void;
 
+    exportschange: (records: CommunityExportRecord[]) => void;
+
     removeListener: (eventName: string, listener: Function) => void;
 }
+
+export type ExportCommunityUserOptions = z.infer<typeof ExportCommunityUserOptionsSchema>;
+export type CommunityExportRecord = z.infer<typeof CommunityExportRecordSchema>;
 
 // Create a helper type to extract the parameters of each event
 export type CommunityEventArgs<T extends keyof CommunityEvents> = Parameters<CommunityEvents[T]>;

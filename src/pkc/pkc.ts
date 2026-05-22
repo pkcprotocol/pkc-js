@@ -1136,6 +1136,21 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         this._destroyAbortController?.abort(new PKCError("ERR_PKC_IS_DESTROYED"));
         // Clean up connections
 
+        // Abort in-flight community exports before stopping — leaving them running would race
+        // the dbHandler / RPC teardown and leak .partial files. See EXPORT_COMMUNITY_SPEC.md.
+        const exportDonePromises: Promise<unknown>[] = [];
+        for (const community of listStartedCommunities(this)) {
+            const activeExports = (
+                community as { _activeExports?: Map<string, { controller: AbortController; donePromise: Promise<void> }> }
+            )._activeExports;
+            if (!activeExports) continue;
+            for (const handle of activeExports.values()) {
+                handle.controller.abort();
+                exportDonePromises.push(handle.donePromise.catch((e) => log.error("Error during export teardown", e)));
+            }
+        }
+        if (exportDonePromises.length) await Promise.all(exportDonePromises);
+
         for (const comment of listUpdatingComments(this)) await comment.stop();
 
         for (const community of listUpdatingCommunities(this)) await community.stop();

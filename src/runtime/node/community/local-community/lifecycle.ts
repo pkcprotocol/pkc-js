@@ -124,6 +124,7 @@ export async function start(community: LocalCommunity) {
         await community._dbHandler.initDbIfNeeded();
         await community._dbHandler.createOrMigrateTablesIfNeeded();
         await updateInstanceStateWithDbState(community); // sync in-memory state after potential migration
+        await community._loadExportsFromKeyv();
 
         await setChallengesToDefaultIfNotDefined(community, log);
         // Import community keys onto ipfs node
