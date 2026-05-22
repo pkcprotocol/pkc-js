@@ -1,7 +1,7 @@
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import signers from "../../fixtures/signers.js";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
-import { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import { calculateNewCommentUpdate } from "../../../dist/node/runtime/node/community/local-community/comment-updates.js";
 import { createSigner } from "../../../dist/node/signer/index.js";
 import { of as calculateIpfsCidV0Lib } from "typestub-ipfs-only-hash";
 import type {
@@ -91,12 +91,14 @@ async function createPublishingTestContext({ targetDepth }: { targetDepth: numbe
     const pageGenerator = new MockPageGenerator(childrenByParent, calculatedUpdates);
     const signer = await createSigner();
 
+    const commentUpdateVerificationCache = new Map<string, boolean>();
     const fakeSub = {
         address: SUBPLEBBIT_ADDRESS,
         signer,
         _pageGenerator: pageGenerator,
         _postUpdatesBuckets: [86400, 604800, 2592000, 3153600000],
         _pkc: { validatePages: false },
+        _clientsManager: { _pkc: { _memCaches: { commentUpdateVerificationCache } } },
         _cidsToUnPin: new Set<string>(),
         _mfsPathsToRemove: new Set<string>(),
         _dbHandler: {
@@ -107,19 +109,11 @@ async function createPublishingTestContext({ targetDepth }: { targetDepth: numbe
         }
     };
 
-    // Bind the private method using prototype access
-    type PrivateMethod = (...args: unknown[]) => unknown;
-    const localSubPrototype = LocalCommunity.prototype as never as Record<string, PrivateMethod>;
-    (fakeSub as Record<string, unknown>)._calculateLocalMfsPathForCommentUpdate =
-        localSubPrototype._calculateLocalMfsPathForCommentUpdate.bind(fakeSub);
-    (fakeSub as Record<string, unknown>)._validateCommentUpdateSignature = async () => {};
-    (fakeSub as Record<string, unknown>)._addOldPageCidsToCidsToUnpin = async () => {};
-
     return {
         rowsByDepth,
         expectedUpdates: calculatedUpdates,
         calculateUpdate: (commentRow: CommentsTableRowInsert) =>
-            localSubPrototype._calculateNewCommentUpdate.call(fakeSub, commentRow) as Promise<{
+            calculateNewCommentUpdate(fakeSub as never, commentRow as never) as Promise<{
                 newCommentUpdate: CommentUpdateType & { replies?: { pages?: { best?: { comments: { cid: string }[] } } } };
                 localMfsPath: string | undefined;
             }>,
