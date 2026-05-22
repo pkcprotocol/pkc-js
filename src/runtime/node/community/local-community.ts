@@ -39,13 +39,17 @@ import { sha256 } from "js-sha256";
 import { AllPageCids } from "../../../pages/types.js";
 import { generateDefaultChallenges } from "./local-community/defaults.js";
 import {
+    createNewLocalCommunityDb,
     getDbInternalState,
     initDbHandlerIfNeeded,
     initInternalCommunityAfterFirstUpdateNoMerge,
     initInternalCommunityBeforeFirstUpdateNoMerge,
     initNewLocalCommunityPropsNoMerge,
-    updateDbInternalState
+    updateDbInternalState,
+    updateInstancePropsWithStartedCommunityOrDb
 } from "./local-community/db-state.js";
+
+export { createNewLocalCommunityDb, updateInstancePropsWithStartedCommunityOrDb };
 import { listenToIncomingRequests } from "./local-community/pubsub.js";
 import { repinCommentsIPFSIfNeeded } from "./local-community/cleanup.js";
 import {

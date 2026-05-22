@@ -59,11 +59,11 @@ import LRUStorage from "../runtime/node/lru-storage.js";
 import { RemoteCommunity } from "../community/remote-community.js";
 import { RpcRemoteCommunity } from "../community/rpc-remote-community.js";
 import { RpcLocalCommunity } from "../community/rpc-local-community.js";
-import { LocalCommunity } from "../runtime/node/community/local-community.js";
 import {
+    LocalCommunity,
     createNewLocalCommunityDb,
     updateInstancePropsWithStartedCommunityOrDb
-} from "../runtime/node/community/local-community/db-state.js";
+} from "../runtime/node/community/local-community.js";
 import { extractCommunityRuntimeFieldsFromParsedPages } from "../pages/util.js";
 import pTimeout, { TimeoutError } from "p-timeout";
 import * as remeda from "remeda";
