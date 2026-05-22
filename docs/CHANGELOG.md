@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.36](https://github.com/pkcprotocol/pkc-js/compare/v0.0.35...v0.0.36) (2026-05-22)
+
+### Features
+
+* **test-runner:** auto-log stdout/stderr/per-test to .tmp/ and print paths on exit ([#98](https://github.com/pkcprotocol/pkc-js/issues/98)) ([2d69125](https://github.com/pkcprotocol/pkc-js/commit/2d6912563e3d14bf483092a1a95c5f412348220d))
+
 ## [0.0.35](https://github.com/pkcprotocol/pkc-js/compare/v0.0.34...v0.0.35) (2026-05-20)
 
 ### Bug Fixes
