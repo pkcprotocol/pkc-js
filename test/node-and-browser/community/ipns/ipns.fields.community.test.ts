@@ -7,6 +7,7 @@ import {
 import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import signers from "../../../fixtures/signers.js";
 import { ipnsNameToIpnsOverPubsubTopic, pubsubTopicToDhtKey } from "../../../../dist/node/util.js";
+import { createSigner } from "../../../../dist/node/signer/index.js";
 
 import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 import type { PKCError } from "../../../../dist/node/pkc-error.js";
@@ -17,10 +18,6 @@ const expectedIpnsPubsubTopic = "/record/L2lwbnMvACQIARIgtkPPciAVI7kfzmSHjazd0ek
 const expectedIpnsPubsubTopicRoutingCid = "bafkreiftvi7wgbdhbxnenslhu5sytlid73siolkd2syhdnjhnvn3mksggi";
 const expectedPubsubTopicRoutingCid = "bafkreidwoelrflsx5dgll7s6jfkhsj6ffkfplde2j5dyino6t7m4ijutem";
 
-function setMockResolverRecords(pkc: PKCType, records: Map<string, string | undefined>) {
-    pkc.nameResolvers = [createMockNameResolver({ includeDefaultRecords: true, records })];
-}
-
 // Test for domain address that resolves to b58 IPNS but fails to load IPNS record
 // The ipnsPubsubTopic and ipnsPubsubTopicRoutingCid should still be set
 getAvailablePKCConfigsToTestAgainst().map((config) => {
@@ -28,14 +25,23 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         `community.{ipnsName, ipnsPubsubTopic, ipnsPubsubTopicRoutingCid} with domain that fails IPNS loading - ${config.name}`,
         async () => {
             it(`Domain resolves to b58 IPNS but IPNS record doesn't exist - should still set ipnsPubsubTopic and ipnsPubsubTopicRoutingCid`, async () => {
-                const pkc = await config.pkcInstancePromise({ stubStorage: false });
                 const testDomain = "test-domain-no-ipns-record.eth";
-                const nonExistantIpnsAddress = (await pkc.createSigner()).address; // a random b58 address that's not loadable
+                const nonExistantIpnsAddress = (await createSigner()).address; // a random b58 address that's not loadable
                 const expectedIpnsPubsubTopicForNonExistent = ipnsNameToIpnsOverPubsubTopic(nonExistantIpnsAddress);
                 const expectedIpnsPubsubTopicRoutingCidForNonExistent = pubsubTopicToDhtKey(expectedIpnsPubsubTopicForNonExistent);
+                const pkc = await config.pkcInstancePromise({
+                    stubStorage: false,
+                    mockResolve: false,
+                    pkcOptions: {
+                        nameResolvers: [
+                            createMockNameResolver({
+                                includeDefaultRecords: true,
+                                records: new Map([[testDomain, nonExistantIpnsAddress]])
+                            })
+                        ]
+                    }
+                });
                 pkc._timeouts["community-ipns"] = 1000;
-
-                setMockResolverRecords(pkc, new Map([[testDomain, nonExistantIpnsAddress]]));
 
                 const errors: PKCError[] = [];
 
@@ -86,14 +92,23 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describeSkipIfRpc(`community.ipns accessors persist after first resolve - ${config.name}`, async () => {
         it(`keeps ipns accessors defined after stop`, async () => {
-            const pkc = await config.pkcInstancePromise({ stubStorage: false });
             const testDomain = `test-domain-ipns-accessors-${config.testConfigCode}.eth`;
-            const nonExistantIpnsAddress = (await pkc.createSigner()).address; // a random b58 address that's not loadable
+            const nonExistantIpnsAddress = (await createSigner()).address; // a random b58 address that's not loadable
             const expectedIpnsPubsubTopicForNonExistent = ipnsNameToIpnsOverPubsubTopic(nonExistantIpnsAddress);
             const expectedIpnsPubsubTopicRoutingCidForNonExistent = pubsubTopicToDhtKey(expectedIpnsPubsubTopicForNonExistent);
+            const pkc = await config.pkcInstancePromise({
+                stubStorage: false,
+                mockResolve: false,
+                pkcOptions: {
+                    nameResolvers: [
+                        createMockNameResolver({
+                            includeDefaultRecords: true,
+                            records: new Map([[testDomain, nonExistantIpnsAddress]])
+                        })
+                    ]
+                }
+            });
             pkc._timeouts["community-ipns"] = 1000;
-
-            setMockResolverRecords(pkc, new Map([[testDomain, nonExistantIpnsAddress]]));
 
             const community = await pkc.createCommunity({ address: testDomain });
             const errors: PKCError[] = [];
@@ -126,14 +141,23 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describeSkipIfRpc(`community.ipns accessors mirror updating community - ${config.name}`, async () => {
         it(`mirrors ipns accessors when update fails before record is loaded`, async () => {
-            const pkc = await config.pkcInstancePromise({ stubStorage: false });
             const testDomain = `test-domain-ipns-mirror-${config.testConfigCode}.eth`;
-            const nonExistantIpnsAddress = (await pkc.createSigner()).address; // a random b58 address that's not loadable
+            const nonExistantIpnsAddress = (await createSigner()).address; // a random b58 address that's not loadable
             const expectedIpnsPubsubTopicForNonExistent = ipnsNameToIpnsOverPubsubTopic(nonExistantIpnsAddress);
             const expectedIpnsPubsubTopicRoutingCidForNonExistent = pubsubTopicToDhtKey(expectedIpnsPubsubTopicForNonExistent);
+            const pkc = await config.pkcInstancePromise({
+                stubStorage: false,
+                mockResolve: false,
+                pkcOptions: {
+                    nameResolvers: [
+                        createMockNameResolver({
+                            includeDefaultRecords: true,
+                            records: new Map([[testDomain, nonExistantIpnsAddress]])
+                        })
+                    ]
+                }
+            });
             pkc._timeouts["community-ipns"] = 1000;
-
-            setMockResolverRecords(pkc, new Map([[testDomain, nonExistantIpnsAddress]]));
 
             const communityA = await pkc.createCommunity({ address: testDomain });
             const errorsA: PKCError[] = [];

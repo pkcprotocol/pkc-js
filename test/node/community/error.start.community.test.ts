@@ -31,7 +31,6 @@ describeSkipIfRpc(`Local community emits errors properly in the publish loop`, a
         community.on("error", (err: PKCError | Error) => {
             errors.push(err as PKCError);
         });
-        // @ts-expect-error _listenToIncomingRequests is private but we need to mock it for testing
         community._listenToIncomingRequests = async () => {
             throw Error("Failed to load community from db");
         };

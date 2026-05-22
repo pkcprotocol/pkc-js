@@ -10,6 +10,11 @@ import type { CommentUpdatesRow, CommentsTableRow } from "../../../dist/node/pub
 import type { AddResult } from "kubo-rpc-client";
 import { CID } from "kubo-rpc-client";
 import { TrackedInstanceRegistry } from "../../../dist/node/pkc/tracked-instance-registry.js";
+import {
+    addAllCidsUnderPurgedCommentToBeRemoved,
+    rmUnneededMfsPaths,
+    unpinStaleCids
+} from "../../../dist/node/runtime/node/community/local-community/cleanup.js";
 
 vi.mock("../../../dist/node/runtime/node/util.js", () => ({
     nativeFunctions: { fetch: vi.fn() },
@@ -216,13 +221,16 @@ describe("local community garbage collection", () => {
         const purgeCid = VALID_CID_A;
         const replyPageCids = ["QmRepliesPage1111111111111111111111111111111111111", "QmRepliesPage2222222222222222222222222222222222222"];
 
-        await community._addAllCidsUnderPurgedCommentToBeRemoved({
-            commentTableRow: { cid: purgeCid },
-            commentUpdateTableRow: {
-                postUpdatesBucket: 86400,
-                replies: { best: { allPageCids: replyPageCids } }
-            }
-        });
+        await addAllCidsUnderPurgedCommentToBeRemoved(
+            community as unknown as LocalCommunity,
+            {
+                commentTableRow: { cid: purgeCid },
+                commentUpdateTableRow: {
+                    postUpdatesBucket: 86400,
+                    replies: { best: { allPageCids: replyPageCids } }
+                }
+            } as unknown as PurgedCommentTableRows
+        );
 
         expect(Array.from(community._cidsToUnPin)).to.include.members([purgeCid, ...replyPageCids]);
         expect(community._blocksToRm).to.include.members([purgeCid, ...replyPageCids]);
@@ -241,7 +249,7 @@ describe("local community garbage collection", () => {
             }
         });
 
-        await community._unpinStaleCids();
+        await unpinStaleCids(community as unknown as LocalCommunity);
 
         expect(kuboClient._client.pin.rm.mock.calls.length).to.equal(2);
         expect(community._cidsToUnPin.size).to.equal(0);
@@ -253,7 +261,7 @@ describe("local community garbage collection", () => {
         community._mfsPathsToRemove = new Set(toDelete);
 
         const removeSpy = vi.spyOn(util, "removeMfsFilesSafely").mockResolvedValue() as MockInstance<typeof util.removeMfsFilesSafely>;
-        const removed = await community._rmUnneededMfsPaths();
+        const removed = await rmUnneededMfsPaths(community as unknown as LocalCommunity);
 
         expect(removeSpy.mock.calls[0][0].paths).to.deep.equal(toDelete);
         expect(removed).to.have.members(toDelete);
@@ -263,7 +271,7 @@ describe("local community garbage collection", () => {
         removeSpy.mockRejectedValueOnce(missingError);
         community._mfsPathsToRemove = new Set(toDelete);
 
-        const missingResult = await community._rmUnneededMfsPaths();
+        const missingResult = await rmUnneededMfsPaths(community as unknown as LocalCommunity);
 
         expect(missingResult).to.have.members(toDelete);
         expect(removeSpy.mock.calls.length).to.equal(2);

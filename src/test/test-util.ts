@@ -1935,7 +1935,6 @@ export function mockRpcServerForTests(pkcWs: any) {
 export function disablePreloadPagesOnSub({ community }: { community: LocalCommunity }) {
     if (!(community instanceof LocalCommunity)) throw Error("You need to provide LocalCommunity instance");
 
-    //@ts-expect-error
     const pageGenerator = community._pageGenerator;
 
     const originalCommunityPostsFunc = pageGenerator.generateCommunityPosts.bind(pageGenerator);

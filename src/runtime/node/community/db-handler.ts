@@ -24,6 +24,9 @@ import type {
     CommunityStats
 } from "../../../community/types.js";
 import { LocalCommunity } from "./local-community.js";
+import { isDefaultChallengeStructure } from "./local-community/defaults.js";
+import { addAllCidsUnderPurgedCommentToBeRemoved } from "./local-community/cleanup.js";
+import { updateDbInternalState } from "./local-community/db-state.js";
 import { getPKCAddressFromPublicKey, getPKCAddressFromPublicKeySync } from "../../../signer/util.js";
 import * as remeda from "remeda";
 import type {
@@ -535,7 +538,7 @@ export class DbHandler {
                     "_usingDefaultChallenge" in internalState
                         ? internalState._usingDefaultChallenge
                         : //@ts-expect-error - fallback for old DB records that predate _usingDefaultChallenge field
-                          LocalCommunity._isDefaultChallengeStructure(internalState?.settings?.challenges);
+                          isDefaultChallengeStructure(internalState?.settings?.challenges);
                 const updateCid: string =
                     "updateCid" in internalState && typeof internalState.updateCid === "string"
                         ? internalState.updateCid
@@ -554,7 +557,7 @@ export class DbHandler {
                           )
                       )
                     : newSettings.challenges;
-                await this._community._updateDbInternalState({
+                await updateDbInternalState(this._community, {
                     posts: undefined,
                     challenges: newChallenges,
                     settings: newSettings,
@@ -869,7 +872,7 @@ export class DbHandler {
                     .all() as { cid: string }[];
                 for (const { cid } of duplicateCids) {
                     const purgedRows = this.purgeComment(cid);
-                    for (const row of purgedRows) await this._community._addAllCidsUnderPurgedCommentToBeRemoved(row);
+                    for (const row of purgedRows) await addAllCidsUnderPurgedCommentToBeRemoved(this._community, row);
                 }
                 log(`Purged ${duplicateCids.length} duplicate comment row(s) based on signature.signature with higher rowid values.`);
                 continue;

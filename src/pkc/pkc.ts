@@ -59,7 +59,11 @@ import LRUStorage from "../runtime/node/lru-storage.js";
 import { RemoteCommunity } from "../community/remote-community.js";
 import { RpcRemoteCommunity } from "../community/rpc-remote-community.js";
 import { RpcLocalCommunity } from "../community/rpc-local-community.js";
-import { LocalCommunity } from "../runtime/node/community/local-community.js";
+import {
+    LocalCommunity,
+    createNewLocalCommunityDb,
+    updateInstancePropsWithStartedCommunityOrDb
+} from "../runtime/node/community/local-community.js";
 import { extractCommunityRuntimeFieldsFromParsedPages } from "../pages/util.js";
 import pTimeout, { TimeoutError } from "p-timeout";
 import * as remeda from "remeda";
@@ -746,7 +750,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         if (isLocalCommunity) {
             // If the community is already created before, then load it with address only. We don't care about other props
             community.setAddress(options.address);
-            await community._updateInstancePropsWithStartedCommunityOrDb();
+            await updateInstancePropsWithStartedCommunityOrDb(community);
             log.trace(`Created instance of existing local community (${community.address}) with props:`);
             community.emit("update", community);
             return community;
@@ -754,7 +758,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             // This is a new community
             const parsedOptions = <CreateNewLocalCommunityParsedOptions>options;
             await community.initNewLocalCommunityPropsNoMerge(parsedOptions); // We're initializing a new local community props here
-            await community._createNewLocalCommunityDb();
+            await createNewLocalCommunityDb(community);
             log.trace(`Created a new local community (${community.address}) with props:`);
             community.emit("update", community);
             await this._awaitCommunitiesToIncludeCommunity(community.address);

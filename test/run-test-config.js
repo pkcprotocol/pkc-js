@@ -492,9 +492,8 @@ const runNodeTests = () => {
         console.error("Failed to start Vitest:", error);
         finalize(1);
     });
-    runnerProcess.once("exit", (code, signal) => {
-        settle(code, signal, "exit");
-    });
+    // Listen on "close" (stdio drained), not "exit" (child terminated) — on
+    // Ctrl-C the last burst of vitest output would otherwise be dropped.
     runnerProcess.once("close", (code, signal) => settle(code, signal, "close"));
 };
 

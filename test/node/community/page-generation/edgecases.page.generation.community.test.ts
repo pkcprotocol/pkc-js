@@ -10,6 +10,7 @@ import { calculateStringSizeSameAsIpfsAddCidV0, timestamp } from "../../../../di
 import env from "../../../../dist/node/version.js";
 import { sha256 } from "js-sha256";
 import { PKCError } from "../../../../dist/node/pkc-error.js";
+import { updateCommentsThatNeedToBeUpdated } from "../../../../dist/node/runtime/node/community/local-community/comment-updates.js";
 
 import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
@@ -78,9 +79,7 @@ const DEFAULT_PRIMARY_CHAIN_DEPTH = 20;
 // TODO we need to test loading pageCids and make sure they're all 1mib or under
 // TODO need to make this test faster
 
-// Helper to access private _pageGenerator property
 function getPageGenerator(community: LocalCommunity) {
-    // @ts-expect-error - accessing private property for testing
     return community._pageGenerator as import("../../../../dist/node/runtime/node/community/page-generator.js").PageGenerator;
 }
 
@@ -162,8 +161,7 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
             const { labelToCid, labels, rows } = await seedHeavyDiscussion(context.community, {
                 primaryChainDepth: 110
             });
-            // @ts-expect-error - accessing private method for testing
-            const updates: CommentUpdateResult[] = await context.community._updateCommentsThatNeedToBeUpdated();
+            const updates: CommentUpdateResult[] = await updateCommentsThatNeedToBeUpdated(context.community);
             expect(updates.length).to.equal(111); // if args to seedHeavyDiscussion changes you need to update this value
             await expectCommentUpdatesUnderLimit(updates);
 
@@ -232,8 +230,7 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
                 )
             };
             const { labelToCid, labels, rows } = await seedHeavyDiscussion(context.community, oversizedPostsConfig);
-            // @ts-expect-error - accessing private method for testing
-            const updates: CommentUpdateResult[] = await context.community._updateCommentsThatNeedToBeUpdated();
+            const updates: CommentUpdateResult[] = await updateCommentsThatNeedToBeUpdated(context.community);
             expect(updates.length).to.equal(381);
             await expectCommentUpdatesUnderLimit(updates);
 
@@ -298,8 +295,7 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
         try {
             const { rows } = await seedHeavyDiscussion(context.community, { primaryChainDepth: 60 });
             expect(rows.length, "expected at least one seeded post").to.be.greaterThan(0);
-            // @ts-expect-error - accessing private method for testing
-            await context.community._updateCommentsThatNeedToBeUpdated();
+            await updateCommentsThatNeedToBeUpdated(context.community);
 
             const tinyBudgetBytes = 512; // force preloaded chunk over budget
             const pageGenerator = getPageGenerator(context.community);
@@ -325,8 +321,7 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
                 primaryChainDepth: 95,
                 extraPrimaryPosts: 3 // 6 posts in total with primaryChainDepth reply chain
             });
-            // @ts-expect-error - accessing private method for testing
-            const updates: CommentUpdateResult[] = await context.community._updateCommentsThatNeedToBeUpdated();
+            const updates: CommentUpdateResult[] = await updateCommentsThatNeedToBeUpdated(context.community);
             expect(updates.length).to.equal(384); // if you change args above you need to change expectation
             await expectCommentUpdatesUnderLimit(updates);
 
@@ -368,8 +363,7 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
             const { rows } = await seedHeavyDiscussion(context.community, {
                 primaryChainDepth: 150
             });
-            // @ts-expect-error - accessing private method for testing
-            const updates: CommentUpdateResult[] = await context.community._updateCommentsThatNeedToBeUpdated();
+            const updates: CommentUpdateResult[] = await updateCommentsThatNeedToBeUpdated(context.community);
             expect(updates.length).to.equal(151);
             await expectCommentUpdatesUnderLimit(updates);
 
@@ -529,7 +523,6 @@ async function calculateAvailablePostsSizeForCommunity(community: LocalCommunity
     const updatedAt = timestamp();
 
     const baseCommunity = cleanUpBeforePublishing({
-        // @ts-expect-error - accessing private method for testing
         ...remeda.omit(community._toJSONIpfsBaseNoPosts(), ["signature"]),
         lastPostCid: latestPost?.cid,
         lastCommentCid: latestComment?.cid,

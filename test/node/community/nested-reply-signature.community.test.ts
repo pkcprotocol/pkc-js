@@ -11,6 +11,7 @@ import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { CommentsTableRowInsert, CommentUpdateType } from "../../../dist/node/publications/comment/types.js";
 import type { PageOptions } from "../../../dist/node/runtime/node/community/page-generator.js";
+import { updateCommentsThatNeedToBeUpdated } from "../../../dist/node/runtime/node/community/local-community/comment-updates.js";
 
 type TestCommentRow = { [K in keyof CommentsTableRowInsert]: CommentsTableRowInsert[K] | null };
 
@@ -179,9 +180,9 @@ describeSkipIfRpc("resolveRepliesCidRefsForEntries preserves commentCids order a
             ] as CommentsTableRowInsert[]);
 
             // Sign all commentUpdates — establishes the "correct" CID-ref order
-            const updates: { newCommentUpdate: CommentUpdateType & { cid: string } }[] =
-                // @ts-expect-error - accessing private method for testing
-                await context.community._updateCommentsThatNeedToBeUpdated();
+            const updates: { newCommentUpdate: CommentUpdateType & { cid: string } }[] = await updateCommentsThatNeedToBeUpdated(
+                context.community
+            );
 
             const postUpdate = updates.find((u) => u.newCommentUpdate.cid === post.cid);
             expect(postUpdate, "post should be signed").to.exist;
@@ -310,9 +311,9 @@ describeSkipIfRpc("resolveRepliesCidRefsForEntries preserves commentCids order a
             ] as CommentsTableRowInsert[]);
 
             // Sign to establish CID-ref order
-            const updates: { newCommentUpdate: CommentUpdateType & { cid: string } }[] =
-                // @ts-expect-error - accessing private method for testing
-                await context.community._updateCommentsThatNeedToBeUpdated();
+            const updates: { newCommentUpdate: CommentUpdateType & { cid: string } }[] = await updateCommentsThatNeedToBeUpdated(
+                context.community
+            );
 
             const postUpdate = updates.find((u) => u.newCommentUpdate.cid === post.cid);
             expect(postUpdate).to.exist;

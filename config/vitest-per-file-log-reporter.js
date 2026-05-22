@@ -1,4 +1,4 @@
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, appendFileSync } from "node:fs";
 import { join, dirname, relative, basename } from "node:path";
 
 export default class PerFileLogReporter {
@@ -6,6 +6,28 @@ export default class PerFileLogReporter {
         this.logDir = process.env.PER_TEST_LOG_DIR;
         this.logsByTaskId = new Map(); // taskId -> { stdout: [], stderr: [] }
         this.ctx = undefined;
+        this.installInterruptHandlers();
+    }
+
+    installInterruptHandlers() {
+        if (!this.logDir) return;
+        if (PerFileLogReporter._handlersInstalled) return;
+        PerFileLogReporter._handlersInstalled = true;
+
+        const flush = () => {
+            try {
+                this.flushPendingSync();
+            } catch {
+                // Swallow — best effort during interrupt
+            }
+        };
+        // prependListener: vitest installs its own SIGINT handler that may
+        // call process.exit synchronously; ours must run first so buffered
+        // per-test logs reach disk before the process is torn down.
+        process.prependListener("SIGINT", flush);
+        process.prependListener("SIGTERM", flush);
+        process.prependListener("SIGHUP", flush);
+        process.on("beforeExit", flush);
     }
 
     onInit(ctx) {
@@ -32,8 +54,6 @@ export default class PerFileLogReporter {
         if (!this.logDir) return;
 
         const moduleId = testModule.moduleId;
-
-        // Resolve which taskIds belong to this module
         const stdout = [];
         const stderr = [];
         for (const [taskId, entry] of this.logsByTaskId) {
@@ -47,6 +67,38 @@ export default class PerFileLogReporter {
             this.logsByTaskId.delete(taskId);
         }
 
+        this.writeModuleLogs(moduleId, stdout, stderr, /* append */ false);
+    }
+
+    onTestRunEnd() {
+        this.flushPendingSync();
+    }
+
+    flushPendingSync() {
+        if (!this.logDir || !this.ctx) return;
+        if (this.logsByTaskId.size === 0) return;
+
+        const byModule = new Map();
+        for (const [taskId, entry] of this.logsByTaskId) {
+            const entity = this.ctx.state.getReportedEntityById(taskId);
+            if (!entity) continue;
+            const mod = entity.type === "module" ? entity : entity.module;
+            if (!mod) continue;
+            if (!byModule.has(mod.moduleId)) {
+                byModule.set(mod.moduleId, { stdout: [], stderr: [] });
+            }
+            const agg = byModule.get(mod.moduleId);
+            agg.stdout.push(...entry.stdout);
+            agg.stderr.push(...entry.stderr);
+        }
+
+        for (const [moduleId, agg] of byModule) {
+            this.writeModuleLogs(moduleId, agg.stdout, agg.stderr, /* append */ true);
+        }
+        this.logsByTaskId.clear();
+    }
+
+    writeModuleLogs(moduleId, stdout, stderr, append) {
         if (stdout.length === 0 && stderr.length === 0) return;
 
         // Preserve directory structure from test/ onward
@@ -60,11 +112,12 @@ export default class PerFileLogReporter {
         const stderrPath = join(this.logDir, `${stem}.stderr.log`);
         mkdirSync(dirname(stdoutPath), { recursive: true });
 
+        const write = append ? appendFileSync : writeFileSync;
         if (stdout.length > 0) {
-            writeFileSync(stdoutPath, stdout.join("\n"));
+            write(stdoutPath, stdout.join("\n"));
         }
         if (stderr.length > 0) {
-            writeFileSync(stderrPath, stderr.join("\n"));
+            write(stderrPath, stderr.join("\n"));
         }
     }
 }

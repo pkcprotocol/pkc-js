@@ -278,7 +278,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         }
     }
 
-    protected _updateIpnsPubsubPropsIfNeeded(newProps: CommunityJson | CreateRemoteCommunityOptions | CommunityIpfsType) {
+    _updateIpnsPubsubPropsIfNeeded(newProps: CommunityJson | CreateRemoteCommunityOptions | CommunityIpfsType) {
         if ("ipnsName" in newProps && newProps.ipnsName) {
             this.ipnsName = newProps.ipnsName;
             this.ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(this.ipnsName);
@@ -417,7 +417,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         this._assertHasIdentity();
     }
 
-    protected _toJSONIpfsBaseNoPosts() {
+    _toJSONIpfsBaseNoPosts() {
         const communityIpfsKeys = remeda.keys.strict(remeda.omit(CommunityIpfsSchema.shape, ["posts", "modQueue"]));
         return remeda.pick(this, communityIpfsKeys);
     }
@@ -523,7 +523,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         this.startedState = newState;
     }
 
-    protected _setStartedStateWithEmission(newState: CommunityStartedState) {
+    _setStartedStateWithEmission(newState: CommunityStartedState) {
         if (newState === this.startedState) return;
         this.startedState = newState;
         this.emit("startedstatechange", this.startedState);
