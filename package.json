@@ -4,11 +4,12 @@
     "type": "module",
     "scripts": {
         "prebuild": "node config/generate-version.js",
-        "build": "npm run clean && run-s build:node build:browser",
+        "build": "npm run clean && run-s build:node build:browser verify:browser-imports",
         "build:node": "tsc --project config/tsconfig.json",
         "build:node:watch": "tsc --project config/tsconfig.json --watch",
         "build:browser": "node config/build-browser",
         "build:browser:watch": "node config/build-browser --watch",
+        "verify:browser-imports": "node config/verify-browser-imports.js",
         "build:watch": "npm-run-all build:node --parallel build:node:watch build:browser:watch",
         "test": "run-s test:node test:browser:chrome test:browser:firefox",
         "test:node": "node test/run-test-config.js --environment node --per-test-logs .tmp/per-test-logs-node test src/rpc/test",
