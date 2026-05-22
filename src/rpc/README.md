@@ -105,34 +105,35 @@ new Subscription(subscriptionId).on('message', console.log)
 
 # JSON-RPC Websocket API
 
-- `method: getComment, params: [{cid: string}], result: CommentIpfs`
-- `method: getCommentRepliesPage, params: [{cid: string, commentCid: string}]`
-- `method: getCommunityPostsPage, params: [{cid: string, communityAddress: string}]`
-- `method: getCommunityModqueuePage, params: [{cid: string, communityAddress: string}]`
-- `method: createCommunity, params: [createCommunityOptions: CreateCommunityOptions]`
-- `method: stopCommunity, params: [{address: string}]`
-- `method: editCommunity, params: [address: string, communityEditOptions: CommunityEditOptions]`
-- `method: deleteCommunity, params: [{address: string}]`
-- `method: fetchCid, params: [{cid: string}]`
-- `method: setSettings, params: [pkcRpcSettings: PKCRpcSettings]`
-- (below not implemented yet, probably make them subscriptions only)
-- `method: getDefaults, params: []`
-- `method: getPeers, params: []`
-- `method: getStats, params: []`
+The server registers the following methods. Param shapes are defined in `src/clients/rpc-client/schema.ts`; all params are passed as the single element of a one-element array, e.g. `webSocketClient.call('getComment', [{cid}])`.
+
+- `method: getComment, params: [{cid: string, communityPublicKey?: string, communityName?: string}], result: CommentIpfs`
+- `method: getCommunityPage, params: [{cid: string, communityName?: string, communityPublicKey?: string, type: "posts" | "modqueue", pageMaxSize: number}], result: {page, runtimeFields?}`
+- `method: getCommentPage, params: [{cid: string, commentCid: string, communityName?: string, communityPublicKey?: string, pageMaxSize: number}], result: {page, runtimeFields?}`
+- `method: createCommunity, params: [createCommunityOptions: CreateNewLocalCommunityUserOptions], result: RpcInternalCommunityRecordBeforeFirstUpdate`
+- `method: editCommunity, params: [{name?: string, publicKey?: string, editOptions: CommunityEditOptions}], result: RpcLocalCommunityUpdateResult`
+- `method: deleteCommunity, params: [{name?: string, publicKey?: string}], result: {success: true}`
+- `method: fetchCid, params: [{cid: string}], result: {content: string}`
+- `method: resolveAuthorName, params: [{name: string, cache?: NameResolveCacheOptions}], result: {resolvedAuthorName: string | null}`
+- `method: setSettings, params: [{pkcOptions: PKCOptions}], result: {success: true}`
 
 # JSON-RPC Pubsub Websocket API
 
-- [`method: commentUpdateSubscribe, params: [{cid: string}]`](#commentupdatesubscribe)
-- [`method: communityUpdateSubscribe, params: [{address: string}]`](#communityupdatesubscribe)
-- [`method: publishComment, params: [{comment, challengeAnswers, challengeCommentCids}]`](#publishcomment)
-- `method: publishVote, params: [{vote, challengeAnswers, challengeCommentCids}]`
-- `method: publishCommentEdit, params: [{commentEdit, challengeAnswers, challengeCommentCids}]`
-- `method: publishCommentModeration, params: [{commentModeration, challengeAnswers, challengeCommentCids}]`
-- `method: publishChallengeAnswers, params: [subscriptionId: number, {challengeAnswers}]`
-- `method: startCommunity, params: [{address: string}]`
+Each subscribe/publish method returns `{subscriptionId: number}` and streams JSON-RPC notifications until `unsubscribe` is called.
+
+- [`method: startCommunity, params: [{name?: string, publicKey?: string}]`](#startcommunity)
+- `method: stopCommunity, params: [{name?: string, publicKey?: string}], result: {success: true}`
+- [`method: commentUpdateSubscribe, params: [{cid: string, communityPublicKey?: string, communityName?: string}]`](#commentupdatesubscribe)
+- [`method: communityUpdateSubscribe, params: [{name?: string, publicKey?: string}]`](#communityupdatesubscribe)
+- [`method: publishComment, params: [CommentChallengeRequestToEncrypt]`](#publishcomment)
+- `method: publishVote, params: [VoteChallengeRequestToEncrypt]`
+- `method: publishCommentEdit, params: [CommentEditChallengeRequestToEncrypt]`
+- `method: publishCommentModeration, params: [CommentModerationChallengeRequestToEncrypt]`
+- `method: publishCommunityEdit, params: [CommunityEditChallengeRequestToEncrypt]`
+- `method: publishChallengeAnswers, params: [{subscriptionId: number, challengeAnswers: string[]}], result: {success: true}`
 - [`method: communitiesSubscribe, params: []`](#communitiessubscribe)
 - [`method: settingsSubscribe, params: []`](#settingssubscribe)
-- [`method: unsubscribe, params: [subscriptionId: number]`](#unsubscribe)
+- [`method: unsubscribe, params: [{subscriptionId: number}]`](#unsubscribe)
 
 ## commentUpdateSubscribe
 
