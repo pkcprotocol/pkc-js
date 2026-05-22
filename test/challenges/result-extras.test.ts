@@ -104,6 +104,38 @@ describe("ChallengeResult extras: aggregation across successful challenges", () 
         expect(verification.challengeErrors).to.deep.equal({ 0: "denied" });
         expect(verification.aggregatedReason).to.equal("kyc missing");
     });
+
+    it("pending-approval challenge can attach a `commentUpdate.reason` explaining why", async () => {
+        // Mirrors the driving use case: a challenge marked pendingApproval: true succeeds, comment
+        // gets queued for mod approval, and the challenge attaches a rationale (e.g. low-confidence
+        // spam score) that the mod can see on the pending commentUpdate.
+        (mockPkc.settings ??= {}).challenges = {
+            "low-confidence": makeExtrasChallenge({
+                success: true,
+                commentUpdate: { reason: "comment got sent to pending approval cause low spam-score confidence" }
+            })
+        };
+        const community = {
+            settings: { challenges: [{ name: "low-confidence", pendingApproval: true }] },
+            _pkc: mockPkc
+        } as unknown as LocalCommunity;
+
+        const verification = (await getChallengeVerification({
+            challengeRequestMessage,
+            community,
+            getChallengeAnswers: (async () => []) as GetChallengeAnswers
+        })) as {
+            challengeSuccess: boolean;
+            pendingApproval?: boolean;
+            aggregatedCommentUpdate?: Record<string, unknown>;
+        };
+
+        expect(verification.challengeSuccess).to.equal(true);
+        expect(verification.pendingApproval).to.equal(true);
+        expect(verification.aggregatedCommentUpdate).to.deep.equal({
+            reason: "comment got sent to pending approval cause low spam-score confidence"
+        });
+    });
 });
 
 describe("ChallengeResult extras: override-guard", () => {
