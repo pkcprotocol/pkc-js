@@ -226,6 +226,39 @@ describe(`community.export() — error paths`, async () => {
     });
 });
 
+describe(`pkc.createCommunity loads community.exports from the DB`, async () => {
+    itSkipIfRpc("a fresh LocalCommunity instance for the same address sees prior exports", async () => {
+        const pkc = await mockPKC({});
+        const first = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
+        await first.start();
+        await resolveWhenConditionIsTrue({ toUpdate: first, predicate: async () => typeof first.updatedAt === "number" });
+        await publishRandomPost({ communityAddress: first.address, pkc });
+
+        const { exportId } = await first.export();
+        const completed = await waitForCompleteRecord(first, exportId);
+        expect(completed.progress).to.equal(1);
+
+        // Sibling instance in the same PKC mirrors from the started instance
+        const sibling = (await pkc.createCommunity({ address: first.address })) as LocalCommunity;
+        expect(sibling.exports.find((r) => r.exportId === exportId)?.progress).to.equal(1);
+
+        // Tear down so a brand-new PKC pointing at the same dataPath has to load from DB
+        await first.stop();
+
+        const pkc2 = await mockPKC({ dataPath: pkc.dataPath });
+        try {
+            const reloaded = (await pkc2.createCommunity({ address: first.address })) as LocalCommunity;
+            const rec = reloaded.exports.find((r) => r.exportId === exportId);
+            expect(rec?.progress).to.equal(1);
+            expect(rec?.url).to.equal(completed.url);
+            expect(rec?.sha256).to.equal(completed.sha256);
+        } finally {
+            await pkc2.destroy();
+            await pkc.destroy();
+        }
+    });
+});
+
 describe(`pkc.destroy() cancels in-flight exports`, async () => {
     itSkipIfRpc("aborts active exports and resolves cleanly", async () => {
         const pkc = await mockPKC({});

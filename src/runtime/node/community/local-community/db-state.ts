@@ -148,6 +148,10 @@ export async function updateInstancePropsWithStartedCommunityOrDb(community: Loc
             await community.initInternalCommunityAfterFirstUpdateNoMerge(startedCommunity.toJSONInternalAfterFirstUpdate());
         else await community.initInternalCommunityBeforeFirstUpdateNoMerge(startedCommunity.toJSONInternalBeforeFirstUpdate());
         community.started = true;
+        // Snapshot the started instance's exports list so the new instance's community.exports
+        // matches at create-time. Subsequent updates on the started instance won't propagate
+        // to this one until the caller re-runs update()/start() — same lifetime as internal state.
+        community._exports = [...startedCommunity._exports];
     } else {
         await community.initDbHandlerIfNeeded();
         try {
@@ -167,6 +171,7 @@ export async function updateInstancePropsWithStartedCommunityOrDb(community: Loc
             if (!community.signer)
                 throw new PKCError("ERR_LOCAL_COMMUNITY_HAS_NO_SIGNER_IN_INTERNAL_STATE", { address: community.address });
 
+            await community._loadExportsFromKeyv(); // Load community.exports from DB
             await community._updateStartedValue();
             log("Loaded local community", community.address, "from db");
         } catch (e) {
