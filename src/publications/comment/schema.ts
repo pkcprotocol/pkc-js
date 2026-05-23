@@ -158,6 +158,8 @@ export const CommentUpdateSignedPropertyNames = remeda.keys.strict(remeda.omit(C
 // field on a ChallengeResult; any other key (including new unknown ones invented by external
 // challenges) is allowed and shallow-merged with lowest priority. `satisfies` ties each entry to a
 // real CommentUpdate key so renaming a field on CommentUpdateSchema surfaces a stale entry at compile time.
+// NOTE: `author` is allowed here but validated separately by validateChallengeResultExtras — only
+// `author.community.<newKey>` is permitted (no top-level author keys, no schema-defined keys under community).
 export const CommentUpdateChallengeReservedFieldNames = [
     "signature",
     "cid",
@@ -172,8 +174,7 @@ export const CommentUpdateChallengeReservedFieldNames = [
     "lastReplyTimestamp",
     "replies",
     "edit",
-    "protocolVersion",
-    "author"
+    "protocolVersion"
 ] as const satisfies readonly (keyof z.infer<typeof CommentUpdateSchema>)[];
 
 export const CommentUpdateForDisapprovedPendingComment = CommentUpdateSchema.pick({

@@ -164,4 +164,87 @@ describeSkipIfRpc("queryCalculatedCommentUpdate seeded with challengeCommentUpda
         expect(calculated.reason).to.equal(undefined);
         expect(calculated.countryCode).to.equal(undefined);
     });
+
+    it("merges challenge-supplied author.community.<newKey> underneath computed authorCommunity", () => {
+        // Challenge can extend author.community with novel keys (e.g. countryCode). Schema-defined
+        // keys (postScore, replyScore, flairs, ...) are blocked by validateChallengeResultExtras
+        // upstream, so the merge here only needs to carry through extras.
+        const challengeCommentUpdate = { author: { community: { countryCode: "FR" } } };
+        const comment = insertPost(challengeCommentUpdate);
+        const calculated = calculate(comment) as CalculatedCommentUpdate & {
+            author: { community: { countryCode?: string; postScore?: number; replyScore?: number } };
+        };
+        expect(calculated.author.community.countryCode).to.equal("FR");
+        // Computed authorCommunity fields still present (and would win if challenge tried to set them).
+        expect(typeof calculated.author.community.postScore).to.equal("number");
+        expect(typeof calculated.author.community.replyScore).to.equal("number");
+    });
+
+    it("author.community.<newKey> is per-comment (each comment carries its own challengeCommentUpdate)", () => {
+        // Same author, two posts, two different challenge runs producing different countryCode values.
+        // Each post's calculated update reflects only its own challengeCommentUpdate row.
+        const commentA = insertPost({ author: { community: { countryCode: "FR" } } });
+        const commentB = insertPost({ author: { community: { countryCode: "US" } } });
+
+        const calcA = calculate(commentA) as CalculatedCommentUpdate & {
+            author: { community: { countryCode?: string } };
+        };
+        const calcB = calculate(commentB) as CalculatedCommentUpdate & {
+            author: { community: { countryCode?: string } };
+        };
+        expect(calcA.author.community.countryCode).to.equal("FR");
+        expect(calcB.author.community.countryCode).to.equal("US");
+    });
+
+    it("challenge-supplied author.community.flairs persists when no mod publishes author.flairs", () => {
+        const challengeFlairs = [{ text: "🇫🇷 FR" }];
+        const comment = insertPost({ author: { community: { flairs: challengeFlairs } } });
+        const calculated = calculate(comment) as CalculatedCommentUpdate & {
+            author: { community: { flairs?: { text: string }[] } };
+        };
+        expect(calculated.author.community.flairs).to.deep.equal(challengeFlairs);
+    });
+
+    it("mod-published commentModeration.author.flairs overrides challenge's author.community.flairs", () => {
+        const challengeFlairs = [{ text: "🇫🇷 FR" }];
+        const comment = insertPost({ author: { community: { flairs: challengeFlairs, countryCode: "FR" } } });
+
+        const modFlairs = [{ text: "VERIFIED" }];
+        assert(dbHandler);
+        dbHandler.insertCommentModerations([
+            {
+                commentCid: comment.cid,
+                author: { address: `12D3KooModAuthor${comment.cid}` },
+                signature: "sig",
+                modSignerAddress: `12D3KooMod${comment.cid}`,
+                protocolVersion: PROTOCOL_VERSION,
+                communityPublicKey: communityAddress,
+                timestamp: now(),
+                commentModeration: { author: { flairs: modFlairs } },
+                targetAuthorSignerAddress: comment.authorSignerAddress,
+                insertedAt: now()
+            } as unknown as CommentModerationsTableRowInsert
+        ]);
+
+        const calculated = calculate(comment) as CalculatedCommentUpdate & {
+            author: { community: { flairs?: { text: string }[]; countryCode?: string } };
+        };
+        // Mod-published author flairs win
+        expect(calculated.author.community.flairs).to.deep.equal(modFlairs);
+        // Untouched challenge field under the same author.community object persists
+        expect(calculated.author.community.countryCode).to.equal("FR");
+    });
+
+    it("mod publishing a different field (spoiler) leaves challenge's author.community.flairs intact", () => {
+        const challengeFlairs = [{ text: "🇫🇷 FR" }];
+        const comment = insertPost({ author: { community: { flairs: challengeFlairs } } });
+
+        insertModeration(comment.cid, { spoiler: true });
+
+        const calculated = calculate(comment) as CalculatedCommentUpdate & {
+            author: { community: { flairs?: { text: string }[] } };
+        };
+        expect(calculated.spoiler).to.equal(true);
+        expect(calculated.author.community.flairs).to.deep.equal(challengeFlairs);
+    });
 });

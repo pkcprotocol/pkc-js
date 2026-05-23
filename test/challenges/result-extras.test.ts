@@ -200,4 +200,134 @@ describe("ChallengeResult extras: override-guard", () => {
         expect(verification.challengeSuccess).to.equal(true);
         expect(verification.aggregatedComment).to.deep.equal({ countryCode: "FR" });
     });
+
+    it("allows an arbitrary new key under `commentUpdate.author.community` (e.g. countryCode)", async () => {
+        (mockPkc.settings ??= {}).challenges = {
+            "author-country": makeExtrasChallenge({
+                success: true,
+                commentUpdate: { author: { community: { countryCode: "FR" } } }
+            })
+        };
+        const community = {
+            settings: { challenges: [{ name: "author-country" }] },
+            _pkc: mockPkc
+        } as unknown as LocalCommunity;
+
+        const verification = (await getChallengeVerification({
+            challengeRequestMessage,
+            community,
+            getChallengeAnswers: (async () => []) as GetChallengeAnswers
+        })) as { challengeSuccess: boolean; aggregatedCommentUpdate?: Record<string, unknown> };
+
+        expect(verification.challengeSuccess).to.equal(true);
+        expect(verification.aggregatedCommentUpdate).to.deep.equal({ author: { community: { countryCode: "FR" } } });
+    });
+
+    it("rejects a non-`community` key under `commentUpdate.author` (e.g. author.address)", async () => {
+        (mockPkc.settings ??= {}).challenges = {
+            "bad-author": makeExtrasChallenge({
+                success: true,
+                commentUpdate: { author: { address: "spoofed" } }
+            })
+        };
+        const community = {
+            settings: { challenges: [{ name: "bad-author" }] },
+            _pkc: mockPkc
+        } as unknown as LocalCommunity;
+
+        let caught: Error | undefined;
+        try {
+            await getChallengeVerification({
+                challengeRequestMessage,
+                community,
+                getChallengeAnswers: (async () => []) as GetChallengeAnswers
+            });
+        } catch (e) {
+            caught = e as Error;
+        }
+        expect(caught).to.not.equal(undefined);
+        expect((caught as { code?: string })?.code).to.equal("ERR_CHALLENGE_RESULT_OVERRIDES_NON_COMMUNITY_AUTHOR_KEY");
+    });
+
+    it("allows challenge-seeded `commentUpdate.author.community.flairs` (mod-overridable lowest priority)", async () => {
+        // flairs is intentionally allowed: challenges seed with lowest priority; mods override via
+        // commentModeration.author.flairs. The override semantics are exercised in the DB test file
+        // (challengeCommentUpdate.db.community.test.ts); here we just assert the validator passes.
+        (mockPkc.settings ??= {}).challenges = {
+            "country-flair": makeExtrasChallenge({
+                success: true,
+                commentUpdate: { author: { community: { flairs: [{ text: "🇫🇷 FR" }] } } }
+            })
+        };
+        const community = {
+            settings: { challenges: [{ name: "country-flair" }] },
+            _pkc: mockPkc
+        } as unknown as LocalCommunity;
+
+        const verification = (await getChallengeVerification({
+            challengeRequestMessage,
+            community,
+            getChallengeAnswers: (async () => []) as GetChallengeAnswers
+        })) as { challengeSuccess: boolean; aggregatedCommentUpdate?: Record<string, unknown> };
+
+        expect(verification.challengeSuccess).to.equal(true);
+        expect(verification.aggregatedCommentUpdate).to.deep.equal({
+            author: { community: { flairs: [{ text: "🇫🇷 FR" }] } }
+        });
+    });
+
+    it("rejects a mod-settable-but-reserved key under `commentUpdate.author.community` (e.g. banExpiresAt)", async () => {
+        // banExpiresAt remains reserved: mods own bans via commentModeration.author.banExpiresAt.
+        // Unlike flairs (which is a soft "badge"), allowing challenges to ban authors would let any
+        // challenge effectively gate-keep without mod consent.
+        (mockPkc.settings ??= {}).challenges = {
+            "bad-ban": makeExtrasChallenge({
+                success: true,
+                commentUpdate: { author: { community: { banExpiresAt: 9999999999 } } }
+            })
+        };
+        const community = {
+            settings: { challenges: [{ name: "bad-ban" }] },
+            _pkc: mockPkc
+        } as unknown as LocalCommunity;
+
+        let caught: Error | undefined;
+        try {
+            await getChallengeVerification({
+                challengeRequestMessage,
+                community,
+                getChallengeAnswers: (async () => []) as GetChallengeAnswers
+            });
+        } catch (e) {
+            caught = e as Error;
+        }
+        expect(caught).to.not.equal(undefined);
+        expect((caught as { code?: string })?.code).to.equal("ERR_CHALLENGE_RESULT_OVERRIDES_RESERVED_COMMUNITY_AUTHOR_FIELD");
+    });
+
+    it("rejects a community-computed key under `commentUpdate.author.community` (e.g. postScore)", async () => {
+        (mockPkc.settings ??= {}).challenges = {
+            "bad-score": makeExtrasChallenge({
+                success: true,
+                commentUpdate: { author: { community: { postScore: 999 } } }
+            })
+        };
+        const community = {
+            settings: { challenges: [{ name: "bad-score" }] },
+            _pkc: mockPkc
+        } as unknown as LocalCommunity;
+
+        let caught: Error | undefined;
+        try {
+            await getChallengeVerification({
+                challengeRequestMessage,
+                community,
+                getChallengeAnswers: (async () => []) as GetChallengeAnswers
+            });
+        } catch (e) {
+            caught = e as Error;
+        }
+        expect(caught).to.not.equal(undefined);
+        expect((caught as { code?: string })?.code).to.equal("ERR_CHALLENGE_RESULT_OVERRIDES_RESERVED_COMMUNITY_AUTHOR_FIELD");
+    });
 });

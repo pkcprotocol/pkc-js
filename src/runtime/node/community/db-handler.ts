@@ -2607,6 +2607,13 @@ export class DbHandler {
         // Seed with challenge-supplied commentUpdate (lowest priority, per-field). Mod queries below
         // overwrite individual keys (reason, flairs, flags, approved, ...) when the mod has actually
         // published a moderation that set that key — challenge keys the mod never touched persist.
+        // Same logic applies one level deeper for author.community: challenge-supplied
+        // commentUpdate.author.community.<newKey> (e.g. countryCode) seeds underneath the computed
+        // authorCommunity, so community-computed keys (postScore, replyScore, ...) and mod-settable
+        // keys (flairs, banExpiresAt) always win. The validator forbids challenges from setting any
+        // schema-defined key on author.community, so the spread here only carries novel extras.
+        const challengeAuthorCommunity = (comment.challengeCommentUpdate?.author as { community?: Record<string, unknown> } | undefined)
+            ?.community;
         return {
             ...(comment.challengeCommentUpdate ?? {}),
             ...(removedFromApproved ? removedFromApproved : undefined),
@@ -2618,7 +2625,7 @@ export class DbHandler {
             ...commentFlags,
             // moderatorReason wins when present, else fall back to the challenge-supplied reason (if any).
             reason: moderatorReason?.reason ?? (comment.challengeCommentUpdate?.reason as string | undefined),
-            author: { community: authorCommunity },
+            author: { community: { ...(challengeAuthorCommunity ?? {}), ...authorCommunity } },
             ...lastChildAndLastReplyTimestamp,
             ...(authorEdit ? { edit: authorEdit } : undefined),
             ...(isThisCommentApproved ? { approved: isThisCommentApproved.approved } : undefined)
