@@ -45,9 +45,9 @@ export type ChallengeResultAggregate = {
     aggregatedReason?: string;
 };
 
-// Mutates `agg` in place — merges challenge-supplied `comment`/`commentUpdate`/`reason` extras
-// from one successful result. Throws via the guard if the result tries to override a protocol-
-// owned field. Called for both immediate (Phase 5) and post-verify successes.
+// Mutates `agg` in place — merges challenge-supplied `comment`/`commentUpdate` extras from one
+// successful result, or the `reason` from a failure. Throws via the guard if the result tries to
+// override a protocol-owned field. Called for both immediate (Phase 5) and post-verify results.
 const accumulateChallengeResultExtras = ({
     challengeResult,
     challengeIndex,
@@ -62,7 +62,6 @@ const accumulateChallengeResultExtras = ({
         if (challengeResult.reason) agg.aggregatedReason = challengeResult.reason;
         return;
     }
-    if (challengeResult.reason) agg.aggregatedReason = challengeResult.reason;
     if (challengeResult.comment) {
         agg.aggregatedComment = { ...(agg.aggregatedComment ?? {}), ...challengeResult.comment };
     }
@@ -71,7 +70,10 @@ const accumulateChallengeResultExtras = ({
     }
 };
 
-type ChallengeVerificationSuccess = { challengeSuccess: true; pendingApprovalSuccess: boolean } & ChallengeResultAggregate;
+type ChallengeVerificationSuccess = { challengeSuccess: true; pendingApprovalSuccess: boolean } & Omit<
+    ChallengeResultAggregate,
+    "aggregatedReason"
+>;
 type ChallengeVerificationPending = {
     pendingChallenges: PendingChallenge[];
     pendingApprovalSuccess: boolean;
@@ -548,7 +550,13 @@ const getPendingChallengesOrChallengeVerification = async ({
         challengeSuccess = true;
     }
 
-    if (challengeSuccess === true) return { challengeSuccess, pendingApprovalSuccess, ...agg };
+    if (challengeSuccess === true)
+        return {
+            challengeSuccess,
+            pendingApprovalSuccess,
+            aggregatedComment: agg.aggregatedComment,
+            aggregatedCommentUpdate: agg.aggregatedCommentUpdate
+        };
     if (challengeSuccess === false) return { challengeSuccess, challengeErrors, aggregatedReason: agg.aggregatedReason };
     return {
         pendingChallenges,
@@ -748,7 +756,8 @@ const getChallengeVerificationFromChallengeAnswers = async ({
     return {
         challengeSuccess: true,
         pendingApprovalSuccess,
-        ...agg
+        aggregatedComment: agg.aggregatedComment,
+        aggregatedCommentUpdate: agg.aggregatedCommentUpdate
     };
 };
 
@@ -807,7 +816,7 @@ const getChallengeVerification = async ({
         if ("aggregatedComment" in res && res.aggregatedComment) challengeVerification.aggregatedComment = res.aggregatedComment;
         if ("aggregatedCommentUpdate" in res && res.aggregatedCommentUpdate)
             challengeVerification.aggregatedCommentUpdate = res.aggregatedCommentUpdate;
-        if (res.aggregatedReason) challengeVerification.aggregatedReason = res.aggregatedReason;
+        if ("aggregatedReason" in res && res.aggregatedReason) challengeVerification.aggregatedReason = res.aggregatedReason;
     }
 
     // store the publication result and author address in mem cache for rateLimit exclude challenge settings

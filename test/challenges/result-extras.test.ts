@@ -65,27 +65,7 @@ describe("ChallengeResult extras: aggregation across successful challenges", () 
         expect(verification.aggregatedCommentUpdate).to.deep.equal({ reason: "second", flairs: [{ text: "alpha" }] });
     });
 
-    it("carries `reason` from the last successful challenge", async () => {
-        (mockPkc.settings ??= {}).challenges = {
-            "r-a": makeExtrasChallenge({ success: true, reason: "low-confidence" }),
-            "r-b": makeExtrasChallenge({ success: true, reason: "high-confidence" })
-        };
-        const community = {
-            settings: { challenges: [{ name: "r-a" }, { name: "r-b" }] },
-            _pkc: mockPkc
-        } as unknown as LocalCommunity;
-
-        const verification = (await getChallengeVerification({
-            challengeRequestMessage,
-            community,
-            getChallengeAnswers: (async () => []) as GetChallengeAnswers
-        })) as { challengeSuccess: boolean; aggregatedReason?: string };
-
-        expect(verification.challengeSuccess).to.equal(true);
-        expect(verification.aggregatedReason).to.equal("high-confidence");
-    });
-
-    it("propagates `aggregatedReason` on failure too", async () => {
+    it("propagates `aggregatedReason` on failure", async () => {
         (mockPkc.settings ??= {}).challenges = {
             "f-1": makeExtrasChallenge({ success: false, error: "denied", reason: "kyc missing" })
         };

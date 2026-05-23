@@ -323,9 +323,7 @@ export async function publishChallengeVerification(
             userAgent: community._pkc.userAgent,
             protocolVersion: env.PROTOCOL_VERSION,
             timestamp: timestamp(),
-            ...(failureReason
-                ? { reason: failureReason, challengeSuccess: false }
-                : { challengeSuccess: true, reason: challengeResult.reason })
+            ...(failureReason ? { reason: failureReason, challengeSuccess: false } : { challengeSuccess: true, reason: undefined })
         });
         const challengeVerification = <ChallengeVerificationMessageType>{
             ...toSignMsg,
@@ -611,7 +609,7 @@ async function runVerificationAndStorePublication(
         aggregatedCommentUpdate: challengeVerification.aggregatedCommentUpdate,
         aggregatedReason: challengeVerification.aggregatedReason
     };
-    // Surface the challenge-supplied aggregatedReason as the published verification.reason on success.
+    // Surface the challenge-supplied aggregatedReason as the published verification.reason on failure.
     const challengeResultForPublish: Pick<ChallengeVerificationMessageType, "challengeErrors" | "challengeSuccess" | "reason"> = {
         challengeSuccess: challengeVerification.challengeSuccess,
         challengeErrors: challengeVerification.challengeErrors,

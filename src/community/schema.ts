@@ -95,7 +95,6 @@ export const ChallengeOptionInputSchema = z.looseObject({
 export const ChallengeResultSchema = z
     .object({
         success: z.literal(true),
-        reason: z.string().optional(),
         comment: z.looseObject({}).optional(),
         commentUpdate: z.looseObject({}).optional()
     })
