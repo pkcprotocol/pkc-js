@@ -240,14 +240,21 @@ export async function signCommentUpdateForChallengeVerification({
     update,
     signer
 }: {
-    update: Omit<DecryptedChallengeVerification["commentUpdate"], "signature">;
+    update: Omit<DecryptedChallengeVerification["commentUpdate"], "signature"> & Record<string, unknown>;
     signer: SignerType;
 }): Promise<CommentUpdateForChallengeVerificationSignature> {
     const log = Logger("pkc-js:signatures:signCommentUpdateForChallengeVerification");
-    // Not sure, should we validate update.authorEdit here?
-    return <CommentUpdateForChallengeVerificationSignature>(
-        await _signJson(CommentUpdateForChallengeVerificationSignedPropertyNames, update, signer, log)
+    // Dynamic signedPropertyNames so challenge-supplied keys (e.g. `reason`, `countryCode`) land in
+    // the signature alongside the base picked fields. Verification on the author side reads keys
+    // from signature.signedPropertyNames, so extras are signed-and-verified.
+    const extraKeys = Object.keys(update).filter(
+        (k) => !(CommentUpdateForChallengeVerificationSignedPropertyNames as readonly string[]).includes(k) && k !== "signature"
     );
+    const signedPropertyNames = [
+        ...CommentUpdateForChallengeVerificationSignedPropertyNames,
+        ...extraKeys
+    ] as JsonSignature["signedPropertyNames"];
+    return <CommentUpdateForChallengeVerificationSignature>await _signJson(signedPropertyNames, update, signer, log);
 }
 
 export async function signVote({ vote, pkc }: { vote: VoteOptionsToSign; pkc: PKC }): Promise<VoteSignature> {

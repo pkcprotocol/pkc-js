@@ -31,6 +31,7 @@ import * as remeda from "remeda";
 import { ChallengeFileFactorySchema, ChallengeFileSchema, CommunityChallengeSettingSchema } from "../../../../community/schema.js";
 import { PKCError } from "../../../../pkc-error.js";
 import { pathToFileURL } from "node:url";
+import { validateChallengeResultExtras } from "./validate-challenge-result.js";
 
 type PendingChallenge = Challenge & { index: number };
 
@@ -38,7 +39,41 @@ type DeferredChallenge = { index: number; communityChallenge: CommunityChallenge
 
 export type GetChallengeAnswers = (challenges: Omit<Challenge, "verify">[]) => Promise<DecryptedChallengeAnswer["challengeAnswers"]>;
 
-type ChallengeVerificationSuccess = { challengeSuccess: true; pendingApprovalSuccess: boolean };
+export type ChallengeResultAggregate = {
+    aggregatedComment?: Record<string, unknown>;
+    aggregatedCommentUpdate?: Record<string, unknown>;
+    aggregatedReason?: string;
+};
+
+// Mutates `agg` in place — merges challenge-supplied `comment`/`commentUpdate` extras from one
+// successful result, or the `reason` from a failure. Throws via the guard if the result tries to
+// override a protocol-owned field. Called for both immediate (Phase 5) and post-verify results.
+const accumulateChallengeResultExtras = ({
+    challengeResult,
+    challengeIndex,
+    agg
+}: {
+    challengeResult: ChallengeResult;
+    challengeIndex: number;
+    agg: ChallengeResultAggregate;
+}): void => {
+    validateChallengeResultExtras({ challengeResult, challengeIndex });
+    if (!("success" in challengeResult) || challengeResult.success !== true) {
+        if (challengeResult.reason) agg.aggregatedReason = challengeResult.reason;
+        return;
+    }
+    if (challengeResult.comment) {
+        agg.aggregatedComment = { ...(agg.aggregatedComment ?? {}), ...challengeResult.comment };
+    }
+    if (challengeResult.commentUpdate) {
+        agg.aggregatedCommentUpdate = { ...(agg.aggregatedCommentUpdate ?? {}), ...challengeResult.commentUpdate };
+    }
+};
+
+type ChallengeVerificationSuccess = { challengeSuccess: true; pendingApprovalSuccess: boolean } & Omit<
+    ChallengeResultAggregate,
+    "aggregatedReason"
+>;
 type ChallengeVerificationPending = {
     pendingChallenges: PendingChallenge[];
     pendingApprovalSuccess: boolean;
@@ -49,7 +84,7 @@ type ChallengeVerificationPending = {
 type ChallengeVerificationFailure = {
     challengeSuccess: false;
     challengeErrors: NonNullable<ChallengeVerificationMessageType["challengeErrors"]>;
-};
+} & Pick<ChallengeResultAggregate, "aggregatedReason">;
 
 // Use structural typing for the pkc param to avoid circular import issues
 type PKCWithSettingsChallenges = {
@@ -487,6 +522,7 @@ const getPendingChallengesOrChallengeVerification = async ({
     let pendingChallenges: PendingChallenge[] = [];
     const challengeErrors: NonNullable<ChallengeVerificationMessageType["challengeErrors"]> = {};
     let pendingApprovalSuccess = false;
+    const agg: ChallengeResultAggregate = {};
     for (let i = 0; i < challengeCount; i++) {
         const r = results[i];
         if (r === undefined) continue; // excluded earlier (phase 1 or phase 2)
@@ -494,8 +530,10 @@ const getPendingChallengesOrChallengeVerification = async ({
         if ("success" in r && r.success === false) {
             challengeFailureCount++;
             challengeErrors[i] = r.error;
+            accumulateChallengeResultExtras({ challengeResult: r, challengeIndex: i, agg });
         } else if ("success" in r && r.success === true) {
             if (communityChallenges[i].pendingApproval) pendingApprovalSuccess = true;
+            accumulateChallengeResultExtras({ challengeResult: r, challengeIndex: i, agg });
         } else {
             pendingChallenges.push({ ...r, index: i });
         }
@@ -512,8 +550,11 @@ const getPendingChallengesOrChallengeVerification = async ({
         challengeSuccess = true;
     }
 
-    if (challengeSuccess === true) return { challengeSuccess, pendingApprovalSuccess };
-    if (challengeSuccess === false) return { challengeSuccess, challengeErrors };
+    if (challengeSuccess === true) {
+        const { aggregatedReason: _unusedOnSuccess, ...successAgg } = agg;
+        return { challengeSuccess, pendingApprovalSuccess, ...successAgg };
+    }
+    if (challengeSuccess === false) return { challengeSuccess, challengeErrors, aggregatedReason: agg.aggregatedReason };
     return {
         pendingChallenges,
         pendingApprovalSuccess,
@@ -685,6 +726,7 @@ const getChallengeVerificationFromChallengeAnswers = async ({
     let challengeFailureCount = 0;
     const challengeErrors: NonNullable<ChallengeVerificationMessageType["challengeErrors"]> = {};
     let pendingApprovalSuccess = false;
+    const agg: ChallengeResultAggregate = {};
     for (let i = 0; i < challengeCount; i++) {
         const r = results[i];
         if (r === undefined) continue;
@@ -692,9 +734,11 @@ const getChallengeVerificationFromChallengeAnswers = async ({
             if (shouldExcludeChallengeSuccess(loadedCommunityChallenges[i], i, results as (Challenge | ChallengeResult)[])) continue;
             challengeFailureCount++;
             challengeErrors[i] = r.error;
+            accumulateChallengeResultExtras({ challengeResult: r, challengeIndex: i, agg });
         } else if ("success" in r && r.success === true) {
             if (shouldExcludeChallengeSuccess(loadedCommunityChallenges[i], i, results as (Challenge | ChallengeResult)[])) continue;
             if (loadedCommunityChallenges[i].pendingApproval) pendingApprovalSuccess = true;
+            accumulateChallengeResultExtras({ challengeResult: r, challengeIndex: i, agg });
         }
         // Any pending shape left at this point would be unexpected; ignore.
     }
@@ -702,14 +746,21 @@ const getChallengeVerificationFromChallengeAnswers = async ({
     if (challengeFailureCount > 0) {
         return {
             challengeSuccess: false,
-            challengeErrors
+            challengeErrors,
+            aggregatedReason: agg.aggregatedReason
         };
     }
+    const { aggregatedReason: _unusedOnSuccess, ...successAgg } = agg;
     return {
         challengeSuccess: true,
-        pendingApprovalSuccess
+        pendingApprovalSuccess,
+        ...successAgg
     };
 };
+
+export type GetChallengeVerificationResult = Pick<ChallengeVerificationMessageType, "challengeErrors" | "challengeSuccess"> & {
+    pendingApproval?: boolean;
+} & ChallengeResultAggregate;
 
 const getChallengeVerification = async ({
     challengeRequestMessage,
@@ -719,7 +770,7 @@ const getChallengeVerification = async ({
     challengeRequestMessage: DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
     community: LocalCommunity;
     getChallengeAnswers: GetChallengeAnswers;
-}): Promise<Pick<ChallengeVerificationMessageType, "challengeErrors" | "challengeSuccess"> & { pendingApproval?: boolean }> => {
+}): Promise<GetChallengeVerificationResult> => {
     if (!challengeRequestMessage) {
         throw Error(`getChallengeVerification invalid challengeRequestMessage argument '${challengeRequestMessage}'`);
     }
@@ -734,7 +785,7 @@ const getChallengeVerification = async ({
     const res = await getPendingChallengesOrChallengeVerification({ challengeRequestMessage, community });
     let pendingApprovalSuccess = "pendingApprovalSuccess" in res ? res.pendingApprovalSuccess : false;
 
-    let challengeVerification: Pick<ChallengeVerificationMessageType, "challengeSuccess" | "challengeErrors">;
+    let challengeVerification: Pick<ChallengeVerificationMessageType, "challengeSuccess" | "challengeErrors"> & ChallengeResultAggregate;
     // was able to verify without asking author for challenges
     if ("pendingChallenges" in res) {
         const challengeAnswers = await getChallengeAnswers(
@@ -759,6 +810,10 @@ const getChallengeVerification = async ({
     } else {
         challengeVerification = { challengeSuccess: res.challengeSuccess };
         if ("challengeErrors" in res) challengeVerification.challengeErrors = res.challengeErrors;
+        if ("aggregatedComment" in res && res.aggregatedComment) challengeVerification.aggregatedComment = res.aggregatedComment;
+        if ("aggregatedCommentUpdate" in res && res.aggregatedCommentUpdate)
+            challengeVerification.aggregatedCommentUpdate = res.aggregatedCommentUpdate;
+        if ("aggregatedReason" in res && res.aggregatedReason) challengeVerification.aggregatedReason = res.aggregatedReason;
     }
 
     // store the publication result and author address in mem cache for rateLimit exclude challenge settings

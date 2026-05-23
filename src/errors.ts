@@ -364,5 +364,9 @@ export enum messages {
     ERR_RPC_CLIENT_TRYING_TO_DELETE_REMOTE_COMMUNITY = "RPC client is attempting to delete remote community",
     ERR_GENERIC_RPC_CLIENT_CALL_ERROR = "RPC client received an unknown error when executing call over websocket",
     ERR_RPC_CLIENT_CHALLENGE_NAME_NOT_AVAILABLE_ON_SERVER = "The challenge name is not available on the RPC server. Available challenges are listed in details.availableChallenges",
-    ERR_ROLE_ADDRESS_NAME_COULD_NOT_BE_RESOLVED = "Role address name could not be resolved"
+    ERR_ROLE_ADDRESS_NAME_COULD_NOT_BE_RESOLVED = "Role address name could not be resolved",
+    ERR_CHALLENGE_RESULT_OVERRIDES_COMMENT_SIGNED_FIELD = "A challenge result attempted to set comment.<field> that is in CommentSignedPropertyNames (would invalidate the author's signature on CommentIpfs)",
+    ERR_CHALLENGE_RESULT_OVERRIDES_RESERVED_COMMENT_UPDATE_FIELD = "A challenge result attempted to set commentUpdate.<field> that is in CommentUpdateChallengeReservedFieldNames (community-computed field)",
+    ERR_CHALLENGE_RESULT_OVERRIDES_NON_COMMUNITY_AUTHOR_KEY = "A challenge result attempted to set commentUpdate.author.<field> with a key other than 'community' — challenges may only extend commentUpdate.author.community",
+    ERR_CHALLENGE_RESULT_OVERRIDES_RESERVED_COMMUNITY_AUTHOR_FIELD = "A challenge result attempted to set commentUpdate.author.community.<field> that is in CommunityAuthorChallengeReservedFieldNames (community-computed or mod-settable field)"
 }
