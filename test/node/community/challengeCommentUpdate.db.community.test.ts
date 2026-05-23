@@ -39,11 +39,14 @@ describeSkipIfRpc("queryCalculatedCommentUpdate seeded with challengeCommentUpda
         return handler;
     }
 
-    const insertPost = (challengeCommentUpdate?: Record<string, unknown>): { cid: string; authorSignerAddress: string; timestamp: number } => {
+    const insertPost = (
+        challengeCommentUpdate?: Record<string, unknown>,
+        authorSignerAddressOverride?: string
+    ): { cid: string; authorSignerAddress: string; timestamp: number } => {
         assert(dbHandler);
         const cid = nextCid();
         const timestamp = now();
-        const authorSignerAddress = `12D3KooAuthor${cid}`;
+        const authorSignerAddress = authorSignerAddressOverride ?? `12D3KooAuthor${cid}`;
         const assignedNumbers = dbHandler.getNextCommentNumbers(0);
         const row: CommentsTableRowInsert = {
             cid,
@@ -183,8 +186,9 @@ describeSkipIfRpc("queryCalculatedCommentUpdate seeded with challengeCommentUpda
     it("author.community.<newKey> is per-comment (each comment carries its own challengeCommentUpdate)", () => {
         // Same author, two posts, two different challenge runs producing different countryCode values.
         // Each post's calculated update reflects only its own challengeCommentUpdate row.
-        const commentA = insertPost({ author: { community: { countryCode: "FR" } } });
-        const commentB = insertPost({ author: { community: { countryCode: "US" } } });
+        const sharedAuthor = "12D3KooAuthorShared";
+        const commentA = insertPost({ author: { community: { countryCode: "FR" } } }, sharedAuthor);
+        const commentB = insertPost({ author: { community: { countryCode: "US" } } }, sharedAuthor);
 
         const calcA = calculate(commentA) as CalculatedCommentUpdate & {
             author: { community: { countryCode?: string } };

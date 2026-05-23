@@ -159,7 +159,10 @@ export const CommentUpdateSignedPropertyNames = remeda.keys.strict(remeda.omit(C
 // challenges) is allowed and shallow-merged with lowest priority. `satisfies` ties each entry to a
 // real CommentUpdate key so renaming a field on CommentUpdateSchema surfaces a stale entry at compile time.
 // NOTE: `author` is allowed here but validated separately by validateChallengeResultExtras — only
-// `author.community.<newKey>` is permitted (no top-level author keys, no schema-defined keys under community).
+// `author.community.<key>` is permitted. Non-`community` author keys are rejected, and schema-defined
+// `author.community` keys are rejected EXCEPT the ones intentionally left out of
+// CommunityAuthorChallengeReservedFieldNames (currently `flairs`, which a challenge may seed as
+// lowest priority and a mod's commentModeration.author.flairs overrides).
 export const CommentUpdateChallengeReservedFieldNames = [
     "signature",
     "cid",
