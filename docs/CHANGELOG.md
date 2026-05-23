@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.37](https://github.com/pkcprotocol/pkc-js/compare/v0.0.36...v0.0.37) (2026-05-23)
+
+### Features
+
+* **challenges:** {success, error, reason, comment?, commentUpdate?} result shape ([#88](https://github.com/pkcprotocol/pkc-js/issues/88)) ([#99](https://github.com/pkcprotocol/pkc-js/issues/99)) ([d1032be](https://github.com/pkcprotocol/pkc-js/commit/d1032befdceec8485837560177fc947369a6ad79))
+
 ## [0.0.36](https://github.com/pkcprotocol/pkc-js/compare/v0.0.35...v0.0.36) (2026-05-22)
 
 ### Features
