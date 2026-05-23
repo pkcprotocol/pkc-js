@@ -358,6 +358,9 @@ const pendingWithReasonChallenge = (_: { challengeSettings: CommunityChallengeSe
     return { getChallenge, type, description: "Always succeeds and queues with a rationale" };
 };
 
+// Skipped under RPC: registers an in-process custom challenge function via pkc.settings.challenges.
+// RPC clients cannot install challenge code on the remote community, so this end-to-end flow only
+// runs against a LocalCommunity.
 describeSkipIfRpc.sequential("Pending approval: challenge attaches commentUpdate.reason for the mod queue", async () => {
     let pkc: PKCType;
     let community: LocalCommunity;

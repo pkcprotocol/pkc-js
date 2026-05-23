@@ -19,6 +19,8 @@ type CalculatedCommentUpdate = Omit<CommentUpdateType, "signature" | "updatedAt"
 //  - queryCalculatedCommentUpdate seeding the calculated update with that JSON
 //  - per-field override: a mod publishing a commentModeration with `reason` overwrites only the
 //    `reason` field; other challenge-supplied keys persist across regenerations
+// Skipped under RPC: constructs a DbHandler in-process and calls dbHandler/queryCalculatedCommentUpdate
+// directly. RPC clients have no access to the community's local DB.
 describeSkipIfRpc("queryCalculatedCommentUpdate seeded with challengeCommentUpdate", () => {
     let dbHandler: DbHandler | undefined;
     let communityAddress: string;
