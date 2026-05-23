@@ -550,13 +550,10 @@ const getPendingChallengesOrChallengeVerification = async ({
         challengeSuccess = true;
     }
 
-    if (challengeSuccess === true)
-        return {
-            challengeSuccess,
-            pendingApprovalSuccess,
-            aggregatedComment: agg.aggregatedComment,
-            aggregatedCommentUpdate: agg.aggregatedCommentUpdate
-        };
+    if (challengeSuccess === true) {
+        const { aggregatedReason: _unusedOnSuccess, ...successAgg } = agg;
+        return { challengeSuccess, pendingApprovalSuccess, ...successAgg };
+    }
     if (challengeSuccess === false) return { challengeSuccess, challengeErrors, aggregatedReason: agg.aggregatedReason };
     return {
         pendingChallenges,
@@ -753,11 +750,11 @@ const getChallengeVerificationFromChallengeAnswers = async ({
             aggregatedReason: agg.aggregatedReason
         };
     }
+    const { aggregatedReason: _unusedOnSuccess, ...successAgg } = agg;
     return {
         challengeSuccess: true,
         pendingApprovalSuccess,
-        aggregatedComment: agg.aggregatedComment,
-        aggregatedCommentUpdate: agg.aggregatedCommentUpdate
+        ...successAgg
     };
 };
 
