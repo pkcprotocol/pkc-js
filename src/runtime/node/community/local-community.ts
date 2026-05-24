@@ -72,7 +72,13 @@ import {
 } from "./local-community/ipns-publishing.js";
 import { deleteCommunity, start as lifecycleStart, stop as lifecycleStop, update as lifecycleUpdate } from "./local-community/lifecycle.js";
 import { edit as editCommunity } from "./local-community/editing.js";
-import { cancelExportEmbedded, cloneExportRecord, exportCommunityEmbedded, loadAndPruneExportsFromKeyv } from "./local-community/export.js";
+import {
+    cancelExportEmbedded,
+    cloneExportRecord,
+    deleteExportRecord,
+    exportCommunityEmbedded,
+    loadAndPruneExportsFromKeyv
+} from "./local-community/export.js";
 import type { InternalExportHandle } from "./local-community/export.js";
 import type { CommunityExportRecord, ExportCommunityUserOptions } from "../../../community/types.js";
 
@@ -391,6 +397,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
     async _cancelExport(exportId: string): Promise<void> {
         return cancelExportEmbedded(this, exportId);
+    }
+
+    async _deleteExport(exportId: string): Promise<void> {
+        return deleteExportRecord(this, exportId);
     }
 
     async _loadExportsFromKeyv(): Promise<void> {

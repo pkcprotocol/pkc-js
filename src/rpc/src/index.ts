@@ -1,6 +1,9 @@
 import pLimit from "p-limit";
 import { Server as RpcWebsocketsServer } from "rpc-websockets";
-import { mkdirSync } from "fs";
+import { createReadStream, mkdirSync, statSync } from "fs";
+import http, { type Server as HTTPServer, type ServerResponse } from "http";
+import type { Server as HTTPSServer } from "https";
+import { fileURLToPath } from "node:url";
 import path from "path";
 import Database, { type Database as BetterSqlite3Database } from "better-sqlite3";
 import PKCJs, { setPKCJs } from "./lib/pkc-js/index.js";
@@ -135,6 +138,11 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     // `exportschange` event consistent across exportCommunity / exportsSubscribe / cancelExport
     // calls for the same address.
     private _exportCommunityInstances: Map<string, LocalCommunity> = new Map();
+    // http.Server backing the WS — populated when caller passes neither `server` nor relies on
+    // rpc-websockets to bind its own. We attach the GET /exports/<exportId> route to whichever
+    // http server underlies the WS.
+    private _httpServer: HTTPServer | HTTPSServer | undefined;
+    private _ownsHttpServer: boolean = false;
 
     constructor({
         port,
@@ -155,9 +163,31 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         this._allowPrivateKeyExport = allowPrivateKeyExport ?? true;
         // don't instantiate pkc in constructor because it's an async function
         this._initPKC(pkc);
+
+        // Always operate on an explicit http.Server so we can attach the /exports/<exportId>
+        // route alongside the WS upgrade handler. When the caller passed neither `server` nor
+        // delegated port-binding to rpc-websockets, we create and own one.
+        if (server) {
+            this._httpServer = server;
+        } else {
+            this._httpServer = http.createServer();
+            this._ownsHttpServer = true;
+            if (typeof port === "number") this._httpServer.listen(port);
+        }
+        this._httpServer.on("request", (req, res) => {
+            // rpc-websockets does not register request listeners — any HTTP request reaching
+            // this http.Server is ours to handle. Currently the only route is GET /exports/<id>.
+            this._handleExportsHttpRequest(req, res).catch((e) => {
+                log.error("Unhandled error in /exports HTTP handler", e);
+                if (!res.headersSent) {
+                    res.statusCode = 500;
+                    res.end();
+                }
+            });
+        });
+
         this.rpcWebsockets = new RpcWebsocketsServer({
-            port,
-            server,
+            server: this._httpServer,
             verifyClient: ({ req }, callback) => {
                 // block non-localhost requests without auth key for security
 
@@ -1611,17 +1641,102 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
     async cancelExport(params: any, connectionId: string): Promise<RpcSuccessResult> {
         const { exportId } = parseRpcCancelExportParam(params[0]);
-        // Find the owning community across started + cached-loaded instances.
-        const candidates: LocalCommunity[] = [];
-        for (const value of Object.values(this._startedCommunities)) if (value instanceof LocalCommunity) candidates.push(value);
-        for (const value of this._exportCommunityInstances.values()) candidates.push(value);
-        for (const community of candidates)
+        for (const community of this._exportLoadedCommunities())
             if (community._activeExports.has(exportId)) {
                 await community._cancelExport(exportId);
                 break;
             }
         // Idempotent: unknown exportId returns success without action (per spec).
         return { success: true };
+    }
+
+    private *_exportLoadedCommunities(): IterableIterator<LocalCommunity> {
+        for (const value of Object.values(this._startedCommunities)) if (value instanceof LocalCommunity) yield value;
+        for (const value of this._exportCommunityInstances.values()) yield value;
+    }
+
+    private _findCommunityOwningExport(exportId: string): { community: LocalCommunity; record: CommunityExportRecord } | undefined {
+        for (const community of this._exportLoadedCommunities()) {
+            const record = community._exports.find((r) => r.exportId === exportId);
+            if (record) return { community, record };
+        }
+        return undefined;
+    }
+
+    // GET /exports/<exportId> — streams the sqlite backup over HTTP on the same port as the WS.
+    // After a successful response, deletes the file and prunes the record (per spec).
+    private async _handleExportsHttpRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+        const httpLog = Logger("pkc-js:PKCWsServer:exports-http");
+        const requestUrl = new URL(req.url ?? "/", "http://localhost");
+        const match = requestUrl.pathname.match(/^\/exports\/([0-9a-fA-F-]{36})$/);
+        if (!match) {
+            res.statusCode = 404;
+            res.end();
+            return;
+        }
+        if (req.method !== "GET") {
+            res.statusCode = 405;
+            res.setHeader("Allow", "GET");
+            res.end();
+            return;
+        }
+        const exportId = match[1];
+        const owner = this._findCommunityOwningExport(exportId);
+        if (!owner) {
+            httpLog("GET /exports — unknown exportId", exportId);
+            res.statusCode = 404;
+            res.end();
+            return;
+        }
+        const { community, record } = owner;
+        if (record.progress !== 1 || !record.url) {
+            res.statusCode = 404;
+            res.end();
+            return;
+        }
+
+        let filePath: string;
+        try {
+            const parsed = new URL(record.url);
+            if (parsed.protocol !== "file:") throw new Error("Record url is not file://");
+            filePath = fileURLToPath(parsed);
+        } catch {
+            res.statusCode = 404;
+            res.end();
+            return;
+        }
+        let size: number;
+        try {
+            size = statSync(filePath).size;
+        } catch {
+            res.statusCode = 404;
+            res.end();
+            return;
+        }
+
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/vnd.sqlite3");
+        res.setHeader("Content-Length", String(size));
+
+        const stream = createReadStream(filePath);
+        let streamEnded = false;
+        let streamErrored = false;
+        stream.on("end", () => {
+            streamEnded = true;
+        });
+        stream.on("error", (err) => {
+            streamErrored = true;
+            httpLog.error("Error streaming export file", filePath, err);
+            if (!res.headersSent) res.statusCode = 500;
+            res.end();
+        });
+        res.on("close", () => {
+            // Cleanup only on fully streamed + flushed responses. Client aborts and stream
+            // errors leave the record + file intact so the consumer can retry.
+            if (streamErrored || !streamEnded || !res.writableEnded) return;
+            community._deleteExport(exportId).catch((e) => httpLog.error("Failed to cleanup downloaded export", exportId, e));
+        });
+        stream.pipe(res);
     }
 
     async unsubscribe(params: any, connectionId: string): Promise<RpcSuccessResult> {
@@ -1642,11 +1757,13 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
                 await this.unsubscribe([{ subscriptionId: Number(subscriptionId) }], connectionId);
 
         this.ws.close();
+        if (this._ownsHttpServer && this._httpServer) await new Promise<void>((r) => this._httpServer!.close(() => r()));
         const pkc = await this._getPKCInstance();
         await pkc.destroy(); // this will stop all started communities
         for (const communityAddress of remeda.keys.strict(this._startedCommunities)) {
             delete this._startedCommunities[communityAddress];
         }
+        this._exportCommunityInstances.clear();
         this._rpcStateDb?.close();
         this._rpcStateDb = undefined;
         this._onSettingsChange = {};
@@ -1663,7 +1780,8 @@ const createPKCWsServer = async (options: CreatePKCWsServerOptions) => {
         server: parsedOptions.server,
         authKey: parsedOptions.authKey,
         startStartedCommunitiesOnStartup: parsedOptions.startStartedCommunitiesOnStartup,
-        autoStartConcurrency: parsedOptions.autoStartConcurrency
+        autoStartConcurrency: parsedOptions.autoStartConcurrency,
+        allowPrivateKeyExport: parsedOptions.allowPrivateKeyExport
     });
 
     // Auto-start previously started communities (fire-and-forget, non-blocking)

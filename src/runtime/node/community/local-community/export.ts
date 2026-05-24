@@ -197,6 +197,28 @@ export async function cancelExportEmbedded(community: LocalCommunity, exportId: 
     }
 }
 
+// Removes an export record from `community._exports`, deletes its backing file (if it lives
+// under a file:// URL), persists to KeyV, and emits `exportschange`. Used by the RPC HTTP
+// download endpoint to clean up after a successful download.
+export async function deleteExportRecord(community: LocalCommunity, exportId: string): Promise<void> {
+    const idx = community._exports.findIndex((r) => r.exportId === exportId);
+    if (idx === -1) return;
+    const record = community._exports[idx];
+
+    if (record.url) {
+        try {
+            const parsed = new URL(record.url);
+            if (parsed.protocol === "file:") await fsPromises.unlink(fileURLToPath(parsed)).catch(() => {});
+        } catch {
+            // Malformed URL — ignore; we still drop the record.
+        }
+    }
+
+    community._exports.splice(idx, 1);
+    await persistExports(community);
+    emitExportsChange(community);
+}
+
 // Called on community load to:
 //   (a) hydrate community._exports from KeyV, and
 //   (b) prune records whose backing file no longer exists on disk (e.g. user deleted it).
