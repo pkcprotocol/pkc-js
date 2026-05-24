@@ -23,10 +23,10 @@ import {
     resolveWhenConditionIsTrue,
     getAvailablePKCConfigsToTestAgainst
 } from "../../../dist/node/test/test-util.js";
-import { itSkipIfRpc, describeIfRpc } from "../../helpers/conditional-tests.js";
+import { itSkipIfRpc, itIfRpc, describeIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
+import { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 import type { CommunityExportRecord } from "../../../dist/node/community/types.js";
 
 // Either flavor of community has `.export()`, `.exports`, `.signer`, and emits `exportschange`.
@@ -323,10 +323,12 @@ describeIfRpc(`community.export() — RPC, non-started`, async () => {
     defineExportTests(() => ({ pkc, community, isEmbedded: false }));
 });
 
-// RemoteCommunity rejection — sets up its own no-dataPath PKC so the matrix doesn't apply.
-// Kept embedded-only; under RPC the equivalent rejection happens server-side via the
-// exportCommunity handler's ERR_COMMUNITY_NOT_LOCAL path, exercised when no LocalCommunity
-// matches the identifier on the RPC daemon.
+// RemoteCommunity rejection — same observable contract on both transports, but the setups
+// don't share much, so each transport gets its own test. The embedded test spins up two
+// separate PKCs (one with a dataPath, one without) to construct a read-only RemoteCommunity.
+// The RPC test asks the daemon for an address the daemon doesn't host, which is what causes
+// pkc-with-rpc-client.ts to return an RpcRemoteCommunity. Both variants assert the same
+// ERR_COMMUNITY_NOT_LOCAL throw from the base RemoteCommunity.export().
 describe(`community.export() — error paths`, async () => {
     itSkipIfRpc("a read-only RemoteCommunity rejects with ERR_COMMUNITY_NOT_LOCAL", async () => {
         const pkc1 = await mockPKC({});
@@ -342,6 +344,22 @@ describe(`community.export() — error paths`, async () => {
             await localComm.stop();
             await pkc1.destroy();
             await pkc2.destroy();
+        }
+    });
+
+    itIfRpc("an RpcRemoteCommunity rejects with ERR_COMMUNITY_NOT_LOCAL", async () => {
+        const pkc = await mockRpcRemotePKC();
+        try {
+            // Fresh signer → address the RPC server has never seen as a community. With the
+            // address absent from rpcCommunities, pkc-with-rpc-client.ts returns an
+            // RpcRemoteCommunity (which doesn't override export()), so the call hits the base
+            // RemoteCommunity.export() rejection client-side.
+            const freshSigner = await pkc.createSigner();
+            const remoteComm = await pkc.createCommunity({ address: freshSigner.address });
+            expect(remoteComm).not.toBeInstanceOf(RpcLocalCommunity);
+            await expect(remoteComm.export()).rejects.toMatchObject({ code: "ERR_COMMUNITY_NOT_LOCAL" });
+        } finally {
+            await pkc.destroy();
         }
     });
 });
