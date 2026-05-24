@@ -1,6 +1,6 @@
 import pLimit from "p-limit";
 import { Server as RpcWebsocketsServer } from "rpc-websockets";
-import { createReadStream, mkdirSync, statSync } from "fs";
+import { createReadStream, existsSync, mkdirSync, promises as fsPromises, statSync } from "fs";
 import http, { type Server as HTTPServer, type ServerResponse } from "http";
 import type { Server as HTTPSServer } from "https";
 import { fileURLToPath } from "node:url";
@@ -1665,6 +1665,35 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
     // GET /exports/<exportId> — streams the sqlite backup over HTTP on the same port as the WS.
     // After a successful response, deletes the file and prunes the record (per spec).
+    // Deletes export files older than 24h. Called once on server startup (per spec).
+    // Records pointing to deleted files get pruned the next time the community loads via
+    // loadAndPruneExportsFromKeyv. We do not eagerly load every community here to avoid the
+    // boot cost; the embedded loader handles cleanup lazily.
+    async _sweepOldExportFiles(): Promise<void> {
+        const MAX_AGE_MS = 24 * 60 * 60 * 1000;
+        if (!this.pkc.dataPath) return;
+        const exportsDir = path.join(this.pkc.dataPath, "exports");
+        if (!existsSync(exportsDir)) return;
+
+        const now = Date.now();
+        let entries: string[] = [];
+        try {
+            entries = await fsPromises.readdir(exportsDir);
+        } catch {
+            return;
+        }
+        for (const entry of entries) {
+            if (!entry.endsWith(".sqlite")) continue;
+            const filePath = path.join(exportsDir, entry);
+            try {
+                const stat = await fsPromises.stat(filePath);
+                if (now - stat.mtimeMs > MAX_AGE_MS) await fsPromises.unlink(filePath);
+            } catch {
+                // file may have been removed concurrently — ignore
+            }
+        }
+    }
+
     private async _handleExportsHttpRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
         const httpLog = Logger("pkc-js:PKCWsServer:exports-http");
         const requestUrl = new URL(req.url ?? "/", "http://localhost");
@@ -1787,6 +1816,11 @@ const createPKCWsServer = async (options: CreatePKCWsServerOptions) => {
     // Auto-start previously started communities (fire-and-forget, non-blocking)
     pkcWss._autoStartPreviousCommunities().catch((e) => {
         log.error("Failed to auto-start previous communities", e);
+    });
+
+    // Delete export files older than 24h (fire-and-forget) — see EXPORT_COMMUNITY_SPEC.md
+    pkcWss._sweepOldExportFiles().catch((e) => {
+        log.error("Failed to sweep old export files", e);
     });
 
     return pkcWss;

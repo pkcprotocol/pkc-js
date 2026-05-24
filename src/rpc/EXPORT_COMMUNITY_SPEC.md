@@ -12,11 +12,11 @@ This document describes the design of the `community.export()` feature added in 
 | AbortSignal cancellation (in-process) | ✅ Shipped |
 | `pkc.destroy()` aborts in-flight exports | ✅ Shipped |
 | Read-only `RemoteCommunity.export()` rejection | ✅ Shipped |
-| RPC wire methods (`exportCommunity` / `exportsSubscribe` / `cancelExport`) | ⏳ Planned (follow-up of #79) |
-| HTTP `GET /exports/<exportId>` download endpoint | ⏳ Planned (follow-up of #79) |
-| 24h orphan sweep on server startup | ⏳ Planned (follow-up of #79) |
-| Post-download server-side deletion | ⏳ Planned (follow-up of #79) |
-| `allowPrivateKeyExport` policy on RPC server | ⏳ Planned (follow-up of #79) |
+| RPC wire methods (`exportCommunity` / `exportsSubscribe` / `cancelExport`) | ✅ Shipped (PR #100) |
+| HTTP `GET /exports/<exportId>` download endpoint | ✅ Shipped (PR #100) |
+| 24h orphan sweep on server startup | ✅ Shipped (PR #100) |
+| Post-download server-side deletion | ✅ Shipped (PR #100) |
+| `allowPrivateKeyExport` policy on RPC server | ✅ Shipped (PR #100) |
 
 ## Public API
 
