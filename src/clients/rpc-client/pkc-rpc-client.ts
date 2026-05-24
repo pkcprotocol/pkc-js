@@ -36,7 +36,10 @@ import type {
     RpcResolveAuthorNameResult,
     RpcSubscriptionIdResult,
     RpcSuccessResult,
-    RpcFetchCidResult
+    RpcFetchCidResult,
+    ExportCommunityRpcParam,
+    CancelExportRpcParam,
+    RpcExportCommunityResult
 } from "./types.js";
 import {
     parseRpcCommunityIdentifierParam,
@@ -49,7 +52,10 @@ import {
     parseRpcResolveAuthorNameResult,
     parseRpcFetchCidResult,
     parseRpcSuccessResult,
-    parseRpcSubscriptionIdResult
+    parseRpcSubscriptionIdResult,
+    parseRpcExportCommunityParam,
+    parseRpcCancelExportParam,
+    parseRpcExportCommunityResult
 } from "./rpc-schema-util.js";
 
 const log = Logger("pkc-js:PKCRpcClient");
@@ -477,6 +483,33 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         // This function can be used to call any function on the rpc server
         const res = <any>await this._webSocketClient.call(method, params);
         return res;
+    }
+
+    // community.export() — see src/rpc/EXPORT_COMMUNITY_SPEC.md
+
+    // HTTP origin to absolutize relative `/exports/<exportId>` URLs returned by exportsSubscribe.
+    // Derived from the WS URL with ws[s]:// swapped to http[s]:// and the auth-key path stripped.
+    get rpcHttpOrigin(): string {
+        const parsed = new URL(this._websocketServerUrl);
+        const httpProto = parsed.protocol === "wss:" ? "https:" : "http:";
+        return `${httpProto}//${parsed.host}`;
+    }
+
+    async exportCommunity(args: ExportCommunityRpcParam): Promise<RpcExportCommunityResult> {
+        const parsedArgs = parseRpcExportCommunityParam(args);
+        return parseRpcExportCommunityResult(await this._webSocketClient.call("exportCommunity", [parsedArgs]));
+    }
+
+    async exportsSubscribe(args: CommunityIdentifierRpcParam): Promise<RpcSubscriptionIdResult> {
+        const parsedArgs = parseRpcCommunityIdentifierParam(args);
+        const res = parseRpcSubscriptionIdResult(await this._webSocketClient.call("exportsSubscribe", [parsedArgs]));
+        this._initSubscriptionEvent(res.subscriptionId);
+        return res;
+    }
+
+    async cancelExport(args: CancelExportRpcParam): Promise<RpcSuccessResult> {
+        const parsedArgs = parseRpcCancelExportParam(args);
+        return parseRpcSuccessResult(await this._webSocketClient.call("cancelExport", [parsedArgs]));
     }
 
     async getDefaults() {
