@@ -68,30 +68,55 @@ async function materializeExport(rec: CommunityExportRecord): Promise<{ filePath
     return { filePath: out, cleanup: async () => fsPromises.rm(out, { force: true }) };
 }
 
-async function waitForCompleteRecord(community: AnyLocalCommunity, exportId: string, timeoutMs = 30_000): Promise<CommunityExportRecord> {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-        const rec = community.exports.find((r) => r.exportId === exportId);
-        if (rec?.progress === 1) return rec;
-        if (rec?.error) throw new Error(`Export failed: ${rec.error.code}: ${rec.error.message}`);
-        await new Promise((r) => setTimeout(r, 50));
-    }
-    throw new Error(`Timed out waiting for export ${exportId} to complete`);
+interface WaitForRecordOptions {
+    community: AnyLocalCommunity;
+    exportId: string;
+    predicate: (r: CommunityExportRecord | undefined) => boolean;
+    timeoutMs?: number;
 }
 
-async function waitForRecord(
-    community: AnyLocalCommunity,
-    exportId: string,
-    predicate: (r: CommunityExportRecord | undefined) => boolean,
+async function waitForRecord({
+    community,
+    exportId,
+    predicate,
     timeoutMs = 30_000
-): Promise<CommunityExportRecord | undefined> {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-        const rec = community.exports.find((r) => r.exportId === exportId);
-        if (predicate(rec)) return rec;
-        await new Promise((r) => setTimeout(r, 50));
+}: WaitForRecordOptions): Promise<CommunityExportRecord | undefined> {
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timed out waiting on export ${exportId} predicate`)), timeoutMs);
+    });
+    const wait = resolveWhenConditionIsTrue({
+        toUpdate: community,
+        eventName: "exportschange",
+        predicate: async () => predicate(community.exports.find((r) => r.exportId === exportId))
+    });
+    try {
+        await Promise.race([wait, timeout]);
+    } finally {
+        clearTimeout(timer);
     }
-    throw new Error(`Timed out waiting on export ${exportId} predicate`);
+    return community.exports.find((r) => r.exportId === exportId);
+}
+
+interface WaitForCompleteRecordOptions {
+    community: AnyLocalCommunity;
+    exportId: string;
+    timeoutMs?: number;
+}
+
+async function waitForCompleteRecord({
+    community,
+    exportId,
+    timeoutMs = 30_000
+}: WaitForCompleteRecordOptions): Promise<CommunityExportRecord> {
+    const rec = await waitForRecord({
+        community,
+        exportId,
+        predicate: (r) => r?.progress === 1 || Boolean(r?.error),
+        timeoutMs
+    });
+    if (rec?.error) throw new Error(`Export failed: ${rec.error.code}: ${rec.error.message}`);
+    return rec!;
 }
 
 // Portable test bodies — shared between the started-community matrix (embedded + RPC) and the
@@ -102,7 +127,7 @@ function defineExportTests(getCtx: () => { pkc: PKCType; community: AnyLocalComm
     it("happy path: file is reachable, sha256 matches, sqlite is readable", async () => {
         const { community } = getCtx();
         const { exportId } = await community.export();
-        const rec = await waitForCompleteRecord(community, exportId);
+        const rec = await waitForCompleteRecord({ community, exportId });
         expect(rec.url).toBeDefined();
 
         const { filePath, cleanup } = await materializeExport(rec);
@@ -127,7 +152,7 @@ function defineExportTests(getCtx: () => { pkc: PKCType; community: AnyLocalComm
     it("includePrivateKey: false (default) scrubs the signer.privateKey", async () => {
         const { community } = getCtx();
         const { exportId } = await community.export();
-        const rec = await waitForCompleteRecord(community, exportId);
+        const rec = await waitForCompleteRecord({ community, exportId });
         const { filePath, cleanup } = await materializeExport(rec);
         try {
             const db = new Database(filePath, { readonly: true });
@@ -152,7 +177,7 @@ function defineExportTests(getCtx: () => { pkc: PKCType; community: AnyLocalComm
     it("includePrivateKey: true preserves the signer.privateKey", async () => {
         const { community } = getCtx();
         const { exportId } = await community.export({ includePrivateKey: true });
-        const rec = await waitForCompleteRecord(community, exportId);
+        const rec = await waitForCompleteRecord({ community, exportId });
         const { filePath, cleanup } = await materializeExport(rec);
         try {
             const db = new Database(filePath, { readonly: true });
@@ -189,7 +214,7 @@ function defineExportTests(getCtx: () => { pkc: PKCType; community: AnyLocalComm
             "custom.sqlite"
         );
         const { exportId } = await community.export({ exportPath: customPath });
-        const rec = await waitForCompleteRecord(community, exportId);
+        const rec = await waitForCompleteRecord({ community, exportId });
         expect(existsSync(customPath)).to.equal(true);
         expect(fileURLToPath(new URL(rec.url!))).to.equal(customPath);
         await fsPromises.rm(customPath, { force: true });
@@ -202,7 +227,7 @@ function defineExportTests(getCtx: () => { pkc: PKCType; community: AnyLocalComm
         community.on("exportschange", listener);
         try {
             const { exportId } = await community.export();
-            await waitForCompleteRecord(community, exportId);
+            await waitForCompleteRecord({ community, exportId });
             // At least: initial 0-progress emission + complete emission. Progress emissions may
             // be throttled to 0 if the DB is small enough that the backup finishes in one transfer.
             expect(seen.length).to.be.greaterThanOrEqual(2);
@@ -218,7 +243,7 @@ function defineExportTests(getCtx: () => { pkc: PKCType; community: AnyLocalComm
         const ac = new AbortController();
         const { exportId } = await community.export({ signal: ac.signal });
         ac.abort();
-        const rec = await waitForRecord(community, exportId, (r) => Boolean(r?.error || r?.progress === 1));
+        const rec = await waitForRecord({ community, exportId, predicate: (r) => Boolean(r?.error || r?.progress === 1) });
         expect(rec?.error?.code).to.equal("ERR_EXPORT_CANCELLED");
 
         // Embedded-only: verify no straggler files on the local fs. Under RPC the server's
@@ -244,8 +269,8 @@ function defineExportTests(getCtx: () => { pkc: PKCType; community: AnyLocalComm
     it("two concurrent exports of the same community both reach progress=1", async () => {
         const { community } = getCtx();
         const [{ exportId: a }, { exportId: b }] = await Promise.all([community.export(), community.export()]);
-        const recA = await waitForCompleteRecord(community, a);
-        const recB = await waitForCompleteRecord(community, b);
+        const recA = await waitForCompleteRecord({ community, exportId: a });
+        const recB = await waitForCompleteRecord({ community, exportId: b });
         expect(recA.progress).to.equal(1);
         expect(recB.progress).to.equal(1);
         expect(recA.exportId).to.not.equal(recB.exportId);
@@ -377,7 +402,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await publishRandomPost({ communityAddress: first.address, pkc });
 
             const { exportId } = await first.export();
-            const completed = await waitForCompleteRecord(first, exportId);
+            const completed = await waitForCompleteRecord({ community: first, exportId });
             expect(completed.progress).to.equal(1);
 
             // Sibling instance in the same pkc mirrors from the started instance
@@ -457,7 +482,7 @@ describeIfRpc(`community.export() — RPC-only`, async () => {
 
     it("download cleans up the export server-side", async () => {
         const { exportId } = await community.export();
-        const rec = await waitForCompleteRecord(community, exportId);
+        const rec = await waitForCompleteRecord({ community, exportId });
         const res = await fetch(rec.url!);
         expect(res.status).to.equal(200);
         // Consume the body fully so the server fires its cleanup hook after the stream finishes.
@@ -465,7 +490,7 @@ describeIfRpc(`community.export() — RPC-only`, async () => {
 
         // Wait for the cleanup-driven exportschange notification to propagate to the client.
         try {
-            await waitForRecord(community, exportId, (r) => r === undefined, 5_000);
+            await waitForRecord({ community, exportId, predicate: (r) => r === undefined, timeoutMs: 5_000 });
         } catch {
             // Either the notification arrived (predicate met) or it didn't — the next assertion
             // is authoritative.
@@ -490,7 +515,7 @@ describeIfRpc(`community.export() — RPC-only`, async () => {
         const { exportId } = await heavyComm.export();
         // The record must be observable before we disconnect; the export may already be complete,
         // both outcomes are acceptable.
-        await waitForRecord(heavyComm, exportId, (r) => r !== undefined, 5_000);
+        await waitForRecord({ community: heavyComm, exportId, predicate: (r) => r !== undefined, timeoutMs: 5_000 });
 
         const address = heavyComm.address;
         await heavyPkc.destroy();
@@ -504,7 +529,7 @@ describeIfRpc(`community.export() — RPC-only`, async () => {
             // persisting records server-side is to survive client disconnects.
             expect(survivor?.error).to.equal(undefined);
 
-            const finalRec = await waitForCompleteRecord(comm2, exportId);
+            const finalRec = await waitForCompleteRecord({ community: comm2, exportId });
             expect(finalRec.progress).to.equal(1);
             expect(finalRec.sha256).toBeDefined();
         } finally {
