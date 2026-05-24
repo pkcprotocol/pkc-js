@@ -1578,16 +1578,25 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     // community.export() — see src/rpc/EXPORT_COMMUNITY_SPEC.md
     // Resolves to the canonical LocalCommunity instance for the given identifier so that
     // exportCommunity / exportsSubscribe / cancelExport all share the same `_exports` array
-    // and `exportschange` event source.
+    // and `exportschange` event source. Cache-first ordering matters: once the first
+    // export-related call lands on an instance, every subsequent one must reuse it. Otherwise
+    // a subscription attached before community.start() would listen on a different
+    // LocalCommunity than the started instance picked up by a later exportCommunity call
+    // (pkc.createCommunity at src/pkc/pkc.ts:749 constructs a new LocalCommunity per call),
+    // and the export's `exportschange` would never reach the listener.
     private async _resolveLocalCommunityForExport(parsedArgs: { name?: string; publicKey?: string }): Promise<LocalCommunity> {
-        const started = findStartedCommunity(this.pkc, parsedArgs);
-        if (started instanceof LocalCommunity) return started;
-
         const address = this._findCommunityAddress(parsedArgs);
         if (!address) throw new PKCError("ERR_COMMUNITY_NOT_FOUND", { name: parsedArgs.name, publicKey: parsedArgs.publicKey });
 
         const cached = this._exportCommunityInstances.get(address);
         if (cached) return cached;
+
+        // No cache yet — prefer the started instance if one exists, otherwise load fresh.
+        const started = findStartedCommunity(this.pkc, parsedArgs);
+        if (started instanceof LocalCommunity) {
+            this._exportCommunityInstances.set(address, started);
+            return started;
+        }
 
         const community = <LocalCommunity | RemoteCommunity>await this.pkc.createCommunity({ address });
         if (!(community instanceof LocalCommunity)) throw new PKCError("ERR_COMMUNITY_NOT_LOCAL", { address });
