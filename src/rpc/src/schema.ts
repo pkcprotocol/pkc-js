@@ -20,7 +20,10 @@ export const CreatePKCWsServerOptionsSchema = z
         startStartedCommunitiesOnStartup: z.boolean().optional(),
         // Controls how many communities are auto-started in parallel on boot.
         // 0 or 1 disables parallelism (sequential start). Default: 5
-        autoStartConcurrency: z.number().int().nonnegative().optional()
+        autoStartConcurrency: z.number().int().nonnegative().optional(),
+        // community.export() policy: when false, the server rejects exportCommunity calls with
+        // includePrivateKey: true. Default true (private-RPC scope). Public-RPC operators set false.
+        allowPrivateKeyExport: z.boolean().optional()
     })
     .merge(WsServerClassOptions)
     .loose();

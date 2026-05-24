@@ -81,7 +81,9 @@ import {
     parseRpcCommunityPageParam,
     parseRpcEditCommunityParam,
     parseRpcPublishChallengeAnswersParam,
-    parseRpcUnsubscribeParam
+    parseRpcUnsubscribeParam,
+    parseRpcExportCommunityParam,
+    parseRpcCancelExportParam
 } from "../../clients/rpc-client/rpc-schema-util.js";
 import type {
     CommunityIdentifierRpcParam,
@@ -91,8 +93,10 @@ import type {
     RpcResolveAuthorNameResult,
     RpcCommentPageResult,
     RpcCommunityPageResult,
-    RpcLocalCommunityUpdateResultType
+    RpcLocalCommunityUpdateResultType,
+    RpcExportCommunityResult
 } from "../../clients/rpc-client/types.js";
+import type { CommunityExportRecord } from "../../community/types.js";
 import { findStartedCommunity } from "../../pkc/tracked-instance-registry-util.js";
 
 // store started communities to be able to stop them
@@ -125,14 +129,30 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     private _autoStartOnBoot: boolean = false;
     private _autoStartConcurrency: number;
     private _rpcStateDb: BetterSqlite3Database | undefined;
+    private _allowPrivateKeyExport: boolean;
+    // Per-address cache of LocalCommunity instances loaded for export purposes when the
+    // community isn't currently in _startedCommunities. Keeps `_exports` and the
+    // `exportschange` event consistent across exportCommunity / exportsSubscribe / cancelExport
+    // calls for the same address.
+    private _exportCommunityInstances: Map<string, LocalCommunity> = new Map();
 
-    constructor({ port, server, pkc, authKey, startStartedCommunitiesOnStartup, autoStartConcurrency }: PKCWsServerClassOptions) {
+    constructor({
+        port,
+        server,
+        pkc,
+        authKey,
+        startStartedCommunitiesOnStartup,
+        autoStartConcurrency,
+        allowPrivateKeyExport
+    }: PKCWsServerClassOptions) {
         super();
         const log = Logger("pkc-js:PKCWsServer");
         this.authKey = authKey;
         this._autoStartOnBoot = startStartedCommunitiesOnStartup ?? true;
         // Clamp to at least 1 since pLimit(0) throws. 0 or 1 means sequential (no parallelism)
         this._autoStartConcurrency = Math.max(1, autoStartConcurrency ?? 5);
+        // Default true — matches private-RPC scope. Public-RPC operators set false.
+        this._allowPrivateKeyExport = allowPrivateKeyExport ?? true;
         // don't instantiate pkc in constructor because it's an async function
         this._initPKC(pkc);
         this.rpcWebsockets = new RpcWebsocketsServer({
@@ -231,6 +251,11 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         this.rpcWebsocketsRegister("publishCommentModeration", this.publishCommentModeration.bind(this));
         this.rpcWebsocketsRegister("publishChallengeAnswers", this.publishChallengeAnswers.bind(this));
         this.rpcWebsocketsRegister("unsubscribe", this.unsubscribe.bind(this));
+
+        // community.export() — see EXPORT_COMMUNITY_SPEC.md
+        this.rpcWebsocketsRegister("exportCommunity", this.exportCommunity.bind(this));
+        this.rpcWebsocketsRegister("exportsSubscribe", this.exportsSubscribe.bind(this));
+        this.rpcWebsocketsRegister("cancelExport", this.cancelExport.bind(this));
 
         hideClassPrivateProps(this);
     }
@@ -1518,6 +1543,85 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const parsedArgs = parseRpcAuthorNameParam(params[0]);
         const pkc = await this._getPKCInstance();
         return pkc.resolveAuthorName(parsedArgs);
+    }
+
+    // community.export() — see src/rpc/EXPORT_COMMUNITY_SPEC.md
+    // Resolves to the canonical LocalCommunity instance for the given identifier so that
+    // exportCommunity / exportsSubscribe / cancelExport all share the same `_exports` array
+    // and `exportschange` event source.
+    private async _resolveLocalCommunityForExport(parsedArgs: { name?: string; publicKey?: string }): Promise<LocalCommunity> {
+        const started = findStartedCommunity(this.pkc, parsedArgs);
+        if (started instanceof LocalCommunity) return started;
+
+        const address = this._findCommunityAddress(parsedArgs);
+        if (!address) throw new PKCError("ERR_COMMUNITY_NOT_FOUND", { name: parsedArgs.name, publicKey: parsedArgs.publicKey });
+
+        const cached = this._exportCommunityInstances.get(address);
+        if (cached) return cached;
+
+        const community = <LocalCommunity | RemoteCommunity>await this.pkc.createCommunity({ address });
+        if (!(community instanceof LocalCommunity)) throw new PKCError("ERR_COMMUNITY_NOT_LOCAL", { address });
+        this._exportCommunityInstances.set(address, community);
+        return community;
+    }
+
+    // Server-side records carry `file://` URLs (the embedded path). Over the wire we emit a
+    // relative `/exports/<exportId>` URL; the RPC client absolutizes against rpcHttpOrigin.
+    private _toWireExportRecord(rec: CommunityExportRecord): CommunityExportRecord {
+        if (rec.progress === 1 && rec.url) return { ...rec, url: `/exports/${rec.exportId}` };
+        return rec;
+    }
+
+    async exportCommunity(params: any, connectionId: string): Promise<RpcExportCommunityResult> {
+        const parsedArgs = parseRpcExportCommunityParam(params[0]);
+        if (parsedArgs.includePrivateKey === true && !this._allowPrivateKeyExport)
+            throw new PKCError("ERR_PRIVATE_KEY_EXPORT_NOT_ALLOWED", {});
+        const community = await this._resolveLocalCommunityForExport(parsedArgs);
+        return community.export({ includePrivateKey: parsedArgs.includePrivateKey });
+    }
+
+    async exportsSubscribe(params: any, connectionId: string): Promise<RpcSubscriptionIdResult> {
+        const parsedArgs = parseRpcCommunityIdentifierParam(params[0]);
+        const subscriptionId = generateSubscriptionId();
+        const community = await this._resolveLocalCommunityForExport(parsedArgs);
+
+        const sendEvent = (event: string, result: any) =>
+            this.jsonRpcSendNotification({
+                method: "exportschange",
+                subscription: subscriptionId,
+                event,
+                result,
+                connectionId
+            });
+
+        const exportschangeListener = (records: CommunityExportRecord[]) =>
+            sendEvent("exportschange", { records: records.map((r) => this._toWireExportRecord(r)) });
+        community.on("exportschange", exportschangeListener);
+
+        this.subscriptionCleanups[connectionId][subscriptionId] = async () => {
+            community.removeListener("exportschange", exportschangeListener);
+        };
+
+        // Initial notification carries the current exports array. Per spec, tearing down this
+        // subscription does NOT cancel any in-flight exports — exports outlive client connections.
+        sendEvent("exportschange", { records: community.exports.map((r) => this._toWireExportRecord(r)) });
+
+        return { subscriptionId };
+    }
+
+    async cancelExport(params: any, connectionId: string): Promise<RpcSuccessResult> {
+        const { exportId } = parseRpcCancelExportParam(params[0]);
+        // Find the owning community across started + cached-loaded instances.
+        const candidates: LocalCommunity[] = [];
+        for (const value of Object.values(this._startedCommunities)) if (value instanceof LocalCommunity) candidates.push(value);
+        for (const value of this._exportCommunityInstances.values()) candidates.push(value);
+        for (const community of candidates)
+            if (community._activeExports.has(exportId)) {
+                await community._cancelExport(exportId);
+                break;
+            }
+        // Idempotent: unknown exportId returns success without action (per spec).
+        return { success: true };
     }
 
     async unsubscribe(params: any, connectionId: string): Promise<RpcSuccessResult> {
