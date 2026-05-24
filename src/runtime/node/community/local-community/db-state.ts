@@ -20,6 +20,7 @@ import type {
 import type { DbPostsFormat } from "../../../../publications/comment/types.js";
 import type { LocalCommunity } from "../local-community.js";
 import { generateDefaultChallenges, isDefaultChallengeStructure } from "./defaults.js";
+import { cloneExportRecord } from "./export.js";
 import { processStartedCommunities } from "./registry.js";
 import { CommunitySignedPropertyNames } from "../../../../community/schema.js";
 import { syncCommunityRegistryEntry } from "../../../../pkc/tracked-instance-registry-util.js";
@@ -151,7 +152,7 @@ export async function updateInstancePropsWithStartedCommunityOrDb(community: Loc
         // Snapshot the started instance's exports list so the new instance's community.exports
         // matches at create-time. Subsequent updates on the started instance won't propagate
         // to this one until the caller re-runs update()/start() — same lifetime as internal state.
-        community._exports = [...startedCommunity._exports];
+        community._exports = startedCommunity._exports.map(cloneExportRecord);
     } else {
         await community.initDbHandlerIfNeeded();
         try {

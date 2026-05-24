@@ -72,12 +72,8 @@ import {
 } from "./local-community/ipns-publishing.js";
 import { deleteCommunity, start as lifecycleStart, stop as lifecycleStop, update as lifecycleUpdate } from "./local-community/lifecycle.js";
 import { edit as editCommunity } from "./local-community/editing.js";
-import {
-    cancelExportEmbedded,
-    exportCommunityEmbedded,
-    InternalExportHandle,
-    loadAndPruneExportsFromKeyv
-} from "./local-community/export.js";
+import { cancelExportEmbedded, cloneExportRecord, exportCommunityEmbedded, loadAndPruneExportsFromKeyv } from "./local-community/export.js";
+import type { InternalExportHandle } from "./local-community/export.js";
 import type { CommunityExportRecord, ExportCommunityUserOptions } from "../../../community/types.js";
 
 // This is a sub we have locally in our pkc datapath, in a NodeJS environment
@@ -386,7 +382,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     }
 
     override get exports(): CommunityExportRecord[] {
-        return [...this._exports];
+        return this._exports.map(cloneExportRecord);
     }
 
     override async export(options?: ExportCommunityUserOptions): Promise<{ exportId: string }> {

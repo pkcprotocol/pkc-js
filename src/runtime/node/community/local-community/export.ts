@@ -42,8 +42,19 @@ async function persistExports(community: LocalCommunity): Promise<void> {
     }
 }
 
+export function cloneExportRecord(record: CommunityExportRecord): CommunityExportRecord {
+    return {
+        ...record,
+        ...(record.error ? { error: { ...record.error } } : {})
+    };
+}
+
+function snapshotExports(community: LocalCommunity): CommunityExportRecord[] {
+    return community._exports.map(cloneExportRecord);
+}
+
 function emitExportsChange(community: LocalCommunity): void {
-    community.emit("exportschange", [...community._exports]);
+    community.emit("exportschange", snapshotExports(community));
 }
 
 async function updateRecord(community: LocalCommunity, exportId: string, patch: Partial<CommunityExportRecord>): Promise<void> {
@@ -86,15 +97,16 @@ async function runExportTask(
             url: pathToFileURL(opts.destPath).href
         });
         log.trace("Export complete for community", community.address, "exportId", exportId);
-    } catch (err: any) {
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
         if (err instanceof BackupAbortError || opts.signal.aborted) {
             await updateRecord(community, exportId, {
-                error: { code: "ERR_EXPORT_CANCELLED", message: err?.message || "Export was cancelled" }
+                error: { code: "ERR_EXPORT_CANCELLED", message: message || "Export was cancelled" }
             });
         } else {
             log.error("Backup failed for community", community.address, "exportId", exportId, err);
             await updateRecord(community, exportId, {
-                error: { code: "ERR_EXPORT_BACKUP_FAILED", message: err?.message || String(err) }
+                error: { code: "ERR_EXPORT_BACKUP_FAILED", message }
             });
         }
     } finally {
@@ -115,6 +127,9 @@ export async function exportCommunityEmbedded(
     const exportId = uuidV4();
     const destPath = options.exportPath ? path.resolve(options.exportPath) : defaultExportPathFor(community, exportId);
     const includePrivateKey = options.includePrivateKey === true;
+
+    if (path.resolve(destPath) === path.resolve(sourceDbPathFor(community)))
+        throw new PKCError("ERR_EXPORT_PATH_TARGETS_LIVE_DB", { communityAddress: community.address, exportPath: destPath });
 
     if (!community.publicKey) throw new PKCError("ERR_LOCAL_COMMUNITY_HAS_NO_SIGNER_IN_INTERNAL_STATE", { address: community.address });
 

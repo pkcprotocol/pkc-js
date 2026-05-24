@@ -356,7 +356,18 @@ export const CommunityExportRecordSchema = z
         url: z.string().optional(),
         error: CommunityExportRecordErrorSchema.optional()
     })
-    .strict();
+    .strict()
+    .superRefine((rec, ctx) => {
+        if (rec.progress !== 1 || rec.error) return;
+        for (const field of ["size", "sha256", "url"] as const) {
+            if (rec[field] === undefined)
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: [field],
+                    message: `${field} must be present when progress === 1 and no error is set`
+                });
+        }
+    });
 
 export const CommunityExportRecordsSchema = CommunityExportRecordSchema.array();
 
@@ -382,7 +393,8 @@ export const CommunityIpfsReservedFields = remeda.difference(
         "editable",
         "publishingState",
         "updatingState",
-        "started"
+        "started",
+        "exports"
     ],
     remeda.keys.strict(CommunityIpfsSchema.shape)
 );

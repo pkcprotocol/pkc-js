@@ -375,11 +375,15 @@ export async function backupCommunityDb(opts: BackupCommunityDbOptions): Promise
         sourceDb.close();
         sourceDb = undefined;
 
+        if (signal?.aborted) throw new BackupAbortError();
+
         if (!includePrivateKey) {
             await scrubPrivateKeyFromBackup(partialPath);
+            if (signal?.aborted) throw new BackupAbortError();
         }
 
         const { size, sha256 } = await statAndHashFile(partialPath);
+        if (signal?.aborted) throw new BackupAbortError();
 
         await fsPromises.rename(partialPath, destPath);
 
@@ -399,17 +403,33 @@ export async function backupCommunityDb(opts: BackupCommunityDbOptions): Promise
     }
 }
 
+type KeyvSignerPayload = {
+    value: { signer?: { privateKey?: unknown; ipfsKey?: unknown; [k: string]: unknown }; [k: string]: unknown };
+    expires?: number | null;
+};
+
+function isKeyvSignerPayload(v: unknown): v is KeyvSignerPayload {
+    if (typeof v !== "object" || v === null) return false;
+    const value = (v as { value?: unknown }).value;
+    if (typeof value !== "object" || value === null) return false;
+    const signer = (value as { signer?: unknown }).signer;
+    return signer === undefined || (typeof signer === "object" && signer !== null);
+}
+
+// Scope: only the community signer's privateKey/ipfsKey (in the internalCommunity KeyV record).
+// The pseudonymityAliases table stores per-comment aliasPrivateKey values and is intentionally
+// NOT scrubbed — those keys belong to the alias identities themselves and are part of the
+// publication record, not the community's own signing material.
 async function scrubPrivateKeyFromBackup(dbPath: string): Promise<void> {
     const db = new Database(dbPath, { fileMustExist: true });
     try {
         const internalKey = "keyv:" + STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY];
         const row = db.prepare("SELECT value FROM keyv WHERE key = ?").get(internalKey) as { value: string } | undefined;
         if (!row) return;
-        const parsed = JSON.parse(row.value) as { value: Record<string, any>; expires?: number | null };
-        if (parsed?.value?.signer) {
-            parsed.value.signer = { ...parsed.value.signer, privateKey: undefined, ipfsKey: undefined };
-            db.prepare("UPDATE keyv SET value = ? WHERE key = ?").run(JSON.stringify(parsed), internalKey);
-        }
+        const parsed: unknown = JSON.parse(row.value);
+        if (!isKeyvSignerPayload(parsed) || !parsed.value.signer) return;
+        parsed.value.signer = { ...parsed.value.signer, privateKey: undefined, ipfsKey: undefined };
+        db.prepare("UPDATE keyv SET value = ? WHERE key = ?").run(JSON.stringify(parsed), internalKey);
     } finally {
         db.close();
     }
