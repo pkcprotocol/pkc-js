@@ -20,7 +20,6 @@ import type {
 import type { DbPostsFormat } from "../../../../publications/comment/types.js";
 import type { LocalCommunity } from "../local-community.js";
 import { generateDefaultChallenges, isDefaultChallengeStructure } from "./defaults.js";
-import { cloneExportRecord } from "./export.js";
 import { processStartedCommunities } from "./registry.js";
 import { CommunitySignedPropertyNames } from "../../../../community/schema.js";
 import { syncCommunityRegistryEntry } from "../../../../pkc/tracked-instance-registry-util.js";
@@ -149,10 +148,18 @@ export async function updateInstancePropsWithStartedCommunityOrDb(community: Loc
             await community.initInternalCommunityAfterFirstUpdateNoMerge(startedCommunity.toJSONInternalAfterFirstUpdate());
         else await community.initInternalCommunityBeforeFirstUpdateNoMerge(startedCommunity.toJSONInternalBeforeFirstUpdate());
         community.started = true;
-        // Snapshot the started instance's exports list so the new instance's community.exports
-        // matches at create-time. Subsequent updates on the started instance won't propagate
-        // to this one until the caller re-runs update()/start() — same lifetime as internal state.
-        community._exports = startedCommunity._exports.map(cloneExportRecord);
+        // Always read exports from the keyv-backed DB rather than snapshotting from the started
+        // instance: keyv is the canonical persisted source and is invariant across a stale or
+        // cross-PKC `processStartedCommunities` match.
+        await community.initDbHandlerIfNeeded();
+        try {
+            // Open the DB read-write — opening readonly silently fails to see WAL-mode writes
+            // committed by a still-open writer connection on the same file.
+            await community._dbHandler.initDbIfNeeded();
+            await community._loadExportsFromKeyv();
+        } finally {
+            community._dbHandler.destoryConnection();
+        }
     } else {
         await community.initDbHandlerIfNeeded();
         try {
