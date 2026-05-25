@@ -85,6 +85,8 @@ async function waitForRecord({
     const timeout = new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error(`Timed out waiting on export ${exportId} predicate`)), timeoutMs);
     });
+    // TODO can we actually await here till we get a url instead? I dont like waiting for community.exports we need to verify events are emitted properly
+    // speaking of events, are we verifying events are emitted properly along with their fields? We need to test them explicitly
     const wait = resolveWhenConditionIsTrue({
         toUpdate: community,
         eventName: "exportschange",
@@ -445,6 +447,37 @@ describe(`pkc.destroy() cancels in-flight exports`, async () => {
         if (finalRec) {
             const isTerminal = finalRec.progress === 1 || Boolean(finalRec.error);
             expect(isTerminal).to.equal(true);
+        }
+    });
+
+    // The RPC counterpart to this — surviving disconnect mid-export — lives in the RPC-only
+    // suite below at "client disconnect mid-export". Under embedded the destroy cancels the
+    // export instead of letting it continue, so loadAndPruneExportsFromKeyv must keep the
+    // resulting terminal-error record visible to a freshly constructed PKC on the same dataPath.
+    itSkipIfRpc("a fresh PKC sees the in-flight record after destroy() persists its terminal state", async () => {
+        const pkc = await mockPKC({});
+        const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+        for (let i = 0; i < 10; i++) await publishRandomPost({ communityAddress: community.address, pkc });
+
+        const { exportId } = await community.export();
+        await waitForRecord({ community, exportId, predicate: (r) => r !== undefined, timeoutMs: 5_000 });
+
+        const dataPath = pkc.dataPath;
+        const address = community.address;
+        await pkc.destroy();
+
+        const pkc2 = await mockPKC({ dataPath });
+        try {
+            const reloaded = (await pkc2.createCommunity({ address })) as LocalCommunity;
+            const rec = reloaded.exports.find((r) => r.exportId === exportId);
+            expect(rec).toBeDefined();
+            const isTerminal = rec!.progress === 1 || Boolean(rec!.error);
+            expect(isTerminal).to.equal(true);
+            if (rec!.error) expect(rec!.error.code).to.equal("ERR_EXPORT_CANCELLED");
+        } finally {
+            await pkc2.destroy();
         }
     });
 });
