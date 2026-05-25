@@ -81,23 +81,31 @@ async function waitForRecord({
     predicate,
     timeoutMs = 30_000
 }: WaitForRecordOptions): Promise<CommunityExportRecord | undefined> {
+    // Fast path: if the predicate is already satisfied by the current state, return
+    // immediately without depending on a future event.
+    const initial = community.exports.find((r) => r.exportId === exportId);
+    if (predicate(initial)) return initial;
+
+    // Otherwise, derive state from the exportschange event payload itself rather than
+    // re-reading community.exports. The records array delivered by the emitter is the
+    // authoritative wire-level snapshot, and using it ensures the test actually verifies
+    // that an event was emitted with the expected record fields.
     let timer: NodeJS.Timeout | undefined;
-    const timeout = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`Timed out waiting on export ${exportId} predicate`)), timeoutMs);
+    return await new Promise<CommunityExportRecord | undefined>((resolve, reject) => {
+        const listener = (records: CommunityExportRecord[]) => {
+            const rec = records.find((r) => r.exportId === exportId);
+            if (predicate(rec)) {
+                community.removeListener("exportschange", listener);
+                if (timer) clearTimeout(timer);
+                resolve(rec);
+            }
+        };
+        community.on("exportschange", listener);
+        timer = setTimeout(() => {
+            community.removeListener("exportschange", listener);
+            reject(new Error(`Timed out waiting on export ${exportId} predicate`));
+        }, timeoutMs);
     });
-    // TODO can we actually await here till we get a url instead? I dont like waiting for community.exports we need to verify events are emitted properly
-    // speaking of events, are we verifying events are emitted properly along with their fields? We need to test them explicitly
-    const wait = resolveWhenConditionIsTrue({
-        toUpdate: community,
-        eventName: "exportschange",
-        predicate: async () => predicate(community.exports.find((r) => r.exportId === exportId))
-    });
-    try {
-        await Promise.race([wait, timeout]);
-    } finally {
-        clearTimeout(timer);
-    }
-    return community.exports.find((r) => r.exportId === exportId);
 }
 
 interface WaitForCompleteRecordOptions {
@@ -230,11 +238,50 @@ function defineExportTests(getCtx: () => { pkc: PKCType; community: AnyLocalComm
         try {
             const { exportId } = await community.export();
             await waitForCompleteRecord({ community, exportId });
+
             // At least: initial 0-progress emission + complete emission. Progress emissions may
             // be throttled to 0 if the DB is small enough that the backup finishes in one transfer.
             expect(seen.length).to.be.greaterThanOrEqual(2);
-            const last = seen[seen.length - 1].find((r) => r.exportId === exportId);
-            expect(last?.progress).to.equal(1);
+
+            // Every emission is an array containing a record for this exportId with the
+            // identity-level fields populated.
+            for (const records of seen) {
+                expect(Array.isArray(records)).to.equal(true);
+                const rec = records.find((r) => r.exportId === exportId);
+                expect(rec).toBeDefined();
+                expect(rec!.exportId).to.equal(exportId);
+                expect(typeof rec!.publicKey).to.equal("string");
+                expect(rec!.publicKey.length).to.be.greaterThan(0);
+                expect(typeof rec!.includePrivateKey).to.equal("boolean");
+                expect(typeof rec!.progress).to.equal("number");
+                expect(rec!.progress).to.be.greaterThanOrEqual(0);
+                expect(rec!.progress).to.be.lessThanOrEqual(1);
+            }
+
+            // The first emission is the initial enqueue: progress=0 and no terminal fields.
+            const first = seen[0].find((r) => r.exportId === exportId)!;
+            expect(first.progress).to.equal(0);
+            expect(first.url).to.equal(undefined);
+            expect(first.size).to.equal(undefined);
+            expect(first.sha256).to.equal(undefined);
+            expect(first.error).to.equal(undefined);
+
+            // The last emission for this exportId is terminal-complete with all output fields.
+            const last = seen[seen.length - 1].find((r) => r.exportId === exportId)!;
+            expect(last.progress).to.equal(1);
+            expect(typeof last.url).to.equal("string");
+            expect(last.url!.length).to.be.greaterThan(0);
+            expect(typeof last.sha256).to.equal("string");
+            expect(last.sha256!).to.match(/^[0-9a-f]{64}$/);
+            expect(typeof last.size).to.equal("number");
+            expect(last.size!).to.be.greaterThan(0);
+            expect(last.error).to.equal(undefined);
+
+            // Per spec, the emitted records are deep-cloned snapshots: mutating one must not
+            // affect community.exports.
+            last.progress = 0.42;
+            const live = community.exports.find((r) => r.exportId === exportId);
+            expect(live?.progress).to.equal(1);
         } finally {
             community.removeListener("exportschange", listener);
         }
