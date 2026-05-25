@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.38](https://github.com/pkcprotocol/pkc-js/compare/v0.0.37...v0.0.38) (2026-05-25)
+
+### Bug Fixes
+
+* **challenges:** persist aggregatedComment extras through DB roundtrip ([#104](https://github.com/pkcprotocol/pkc-js/issues/104)) ([a30a5c3](https://github.com/pkcprotocol/pkc-js/commit/a30a5c39f66179f7fc2df7d0d5461ef3510d3987)), closes [#103](https://github.com/pkcprotocol/pkc-js/issues/103) [#103](https://github.com/pkcprotocol/pkc-js/issues/103)
+
 ## [0.0.37](https://github.com/pkcprotocol/pkc-js/compare/v0.0.36...v0.0.37) (2026-05-23)
 
 ### Features
