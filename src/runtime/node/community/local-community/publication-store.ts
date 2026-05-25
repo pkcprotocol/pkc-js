@@ -12,7 +12,7 @@ import {
     CommentEditPubsubMessagePublicationSchema,
     CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema
 } from "../../../../publications/comment-edit/schema.js";
-import { CommentIpfsSchema, CommentPubsubMessagePublicationSchema } from "../../../../publications/comment/schema.js";
+import { CommentIpfsSchema } from "../../../../publications/comment/schema.js";
 import { CommentModerationPubsubMessagePublicationSchema } from "../../../../publications/comment-moderation/schema.js";
 import { VotePubsubMessagePublicationSchema } from "../../../../publications/vote/schema.js";
 import { addAllCidsUnderPurgedCommentToBeRemoved, rmUnneededMfsPaths } from "./cleanup.js";
@@ -468,13 +468,18 @@ export async function storeComment(
         pendingApproval
     };
 
+    // Diff against the literal that was actually hashed into commentCid (commentIpfs), not
+    // commentPubsub. Any non-schema key that reached the CID-bound bytes — including
+    // challengeAggregate.aggregatedComment extras spread on top of commentPubsub above — must
+    // round-trip through extraProps so deriveCommentIpfsFromCommentTableRow can reconstruct the
+    // original CID for page generation.
     const unknownProps = remeda
-        .difference(remeda.keys.strict(commentPubsub), remeda.keys.strict(CommentPubsubMessagePublicationSchema.shape))
+        .difference(remeda.keys.strict(commentIpfs), remeda.keys.strict(CommentIpfsSchema.shape))
         .filter((key) => (key as string) !== "communityAddress"); // communityAddress is excluded because it's been converted to communityPublicKey/communityName above
 
     if (unknownProps.length > 0) {
         log("Found extra props on Comment", unknownProps, "Will be adding them to extraProps column");
-        commentRow.extraProps = remeda.pick(commentPubsub, unknownProps);
+        commentRow.extraProps = remeda.pick(commentIpfs, unknownProps);
     }
     if (challengeAggregate?.aggregatedCommentUpdate && Object.keys(challengeAggregate.aggregatedCommentUpdate).length > 0) {
         commentRow.challengeCommentUpdate = challengeAggregate.aggregatedCommentUpdate;
