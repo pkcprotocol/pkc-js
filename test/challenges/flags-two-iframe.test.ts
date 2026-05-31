@@ -36,6 +36,12 @@ let flagsGet = 0;
 let flagsVerify = 0;
 let aiAllowGet = 0;
 let aiReviewGet = 0;
+// Per-test knobs (mirroring the existing counter pattern). `spamBlockerShouldFail` lets a test make
+// the spam-blocker iframe fail at verify time. `aiVerdict` drives BOTH AI factories from a single
+// value, mirroring @bitsocial/ai-moderation-challenge: one AI call yields "allow" | "review", and the
+// allow/review branch entries succeed only when their branch matches the verdict.
+let spamBlockerShouldFail = false;
+let aiVerdict: "allow" | "review" = "allow";
 const reset = () => {
     spamBlockerGet = 0;
     spamBlockerVerify = 0;
@@ -43,6 +49,8 @@ const reset = () => {
     flagsVerify = 0;
     aiAllowGet = 0;
     aiReviewGet = 0;
+    spamBlockerShouldFail = false;
+    aiVerdict = "allow";
 };
 
 // C2: spam-blocker — pending iframe that verifies successfully once solved.
@@ -55,6 +63,7 @@ const spamBlockerFactory = () => ({
             type: "url/iframe" as const,
             verify: async () => {
                 spamBlockerVerify++;
+                if (spamBlockerShouldFail) return { success: false as const, error: "spam blocker failed" };
                 return { success: true as const };
             }
         };
@@ -82,14 +91,14 @@ const aiAllowFactory = () => ({
     type: "text/plain" as const,
     getChallenge: async () => {
         aiAllowGet++;
-        return { success: true as const };
+        return aiVerdict === "allow" ? { success: true as const } : { success: false as const, error: "not allow" };
     }
 });
 const aiReviewFactory = () => ({
     type: "text/plain" as const,
     getChallenge: async () => {
         aiReviewGet++;
-        return { success: true as const };
+        return aiVerdict === "review" ? { success: true as const } : { success: false as const, error: "needs review" };
     }
 });
 
@@ -110,7 +119,9 @@ const makePkc = () => {
 // spam-blocker, ai-moderation allow, ai-moderation review).
 // if user has .bso, they can post immedietly without AI review, but they still need to run the flags challenge
 // if user is mod/admin/owner, they dont need to run any challenge including flags
-
+// if a user is whitelisted, they only need to run the flags challenge
+// if regular user solves spam blocker (iframe url challenge), then mock-ai-review will decide if it goes to pending approval or not. After solving the spam blocker user should also get iframe url of flags challenge
+// if user fails spam blocker, then it wont go to AI review (cause of the token cost)
 const C0_THROUGH_C4 = [
     {
         name: "publication-match",
@@ -144,8 +155,9 @@ const C0_THROUGH_C4 = [
 // challenge-index excludes (those are what force it to defer behind the spam-blocker iframe).
 const FLAGS_EXCLUDE = [{ role: ["owner", "admin", "moderator"] }, { publicationType: { commentModeration: true, communityEdit: true } }];
 
-const buildCommunity = () =>
+const buildCommunity = (roles?: Record<string, { role: string }>) =>
     ({
+        roles,
         settings: { challenges: [...C0_THROUGH_C4, { name: "mock-flags", exclude: FLAGS_EXCLUDE }] },
         _pkc: makePkc()
     }) as unknown as LocalCommunity;
@@ -155,6 +167,26 @@ const buildCommunity = () =>
 const regularRequest = () =>
     ({
         comment: { author: { address: getRandomAddress(), name: "no-bso-name" } }
+    }) as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+
+// A `.bso` author: passes C0 (publication-match on author.name), which excludes C1-C4 via
+// `{ challenges: [0] }`, leaving only the flags challenge.
+const bsoRequest = () =>
+    ({
+        comment: { author: { address: getRandomAddress(), name: "alice.bso" } }
+    }) as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+
+// A whitelisted author: address matches C1's `addresses` option. C1 passing excludes C0's failure and
+// C2-C4, leaving only the flags challenge.
+const whitelistedRequest = () =>
+    ({
+        comment: { author: { address: "whitelisted-author.bso", name: "no-bso-name" } }
+    }) as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+
+// A request from an author with a fixed address so it can be matched against community.roles.
+const roleRequest = (address: string) =>
+    ({
+        comment: { author: { address, name: "no-bso-name" } }
     }) as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
 const answerEverything: GetChallengeAnswers = async (challenges) => challenges.map(() => "any-answer");
@@ -240,6 +272,114 @@ describe("flags + spam-blocker: two interactive iframe challenges must share one
             community
         })) as ChallengeVerificationResult;
         expect("pendingChallenges" in pending).to.equal(true);
+        expect(aiAllowGet).to.equal(0);
+        expect(aiReviewGet).to.equal(0);
+    });
+});
+
+// The same C0-C5 config, exercised across every user type the comment block above describes. These
+// assert the OWNER'S INTENT (the comment), not whatever the current orchestrator happens to do.
+describe("politically-incorrect.bso config: per-user-type scenarios", () => {
+    it("mods/admins/owners run NO challenges at all (not even flags)", async () => {
+        for (const role of ["owner", "admin", "moderator"]) {
+            reset();
+            const address = getRandomAddress();
+            const result = await getChallengeVerification({
+                challengeRequestMessage: roleRequest(address),
+                community: buildCommunity({ [address]: { role } }),
+                getChallengeAnswers: answerEverything
+            });
+            expect(result.challengeSuccess, `role ${role}`).to.equal(true);
+            expect(spamBlockerGet, `role ${role}`).to.equal(0);
+            expect(flagsGet, `role ${role}`).to.equal(0);
+            expect(aiAllowGet, `role ${role}`).to.equal(0);
+            expect(aiReviewGet, `role ${role}`).to.equal(0);
+        }
+    });
+
+    it(".bso authors skip the spam-blocker and AI moderation, but still run the flags challenge", async () => {
+        reset();
+        const pending = (await getPendingChallengesOrChallengeVerification({
+            challengeRequestMessage: bsoRequest(),
+            community: buildCommunity()
+        })) as ChallengeVerificationResult & { pendingChallenges?: { index: number; challenge: string }[] };
+        // Only the flags challenge is presented.
+        expect(pending.pendingChallenges?.map((p) => p.index)).to.deep.equal([5]);
+        expect(pending.pendingChallenges?.[0].challenge).to.equal("https://flags.example.com/verify");
+        expect(spamBlockerGet).to.equal(0);
+        expect(aiAllowGet).to.equal(0);
+        expect(aiReviewGet).to.equal(0);
+
+        // And solving it publishes the comment (with the flag assertion carried through).
+        reset();
+        const result = await getChallengeVerification({
+            challengeRequestMessage: bsoRequest(),
+            community: buildCommunity(),
+            getChallengeAnswers: answerEverything
+        });
+        expect(result.challengeSuccess).to.equal(true);
+        expect(flagsVerify).to.equal(1);
+        expect((result as { aggregatedComment?: Record<string, unknown> }).aggregatedComment).to.have.property("5chan");
+    });
+
+    it("whitelisted authors skip the spam-blocker and AI moderation, but still run the flags challenge", async () => {
+        reset();
+        const pending = (await getPendingChallengesOrChallengeVerification({
+            challengeRequestMessage: whitelistedRequest(),
+            community: buildCommunity()
+        })) as ChallengeVerificationResult & { pendingChallenges?: { index: number; challenge: string }[] };
+        expect(pending.pendingChallenges?.map((p) => p.index)).to.deep.equal([5]);
+        expect(pending.pendingChallenges?.[0].challenge).to.equal("https://flags.example.com/verify");
+        expect(spamBlockerGet).to.equal(0);
+        expect(aiAllowGet).to.equal(0);
+        expect(aiReviewGet).to.equal(0);
+
+        reset();
+        const result = await getChallengeVerification({
+            challengeRequestMessage: whitelistedRequest(),
+            community: buildCommunity(),
+            getChallengeAnswers: answerEverything
+        });
+        expect(result.challengeSuccess).to.equal(true);
+        expect(flagsVerify).to.equal(1);
+        expect((result as { aggregatedComment?: Record<string, unknown> }).aggregatedComment).to.have.property("5chan");
+    });
+
+    it("regular author whose content the AI allows publishes normally (no pending approval)", async () => {
+        reset();
+        aiVerdict = "allow";
+        const result = await getChallengeVerification({
+            challengeRequestMessage: regularRequest(),
+            community: buildCommunity(),
+            getChallengeAnswers: answerEverything
+        });
+        expect(result.challengeSuccess).to.equal(true);
+        expect(result.pendingApproval).to.not.equal(true);
+        expect(aiAllowGet).to.equal(1);
+    });
+
+    it("regular author whose content the AI flags for review goes to pending approval", async () => {
+        reset();
+        aiVerdict = "review";
+        const result = await getChallengeVerification({
+            challengeRequestMessage: regularRequest(),
+            community: buildCommunity(),
+            getChallengeAnswers: answerEverything
+        });
+        expect(result.challengeSuccess).to.equal(true);
+        expect(result.pendingApproval).to.equal(true);
+        expect(aiReviewGet).to.equal(1);
+    });
+
+    it("does NOT run AI moderation when the spam-blocker is failed (token-cost guard)", async () => {
+        reset();
+        spamBlockerShouldFail = true;
+        const result = await getChallengeVerification({
+            challengeRequestMessage: regularRequest(),
+            community: buildCommunity(),
+            getChallengeAnswers: answerEverything
+        });
+        expect(result.challengeSuccess).to.equal(false);
         expect(aiAllowGet).to.equal(0);
         expect(aiReviewGet).to.equal(0);
     });
