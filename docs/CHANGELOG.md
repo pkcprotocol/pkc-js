@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.39](https://github.com/pkcprotocol/pkc-js/compare/v0.0.38...v0.0.39) (2026-05-31)
+
+### Features
+
+* **community:** add features.noReplyLinks to block replies with links ([#105](https://github.com/pkcprotocol/pkc-js/issues/105)) ([3cea716](https://github.com/pkcprotocol/pkc-js/commit/3cea71643df479f26a095335641227283ecbc7db))
+
 ## [0.0.38](https://github.com/pkcprotocol/pkc-js/compare/v0.0.37...v0.0.38) (2026-05-25)
 
 ### Bug Fixes
