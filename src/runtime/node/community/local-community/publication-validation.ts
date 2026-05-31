@@ -326,6 +326,9 @@ async function checkCommentPublication(
     )
         return messages.ERR_REPLY_HAS_LINK_THAT_IS_VIDEO;
 
+    // noReplyLinks - block all replies that have a link field set
+    if (community.features?.noReplyLinks && commentPublication.parentCid && commentPublication.link) return messages.ERR_REPLY_HAS_LINK;
+
     // noAudio - block ALL comments with audio links
     if (community.features?.noAudio && commentPublication.link && isLinkOfAudio(commentPublication.link))
         return messages.ERR_COMMENT_HAS_LINK_THAT_IS_AUDIO;

@@ -50,6 +50,7 @@ export const CommunityFeaturesSchema = z.looseObject({
     noVideoReplies: z.boolean().optional(), // Block only replies with video links
     noSpoilerReplies: z.boolean().optional(), // Author can't set spoiler = true on replies
     noImageReplies: z.boolean().optional(), // Block only replies with image links
+    noReplyLinks: z.boolean().optional(), // Block all replies that have a link field set
     noPolls: z.boolean().optional(), // Not impllemented
     noCrossposts: z.boolean().optional(), // Not implemented
     noNestedReplies: z.boolean().optional(), // No nested replies, like old school forums and 4chan. Maximum depth is 1

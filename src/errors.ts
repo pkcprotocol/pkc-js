@@ -271,6 +271,7 @@ export enum messages {
     ERR_REPLY_HAS_LINK_THAT_IS_VIDEO = "This community does not allow replies with video links",
     ERR_COMMENT_HAS_LINK_THAT_IS_AUDIO = "This community does not allow comments with audio links",
     ERR_REPLY_HAS_LINK_THAT_IS_AUDIO = "This community does not allow replies with audio links",
+    ERR_REPLY_HAS_LINK = "This community does not allow replies with links",
     ERR_COMMENT_CONTENT_CONTAINS_MARKDOWN_AUDIO = "This community does not allow embedding audio in markdown content",
     ERR_REPLY_HAS_SPOILER_ENABLED = "This community does not allow authors to mark replies as spoilers",
     ERR_NESTED_REPLIES_NOT_ALLOWED = "This community does not allow nested replies (depth > 1)",
