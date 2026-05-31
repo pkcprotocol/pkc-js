@@ -18,13 +18,21 @@ import { PKC } from "./fixtures/fixtures.ts";
 // The protocol has a single interactive round (docs/protocol/challenge-flow.md), so BOTH iframes have
 // to appear together in the one ChallengeMessage, and the comment must only publish once both are solved.
 //
-// BUG (this is what these tests gate): the orchestrator can only ever surface one interactive challenge
-// per request. Once any challenge is pending and the dependency loop stalls, every remaining undecided
-// challenge is deferred (src/runtime/node/community/challenges/index.ts Phase 4), and a deferred
-// interactive challenge is then silently ignored at verify time. So whichever iframe is reached first is
-// shown and the other is dropped — the comment publishes with one of the two challenges never verified.
+// Why both iframes appear together (and why these tests are green): the orchestrator defers every
+// remaining undecided challenge the moment any challenge goes pending (the hasPending branch of
+// getPendingChallengesOrChallengeVerification in src/runtime/node/community/challenges/index.ts). So
+// whether both iframes surface depends entirely on them becoming "ready" in the SAME orchestrator round.
+// The production flags exclude rule { challenges: [0, 1] } (skip flags only if BOTH publication-match and
+// whitelist succeeded) is what makes that happen: it holds the flags challenge back until C0 and C1 are
+// decided. For a regular author both fail, and on that same round the spam-blocker (whose own excludes
+// also depend on C0 and C1) becomes ready too, so both flip to pending together before the defer branch
+// can fire. The expensive AI moderation (C3/C4) stays deferred behind them.
 //
-// These tests assert the CORRECT behaviour and are expected to FAIL until the orchestrator is fixed.
+// An earlier version of this file dropped that { challenges: [0, 1] } rule, which made flags ready in the
+// first round and pending alone; the orchestrator then deferred the spam-blocker and silently ignored it
+// at verify time, so only one of the two iframes was ever shown and these tests failed. Restoring the
+// production exclude (see FLAGS_EXCLUDE below) synchronizes the two iframes, which is the behaviour these
+// tests now assert as passing.
 
 type ChallengeVerificationResult = Awaited<ReturnType<typeof getPendingChallengesOrChallengeVerification>>;
 
@@ -151,9 +159,16 @@ const C0_THROUGH_C4 = [
     }
 ];
 
-// Correct flags config for the owner's intent: flags runs for everyone except mods, with NO
-// challenge-index excludes (those are what force it to defer behind the spam-blocker iframe).
-const FLAGS_EXCLUDE = [{ role: ["owner", "admin", "moderator"] }, { publicationType: { commentModeration: true, communityEdit: true } }];
+// Flags config matching production politically-incorrect.bso: runs for everyone except mods, and is
+// skipped only when BOTH publication-match (0) and whitelist (1) succeeded. The { challenges: [0, 1] }
+// rule is load-bearing: it delays the flags challenge's readiness until C0 and C1 are decided, which
+// lines it up with the spam-blocker so both iframes surface in the same ChallengeMessage. Dropping it
+// makes flags ready first and pending alone, and the spam-blocker then gets deferred and silently dropped.
+const FLAGS_EXCLUDE = [
+    { role: ["owner", "admin", "moderator"] },
+    { publicationType: { commentModeration: true, communityEdit: true } },
+    { challenges: [0, 1] }
+];
 
 const buildCommunity = (roles?: Record<string, { role: string }>) =>
     ({
