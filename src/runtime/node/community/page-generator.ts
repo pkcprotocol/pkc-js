@@ -428,7 +428,12 @@ export class PageGenerator {
 
     async _bundleLatestCommentUpdateWithQueuedComments(queuedComment: CommentsTableRow): Promise<ModQueueCommentInPage> {
         const communityAuthor = this._community._dbHandler.queryCommunityAuthor(queuedComment.authorSignerAddress);
+        // Spread the challenge-supplied commentUpdate fields (e.g. `reason`) persisted at storage time
+        // so the mod-queue page matches the live challengeverification sent to the publisher. Base
+        // fields are spread last so they win. signCommentUpdateForChallengeVerification derives
+        // signedPropertyNames from the actual keys, so extras like `reason` are signed automatically.
         const commentUpdateOfVerificationNoSignature = <Omit<ModQueueCommentInPage["commentUpdate"], "signature">>cleanUpBeforePublishing({
+            ...(queuedComment.challengeCommentUpdate ?? {}),
             author: { community: communityAuthor },
             cid: queuedComment.cid,
             protocolVersion: env.PROTOCOL_VERSION,
