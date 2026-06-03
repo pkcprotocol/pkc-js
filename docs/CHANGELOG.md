@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.40](https://github.com/pkcprotocol/pkc-js/compare/v0.0.39...v0.0.40) (2026-06-03)
+
+### Bug Fixes
+
+* **modqueue:** include challenge-supplied commentUpdate.reason in pending-approval page ([#111](https://github.com/pkcprotocol/pkc-js/issues/111)) ([62d4a9a](https://github.com/pkcprotocol/pkc-js/commit/62d4a9aed0e6be057345bd058a6b6a547a830f7c)), closes [#110](https://github.com/pkcprotocol/pkc-js/issues/110) [#110](https://github.com/pkcprotocol/pkc-js/issues/110)
+
 ## [0.0.39](https://github.com/pkcprotocol/pkc-js/compare/v0.0.38...v0.0.39) (2026-05-31)
 
 ### Features
