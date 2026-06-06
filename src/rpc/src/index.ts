@@ -1570,7 +1570,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
         await this._getPKCInstance(); // to await for settings change
 
-        await publication.publishChallengeAnswers({ challengeAnswers: decryptedChallengeAnswers.challengeAnswers });
+        await publication.publishChallengeAnswers(decryptedChallengeAnswers.challengeAnswers);
 
         return { success: true };
     }
