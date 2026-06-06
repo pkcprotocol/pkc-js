@@ -133,6 +133,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     private _autoStartConcurrency: number;
     private _rpcStateDb: BetterSqlite3Database | undefined;
     private _allowPrivateKeyExport: boolean;
+    // Max age (ms) for orphaned export sqlite files before the startup sweep deletes them.
+    private _exportFileMaxAgeMs: number;
     // Per-address cache of LocalCommunity instances loaded for export purposes when the
     // community isn't currently in _startedCommunities. Keeps `_exports` and the
     // `exportschange` event consistent across exportCommunity / exportsSubscribe / cancelExport
@@ -151,7 +153,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         authKey,
         startStartedCommunitiesOnStartup,
         autoStartConcurrency,
-        allowPrivateKeyExport
+        allowPrivateKeyExport,
+        exportFileMaxAgeMs
     }: PKCWsServerClassOptions) {
         super();
         const log = Logger("pkc-js:PKCWsServer");
@@ -161,6 +164,9 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         this._autoStartConcurrency = Math.max(1, autoStartConcurrency ?? 5);
         // Default true — matches private-RPC scope. Public-RPC operators set false.
         this._allowPrivateKeyExport = allowPrivateKeyExport ?? true;
+        // Default 24h — orphaned export sqlite files older than this are swept on startup.
+        // 0 disables the sweep entirely (export files are kept forever). `??` preserves an explicit 0.
+        this._exportFileMaxAgeMs = exportFileMaxAgeMs ?? 24 * 60 * 60 * 1000;
         // don't instantiate pkc in constructor because it's an async function
         this._initPKC(pkc);
 
@@ -1674,12 +1680,15 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
     // GET /exports/<exportId> — streams the sqlite backup over HTTP on the same port as the WS.
     // After a successful response, deletes the file and prunes the record (per spec).
-    // Deletes export files older than 24h. Called once on server startup (per spec).
-    // Records pointing to deleted files get pruned the next time the community loads via
+    // Deletes export files older than `_exportFileMaxAgeMs` (default 24h, configurable via the
+    // `exportFileMaxAgeMs` server option; 0 disables the sweep). Called once on server startup (per spec). Records
+    // pointing to deleted files get pruned the next time the community loads via
     // loadAndPruneExportsFromKeyv. We do not eagerly load every community here to avoid the
     // boot cost; the embedded loader handles cleanup lazily.
     async _sweepOldExportFiles(): Promise<void> {
-        const MAX_AGE_MS = 24 * 60 * 60 * 1000;
+        const MAX_AGE_MS = this._exportFileMaxAgeMs;
+        // 0 means "keep export files forever" — never auto-remove anything.
+        if (MAX_AGE_MS === 0) return;
         if (!this.pkc.dataPath) return;
         const exportsDir = path.join(this.pkc.dataPath, "exports");
         if (!existsSync(exportsDir)) return;
@@ -1819,7 +1828,8 @@ const createPKCWsServer = async (options: CreatePKCWsServerOptions) => {
         authKey: parsedOptions.authKey,
         startStartedCommunitiesOnStartup: parsedOptions.startStartedCommunitiesOnStartup,
         autoStartConcurrency: parsedOptions.autoStartConcurrency,
-        allowPrivateKeyExport: parsedOptions.allowPrivateKeyExport
+        allowPrivateKeyExport: parsedOptions.allowPrivateKeyExport,
+        exportFileMaxAgeMs: parsedOptions.exportFileMaxAgeMs
     });
 
     // Auto-start previously started communities (fire-and-forget, non-blocking)
@@ -1827,7 +1837,7 @@ const createPKCWsServer = async (options: CreatePKCWsServerOptions) => {
         log.error("Failed to auto-start previous communities", e);
     });
 
-    // Delete export files older than 24h (fire-and-forget) — see EXPORT_COMMUNITY_SPEC.md
+    // Delete export files older than exportFileMaxAgeMs (default 24h, fire-and-forget) — see EXPORT_COMMUNITY_SPEC.md
     pkcWss._sweepOldExportFiles().catch((e) => {
         log.error("Failed to sweep old export files", e);
     });

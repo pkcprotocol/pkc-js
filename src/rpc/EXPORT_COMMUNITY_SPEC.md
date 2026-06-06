@@ -14,7 +14,7 @@ This document describes the design of the `community.export()` feature added in 
 | Read-only `RemoteCommunity.export()` rejection | ✅ Shipped |
 | RPC wire methods (`exportCommunity` / `exportsSubscribe` / `cancelExport`) | ✅ Shipped (PR #100) |
 | HTTP `GET /exports/<exportId>` download endpoint | ✅ Shipped (PR #100) |
-| 24h orphan sweep on server startup | ✅ Shipped (PR #100) |
+| 24h orphan sweep on server startup (configurable via `exportFileMaxAgeMs`, `0` disables) | ✅ Shipped (PR #100) |
 | Post-download server-side deletion | ✅ Shipped (PR #100) |
 | `allowPrivateKeyExport` policy on RPC server | ✅ Shipped (PR #100) |
 
@@ -199,7 +199,7 @@ The signer lives inside the `internalCommunity` KeyV record. With the backup DB 
 
 - **Embedded mode (shipped)**: no auto-deletion. The record stays in `community.exports` indefinitely. The user manages cleanup; deleting the file out-of-band causes the record to be pruned from `community.exports` on next community load (via `loadAndPruneExportsFromKeyv`).
 - **After successful HTTP download** *(Planned)*: the RPC server deletes the export file once it finishes streaming the HTTP response, removes the record from `community.exports`, and fires `exportschange`.
-- **Never-downloaded exports** *(Planned)*: on RPC server startup, delete any files in `<pkcDataPath>/exports/` older than 24 hours and prune the matching records.
+- **Never-downloaded exports** *(Planned)*: on RPC server startup, delete any files in `<pkcDataPath>/exports/` older than 24 hours and prune the matching records. The age threshold is configurable via the `exportFileMaxAgeMs` server option (default `86_400_000` = 24h). Setting `exportFileMaxAgeMs: 0` disables the sweep entirely so export files are kept forever.
 
 ## HTTP Download Endpoint (Planned — deferred from this PR)
 
