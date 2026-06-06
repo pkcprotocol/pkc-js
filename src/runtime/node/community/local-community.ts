@@ -72,6 +72,15 @@ import {
 } from "./local-community/ipns-publishing.js";
 import { deleteCommunity, start as lifecycleStart, stop as lifecycleStop, update as lifecycleUpdate } from "./local-community/lifecycle.js";
 import { edit as editCommunity } from "./local-community/editing.js";
+import {
+    cancelExportEmbedded,
+    cloneExportRecord,
+    deleteExportRecord,
+    exportCommunityEmbedded,
+    loadAndPruneExportsFromKeyv
+} from "./local-community/export.js";
+import type { InternalExportHandle } from "./local-community/export.js";
+import type { CommunityExportRecord, ExportCommunityUserOptions } from "../../../community/types.js";
 
 // This is a sub we have locally in our pkc datapath, in a NodeJS environment
 export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalCommunityParsedOptions {
@@ -121,6 +130,13 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     _pendingEditProps: Partial<ParsedCommunityEditOptions & { editId: string }>[] = [];
     _blocksToRm: string[] = [];
     _postsAllPageCids: AllPageCids | undefined = undefined;
+
+    // Community export (issue #79). _exports is the public list surfaced through
+    // `community.exports`; _activeExports tracks in-flight backups so pkc.destroy() can cancel
+    // them; _exportQueue serializes back-to-back exports on the same community per spec.
+    _exports: CommunityExportRecord[] = [];
+    _activeExports: Map<string, InternalExportHandle> = new Map();
+    _exportQueue: Promise<void> = Promise.resolve();
 
     constructor(pkc: PKC) {
         super(pkc);
@@ -369,6 +385,26 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
     override async edit(newCommunityOptions: CommunityEditOptions): Promise<typeof this> {
         return (await editCommunity(this, newCommunityOptions)) as typeof this;
+    }
+
+    override get exports(): CommunityExportRecord[] {
+        return this._exports.map(cloneExportRecord);
+    }
+
+    override async export(options?: ExportCommunityUserOptions): Promise<{ exportId: string }> {
+        return exportCommunityEmbedded(this, options);
+    }
+
+    async _cancelExport(exportId: string): Promise<void> {
+        return cancelExportEmbedded(this, exportId);
+    }
+
+    async _deleteExport(exportId: string): Promise<void> {
+        return deleteExportRecord(this, exportId);
+    }
+
+    async _loadExportsFromKeyv(): Promise<void> {
+        return loadAndPruneExportsFromKeyv(this);
     }
 
     // The three helpers below stay as methods (in addition to being free functions in their

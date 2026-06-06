@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { CommentIpfsSchema, CommentUpdateSchema } from "../../publications/comment/schema.js";
 import { AuthorAddressSchema, ChallengeAnswersSchema, CidStringSchema } from "../../schema/schema.js";
-import { CommunityEditOptionsSchema } from "../../community/schema.js";
+import { CommunityEditOptionsSchema, CommunityExportRecordsSchema } from "../../community/schema.js";
 import { NameResolveCacheOptionsSchema } from "../../schema.js";
 import type { EncodedDecryptedChallengeVerificationMessageType } from "../../pubsub-messages/types.js";
 export const SubscriptionIdSchema = z.number().positive().int();
@@ -64,3 +64,18 @@ export const RpcFetchCidResultSchema = z.object({ content: z.string() });
 export const RpcResolveAuthorNameResultSchema = z.object({ resolvedAuthorName: z.string().nullable() });
 export const RpcSuccessResultSchema = z.object({ success: z.literal(true) });
 export const RpcSubscriptionIdResultSchema = z.object({ subscriptionId: SubscriptionIdSchema }); // parsed with .loose() in rpc-schema-util.ts
+
+// community.export() — wire params and results
+export const RpcExportCommunityParamSchema = z
+    .object({
+        name: z.string().min(1).optional(),
+        publicKey: z.string().min(1).optional(),
+        includePrivateKey: z.boolean().optional()
+    })
+    .refine((args) => args.name || args.publicKey, "At least one of name or publicKey must be provided");
+
+export const RpcCancelExportParamSchema = z.object({ exportId: z.string().uuid() });
+
+export const RpcExportCommunityResultSchema = z.object({ exportId: z.string().uuid() });
+
+export const RpcExportschangeResultSchema = z.object({ records: CommunityExportRecordsSchema });

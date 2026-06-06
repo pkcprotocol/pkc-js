@@ -1,5 +1,5 @@
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
-import { getAvailablePKCConfigsToTestAgainst, isRpcFlagOn, isRunningInBrowser } from "../../../dist/node/test/test-util.js";
+import { getAvailablePKCConfigsToTestAgainst, isRpcFlagOn, isRunningInBrowser, mockPKC } from "../../../dist/node/test/test-util.js";
 import { itIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 

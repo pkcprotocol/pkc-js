@@ -20,7 +20,16 @@ export const CreatePKCWsServerOptionsSchema = z
         startStartedCommunitiesOnStartup: z.boolean().optional(),
         // Controls how many communities are auto-started in parallel on boot.
         // 0 or 1 disables parallelism (sequential start). Default: 5
-        autoStartConcurrency: z.number().int().nonnegative().optional()
+        autoStartConcurrency: z.number().int().nonnegative().optional(),
+        // community.export() policy: when false, the server rejects exportCommunity calls with
+        // includePrivateKey: true. Default true (private-RPC scope). Public-RPC operators set false.
+        allowPrivateKeyExport: z.boolean().optional(),
+        // Orphan export-file sweep: on server startup, export sqlite files in <pkcDataPath>/exports/
+        // older than this many milliseconds are deleted. Default 86_400_000 (24h). Lower it to
+        // reclaim disk sooner; raise it to retain never-downloaded exports for longer.
+        // Set it to 0 to disable the sweep entirely — export files are then kept forever and pkc-js
+        // never auto-removes them.
+        exportFileMaxAgeMs: z.number().int().nonnegative().optional()
     })
     .merge(WsServerClassOptions)
     .loose();

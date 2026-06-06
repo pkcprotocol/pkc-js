@@ -27,7 +27,9 @@ import type {
     RpcLocalCommunityLocalProps,
     CommunityEditOptions,
     CommunityEventArgs,
-    CommunityEvents
+    CommunityEvents,
+    CommunityExportRecord,
+    ExportCommunityUserOptions
 } from "./types.js";
 import * as remeda from "remeda";
 import { ModQueuePages, PostsPages } from "../pages/pages.js";
@@ -748,5 +750,15 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
 
     async start() {
         throw Error("Can't start a remote community");
+    }
+
+    // Community export (issue #79). Overridden by LocalCommunity and the RPC variants.
+    // The base implementation rejects because a read-only RemoteCommunity has no DB to back up.
+    get exports(): CommunityExportRecord[] {
+        return [];
+    }
+
+    async export(options?: ExportCommunityUserOptions): Promise<{ exportId: string }> {
+        throw new PKCError("ERR_COMMUNITY_NOT_LOCAL", { address: this.address });
     }
 }

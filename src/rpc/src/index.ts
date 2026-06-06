@@ -1,6 +1,9 @@
 import pLimit from "p-limit";
 import { Server as RpcWebsocketsServer } from "rpc-websockets";
-import { mkdirSync } from "fs";
+import { createReadStream, existsSync, mkdirSync, promises as fsPromises, statSync } from "fs";
+import http, { type Server as HTTPServer, type ServerResponse } from "http";
+import type { Server as HTTPSServer } from "https";
+import { fileURLToPath } from "node:url";
 import path from "path";
 import Database, { type Database as BetterSqlite3Database } from "better-sqlite3";
 import PKCJs, { setPKCJs } from "./lib/pkc-js/index.js";
@@ -81,7 +84,9 @@ import {
     parseRpcCommunityPageParam,
     parseRpcEditCommunityParam,
     parseRpcPublishChallengeAnswersParam,
-    parseRpcUnsubscribeParam
+    parseRpcUnsubscribeParam,
+    parseRpcExportCommunityParam,
+    parseRpcCancelExportParam
 } from "../../clients/rpc-client/rpc-schema-util.js";
 import type {
     CommunityIdentifierRpcParam,
@@ -91,8 +96,10 @@ import type {
     RpcResolveAuthorNameResult,
     RpcCommentPageResult,
     RpcCommunityPageResult,
-    RpcLocalCommunityUpdateResultType
+    RpcLocalCommunityUpdateResultType,
+    RpcExportCommunityResult
 } from "../../clients/rpc-client/types.js";
+import type { CommunityExportRecord } from "../../community/types.js";
 import { findStartedCommunity } from "../../pkc/tracked-instance-registry-util.js";
 
 // store started communities to be able to stop them
@@ -125,19 +132,68 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     private _autoStartOnBoot: boolean = false;
     private _autoStartConcurrency: number;
     private _rpcStateDb: BetterSqlite3Database | undefined;
+    private _allowPrivateKeyExport: boolean;
+    // Max age (ms) for orphaned export sqlite files before the startup sweep deletes them.
+    private _exportFileMaxAgeMs: number;
+    // Per-address cache of LocalCommunity instances loaded for export purposes when the
+    // community isn't currently in _startedCommunities. Keeps `_exports` and the
+    // `exportschange` event consistent across exportCommunity / exportsSubscribe / cancelExport
+    // calls for the same address.
+    private _exportCommunityInstances: Map<string, LocalCommunity> = new Map();
+    // http.Server backing the WS — populated when caller passes neither `server` nor relies on
+    // rpc-websockets to bind its own. We attach the GET /exports/<exportId> route to whichever
+    // http server underlies the WS.
+    private _httpServer: HTTPServer | HTTPSServer | undefined;
+    private _ownsHttpServer: boolean = false;
 
-    constructor({ port, server, pkc, authKey, startStartedCommunitiesOnStartup, autoStartConcurrency }: PKCWsServerClassOptions) {
+    constructor({
+        port,
+        server,
+        pkc,
+        authKey,
+        startStartedCommunitiesOnStartup,
+        autoStartConcurrency,
+        allowPrivateKeyExport,
+        exportFileMaxAgeMs
+    }: PKCWsServerClassOptions) {
         super();
         const log = Logger("pkc-js:PKCWsServer");
         this.authKey = authKey;
         this._autoStartOnBoot = startStartedCommunitiesOnStartup ?? true;
         // Clamp to at least 1 since pLimit(0) throws. 0 or 1 means sequential (no parallelism)
         this._autoStartConcurrency = Math.max(1, autoStartConcurrency ?? 5);
+        // Default true — matches private-RPC scope. Public-RPC operators set false.
+        this._allowPrivateKeyExport = allowPrivateKeyExport ?? true;
+        // Default 24h — orphaned export sqlite files older than this are swept on startup.
+        // 0 disables the sweep entirely (export files are kept forever). `??` preserves an explicit 0.
+        this._exportFileMaxAgeMs = exportFileMaxAgeMs ?? 24 * 60 * 60 * 1000;
         // don't instantiate pkc in constructor because it's an async function
         this._initPKC(pkc);
+
+        // Always operate on an explicit http.Server so we can attach the /exports/<exportId>
+        // route alongside the WS upgrade handler. When the caller passed neither `server` nor
+        // delegated port-binding to rpc-websockets, we create and own one.
+        if (server) {
+            this._httpServer = server;
+        } else {
+            this._httpServer = http.createServer();
+            this._ownsHttpServer = true;
+            if (typeof port === "number") this._httpServer.listen(port);
+        }
+        this._httpServer.on("request", (req, res) => {
+            // rpc-websockets does not register request listeners — any HTTP request reaching
+            // this http.Server is ours to handle. Currently the only route is GET /exports/<id>.
+            this._handleExportsHttpRequest(req, res).catch((e) => {
+                log.error("Unhandled error in /exports HTTP handler", e);
+                if (!res.headersSent) {
+                    res.statusCode = 500;
+                    res.end();
+                }
+            });
+        });
+
         this.rpcWebsockets = new RpcWebsocketsServer({
-            port,
-            server,
+            server: this._httpServer,
             verifyClient: ({ req }, callback) => {
                 // block non-localhost requests without auth key for security
 
@@ -231,6 +287,11 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         this.rpcWebsocketsRegister("publishCommentModeration", this.publishCommentModeration.bind(this));
         this.rpcWebsocketsRegister("publishChallengeAnswers", this.publishChallengeAnswers.bind(this));
         this.rpcWebsocketsRegister("unsubscribe", this.unsubscribe.bind(this));
+
+        // community.export() — see EXPORT_COMMUNITY_SPEC.md
+        this.rpcWebsocketsRegister("exportCommunity", this.exportCommunity.bind(this));
+        this.rpcWebsocketsRegister("exportsSubscribe", this.exportsSubscribe.bind(this));
+        this.rpcWebsocketsRegister("cancelExport", this.cancelExport.bind(this));
 
         hideClassPrivateProps(this);
     }
@@ -1520,6 +1581,231 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         return pkc.resolveAuthorName(parsedArgs);
     }
 
+    // community.export() — see src/rpc/EXPORT_COMMUNITY_SPEC.md
+    // Resolves to the canonical LocalCommunity instance for the given identifier so that
+    // exportCommunity / exportsSubscribe / cancelExport all share the same `_exports` array
+    // and `exportschange` event source. Cache-first ordering matters: once the first
+    // export-related call lands on an instance, every subsequent one must reuse it. Otherwise
+    // a subscription attached before community.start() would listen on a different
+    // LocalCommunity than the started instance picked up by a later exportCommunity call
+    // (pkc.createCommunity at src/pkc/pkc.ts:749 constructs a new LocalCommunity per call),
+    // and the export's `exportschange` would never reach the listener.
+    private async _resolveLocalCommunityForExport(parsedArgs: { name?: string; publicKey?: string }): Promise<LocalCommunity> {
+        const address = this._findCommunityAddress(parsedArgs);
+        if (!address) throw new PKCError("ERR_COMMUNITY_NOT_FOUND", { name: parsedArgs.name, publicKey: parsedArgs.publicKey });
+
+        const cached = this._exportCommunityInstances.get(address);
+        if (cached) return cached;
+
+        // No cache yet — prefer the started instance if one exists, otherwise load fresh.
+        const started = findStartedCommunity(this.pkc, parsedArgs);
+        if (started instanceof LocalCommunity) {
+            this._exportCommunityInstances.set(address, started);
+            return started;
+        }
+
+        const community = <LocalCommunity | RemoteCommunity>await this.pkc.createCommunity({ address });
+        if (!(community instanceof LocalCommunity)) throw new PKCError("ERR_COMMUNITY_NOT_LOCAL", { address });
+        this._exportCommunityInstances.set(address, community);
+        return community;
+    }
+
+    // Server-side records carry `file://` URLs (the embedded path). Over the wire we emit a
+    // relative `/exports/<exportId>` URL; the RPC client absolutizes against rpcHttpOrigin.
+    private _toWireExportRecord(rec: CommunityExportRecord): CommunityExportRecord {
+        if (rec.progress === 1 && rec.url) return { ...rec, url: `/exports/${rec.exportId}` };
+        return rec;
+    }
+
+    async exportCommunity(params: any, connectionId: string): Promise<RpcExportCommunityResult> {
+        const parsedArgs = parseRpcExportCommunityParam(params[0]);
+        if (parsedArgs.includePrivateKey === true && !this._allowPrivateKeyExport)
+            throw new PKCError("ERR_PRIVATE_KEY_EXPORT_NOT_ALLOWED", {});
+        const community = await this._resolveLocalCommunityForExport(parsedArgs);
+        return community.export({ includePrivateKey: parsedArgs.includePrivateKey });
+    }
+
+    async exportsSubscribe(params: any, connectionId: string): Promise<RpcSubscriptionIdResult> {
+        const parsedArgs = parseRpcCommunityIdentifierParam(params[0]);
+        const subscriptionId = generateSubscriptionId();
+        const community = await this._resolveLocalCommunityForExport(parsedArgs);
+
+        const sendEvent = (event: string, result: any) =>
+            this.jsonRpcSendNotification({
+                method: "exportschange",
+                subscription: subscriptionId,
+                event,
+                result,
+                connectionId
+            });
+
+        const exportschangeListener = (records: CommunityExportRecord[]) =>
+            sendEvent("exportschange", { records: records.map((r) => this._toWireExportRecord(r)) });
+        community.on("exportschange", exportschangeListener);
+
+        this.subscriptionCleanups[connectionId][subscriptionId] = async () => {
+            community.removeListener("exportschange", exportschangeListener);
+        };
+
+        // Initial notification carries the current exports array. Per spec, tearing down this
+        // subscription does NOT cancel any in-flight exports — exports outlive client connections.
+        sendEvent("exportschange", { records: community.exports.map((r) => this._toWireExportRecord(r)) });
+
+        return { subscriptionId };
+    }
+
+    async cancelExport(params: any, connectionId: string): Promise<RpcSuccessResult> {
+        const { exportId } = parseRpcCancelExportParam(params[0]);
+        for (const community of this._exportLoadedCommunities())
+            if (community._activeExports.has(exportId)) {
+                await community._cancelExport(exportId);
+                break;
+            }
+        // Idempotent: unknown exportId returns success without action (per spec).
+        return { success: true };
+    }
+
+    private *_exportLoadedCommunities(): IterableIterator<LocalCommunity> {
+        for (const value of Object.values(this._startedCommunities)) if (value instanceof LocalCommunity) yield value;
+        for (const value of this._exportCommunityInstances.values()) yield value;
+    }
+
+    private _findCommunityOwningExport(exportId: string): { community: LocalCommunity; record: CommunityExportRecord } | undefined {
+        for (const community of this._exportLoadedCommunities()) {
+            const record = community._exports.find((r) => r.exportId === exportId);
+            if (record) return { community, record };
+        }
+        return undefined;
+    }
+
+    // GET /exports/<exportId> — streams the sqlite backup over HTTP on the same port as the WS.
+    // After a successful response, deletes the file and prunes the record (per spec).
+    // Deletes export files older than `_exportFileMaxAgeMs` (default 24h, configurable via the
+    // `exportFileMaxAgeMs` server option; 0 disables the sweep). Called once on server startup (per spec). Records
+    // pointing to deleted files get pruned the next time the community loads via
+    // loadAndPruneExportsFromKeyv. We do not eagerly load every community here to avoid the
+    // boot cost; the embedded loader handles cleanup lazily.
+    async _sweepOldExportFiles(): Promise<void> {
+        const MAX_AGE_MS = this._exportFileMaxAgeMs;
+        // 0 means "keep export files forever" — never auto-remove anything.
+        if (MAX_AGE_MS === 0) return;
+        if (!this.pkc.dataPath) return;
+        const exportsDir = path.join(this.pkc.dataPath, "exports");
+        if (!existsSync(exportsDir)) return;
+
+        const now = Date.now();
+        let entries: string[] = [];
+        try {
+            entries = await fsPromises.readdir(exportsDir);
+        } catch {
+            return;
+        }
+        for (const entry of entries) {
+            if (!entry.endsWith(".sqlite")) continue;
+            const filePath = path.join(exportsDir, entry);
+            try {
+                const stat = await fsPromises.stat(filePath);
+                if (now - stat.mtimeMs > MAX_AGE_MS) await fsPromises.unlink(filePath);
+            } catch {
+                // file may have been removed concurrently — ignore
+            }
+        }
+    }
+
+    private async _handleExportsHttpRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+        const httpLog = Logger("pkc-js:PKCWsServer:exports-http");
+        const requestUrl = new URL(req.url ?? "/", "http://localhost");
+        const match = requestUrl.pathname.match(/^\/exports\/([0-9a-fA-F-]{36})$/);
+        if (!match) {
+            // On a caller-supplied server we may be sharing the http.Server with the caller's own
+            // routes. Only the owner of the server is responsible for the catch-all 404 — otherwise
+            // we'd hijack/clobber responses for unrelated routes the caller serves on the same port.
+            if (this._ownsHttpServer) {
+                res.statusCode = 404;
+                res.end();
+            }
+            return;
+        }
+        if (req.method !== "GET") {
+            res.statusCode = 405;
+            res.setHeader("Allow", "GET");
+            res.end();
+            return;
+        }
+        const exportId = match[1];
+        const owner = this._findCommunityOwningExport(exportId);
+
+        // Resolve the file to stream. Prefer the in-memory record of a loaded community; otherwise
+        // fall back to the persisted file on disk. The disk fallback is what keeps a download URL
+        // valid across a daemon restart, when the owning community has not been loaded back into
+        // memory yet: the export file survives at <dataPath>/exports/<id>.sqlite and exportId is an
+        // unguessable capability. (The `.partial` suffix used for in-flight backups can't match this
+        // exact `<id>.sqlite` route, so a partial is never served.)
+        const community = owner?.community;
+        let candidatePath: string | undefined;
+        if (owner) {
+            const { record } = owner;
+            if (record.progress === 1 && record.url)
+                try {
+                    const parsed = new URL(record.url);
+                    if (parsed.protocol === "file:") candidatePath = fileURLToPath(parsed);
+                } catch {
+                    candidatePath = undefined;
+                }
+        } else if (this.pkc.dataPath) {
+            candidatePath = path.join(this.pkc.dataPath, "exports", `${exportId}.sqlite`);
+        }
+
+        if (!candidatePath) {
+            httpLog("GET /exports — unknown exportId", exportId);
+            res.statusCode = 404;
+            res.end();
+            return;
+        }
+        const filePath = candidatePath;
+
+        let size: number;
+        try {
+            size = statSync(filePath).size;
+        } catch {
+            res.statusCode = 404;
+            res.end();
+            return;
+        }
+
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/vnd.sqlite3");
+        res.setHeader("Content-Length", String(size));
+
+        const stream = createReadStream(filePath);
+        let streamEnded = false;
+        let streamErrored = false;
+        stream.on("end", () => {
+            streamEnded = true;
+        });
+        stream.on("error", (err) => {
+            streamErrored = true;
+            httpLog.error("Error streaming export file", filePath, err);
+            if (!res.headersSent) res.statusCode = 500;
+            res.end();
+        });
+        res.on("close", () => {
+            // Cleanup only on fully streamed + flushed responses. Client aborts and stream
+            // errors leave the record + file intact so the consumer can retry.
+            if (streamErrored || !streamEnded || !res.writableEnded) return;
+            if (community) {
+                // Loaded community: prune the record and delete the file together.
+                community._deleteExport(exportId).catch((e) => httpLog.error("Failed to cleanup downloaded export", exportId, e));
+            } else {
+                // Served from disk after a restart (no community loaded): just remove the file. The
+                // stale KeyV record is pruned lazily the next time that community loads, via
+                // loadAndPruneExportsFromKeyv (which drops records whose file is missing).
+                fsPromises.unlink(filePath).catch((e) => httpLog.error("Failed to cleanup downloaded export file", exportId, e));
+            }
+        });
+        stream.pipe(res);
+    }
+
     async unsubscribe(params: any, connectionId: string): Promise<RpcSuccessResult> {
         const { subscriptionId } = parseRpcUnsubscribeParam(params[0]);
 
@@ -1538,11 +1824,13 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
                 await this.unsubscribe([{ subscriptionId: Number(subscriptionId) }], connectionId);
 
         this.ws.close();
+        if (this._ownsHttpServer && this._httpServer) await new Promise<void>((r) => this._httpServer!.close(() => r()));
         const pkc = await this._getPKCInstance();
         await pkc.destroy(); // this will stop all started communities
         for (const communityAddress of remeda.keys.strict(this._startedCommunities)) {
             delete this._startedCommunities[communityAddress];
         }
+        this._exportCommunityInstances.clear();
         this._rpcStateDb?.close();
         this._rpcStateDb = undefined;
         this._onSettingsChange = {};
@@ -1559,12 +1847,19 @@ const createPKCWsServer = async (options: CreatePKCWsServerOptions) => {
         server: parsedOptions.server,
         authKey: parsedOptions.authKey,
         startStartedCommunitiesOnStartup: parsedOptions.startStartedCommunitiesOnStartup,
-        autoStartConcurrency: parsedOptions.autoStartConcurrency
+        autoStartConcurrency: parsedOptions.autoStartConcurrency,
+        allowPrivateKeyExport: parsedOptions.allowPrivateKeyExport,
+        exportFileMaxAgeMs: parsedOptions.exportFileMaxAgeMs
     });
 
     // Auto-start previously started communities (fire-and-forget, non-blocking)
     pkcWss._autoStartPreviousCommunities().catch((e) => {
         log.error("Failed to auto-start previous communities", e);
+    });
+
+    // Delete export files older than exportFileMaxAgeMs (default 24h, fire-and-forget) — see EXPORT_COMMUNITY_SPEC.md
+    pkcWss._sweepOldExportFiles().catch((e) => {
+        log.error("Failed to sweep old export files", e);
     });
 
     return pkcWss;

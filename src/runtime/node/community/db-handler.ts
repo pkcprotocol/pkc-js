@@ -2621,7 +2621,8 @@ export class DbHandler {
             ...(commentNumber !== undefined ? { number: commentNumber } : undefined),
             ...(postNumber !== undefined ? { postNumber } : undefined),
             ...commentUpdateCounts,
-            flairs: commentModFlairs?.flairs || authorEdit?.flairs || (comment.challengeCommentUpdate?.flairs as CommentUpdateType["flairs"]),
+            flairs:
+                commentModFlairs?.flairs || authorEdit?.flairs || (comment.challengeCommentUpdate?.flairs as CommentUpdateType["flairs"]),
             ...commentFlags,
             // moderatorReason wins when present, else fall back to the challenge-supplied reason (if any).
             reason: moderatorReason?.reason ?? (comment.challengeCommentUpdate?.reason as string | undefined),

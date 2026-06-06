@@ -296,9 +296,16 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         this._initMemCaches();
         this._inflightFetchManager = new InflightFetchManager();
 
-        if (!this.noData && !this.pkcRpcClientsOptions)
-            this.dataPath = this.parsedPKCOptions.dataPath =
-                "dataPath" in this.parsedPKCOptions ? this.parsedPKCOptions.dataPath : getDefaultDataPath();
+        if (!this.noData) {
+            if (!this.pkcRpcClientsOptions)
+                // Non-RPC client: honor an explicit dataPath (including an explicit undefined), otherwise default.
+                this.dataPath = this.parsedPKCOptions.dataPath =
+                    "dataPath" in this.parsedPKCOptions ? this.parsedPKCOptions.dataPath : getDefaultDataPath();
+            else if (typeof this.parsedPKCOptions.dataPath === "string")
+                // RPC client: keep a caller-supplied dataPath so local operations stay available,
+                // but never auto-assign the default location to an RPC-only client.
+                this.dataPath = this.parsedPKCOptions.dataPath;
+        }
     }
 
     _initMemCaches() {
@@ -1135,6 +1142,21 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         // and don't block the sequential stop() awaits below.
         this._destroyAbortController?.abort(new PKCError("ERR_PKC_IS_DESTROYED"));
         // Clean up connections
+
+        // Abort in-flight community exports before stopping — leaving them running would race
+        // the dbHandler / RPC teardown and leak .partial files. See EXPORT_COMMUNITY_SPEC.md.
+        const exportDonePromises: Promise<unknown>[] = [];
+        for (const community of listStartedCommunities(this)) {
+            const activeExports = (
+                community as { _activeExports?: Map<string, { controller: AbortController; donePromise: Promise<void> }> }
+            )._activeExports;
+            if (!activeExports) continue;
+            for (const handle of activeExports.values()) {
+                handle.controller.abort();
+                exportDonePromises.push(handle.donePromise.catch((e) => log.error("Error during export teardown", e)));
+            }
+        }
+        if (exportDonePromises.length) await Promise.all(exportDonePromises);
 
         for (const comment of listUpdatingComments(this)) await comment.stop();
 

@@ -11,7 +11,11 @@ import {
     RpcResolveAuthorNameResultSchema,
     RpcFetchCidResultSchema,
     RpcSuccessResultSchema,
-    RpcSubscriptionIdResultSchema
+    RpcSubscriptionIdResultSchema,
+    RpcExportCommunityParamSchema,
+    RpcCancelExportParamSchema,
+    RpcExportCommunityResultSchema,
+    RpcExportschangeResultSchema
 } from "./schema.js";
 
 // Param parsers — all use .loose() so newer clients can send extra fields
@@ -30,3 +34,9 @@ export const parseRpcResolveAuthorNameResult = (result: unknown) => RpcResolveAu
 export const parseRpcFetchCidResult = (result: unknown) => RpcFetchCidResultSchema.loose().parse(result);
 export const parseRpcSuccessResult = (result: unknown) => RpcSuccessResultSchema.loose().parse(result);
 export const parseRpcSubscriptionIdResult = (result: unknown) => RpcSubscriptionIdResultSchema.loose().parse(result);
+
+// community.export() — wire param/result parsers
+export const parseRpcExportCommunityParam = (params: unknown) => RpcExportCommunityParamSchema.loose().parse(params);
+export const parseRpcCancelExportParam = (params: unknown) => RpcCancelExportParamSchema.loose().parse(params);
+export const parseRpcExportCommunityResult = (result: unknown) => RpcExportCommunityResultSchema.loose().parse(result);
+export const parseRpcExportschangeResult = (result: unknown) => RpcExportschangeResultSchema.loose().parse(result);

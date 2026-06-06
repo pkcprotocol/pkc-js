@@ -366,6 +366,17 @@ export enum messages {
     ERR_GENERIC_RPC_CLIENT_CALL_ERROR = "RPC client received an unknown error when executing call over websocket",
     ERR_RPC_CLIENT_CHALLENGE_NAME_NOT_AVAILABLE_ON_SERVER = "The challenge name is not available on the RPC server. Available challenges are listed in details.availableChallenges",
     ERR_ROLE_ADDRESS_NAME_COULD_NOT_BE_RESOLVED = "Role address name could not be resolved",
+
+    // Community export errors
+    ERR_COMMUNITY_NOT_LOCAL = "community.export() can only be called on a LocalCommunity on this daemon",
+    ERR_COMMUNITY_NOT_FOUND = "Community is unknown to this daemon — neither name nor publicKey matches a community",
+    ERR_PRIVATE_KEY_EXPORT_NOT_ALLOWED = "The RPC server is configured to disallow exporting community private keys (allowPrivateKeyExport=false). To export with includePrivateKey=true, restart the RPC server with allowPrivateKeyExport=true",
+    ERR_EXPORT_PATH_NOT_SUPPORTED_OVER_RPC = "exportPath is only supported in embedded mode; download from the record's url instead",
+    ERR_EXPORT_PATH_TARGETS_LIVE_DB = "exportPath resolves to the live community database; refusing to overwrite it",
+    ERR_EXPORT_CANCELLED = "Community export was cancelled via AbortSignal",
+    ERR_EXPORT_BACKUP_FAILED = "Community export failed during the sqlite backup",
+    ERR_DOWNLOAD_EXPORT_ID_NOT_FOUND = "No export with that exportId exists on this RPC server",
+
     ERR_CHALLENGE_RESULT_OVERRIDES_COMMENT_SIGNED_FIELD = "A challenge result attempted to set comment.<field> that is in CommentSignedPropertyNames (would invalidate the author's signature on CommentIpfs)",
     ERR_CHALLENGE_RESULT_OVERRIDES_RESERVED_COMMENT_UPDATE_FIELD = "A challenge result attempted to set commentUpdate.<field> that is in CommentUpdateChallengeReservedFieldNames (community-computed field)",
     ERR_CHALLENGE_RESULT_OVERRIDES_NON_COMMUNITY_AUTHOR_KEY = "A challenge result attempted to set commentUpdate.author.<field> with a key other than 'community' — challenges may only extend commentUpdate.author.community",

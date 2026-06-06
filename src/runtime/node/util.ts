@@ -1,4 +1,15 @@
-import { existsSync, readdirSync, openSync, readSync, closeSync, rm as rmSync, watch as fsWatch, promises as fsPromises } from "node:fs";
+import {
+    existsSync,
+    readdirSync,
+    openSync,
+    readSync,
+    closeSync,
+    rm as rmSync,
+    watch as fsWatch,
+    promises as fsPromises,
+    createReadStream
+} from "node:fs";
+import { createHash } from "node:crypto";
 import { default as nodeNativeFunctions } from "./native-functions.js";
 import type { KuboRpcClient, NativeFunctions } from "../../types.js";
 import path from "path";
@@ -311,6 +322,129 @@ export async function importSignerIntoKuboNode(
             }
         });
     });
+}
+
+export type BackupCommunityDbOptions = {
+    sourcePath: string;
+    destPath: string;
+    includePrivateKey: boolean;
+    onProgress?: (progress: number) => void;
+    signal?: AbortSignal;
+};
+
+// Cancellation sentinel thrown from the better-sqlite3 progress handler when the AbortSignal fires.
+// Re-thrown by backupCommunityDb so callers can distinguish abort from genuine backup failures.
+export class BackupAbortError extends Error {
+    override readonly name = "BackupAbortError";
+    constructor() {
+        super("Backup aborted via AbortSignal");
+    }
+}
+
+export async function backupCommunityDb(opts: BackupCommunityDbOptions): Promise<{ size: number; sha256: string }> {
+    const { sourcePath, destPath, includePrivateKey, onProgress, signal } = opts;
+    if (signal?.aborted) throw new BackupAbortError();
+
+    await fsPromises.mkdir(path.dirname(destPath), { recursive: true });
+    const partialPath = destPath + ".partial";
+
+    try {
+        await fsPromises.unlink(partialPath);
+    } catch {
+        // .partial may not exist; ignore
+    }
+
+    let sourceDb: Database.Database | undefined;
+    try {
+        sourceDb = new Database(sourcePath, { fileMustExist: true, readonly: true });
+
+        await sourceDb.backup(partialPath, {
+            progress: ({ totalPages, remainingPages }) => {
+                if (signal?.aborted) throw new BackupAbortError();
+                if (onProgress && totalPages > 0) {
+                    // The final progress invocation comes with remainingPages === 0; we still
+                    // intentionally report < 1 here so the "complete" emission is owned by the
+                    // caller after sha256 + rename are done.
+                    const fraction = (totalPages - remainingPages) / totalPages;
+                    onProgress(Math.min(0.99, fraction));
+                }
+                return 100; // pages-per-step rate; mirrors better-sqlite3's internal default
+            }
+        });
+
+        sourceDb.close();
+        sourceDb = undefined;
+
+        if (signal?.aborted) throw new BackupAbortError();
+
+        if (!includePrivateKey) {
+            await scrubPrivateKeyFromBackup(partialPath);
+            if (signal?.aborted) throw new BackupAbortError();
+        }
+
+        const { size, sha256 } = await statAndHashFile(partialPath);
+        if (signal?.aborted) throw new BackupAbortError();
+
+        await fsPromises.rename(partialPath, destPath);
+
+        return { size, sha256 };
+    } catch (err) {
+        try {
+            sourceDb?.close();
+        } catch {
+            // already closed
+        }
+        try {
+            await fsPromises.unlink(partialPath);
+        } catch {
+            // already gone
+        }
+        throw err;
+    }
+}
+
+type KeyvSignerPayload = {
+    value: { signer?: { privateKey?: unknown; ipfsKey?: unknown; [k: string]: unknown }; [k: string]: unknown };
+    expires?: number | null;
+};
+
+function isKeyvSignerPayload(v: unknown): v is KeyvSignerPayload {
+    if (typeof v !== "object" || v === null) return false;
+    const value = (v as { value?: unknown }).value;
+    if (typeof value !== "object" || value === null) return false;
+    const signer = (value as { signer?: unknown }).signer;
+    return signer === undefined || (typeof signer === "object" && signer !== null);
+}
+
+// Scope: only the community signer's privateKey/ipfsKey (in the internalCommunity KeyV record).
+// The pseudonymityAliases table stores per-comment aliasPrivateKey values and is intentionally
+// NOT scrubbed — those keys belong to the alias identities themselves and are part of the
+// publication record, not the community's own signing material.
+async function scrubPrivateKeyFromBackup(dbPath: string): Promise<void> {
+    const db = new Database(dbPath, { fileMustExist: true });
+    try {
+        const internalKey = "keyv:" + STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY];
+        const row = db.prepare("SELECT value FROM keyv WHERE key = ?").get(internalKey) as { value: string } | undefined;
+        if (!row) return;
+        const parsed: unknown = JSON.parse(row.value);
+        if (!isKeyvSignerPayload(parsed) || !parsed.value.signer) return;
+        parsed.value.signer = { ...parsed.value.signer, privateKey: undefined, ipfsKey: undefined };
+        db.prepare("UPDATE keyv SET value = ? WHERE key = ?").run(JSON.stringify(parsed), internalKey);
+    } finally {
+        db.close();
+    }
+}
+
+async function statAndHashFile(filePath: string): Promise<{ size: number; sha256: string }> {
+    const stat = await fsPromises.stat(filePath);
+    const hash = createHash("sha256");
+    await new Promise<void>((resolve, reject) => {
+        const stream = createReadStream(filePath);
+        stream.on("data", (chunk) => hash.update(chunk));
+        stream.on("end", resolve);
+        stream.on("error", reject);
+    });
+    return { size: stat.size, sha256: hash.digest("hex") };
 }
 
 export async function moveCommunityDbToDeletedDirectory(communityAddress: string, pkc: PKC) {

@@ -338,6 +338,55 @@ export const CreateCommunityFunctionArgumentsSchema = CreateNewLocalCommunityUse
 
 export const ListOfCommunitiesSchema = CommunityAddressSchema.array();
 
+// community.export()
+
+export const ExportCommunityUserOptionsSchema = z
+    .object({
+        includePrivateKey: z.boolean().optional(),
+        exportPath: z.string().min(1).optional(),
+        signal: z.custom<AbortSignal>((v) => v === undefined || (typeof v === "object" && v !== null && "aborted" in v)).optional()
+    })
+    .strict();
+
+export const CommunityExportRecordErrorSchema = z
+    .object({
+        code: z.string(),
+        message: z.string()
+    })
+    .strict();
+
+// Public per the design: progress is the only state indicator; size/sha256/url present
+// when progress === 1; error present when the export failed (cancellation included).
+export const CommunityExportRecordSchema = z
+    .object({
+        exportId: z.string().uuid(),
+        name: z.string().optional(),
+        publicKey: z.string(),
+        includePrivateKey: z.boolean(),
+        progress: z.number().min(0).max(1),
+        size: z.number().int().nonnegative().optional(),
+        sha256: z
+            .string()
+            .regex(/^[0-9a-f]{64}$/)
+            .optional(),
+        url: z.string().optional(),
+        error: CommunityExportRecordErrorSchema.optional()
+    })
+    .strict()
+    .superRefine((rec, ctx) => {
+        if (rec.progress !== 1 || rec.error) return;
+        for (const field of ["size", "sha256", "url"] as const) {
+            if (rec[field] === undefined)
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: [field],
+                    message: `${field} must be present when progress === 1 and no error is set`
+                });
+        }
+    });
+
+export const CommunityExportRecordsSchema = CommunityExportRecordSchema.array();
+
 // Reserved fields
 
 // TODO should make the array of class props typed
@@ -360,7 +409,8 @@ export const CommunityIpfsReservedFields = remeda.difference(
         "editable",
         "publishingState",
         "updatingState",
-        "started"
+        "started",
+        "exports"
     ],
     remeda.keys.strict(CommunityIpfsSchema.shape)
 );

@@ -5,8 +5,10 @@ import type {
     RpcLocalCommunityLocalProps,
     RpcLocalCommunityUpdateResultType,
     CommunityEditOptions,
+    CommunityExportRecord,
     CommunityIpfsType,
-    CommunityStartedState
+    CommunityStartedState,
+    ExportCommunityUserOptions
 } from "./types.js";
 import { RpcRemoteCommunity } from "./rpc-remote-community.js";
 import { z } from "zod";
@@ -32,6 +34,13 @@ import type {
 import { deepMergeRuntimeFields, hideClassPrivateProps } from "../util.js";
 import { findStartedCommunity, trackStartedCommunity, untrackStartedCommunity } from "../pkc/tracked-instance-registry-util.js";
 
+// Shallow clone preserving the nested error object so consumers can mutate without
+// affecting cached state. Local copy because `local-community/export.ts` is node-only and
+// RpcLocalCommunity must work in the browser.
+function cloneExportRecord(record: CommunityExportRecord): CommunityExportRecord {
+    return { ...record, ...(record.error ? { error: { ...record.error } } : {}) };
+}
+
 // This class is for communities that are running and publishing, over RPC. Can be used for both browser and node
 export class RpcLocalCommunity extends RpcRemoteCommunity {
     override started: boolean; // Is the community started and running? This is not specific to this instance, and applies to all instances of community with this address
@@ -55,6 +64,14 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
     // Private stuff
     private _startRpcSubscriptionId?: z.infer<typeof SubscriptionIdSchema> = undefined;
     _usingDefaultChallenge!: RpcLocalCommunityLocalProps["_usingDefaultChallenge"];
+
+    // community.export() over RPC. The subscription is attached eagerly during createCommunity
+    // so consumers see prior exports (including ones still in flight from earlier client sessions)
+    // immediately, without having to call community.export() first.
+    private _exportsSubscriptionId?: number = undefined;
+    private _exportsCache: CommunityExportRecord[] = [];
+    // exportId → detach AbortSignal listener. Cleared when the export reaches a terminal state.
+    private _exportSignalDetachers: Map<string, () => void> = new Map();
 
     constructor(pkc: PKC) {
         super(pkc);
@@ -336,6 +353,100 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
         if (this.state === "started") throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: this.address });
 
         return super.update();
+    }
+
+    // community.export() over RPC — see src/rpc/EXPORT_COMMUNITY_SPEC.md
+    override get exports(): CommunityExportRecord[] {
+        return this._exportsCache.map(cloneExportRecord);
+    }
+
+    override async export(options: ExportCommunityUserOptions = {}): Promise<{ exportId: string }> {
+        // Sync validation — matches embedded path
+        if (options.exportPath !== undefined) throw new PKCError("ERR_EXPORT_PATH_NOT_SUPPORTED_OVER_RPC", { address: this.address });
+        if (options.signal?.aborted) {
+            const reason = (options.signal as AbortSignal).reason;
+            throw reason ?? new DOMException("The operation was aborted.", "AbortError");
+        }
+
+        const { exportId } = await this._pkc._pkcRpcClient!.exportCommunity({
+            name: this.name,
+            publicKey: this.publicKey,
+            includePrivateKey: options.includePrivateKey
+        });
+
+        if (options.signal) {
+            const userSignal = options.signal;
+            const onAbort = () => {
+                this._pkc._pkcRpcClient!.cancelExport({ exportId }).catch((e) => {
+                    Logger("pkc-js:rpc-local-community:export").error("Failed to send cancelExport", exportId, e);
+                });
+            };
+            // Aborted between sync validation and exportCommunity returning — route the cancel.
+            if (userSignal.aborted) onAbort();
+            else {
+                userSignal.addEventListener("abort", onAbort, { once: true });
+                this._exportSignalDetachers.set(exportId, () => userSignal.removeEventListener("abort", onAbort));
+            }
+        }
+        return { exportId };
+    }
+
+    async _attachExportsSubscription(): Promise<void> {
+        if (this._exportsSubscriptionId !== undefined) return;
+        if (!this._pkc._pkcRpcClient) return; // not on an RPC PKC — should not happen for this class
+
+        const { subscriptionId } = await this._pkc._pkcRpcClient.exportsSubscribe({
+            name: this.name,
+            publicKey: this.publicKey
+        });
+        this._exportsSubscriptionId = subscriptionId;
+
+        const subscription = this._pkc._pkcRpcClient.getSubscription(subscriptionId);
+        let resolveInitial!: () => void;
+        let rejectInitial!: (e: Error) => void;
+        const initialReceived = new Promise<void>((resolve, reject) => {
+            resolveInitial = resolve;
+            rejectInitial = reject;
+        });
+        let seenInitial = false;
+
+        subscription.on("exportschange", (msg: any) => {
+            const records = (msg?.params?.result?.records ?? []) as CommunityExportRecord[];
+            this._absorbExportRecords(records);
+            if (!seenInitial) {
+                seenInitial = true;
+                resolveInitial();
+            }
+        });
+        subscription.on("error", (msg: any) => {
+            if (!seenInitial) {
+                seenInitial = true;
+                rejectInitial(msg?.params?.result ?? new Error("exportsSubscribe error before initial notification"));
+            }
+        });
+
+        this._pkc._pkcRpcClient.emitAllPendingMessages(subscriptionId);
+        await initialReceived;
+    }
+
+    private _absorbExportRecords(wireRecords: CommunityExportRecord[]): void {
+        const httpOrigin = this._pkc._pkcRpcClient!.rpcHttpOrigin;
+        this._exportsCache = wireRecords.map((rec) => {
+            // Wire-format url is relative (`/exports/<exportId>`) once the export completes; absolutize.
+            if (rec.url && rec.url.startsWith("/")) return { ...rec, url: new URL(rec.url, httpOrigin).href };
+            return rec;
+        });
+        // Detach signal listeners for terminal records — the server already finalized them.
+        for (const rec of wireRecords) {
+            if (rec.progress === 1 || rec.error) {
+                const detach = this._exportSignalDetachers.get(rec.exportId);
+                if (detach) {
+                    detach();
+                    this._exportSignalDetachers.delete(rec.exportId);
+                }
+            }
+        }
+        this.emit("exportschange", this._exportsCache.map(cloneExportRecord));
     }
 
     override async delete() {

@@ -184,7 +184,7 @@ describe("ChallengeResult extras: override-guard", () => {
 
     it("allows an arbitrary new key on `comment` (e.g. countryCode)", async () => {
         (mockPkc.settings ??= {}).challenges = {
-            "country": makeExtrasChallenge({ success: true, comment: { countryCode: "FR" } })
+            country: makeExtrasChallenge({ success: true, comment: { countryCode: "FR" } })
         };
         const community = {
             settings: { challenges: [{ name: "country" }] },
