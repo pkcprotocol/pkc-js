@@ -1570,7 +1570,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
         await this._getPKCInstance(); // to await for settings change
 
-        await publication.publishChallengeAnswers(decryptedChallengeAnswers.challengeAnswers);
+        await publication.publishChallengeAnswers({ challengeAnswers: decryptedChallengeAnswers.challengeAnswers });
 
         return { success: true };
     }
@@ -1717,8 +1717,13 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const requestUrl = new URL(req.url ?? "/", "http://localhost");
         const match = requestUrl.pathname.match(/^\/exports\/([0-9a-fA-F-]{36})$/);
         if (!match) {
-            res.statusCode = 404;
-            res.end();
+            // On a caller-supplied server we may be sharing the http.Server with the caller's own
+            // routes. Only the owner of the server is responsible for the catch-all 404 — otherwise
+            // we'd hijack/clobber responses for unrelated routes the caller serves on the same port.
+            if (this._ownsHttpServer) {
+                res.statusCode = 404;
+                res.end();
+            }
             return;
         }
         if (req.method !== "GET") {
@@ -1729,29 +1734,36 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         }
         const exportId = match[1];
         const owner = this._findCommunityOwningExport(exportId);
-        if (!owner) {
+
+        // Resolve the file to stream. Prefer the in-memory record of a loaded community; otherwise
+        // fall back to the persisted file on disk. The disk fallback is what keeps a download URL
+        // valid across a daemon restart, when the owning community has not been loaded back into
+        // memory yet: the export file survives at <dataPath>/exports/<id>.sqlite and exportId is an
+        // unguessable capability. (The `.partial` suffix used for in-flight backups can't match this
+        // exact `<id>.sqlite` route, so a partial is never served.)
+        const community = owner?.community;
+        let candidatePath: string | undefined;
+        if (owner) {
+            const { record } = owner;
+            if (record.progress === 1 && record.url)
+                try {
+                    const parsed = new URL(record.url);
+                    if (parsed.protocol === "file:") candidatePath = fileURLToPath(parsed);
+                } catch {
+                    candidatePath = undefined;
+                }
+        } else if (this.pkc.dataPath) {
+            candidatePath = path.join(this.pkc.dataPath, "exports", `${exportId}.sqlite`);
+        }
+
+        if (!candidatePath) {
             httpLog("GET /exports — unknown exportId", exportId);
             res.statusCode = 404;
             res.end();
             return;
         }
-        const { community, record } = owner;
-        if (record.progress !== 1 || !record.url) {
-            res.statusCode = 404;
-            res.end();
-            return;
-        }
+        const filePath = candidatePath;
 
-        let filePath: string;
-        try {
-            const parsed = new URL(record.url);
-            if (parsed.protocol !== "file:") throw new Error("Record url is not file://");
-            filePath = fileURLToPath(parsed);
-        } catch {
-            res.statusCode = 404;
-            res.end();
-            return;
-        }
         let size: number;
         try {
             size = statSync(filePath).size;
@@ -1781,7 +1793,15 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             // Cleanup only on fully streamed + flushed responses. Client aborts and stream
             // errors leave the record + file intact so the consumer can retry.
             if (streamErrored || !streamEnded || !res.writableEnded) return;
-            community._deleteExport(exportId).catch((e) => httpLog.error("Failed to cleanup downloaded export", exportId, e));
+            if (community) {
+                // Loaded community: prune the record and delete the file together.
+                community._deleteExport(exportId).catch((e) => httpLog.error("Failed to cleanup downloaded export", exportId, e));
+            } else {
+                // Served from disk after a restart (no community loaded): just remove the file. The
+                // stale KeyV record is pruned lazily the next time that community loads, via
+                // loadAndPruneExportsFromKeyv (which drops records whose file is missing).
+                fsPromises.unlink(filePath).catch((e) => httpLog.error("Failed to cleanup downloaded export file", exportId, e));
+            }
         });
         stream.pipe(res);
     }
