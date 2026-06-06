@@ -148,18 +148,13 @@ export async function updateInstancePropsWithStartedCommunityOrDb(community: Loc
             await community.initInternalCommunityAfterFirstUpdateNoMerge(startedCommunity.toJSONInternalAfterFirstUpdate());
         else await community.initInternalCommunityBeforeFirstUpdateNoMerge(startedCommunity.toJSONInternalBeforeFirstUpdate());
         community.started = true;
-        // Always read exports from the keyv-backed DB rather than snapshotting from the started
-        // instance: keyv is the canonical persisted source and is invariant across a stale or
-        // cross-PKC `processStartedCommunities` match.
-        await community.initDbHandlerIfNeeded();
-        try {
-            // Open the DB read-write — opening readonly silently fails to see WAL-mode writes
-            // committed by a still-open writer connection on the same file.
-            await community._dbHandler.initDbIfNeeded();
-            await community._loadExportsFromKeyv();
-        } finally {
-            community._dbHandler.destoryConnection();
-        }
+        // Read exports from the matched started instance, which is in-process and already holds
+        // the live (writer) DB connection with its exports loaded. Do NOT open a second connection
+        // to the same DB file here: it races with a concurrent stop()/edit() that is tearing the
+        // file down and throws "unable to open database file" on Windows/macOS (see the
+        // edit.community concurrency tests). The started instance is the canonical writer, so its
+        // in-memory exports are the freshest view of the keyv-persisted records.
+        community._exports = startedCommunity.exports;
     } else {
         await community.initDbHandlerIfNeeded();
         try {
