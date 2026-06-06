@@ -13,11 +13,16 @@ import { promises as fsPromises, existsSync, createReadStream, createWriteStream
 import { createHash } from "node:crypto";
 import { pipeline } from "node:stream/promises";
 import path from "node:path";
+import net from "node:net";
 import Database from "better-sqlite3";
+import PKC from "../../../dist/node/index.js";
+import PKCWsServer from "../../../dist/node/rpc/src/index.js";
 import {
     mockPKC,
     mockPKCNoDataPathWithOnlyKuboClient,
     mockRpcRemotePKC,
+    mockRpcServerPKC,
+    mockRpcServerForTests,
     createSubWithNoChallenge,
     publishRandomPost,
     resolveWhenConditionIsTrue,
@@ -28,6 +33,28 @@ import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 import type { CommunityExportRecord } from "../../../dist/node/community/types.js";
+
+type PKCWsServerType = Awaited<ReturnType<typeof PKCWsServer.PKCWsServer>>;
+
+// Find a free TCP port so the in-process RPC servers below never collide with the shared test
+// servers (39652/39653) or each other when suites run in parallel.
+async function getAvailablePort(startPort = 39820): Promise<number> {
+    for (let port = startPort; port < startPort + 100; port++) {
+        try {
+            return await new Promise<number>((resolve, reject) => {
+                const server = net.createServer();
+                server.unref();
+                server.on("error", reject);
+                server.listen(port, () => {
+                    server.close(() => resolve(port));
+                });
+            });
+        } catch {
+            continue;
+        }
+    }
+    throw new Error(`No available port found in range ${startPort}-${startPort + 99}`);
+}
 
 // Either flavor of community has `.export()`, `.exports`, `.signer`, and emits `exportschange`.
 type AnyLocalCommunity = LocalCommunity | RpcLocalCommunity;
@@ -133,7 +160,7 @@ async function waitForCompleteRecord({
 // non-started RPC sub-suite below. Each test body grabs pkc/community/isEmbedded via the getter
 // so it sees the values populated by the enclosing beforeAll, not stale undefineds from module
 // load time.
-function defineExportTests(getCtx: () => { pkc: PKCType; community: AnyLocalCommunity; isEmbedded: boolean }) {
+function defineExportTests(getCtx: () => { pkc: PKCType; community: AnyLocalCommunity; isEmbedded: boolean; postCid: string }) {
     it("happy path: file is reachable, sha256 matches, sqlite is readable", async () => {
         const { community } = getCtx();
         const { exportId } = await community.export();
@@ -151,6 +178,30 @@ function defineExportTests(getCtx: () => { pkc: PKCType; community: AnyLocalComm
                 const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[];
                 expect(tables.some((t) => t.name === "comments")).to.equal(true);
                 expect(tables.some((t) => t.name === "keyv")).to.equal(true);
+            } finally {
+                db.close();
+            }
+        } finally {
+            await cleanup();
+        }
+    });
+
+    it("a post published to the community appears in the exported database's comments table", async () => {
+        const { community, postCid } = getCtx();
+        // postCid was published by the enclosing beforeAll (publishing requires the community
+        // running, which the non-started RPC suite no longer has — so reuse the bootstrap post
+        // rather than publishing a fresh one here).
+        expect(postCid.length).to.be.greaterThan(0);
+
+        const { exportId } = await community.export();
+        const rec = await waitForCompleteRecord({ community, exportId });
+        const { filePath, cleanup } = await materializeExport(rec);
+        try {
+            const db = new Database(filePath, { readonly: true });
+            try {
+                const row = db.prepare("SELECT cid FROM comments WHERE cid = ?").get(postCid) as { cid: string } | undefined;
+                expect(row, `published post ${postCid} should be present in the exported comments table`).toBeDefined();
+                expect(row!.cid).to.equal(postCid);
             } finally {
                 db.close();
             }
@@ -184,6 +235,10 @@ function defineExportTests(getCtx: () => { pkc: PKCType; community: AnyLocalComm
         }
     });
 
+    // Note: the inverse — an RPC server with allowPrivateKeyExport:false rejecting a client's
+    // includePrivateKey:true request with ERR_PRIVATE_KEY_EXPORT_NOT_ALLOWED — is covered by the
+    // dedicated "RPC private-key policy" suite at the bottom, which spins up its own server with
+    // that policy (the shared test server defaults allowPrivateKeyExport to true).
     it("includePrivateKey: true preserves the signer.privateKey", async () => {
         const { community } = getCtx();
         const { exportId } = await community.export({ includePrivateKey: true });
@@ -228,6 +283,46 @@ function defineExportTests(getCtx: () => { pkc: PKCType; community: AnyLocalComm
         expect(existsSync(customPath)).to.equal(true);
         expect(fileURLToPath(new URL(rec.url!))).to.equal(customPath);
         await fsPromises.rm(customPath, { force: true });
+    });
+
+    // RPC: skipped — exportPath is embedded-only, and the live-DB path lives on the server's fs,
+    // not the client's. The sync rejection on exportPath itself is covered by the RPC-only suite.
+    itSkipIfRpc("exportPath resolving to the live community DB rejects with ERR_EXPORT_PATH_TARGETS_LIVE_DB", async () => {
+        const { pkc, community } = getCtx();
+        // The live community DB lives at <dataPath>/communities/<address>. Pointing exportPath at it
+        // would clobber the running DB, so export() must reject synchronously and create no record.
+        const liveDbPath = path.join(pkc.dataPath!, "communities", community.address);
+        const exportsBefore = community.exports.length;
+        await expect(community.export({ exportPath: liveDbPath })).rejects.toMatchObject({
+            code: "ERR_EXPORT_PATH_TARGETS_LIVE_DB"
+        });
+        expect(community.exports.length).to.equal(exportsBefore);
+    });
+
+    // RPC: skipped — exportPath is embedded-only (RPC routes backups to the server's exports dir).
+    // The async ERR_EXPORT_BACKUP_FAILED path is the same code on both transports, so the embedded
+    // run exercises it. We force a deterministic backup failure by pointing exportPath under a
+    // regular file, so backupCommunityDb's `mkdir -p` of the parent throws ENOTDIR.
+    itSkipIfRpc("a backup failure records ERR_EXPORT_BACKUP_FAILED on the export record", async () => {
+        const { community } = getCtx();
+        const tmpDir = await fsPromises.mkdtemp(path.join((await import("node:os")).tmpdir(), "pkc-export-fail-"));
+        const blockingFile = path.join(tmpDir, "not-a-dir");
+        await fsPromises.writeFile(blockingFile, "i am a file, not a directory");
+        // dirname of this path is `blockingFile`, which is a regular file — mkdir -p fails (ENOTDIR).
+        const unwritablePath = path.join(blockingFile, "sub", "export.sqlite");
+
+        try {
+            const { exportId } = await community.export({ exportPath: unwritablePath });
+            const rec = await waitForCompleteRecord({ community, exportId }).catch((e) => e as Error);
+            // waitForCompleteRecord throws on a terminal-error record; recover the record either way.
+            const record = community.exports.find((r) => r.exportId === exportId);
+            expect(record?.error?.code).to.equal("ERR_EXPORT_BACKUP_FAILED");
+            expect(record?.progress).to.not.equal(1);
+            // The thrown helper error (if any) should also reflect the backup failure, not a timeout.
+            if (rec instanceof Error) expect(rec.message).to.contain("ERR_EXPORT_BACKUP_FAILED");
+        } finally {
+            await fsPromises.rm(tmpDir, { recursive: true, force: true });
+        }
     });
 
     it("exportschange fires for every transition with the full list", async () => {
@@ -344,13 +439,15 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe(`community.export() — ${config.name} (started)`, async () => {
         let pkc: PKCType;
         let community: AnyLocalCommunity;
+        let postCid: string;
 
         beforeAll(async () => {
             pkc = await config.pkcInstancePromise();
             community = (await createSubWithNoChallenge({}, pkc)) as AnyLocalCommunity;
             await community.start();
             await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
-            await publishRandomPost({ communityAddress: community.address, pkc });
+            const post = await publishRandomPost({ communityAddress: community.address, pkc });
+            postCid = post.cid!;
         });
 
         afterAll(async () => {
@@ -358,7 +455,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await pkc.destroy();
         });
 
-        defineExportTests(() => ({ pkc, community, isEmbedded: config.testConfigCode === "local-kubo-rpc" }));
+        defineExportTests(() => ({ pkc, community, isEmbedded: config.testConfigCode === "local-kubo-rpc", postCid }));
     });
 });
 
@@ -371,6 +468,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 describeIfRpc(`community.export() — RPC, non-started`, async () => {
     let pkc: PKCType;
     let community: RpcLocalCommunity;
+    let postCid: string;
 
     beforeAll(async () => {
         // Bootstrap: start once via pkcA so we can publish a post (publishing requires the
@@ -379,7 +477,8 @@ describeIfRpc(`community.export() — RPC, non-started`, async () => {
         const commA = (await createSubWithNoChallenge({}, pkcA)) as RpcLocalCommunity;
         await commA.start();
         await resolveWhenConditionIsTrue({ toUpdate: commA, predicate: async () => typeof commA.updatedAt === "number" });
-        await publishRandomPost({ communityAddress: commA.address, pkc: pkcA });
+        const post = await publishRandomPost({ communityAddress: commA.address, pkc: pkcA });
+        postCid = post.cid!;
         await commA.stop();
         const address = commA.address;
         await pkcA.destroy();
@@ -394,7 +493,7 @@ describeIfRpc(`community.export() — RPC, non-started`, async () => {
         await pkc.destroy();
     });
 
-    defineExportTests(() => ({ pkc, community, isEmbedded: false }));
+    defineExportTests(() => ({ pkc, community, isEmbedded: false, postCid }));
 });
 
 // RemoteCommunity rejection — same observable contract on both transports, but the setups
@@ -561,6 +660,28 @@ describeIfRpc(`community.export() — RPC-only`, async () => {
         await res.body?.cancel();
     });
 
+    it("HTTP download response carries sqlite content-type and matching content-length", async () => {
+        const { exportId } = await community.export();
+        const rec = await waitForCompleteRecord({ community, exportId });
+        const res = await fetch(rec.url!);
+        try {
+            expect(res.status).to.equal(200);
+            expect(res.headers.get("content-type")).to.equal("application/vnd.sqlite3");
+            // Content-Length must equal the byte count advertised on the record.
+            expect(res.headers.get("content-length")).to.equal(String(rec.size));
+            const body = await res.arrayBuffer();
+            expect(body.byteLength).to.equal(rec.size);
+        } finally {
+            // Body already consumed via arrayBuffer(); nothing to cancel.
+        }
+    });
+
+    it("cancelExport for an unknown exportId is idempotent (resolves with success, no throw)", async () => {
+        // Per spec, cancelExport is idempotent: an unknown exportId returns success without action.
+        const result = await pkc._pkcRpcClient!.cancelExport({ exportId: "00000000-0000-0000-0000-000000000000" });
+        expect(result.success).to.equal(true);
+    });
+
     it("download cleans up the export server-side", async () => {
         const { exportId } = await community.export();
         const rec = await waitForCompleteRecord({ community, exportId });
@@ -616,5 +737,195 @@ describeIfRpc(`community.export() — RPC-only`, async () => {
         } finally {
             await pkc2.destroy();
         }
+    });
+});
+
+// RPC private-key policy — the shared test server defaults allowPrivateKeyExport to true, so to
+// exercise the rejection path we stand up our own in-process RPC server with the policy disabled
+// (mirroring how a public-RPC operator would configure it) and point a fresh client at it.
+describeIfRpc(`community.export() — RPC private-key policy`, () => {
+    const RPC_AUTH_KEY = "test-export-private-key-policy";
+    let rpcServer: PKCWsServerType;
+    let serverPKC: PKCType;
+    let clientPKC: PKCType;
+    let community: RpcLocalCommunity;
+    let RPC_URL: string;
+
+    beforeAll(async () => {
+        serverPKC = await mockRpcServerPKC({ dataPath: path.join(process.cwd(), ".pkc-rpc-export-policy-test") });
+
+        const rpcPort = await getAvailablePort();
+        RPC_URL = `ws://localhost:${rpcPort}`;
+
+        rpcServer = await PKCWsServer.PKCWsServer({
+            port: rpcPort,
+            authKey: RPC_AUTH_KEY,
+            allowPrivateKeyExport: false,
+            pkcOptions: {
+                kuboRpcClientsOptions: ["http://localhost:15001/api/v0"],
+                httpRoutersOptions: [],
+                dataPath: serverPKC.dataPath
+            }
+        });
+
+        const server = rpcServer as unknown as Record<string, Function>;
+        server._initPKC(serverPKC);
+        mockRpcServerForTests(rpcServer);
+
+        clientPKC = await PKC({ pkcRpcClientsOptions: [RPC_URL], dataPath: undefined, httpRoutersOptions: [] });
+        clientPKC.on("error", () => {});
+
+        community = (await createSubWithNoChallenge({}, clientPKC)) as RpcLocalCommunity;
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+    });
+
+    afterAll(async () => {
+        if (community) await community.stop();
+        if (clientPKC) await clientPKC.destroy();
+        if (rpcServer) await rpcServer.destroy();
+    });
+
+    it("includePrivateKey: true rejects with ERR_PRIVATE_KEY_EXPORT_NOT_ALLOWED when the server forbids it", async () => {
+        const exportsBefore = community.exports.length;
+        await expect(community.export({ includePrivateKey: true })).rejects.toMatchObject({
+            code: "ERR_PRIVATE_KEY_EXPORT_NOT_ALLOWED"
+        });
+        // The rejection is synchronous server-side (before any record is created), so no record
+        // should have been appended for the refused request.
+        expect(community.exports.length).to.equal(exportsBefore);
+    });
+
+    it("includePrivateKey: false still succeeds under the same policy", async () => {
+        const { exportId } = await community.export({ includePrivateKey: false });
+        const rec = await waitForCompleteRecord({ community, exportId });
+        expect(rec.progress).to.equal(1);
+        expect(rec.url).toBeDefined();
+    });
+});
+
+// Out-of-band file deletion — embedded retention has no auto-delete, but a record whose backing
+// file the user removed must be pruned from community.exports on the next community load (via
+// loadAndPruneExportsFromKeyv). RPC is skipped: the file lives on the server fs (not the client's)
+// and prune-on-load keys on file:// URLs.
+describe(`community.export() — out-of-band file deletion`, async () => {
+    itSkipIfRpc("a completed export whose file is deleted out of band is pruned from community.exports on next load", async () => {
+        const pkc = await mockPKC({});
+        const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+        await publishRandomPost({ communityAddress: community.address, pkc });
+
+        const { exportId } = await community.export();
+        const rec = await waitForCompleteRecord({ community, exportId });
+        const filePath = fileURLToPath(new URL(rec.url!));
+        expect(existsSync(filePath)).to.equal(true);
+
+        const dataPath = pkc.dataPath;
+        const address = community.address;
+        await community.stop();
+
+        // Delete the backing file out of band, then reload on a fresh PKC at the same dataPath.
+        await fsPromises.rm(filePath, { force: true });
+        await pkc.destroy();
+
+        const pkc2 = await mockPKC({ dataPath });
+        try {
+            const reloaded = (await pkc2.createCommunity({ address })) as LocalCommunity;
+            // loadAndPruneExportsFromKeyv runs on community load and drops the record with a missing file.
+            expect(reloaded.exports.find((r) => r.exportId === exportId)).to.equal(undefined);
+        } finally {
+            await pkc2.destroy();
+        }
+    });
+});
+
+// Private-key scrubbing scope — includePrivateKey:false must scrub the community signer's private
+// material but intentionally leave pseudonymityAliases.aliasPrivateKey intact (those keys belong to
+// the per-comment publication identity, not the community's own signing material). RPC is skipped:
+// this needs embedded _dbHandler-style access and pseudonymity-mode publishing (also embedded-only
+// in the pseudonymity feature suite).
+describe(`community.export() — private-key scrubbing scope`, async () => {
+    itSkipIfRpc("includePrivateKey:false scrubs the community signer but NOT pseudonymityAliases.aliasPrivateKey", async () => {
+        const pkc = await mockPKC({});
+        const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
+        await community.edit({ features: { pseudonymityMode: "per-author" } });
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+        // Publishing under per-author pseudonymity writes a pseudonymityAliases row carrying an aliasPrivateKey.
+        await publishRandomPost({ communityAddress: community.address, pkc });
+
+        const { exportId } = await community.export({ includePrivateKey: false });
+        const rec = await waitForCompleteRecord({ community, exportId });
+        const { filePath, cleanup } = await materializeExport(rec);
+        try {
+            const db = new Database(filePath, { readonly: true });
+            try {
+                // Community signer private material IS scrubbed...
+                const row = db.prepare("SELECT value FROM keyv WHERE key = ?").get("keyv:INTERNAL_COMMUNITY") as
+                    | { value: string }
+                    | undefined;
+                expect(row).toBeDefined();
+                const parsed = JSON.parse(row!.value) as { value: { signer: ExportedSigner } };
+                expect(parsed.value.signer.privateKey).to.equal(undefined);
+                expect(parsed.value.signer.ipfsKey).to.equal(undefined);
+
+                // ...but per-comment alias private keys are preserved.
+                const aliasRows = db.prepare("SELECT aliasPrivateKey FROM pseudonymityAliases").all() as { aliasPrivateKey: string }[];
+                expect(aliasRows.length, "expected at least one pseudonymityAliases row from the per-author post").to.be.greaterThan(0);
+                for (const a of aliasRows) {
+                    expect(typeof a.aliasPrivateKey).to.equal("string");
+                    expect(a.aliasPrivateKey.length).to.be.greaterThan(0);
+                }
+            } finally {
+                db.close();
+            }
+        } finally {
+            await cleanup();
+            await community.stop();
+            await pkc.destroy();
+        }
+    });
+});
+
+// Different communities export in parallel — the spec promises per-community serialization but
+// cross-community parallelism. Runs on both transports.
+getAvailablePKCConfigsToTestAgainst().map((config) => {
+    describe(`community.export() — distinct communities export in parallel — ${config.name}`, async () => {
+        it("two distinct communities export concurrently and both complete with distinct files", async () => {
+            const pkc = await config.pkcInstancePromise();
+            const commA = (await createSubWithNoChallenge({}, pkc)) as AnyLocalCommunity;
+            const commB = (await createSubWithNoChallenge({}, pkc)) as AnyLocalCommunity;
+            try {
+                await Promise.all([commA.start(), commB.start()]);
+                await Promise.all([
+                    resolveWhenConditionIsTrue({ toUpdate: commA, predicate: async () => typeof commA.updatedAt === "number" }),
+                    resolveWhenConditionIsTrue({ toUpdate: commB, predicate: async () => typeof commB.updatedAt === "number" })
+                ]);
+                await publishRandomPost({ communityAddress: commA.address, pkc });
+                await publishRandomPost({ communityAddress: commB.address, pkc });
+
+                const [{ exportId: idA }, { exportId: idB }] = await Promise.all([commA.export(), commB.export()]);
+                const recA = await waitForCompleteRecord({ community: commA, exportId: idA });
+                const recB = await waitForCompleteRecord({ community: commB, exportId: idB });
+                expect(recA.progress).to.equal(1);
+                expect(recB.progress).to.equal(1);
+                expect(recA.url).to.not.equal(recB.url);
+
+                const matA = await materializeExport(recA);
+                const matB = await materializeExport(recB);
+                try {
+                    expect(existsSync(matA.filePath)).to.equal(true);
+                    expect(existsSync(matB.filePath)).to.equal(true);
+                } finally {
+                    await matA.cleanup();
+                    await matB.cleanup();
+                }
+            } finally {
+                await commA.stop().catch(() => {});
+                await commB.stop().catch(() => {});
+                await pkc.destroy();
+            }
+        });
     });
 });
