@@ -248,7 +248,8 @@ export const RpcRemoteCommunityUpdateEventResultSchema = z.object({
             updateCid: CidStringSchema.optional(),
             updatingState: z.custom<LocalCommunity["updatingState"]>().optional(),
             newPublicKey: z.string().optional(),
-            nameResolved: z.boolean().optional()
+            nameResolved: z.boolean().optional(),
+            ipnsHops: z.array(z.string()).optional()
         })
         .passthrough()
 });

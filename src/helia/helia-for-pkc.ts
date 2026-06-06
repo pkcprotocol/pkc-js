@@ -1,5 +1,7 @@
 import { createHelia, libp2pDefaults } from "helia";
 import { ipns } from "@helia/ipns";
+import { unmarshalIPNSRecord, multihashToIPNSRoutingKey } from "ipns";
+import { ipnsValidator } from "ipns/validator";
 import { gossipsub } from "@libp2p/gossipsub";
 import { identify } from "@libp2p/identify";
 import extraLibp2pTransports from "../runtime/node/libp2p-extra-transports.js";
@@ -182,8 +184,9 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     // Create an async generator function
                     throwIfHeliaIsStoppingOrStopped();
                     async function* generator() {
-                        const ipnsNameAsPeerId = typeof ipnsName === "string" ? peerIdFromString(ipnsName) : ipnsName;
-                        log.trace("Resolving ipns name", ipnsName, "with options", options);
+                        const currentName = typeof ipnsName === "string" ? ipnsName : (ipnsName as { toString(): string }).toString();
+                        const ipnsNameAsPeerId = peerIdFromString(currentName);
+                        log.trace("Resolving ipns name", currentName, "with options", options);
 
                         // @helia/ipns 9.2.x pubsub router throws NotFoundError if zero subscribers exist
                         // for the topic at .get() time. Await peer warmup so the resolver sees a populated
@@ -214,25 +217,46 @@ export async function createLibp2pJsClientOrUseExistingOne(
                             }
                         }
 
-                        try {
-                            const result = await ipnsNameResolver.resolve(ipnsNameAsPeerId.toMultihash(), options);
-                            yield result.record.value;
-                            return;
-                        } catch (err) {
-                            const error = <Error>err;
-                            if (error.name === "NotFoundError" || error.name === "RecordNotFoundError")
-                                throw new PKCError("ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED", {
-                                    heliaError: err,
-                                    ipnsName,
-                                    ipnsPubsubTopic,
-                                    ipnsResolveOptions: options,
-                                    warmupOutcome,
-                                    subscribersAtResolveTime: helia.libp2p.services.pubsub.getSubscribers(ipnsPubsubTopic).length,
-                                    httpRouters: pkcOptions.httpRoutersOptions,
-                                    ...getHeliaDebugContext(helia)
-                                });
-                            else throw err;
+                        // We resolve a SINGLE hop here (the immediate value of this name's record),
+                        // rather than @helia/ipns' resolve() which recurses the whole chain. Recursion
+                        // is driven by the caller (resolveIpnsToCidP2P), one hop per call, so that each
+                        // IPNS name in a delegated chain gets its own pubsub topic warmed before its
+                        // record is fetched — @helia's internal recursion would otherwise try to fetch a
+                        // deeper hop's record before its topic has any subscribers and throw NotFoundError.
+                        // See docs/protocol/delegated-ipns.md.
+                        const routingKey = multihashToIPNSRoutingKey(ipnsNameAsPeerId.toMultihash());
+                        let recordBytes: Uint8Array | undefined;
+                        const routerErrors: Error[] = [];
+                        for (const router of ipnsNameResolver.routers) {
+                            try {
+                                // validate: false — we validate the signature ourselves below.
+                                const got = await router.get(routingKey, { ...options, validate: false });
+                                if (got) {
+                                    recordBytes = got;
+                                    break;
+                                }
+                            } catch (err) {
+                                routerErrors.push(err as Error);
+                            }
                         }
+
+                        if (!recordBytes)
+                            throw new PKCError("ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED", {
+                                ipnsName,
+                                currentName,
+                                ipnsPubsubTopic,
+                                ipnsResolveOptions: options,
+                                warmupOutcome,
+                                routerErrors,
+                                subscribersAtResolveTime: helia.libp2p.services.pubsub.getSubscribers(ipnsPubsubTopic).length,
+                                httpRouters: pkcOptions.httpRoutersOptions,
+                                ...getHeliaDebugContext(helia)
+                            });
+
+                        // Validate the record's signature against its routing key before trusting its value.
+                        await ipnsValidator(routingKey, recordBytes);
+                        const record = unmarshalIPNSRecord(recordBytes);
+                        yield record.value;
                     }
 
                     return generator();

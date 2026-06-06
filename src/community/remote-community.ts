@@ -86,6 +86,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     clients: CommunityClientsManager["clients"];
     updateCid?: string;
     declare ipnsName?: string;
+    declare ipnsHops?: string[]; // the resolved IPNS delegation chain [anchor, ..., terminal]; single element for non-delegated communities. See docs/protocol/delegated-ipns.md
     declare ipnsPubsubTopic?: string; // ipns over pubsub topic
     declare ipnsPubsubTopicRoutingCid?: string; // peers of community.ipnsPubsubTopic, use this cid with http routers to find peers of ipns-over-pubsub
     pubsubTopicRoutingCid?: string; // peers of community.pubsubTopic, use this cid with http routers to find peers of community.pubsubTopic
@@ -100,6 +101,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     > = undefined; // The pkc._updatingCommunities we're subscribed to
     _numOfListenersForUpdatingInstance = 0;
     protected _ipnsName?: string;
+    protected _ipnsHops?: string[];
     protected _ipnsPubsubTopic?: string;
     protected _ipnsPubsubTopicRoutingCid?: string;
     protected _stopAbortController?: AbortController;
@@ -169,6 +171,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     protected _defineIpnsAccessorProps() {
         Object.defineProperties(this, {
             _ipnsName: { enumerable: false, configurable: true, writable: true, value: undefined },
+            _ipnsHops: { enumerable: false, configurable: true, writable: true, value: undefined },
             _ipnsPubsubTopic: { enumerable: false, configurable: true, writable: true, value: undefined },
             _ipnsPubsubTopicRoutingCid: { enumerable: false, configurable: true, writable: true, value: undefined }
         });
@@ -178,6 +181,12 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
                 configurable: true,
                 get: () => this._getIpnsName(),
                 set: (value: string | undefined) => this._setIpnsName(value)
+            },
+            ipnsHops: {
+                enumerable: true,
+                configurable: true,
+                get: () => this._getIpnsHops(),
+                set: (value: string[] | undefined) => this._setIpnsHops(value)
             },
             ipnsPubsubTopic: {
                 enumerable: true,
@@ -281,8 +290,18 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     }
 
     _updateIpnsPubsubPropsIfNeeded(newProps: CommunityJson | CreateRemoteCommunityOptions | CommunityIpfsType) {
+        // The IPNS name we resolve/subscribe to is the ANCHOR of the (possibly delegated) chain.
+        // For a delegated community the content is signed by the terminal (minter) key, so deriving
+        // the ipns name from signature.publicKey would point us at the minter instead of the anchor.
+        // ipnsHops[0] is the anchor; prefer it when the resolution chain is known.
+        // See docs/protocol/delegated-ipns.md.
+        const anchorFromHops = this.ipnsHops?.[0];
         if ("ipnsName" in newProps && newProps.ipnsName) {
             this.ipnsName = newProps.ipnsName;
+            this.ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(this.ipnsName);
+            this.ipnsPubsubTopicRoutingCid = pubsubTopicToDhtKey(this.ipnsPubsubTopic);
+        } else if (anchorFromHops) {
+            this.ipnsName = anchorFromHops;
             this.ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(this.ipnsName);
             this.ipnsPubsubTopicRoutingCid = pubsubTopicToDhtKey(this.ipnsPubsubTopic);
         } else if (newProps.signature?.publicKey && this.signature?.publicKey !== newProps.signature?.publicKey) {
@@ -333,8 +352,15 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         this.signature = newProps.signature;
 
         // Compute runtime fields: publicKey, name, address
+        // community.publicKey is the ANCHOR IPNS name (the user-facing identity). For a delegated
+        // community the content is signed by the terminal (minter) key, so we must NOT derive
+        // publicKey from signature.publicKey — that would expose the minter as the identity. The
+        // anchor is ipnsHops[0] when the chain has been resolved. See docs/protocol/delegated-ipns.md.
         const explicitPublicKey = "publicKey" in newProps ? (newProps.publicKey as string) : undefined;
-        if (newProps.signature?.publicKey) {
+        const anchorFromHops = this.ipnsHops?.[0];
+        if (anchorFromHops) {
+            this.publicKey = anchorFromHops;
+        } else if (newProps.signature?.publicKey) {
             this.publicKey = getPKCAddressFromPublicKeySync(newProps.signature.publicKey);
         } else if (explicitPublicKey) {
             this.publicKey = explicitPublicKey;
@@ -441,7 +467,8 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
             runtimeFields: {
                 updateCid: this.updateCid,
                 updatingState: this.updatingState,
-                nameResolved: this.nameResolved
+                nameResolved: this.nameResolved,
+                ipnsHops: this.ipnsHops
             }
         };
     }
@@ -458,6 +485,14 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
 
     protected _setIpnsName(value: string | undefined) {
         this._ipnsName = value;
+    }
+
+    protected _getIpnsHops(): string[] | undefined {
+        return this._updatingCommunityInstanceWithListeners?.community.ipnsHops ?? this._ipnsHops;
+    }
+
+    protected _setIpnsHops(value: string[] | undefined) {
+        this._ipnsHops = value;
     }
 
     protected _getIpnsPubsubTopic(): string | undefined {
@@ -541,7 +576,12 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
             err.code === "ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED" ||
             err.code === "ERR_OVER_DOWNLOAD_LIMIT" ||
             err.code === "ERR_INVALID_JSON" ||
-            err.code === "ERR_NO_RESOLVER_FOR_NAME"
+            err.code === "ERR_NO_RESOLVER_FOR_NAME" ||
+            // Delegated-IPNS chain failures are definitive (forged/invalid chain or unsupported value),
+            // not transient. See docs/protocol/delegated-ipns.md.
+            err.code === "ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID" ||
+            err.code === "ERR_IPNS_RECURSION_DEPTH_EXCEEDED" ||
+            err.code === "ERR_RESOLVED_IPNS_TO_UNSUPPORTED_VALUE"
         )
             return false;
 
@@ -679,6 +719,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         const log = Logger("pkc-js:remote-community:stop:cleanUpUpdatingCommunityInstanceWithListeners");
         const updatingCommunity = this._updatingCommunityInstanceWithListeners.community;
         if (typeof updatingCommunity.ipnsName === "string") this._ipnsName = updatingCommunity.ipnsName;
+        if (Array.isArray(updatingCommunity.ipnsHops)) this._ipnsHops = updatingCommunity.ipnsHops;
         if (typeof updatingCommunity.ipnsPubsubTopic === "string") this._ipnsPubsubTopic = updatingCommunity.ipnsPubsubTopic;
         if (typeof updatingCommunity.ipnsPubsubTopicRoutingCid === "string")
             this._ipnsPubsubTopicRoutingCid = updatingCommunity.ipnsPubsubTopicRoutingCid;

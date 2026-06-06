@@ -11,8 +11,13 @@ address = name || publicKey
 ```
 
 - `name`: Optional domain string (e.g., `"memes.bso"`). Stored on wire.
-- `publicKey`: IPNS address derived from `signature.publicKey` via `getPKCAddressFromPublicKeySync()`. Always available.
+- `publicKey`: IPNS address. Usually derived from `signature.publicKey` via `getPKCAddressFromPublicKeySync()`. Always available.
 - `address`: **Runtime-only**, never stored on wire, never signed, never sent over pubsub.
+
+> Delegated IPNS exception: for a community published via a delegated IPNS chain, the
+> content is signed by the terminal (minter) key, so `publicKey` is the **anchor** IPNS name
+> (`ipnsHops[0]`), not the signature-derived key. Identity stays the anchor; the content is
+> verified against the terminal name. See [delegated-ipns.md](delegated-ipns.md).
 
 ## Domain Resolution
 

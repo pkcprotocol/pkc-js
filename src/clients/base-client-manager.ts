@@ -7,6 +7,8 @@ import {
     hideClassPrivateProps,
     isAbortError,
     isIpns,
+    isIpfsPath,
+    isIpnsPath,
     isStringDomain,
     throwIfAbortSignalAborted
 } from "../util.js";
@@ -27,7 +29,6 @@ import Logger from "../logger.js";
 import type { PubsubMessage } from "../pubsub-messages/types.js";
 import type { PubsubSubscriptionHandler, ResultOfFetchingCommunity } from "../types.js";
 import * as cborg from "cborg";
-import last from "it-last";
 import { concat as uint8ArrayConcat } from "uint8arrays/concat";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import all from "it-all";
@@ -578,23 +579,73 @@ export class BaseClientsManager {
     }
 
     // IPFS P2P methods
-    async resolveIpnsToCidP2P(ipnsName: string, loadOpts: { timeoutMs: number; abortSignal?: AbortSignal }): Promise<string> {
+
+    // Maximum number of /ipns/ -> /ipns/ hops we follow before giving up. Mirrors Boxo's
+    // DefaultDepthLimit (32). A normal (non-delegated) community resolves in a single hop;
+    // delegated communities (see docs/protocol/delegated-ipns.md) resolve in two.
+    static readonly MAX_IPNS_RECURSION_DEPTH = 32;
+
+    // Resolves an IPNS name to its terminal /ipfs/ CID, following any /ipns/ -> /ipns/
+    // delegation hops along the way. Returns the resolved CID together with the ordered
+    // chain of IPNS names traversed: ipnsHops[0] is the anchor (the name we were asked to
+    // resolve) and ipnsHops.at(-1) is the terminal name (the name whose record points
+    // directly at the /ipfs/ CID, i.e. the key that signs the content).
+    async resolveIpnsToCidP2P(
+        ipnsName: string,
+        loadOpts: { timeoutMs: number; abortSignal?: AbortSignal }
+    ): Promise<{ cid: string; ipnsHops: string[] }> {
         const log = Logger("pkc-js:clients-manager:resolveIpnsToCidP2P");
         throwIfAbortSignalAborted(loadOpts.abortSignal);
-        const ipnsResolveOpts = { nocache: true, recursive: true, ...loadOpts };
+        // recursive: false so the resolver returns the IMMEDIATE value of each record (so we can
+        // walk /ipns/ -> /ipns/ hops ourselves); see performIpnsResolve below.
+        const ipnsResolveOpts = { nocache: true, recursive: false, ...loadOpts };
         const ipfsClient = this.getIpfsClientWithKuboRpcClientFunctions();
 
         const performIpnsResolve = async () => {
-            const resolvedCidOfIpns: string | undefined = await last(ipfsClient.name.resolve(ipnsName, ipnsResolveOpts));
+            // We resolve ONE hop at a time (recursive: false) rather than letting the resolver
+            // collapse the whole chain to its final /ipfs/ CID. Kubo's recursive resolve only
+            // yields the final value and hides intermediate names, so resolving hop-by-hop is the
+            // only way to learn the terminal name (the key that signs the content) and to keep
+            // per-record signature verification at each hop. A normal (non-delegated) community
+            // resolves in a single hop, so this costs exactly one lookup in the common case.
+            const ipnsHops: string[] = [ipnsName];
+            let currentName = ipnsName;
+            for (let depth = 0; depth <= BaseClientsManager.MAX_IPNS_RECURSION_DEPTH; depth++) {
+                const yieldedValues: string[] = await all(ipfsClient.name.resolve(currentName, ipnsResolveOpts));
+                // The single-hop value (kubo may yield it more than once; helia yields it once).
+                const value: string | undefined = yieldedValues[yieldedValues.length - 1];
+                if (!value)
+                    throw new PKCError("ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED", {
+                        resolvedValue: value,
+                        yieldedValues,
+                        currentName,
+                        ipnsName,
+                        ipnsHops,
+                        ipnsResolveOpts
+                    });
 
-            if (!resolvedCidOfIpns)
-                throw new PKCError("ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED", {
-                    resolvedCidOfIpns,
+                if (isIpfsPath(value)) return { cid: CidPathSchema.parse(value), ipnsHops };
+
+                if (isIpnsPath(value)) {
+                    currentName = value.split("/")[2];
+                    ipnsHops.push(currentName);
+                    continue;
+                }
+
+                throw new PKCError("ERR_RESOLVED_IPNS_TO_UNSUPPORTED_VALUE", {
+                    unsupportedValue: value,
+                    currentName,
                     ipnsName,
+                    ipnsHops,
                     ipnsResolveOpts
                 });
-
-            return CidPathSchema.parse(resolvedCidOfIpns);
+            }
+            throw new PKCError("ERR_IPNS_RECURSION_DEPTH_EXCEEDED", {
+                ipnsHops,
+                maxDepth: BaseClientsManager.MAX_IPNS_RECURSION_DEPTH,
+                ipnsName,
+                ipnsResolveOpts
+            });
         };
         try {
             // Wrap the resolution function with pTimeout because kubo-rpc-client doesn't support timeout for IPNS

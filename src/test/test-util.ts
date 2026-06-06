@@ -1677,8 +1677,12 @@ export async function createNewIpns() {
         headers: pkc.kuboRpcClientsOptions![0].headers
     });
 
-    const publishToIpns = async (content: string) => {
-        const cid = await addStringToIpfs(content);
+    // Publishes an arbitrary IPNS value under this signer's key. `value` may be a bare CID,
+    // an "/ipfs/<cid>" path, or an "/ipns/<name>" path (the latter creates a recursive/
+    // delegated IPNS record). Set verifyResolves=false when publishing a hop whose target is
+    // not resolvable yet (e.g. the anchor before its inner record exists).
+    const publishToIpnsValue = async (value: string, opts?: { verifyResolves?: boolean }) => {
+        const verifyResolves = opts?.verifyResolves ?? true;
         // Wrapped in retry because Kubo can transiently ETIMEDOUT in CI
         await new Promise<void>((resolve, reject) => {
             const operation = retry.operation({
@@ -1689,7 +1693,7 @@ export async function createNewIpns() {
 
             operation.attempt(async () => {
                 try {
-                    await ipfsClient._client.name.publish(cid, {
+                    await ipfsClient._client.name.publish(value, {
                         key: signer.address,
                         allowOffline: true
                     });
@@ -1701,10 +1705,12 @@ export async function createNewIpns() {
             });
         });
 
+        if (!verifyResolves) return;
+
         // Verify the IPNS record is resolvable before returning
         // This ensures Kubo's cache is properly synced for RPC tests
         // Wrapped in retry because Kubo can transiently ETIMEDOUT in CI
-        const resolvedCid = await new Promise<string>((resolve, reject) => {
+        await new Promise<string>((resolve, reject) => {
             const operation = retry.operation({
                 retries: 3,
                 factor: 2,
@@ -1731,11 +1737,65 @@ export async function createNewIpns() {
         });
     };
 
+    const publishToIpns = async (content: string) => {
+        const cid = await addStringToIpfs(content);
+        await publishToIpnsValue(cid);
+    };
+
     return {
         signer,
         publishToIpns,
+        publishToIpnsValue,
         pkc
     };
+}
+
+// Builds a DELEGATED community IPNS chain for tests, mirroring issue #93 (delegated IPNS
+// publishing): an anchor IPNS name (An) whose record points to a minter IPNS name (Mn),
+// whose record points to the /ipfs/ CID of a community record signed by Mn. Clients load
+// the anchor (An) but the content is signed by the terminal/minter key (Mn).
+// See docs/protocol/delegated-ipns.md. Note: delegate-side publishing is NOT part of pkc-js,
+// so this helper constructs the chain directly via kubo.
+export async function createDelegatedCommunityIpns(
+    communityOpts?: Partial<CommunityIpfsType>,
+    opts?: { contentSigner?: SignerType }
+) {
+    // anchor (owner) keypair
+    const anchor = await createNewIpns();
+    // minter (delegate) keypair
+    const minter = await createNewIpns();
+
+    const communityRecord = <CommunityIpfsType>{
+        ...(await getTemplateCommunityRecord(anchor.pkc)),
+        posts: undefined,
+        pubsubTopic: minter.signer.address,
+        ...communityOpts
+    };
+    if (!communityRecord.posts) delete communityRecord.posts;
+
+    // content is signed by the MINTER key (Mn) by default — the terminal of the chain. A test
+    // may override contentSigner to simulate a record whose signer is NOT the terminal key.
+    communityRecord.signature = await signCommunity({ community: communityRecord, signer: opts?.contentSigner ?? minter.signer });
+    const communityRecordJson = JSON.stringify(communityRecord);
+    const cid = await addStringToIpfs(communityRecordJson);
+
+    // inner record: Mn -> /ipfs/<cid>
+    await minter.publishToIpnsValue(cid);
+    // outer record: An -> /ipns/Mn (recursive). Mn already resolves, so verification can run.
+    await anchor.publishToIpnsValue(`/ipns/${minter.signer.address}`);
+
+    const result = {
+        anchorName: anchor.signer.address, // == community.publicKey / user-facing identity (An)
+        terminalName: minter.signer.address, // signs the content (Mn)
+        communityRecord,
+        cid
+    };
+
+    // The records now live on the kubo node; the helper PKCs are no longer needed.
+    await anchor.pkc.destroy();
+    await minter.pkc.destroy();
+
+    return result;
 }
 
 async function getTemplateCommunityRecord(pkc: PKC): Promise<CommunityIpfsType> {

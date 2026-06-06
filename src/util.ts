@@ -41,7 +41,8 @@ import { PKC } from "./pkc/pkc.js";
 import Logger from "./logger.js";
 import retry from "retry";
 import { peerIdFromString } from "@libp2p/peer-id";
-import { unmarshalIPNSRecord } from "ipns";
+import { unmarshalIPNSRecord, multihashToIPNSRoutingKey, type IPNSRecord } from "ipns";
+import { ipnsValidator } from "ipns/validator";
 import { importFile } from "ipfs-unixfs-importer";
 import { MemoryBlockstore } from "blockstore-core";
 import { findUpdatingCommunity } from "./pkc/tracked-instance-registry-util.js";
@@ -426,6 +427,10 @@ export function isIpfsCid(x: string) {
 
 export function isIpfsPath(x: string): boolean {
     return x.startsWith("/ipfs/");
+}
+
+export function isIpnsPath(x: string): boolean {
+    return x.startsWith("/ipns/");
 }
 
 export type KuboRpcClientCreateOption = string | URL | Multiaddr | (Record<string, unknown> & { url?: string | URL | Multiaddr });
@@ -988,6 +993,68 @@ export async function getIpnsRecordInLocalKuboNode(kuboRpcClient: KuboRpcClient,
         return unmarshalIPNSRecord(ipnsRecordRaw);
     } catch (e) {
         throw new PKCError("ERR_FAILED_TO_PARSE_LOCAL_RAW_IPNS_RECORD", { ipnsName, ipnsFetchUrl, parseError: e });
+    }
+}
+
+// Fetches a raw IPNS record from an (untrusted) gateway via the ?format=ipns-record path
+// param, validates its signature against the IPNS name's routing key, and returns the
+// unmarshalled record. Used to verify a delegated IPNS chain (anchor -> ... -> terminal)
+// independently of the gateway's own recursion, which cannot be trusted.
+// See docs/protocol/delegated-ipns.md.
+export async function fetchAndValidateIpnsRecordFromGateway(
+    gatewayUrl: string,
+    ipnsName: string,
+    opts?: { abortSignal?: AbortSignal }
+): Promise<IPNSRecord> {
+    const ipnsFetchUrl = `${gatewayUrl.replace(/\/$/, "")}/ipns/${ipnsName}?format=ipns-record`;
+    let ipnsRecordRaw: Uint8Array;
+    try {
+        const res = await fetch(ipnsFetchUrl, {
+            headers: { Accept: "application/vnd.ipfs.ipns-record" },
+            signal: opts?.abortSignal
+        });
+        if (res.status !== 200)
+            throw new PKCError("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID", {
+                reason: "Gateway did not return the raw IPNS record",
+                ipnsFetchUrl,
+                ipnsName,
+                status: res.status,
+                statusText: res.statusText
+            });
+        ipnsRecordRaw = new Uint8Array(await res.arrayBuffer());
+    } catch (e) {
+        if (e instanceof PKCError) throw e;
+        throw new PKCError("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID", {
+            reason: "Failed to fetch the raw IPNS record from the gateway",
+            ipnsFetchUrl,
+            ipnsName,
+            fetchError: e
+        });
+    }
+
+    // Validate the record's signature against the routing key derived from the IPNS name.
+    // This is what makes following the chain through an untrusted gateway safe.
+    try {
+        const routingKey = multihashToIPNSRoutingKey(peerIdFromString(ipnsName).toMultihash());
+        await ipnsValidator(routingKey, ipnsRecordRaw);
+    } catch (e) {
+        throw new PKCError("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID", {
+            reason: "IPNS record signature validation failed",
+            ipnsFetchUrl,
+            ipnsName,
+            validationError: e
+        });
+    }
+
+    try {
+        return unmarshalIPNSRecord(ipnsRecordRaw);
+    } catch (e) {
+        throw new PKCError("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID", {
+            reason: "Failed to parse the IPNS record",
+            ipnsFetchUrl,
+            ipnsName,
+            parseError: e
+        });
     }
 }
 
