@@ -14,11 +14,12 @@ import {
     publishToModQueueWithDepth,
     generateMockVote,
     generateMockComment,
+    generateMockPost,
     createPendingApprovalChallenge
 } from "../../../../dist/node/test/test-util.js";
 import { itSkipIfRpc, describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { messages } from "../../../../dist/node/errors.js";
-import { describe, it, beforeAll, afterAll } from "vitest";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
@@ -26,6 +27,12 @@ import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-loca
 import type { SignerType } from "../../../../dist/node/signer/types.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 import type { DecryptedChallengeVerificationMessageType } from "../../../../dist/node/pubsub-messages/types.js";
+import type {
+    ChallengeFileInput,
+    ChallengeResultInput,
+    GetChallengeArgsInput,
+    CommunityChallengeSetting
+} from "../../../../dist/node/community/types.js";
 
 const depthsToTest = [0, 1, 2, 3, 10];
 const pendingApprovalCommentProps = { challengeRequest: { challengeAnswers: ["pending"] } }; // this should get comment to be successful with challenge, thus sending it to modqueue
@@ -338,3 +345,68 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
         });
     });
 }
+
+// Custom challenge that always succeeds with pendingApproval: true and attaches a rationale
+// via the new commentUpdate-extras flow (issue #88). Drives the end-to-end roundtrip: community
+// signs → encrypts → author decrypts → parses → sees reason on commentUpdate.
+const pendingWithReasonChallenge = (_: { challengeSettings: CommunityChallengeSetting }): ChallengeFileInput => {
+    const type = "text/plain";
+    const getChallenge = async (_args: GetChallengeArgsInput): Promise<ChallengeResultInput> => ({
+        success: true,
+        commentUpdate: { reason: "comment got sent to pending approval cause low spam-score confidence" }
+    });
+    return { getChallenge, type, description: "Always succeeds and queues with a rationale" };
+};
+
+// Skipped under RPC: registers an in-process custom challenge function via pkc.settings.challenges.
+// RPC clients cannot install challenge code on the remote community, so this end-to-end flow only
+// runs against a LocalCommunity.
+describeSkipIfRpc.sequential("Pending approval: challenge attaches commentUpdate.reason for the mod queue", async () => {
+    let pkc: PKCType;
+    let community: LocalCommunity;
+
+    beforeAll(async () => {
+        pkc = await mockPKC();
+        pkc.settings.challenges = { "pending-with-reason": pendingWithReasonChallenge };
+        community = (await pkc.createCommunity()) as LocalCommunity;
+        community.setMaxListeners(100);
+        await community.edit({
+            settings: { challenges: [{ name: "pending-with-reason", pendingApproval: true }] }
+        });
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+    });
+
+    afterAll(async () => {
+        await community.delete();
+        await pkc.destroy();
+    });
+
+    it("author receives challengeVerification.commentUpdate.reason after a successful pending-approval challenge", async () => {
+        const post = await generateMockPost({ communityAddress: community.address, pkc });
+        const challengeVerificationPromise = new Promise<DecryptedChallengeVerificationMessageType>((resolve) =>
+            post.once("challengeverification", resolve)
+        );
+        await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
+
+        const cv = await challengeVerificationPromise;
+
+        // The challenge marked it pendingApproval and supplied a rationale — both must surface end-to-end.
+        expect(cv.challengeSuccess).to.equal(true);
+        expect(cv.commentUpdate!.pendingApproval).to.equal(true);
+
+        const commentUpdateWithReason = cv.commentUpdate as DecryptedChallengeVerificationMessageType["commentUpdate"] & {
+            reason?: string;
+        };
+        expect(commentUpdateWithReason.reason).to.equal("comment got sent to pending approval cause low spam-score confidence");
+
+        // The community must have actually signed the reason field — otherwise the author's signature
+        // verification would have stripped it. signedPropertyNames is the source of truth for what's covered.
+        expect(cv.commentUpdate!.signature.signedPropertyNames).to.include("reason");
+
+        // Unknown commentUpdate keys are surfaced on the Comment instance too (publication.ts
+        // Object.assigns them onto `this`), so an author client can read post.reason directly.
+        const postWithReason = post as Comment & { reason?: string };
+        expect(postWithReason.reason).to.equal("comment got sent to pending approval cause low spam-score confidence");
+    });
+});

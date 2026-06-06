@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.0.40](https://github.com/pkcprotocol/pkc-js/compare/v0.0.39...v0.0.40) (2026-06-03)
+
+### Bug Fixes
+
+* **modqueue:** include challenge-supplied commentUpdate.reason in pending-approval page ([#111](https://github.com/pkcprotocol/pkc-js/issues/111)) ([62d4a9a](https://github.com/pkcprotocol/pkc-js/commit/62d4a9aed0e6be057345bd058a6b6a547a830f7c)), closes [#110](https://github.com/pkcprotocol/pkc-js/issues/110) [#110](https://github.com/pkcprotocol/pkc-js/issues/110)
+
+## [0.0.39](https://github.com/pkcprotocol/pkc-js/compare/v0.0.38...v0.0.39) (2026-05-31)
+
+### Features
+
+* **community:** add features.noReplyLinks to block replies with links ([#105](https://github.com/pkcprotocol/pkc-js/issues/105)) ([3cea716](https://github.com/pkcprotocol/pkc-js/commit/3cea71643df479f26a095335641227283ecbc7db))
+
+## [0.0.38](https://github.com/pkcprotocol/pkc-js/compare/v0.0.37...v0.0.38) (2026-05-25)
+
+### Bug Fixes
+
+* **challenges:** persist aggregatedComment extras through DB roundtrip ([#104](https://github.com/pkcprotocol/pkc-js/issues/104)) ([a30a5c3](https://github.com/pkcprotocol/pkc-js/commit/a30a5c39f66179f7fc2df7d0d5461ef3510d3987)), closes [#103](https://github.com/pkcprotocol/pkc-js/issues/103) [#103](https://github.com/pkcprotocol/pkc-js/issues/103)
+
+## [0.0.37](https://github.com/pkcprotocol/pkc-js/compare/v0.0.36...v0.0.37) (2026-05-23)
+
+### Features
+
+* **challenges:** {success, error, reason, comment?, commentUpdate?} result shape ([#88](https://github.com/pkcprotocol/pkc-js/issues/88)) ([#99](https://github.com/pkcprotocol/pkc-js/issues/99)) ([d1032be](https://github.com/pkcprotocol/pkc-js/commit/d1032befdceec8485837560177fc947369a6ad79))
+
 ## [0.0.36](https://github.com/pkcprotocol/pkc-js/compare/v0.0.35...v0.0.36) (2026-05-22)
 
 ### Features

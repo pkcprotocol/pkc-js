@@ -50,6 +50,7 @@ export const CommunityFeaturesSchema = z.looseObject({
     noVideoReplies: z.boolean().optional(), // Block only replies with video links
     noSpoilerReplies: z.boolean().optional(), // Author can't set spoiler = true on replies
     noImageReplies: z.boolean().optional(), // Block only replies with image links
+    noReplyLinks: z.boolean().optional(), // Block all replies that have a link field set
     noPolls: z.boolean().optional(), // Not impllemented
     noCrossposts: z.boolean().optional(), // Not implemented
     noNestedReplies: z.boolean().optional(), // No nested replies, like old school forums and 4chan. Maximum depth is 1
@@ -89,7 +90,22 @@ export const ChallengeOptionInputSchema = z.looseObject({
     required: z.boolean().optional() // If this is true, the challenge option is required, the challenge will throw without it
 }); // should be flexible
 
-export const ChallengeResultSchema = z.object({ success: z.literal(true) }).or(z.object({ success: z.literal(false), error: z.string() }));
+// `comment` and `commentUpdate` are typed as loose records here — allowed-key validation happens in
+// validateChallengeResultExtras during aggregation, so we can emit a precise PKCError with
+// {challengeIndex, offendingKey} instead of a generic Zod failure.
+export const ChallengeResultSchema = z
+    .object({
+        success: z.literal(true),
+        comment: z.looseObject({}).optional(),
+        commentUpdate: z.looseObject({}).optional()
+    })
+    .or(
+        z.object({
+            success: z.literal(false),
+            error: z.string(),
+            reason: z.string().optional()
+        })
+    );
 
 export const ChallengeFromGetChallengeSchema = z
     .object({

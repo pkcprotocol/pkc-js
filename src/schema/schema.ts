@@ -159,6 +159,24 @@ export const CommunityAuthorSchema = z.looseObject({
     firstCommentTimestamp: PKCTimestampSchema, // timestamp of the first comment by the author in the community, used for account age based challenges
     lastCommentCid: CidStringSchema // last comment by the author in the community, can be used with author.previousCommentCid to get a recent author comment history in all communities
 });
+// Currently-defined keys on CommunityAuthorSchema that challenges may NOT set via
+// `commentUpdate.author.community.<key>` on a ChallengeResult.
+// - postScore / replyScore / firstCommentTimestamp / lastCommentCid: community-computed.
+// - banExpiresAt: mod-settable through commentModeration.author.banExpiresAt only.
+// `flairs` is intentionally NOT here: a challenge may seed `author.community.flairs` as
+// lowest-priority, and a mod publishing commentModeration.author.flairs overrides it
+// (the override happens automatically via the spread in queryCalculatedCommentUpdate, since
+// queryCommunityAuthorForCommentUpdate only includes `flairs` as a key when a mod has set it).
+// Challenges may also add NEW keys (e.g. countryCode) — those flow through as lowest-priority extras.
+// `satisfies` ties each entry to a real CommunityAuthor key so renaming a field surfaces a stale entry at compile time.
+export const CommunityAuthorChallengeReservedFieldNames = [
+    "postScore",
+    "replyScore",
+    "banExpiresAt",
+    "firstCommentTimestamp",
+    "lastCommentCid"
+] as const satisfies readonly (keyof z.infer<typeof CommunityAuthorSchema>)[];
+
 export const CommentAuthorSchema = CommunityAuthorSchema.pick({ banExpiresAt: true, flairs: true });
 
 export const AuthorWithOptionalCommentUpdateSchema = AuthorPubsubSchema.extend({

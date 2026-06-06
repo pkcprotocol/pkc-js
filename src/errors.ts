@@ -271,6 +271,7 @@ export enum messages {
     ERR_REPLY_HAS_LINK_THAT_IS_VIDEO = "This community does not allow replies with video links",
     ERR_COMMENT_HAS_LINK_THAT_IS_AUDIO = "This community does not allow comments with audio links",
     ERR_REPLY_HAS_LINK_THAT_IS_AUDIO = "This community does not allow replies with audio links",
+    ERR_REPLY_HAS_LINK = "This community does not allow replies with links",
     ERR_COMMENT_CONTENT_CONTAINS_MARKDOWN_AUDIO = "This community does not allow embedding audio in markdown content",
     ERR_REPLY_HAS_SPOILER_ENABLED = "This community does not allow authors to mark replies as spoilers",
     ERR_NESTED_REPLIES_NOT_ALLOWED = "This community does not allow nested replies (depth > 1)",
@@ -374,5 +375,10 @@ export enum messages {
     ERR_EXPORT_PATH_TARGETS_LIVE_DB = "exportPath resolves to the live community database; refusing to overwrite it",
     ERR_EXPORT_CANCELLED = "Community export was cancelled via AbortSignal",
     ERR_EXPORT_BACKUP_FAILED = "Community export failed during the sqlite backup",
-    ERR_DOWNLOAD_EXPORT_ID_NOT_FOUND = "No export with that exportId exists on this RPC server"
+    ERR_DOWNLOAD_EXPORT_ID_NOT_FOUND = "No export with that exportId exists on this RPC server",
+
+    ERR_CHALLENGE_RESULT_OVERRIDES_COMMENT_SIGNED_FIELD = "A challenge result attempted to set comment.<field> that is in CommentSignedPropertyNames (would invalidate the author's signature on CommentIpfs)",
+    ERR_CHALLENGE_RESULT_OVERRIDES_RESERVED_COMMENT_UPDATE_FIELD = "A challenge result attempted to set commentUpdate.<field> that is in CommentUpdateChallengeReservedFieldNames (community-computed field)",
+    ERR_CHALLENGE_RESULT_OVERRIDES_NON_COMMUNITY_AUTHOR_KEY = "A challenge result attempted to set commentUpdate.author.<field> with a key other than 'community' — challenges may only extend commentUpdate.author.community",
+    ERR_CHALLENGE_RESULT_OVERRIDES_RESERVED_COMMUNITY_AUTHOR_FIELD = "A challenge result attempted to set commentUpdate.author.community.<field> that is in CommunityAuthorChallengeReservedFieldNames (community-computed or mod-settable field)"
 }

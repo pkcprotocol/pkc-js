@@ -209,6 +209,7 @@ CommunityFeatures { // any boolean that changes the functionality of the communi
   noVideoReplies?: boolean // block only replies with video links
   noImageReplies?: boolean // block only replies with image links
   noAudioReplies?: boolean // block only replies with audio links
+  noReplyLinks?: boolean // block all replies that have a link field set
   noSpoilerReplies?: boolean // author can't set spoiler = true on replies
   noNestedReplies?: boolean // no nested replies, like old school forums and 4chan. Maximum depth is 1
   safeForWork?: boolean // informational flag indicating this community is safe for work

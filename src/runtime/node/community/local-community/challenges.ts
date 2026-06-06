@@ -28,7 +28,7 @@ import {
     DecryptedChallengeRequestSchema
 } from "../../../../pubsub-messages/schema.js";
 import { parseDecryptedChallengeAnswerWithPKCErrorIfItFails, parseJsonWithPKCErrorIfFails } from "../../../../schema/schema-util.js";
-import { GetChallengeAnswers, getChallengeVerification } from "../challenges/index.js";
+import { GetChallengeAnswers, getChallengeVerification, type ChallengeResultAggregate } from "../challenges/index.js";
 import type { Challenge } from "../../../../community/types.js";
 import type {
     ChallengeAnswerMessageType,
@@ -246,9 +246,10 @@ export async function publishIdempotentDuplicateVerification(
 export async function storePublicationAndEncryptForChallengeVerification(
     community: LocalCommunity,
     request: DecryptedChallengeRequestMessageType,
-    pendingApproval?: boolean
+    pendingApproval?: boolean,
+    challengeAggregate?: ChallengeResultAggregate
 ): Promise<(DecryptedChallengeVerification & Required<Pick<DecryptedChallengeVerificationMessageType, "encrypted">>) | undefined> {
-    const commentAfterAddingToIpfs = await storePublication(community, request, pendingApproval);
+    const commentAfterAddingToIpfs = await storePublication(community, request, pendingApproval, challengeAggregate);
     if (!commentAfterAddingToIpfs) return undefined;
     const authorSignerAddress = await getPKCAddressFromPublicKey(commentAfterAddingToIpfs.comment.signature.publicKey);
     const authorDomain = getAuthorNameFromWire(commentAfterAddingToIpfs.comment.author);
@@ -257,8 +258,12 @@ export async function storePublicationAndEncryptForChallengeVerification(
     if (!authorCommunity) throw Error("author.community can never be undefined after adding a comment");
     const commentNumberPostNumber = community._dbHandler._assignNumbersForComment(commentAfterAddingToIpfs.cid);
 
+    // Spread challenge-supplied commentUpdate fields onto the first commentUpdate. The
+    // signedPropertyNames computed at sign time is derived from the actual object keys, so any new
+    // keys (e.g. `reason`, `countryCode`) land in the signature.
     const commentUpdateOfVerificationNoSignature = <Omit<DecryptedChallengeVerification["commentUpdate"], "signature">>(
         cleanUpBeforePublishing({
+            ...(challengeAggregate?.aggregatedCommentUpdate ?? {}),
             author: { community: authorCommunity },
             cid: commentAfterAddingToIpfs.cid,
             protocolVersion: env.PROTOCOL_VERSION,
@@ -289,7 +294,8 @@ export async function publishChallengeVerification(
     community: LocalCommunity,
     challengeResult: Pick<ChallengeVerificationMessageType, "challengeErrors" | "challengeSuccess" | "reason">,
     request: DecryptedChallengeRequestMessageType,
-    pendingApproval?: boolean
+    pendingApproval?: boolean,
+    challengeAggregate?: ChallengeResultAggregate
 ) {
     const log = Logger("pkc-js:local-community:_publishChallengeVerification");
     if (!challengeResult.challengeSuccess)
@@ -303,7 +309,7 @@ export async function publishChallengeVerification(
             | undefined;
 
         try {
-            toEncrypt = await storePublicationAndEncryptForChallengeVerification(community, request, pendingApproval);
+            toEncrypt = await storePublicationAndEncryptForChallengeVerification(community, request, pendingApproval, challengeAggregate);
         } catch (e) {
             failureReason = (e as PKCError).message;
             log.error("Failed to store store Publication And Encrypt For ChallengeVerification", e);
@@ -598,7 +604,24 @@ async function runVerificationAndStorePublication(
     parsed: ParsedChallengeRequest,
     challengeVerification: Awaited<ReturnType<typeof getChallengeVerification>> & { reason?: string }
 ): Promise<void> {
-    await publishChallengeVerification(community, challengeVerification, parsed.decryptedRequestMsg, challengeVerification.pendingApproval);
+    const aggregate: ChallengeResultAggregate = {
+        aggregatedComment: challengeVerification.aggregatedComment,
+        aggregatedCommentUpdate: challengeVerification.aggregatedCommentUpdate,
+        aggregatedReason: challengeVerification.aggregatedReason
+    };
+    // Surface the challenge-supplied aggregatedReason as the published verification.reason on failure.
+    const challengeResultForPublish: Pick<ChallengeVerificationMessageType, "challengeErrors" | "challengeSuccess" | "reason"> = {
+        challengeSuccess: challengeVerification.challengeSuccess,
+        challengeErrors: challengeVerification.challengeErrors,
+        reason: challengeVerification.reason ?? challengeVerification.aggregatedReason
+    };
+    await publishChallengeVerification(
+        community,
+        challengeResultForPublish,
+        parsed.decryptedRequestMsg,
+        challengeVerification.pendingApproval,
+        aggregate
+    );
 }
 
 export async function handleChallengeRequest(community: LocalCommunity, request: ChallengeRequestMessageType, isLocalPublisher: boolean) {
