@@ -213,11 +213,17 @@ The signer lives inside the `internalCommunity` KeyV record. With the backup DB 
 
 The `exportId` is unguessable (UUIDv4 = 122 bits of entropy), so it doubles as the HTTP capability. No separate token map is needed; the URL path is just the `exportId` and the file on disk is `<exportId>.sqlite`. Records persist with the community's KeyV state, so capabilities survive RPC server restart automatically.
 
-## Private Key Policy (RPC Server) (Planned — deferred from this PR)
+## Private Key Policy (RPC Server)
 
-- Config flag on `pkcOptions.rpcServer`: `allowPrivateKeyExport` (default `true` — matches private-RPC scope).
-- Public-RPC operators can set `allowPrivateKeyExport: false`; server rejects any `includePrivateKey: true` request with `ERR_PRIVATE_KEY_EXPORT_NOT_ALLOWED`.
-- Embedded pkc-js (no RPC server) always honors `includePrivateKey` (shipped).
+- Config flag on the RPC server options: `allowPrivateKeyExport` (default `true` — matches private-RPC scope).
+- Server rejects any `includePrivateKey: true` request with `ERR_PRIVATE_KEY_EXPORT_NOT_ALLOWED` when `allowPrivateKeyExport` is `false`. The error message tells the operator to restart the RPC server with `allowPrivateKeyExport=true` to allow it.
+- Embedded pkc-js (no RPC server) always honors `includePrivateKey`.
+
+### Recommended settings per deployment
+
+- **Public RPCs should probably set `allowPrivateKeyExport: false`.** A public RPC serves untrusted clients, so handing out community signing keys to anyone who asks would let them impersonate the community. Disable private-key export there and let operators export locally instead.
+- **bitsocial-cli should set `allowPrivateKeyExport: true`.** It runs a local, single-operator daemon, so the operator is the community owner and is entitled to their own private keys.
+- **Electron apps should set `allowPrivateKeyExport: true`** for the same reason — the embedded RPC server is local to the user who owns the communities.
 
 ## Concurrency
 
@@ -238,7 +244,7 @@ Raw sqlite file (no wrapping).
 Sync errors (thrown from `community.export()`):
 - `ERR_COMMUNITY_NOT_LOCAL` — community doesn't correspond to a LocalCommunity on this daemon (shipped).
 - `ERR_EXPORT_PATH_TARGETS_LIVE_DB` — caller-supplied `exportPath` resolves to the live community DB; refusing to overwrite it (shipped).
-- `ERR_PRIVATE_KEY_EXPORT_NOT_ALLOWED` — server refused due to policy *(planned)*.
+- `ERR_PRIVATE_KEY_EXPORT_NOT_ALLOWED` — server refused an `includePrivateKey: true` request because `allowPrivateKeyExport` is `false`; the message instructs the operator to restart with `allowPrivateKeyExport=true` (shipped).
 - `ERR_EXPORT_PATH_NOT_SUPPORTED_OVER_RPC` — caller used an RPC client and passed `exportPath` *(planned)*.
 
 Async errors (recorded in `record.error.code`):

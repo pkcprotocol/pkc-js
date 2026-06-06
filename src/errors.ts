@@ -369,7 +369,7 @@ export enum messages {
     // Community export errors
     ERR_COMMUNITY_NOT_LOCAL = "community.export() can only be called on a LocalCommunity on this daemon",
     ERR_COMMUNITY_NOT_FOUND = "Community is unknown to this daemon — neither name nor publicKey matches a community",
-    ERR_PRIVATE_KEY_EXPORT_NOT_ALLOWED = "The RPC server is configured to disallow exporting community private keys",
+    ERR_PRIVATE_KEY_EXPORT_NOT_ALLOWED = "The RPC server is configured to disallow exporting community private keys (allowPrivateKeyExport=false). To export with includePrivateKey=true, restart the RPC server with allowPrivateKeyExport=true",
     ERR_EXPORT_PATH_NOT_SUPPORTED_OVER_RPC = "exportPath is only supported in embedded mode; download from the record's url instead",
     ERR_EXPORT_PATH_TARGETS_LIVE_DB = "exportPath resolves to the live community database; refusing to overwrite it",
     ERR_EXPORT_CANCELLED = "Community export was cancelled via AbortSignal",
