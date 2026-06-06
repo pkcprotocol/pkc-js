@@ -296,9 +296,16 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         this._initMemCaches();
         this._inflightFetchManager = new InflightFetchManager();
 
-        if (!this.noData && !this.pkcRpcClientsOptions)
-            this.dataPath = this.parsedPKCOptions.dataPath =
-                "dataPath" in this.parsedPKCOptions ? this.parsedPKCOptions.dataPath : getDefaultDataPath();
+        if (!this.noData) {
+            if (!this.pkcRpcClientsOptions)
+                // Non-RPC client: honor an explicit dataPath (including an explicit undefined), otherwise default.
+                this.dataPath = this.parsedPKCOptions.dataPath =
+                    "dataPath" in this.parsedPKCOptions ? this.parsedPKCOptions.dataPath : getDefaultDataPath();
+            else if (typeof this.parsedPKCOptions.dataPath === "string")
+                // RPC client: keep a caller-supplied dataPath so local operations stay available,
+                // but never auto-assign the default location to an RPC-only client.
+                this.dataPath = this.parsedPKCOptions.dataPath;
+        }
     }
 
     _initMemCaches() {

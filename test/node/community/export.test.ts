@@ -460,9 +460,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             await first.stop();
 
-            // Fresh PKC pointing at the same daemon. Embedded: same dataPath. RPC: fresh client.
-            const pkc2 =
-                config.testConfigCode === "local-kubo-rpc" ? await mockPKC({ dataPath: pkc.dataPath }) : await config.pkcInstancePromise();
+            // Fresh PKC pointing at the same daemon. pkcInstancePromise() handles both flavors:
+            // for local-kubo-rpc it forces local kubo options and defaults to the same .pkc dataPath
+            // as `pkc`; for remote-pkc-rpc it yields a fresh RPC client to the same server.
+            const pkc2 = await config.pkcInstancePromise();
             try {
                 const reloaded = (await pkc2.createCommunity({ address: first.address })) as AnyLocalCommunity;
                 const rec = reloaded.exports.find((r) => r.exportId === exportId);
