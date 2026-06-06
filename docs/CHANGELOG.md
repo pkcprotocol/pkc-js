@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.41](https://github.com/pkcprotocol/pkc-js/compare/v0.0.40...v0.0.41) (2026-06-06)
+
+### Features
+
+* **community:** community.export() — embedded ([#79](https://github.com/pkcprotocol/pkc-js/issues/79)) ([#100](https://github.com/pkcprotocol/pkc-js/issues/100)) ([3a3eef1](https://github.com/pkcprotocol/pkc-js/commit/3a3eef1e2d17a8ccca5258048b76160f9c2249c6)), closes [#1](https://github.com/pkcprotocol/pkc-js/issues/1) [#2](https://github.com/pkcprotocol/pkc-js/issues/2) [#2](https://github.com/pkcprotocol/pkc-js/issues/2) [#3](https://github.com/pkcprotocol/pkc-js/issues/3) [#3](https://github.com/pkcprotocol/pkc-js/issues/3) [#3](https://github.com/pkcprotocol/pkc-js/issues/3) [#3](https://github.com/pkcprotocol/pkc-js/issues/3) [#2](https://github.com/pkcprotocol/pkc-js/issues/2)
+
 ## [0.0.40](https://github.com/pkcprotocol/pkc-js/compare/v0.0.39...v0.0.40) (2026-06-03)
 
 ### Bug Fixes
