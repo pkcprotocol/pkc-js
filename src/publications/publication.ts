@@ -538,7 +538,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         else this._clientsManager.updateKuboRpcPubsubState(pubsubState, keyOrUrl);
     }
 
-    async publishChallengeAnswers(challengeAnswers: DecryptedChallengeAnswerMessageType["challengeAnswers"]) {
+    async publishChallengeAnswers({ challengeAnswers }: { challengeAnswers: DecryptedChallengeAnswerMessageType["challengeAnswers"] }) {
         const log = Logger("pkc-js:publication:publishChallengeAnswers");
 
         const toEncryptAnswers = parseDecryptedChallengeAnswerWithPKCErrorIfItFails(<DecryptedChallengeAnswer>{

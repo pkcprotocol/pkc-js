@@ -93,7 +93,7 @@ async function publishPostWithChallengeAnswer(
     });
 
     post.once("challenge", async (challengeMessage: DecryptedChallengeMessageType) => {
-        await post.publishChallengeAnswers([challengeAnswer]);
+        await post.publishChallengeAnswers({ challengeAnswers: [challengeAnswer] });
     });
 
     await post.publish();
@@ -128,7 +128,7 @@ async function publishPostAndTrackChallenge(
     let challengeReceived = false;
     post.once("challenge", async () => {
         challengeReceived = true;
-        await post.publishChallengeAnswers([opts?.challengeAnswer ?? "2"]);
+        await post.publishChallengeAnswers({ challengeAnswers: [opts?.challengeAnswer ?? "2"] });
     });
 
     await post.publish();
@@ -163,7 +163,7 @@ async function publishReplyWithChallengeAnswer(
     });
 
     reply.once("challenge", async (challengeMessage: DecryptedChallengeMessageType) => {
-        await reply.publishChallengeAnswers([challengeAnswer]);
+        await reply.publishChallengeAnswers({ challengeAnswers: [challengeAnswer] });
     });
 
     await reply.publish();
@@ -196,7 +196,7 @@ async function publishVoteWithChallengeAnswer(
     });
 
     vote.once("challenge", async (challengeMessage: DecryptedChallengeMessageType) => {
-        await vote.publishChallengeAnswers([challengeAnswer]);
+        await vote.publishChallengeAnswers({ challengeAnswers: [challengeAnswer] });
     });
 
     await vote.publish();
@@ -269,7 +269,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 post.once("challenge", async (challengeMessage: DecryptedChallengeMessageType) => {
                     challengeReceived = true;
-                    await post.publishChallengeAnswers(["2"]);
+                    await post.publishChallengeAnswers({ challengeAnswers: ["2"] });
                 });
 
                 await post.publish();
@@ -339,7 +339,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 secondPost.once("challenge", async (challengeMessage: DecryptedChallengeMessageType) => {
                     challengeReceived = true;
                     // Answer anyway in case we're wrong
-                    await secondPost.publishChallengeAnswers(["2"]);
+                    await secondPost.publishChallengeAnswers({ challengeAnswers: ["2"] });
                 });
 
                 await secondPost.publish();
@@ -424,7 +424,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 post4.once("challenge", async () => {
                     challengeReceived = true;
-                    await post4.publishChallengeAnswers(["2"]);
+                    await post4.publishChallengeAnswers({ challengeAnswers: ["2"] });
                 });
 
                 await post4.publish();
@@ -491,7 +491,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 post2.once("challenge", async () => {
                     challengeReceived = true;
-                    await post2.publishChallengeAnswers(["2"]);
+                    await post2.publishChallengeAnswers({ challengeAnswers: ["2"] });
                 });
 
                 await post2.publish();
@@ -545,7 +545,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 secondPost.once("challenge", async () => {
                     challengeReceived = true;
-                    await secondPost.publishChallengeAnswers(["2"]);
+                    await secondPost.publishChallengeAnswers({ challengeAnswers: ["2"] });
                 });
 
                 await secondPost.publish();
@@ -641,7 +641,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 secondPost.once("challenge", async () => {
                     challengeReceived = true;
-                    await secondPost.publishChallengeAnswers(["2"]);
+                    await secondPost.publishChallengeAnswers({ challengeAnswers: ["2"] });
                 });
 
                 await secondPost.publish();
@@ -721,7 +721,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 reply3.once("challenge", async () => {
                     challengeReceived = true;
-                    await reply3.publishChallengeAnswers(["2"]);
+                    await reply3.publishChallengeAnswers({ challengeAnswers: ["2"] });
                 });
 
                 await reply3.publish();
@@ -818,7 +818,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 secondPost.once("challenge", async () => {
                     challengeReceived = true;
-                    await secondPost.publishChallengeAnswers(["2"]);
+                    await secondPost.publishChallengeAnswers({ challengeAnswers: ["2"] });
                 });
 
                 await secondPost.publish();
@@ -904,7 +904,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
 
                 post3.once("challenge", async () => {
                     challengeReceived = true;
-                    await post3.publishChallengeAnswers(["2"]);
+                    await post3.publishChallengeAnswers({ challengeAnswers: ["2"] });
                 });
 
                 await post3.publish();
@@ -984,7 +984,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 });
 
                 post3.once("challenge", async () => {
-                    await post3.publishChallengeAnswers(["2"]);
+                    await post3.publishChallengeAnswers({ challengeAnswers: ["2"] });
                 });
 
                 await post3.publish();
@@ -1070,7 +1070,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
                 });
 
                 reply3.once("challenge", async () => {
-                    await reply3.publishChallengeAnswers(["2"]);
+                    await reply3.publishChallengeAnswers({ challengeAnswers: ["2"] });
                 });
 
                 await reply3.publish();

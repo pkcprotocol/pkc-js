@@ -56,7 +56,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             });
             mockPost.removeAllListeners();
             mockPost.once("challenge", (challengeMessage: unknown) => {
-                mockPost.publishChallengeAnswers(["3"]); // wrong answer
+                mockPost.publishChallengeAnswers({ challengeAnswers: ["3"] }); // wrong answer
             });
             let challengeverification: { challengeErrors: Record<number, string>; challengeSuccess: boolean } | undefined;
             mockPost.once("challengeverification", (msg) => {

@@ -158,7 +158,7 @@ describe.sequential("Validate props of community Pubsub messages", async () => {
 
         // Set up to answer with a wrong answer
         comment.once("challenge", async () => {
-            await comment.publishChallengeAnswers(["12345"]); // wrong answer here
+            await comment.publishChallengeAnswers({ challengeAnswers: ["12345"] }); // wrong answer here
         });
 
         const challengeVerificationPromise = new Promise<DecryptedChallengeVerificationMessageType>((resolve) =>

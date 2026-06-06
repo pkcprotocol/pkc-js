@@ -335,7 +335,7 @@ describe.concurrent(`community.clients (Local)`, async () => {
 
             const post = await generateMockPost({ communityAddress: mockSub.address, pkc: pkc });
             post.once("challenge", async () => {
-                await post.publishChallengeAnswers(["2"]);
+                await post.publishChallengeAnswers({ challengeAnswers: ["2"] });
             });
             await post.publish();
 
@@ -465,7 +465,7 @@ describe.concurrent(`community.clients (Local)`, async () => {
             const mockPost = await generateMockPost({ communityAddress: community.address, pkc: pkc });
 
             mockPost.once("challenge", async () => {
-                await mockPost.publishChallengeAnswers(["2"]);
+                await mockPost.publishChallengeAnswers({ challengeAnswers: ["2"] });
             });
 
             await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });

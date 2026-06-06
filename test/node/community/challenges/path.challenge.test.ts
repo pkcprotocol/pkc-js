@@ -109,7 +109,7 @@ describeSkipIfRpc.concurrent(`community.settings.challenges with path`, async ()
         mockPost.once("challenge", async (msg: DecryptedChallengeMessageType) => {
             challengeReceived = true;
             challengeData = msg;
-            await mockPost.publishChallengeAnswers(["London"]);
+            await mockPost.publishChallengeAnswers({ challengeAnswers: ["London"] });
         });
 
         await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: false }); // Should fail due to wrong answer

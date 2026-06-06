@@ -366,7 +366,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             comment.removeAllListeners();
             await comment.publish();
 
-            comment.once("challenge", () => comment.publishChallengeAnswers(["2"]));
+            comment.once("challenge", () => comment.publishChallengeAnswers({ challengeAnswers: ["2"] }));
 
             const challengeAnswerPubsubMsg = await new Promise<DecryptedChallengeAnswerMessageType>((resolve) =>
                 comment.once("challengeanswer", resolve)
@@ -450,7 +450,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 comment._clientsManager.pubsubPublishOnProvider =
                     (async () => {}) as typeof comment._clientsManager.pubsubPublishOnProvider; // Disable publishing
 
-                await comment.publishChallengeAnswers(["test hello"]);
+                await comment.publishChallengeAnswers({ challengeAnswers: ["test hello"] });
                 // comment._challengeAnswer should be defined now
 
                 const challengeAnswersPubsubMessage = Object.values(comment._challengeExchanges).find(
