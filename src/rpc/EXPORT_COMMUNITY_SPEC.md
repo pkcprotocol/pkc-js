@@ -82,8 +82,8 @@ If a future need arises for a finer-grained state (e.g. additional states beyond
 
 - **Synchronous (rejects the `community.export()` promise before any record is created):**
   - Community is not a `LocalCommunity` on this daemon (e.g. it's a read-only `RemoteCommunity`).
-  - `includePrivateKey: true` but RPC server policy disallows it. *(Planned — depends on RPC server.)*
-  - `exportPath` provided but caller is using an RPC client. *(Planned — depends on RPC client.)*
+  - `includePrivateKey: true` but RPC server policy disallows it (enforced by the RPC server).
+  - `exportPath` provided but caller is using an RPC client (rejected by the RPC client).
   - `exportPath` resolves to the live community database file (would clobber it).
   - `options.signal` is already aborted (rejects with `signal.reason`).
 
@@ -109,25 +109,23 @@ Behavior:
 
 The AbortSignal lifetime intentionally outlives the `community.export()` promise: the promise resolves once the export is enqueued (returning `{ exportId }`), but the signal stays observed by the underlying backup task until terminal state. Same pattern as `node:fs.watch(path, { signal })` and `fetch(url, { signal })` for streaming responses.
 
-There is no public `cancelExport(exportId)` method. *(Planned)* the RPC client will use a wire-level `cancelExport({ exportId })` to translate `signal.abort()` into a server-side cancel.
+There is no public `cancelExport(exportId)` method; the RPC client uses a wire-level `cancelExport({ exportId })` to translate `signal.abort()` into a server-side cancel.
 
 ### Identifiers and URLs
 
 - `exportId` (UUIDv4) is the canonical identifier returned to the caller and used in URLs, filenames, log lines, and `_activeExports` map keys.
 - On-disk filename: `<exportId>.sqlite` under `<pkcDataPath>/exports/`. Caller-supplied `exportPath` (embedded only) overrides this; the embedded path validates that `exportPath` does not resolve to the live community DB and rejects with `ERR_EXPORT_PATH_TARGETS_LIVE_DB` if it does.
 - Embedded mode (shipped) emits an absolute `file://` URL directly.
-- RPC download URL path *(planned)*: `/exports/<exportId>`. The wire-format `record.url` will be a **relative URL** (`/exports/<exportId>`); the RPC client will absolutize via `new URL(wireUrl, rpcHttpOrigin).href` before exposing to the consumer, where `rpcHttpOrigin` is the WebSocket URL with `ws[s]://` swapped to `http[s]://` and any `authKey` path stripped.
-- Consumer code branches on `new URL(record.url).protocol === "file:"` and uses `fileURLToPath()` for `fs.*` calls; otherwise `fetch()` (once the HTTP endpoint ships).
+- RPC download URL path: `/exports/<exportId>`. The wire-format `record.url` is a **relative URL** (`/exports/<exportId>`); the RPC client absolutizes via `new URL(wireUrl, rpcHttpOrigin).href` before exposing to the consumer, where `rpcHttpOrigin` is the WebSocket URL with `ws[s]://` swapped to `http[s]://` and any `authKey` path stripped.
+- Consumer code branches on `new URL(record.url).protocol === "file:"` and uses `fileURLToPath()` for `fs.*` calls; otherwise `fetch()` against the HTTP endpoint.
 
 ### Integration with `pkc.destroy()`
 
 Each `LocalCommunity` keeps a private `_activeExports: Map<string, InternalExportHandle>` keyed by `exportId`. Each enqueued export adds an entry; terminal transitions remove it. `pkc.destroy()` walks every community's `_activeExports` and cancels everything in flight before the existing teardown.
 
-On the RPC server side, `PKCWsServer.close()` will likewise cancel per-connection subscriptions. *(Planned — depends on RPC server.)*
+On the RPC server side, `PKCWsServer.close()` likewise cancels per-connection subscriptions.
 
-## RPC Wire Protocol (Planned — deferred from this PR)
-
-> The wire methods, subscription channel, and HTTP download endpoint are **not implemented** in PR #100. They are described here as the agreed design for the follow-up PR on issue #79. Embedded callers should ignore this section.
+## RPC Wire Protocol
 
 Three new RPC methods. `AbortSignal` is a client-side concept and never crosses the wire — when an RPC-side `community.export({ signal })` caller's signal aborts, the RPC client routes that to a `cancelExport` call.
 
@@ -198,10 +196,10 @@ The signer lives inside the `internalCommunity` KeyV record. With the backup DB 
 ### Retention
 
 - **Embedded mode (shipped)**: no auto-deletion. The record stays in `community.exports` indefinitely. The user manages cleanup; deleting the file out-of-band causes the record to be pruned from `community.exports` on next community load (via `loadAndPruneExportsFromKeyv`).
-- **After successful HTTP download** *(Planned)*: the RPC server deletes the export file once it finishes streaming the HTTP response, removes the record from `community.exports`, and fires `exportschange`.
-- **Never-downloaded exports** *(Planned)*: on RPC server startup, delete any files in `<pkcDataPath>/exports/` older than 24 hours and prune the matching records. The age threshold is configurable via the `exportFileMaxAgeMs` server option (default `86_400_000` = 24h). Setting `exportFileMaxAgeMs: 0` disables the sweep entirely so export files are kept forever.
+- **After successful HTTP download**: the RPC server deletes the export file once it finishes streaming the HTTP response, removes the record from `community.exports`, and fires `exportschange`.
+- **Never-downloaded exports**: on RPC server startup, delete any files in `<pkcDataPath>/exports/` older than 24 hours and prune the matching records. The age threshold is configurable via the `exportFileMaxAgeMs` server option (default `86_400_000` = 24h). Setting `exportFileMaxAgeMs: 0` disables the sweep entirely so export files are kept forever.
 
-## HTTP Download Endpoint (Planned — deferred from this PR)
+## HTTP Download Endpoint
 
 - Attached to the **same port as the WebSocket RPC**, via the `server` option already accepted by `RpcWebsocketsServer`. Construct a plain `http.Server`, register a `request` listener for `GET /exports/<exportId>`, then pass the server to `RpcWebsocketsServer` so the `upgrade` event routes WS traffic correctly.
 - Returns `200` with `Content-Length` and `Content-Type: application/vnd.sqlite3`, streams file.
@@ -245,13 +243,13 @@ Sync errors (thrown from `community.export()`):
 - `ERR_COMMUNITY_NOT_LOCAL` — community doesn't correspond to a LocalCommunity on this daemon (shipped).
 - `ERR_EXPORT_PATH_TARGETS_LIVE_DB` — caller-supplied `exportPath` resolves to the live community DB; refusing to overwrite it (shipped).
 - `ERR_PRIVATE_KEY_EXPORT_NOT_ALLOWED` — server refused an `includePrivateKey: true` request because `allowPrivateKeyExport` is `false`; the message instructs the operator to restart with `allowPrivateKeyExport=true` (shipped).
-- `ERR_EXPORT_PATH_NOT_SUPPORTED_OVER_RPC` — caller used an RPC client and passed `exportPath` *(planned)*.
+- `ERR_EXPORT_PATH_NOT_SUPPORTED_OVER_RPC` — caller used an RPC client and passed `exportPath` (shipped).
 
 Async errors (recorded in `record.error.code`):
 - `ERR_EXPORT_CANCELLED` — recorded when an `AbortSignal` aborts an in-progress record (or when `pkc.destroy()` cancels in-flight exports). The signal is honored throughout the backup pipeline, including the post-backup scrub, hash, and rename steps.
 - `ERR_EXPORT_BACKUP_FAILED` — generic catch-all for `better-sqlite3.backup()` failures (disk full, source DB corruption, etc.); inspect `error.message` for specifics.
 
-HTTP-only *(planned)*:
+HTTP-only (shipped):
 - `ERR_DOWNLOAD_EXPORT_ID_NOT_FOUND` — `GET /exports/<exportId>` hit but no record/file exists (404 to the caller; logged server-side with this code).
 
 ## Out of Scope (future work)

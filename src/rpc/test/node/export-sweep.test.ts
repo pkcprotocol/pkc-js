@@ -51,6 +51,8 @@ const stageExportFile = async (exportsDir: string, name: string, ageMs: number):
 
 const listExports = async (exportsDir: string): Promise<string[]> => (await readdir(exportsDir)).sort();
 
+// Skipped for RPC: needs in-process server access to call _sweepOldExportFiles() and read
+// server.pkc.dataPath directly, neither of which is reachable over the RPC client wire.
 describeSkipIfRpc("RPC server export-file sweep (_sweepOldExportFiles + exportFileMaxAgeMs)", () => {
     let serverPkc: PKCType;
     // Default-age server (no exportFileMaxAgeMs -> 24h) and a custom-age server (2h) to prove the
