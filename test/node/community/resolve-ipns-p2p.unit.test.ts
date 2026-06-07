@@ -41,6 +41,17 @@ describeSkipIfRpc("resolveIpnsToCidP2P resolution branches", () => {
         }
     });
 
+    it("throws ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED when a record resolves to no value", async () => {
+        // The resolver yields nothing (empty array) -> the immediate-hop value is undefined.
+        stubResolver(() => []);
+        try {
+            await pkc._clientsManager.resolveIpnsToCidP2P("12D3KooWAnchor", { timeoutMs: 5000 });
+            expect.fail("should have thrown for an undefined resolved value");
+        } catch (e) {
+            expect((e as { code?: string }).code).to.equal("ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED");
+        }
+    });
+
     it("throws ERR_IPNS_MAX_HOPS_EXCEEDED when the chain never terminates in an /ipfs/ value", async () => {
         // Always resolve to another /ipns/ hop -> the walk exceeds the single-hop cap.
         stubResolver(() => ["/ipns/12D3KooWNext"]);
