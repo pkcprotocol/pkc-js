@@ -1949,7 +1949,22 @@ export function jsonifyCommunityAndRemoveInternalProps(community: RemoteCommunit
     _stripNameResolvedFromPages(jsonfied["posts"]);
     _stripNameResolvedFromPages(jsonfied["modQueue"]);
 
-    return remeda.omit(jsonfied, ["startedState", "started", "signer", "settings", "editable", "clients", "updatingState", "state"]);
+    // ipnsHops records the IPNS delegation chain traversed to RESOLVE a community, so it only exists
+    // on a freshly-resolved remote instance — a local community (which owns the keys and publishes
+    // rather than resolves) and a not-yet-resolved instance legitimately have none. It is a runtime
+    // resolution artifact (a CommunityIpfs reserved field, like nameResolved), so strip it before
+    // comparing community content/identity. See docs/protocol/delegated-ipns.md.
+    return remeda.omit(jsonfied, [
+        "ipnsHops",
+        "startedState",
+        "started",
+        "signer",
+        "settings",
+        "editable",
+        "clients",
+        "updatingState",
+        "state"
+    ]);
 }
 
 export function jsonifyLocalCommunityWithNoInternalProps(community: LocalCommunity) {

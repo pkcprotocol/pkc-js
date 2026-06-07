@@ -329,6 +329,14 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
 
     initRemoteCommunityPropsNoMerge(newProps: CommunityJson | CreateRemoteCommunityOptions | CommunityIpfsType) {
         // This function is not strict, and will assume all props can be undefined, except address
+        // Carry over the resolved IPNS delegation chain when the source provides it (e.g.
+        // createCommunity(loadedCommunity) clones an already-resolved instance). ipnsHops cannot be
+        // re-derived from the address, so copy it before deriving identity below — this keeps the
+        // clone anchored to ipnsHops[0] and lets runtime fields round-trip. A CommunityIpfs record
+        // never carries ipnsHops, so this is a no-op for the normal resolution/RPC-update paths.
+        // See docs/protocol/delegated-ipns.md.
+        const incomingIpnsHops = (newProps as { ipnsHops?: unknown }).ipnsHops;
+        if (Array.isArray(incomingIpnsHops) && incomingIpnsHops.length > 0) this._ipnsHops = incomingIpnsHops as string[];
         this.title = newProps.title;
         this.description = newProps.description;
         this.lastPostCid = newProps.lastPostCid;

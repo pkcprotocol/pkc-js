@@ -14,17 +14,6 @@ import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
 
-// True when the pkc loads communities through an RPC server (rather than locally). Detected
-// per-instance because a combined run hosts both the RPC and non-RPC configs in one process.
-const isRpc = (pkc: PKCType): boolean => Boolean(pkc._pkcRpcClient);
-
-// TODO: delegated-community identity does NOT work over RPC yet. For a delegated community loaded
-// over RPC, rpc-remote-community.ts applies the community record (which derives publicKey from
-// ipnsHops[0]) BEFORE ipnsHops is applied via deepMergeRuntimeFields, so publicKey is derived from
-// the minter (signature key) instead of the anchor. The non-RPC path resolves ipnsHops first and is
-// correct. Fix: set _ipnsHops from runtimeFields before initCommunityIpfsPropsNoMerge. Until then,
-// the publicKey/ipnsHops identity assertions below are skipped under RPC (guarded with !isRpc).
-
 // Loads a community via createCommunity()+update() (more reliable than getCommunity which
 // does a one-shot fetch that can fail randomly in CI) and resolves once it has an update.
 async function loadCommunityViaUpdate(pkc: PKCType, address: string): Promise<RemoteCommunity> {
@@ -52,14 +41,13 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const community = await loadCommunityViaUpdate(pkc, anchorName);
             try {
                 expect(community.updatedAt).to.be.a("number");
-                // identity stays the anchor even though the content is signed by the minter
+                // identity stays the anchor even though the content is signed by the minter.
+                // Over RPC the server resolves the chain and transmits ipnsHops in runtimeFields,
+                // so the client derives the same anchor identity. See docs/protocol/delegated-ipns.md.
                 expect(community.address).to.equal(anchorName);
-                if (!isRpc(pkc)) {
-                    // TODO: broken over RPC — see the top-of-file TODO about delegated identity over RPC.
-                    expect(community.publicKey).to.equal(anchorName);
-                    // the resolved chain is exposed and ordered [anchor, ..., terminal]
-                    expect(community.ipnsHops).to.deep.equal([anchorName, terminalName]);
-                }
+                expect(community.publicKey).to.equal(anchorName);
+                // the resolved chain is exposed and ordered [anchor, ..., terminal]
+                expect(community.ipnsHops).to.deep.equal([anchorName, terminalName]);
                 // the content record was actually signed by the terminal (minter) key, not the anchor
                 const recordSignatureAddress = getPKCAddressFromPublicKeySync(community.raw.communityIpfs!.signature.publicKey);
                 expect(recordSignatureAddress).to.equal(terminalName);
@@ -80,14 +68,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const community = await loadCommunityViaUpdate(pkc, anchorName);
             try {
                 expect(community.updatedAt).to.be.a("number");
-                // identity stays the anchor across multiple hops
+                // identity stays the anchor across multiple hops (including over RPC, where the
+                // server transmits the resolved ipnsHops to the client)
                 expect(community.address).to.equal(anchorName);
-                if (!isRpc(pkc)) {
-                    // TODO: broken over RPC — see the top-of-file TODO about delegated identity over RPC.
-                    expect(community.publicKey).to.equal(anchorName);
-                    // the full chain is walked and exposed in order [anchor, intermediate, terminal]
-                    expect(community.ipnsHops).to.deep.equal(expectedHops);
-                }
+                expect(community.publicKey).to.equal(anchorName);
+                // the full chain is walked and exposed in order [anchor, intermediate, terminal]
+                expect(community.ipnsHops).to.deep.equal(expectedHops);
                 // content is signed by the terminal (minter) key at the end of the chain
                 const recordSignatureAddress = getPKCAddressFromPublicKeySync(community.raw.communityIpfs!.signature.publicKey);
                 expect(recordSignatureAddress).to.equal(terminalName);
