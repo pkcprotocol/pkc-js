@@ -8,7 +8,7 @@ import {
     mockGatewayPKC,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
-import { getPKCAddressFromPublicKeySync } from "../../../dist/node/signer/util.js";
+import { getPKCAddressFromPublicKeySync, convertBase58IpnsNameToBase36Cid } from "../../../dist/node/signer/util.js";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
@@ -110,24 +110,35 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             }
         });
 
-        it("rejects a delegated record whose content is signed by a key other than the terminal", async () => {
+        it("rejects a delegated record signed by a non-terminal key over P2P (gateway trusts its own recursion)", async () => {
             // The anchor legitimately points to the minter, but the community record at the
-            // terminal is signed by an unrelated third key — the anchor->terminal->content
-            // binding is broken and must be rejected.
+            // terminal is signed by an unrelated third key. Over P2P we verify each hop, so the
+            // broken anchor->terminal->content binding is rejected. Over a gateway we trust the
+            // gateway's internal recursion (a single plain GET), so the content signed by the
+            // stranger is accepted and reported as terminal. See docs/protocol/delegated-ipns.md.
             const stranger = await createNewIpns();
             const { anchorName } = await createDelegatedCommunityIpns({}, { contentSigner: stranger.signer });
+            const strangerName = stranger.signer.address;
             await stranger.pkc.destroy();
 
-            try {
-                await pkc.getCommunity({ address: anchorName });
-                expect.fail("should not load a record whose signer is not the terminal of the chain");
-            } catch (e) {
-                const err = e as PKCError;
-                if (isPKCFetchingUsingGateways(pkc)) {
-                    expect(err.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
-                    const innerErrors = Object.values((err.details as { gatewayToError: Record<string, PKCError> }).gatewayToError);
-                    expect(innerErrors.some((inner) => inner?.code === "ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID")).to.be.true;
-                } else {
+            if (isPKCFetchingUsingGateways(pkc)) {
+                const community = await loadCommunityViaUpdate(pkc, anchorName);
+                try {
+                    expect(community.updatedAt).to.be.a("number");
+                    expect(community.address).to.equal(anchorName);
+                    // gateway can only observe the final content signer as the terminal
+                    expect(community.ipnsHops).to.deep.equal([anchorName, strangerName]);
+                    const recordSignatureAddress = getPKCAddressFromPublicKeySync(community.raw.communityIpfs!.signature.publicKey);
+                    expect(recordSignatureAddress).to.equal(strangerName);
+                } finally {
+                    await community.stop();
+                }
+            } else {
+                try {
+                    await pkc.getCommunity({ address: anchorName });
+                    expect.fail("should not load a record whose signer is not the terminal of the chain");
+                } catch (e) {
+                    const err = e as PKCError;
                     expect(err.code).to.equal("ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED");
                 }
             }
@@ -161,7 +172,7 @@ describe("Delegated IPNS loading over an untrusted gateway", async () => {
         }
     });
 
-    it("loads a 3-hop delegated community by validating the full gateway-served ipns-record chain", async () => {
+    it("loads a 3-hop delegated community via the gateway's internal recursion (intermediate hop not observable)", async () => {
         const { anchorName, terminalName, ipnsHops: expectedHops } = await createDelegatedCommunityIpns({}, { intermediateHopsCount: 1 });
         expect(expectedHops).to.have.length(3);
 
@@ -169,8 +180,10 @@ describe("Delegated IPNS loading over an untrusted gateway", async () => {
         try {
             expect(community.updatedAt).to.be.a("number");
             expect(community.address).to.equal(anchorName);
-            // the independent ?format=ipns-record walk validates every hop and exposes the full chain
-            expect(community.ipnsHops).to.deep.equal(expectedHops);
+            // The plain GET lets the gateway recurse internally and returns only the final content,
+            // so the intermediate hop is invisible — ipnsHops is [anchor, terminal]. The terminal is
+            // derived from the content signer. See docs/protocol/delegated-ipns.md.
+            expect(community.ipnsHops).to.deep.equal([anchorName, terminalName]);
             const recordSignatureAddress = getPKCAddressFromPublicKeySync(community.raw.communityIpfs!.signature.publicKey);
             expect(recordSignatureAddress).to.equal(terminalName);
         } finally {
@@ -178,19 +191,35 @@ describe("Delegated IPNS loading over an untrusted gateway", async () => {
         }
     });
 
-    it("rejects when the gateway-served record's signer is not the terminal of the validated chain", async () => {
-        const stranger = await createNewIpns();
-        const { anchorName } = await createDelegatedCommunityIpns({}, { contentSigner: stranger.signer });
-        await stranger.pkc.destroy();
+    // Loading an IPNS over a gateway must stay a single call. A delegated community used to add one
+    // ?format=ipns-record fetch per hop; we now let the gateway recurse internally via a single plain
+    // GET. This guards against regressing back to per-hop fetching. See docs/protocol/delegated-ipns.md
+    // and https://github.com/ipfs/kubo/issues/11351.
+    it("loads a delegated community with a single plain GET and zero per-hop ipns-record fetches", async () => {
+        const { anchorName, terminalName } = await createDelegatedCommunityIpns({});
+        const anchorCid = convertBase58IpnsNameToBase36Cid(anchorName);
 
+        const fetchSpy = vi.spyOn(globalThis, "fetch");
         try {
-            await gatewayPKC.getCommunity({ address: anchorName });
-            expect.fail("gateway load should reject a record not bound to the anchor by the ipns-record chain");
-        } catch (e) {
-            const err = e as PKCError;
-            expect(err.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
-            const innerErrors = Object.values((err.details as { gatewayToError: Record<string, PKCError> }).gatewayToError);
-            expect(innerErrors.some((inner) => inner?.code === "ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID")).to.be.true;
+            const community = await loadCommunityViaUpdate(gatewayPKC, anchorName);
+            await community.stop();
+
+            const urlOf = (input: unknown) => (typeof input === "string" ? input : (input as { url?: string })?.url) ?? "";
+            const anchorIpnsCalls = fetchSpy.mock.calls.filter(([input]) => {
+                const url = urlOf(input);
+                return url.includes("/ipns/" + anchorCid) || url.includes("/ipns/" + anchorName);
+            });
+            const plainGets = anchorIpnsCalls.filter(([input]) => !urlOf(input).includes("format=ipns-record"));
+            const recordFetches = fetchSpy.mock.calls.filter(([input]) => urlOf(input).includes("format=ipns-record"));
+
+            // identity is still correctly resolved to anchor + terminal
+            expect(community.address).to.equal(anchorName);
+            expect(community.ipnsHops).to.deep.equal([anchorName, terminalName]);
+            // exactly one plain GET for the anchor IPNS, and never a per-hop ipns-record fetch
+            expect(plainGets.length).to.equal(1, "delegated gateway load should issue exactly one plain GET /ipns/<anchor>");
+            expect(recordFetches.length).to.equal(0, "delegated gateway load must not make any ?format=ipns-record fetches");
+        } finally {
+            fetchSpy.mockRestore();
         }
     });
 });

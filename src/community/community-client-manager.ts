@@ -1,6 +1,5 @@
 import retry, { RetryOperation } from "retry";
 import {
-    BaseClientsManager,
     OptionsToLoadFromGateway,
     PreResolveNameResolverOptions,
     PostResolveNameResolverSuccessOptions
@@ -19,12 +18,9 @@ import Logger from "../logger.js";
 
 import {
     areEquivalentCommunityAddresses,
-    fetchAndValidateIpnsRecordFromGateway,
     hideClassPrivateProps,
     ipnsNameToIpnsOverPubsubTopic,
     isAbortError,
-    isIpfsPath,
-    isIpnsPath,
     isStringDomain,
     pubsubTopicToDhtKey,
     throwIfAbortSignalAborted,
@@ -654,38 +650,20 @@ export class CommunityClientsManager extends PKCClientsManager {
                     };
                     throw e;
                 }
-                // Determine the terminal IPNS name. For a normal (non-delegated) community the
-                // content is signed by the anchor key itself, so no chain walk is needed and the
-                // content signature alone secures the (untrusted) gateway response. Only when the
-                // record is signed by a different key do we follow & validate the IPNS record chain
-                // (anchor -> ... -> terminal) via the gateway to bind it to the anchor.
-                let terminalIpnsName = ipnsName;
-                let ipnsHops: string[] = [ipnsName];
+                // Determine the terminal IPNS name. A plain GET /ipns/<anchor> makes the gateway
+                // recurse the (possibly delegated) chain internally and serve the final content; the
+                // intermediate signed IPNS records are discarded and exposed in no response header, so
+                // there is no way to learn or validate the chain from a single request. We deliberately
+                // keep delegated gateway loading to ONE call for speed and trust the gateway's recursion
+                // here (the P2P paths keep full per-hop verification). For a normal community the content
+                // is signed by the anchor itself, so the content signature alone still secures it. For a
+                // delegated community the content is signed by the terminal (minter) key, which is all we
+                // can observe over a gateway, so the chain is reported as [anchor, terminal].
+                // See docs/protocol/delegated-ipns.md and https://github.com/ipfs/kubo/issues/11351.
                 const recordSignatureAddress = getPKCAddressFromPublicKeySync(communityIpfs.signature.publicKey);
-                if (!this._areEquivalentCommunityAddresses(recordSignatureAddress, ipnsName)) {
-                    const chain = await this._resolveIpnsChainViaGateway(gatewayUrl, ipnsName, abortController.signal);
-                    if (chain.terminalCidV0 !== calculatedCommunityCidFromBody)
-                        throw new PKCError("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID", {
-                            reason: "Terminal IPNS record CID does not match the community record served by the gateway",
-                            terminalCidFromChain: chain.terminalCidV0,
-                            calculatedCommunityCidFromBody,
-                            ipnsHops: chain.ipnsHops,
-                            ipnsName,
-                            gatewayUrl
-                        });
-                    ipnsHops = chain.ipnsHops;
-                    terminalIpnsName = chain.ipnsHops[chain.ipnsHops.length - 1];
-                    // The content must be signed by the terminal key the chain ends at.
-                    if (!this._areEquivalentCommunityAddresses(recordSignatureAddress, terminalIpnsName))
-                        throw new PKCError("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID", {
-                            reason: "Community record signature key does not match the terminal IPNS name of the chain",
-                            recordSignatureAddress,
-                            terminalIpnsName,
-                            ipnsHops,
-                            ipnsName,
-                            gatewayUrl
-                        });
-                }
+                const isDelegated = !this._areEquivalentCommunityAddresses(recordSignatureAddress, ipnsName);
+                const terminalIpnsName = isDelegated ? recordSignatureAddress : ipnsName;
+                const ipnsHops: string[] = isDelegated ? [ipnsName, recordSignatureAddress] : [ipnsName];
                 // Keep the resolved hops attached to THIS gateway's result; the winner (and its
                 // matching hops) is chosen later in _findRecentCommunity. Mutating
                 // this._community.ipnsHops here would let a slower/losing gateway overwrite it.
@@ -870,56 +848,6 @@ export class CommunityClientsManager extends PKCClientsManager {
         // TODO add punishment for gateway that returns old ipns record
         // TODO add punishment for gateway that returns invalid community
         return suitableCommunity;
-    }
-
-    // Walks a (potentially delegated) IPNS chain via an UNTRUSTED gateway, validating each
-    // record's signature against its name (?format=ipns-record). Returns the ordered chain of
-    // IPNS names and the terminal /ipfs/ CID. Used only when a gateway-served community record
-    // is signed by a key other than the anchor (i.e. a possible delegated chain) — for the
-    // common non-delegated case the content signature against the anchor is sufficient and no
-    // extra gateway round-trips are made. See docs/protocol/delegated-ipns.md.
-    private async _resolveIpnsChainViaGateway(
-        gatewayUrl: string,
-        anchorIpnsName: string,
-        abortSignal?: AbortSignal
-    ): Promise<{ ipnsHops: string[]; terminalCidV0: string }> {
-        const ipnsHops: string[] = [anchorIpnsName];
-        let currentName = anchorIpnsName;
-        for (let depth = 0; depth <= BaseClientsManager.MAX_IPNS_RECURSION_DEPTH; depth++) {
-            const record = await fetchAndValidateIpnsRecordFromGateway(gatewayUrl, currentName, { abortSignal });
-            const value = String(record.value);
-            if (isIpnsPath(value)) {
-                currentName = value.split("/")[2];
-                ipnsHops.push(currentName);
-                continue;
-            }
-            if (isIpfsPath(value)) {
-                let terminalCidV0: string;
-                try {
-                    terminalCidV0 = CID.parse(value.split("/")[2]).toV0().toString();
-                } catch (e) {
-                    throw new PKCError("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID", {
-                        reason: "Terminal IPNS record value is not a valid CID",
-                        terminalValue: value,
-                        ipnsHops,
-                        anchorIpnsName
-                    });
-                }
-                return { ipnsHops, terminalCidV0 };
-            }
-            throw new PKCError("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID", {
-                reason: "IPNS record value is neither an /ipfs/ nor an /ipns/ path",
-                unsupportedValue: value,
-                ipnsHops,
-                anchorIpnsName
-            });
-        }
-        throw new PKCError("ERR_IPNS_RECURSION_DEPTH_EXCEEDED", {
-            ipnsHops,
-            maxDepth: BaseClientsManager.MAX_IPNS_RECURSION_DEPTH,
-            anchorIpnsName,
-            via: "gateway"
-        });
     }
 
     private async _findErrorInCommunityRecord({

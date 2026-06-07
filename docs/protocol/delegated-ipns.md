@@ -65,15 +65,24 @@ derived from `ipnsHops[0]` (the anchor), and the content signature is verified a
   resolver's routers (not `@helia/ipns`'s recursive `resolve`, which would try to fetch a
   deeper hop's record before its pubsub topic has subscribers and throw `NotFoundError`).
   Each hop warms its own pubsub topic before its record is fetched.
-- **IPFS gateways (untrusted):** the gateway does its own recursion, so its resolved body
-  cannot be trusted to bind `An → Mn`. When the served record is signed by a key other than
-  the anchor, pkc-js independently fetches and **validates** each record in the chain via
-  `${gateway}/ipns/<name>?format=ipns-record` (`fetchAndValidateIpnsRecordFromGateway`,
-  using the `ipns` package's signature validator), confirms the terminal record's CID
-  matches the served body, and confirms the body's signer equals the terminal name. This
-  requires the gateway to serve `?format=ipns-record` and to support IPNS-over-pubsub for
-  the inner topic; many public gateways won't, so delegated loading over gateways is
-  best-effort and depends on gateway capability.
+- **IPFS gateways (best-effort, gateway-trusted for delegation):** a plain
+  `GET ${gateway}/ipns/<anchor>` makes the gateway recurse the chain internally and serve only
+  the **final content** — the intermediate signed IPNS records are discarded and exposed in no
+  response header (`X-Ipfs-Path`/`X-Ipfs-Roots` carry only the final CID; verified empirically on
+  2-hop and 3-hop chains). So over a gateway pkc-js does **one** request: it verifies the content's
+  own signature and that the body matches the served CID, derives the terminal (minter) from the
+  content signer, and reports `ipnsHops` as `[anchor, terminal]` (intermediate hops are not
+  observable). **It does not independently validate the `An → Mn` binding** — that part is trusted
+  to the gateway's recursion.
+
+  **Why we accept this (speed):** loading an IPNS over a gateway should be a single call. The only
+  way to verify the chain ourselves would be one extra `?format=ipns-record` fetch **per hop**,
+  added sequentially, because no response header or single response can carry the traversed records
+  (see [ipfs/kubo#11351](https://github.com/ipfs/kubo/issues/11351)). Rather than pay `N+1`
+  round-trips on the gateway path, we keep it to one call and trust the gateway's recursion there.
+  This downgrade applies **only** to delegated communities on the gateway path: a normal community
+  is still self-securing because its content is signed by the anchor itself (a gateway cannot forge
+  that signature), and the P2P paths (kubo RPC / helia) keep full per-hop verification.
 
 ## Trust model (summary)
 
@@ -82,12 +91,15 @@ derived from `ipnsHops[0]` (the anchor), and the content signature is verified a
 - If `Ms` leaks, an attacker can publish under `Mn` (including a sequence-exhaustion lock)
   until the owner rotates `An` to a new `Mn'`. `As` never touches the network after the
   initial publish.
-- pkc-js never accepts content whose signer is not the terminal of the validated chain.
+- **On the P2P paths** pkc-js never accepts content whose signer is not the terminal of the
+  validated chain. **On the gateway path** the `An → Mn` binding is trusted to the gateway's
+  recursion (a single plain GET; see "Per resolution path" above for the speed rationale), so a
+  malicious gateway could serve content under a key it controls and present it as `An`'s
+  resolution — a gateway-only client cannot detect this for a delegated community. Normal
+  (non-delegated) communities are unaffected, since their content is signed by the anchor itself.
 
 ## Relevant errors
 
-- `ERR_IPNS_RECURSION_DEPTH_EXCEEDED` — chain longer than the depth cap.
+- `ERR_IPNS_RECURSION_DEPTH_EXCEEDED` — chain longer than the depth cap (P2P paths).
 - `ERR_RESOLVED_IPNS_TO_UNSUPPORTED_VALUE` — a record value that is neither `/ipfs/` nor
-  `/ipns/`.
-- `ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID` — the gateway-served `?format=ipns-record` chain
-  failed to validate or did not bind anchor → terminal. (All three are non-retriable.)
+  `/ipns/`. (Both are non-retriable.)

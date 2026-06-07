@@ -76,7 +76,6 @@ export enum messages {
     ERR_IPNS_RESOLUTION_P2P_TIMEOUT = "IPNS resolution P2P timed out",
     ERR_IPNS_RECURSION_DEPTH_EXCEEDED = "IPNS record resolution exceeded the maximum recursion depth while following /ipns/ -> /ipns/ hops",
     ERR_RESOLVED_IPNS_TO_UNSUPPORTED_VALUE = "Resolved IPNS record to a value that is neither an /ipfs/ path nor an /ipns/ path",
-    ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID = "Failed to validate the IPNS record chain (anchor -> ... -> terminal) fetched from the gateway",
     ERR_FIND_PROVIDERS_TIMEOUT = "Finding providers for CID timed out without yielding any results",
     ERR_NO_DEFAULT_IPFS_PROVIDER = "No default IPFS provider found. Make sure to define either kuboRpcClientOptions or libp2pJsClientOptions",
     ERR_NO_DEFAULT_PUBSUB_PROVIDER = "No default pubsub provider found. Make sure to define either pubsubKuboRpcClientOptions or libp2pJsClientOptions",
