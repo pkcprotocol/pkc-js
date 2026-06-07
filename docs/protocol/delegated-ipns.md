@@ -17,7 +17,7 @@ being able to permanently take the community over. This is achieved with two key
 
 The records form a chain:
 
-```
+```text
 /ipns/An  ──(signed once by As, ~infinite validity)──>  /ipns/Mn
 /ipns/Mn  ──(re-signed frequently by Ms)────────────────>  /ipfs/<CommunityIpfs cid>
 /ipfs/<cid> ── CommunityIpfs JSON, signed by Ms (the minter key)

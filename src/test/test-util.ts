@@ -1679,8 +1679,10 @@ export async function createNewIpns() {
 
     // Publishes an arbitrary IPNS value under this signer's key. `value` may be a bare CID,
     // an "/ipfs/<cid>" path, or an "/ipns/<name>" path (the latter creates a recursive/
-    // delegated IPNS record). Set verifyResolves=false when publishing a hop whose target is
-    // not resolvable yet (e.g. the anchor before its inner record exists).
+    // delegated IPNS record). Records are published with allowOffline: true. `verifyResolves`
+    // ONLY controls the helper's own post-publish name.resolve() sanity check (which syncs Kubo's
+    // cache for RPC tests) — it does NOT change what name.publish does. Set it false when
+    // publishing a hop whose target isn't resolvable yet, so that resolve check doesn't fail.
     const publishToIpnsValue = async (value: string, opts?: { verifyResolves?: boolean }) => {
         const verifyResolves = opts?.verifyResolves ?? true;
         // Wrapped in retry because Kubo can transiently ETIMEDOUT in CI
@@ -1758,44 +1760,53 @@ export async function createNewIpns() {
 // so this helper constructs the chain directly via kubo.
 export async function createDelegatedCommunityIpns(
     communityOpts?: Partial<CommunityIpfsType>,
-    opts?: { contentSigner?: SignerType }
+    opts?: { contentSigner?: SignerType; intermediateHopsCount?: number }
 ) {
-    // anchor (owner) keypair
+    // anchor (owner) keypair (An)
     const anchor = await createNewIpns();
-    // minter (delegate) keypair
+    // optional intermediate delegate keypairs: anchor -> intermediate[0] -> ... -> minter
+    const intermediates: Awaited<ReturnType<typeof createNewIpns>>[] = [];
+    for (let i = 0; i < (opts?.intermediateHopsCount ?? 0); i++) intermediates.push(await createNewIpns());
+    // minter (terminal delegate) keypair (Mn) — signs the content
     const minter = await createNewIpns();
 
-    const communityRecord = <CommunityIpfsType>{
-        ...(await getTemplateCommunityRecord(anchor.pkc)),
-        posts: undefined,
-        pubsubTopic: minter.signer.address,
-        ...communityOpts
-    };
-    if (!communityRecord.posts) delete communityRecord.posts;
+    // ordered chain [anchor, ...intermediates, minter]
+    const chain = [anchor, ...intermediates, minter];
 
-    // content is signed by the MINTER key (Mn) by default — the terminal of the chain. A test
-    // may override contentSigner to simulate a record whose signer is NOT the terminal key.
-    communityRecord.signature = await signCommunity({ community: communityRecord, signer: opts?.contentSigner ?? minter.signer });
-    const communityRecordJson = JSON.stringify(communityRecord);
-    const cid = await addStringToIpfs(communityRecordJson);
+    try {
+        const communityRecord = <CommunityIpfsType>{
+            ...(await getTemplateCommunityRecord(anchor.pkc)),
+            posts: undefined,
+            pubsubTopic: minter.signer.address,
+            ...communityOpts
+        };
+        if (!communityRecord.posts) delete communityRecord.posts;
 
-    // inner record: Mn -> /ipfs/<cid>
-    await minter.publishToIpnsValue(cid);
-    // outer record: An -> /ipns/Mn (recursive). Mn already resolves, so verification can run.
-    await anchor.publishToIpnsValue(`/ipns/${minter.signer.address}`);
+        // content is signed by the MINTER key (Mn) by default — the terminal of the chain. A test
+        // may override contentSigner to simulate a record whose signer is NOT the terminal key.
+        communityRecord.signature = await signCommunity({ community: communityRecord, signer: opts?.contentSigner ?? minter.signer });
+        const communityRecordJson = JSON.stringify(communityRecord);
+        const cid = await addStringToIpfs(communityRecordJson);
 
-    const result = {
-        anchorName: anchor.signer.address, // == community.publicKey / user-facing identity (An)
-        terminalName: minter.signer.address, // signs the content (Mn)
-        communityRecord,
-        cid
-    };
+        // Publish TERMINAL-FIRST so each hop's target already resolves before its parent is
+        // published — this keeps the reliable verifyResolves path for every hop:
+        //   minter -> /ipfs/<cid>, then each node -> /ipns/<next node>, finally anchor -> /ipns/<first delegate>.
+        await minter.publishToIpnsValue(cid);
+        for (let i = chain.length - 2; i >= 0; i--) await chain[i].publishToIpnsValue(`/ipns/${chain[i + 1].signer.address}`);
 
-    // The records now live on the kubo node; the helper PKCs are no longer needed.
-    await anchor.pkc.destroy();
-    await minter.pkc.destroy();
-
-    return result;
+        return {
+            anchorName: anchor.signer.address, // == community.publicKey / user-facing identity (An)
+            terminalName: minter.signer.address, // signs the content (Mn)
+            intermediateNames: intermediates.map((node) => node.signer.address),
+            ipnsHops: chain.map((node) => node.signer.address), // [anchor, ...intermediates, terminal]
+            communityRecord,
+            cid
+        };
+    } finally {
+        // The records now live on the kubo node; the helper PKCs are no longer needed. Destroy them
+        // even if signing/publishing threw, otherwise their Kubo/libp2p handles leak.
+        for (const node of chain) await node.pkc.destroy();
+    }
 }
 
 async function getTemplateCommunityRecord(pkc: PKC): Promise<CommunityIpfsType> {

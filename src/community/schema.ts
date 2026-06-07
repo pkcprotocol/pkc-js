@@ -399,6 +399,7 @@ export const CommunityIpfsReservedFields = remeda.difference(
         "shortUpdateCid",
         "shortAddress",
         "nameResolved",
+        "ipnsHops",
         "raw",
         "shortCommunityAddress",
         "deleted",

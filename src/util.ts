@@ -430,7 +430,10 @@ export function isIpfsPath(x: string): boolean {
 }
 
 export function isIpnsPath(x: string): boolean {
-    return x.startsWith("/ipns/");
+    // Require a non-empty name segment after the prefix so a malformed bare "/ipns/" is rejected
+    // (it would otherwise flow into split("/")[2] next-hop parsing as an empty name).
+    const parts = x.split("/");
+    return parts.length >= 3 && parts[1] === "ipns" && parts[2].length > 0;
 }
 
 export type KuboRpcClientCreateOption = string | URL | Multiaddr | (Record<string, unknown> & { url?: string | URL | Multiaddr });
@@ -1023,6 +1026,9 @@ export async function fetchAndValidateIpnsRecordFromGateway(
             });
         ipnsRecordRaw = new Uint8Array(await res.arrayBuffer());
     } catch (e) {
+        // Don't remap aborts: a cancelled fetch is not a chain-validation failure, and remapping it
+        // would misclassify parent-driven aborts and break their abort logic.
+        if (isAbortError(e)) throw e;
         if (e instanceof PKCError) throw e;
         throw new PKCError("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID", {
             reason: "Failed to fetch the raw IPNS record from the gateway",

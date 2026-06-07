@@ -12,7 +12,7 @@ import { NameResolverClient } from "../clients/name-resolver-client.js";
 import type { NameResolveCacheOptions } from "../schema.js";
 import { RemoteCommunity } from "./remote-community.js";
 import * as remeda from "remeda";
-import type { CommunityIpfsType, CommunityJson } from "./types.js";
+import type { CommunityIpfsType } from "./types.js";
 import { getCommunityNameFromWire } from "./community-wire.js";
 import { getPKCAddressFromPublicKeySync } from "../signer/util.js";
 import Logger from "../logger.js";
@@ -44,17 +44,7 @@ import {
 import { CID } from "kubo-rpc-client";
 import { getAuthorNameFromRuntime } from "../publications/publication-author.js";
 
-type CommunityGatewayFetch = {
-    [gatewayUrl: string]: {
-        abortController: AbortController;
-        promise: Promise<any>;
-        cid?: CommunityJson["updateCid"];
-        communityRecord?: CommunityIpfsType;
-        error?: PKCError;
-        timeoutId: any;
-        ttl?: number; // ttl in seconds of IPNS record
-    };
-};
+import { type CommunityGatewayFetch, selectWinningGatewayCommunity } from "./community-gateway-selection.js";
 
 export const MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS = 1024 * 1024; // 1mb
 
@@ -696,7 +686,10 @@ export class CommunityClientsManager extends PKCClientsManager {
                             gatewayUrl
                         });
                 }
-                this._community.ipnsHops = ipnsHops;
+                // Keep the resolved hops attached to THIS gateway's result; the winner (and its
+                // matching hops) is chosen later in _findRecentCommunity. Mutating
+                // this._community.ipnsHops here would let a slower/losing gateway overwrite it.
+                gatewayFetches[gatewayUrl].ipnsHops = ipnsHops;
 
                 const errorWithinRecord = await this._findErrorInCommunityRecord({
                     communityJson: communityIpfs,
@@ -807,32 +800,20 @@ export class CommunityClientsManager extends PKCClientsManager {
         const _findRecentCommunity = (): { community: CommunityIpfsType; cid: string } | undefined => {
             // Try to find a very recent community
             // If not then go with the most recent community record after fetching from 3 gateways
-            const gatewaysWithCommunity = remeda.keys
-                .strict(gatewayFetches)
-                .filter((gatewayUrl) => gatewayFetches[gatewayUrl].communityRecord);
-            if (gatewaysWithCommunity.length === 0) return undefined;
+            const winner = selectWinningGatewayCommunity({
+                gatewayFetches,
+                currentUpdatedAt: this._community.raw.communityIpfs?.updatedAt || 0,
+                totalGateways: gatewaysSorted.length,
+                fallbackIpnsName: ipnsName
+            });
+            if (!winner) return undefined;
 
-            const currentUpdatedAt = this._community.raw.communityIpfs?.updatedAt || 0;
-
-            const totalGateways = gatewaysSorted.length;
-
-            const gatewaysWithError = remeda.keys.strict(gatewayFetches).filter((gatewayUrl) => gatewayFetches[gatewayUrl].error);
-
-            const bestGatewayUrl = <string>(
-                remeda.maxBy(gatewaysWithCommunity, (gatewayUrl) => gatewayFetches[gatewayUrl].communityRecord!.updatedAt)
+            log(
+                `Gateway (${winner.bestGatewayUrl}) was able to find a very recent community (${this._deriveAddressFromWireRecord(winner.community)}) whose IPNS is (${ipnsName}).  The record has updatedAt (${winner.community.updatedAt}) that's ${winner.recordAgeSeconds}s old with a TTL of ${gatewayFetches[winner.bestGatewayUrl].ttl} seconds`
             );
-            const bestGatewayRecordAge = timestamp() - gatewayFetches[bestGatewayUrl].communityRecord!.updatedAt; // how old is the record, relative to now, in seconds
-
-            if (gatewayFetches[bestGatewayUrl].communityRecord!.updatedAt > currentUpdatedAt) {
-                const bestCommunityRecord = gatewayFetches[bestGatewayUrl].communityRecord!;
-                log(
-                    `Gateway (${bestGatewayUrl}) was able to find a very recent community (${this._deriveAddressFromWireRecord(bestCommunityRecord)}) whose IPNS is (${ipnsName}).  The record has updatedAt (${bestCommunityRecord.updatedAt}) that's ${bestGatewayRecordAge}s old with a TTL of ${gatewayFetches[bestGatewayUrl].ttl} seconds`
-                );
-                return { community: bestCommunityRecord, cid: gatewayFetches[bestGatewayUrl].cid! };
-            }
-
-            // We weren't able to find any new community records
-            if (gatewaysWithError.length + gatewaysWithCommunity.length === totalGateways) return undefined;
+            // Bind ipnsHops to the gateway result we're actually keeping.
+            this._community.ipnsHops = winner.ipnsHops;
+            return { community: winner.community, cid: winner.cid };
         };
 
         const promisesToIterate = <Promise<{ resText: string; res: Response } | { error: PKCError }>[]>(
