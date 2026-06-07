@@ -91,6 +91,35 @@ derived from `ipnsHops[0]` (the anchor), and the content signature is verified a
   is still self-securing because its content is signed by the anchor itself (a gateway cannot forge
   that signature), and the P2P paths (kubo RPC / helia) keep full per-hop verification.
 
+## Performance
+
+The extra `anchor → minter` hop only costs anything on the P2P paths, where it adds **one
+sequential IPNS resolution** (the resolver walks the chain one hop per network round-trip). Over a
+gateway there is no extra cost: a delegated load is the same single plain GET as a normal load,
+because the gateway recurses the chain internally.
+
+Benchmark (see the env-gated `BENCH_IPNS` timing benchmark in
+`test/node-and-browser/community/delegated-ipns.test.ts`). It loads the same community record two
+ways, direct (load the minter name, single hop) vs delegated (load the anchor name, one extra hop),
+so the delta isolates the extra hop. Run on the local test setup with **no DHT** (helia resolves via
+the local HTTP router, kubo from its own datastore) and the **same peer serving both keypairs**.
+Median of 7 runs:
+
+| mechanism           | direct (1-hop) | delegated (2-hop) | delta   | ratio  |
+| ------------------- | -------------- | ----------------- | ------- | ------ |
+| `remote-kubo-rpc`   | ~3 ms          | ~4 ms             | ~0.7 ms | ~1.2x  |
+| `remote-libp2pjs`   | ~6 ms          | ~9 ms             | ~3.2 ms | ~1.5x  |
+| `remote-ipfs-gateway` | ~3 ms        | ~3 ms             | ~0 ms   | ~1.0x  |
+
+In absolute terms the extra hop is cheap here because there is no DHT walk (resolution is served
+from a local datastore or HTTP router). If a DHT walk were involved, the per-hop delta would
+dominate.
+
+> **TODO (future optimization):** the helia path's ~1.5x ratio is a bit too high for one extra hop.
+> We may come back to this later to optimize delegated resolution over libp2p (e.g. warming both
+> topics / fetching both records concurrently instead of strictly hop-by-hop, where the hop cap and
+> per-record verification still allow it). Tracked alongside issue #93.
+
 ## Trust model (summary)
 
 - The delegate fully controls what `/ipns/An` resolves to until the owner rotates —

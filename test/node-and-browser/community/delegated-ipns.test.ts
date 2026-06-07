@@ -235,3 +235,123 @@ describe("Delegated IPNS loading over an untrusted gateway", async () => {
         }
     });
 });
+
+// Timing benchmark (issue #93): measures the wall-clock cost of the extra IPNS hop that a
+// delegated community adds, across the three loading mechanisms (kubo RPC, helia/libp2p-js,
+// gateway). It is a measurement tool, not a regression gate, so it is gated behind BENCH_IPNS=1
+// to keep it out of normal (noisy/slow) CI runs. Run it with the test server up:
+//   BENCH_IPNS=1 node test/run-test-config.js --pkc-config remote-kubo-rpc,remote-pkc-rpc \
+//     test/node-and-browser/community/delegated-ipns.test.ts
+// Tune iterations with BENCH_IPNS_ITERATIONS (default 7).
+//
+// Assumptions baked into the test harness (as requested):
+//   - No DHT. Helia resolves IPNS via the local HTTP router (localhost:20001); kubo resolves the
+//     records straight from its own datastore (they are published with allowOffline); the gateway
+//     recurses internally. No DHT walk is involved on any path.
+//   - The same peer serves every key. createDelegatedCommunityIpns publishes the anchor record and
+//     the minter record to the SAME local kubo node, so both hops are provided by the same peer.
+//
+// For each mechanism we load the SAME community record two ways:
+//   - direct    : load the minter name (Mn -> /ipfs/cid). A normal single-hop load.
+//   - delegated : load the anchor name (An -> Mn -> /ipfs/cid). One extra IPNS hop over P2P; over a
+//                 gateway it is still a single plain GET (the gateway recurses internally).
+// Same CID and content either way, so the wall-clock delta isolates the extra hop's cost. The P2P
+// paths re-resolve IPNS on every load (recursive:false + nocache:true), so the hop cost is paid
+// each iteration rather than served from a name cache.
+const benchEnabled = Boolean(process.env.BENCH_IPNS);
+const benchDescribe = benchEnabled ? describe : describe.skip;
+const BENCH_ITERATIONS = Number(process.env.BENCH_IPNS_ITERATIONS ?? 7);
+
+// The three loading mechanisms, regardless of which --pkc-config the runner was started with.
+const benchConfigs = getAvailablePKCConfigsToTestAgainst({
+    includeAllPossibleConfigOnEnv: true,
+    includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs", "remote-ipfs-gateway"]
+});
+
+const median = (xs: number[]): number => {
+    const sorted = [...xs].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+};
+
+type BenchRow = { mechanism: string; directMs: number; delegatedMs: number; deltaMs: number; ratio: number };
+const benchRows: BenchRow[] = [];
+
+benchDescribe("Delegated IPNS loading - timing benchmark (issue #93)", () => {
+    afterAll(() => {
+        if (!benchRows.length) return;
+        // Combined table: direct (1-hop) vs delegated (2-hop over P2P) load times per mechanism.
+        // deltaMs is the cleanest signal (constant per-load overhead cancels); ratio is diluted by it.
+        console.log(`\nDelegated IPNS load timing (median of ${BENCH_ITERATIONS} runs, ms):`);
+        console.table(
+            benchRows.map((r) => ({
+                mechanism: r.mechanism,
+                "direct(1-hop)": Number(r.directMs.toFixed(1)),
+                "delegated(2-hop)": Number(r.delegatedMs.toFixed(1)),
+                "delta(ms)": Number(r.deltaMs.toFixed(1)),
+                ratio: Number(r.ratio.toFixed(2))
+            }))
+        );
+    });
+
+    benchConfigs.forEach((config) => {
+        it(`measures direct vs delegated load over ${config.name} (${config.testConfigCode})`, async () => {
+            // forceMockPubsub keeps live-update subscriptions out of the measured path so we time
+            // resolution + content fetch, not pubsub warmup churn.
+            const pkc = await config.pkcInstancePromise({ forceMockPubsub: true });
+            const { anchorName, terminalName } = await createDelegatedCommunityIpns({});
+
+            const timeLoad = async (address: string): Promise<number> => {
+                const start = performance.now();
+                const community = await loadCommunityViaUpdate(pkc, address);
+                const elapsed = performance.now() - start;
+                await community.stop();
+                return elapsed;
+            };
+
+            try {
+                // Warm up both paths so the shared CID content is cached and we measure the
+                // steady-state hop cost rather than a first-touch content fetch.
+                await timeLoad(terminalName);
+                await timeLoad(anchorName);
+
+                const direct: number[] = [];
+                const delegated: number[] = [];
+                for (let i = 0; i < BENCH_ITERATIONS; i++) {
+                    // Alternate order so any residual cache warmth does not systematically favor one path.
+                    if (i % 2 === 0) {
+                        direct.push(await timeLoad(terminalName));
+                        delegated.push(await timeLoad(anchorName));
+                    } else {
+                        delegated.push(await timeLoad(anchorName));
+                        direct.push(await timeLoad(terminalName));
+                    }
+                }
+
+                const directMs = median(direct);
+                const delegatedMs = median(delegated);
+                benchRows.push({
+                    mechanism: config.testConfigCode,
+                    directMs,
+                    delegatedMs,
+                    deltaMs: delegatedMs - directMs,
+                    ratio: delegatedMs / directMs
+                });
+
+                console.log(
+                    `[bench ${config.testConfigCode}] direct(1-hop)=${directMs.toFixed(1)}ms ` +
+                        `delegated(2-hop)=${delegatedMs.toFixed(1)}ms delta=${(delegatedMs - directMs).toFixed(1)}ms ` +
+                        `ratio=${(delegatedMs / directMs).toFixed(2)}x ` +
+                        `(n=${BENCH_ITERATIONS}, direct=[${direct.map((x) => x.toFixed(0)).join(",")}] ` +
+                        `delegated=[${delegated.map((x) => x.toFixed(0)).join(",")}])`
+                );
+
+                // Sanity only. Timing is informational, so we do not assert on the delta (it is noisy).
+                expect(directMs).to.be.greaterThan(0);
+                expect(delegatedMs).to.be.greaterThan(0);
+            } finally {
+                await pkc.destroy();
+            }
+        }, 300_000);
+    });
+});
