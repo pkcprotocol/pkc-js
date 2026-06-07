@@ -41,16 +41,40 @@ describeSkipIfRpc("resolveIpnsToCidP2P resolution branches", () => {
         }
     });
 
-    it("throws ERR_IPNS_RECURSION_DEPTH_EXCEEDED when the chain never terminates in an /ipfs/ value", async () => {
-        // Always resolve to another /ipns/ hop -> the walk loops until it hits the depth cap.
+    it("throws ERR_IPNS_MAX_HOPS_EXCEEDED when the chain never terminates in an /ipfs/ value", async () => {
+        // Always resolve to another /ipns/ hop -> the walk exceeds the single-hop cap.
         stubResolver(() => ["/ipns/12D3KooWNext"]);
         try {
             await pkc._clientsManager.resolveIpnsToCidP2P("12D3KooWAnchor", { timeoutMs: 10000 });
-            expect.fail("should have thrown for exceeding recursion depth");
+            expect.fail("should have thrown for exceeding the max hops");
         } catch (e) {
-            const err = e as { code?: string; details?: { maxDepth?: number } };
-            expect(err.code).to.equal("ERR_IPNS_RECURSION_DEPTH_EXCEEDED");
-            expect(err.details?.maxDepth).to.equal(32);
+            const err = e as { code?: string; details?: { maxHops?: number } };
+            expect(err.code).to.equal("ERR_IPNS_MAX_HOPS_EXCEEDED");
+            expect(err.details?.maxHops).to.equal(1);
+        }
+    });
+
+    // For now we follow only a single anchor -> minter delegation hop. A legitimate finite 2-hop
+    // chain (anchor -> minter -> terminal -> /ipfs/) must be rejected before reaching the /ipfs/
+    // value, proving this is a deliberate hop cap and not merely non-termination detection.
+    it("follows only one hop (anchor -> minter) and rejects a finite 2-hop chain", async () => {
+        const cid = await addStringToIpfs("two hops is one too many");
+        const chain: Record<string, string> = {
+            "12D3KooWAnchor": "/ipns/12D3KooWMinter",
+            "12D3KooWMinter": "/ipns/12D3KooWTerminal",
+            "12D3KooWTerminal": `/ipfs/${cid}`
+        };
+        stubResolver((name) => [chain[name]]);
+        try {
+            await pkc._clientsManager.resolveIpnsToCidP2P("12D3KooWAnchor", { timeoutMs: 5000 });
+            expect.fail("should reject a delegated chain longer than one hop");
+        } catch (e) {
+            const err = e as { code?: string; details?: { maxHops?: number; ipnsHops?: string[] } };
+            expect(err.code).to.equal("ERR_IPNS_MAX_HOPS_EXCEEDED");
+            expect(err.details?.maxHops).to.equal(1);
+            // the cap trips as soon as the minter record is seen to delegate further, so the
+            // terminal's record is never resolved past being recorded as a hop.
+            expect(err.details?.ipnsHops).to.deep.equal(["12D3KooWAnchor", "12D3KooWMinter", "12D3KooWTerminal"]);
         }
     });
 

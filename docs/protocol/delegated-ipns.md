@@ -4,6 +4,10 @@ This documents pkc-js's **client-side loading** of communities published via a d
 IPNS chain (see issue #93). Delegate-side *publishing* is intentionally **not** part of
 pkc-js — only resolution and verification are.
 
+> **For now, only a single `anchor → minter` hop is allowed** (`MAX_IPNS_HOPS = 1`). Chains
+> longer than one hop are rejected over the P2P paths with `ERR_IPNS_MAX_HOPS_EXCEEDED`. (The
+> resolver is written to support N hops, so this cap can be raised later.)
+
 ## Motivation
 
 A community owner may want their private key to stay offline while an online delegate
@@ -47,8 +51,11 @@ hop-by-hop rather than letting the resolver recurse because kubo's recursive res
 yields the final `/ipfs/` CID and hides the intermediate names — we need the terminal name
 to verify the content signature, and resolving each hop keeps per-record signature
 verification. A normal community resolves in a single hop, so this costs exactly one lookup
-in the common case. A depth cap (`MAX_IPNS_RECURSION_DEPTH = 32`, mirroring Boxo's
-`DefaultDepthLimit`) bounds the chain.
+in the common case. A hop cap (`MAX_IPNS_HOPS = 1`) bounds the chain: **for now only a single
+`anchor → minter` delegation is followed over the P2P paths**, so a normal community resolves in
+zero hops and a delegated community in exactly one. A longer chain is rejected with
+`ERR_IPNS_MAX_HOPS_EXCEEDED`. (Gateways recurse the chain internally and expose only the final
+content, so this cap is unenforceable on the gateway path — see "Per resolution path" below.)
 
 The resolved chain is stored on the instance as `RemoteCommunity.ipnsHops` (a runtime-only
 field; it is never part of the signed wire record). `community.publicKey`/`ipnsName` are
@@ -100,6 +107,6 @@ derived from `ipnsHops[0]` (the anchor), and the content signature is verified a
 
 ## Relevant errors
 
-- `ERR_IPNS_RECURSION_DEPTH_EXCEEDED` — chain longer than the depth cap (P2P paths).
+- `ERR_IPNS_MAX_HOPS_EXCEEDED` — chain longer than the hop cap (`MAX_IPNS_HOPS`, P2P paths).
 - `ERR_RESOLVED_IPNS_TO_UNSUPPORTED_VALUE` — a record value that is neither `/ipfs/` nor
   `/ipns/`. (Both are non-retriable.)

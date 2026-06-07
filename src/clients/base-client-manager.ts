@@ -580,10 +580,12 @@ export class BaseClientsManager {
 
     // IPFS P2P methods
 
-    // Maximum number of /ipns/ -> /ipns/ hops we follow before giving up. Mirrors Boxo's
-    // DefaultDepthLimit (32). A normal (non-delegated) community resolves in a single hop;
-    // delegated communities (see docs/protocol/delegated-ipns.md) resolve in two.
-    static readonly MAX_IPNS_RECURSION_DEPTH = 32;
+    // Maximum number of /ipns/ -> /ipns/ delegation hops we follow before giving up. For now this
+    // is capped at 1, so only a single anchor -> minter delegation is supported (see
+    // docs/protocol/delegated-ipns.md). A normal (non-delegated) community resolves in zero hops
+    // (its record points straight at /ipfs/); a delegated community resolves in exactly one
+    // (anchor -> minter -> /ipfs/). Longer chains are rejected with ERR_IPNS_MAX_HOPS_EXCEEDED.
+    static readonly MAX_IPNS_HOPS = 1;
 
     // Resolves an IPNS name to its terminal /ipfs/ CID, following any /ipns/ -> /ipns/
     // delegation hops along the way. Returns the resolved CID together with the ordered
@@ -610,7 +612,9 @@ export class BaseClientsManager {
             // resolves in a single hop, so this costs exactly one lookup in the common case.
             const ipnsHops: string[] = [ipnsName];
             let currentName = ipnsName;
-            for (let depth = 0; depth <= BaseClientsManager.MAX_IPNS_RECURSION_DEPTH; depth++) {
+            // Follow at most MAX_IPNS_HOPS delegation hops. The loop exits only via a return (we hit
+            // a terminal /ipfs/ value) or a throw (undefined/unsupported value, or too many hops).
+            while (true) {
                 const yieldedValues: string[] = await all(ipfsClient.name.resolve(currentName, ipnsResolveOpts));
                 // The single-hop value (kubo may yield it more than once; helia yields it once).
                 const value: string | undefined = yieldedValues[yieldedValues.length - 1];
@@ -629,6 +633,14 @@ export class BaseClientsManager {
                 if (isIpnsPath(value)) {
                     currentName = value.split("/")[2];
                     ipnsHops.push(currentName);
+                    // ipnsHops.length - 1 is the number of /ipns/ -> /ipns/ hops followed so far.
+                    if (ipnsHops.length - 1 > BaseClientsManager.MAX_IPNS_HOPS)
+                        throw new PKCError("ERR_IPNS_MAX_HOPS_EXCEEDED", {
+                            ipnsHops,
+                            maxHops: BaseClientsManager.MAX_IPNS_HOPS,
+                            ipnsName,
+                            ipnsResolveOpts
+                        });
                     continue;
                 }
 
@@ -640,12 +652,6 @@ export class BaseClientsManager {
                     ipnsResolveOpts
                 });
             }
-            throw new PKCError("ERR_IPNS_RECURSION_DEPTH_EXCEEDED", {
-                ipnsHops,
-                maxDepth: BaseClientsManager.MAX_IPNS_RECURSION_DEPTH,
-                ipnsName,
-                ipnsResolveOpts
-            });
         };
         try {
             // Wrap the resolution function with pTimeout because kubo-rpc-client doesn't support timeout for IPNS

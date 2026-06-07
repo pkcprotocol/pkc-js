@@ -57,7 +57,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             }
         });
 
-        it("loads a 3-hop delegated community (anchor -> intermediate -> minter)", async () => {
+        it("rejects a chain longer than one hop over P2P (only anchor -> minter is followed for now)", async () => {
+            // A legitimate 2-hop chain anchor -> intermediate -> minter. For now pkc-js follows only a
+            // single anchor -> minter delegation over the P2P paths, so the chain is rejected with
+            // ERR_IPNS_MAX_HOPS_EXCEEDED. Over a gateway the hop count is not observable (the gateway
+            // recurses internally and serves only the final content), so it still loads and is reported
+            // as [anchor, terminal]. See docs/protocol/delegated-ipns.md.
             const {
                 anchorName,
                 terminalName,
@@ -65,20 +70,25 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             } = await createDelegatedCommunityIpns({}, { intermediateHopsCount: 1 });
             expect(expectedHops).to.have.length(3);
 
-            const community = await loadCommunityViaUpdate(pkc, anchorName);
-            try {
-                expect(community.updatedAt).to.be.a("number");
-                // identity stays the anchor across multiple hops (including over RPC, where the
-                // server transmits the resolved ipnsHops to the client)
-                expect(community.address).to.equal(anchorName);
-                expect(community.publicKey).to.equal(anchorName);
-                // the full chain is walked and exposed in order [anchor, intermediate, terminal]
-                expect(community.ipnsHops).to.deep.equal(expectedHops);
-                // content is signed by the terminal (minter) key at the end of the chain
-                const recordSignatureAddress = getPKCAddressFromPublicKeySync(community.raw.communityIpfs!.signature.publicKey);
-                expect(recordSignatureAddress).to.equal(terminalName);
-            } finally {
-                await community.stop();
+            if (isPKCFetchingUsingGateways(pkc)) {
+                const community = await loadCommunityViaUpdate(pkc, anchorName);
+                try {
+                    expect(community.updatedAt).to.be.a("number");
+                    expect(community.address).to.equal(anchorName);
+                    // gateway recursion collapses the intermediate hop; only [anchor, terminal] is observable
+                    expect(community.ipnsHops).to.deep.equal([anchorName, terminalName]);
+                    const recordSignatureAddress = getPKCAddressFromPublicKeySync(community.raw.communityIpfs!.signature.publicKey);
+                    expect(recordSignatureAddress).to.equal(terminalName);
+                } finally {
+                    await community.stop();
+                }
+            } else {
+                try {
+                    await pkc.getCommunity({ address: anchorName });
+                    expect.fail("should reject a delegated chain longer than one hop over P2P");
+                } catch (e) {
+                    expect((e as PKCError).code).to.equal("ERR_IPNS_MAX_HOPS_EXCEEDED");
+                }
             }
         });
 
@@ -172,6 +182,8 @@ describe("Delegated IPNS loading over an untrusted gateway", async () => {
         }
     });
 
+    // Note: the P2P paths reject a >1-hop chain (ERR_IPNS_MAX_HOPS_EXCEEDED), but a gateway recurses
+    // the chain internally and exposes only the final content, so the hop cap is unenforceable here.
     it("loads a 3-hop delegated community via the gateway's internal recursion (intermediate hop not observable)", async () => {
         const { anchorName, terminalName, ipnsHops: expectedHops } = await createDelegatedCommunityIpns({}, { intermediateHopsCount: 1 });
         expect(expectedHops).to.have.length(3);
