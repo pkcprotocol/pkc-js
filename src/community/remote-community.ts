@@ -587,6 +587,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
             err.code === "ERR_NO_RESOLVER_FOR_NAME" ||
             // Delegated-IPNS chain failures are definitive (forged/invalid chain or unsupported value),
             // not transient. See docs/protocol/delegated-ipns.md.
+            err.code === "ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID" ||
             err.code === "ERR_IPNS_MAX_HOPS_EXCEEDED" ||
             err.code === "ERR_RESOLVED_IPNS_TO_UNSUPPORTED_VALUE"
         )

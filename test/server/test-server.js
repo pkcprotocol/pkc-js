@@ -10,6 +10,8 @@ import signers from "../fixtures/signers.js";
 import http from "http";
 import path from "path";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
+import { generateKeyPair } from "@libp2p/crypto/keys";
+import { createIPNSRecord, marshalIPNSRecord } from "ipns";
 import tcpPortUsed from "tcp-port-used";
 import url from "url";
 import querystring from "querystring";
@@ -290,7 +292,7 @@ const setUpMockGateways = async () => {
     // Will return valid content for one cid and invalid content for another
     // The purpose is to test whether pkc.fetchCid will throw if we retrieved the invalid content
 
-    const gatewayPorts = [13415, 13416, 13417, 13418, 14000, 14002, 14003, 14004, 14005, 14006];
+    const gatewayPorts = [13415, 13416, 13417, 13418, 14000, 14002, 14003, 14004, 14005, 14006, 14007];
 
     for (const gatewayPort of gatewayPorts) {
         const gatewayUsed = await tcpPortUsed.check(gatewayPort);
@@ -464,6 +466,46 @@ const setUpMockGateways = async () => {
         res.end(JSON.stringify(communityRecordTwoHoursOldIpfs));
     })
         .listen(14006, hostName)
+        .on("error", (err) => {
+            throw err;
+        });
+
+    // A MALICIOUS gateway for delegated-IPNS verification (see docs/protocol/delegated-ipns.md).
+    // For ?format=ipns-record requests it returns a well-formed IPNS record that is validly signed
+    // but by the WRONG key (a stranger), so `ipnsValidator` rejects it against the requested
+    // anchor's routing key. For a plain GET /ipns/<name> it returns a community body signed by
+    // signers[0] (NOT the requested anchor), so the loader sees a non-anchor signer and escalates
+    // to the Tier-2 per-hop chain validation — where the forged record above is rejected with
+    // ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID. This proves a gateway cannot forge an IPNS record to
+    // substitute a different community. A test using this gateway must request a fresh anchor name
+    // (i.e. not signers[0].address), otherwise the load is non-delegated and the walk never happens.
+    const forgedRecordStrangerKey = await generateKeyPair("Ed25519");
+    const forgedIpnsRecordBytes = marshalIPNSRecord(
+        await createIPNSRecord(
+            forgedRecordStrangerKey,
+            "/ipfs/bafybeigdypsgdcm2ddvyh2y2gnltw3zi5iphzzwdlpie3jfxpmer7frknu",
+            0,
+            24 * 60 * 60 * 1000
+        )
+    );
+    http.createServer(async (req, res) => {
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        if (req.url.includes("format=ipns-record")) {
+            res.setHeader("Content-Type", "application/vnd.ipfs.ipns-record");
+            res.end(Buffer.from(forgedIpnsRecordBytes));
+            return;
+        }
+        if (req.url.includes("/ipns")) {
+            const subRecord = await fetchLatestCommunity();
+            res.setHeader("x-ipfs-roots", subRecord.updateCid);
+            res.setHeader("etag", subRecord.updateCid);
+            res.end(JSON.stringify(subRecord.raw.communityIpfs));
+            return;
+        }
+        res.statusCode = 404;
+        res.end();
+    })
+        .listen(14007, hostName)
         .on("error", (err) => {
             throw err;
         });
