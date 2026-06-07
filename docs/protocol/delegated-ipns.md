@@ -121,10 +121,24 @@ from a local datastore or HTTP router). The gateway row now reflects the per-hop
 `?format=ipns-record` validation fetches a delegated load makes (it used to be ~0 ms when the
 gateway's recursion was trusted). If a DHT walk were involved, the per-hop delta would dominate.
 
-> **TODO (future optimization):** the helia path's ~1.5x ratio is a bit too high for one extra hop.
-> We may come back to this later to optimize delegated resolution over libp2p (e.g. warming both
-> topics / fetching both records concurrently instead of strictly hop-by-hop, where the hop cap and
-> per-record verification still allow it). Tracked alongside issue #93.
+> **Optimization (deferred — measure in production first):** the extra hop is cheap in these
+> numbers only because the benchmark has no DHT (resolution is served from a local datastore / HTTP
+> router), so there is nothing actionable to tune against yet — any optimization now would be
+> guessing at a delta we cannot measure. The real cost shows up on the production path, where DHT /
+> router / gateway round-trip latency dominates the per-hop delta. The plan is therefore to measure
+> delegated vs non-delegated loads in production first, and only then decide whether the candidate
+> optimizations are worth implementing:
+>
+> - **Gateway Tier-2 concurrent validation:** the content signature already reveals the terminal
+>   minter name, and the chain is capped at a single hop, so the anchor and minter
+>   `?format=ipns-record` fetches can run concurrently (`Promise.all`) instead of strictly
+>   hop-by-hop — independent per-record verification is unaffected.
+> - **Helia/libp2p concurrent fetch:** warm both topics / fetch both records concurrently rather
+>   than strictly hop-by-hop, where the hop cap and per-record verification still allow it.
+> - **Anchor → minter binding cache:** the anchor record is stable and long-lived; caching it
+>   (honouring its own TTL) lets repeat loads skip the anchor hop on every path.
+>
+> Tracked alongside issue #93.
 
 ## Trust model (summary)
 
