@@ -66,6 +66,14 @@ describe("community.ipnsHops across community kinds", async () => {
         try {
             expect(remoteCommunity.ipnsHops).to.deep.equal([address]);
 
+            // ipnsHops is an enumerable getter, so plain JS destructuring must expose the resolved chain.
+            const { ipnsHops } = remoteCommunity;
+            expect(ipnsHops).to.deep.equal([address]);
+
+            // ...and it must survive a JSON round-trip (JSON.stringify only keeps enumerable own props).
+            const remoteCommunityJson = JSON.parse(JSON.stringify(remoteCommunity));
+            expect(remoteCommunityJson.ipnsHops).to.deep.equal([address]);
+
             // Cloning a resolved remote instance preserves the resolved chain (createCommunity carry).
             const remoteClone = (await remotePKC.createCommunity(remoteCommunity)) as RemoteCommunity;
             expect(remoteClone.ipnsHops).to.deep.equal([address]);
