@@ -3,16 +3,20 @@ import { timestamp } from "../util.js";
 import type { CommunityIpfsType, CommunityJson } from "./types.js";
 import type { PKCError } from "../pkc-error.js";
 
+// Resolution of a single gateway fetch: either the raw response + body text, or a captured error.
+// Mirrors what base-client-manager's _fetchWithGateway resolves to.
+export type GatewayFetchResult = { res: Response; resText: string | undefined } | { error: PKCError };
+
 // Standalone (no dependency on the client-manager class graph) so the pure selection logic below
 // can be imported and unit-tested without pulling in the circular client-manager imports.
 export type CommunityGatewayFetch = {
     [gatewayUrl: string]: {
         abortController: AbortController;
-        promise: Promise<any>;
+        promise: Promise<GatewayFetchResult>;
         cid?: CommunityJson["updateCid"];
         communityRecord?: CommunityIpfsType;
         error?: PKCError;
-        timeoutId: any;
+        timeoutId: ReturnType<typeof setTimeout>;
         ttl?: number; // ttl in seconds of IPNS record
         ipnsHops?: string[]; // the resolved IPNS chain [anchor, ..., terminal] for THIS gateway's record
     };

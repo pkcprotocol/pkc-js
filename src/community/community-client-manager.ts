@@ -819,9 +819,7 @@ export class CommunityClientsManager extends PKCClientsManager {
             return { community: winner.community, cid: winner.cid };
         };
 
-        const promisesToIterate = <Promise<{ resText: string; res: Response } | { error: PKCError }>[]>(
-            Object.values(gatewayFetches).map((gatewayFetch) => gatewayFetch.promise)
-        );
+        const promisesToIterate = Object.values(gatewayFetches).map((gatewayFetch) => gatewayFetch.promise);
 
         let suitableCommunity: { community: CommunityIpfsType; cid: string };
         try {

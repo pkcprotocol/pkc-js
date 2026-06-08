@@ -9,15 +9,16 @@ import type { CommunityIpfsType } from "../../../dist/node/community/types.js";
 // pre-fix bug mutated a shared field in callback order). selectWinningGatewayCommunity is a pure
 // extraction of that selection so we can assert the binding directly.
 
-const fakeGatewayEntry = (opts: { updatedAt: number; cid: string; ipnsHops?: string[] }) =>
-    ({
-        abortController: new AbortController(),
-        promise: Promise.resolve(),
-        cid: opts.cid,
-        communityRecord: { updatedAt: opts.updatedAt } as unknown as CommunityIpfsType,
-        timeoutId: 0,
-        ipnsHops: opts.ipnsHops
-    }) as CommunityGatewayFetch[string];
+// selectWinningGatewayCommunity is pure over the records, so promise/timeoutId are never read here;
+// they only need to satisfy the CommunityGatewayFetch types.
+const fakeGatewayEntry = (opts: { updatedAt: number; cid: string; ipnsHops?: string[] }): CommunityGatewayFetch[string] => ({
+    abortController: new AbortController(),
+    promise: Promise.resolve({ res: new Response(), resText: undefined }),
+    cid: opts.cid,
+    communityRecord: { updatedAt: opts.updatedAt } as unknown as CommunityIpfsType,
+    timeoutId: setTimeout(() => {}, 0),
+    ipnsHops: opts.ipnsHops
+});
 
 const ANCHOR = "12D3KooWAnchor";
 const MINTER_X = "12D3KooWMinterX";
