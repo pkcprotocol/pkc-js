@@ -978,6 +978,60 @@ export async function removeMfsFilesSafely({
     });
 }
 
+// IPNS records MUST NOT exceed 10 KiB per the IPNS spec (https://specs.ipfs.tech/ipns/ipns-record);
+// the `ipns` package's validator enforces the same limit as its own MAX_RECORD_SIZE. We cap the read
+// BEFORE buffering the body so an untrusted gateway cannot exhaust memory by streaming a huge response
+// that the validator would only reject after the fact (the validator's check runs on the already-buffered
+// bytes). See docs/protocol/delegated-ipns.md.
+export const MAX_IPNS_RECORD_SIZE = 10 * 1024;
+
+// Reads a fetch Response body into a Uint8Array, refusing to buffer more than MAX_IPNS_RECORD_SIZE.
+// Checks Content-Length up front and enforces a hard ceiling while streaming, so a missing or dishonest
+// Content-Length still cannot slip an oversized record past us. The caller supplies onOverSizeLimit so the
+// error carries its own domain code/context (gateway chain vs local kubo node).
+async function readRawIpnsRecordBody(
+    res: Response,
+    onOverSizeLimit: (info: { maxBytes: number; observedBytes: number; viaContentLength: boolean }) => PKCError
+): Promise<Uint8Array> {
+    const maxBytes = MAX_IPNS_RECORD_SIZE;
+    const sizeHeader = res.headers?.get("Content-Length");
+    if (sizeHeader && Number(sizeHeader) > maxBytes)
+        throw onOverSizeLimit({ maxBytes, observedBytes: Number(sizeHeader), viaContentLength: true });
+
+    // node-fetch path (no getReader): Content-Length above is the only pre-buffer guard available, so back
+    // it up with a post-read length check. Native fetch / undici (browser and Node >= 18) take the streaming
+    // path below and never buffer more than maxBytes.
+    if (res.body?.getReader === undefined) {
+        const buf = new Uint8Array(await res.arrayBuffer());
+        if (buf.byteLength > maxBytes) throw onOverSizeLimit({ maxBytes, observedBytes: buf.byteLength, viaContentLength: false });
+        return buf;
+    }
+
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    while (true) {
+        const { done, value } = await reader.read();
+        if (value) {
+            total += value.length;
+            if (total > maxBytes) {
+                await reader.cancel().catch(() => {});
+                throw onOverSizeLimit({ maxBytes, observedBytes: total, viaContentLength: false });
+            }
+            chunks.push(value);
+        }
+        if (done) break;
+    }
+    if (chunks.length === 1) return chunks[0];
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+        out.set(chunk, offset);
+        offset += chunk.length;
+    }
+    return out;
+}
+
 export async function getIpnsRecordInLocalKuboNode(kuboRpcClient: KuboRpcClient, ipnsName: string) {
     const gatewayMultiaddr = await kuboRpcClient._client.config.get("Addresses.Gateway"); // need to be fetched from config Addresses.Gateway
     const parts = gatewayMultiaddr.split("/").filter(Boolean);
@@ -991,7 +1045,18 @@ export async function getIpnsRecordInLocalKuboNode(kuboRpcClient: KuboRpcClient,
             status: res.status,
             statusText: res.statusText
         });
-    const ipnsRecordRaw = new Uint8Array(await res.arrayBuffer());
+    const ipnsRecordRaw = await readRawIpnsRecordBody(
+        res,
+        ({ maxBytes, observedBytes, viaContentLength }) =>
+            new PKCError("ERR_FAILED_TO_LOAD_LOCAL_RAW_IPNS_RECORD", {
+                ipnsFetchUrl,
+                ipnsName,
+                reason: "Local IPNS record exceeds the maximum allowed size",
+                maxBytes,
+                observedBytes,
+                viaContentLength
+            })
+    );
     try {
         return unmarshalIPNSRecord(ipnsRecordRaw);
     } catch (e) {
@@ -1028,7 +1093,19 @@ export async function fetchAndValidateIpnsRecordFromGateway(
                 status: res.status,
                 statusText: res.statusText
             });
-        ipnsRecordRaw = new Uint8Array(await res.arrayBuffer());
+        ipnsRecordRaw = await readRawIpnsRecordBody(
+            res,
+            ({ maxBytes, observedBytes, viaContentLength }) =>
+                new PKCError("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID", {
+                    reason: "IPNS record served by the gateway exceeds the maximum allowed size",
+                    ...recordContext,
+                    ipnsFetchUrl,
+                    ipnsName,
+                    maxBytes,
+                    observedBytes,
+                    viaContentLength
+                })
+        );
     } catch (e) {
         // Don't remap aborts: a cancelled fetch is not a chain-validation failure, and remapping it
         // would misclassify parent-driven aborts and break their abort logic.
@@ -1043,16 +1120,23 @@ export async function fetchAndValidateIpnsRecordFromGateway(
         });
     }
 
-    // Validate the record's signature against the routing key derived from the IPNS name.
-    // This is what makes following the chain through an untrusted gateway safe.
+    // Validate the record's signature AND validity (EOL) against the routing key derived from the
+    // IPNS name. This is what makes following the chain through an untrusted gateway safe.
     try {
         const routingKey = multihashToIPNSRoutingKey(peerIdFromString(ipnsName).toMultihash());
         await ipnsValidator(routingKey, ipnsRecordRaw);
     } catch (e) {
+        // ipnsValidator rejects for several distinct reasons; surface an accurate one. An expired
+        // record (validity EOL passed) is NOT a forgery — for a delegated anchor record this is the
+        // liveness cliff described in docs/protocol/delegated-ipns.md (the offline owner must
+        // re-publish before EOL). Everything else means the gateway served a record not signed by the
+        // key the IPNS name commits to (forged or tampered).
+        const reason =
+            (e as Error)?.name === "RecordExpiredError"
+                ? "IPNS record has expired: its validity (EOL) is in the past"
+                : "IPNS record signature is invalid: the record served by the gateway is not signed by the IPNS name's key (forged or tampered record)";
         throw new PKCError("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID", {
-            // The record is well-formed but its signature does not verify against the key the IPNS
-            // name commits to — i.e. the gateway served a forged or tampered record for this name.
-            reason: "IPNS record signature is invalid: the record served by the gateway is not signed by the IPNS name's key (forged or tampered record)",
+            reason,
             ...recordContext,
             ipnsFetchUrl,
             ipnsName,

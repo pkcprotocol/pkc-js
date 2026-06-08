@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, it, expect, vi } from "vitest";
 import { mockPKCNoDataPathWithOnlyKuboClient } from "../../../dist/node/test/test-util.js";
-import { fetchAndValidateIpnsRecordFromGateway } from "../../../dist/node/util.js";
+import { fetchAndValidateIpnsRecordFromGateway, MAX_IPNS_RECORD_SIZE } from "../../../dist/node/util.js";
 import { PKCError } from "../../../dist/node/pkc-error.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { generateKeyPair } from "@libp2p/crypto/keys";
@@ -51,6 +51,33 @@ describeSkipIfRpc("Delegated IPNS gateway chain validation branches", () => {
         statusText: "OK",
         arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
     });
+
+    // A streaming Response stub (native-fetch / undici shape: body.getReader) so we exercise the
+    // bounded streaming read in util.ts rather than the arrayBuffer fallback. `cancel` records that the
+    // reader was released, proving the cap aborts the stream instead of buffering the whole body.
+    const streamingResponse = (chunks: Uint8Array[], opts?: { contentLength?: number; onCancel?: () => void }) => {
+        let i = 0;
+        return {
+            status: 200,
+            statusText: "OK",
+            headers: { get: (h: string) => (h === "Content-Length" && opts?.contentLength != null ? String(opts.contentLength) : null) },
+            body: {
+                getReader: () => ({
+                    read: async () => (i < chunks.length ? { done: false, value: chunks[i++] } : { done: true, value: undefined }),
+                    cancel: async () => opts?.onCancel?.()
+                })
+            }
+        };
+    };
+
+    // A validly-signed record whose validity (EOL) is already in the past: a negative lifetime makes
+    // createIPNSRecord stamp an expiration of Date.now() - 60s, so ipnsValidator throws RecordExpiredError.
+    const makeExpiredRecord = async (value: string) => {
+        const privateKey = await generateKeyPair("Ed25519");
+        const ipnsName = peerIdFromPrivateKey(privateKey).toString();
+        const bytes = marshalIPNSRecord(await createIPNSRecord(privateKey, value, 0, -60 * 1000));
+        return { ipnsName, bytes };
+    };
 
     const expectChainInvalid = (e: unknown, reasonSubstring: string) => {
         const err = e as PKCError;
@@ -115,6 +142,56 @@ describeSkipIfRpc("Delegated IPNS gateway chain validation branches", () => {
         vi.spyOn(globalThis, "fetch").mockResolvedValue(okResponse(bytes) as Response);
         const record = await fetchAndValidateIpnsRecordFromGateway("http://localhost:1234", ipnsName);
         expect(String(record.value)).to.equal(value);
+    });
+
+    // --- size cap (finding A): the cap must fire BEFORE buffering, so an untrusted gateway cannot OOM us ---
+
+    it("rejects a record whose Content-Length exceeds the maximum IPNS record size (pre-buffer guard)", async () => {
+        // Header alone is over the cap, so we reject without reading the body at all.
+        vi.spyOn(globalThis, "fetch").mockResolvedValue(
+            streamingResponse([], { contentLength: MAX_IPNS_RECORD_SIZE + 1 }) as unknown as Response
+        );
+        try {
+            await fetchAndValidateIpnsRecordFromGateway("http://localhost:1234", "12D3KooWAnchor");
+            expect.fail("should reject an over-Content-Length response");
+        } catch (e) {
+            expectChainInvalid(e, "exceeds the maximum allowed size");
+            expect((e as PKCError).details?.viaContentLength).to.equal(true);
+        }
+    });
+
+    it("rejects (and stops reading) a streamed body that grows past the maximum IPNS record size", async () => {
+        // No/omitted Content-Length: the cap must be enforced while streaming. Three 4 KiB chunks total
+        // 12 KiB > 10 KiB, so the read aborts on the chunk that crosses the cap and cancels the stream.
+        let cancelled = false;
+        const chunk = new Uint8Array(4 * 1024).fill(1);
+        vi.spyOn(globalThis, "fetch").mockResolvedValue(
+            streamingResponse([chunk, chunk, chunk], { onCancel: () => (cancelled = true) }) as unknown as Response
+        );
+        try {
+            await fetchAndValidateIpnsRecordFromGateway("http://localhost:1234", "12D3KooWAnchor");
+            expect.fail("should reject an oversized streamed body");
+        } catch (e) {
+            expectChainInvalid(e, "exceeds the maximum allowed size");
+            expect((e as PKCError).details?.viaContentLength).to.equal(false);
+            expect(cancelled, "the stream should be cancelled rather than fully buffered").to.equal(true);
+        }
+    });
+
+    // --- EOL expiry (finding C): an expired record is rejected, and reported as expiry, not forgery ---
+
+    it("rejects an expired IPNS record and reports it as expiry (not a forged/tampered signature)", async () => {
+        const { ipnsName, bytes } = await makeExpiredRecord("/ipfs/bafybeigdypsgdcm2ddvyh2y2gnltw3zi5iphzzwdlpie3jfxpmer7frknu");
+        vi.spyOn(globalThis, "fetch").mockResolvedValue(okResponse(bytes) as Response);
+        try {
+            await fetchAndValidateIpnsRecordFromGateway("http://localhost:1234", ipnsName);
+            expect.fail("should reject an expired record");
+        } catch (e) {
+            expectChainInvalid(e, "has expired");
+            // The underlying ipns validator error is surfaced for diagnosis, and the reason is NOT the
+            // misleading forged/tampered message — an expired record is a liveness issue, not an attack.
+            expect((e as PKCError).details?.validationError?.name).to.equal("RecordExpiredError");
+        }
     });
 
     // The "Failed to parse the IPNS record" branch (util.ts) is defensively unreachable from this

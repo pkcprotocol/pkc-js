@@ -23,12 +23,20 @@ being able to permanently take the community over. This is achieved with two key
 The records form a chain:
 
 ```text
-/ipns/An  ──(signed once by As, ~infinite validity)──>  /ipns/Mn
+/ipns/An  ──(signed by As, long EOL)──>  /ipns/Mn
 /ipns/Mn  ──(re-signed frequently by Ms)────────────────>  /ipfs/<CommunityIpfs cid>
 /ipfs/<cid> ── CommunityIpfs JSON, signed by Ms (the minter key)
 ```
 
 The owner revokes by coming online and re-pointing `An` to a new `Mn'`.
+
+> **Anchor EOL is a liveness cliff, not "infinite".** Every IPNS record carries a validity (EOL),
+> and the `ipns` validator **rejects expired records** (`RecordExpiredError`) on every path. The
+> anchor record is therefore not infinitely valid: it must be published with a long EOL and
+> **re-published by the offline owner before that EOL lapses**. If the anchor record expires while
+> `As` is offline, loading fails everywhere — over a gateway it surfaces as the non-retriable
+> `ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID` with `reason: "IPNS record has expired …"` (distinct from
+> the forged/tampered reason). Choose the anchor EOL with this re-publish obligation in mind.
 
 ## What this means for identity & verification
 
@@ -86,9 +94,11 @@ derived from `ipnsHops[0]` (the anchor), and the content signature is verified a
     body, and confirms the body's signer equals the terminal name. A gateway cannot forge any hop's
     signature, so it cannot substitute a different community. The same `MAX_IPNS_HOPS` cap as the
     P2P paths applies — a chain longer than a single `anchor → minter` hop is rejected with
-    `ERR_IPNS_MAX_HOPS_EXCEEDED`. This requires the gateway to serve `?format=ipns-record`; many
-    public gateways won't, so delegated loading over gateways is best-effort and depends on gateway
-    capability (a gateway that can't serve the records fails, and the loader moves on to others).
+    `ERR_IPNS_MAX_HOPS_EXCEEDED`. Tier 2 assumes the configured gateways can serve
+    `?format=ipns-record` (the raw-record format); delegated loading relies on it. Each raw-record
+    response is also size-capped at the IPNS spec's 10 KiB maximum (`MAX_IPNS_RECORD_SIZE`) and read
+    with a hard byte ceiling, so an untrusted gateway cannot exhaust memory by streaming an oversized
+    body before validation runs.
 
   Per-hop validation cost is therefore paid **only** for delegated communities; non-delegated
   communities are a single plain GET, untouched. (Per-request, only the requested name's own record
@@ -151,8 +161,18 @@ gateway's recursion was trusted). If a DHT walk were involved, the per-hop delta
   every resolution path — kubo RPC, helia, and gateways alike. Over a gateway the `An → Mn` binding
   is verified by independently fetching and signature-checking each IPNS record
   (`?format=ipns-record`), so a malicious gateway cannot serve content under a key it controls and
-  pass it off as `An`'s resolution. (Freshness is handled separately by `updatedAt`: a record older
-  than the one already held is ignored, so a gateway cannot roll a community back.)
+  pass it off as `An`'s resolution. (Content freshness is handled separately by `updatedAt`: a
+  record older than the one already held in memory is ignored, so a gateway cannot roll the
+  *content* back within a session.)
+- **Known limitation — no sequence anti-rollback on the `An → Mn` binding.** The chain walk validates
+  each record's signature and EOL but does **not** compare IPNS-record sequence numbers, and nothing
+  is persisted across loads. So a malicious gateway can keep serving the *old, validly-signed* anchor
+  record (`An → Mn`, long EOL) after the owner has rotated to `An → Mn'`, pinning a victim to the
+  revoked minter. The `updatedAt` freshness check does **not** save you here: whoever leaked `Ms`
+  keeps minting fresh-`updatedAt` content under `Mn`, so the content always looks current — freshness
+  protects content recency, not the binding. Rotation is therefore only reliably enforced against an
+  honest gateway/router. The proper fix (persist the last-seen anchor sequence and refuse downgrades)
+  is tracked as a follow-up in #118.
 
 ## Relevant errors
 
@@ -166,8 +186,10 @@ the P2P resolver (`resolveIpnsToCidP2P`) and the gateway chain walker (`_resolve
 - `ERR_RESOLVED_IPNS_TO_UNSUPPORTED_VALUE` — a record value that is neither `/ipfs/` nor `/ipns/`.
 - `ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED` — a P2P record resolved to no value (e.g. not found).
 - `ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID` — the gateway-served `?format=ipns-record` chain failed to
-  validate (bad signature → "forged or tampered record", missing record, terminal CID mismatch, or
-  signer ≠ terminal). (All three of the codes above are non-retriable.)
+  validate. The `reason` in `details` distinguishes the cause: bad signature ("forged or tampered
+  record"), expired record ("IPNS record has expired …"), oversized record ("exceeds the maximum
+  allowed size"), missing record, terminal CID mismatch, or signer ≠ terminal. (All three of the
+  codes above are non-retriable.)
 - `ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED` — the content's signer
   matches none of the accepted identities (loaded address, community publicKey/anchor, or the chain's
   terminal/minter). `matchChecks` and `isDelegatedChain` in `details` say which checks failed.
