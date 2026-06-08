@@ -224,12 +224,40 @@ export async function createLibp2pJsClientOrUseExistingOne(
                         // record is fetched — @helia's internal recursion would otherwise try to fetch a
                         // deeper hop's record before its topic has any subscribers and throw NotFoundError.
                         // See docs/protocol/delegated-ipns.md.
+                        //
+                        // Why call routers directly instead of ipnsNameResolver.resolve():
+                        // - @helia/ipns 9.2.x has no public single-hop / non-recursive resolve API.
+                        //   resolve() always recurses until it reaches an /ipfs/ value, and its single-hop
+                        //   primitive (#findIpnsRecord) is private — so the router layer is the only public
+                        //   way to fetch exactly one record.
+                        // - resolve()'s ResolveProgressEvents type declares ipns:resolve:success (carrying
+                        //   the per-hop IPNSRecord), but those events are never emitted in 9.2.x — only
+                        //   routing-level events fire, none carrying a record value or next-hop name. So an
+                        //   onProgress listener cannot reconstruct the hop chain either. Empirically pinned
+                        //   in test/node/community/helia-ipns-resolve-equivalence.unit.test.ts.
+                        // Upstream main has since reworked resolve() into an async generator that yields each
+                        // hop's IPNSRecord (ipfs/helia#1041) — that would replace this manual walk and even let
+                        // us warm each pubsub topic between yields — but it's unreleased; npm latest 9.2.1 still
+                        // collapses the chain to the terminal CID. So the per-hop walk stays for now.
+                        // TODO: after the @helia/ipns upgrade, re-check this — once the generator resolve() is
+                        // released, replace this router.get + ipnsValidator loop with
+                        // `for await (const { record } of ipnsNameResolver.resolve(...))`.
+                        // This does NOT bypass an active cache/TTL: all cache-read + TTL logic lives in the
+                        // resolver's #findIpnsRecord and is gated on `nocache !== true`, but pkc always
+                        // resolves IPNS with nocache:true (see resolveIpnsToCidP2P in base-client-manager),
+                        // so that path is inert — the old resolve()-based code skipped it too. IPNS here is
+                        // pubsub-only (HTTP routers have getIPNS disabled in getDelegatedRoutingFields), and
+                        // the pubsub router's get() never serves from cache; it always queries peers. Record
+                        // caching + ipnsSelector still happen inside the pubsub router's handleRecord
+                        // regardless of whether we go through resolve() or call router.get directly.
                         const routingKey = multihashToIPNSRoutingKey(ipnsNameAsPeerId.toMultihash());
                         let recordBytes: Uint8Array | undefined;
                         const routerErrors: Error[] = [];
                         for (const router of ipnsNameResolver.routers) {
                             try {
-                                // validate: false — we validate the signature ourselves below.
+                                // validate: false then validate ourselves below — this mirrors exactly what
+                                // @helia/ipns' #findIpnsRecord does internally (router.get with validate:false
+                                // followed by ipnsValidator), so it is not a deviation from the package.
                                 const got = await router.get(routingKey, { ...options, validate: false });
                                 if (got) {
                                     recordBytes = got;
