@@ -455,6 +455,48 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             }
         });
 
+        // Regression for #119. nameResolved describes whether THIS community's own name resolved to its
+        // publicKey; it must never be inherited from a sibling we share only by publicKey. "migrating.bso"
+        // resolves to signers[0].address, so loading it migrates its key to signers[0] and sets
+        // nameResolved=true. A community loaded by the raw signers[0] key shares that publicKey-keyed
+        // _updatingCommunities entry but has NO name of its own, so it must keep nameResolved===undefined
+        // rather than mirror the sibling's value. The leak reproduces reliably when the suite runs (the shared
+        // pool makes the key-addressed community mirror the live sibling instead of creating its own entry).
+        it(`key-addressed community must not inherit nameResolved from a publicKey-pool sibling (#119)`, async () => {
+            const { communityAddress: oldPublicKey } = await createMockedCommunityIpns({});
+            const sharedKey = signers[0].address;
+
+            const testPKC = await config.pkcInstancePromise();
+            try {
+                // 1. Establish the shared _updatingCommunities entry (publicKey alias = signers[0]) with
+                //    nameResolved=true via the migrating sibling, and keep it alive (do not stop it) so the
+                //    entry is not cleaned up before the key-addressed community subscribes.
+                const migrating = await testPKC.createCommunity({ address: "migrating.bso", publicKey: oldPublicKey });
+                await migrating.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: migrating,
+                    predicate: async () => migrating.nameResolved === true && migrating.publicKey === sharedKey
+                });
+
+                // 2. Load a community by the raw signers[0] key — it shares the sibling's pool entry.
+                const keyComm = await testPKC.createCommunity({ address: sharedKey });
+                await keyComm.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: keyComm,
+                    predicate: async () => typeof keyComm.updatedAt === "number"
+                });
+
+                // The key-addressed community's record has no name, so nameResolved must stay undefined.
+                expect(keyComm.name).to.be.undefined;
+                expect(keyComm.nameResolved).to.be.undefined; // BUG (#119): leaks to true via the shared sibling
+
+                await keyComm.stop();
+                await migrating.stop();
+            } finally {
+                await testPKC.destroy();
+            }
+        });
+
         // Scenario C: {address: domain} where record has name: "other.eth" (different name)
         it(`community.update() rejects record when record name differs from loaded domain address`, async () => {
             // "wrong-name.bso" is in defaultMockResolverRecords → signers[3].address

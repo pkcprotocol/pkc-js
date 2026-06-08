@@ -624,6 +624,17 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         }
     }
 
+    // nameResolved reflects whether THIS community's own name resolved to its publicKey. When we mirror an
+    // updating instance that we share only by publicKey — e.g. a community loaded by a raw IPNS key sharing a
+    // key with a resolved-domain sibling (migrating.bso), or two different domains that resolve to the same
+    // key — the sibling's nameResolved does NOT describe us. Adopt it only when the names match; otherwise
+    // restore the value we had before mirroring, undoing anything deepMergeRuntimeFields copied in. See #119.
+    protected _adoptMirroredNameResolved(source: { name?: string; nameResolved?: boolean }, nameResolvedBeforeMirror: boolean | undefined) {
+        if (this.name === source.name) {
+            if (typeof source.nameResolved === "boolean") this.nameResolved = source.nameResolved;
+        } else this.nameResolved = nameResolvedBeforeMirror;
+    }
+
     private async _initCommunityInstanceWithListeners() {
         const trackedUpdatingCommunity = findUpdatingCommunity(this._pkc, { publicKey: this.publicKey, name: this.name });
         if (!trackedUpdatingCommunity) throw Error("should be defined at this stage");
@@ -632,13 +643,14 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         return <NonNullable<this["_updatingCommunityInstanceWithListeners"]>>{
             community: communityInstance,
             update: () => {
+                const nameResolvedBeforeMirror = this.nameResolved;
                 if (!communityInstance.raw.communityIpfs || !communityInstance.updateCid) {
                     if (communityInstance.publicKey) this._clearDataForKeyMigration(communityInstance.publicKey);
                 } else {
                     this.initCommunityIpfsPropsNoMerge(communityInstance.raw.communityIpfs);
                     this.updateCid = communityInstance.updateCid;
                 }
-                if (typeof communityInstance.nameResolved === "boolean") this.nameResolved = communityInstance.nameResolved;
+                this._adoptMirroredNameResolved(communityInstance, nameResolvedBeforeMirror);
                 log(
                     `Remote Community instance`,
                     this.address,
