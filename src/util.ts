@@ -1007,9 +1007,12 @@ export async function getIpnsRecordInLocalKuboNode(kuboRpcClient: KuboRpcClient,
 export async function fetchAndValidateIpnsRecordFromGateway(
     gatewayUrl: string,
     ipnsName: string,
-    opts?: { abortSignal?: AbortSignal }
+    // recordContext is merged into every error this raises so the caller's domain knowledge (e.g.
+    // which hop of a delegated chain this name is — anchor vs minter) survives into error.details.
+    opts?: { abortSignal?: AbortSignal; recordContext?: Record<string, unknown> }
 ): Promise<IPNSRecord> {
     const ipnsFetchUrl = `${gatewayUrl.replace(/\/$/, "")}/ipns/${ipnsName}?format=ipns-record`;
+    const recordContext = opts?.recordContext;
     let ipnsRecordRaw: Uint8Array;
     try {
         const res = await fetch(ipnsFetchUrl, {
@@ -1019,6 +1022,7 @@ export async function fetchAndValidateIpnsRecordFromGateway(
         if (res.status !== 200)
             throw new PKCError("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID", {
                 reason: "Gateway did not return the raw IPNS record",
+                ...recordContext,
                 ipnsFetchUrl,
                 ipnsName,
                 status: res.status,
@@ -1032,6 +1036,7 @@ export async function fetchAndValidateIpnsRecordFromGateway(
         if (e instanceof PKCError) throw e;
         throw new PKCError("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID", {
             reason: "Failed to fetch the raw IPNS record from the gateway",
+            ...recordContext,
             ipnsFetchUrl,
             ipnsName,
             fetchError: e
@@ -1045,7 +1050,10 @@ export async function fetchAndValidateIpnsRecordFromGateway(
         await ipnsValidator(routingKey, ipnsRecordRaw);
     } catch (e) {
         throw new PKCError("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID", {
-            reason: "IPNS record signature validation failed",
+            // The record is well-formed but its signature does not verify against the key the IPNS
+            // name commits to — i.e. the gateway served a forged or tampered record for this name.
+            reason: "IPNS record signature is invalid: the record served by the gateway is not signed by the IPNS name's key (forged or tampered record)",
+            ...recordContext,
             ipnsFetchUrl,
             ipnsName,
             validationError: e
@@ -1057,6 +1065,7 @@ export async function fetchAndValidateIpnsRecordFromGateway(
     } catch (e) {
         throw new PKCError("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID", {
             reason: "Failed to parse the IPNS record",
+            ...recordContext,
             ipnsFetchUrl,
             ipnsName,
             parseError: e

@@ -37,7 +37,11 @@ describeSkipIfRpc("resolveIpnsToCidP2P resolution branches", () => {
             await pkc._clientsManager.resolveIpnsToCidP2P("12D3KooWAnchor", { timeoutMs: 5000 });
             expect.fail("should have thrown for an unsupported resolved value");
         } catch (e) {
-            expect((e as { code?: string }).code).to.equal("ERR_RESOLVED_IPNS_TO_UNSUPPORTED_VALUE");
+            const err = e as { code?: string; details?: { hopRole?: string; hopIndex?: number } };
+            expect(err.code).to.equal("ERR_RESOLVED_IPNS_TO_UNSUPPORTED_VALUE");
+            // the failing record is the anchor (hop 0), labelled so the error names which hop failed
+            expect(err.details?.hopRole).to.equal("anchor");
+            expect(err.details?.hopIndex).to.equal(0);
         }
     });
 
@@ -48,7 +52,10 @@ describeSkipIfRpc("resolveIpnsToCidP2P resolution branches", () => {
             await pkc._clientsManager.resolveIpnsToCidP2P("12D3KooWAnchor", { timeoutMs: 5000 });
             expect.fail("should have thrown for an undefined resolved value");
         } catch (e) {
-            expect((e as { code?: string }).code).to.equal("ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED");
+            const err = e as { code?: string; details?: { hopRole?: string; hopIndex?: number } };
+            expect(err.code).to.equal("ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED");
+            expect(err.details?.hopRole).to.equal("anchor");
+            expect(err.details?.hopIndex).to.equal(0);
         }
     });
 
@@ -80,12 +87,15 @@ describeSkipIfRpc("resolveIpnsToCidP2P resolution branches", () => {
             await pkc._clientsManager.resolveIpnsToCidP2P("12D3KooWAnchor", { timeoutMs: 5000 });
             expect.fail("should reject a delegated chain longer than one hop");
         } catch (e) {
-            const err = e as { code?: string; details?: { maxHops?: number; ipnsHops?: string[] } };
+            const err = e as { code?: string; details?: { maxHops?: number; ipnsHops?: string[]; hopRole?: string; hopIndex?: number } };
             expect(err.code).to.equal("ERR_IPNS_MAX_HOPS_EXCEEDED");
             expect(err.details?.maxHops).to.equal(1);
             // the cap trips as soon as the minter record is seen to delegate further, so the
             // terminal's record is never resolved past being recorded as a hop.
             expect(err.details?.ipnsHops).to.deep.equal(["12D3KooWAnchor", "12D3KooWMinter", "12D3KooWTerminal"]);
+            // the over-the-cap delegation came from the minter record (hop 1), not the anchor
+            expect(err.details?.hopRole).to.equal("minter");
+            expect(err.details?.hopIndex).to.equal(1);
         }
     });
 

@@ -156,9 +156,26 @@ gateway's recursion was trusted). If a DHT walk were involved, the per-hop delta
 
 ## Relevant errors
 
+Chain-walk errors carry `hopRole` (`"anchor"` or `"minter"`) and `hopIndex` in their `details` so a
+failure names **which** record was at fault, not just that the chain failed. Both resolution paths —
+the P2P resolver (`resolveIpnsToCidP2P`) and the gateway chain walker (`_resolveIpnsChainViaGateway`)
+— label failures identically.
+
 - `ERR_IPNS_MAX_HOPS_EXCEEDED` — chain longer than the hop cap (`MAX_IPNS_HOPS`), on the P2P paths
-  and the gateway chain walk.
+  and the gateway chain walk. `hopRole`/`hopIndex` identify the record that delegated one hop too far.
 - `ERR_RESOLVED_IPNS_TO_UNSUPPORTED_VALUE` — a record value that is neither `/ipfs/` nor `/ipns/`.
+- `ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED` — a P2P record resolved to no value (e.g. not found).
 - `ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID` — the gateway-served `?format=ipns-record` chain failed to
-  validate (bad signature, missing record, terminal CID mismatch, or signer ≠ terminal). (All three
-  are non-retriable.)
+  validate (bad signature → "forged or tampered record", missing record, terminal CID mismatch, or
+  signer ≠ terminal). (All three of the codes above are non-retriable.)
+- `ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED` — the content's signer
+  matches none of the accepted identities (loaded address, community publicKey/anchor, or the chain's
+  terminal/minter). `matchChecks` and `isDelegatedChain` in `details` say which checks failed.
+
+**Forgery-error asymmetry between paths:** only the gateway path emits an explicit forgery error.
+Over a gateway pkc-js fetches and signature-checks each record itself, so a forged/tampered record
+fails with `ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID` ("forged or tampered record"). Over P2P (kubo RPC
+/ helia) the resolver performs per-record signature validation internally, so a forged/tampered/
+unverifiable record surfaces as an opaque resolution failure (`ERR_FAILED_TO_RESOLVE_IPNS_VIA_IPFS_P2P`
+or a not-found), **not** an explicit forgery error. Those P2P failures carry a `note` in `details`
+explaining the asymmetry.

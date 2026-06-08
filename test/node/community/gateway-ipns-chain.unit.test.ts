@@ -105,7 +105,7 @@ describeSkipIfRpc("Delegated IPNS gateway chain validation branches", () => {
             await fetchAndValidateIpnsRecordFromGateway("http://localhost:1234", otherName);
             expect.fail("should reject a record signed by the wrong key");
         } catch (e) {
-            expectChainInvalid(e, "IPNS record signature validation failed");
+            expectChainInvalid(e, "forged or tampered record");
         }
     });
 

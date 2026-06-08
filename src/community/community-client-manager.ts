@@ -892,7 +892,14 @@ export class CommunityClientsManager extends PKCClientsManager {
         // The loop exits only via a return (we hit a terminal /ipfs/ value) or a throw (unsupported
         // value, or too many hops).
         while (true) {
-            const record = await fetchAndValidateIpnsRecordFromGateway(gatewayUrl, currentName, { abortSignal });
+            // Label the hop we're about to validate so any failure (forged/tampered record, bad value,
+            // bad CID) names WHICH record was at fault. hop 0 is the anchor; with MAX_IPNS_HOPS === 1
+            // the only other hop ever fetched is the minter (the cap below throws before a 3rd hop is
+            // fetched), so role is unambiguous: "anchor" or "minter". See docs/protocol/delegated-ipns.md.
+            const hopIndex = ipnsHops.length - 1;
+            const hopRole = hopIndex === 0 ? "anchor" : "minter";
+            const recordContext = { hopRole, hopIndex, anchorIpnsName };
+            const record = await fetchAndValidateIpnsRecordFromGateway(gatewayUrl, currentName, { abortSignal, recordContext });
             const value = String(record.value);
             if (isIpnsPath(value)) {
                 currentName = value.split("/")[2];
@@ -900,9 +907,9 @@ export class CommunityClientsManager extends PKCClientsManager {
                 // ipnsHops.length - 1 is the number of /ipns/ -> /ipns/ hops followed so far.
                 if (ipnsHops.length - 1 > BaseClientsManager.MAX_IPNS_HOPS)
                     throw new PKCError("ERR_IPNS_MAX_HOPS_EXCEEDED", {
+                        ...recordContext,
                         ipnsHops,
                         maxHops: BaseClientsManager.MAX_IPNS_HOPS,
-                        anchorIpnsName,
                         via: "gateway"
                     });
                 continue;
@@ -914,18 +921,18 @@ export class CommunityClientsManager extends PKCClientsManager {
                 } catch (e) {
                     throw new PKCError("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID", {
                         reason: "Terminal IPNS record value is not a valid CID",
+                        ...recordContext,
                         terminalValue: value,
-                        ipnsHops,
-                        anchorIpnsName
+                        ipnsHops
                     });
                 }
                 return { ipnsHops, terminalCidV0 };
             }
             throw new PKCError("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID", {
                 reason: "IPNS record value is neither an /ipfs/ nor an /ipns/ path",
+                ...recordContext,
                 unsupportedValue: value,
-                ipnsHops,
-                anchorIpnsName
+                ipnsHops
             });
         }
     }
@@ -965,6 +972,19 @@ export class CommunityClientsManager extends PKCClientsManager {
             // Did the gateway supply us with a different community's ipns
 
             const error = new PKCError("ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED", {
+                // The record's signer matches none of the identities we accept: the address we loaded,
+                // the community publicKey (the anchor), or the terminal/minter of the resolved IPNS
+                // chain. Either a different community's record was served, or a delegated chain's content
+                // is signed by an unexpected key (anchor -> terminal binding broken). The booleans below
+                // say which checks failed. For a delegated load the role that should have matched is the
+                // "minter" (terminalIpnsName). See docs/protocol/delegated-ipns.md.
+                reason: "Community record signer does not match the loaded address, the community publicKey (anchor), or the terminal (minter) IPNS name of the resolved chain",
+                recordSignerAddress: recordAddress,
+                expectedAnchorOrInstance: communityInstanceAddress,
+                communityPublicKey: this._community.publicKey,
+                expectedTerminalMinter: terminalIpnsName,
+                matchChecks: { addressMatchesInstance, addressMatchesPublicKey, signatureKeyMatchesTerminal },
+                isDelegatedChain: anchorIpnsName !== terminalIpnsName,
                 addressFromCommunityInstance: communityInstanceAddress,
                 ipnsName: anchorIpnsName,
                 terminalIpnsName,

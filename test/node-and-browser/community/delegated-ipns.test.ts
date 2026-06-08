@@ -9,7 +9,9 @@ import {
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
 import { getPKCAddressFromPublicKeySync, convertBase58IpnsNameToBase36Cid } from "../../../dist/node/signer/util.js";
-import { ipnsNameToIpnsOverPubsubTopic } from "../../../dist/node/util.js";
+import { ipnsNameToIpnsOverPubsubTopic, fetchAndValidateIpnsRecordFromGateway } from "../../../dist/node/util.js";
+import { generateKeyPair } from "@libp2p/crypto/keys";
+import { createIPNSRecord, marshalIPNSRecord } from "ipns";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
@@ -179,6 +181,15 @@ describe("Delegated IPNS loading over an untrusted gateway", async () => {
             expect(community.ipnsHops).to.deep.equal([anchorName, terminalName]);
             const recordSignatureAddress = getPKCAddressFromPublicKeySync(community.raw.communityIpfs!.signature.publicKey);
             expect(recordSignatureAddress).to.equal(terminalName);
+
+            // Explicit anchor-identity binding: community.publicKey is the anchor (ipnsHops[0]), and the
+            // IPNS record served at that exact name validates against the routing key derived from it —
+            // so fetchAndValidate succeeding proves the anchor record's signer == community.publicKey.
+            // Its value must point at the minter (terminal), tying the community identity to the chain.
+            expect(community.publicKey).to.equal(anchorName);
+            expect(community.ipnsHops![0]).to.equal(community.publicKey);
+            const anchorRecord = await fetchAndValidateIpnsRecordFromGateway(gatewayPKC.ipfsGatewayUrls![0], community.publicKey);
+            expect(String(anchorRecord.value)).to.equal("/ipns/" + terminalName);
         } finally {
             await community.stop();
         }
@@ -245,7 +256,14 @@ describe("Delegated IPNS loading over an untrusted gateway", async () => {
             const err = await loadCommunityExpectingError(maliciousGatewayPKC, anchorSigner.address);
             expect(err.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
             const innerErrors = Object.values((err.details as { gatewayToError: Record<string, PKCError> }).gatewayToError);
-            expect(innerErrors.some((inner) => inner?.code === "ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID")).to.be.true;
+            const chainInvalid = innerErrors.find((inner) => inner?.code === "ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID");
+            expect(chainInvalid, "expected an ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID inner error").to.exist;
+            // This gateway forges every record, so the walk fails at the FIRST hop — the details must
+            // name the anchor as the offending record and flag the forgery.
+            const details = chainInvalid!.details as { reason?: string; hopRole?: string; hopIndex?: number };
+            expect(String(details.reason)).to.include("forged or tampered record");
+            expect(details.hopRole).to.equal("anchor");
+            expect(details.hopIndex).to.equal(0);
         } finally {
             await maliciousGatewayPKC.destroy();
         }
@@ -291,6 +309,63 @@ describe("Delegated IPNS loading over an untrusted gateway", async () => {
             const chainInvalid = innerErrors.find((inner) => inner?.code === "ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID");
             expect(chainInvalid, "expected an ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID inner error").to.exist;
             expect(String((chainInvalid!.details as { reason?: string })?.reason)).to.include("Terminal IPNS record CID does not match");
+        } finally {
+            fetchSpy.mockRestore();
+        }
+    });
+
+    // A gateway can serve a perfectly valid, correctly-signed ANCHOR record (anchor -> minter) yet
+    // forge the MINTER record it points to: a well-formed record that is validly signed but by the
+    // WRONG key. Every hop is validated independently (?format=ipns-record) against the routing key
+    // derived from that hop's name, so the forged minter record is rejected at the SECOND hop — the
+    // anchor hop validates fine and legitimately resolves to the minter. This proves per-hop validation
+    // extends past hop 0, covering the terminal/minter-forgery case the port-14007 malicious gateway
+    // cannot (it forges every hop, so its walk always fails at the anchor). See docs/protocol/delegated-ipns.md.
+    it("rejects a delegated community when a gateway forges the minter (terminal) IPNS record", async () => {
+        const { anchorName, terminalName } = await createDelegatedCommunityIpns({});
+        const terminalCid = convertBase58IpnsNameToBase36Cid(terminalName);
+
+        // A minter record signed by a stranger key (not the minter) pointing at a valid /ipfs/ CID, so it
+        // fails the per-hop SIGNATURE check (routing key from terminalName != stranger key), not the value check.
+        const strangerKey = await generateKeyPair("Ed25519");
+        const forgedMinterRecordBytes = marshalIPNSRecord(
+            await createIPNSRecord(strangerKey, "/ipfs/bafybeigdypsgdcm2ddvyh2y2gnltw3zi5iphzzwdlpie3jfxpmer7frknu", 0, 24 * 60 * 60 * 1000)
+        );
+
+        const realFetch = globalThis.fetch;
+        const urlOf = (input: unknown) => (typeof input === "string" ? input : (input as { url?: string })?.url) ?? "";
+        const isMinterRecordFetch = (url: string) =>
+            url.includes("format=ipns-record") && (url.includes("/ipns/" + terminalCid) || url.includes("/ipns/" + terminalName));
+        const forgedRecordResponse = () =>
+            ({
+                status: 200,
+                statusText: "OK",
+                arrayBuffer: async () =>
+                    forgedMinterRecordBytes.buffer.slice(
+                        forgedMinterRecordBytes.byteOffset,
+                        forgedMinterRecordBytes.byteOffset + forgedMinterRecordBytes.byteLength
+                    )
+            }) as unknown as Response;
+
+        const fetchSpy = vi
+            .spyOn(globalThis, "fetch")
+            .mockImplementation((input, init) =>
+                isMinterRecordFetch(urlOf(input)) ? Promise.resolve(forgedRecordResponse()) : realFetch(input, init)
+            );
+        try {
+            const err = await loadCommunityExpectingError(gatewayPKC, anchorName);
+            expect(err.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
+            const innerErrors = Object.values((err.details as { gatewayToError: Record<string, PKCError> }).gatewayToError);
+            const chainInvalid = innerErrors.find((inner) => inner?.code === "ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID");
+            expect(chainInvalid, "expected an ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID inner error").to.exist;
+            // The failure must be the minter hop's signature check, proving per-hop validation reached the
+            // SECOND hop (not an anchor-hop failure or a CID mismatch). The details must name the forgery
+            // and the offending record's role/position so the error is actionable, not vague.
+            const details = chainInvalid!.details as { reason?: string; hopRole?: string; hopIndex?: number; ipnsName?: string };
+            expect(String(details.reason)).to.include("forged or tampered record");
+            expect(details.hopRole).to.equal("minter");
+            expect(details.hopIndex).to.equal(1);
+            expect(details.ipnsName).to.equal(terminalName);
         } finally {
             fetchSpy.mockRestore();
         }

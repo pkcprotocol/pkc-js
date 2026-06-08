@@ -615,11 +615,20 @@ export class BaseClientsManager {
             // Follow at most MAX_IPNS_HOPS delegation hops. The loop exits only via a return (we hit
             // a terminal /ipfs/ value) or a throw (undefined/unsupported value, or too many hops).
             while (true) {
+                // Label the record we're about to resolve so any failure names WHICH record was at
+                // fault. hop 0 is the anchor; with MAX_IPNS_HOPS === 1 the only other hop fetched is
+                // the minter (the cap below throws before a 3rd hop is fetched), so the role is
+                // unambiguous — "anchor" or "minter". Mirrors the gateway chain walker's labelling so
+                // both resolution paths report failures identically. See docs/protocol/delegated-ipns.md.
+                const hopIndex = ipnsHops.length - 1;
+                const hopRole = hopIndex === 0 ? "anchor" : "minter";
                 const yieldedValues: string[] = await all(ipfsClient.name.resolve(currentName, ipnsResolveOpts));
                 // The single-hop value (kubo may yield it more than once; helia yields it once).
                 const value: string | undefined = yieldedValues[yieldedValues.length - 1];
                 if (!value)
                     throw new PKCError("ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED", {
+                        hopRole,
+                        hopIndex,
                         resolvedValue: value,
                         yieldedValues,
                         currentName,
@@ -636,6 +645,9 @@ export class BaseClientsManager {
                     // ipnsHops.length - 1 is the number of /ipns/ -> /ipns/ hops followed so far.
                     if (ipnsHops.length - 1 > BaseClientsManager.MAX_IPNS_HOPS)
                         throw new PKCError("ERR_IPNS_MAX_HOPS_EXCEEDED", {
+                            // hopRole/hopIndex describe the record that delegated one hop too far.
+                            hopRole,
+                            hopIndex,
                             ipnsHops,
                             maxHops: BaseClientsManager.MAX_IPNS_HOPS,
                             ipnsName,
@@ -645,6 +657,8 @@ export class BaseClientsManager {
                 }
 
                 throw new PKCError("ERR_RESOLVED_IPNS_TO_UNSUPPORTED_VALUE", {
+                    hopRole,
+                    hopIndex,
                     unsupportedValue: value,
                     currentName,
                     ipnsName,
@@ -667,8 +681,18 @@ export class BaseClientsManager {
             return result;
         } catch (error) {
             if (isAbortError(error)) throw error;
-            //@ts-expect-error
-            error.details = { ...error.details, ipnsName, ipnsResolveOpts };
+            // Over P2P, per-record IPNS signature validation — and therefore forgery/tamper detection —
+            // is performed inside the resolver (kubo/helia), not by us. So a forged, tampered, or
+            // otherwise unverifiable record surfaces here as an opaque resolution failure rather than an
+            // explicit forgery error like the gateway path's ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID. We
+            // attach this note to resolver-level failures (not to our own structured chain errors, which
+            // already explain themselves) so the surfaced error documents that asymmetry.
+            const isOpaqueResolverError = !(error instanceof PKCError);
+            const p2pValidationNote = isOpaqueResolverError
+                ? "Resolution failed inside the IPNS resolver (kubo/helia). Over P2P the resolver performs per-record signature validation, so a forged/tampered/unverifiable record appears here as a resolution failure, not an explicit forgery error (cf. the gateway path's ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID). See docs/protocol/delegated-ipns.md."
+                : undefined;
+            //@ts-expect-error attaching extra context to whatever propagated (PKCError or raw resolver error)
+            error.details = { ...error.details, ipnsName, ipnsResolveOpts, ...(p2pValidationNote ? { note: p2pValidationNote } : {}) };
             // Wrap ETIMEDOUT in PKCError so _isRetriableErrorWhenLoading recognizes it as retriable
             if (error instanceof Error && "cause" in error && (error.cause as { code?: string })?.code === "ETIMEDOUT") {
                 log.error(`Failed to resolve IPNS ${ipnsName}: ${error.message} (ETIMEDOUT)`);
@@ -677,7 +701,8 @@ export class BaseClientsManager {
                     ipnsResolveOpts,
                     error,
                     errorMessage: error.message,
-                    errorName: error.name
+                    errorName: error.name,
+                    note: p2pValidationNote
                 });
             }
             throw error;
