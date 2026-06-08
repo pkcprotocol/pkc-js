@@ -985,10 +985,24 @@ export async function removeMfsFilesSafely({
 // bytes). See docs/protocol/delegated-ipns.md.
 export const MAX_IPNS_RECORD_SIZE = 10 * 1024;
 
-// Reads a fetch Response body into a Uint8Array, refusing to buffer more than MAX_IPNS_RECORD_SIZE.
-// Checks Content-Length up front and enforces a hard ceiling while streaming, so a missing or dishonest
-// Content-Length still cannot slip an oversized record past us. The caller supplies onOverSizeLimit so the
-// error carries its own domain code/context (gateway chain vs local kubo node).
+// Joins streamed body chunks into a single Uint8Array. `total` MUST equal the summed chunk lengths.
+function concatBodyChunks(chunks: Uint8Array[], total: number): Uint8Array {
+    if (chunks.length === 1) return chunks[0];
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+        out.set(chunk, offset);
+        offset += chunk.length;
+    }
+    return out;
+}
+
+// Reads a fetch Response body into a Uint8Array, refusing to buffer more than MAX_IPNS_RECORD_SIZE. Checks
+// Content-Length up front, then streams the body — WHATWG `getReader` (browser / undici) or the node-fetch
+// async-iterable Node stream — enforcing the hard ceiling per chunk, so a missing or dishonest Content-Length
+// still cannot make us buffer an oversized record. Only an exotic body that is neither stream type falls back
+// to buffer-then-check. The caller supplies onOverSizeLimit so the error carries its own domain code/context
+// (gateway chain vs local kubo node).
 async function readRawIpnsRecordBody(
     res: Response,
     onOverSizeLimit: (info: { maxBytes: number; observedBytes: number; viaContentLength: boolean }) => PKCError
@@ -998,38 +1012,47 @@ async function readRawIpnsRecordBody(
     if (sizeHeader && Number(sizeHeader) > maxBytes)
         throw onOverSizeLimit({ maxBytes, observedBytes: Number(sizeHeader), viaContentLength: true });
 
-    // node-fetch path (no getReader): Content-Length above is the only pre-buffer guard available, so back
-    // it up with a post-read length check. Native fetch / undici (browser and Node >= 18) take the streaming
-    // path below and never buffer more than maxBytes.
-    if (res.body?.getReader === undefined) {
-        const buf = new Uint8Array(await res.arrayBuffer());
-        if (buf.byteLength > maxBytes) throw onOverSizeLimit({ maxBytes, observedBytes: buf.byteLength, viaContentLength: false });
-        return buf;
+    // Native fetch / undici (browser and Node >= 18) expose a WHATWG ReadableStream.
+    if (res.body?.getReader !== undefined) {
+        const reader = res.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let total = 0;
+        while (true) {
+            const { done, value } = await reader.read();
+            if (value) {
+                total += value.length;
+                if (total > maxBytes) {
+                    await reader.cancel().catch(() => {});
+                    throw onOverSizeLimit({ maxBytes, observedBytes: total, viaContentLength: false });
+                }
+                chunks.push(value);
+            }
+            if (done) break;
+        }
+        return concatBodyChunks(chunks, total);
     }
 
-    const reader = res.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-    while (true) {
-        const { done, value } = await reader.read();
-        if (value) {
-            total += value.length;
-            if (total > maxBytes) {
-                await reader.cancel().catch(() => {});
-                throw onOverSizeLimit({ maxBytes, observedBytes: total, viaContentLength: false });
-            }
-            chunks.push(value);
+    // node-fetch path (no getReader): its Response body is a Node Readable, which is async-iterable. Stream it
+    // the same way so the ceiling holds without buffering the whole body first — the up-front Content-Length
+    // check alone can't stop a dishonest/missing header. (`as unknown as` because the WHATWG Response type
+    // doesn't model the Node stream's async iterator; this branch only runs when the body really is one.)
+    const iterableBody = res.body as unknown as AsyncIterable<Uint8Array> | undefined;
+    if (iterableBody?.[Symbol.asyncIterator] !== undefined) {
+        const chunks: Uint8Array[] = [];
+        let total = 0;
+        for await (const chunk of iterableBody) {
+            total += chunk.length;
+            if (total > maxBytes) throw onOverSizeLimit({ maxBytes, observedBytes: total, viaContentLength: false });
+            chunks.push(chunk);
         }
-        if (done) break;
+        return concatBodyChunks(chunks, total);
     }
-    if (chunks.length === 1) return chunks[0];
-    const out = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-        out.set(chunk, offset);
-        offset += chunk.length;
-    }
-    return out;
+
+    // Last resort: a body that is neither a WHATWG stream nor async-iterable. Buffer fully, then reject if the
+    // Content-Length omitted or under-reported the real size.
+    const buf = new Uint8Array(await res.arrayBuffer());
+    if (buf.byteLength > maxBytes) throw onOverSizeLimit({ maxBytes, observedBytes: buf.byteLength, viaContentLength: false });
+    return buf;
 }
 
 export async function getIpnsRecordInLocalKuboNode(kuboRpcClient: KuboRpcClient, ipnsName: string) {
