@@ -67,6 +67,21 @@ export class RpcRemoteCommunity extends RemoteCommunity {
         newRpcClientState.forEach(this._setRpcClientStateWithEmission.bind(this));
     }
 
+    // TEMP diagnostic (#119): trace every nameResolved transition on this RPC client instance so we can see
+    // which RPC message spuriously flips it true on a key-addressed community, and which source community it
+    // came from. Gated behind DEBUG=pkc-js*.
+    private _traceNameResolved(source: string, value: unknown, extra?: Record<string, unknown>) {
+        Logger("pkc-js:rpc-remote-community:nameResolved")("transition", {
+            source,
+            value,
+            previous: this.nameResolved,
+            address: this.address,
+            name: this.name,
+            publicKey: this.publicKey,
+            ...extra
+        });
+    }
+
     protected _processUpdateEventFromRpcUpdate(args: any) {
         // This function is to handle "update" event emitted after calling rpcRemoteCommunity.update()
         // It's overidden in rpc-local-community
@@ -83,7 +98,12 @@ export class RpcRemoteCommunity extends RemoteCommunity {
         // Key migration: server cleared its state, client should do the same
         if (updateRecord.resetInstance && updateRecord.runtimeFields.newPublicKey) {
             this._clearDataForKeyMigration(updateRecord.runtimeFields.newPublicKey);
-            if (typeof updateRecord.runtimeFields.nameResolved === "boolean") this.nameResolved = updateRecord.runtimeFields.nameResolved;
+            if (typeof updateRecord.runtimeFields.nameResolved === "boolean") {
+                this._traceNameResolved("processUpdate:keyMigration", updateRecord.runtimeFields.nameResolved, {
+                    newPublicKey: updateRecord.runtimeFields.newPublicKey
+                });
+                this.nameResolved = updateRecord.runtimeFields.nameResolved;
+            }
             this.emit("update", this);
             return;
         }
@@ -98,6 +118,8 @@ export class RpcRemoteCommunity extends RemoteCommunity {
         this.updateCid = updateRecord.runtimeFields.updateCid!;
         this._setUpdatingStateNoEmission(updateRecord.runtimeFields.updatingState || "succeeded");
         this.raw.runtimeFieldsFromRpc = updateRecord.runtimeFields;
+        if (typeof updateRecord.runtimeFields.nameResolved === "boolean")
+            this._traceNameResolved("processUpdate:deepMerge", updateRecord.runtimeFields.nameResolved);
         deepMergeRuntimeFields(this, updateRecord.runtimeFields);
 
         this.emit("update", this);
@@ -129,7 +151,13 @@ export class RpcRemoteCommunity extends RemoteCommunity {
                     if (updatingCommunity.raw.runtimeFieldsFromRpc)
                         deepMergeRuntimeFields(this, updatingCommunity.raw.runtimeFieldsFromRpc);
                 }
-                if (typeof updatingCommunity.nameResolved === "boolean") this.nameResolved = updatingCommunity.nameResolved;
+                if (typeof updatingCommunity.nameResolved === "boolean") {
+                    this._traceNameResolved("mirror:set", updatingCommunity.nameResolved, {
+                        fromAddress: updatingCommunity.address,
+                        fromPublicKey: updatingCommunity.publicKey
+                    });
+                    this.nameResolved = updatingCommunity.nameResolved;
+                }
                 // Only emit when there's actual data or a key migration — avoid spurious updates for empty subs
                 if ((updatingCommunity.raw.communityIpfs && updatingCommunity.updateCid) || keyChanged) {
                     this.emit("update", this);
@@ -197,7 +225,13 @@ export class RpcRemoteCommunity extends RemoteCommunity {
             this.updateCid = updatingCommunity.updateCid;
             if (updatingCommunity.raw.runtimeFieldsFromRpc) deepMergeRuntimeFields(this, updatingCommunity.raw.runtimeFieldsFromRpc);
         }
-        if (typeof updatingCommunity.nameResolved === "boolean") this.nameResolved = updatingCommunity.nameResolved;
+        if (typeof updatingCommunity.nameResolved === "boolean") {
+            this._traceNameResolved("mirror2:set", updatingCommunity.nameResolved, {
+                fromAddress: updatingCommunity.address,
+                fromPublicKey: updatingCommunity.publicKey
+            });
+            this.nameResolved = updatingCommunity.nameResolved;
+        }
         if (updatingCommunity.raw.communityIpfs || updatingCommunity.updateCid) {
             this.emit("update", this);
         }
@@ -209,6 +243,10 @@ export class RpcRemoteCommunity extends RemoteCommunity {
         if (error.details?.newStartedState) this._setStartedStateNoEmission(error.details.newStartedState);
         if ("code" in error && error.code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY" && error.details?.newPublicKey) {
             this._clearDataForKeyMigration(error.details.newPublicKey);
+            this._traceNameResolved("rpcError:nameMigration", true, {
+                errorCode: error.code,
+                newPublicKey: error.details?.newPublicKey
+            });
             this.nameResolved = true;
             this.emit("update", this);
         }

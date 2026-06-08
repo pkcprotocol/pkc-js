@@ -343,6 +343,13 @@ export class CommunityClientsManager extends PKCClientsManager {
         const log = Logger("pkc-js:community-client-manager:_resolveNameInBackground");
         const setNameResolvedAndEmitUpdate = (newNameResolved: boolean) => {
             if (this._community.nameResolved === newNameResolved) return;
+            log("nameResolved transition (#119)", {
+                address: this._community.address,
+                name: this._community.name,
+                publicKey: this._community.publicKey,
+                from: this._community.nameResolved,
+                to: newNameResolved
+            });
             this._community.nameResolved = newNameResolved;
             // Only emit update if the community has been loaded at least once —
             // otherwise we'd fire a premature "update" before the IPNS fetch completes.
@@ -371,6 +378,12 @@ export class CommunityClientsManager extends PKCClientsManager {
                     // Clear all data immediately (old data may be from compromised key)
                     this._community._clearDataForKeyMigration(resolved);
                     this._updateCidsAlreadyLoaded.clear();
+                    log("nameResolved=true via key-migration (#119)", {
+                        address: this._community.address,
+                        name: this._community.name,
+                        resolved,
+                        previousPublicKey
+                    });
                     this._community.nameResolved = true;
 
                     // Abort in-flight fetch (using old key) by aborting the stop controller,
