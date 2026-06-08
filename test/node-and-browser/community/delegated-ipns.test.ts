@@ -34,11 +34,16 @@ async function loadCommunityViaUpdate(pkc: PKCType, address: string): Promise<Re
 // success cases and won't flake on one-shot transport timing.
 async function loadCommunityExpectingError(pkc: PKCType, address: string): Promise<PKCError> {
     const community = await pkc.createCommunity({ address });
+    // Subscribe before update() so a synchronously-emitted error isn't missed.
     const errorPromise = new Promise<PKCError>((resolve) => community.once("error", resolve as (err: Error) => void));
-    await community.update();
-    const err = await errorPromise;
-    await community.stop();
-    return err;
+    // stop() in finally so a throw from update() (or a future change) never leaks the retrying update loop
+    // into later tests. The hang case is already bounded by vitest's per-test timeout.
+    try {
+        await community.update();
+        return await errorPromise;
+    } finally {
+        await community.stop();
+    }
 }
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
