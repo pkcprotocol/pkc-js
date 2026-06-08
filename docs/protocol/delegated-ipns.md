@@ -103,12 +103,12 @@ round-trip). Over a gateway it adds the per-hop `?format=ipns-record` validation
 above) on top of the plain GET. Non-delegated communities pay nothing extra on any path — a single
 lookup / single plain GET.
 
-Benchmark (see the env-gated `BENCH_IPNS` timing benchmark in
-`test/node-and-browser/community/delegated-ipns.test.ts`). It loads the same community record two
-ways, direct (load the minter name, single hop) vs delegated (load the anchor name, one extra hop),
-so the delta isolates the extra hop. Run on the local test setup with **no DHT** (helia resolves via
-the local HTTP router, kubo from its own datastore) and the **same peer serving both keypairs**.
-Median of 7 runs:
+Benchmark (`scripts/bench-delegated-ipns.js` — run with the node test server up and after
+`npm run build`: `node scripts/bench-delegated-ipns.js`, iterations via `BENCH_IPNS_ITERATIONS`).
+It loads the same community record two ways, direct (load the minter name, single hop) vs delegated
+(load the anchor name, one extra hop), so the delta isolates the extra hop. Run on the local test
+setup with **no DHT** (helia resolves via the local HTTP router, kubo from its own datastore) and
+the **same peer serving both keypairs**. Median of 7 runs:
 
 | mechanism             | direct (1-hop) | delegated (2-hop) | delta   | ratio  |
 | --------------------- | -------------- | ----------------- | ------- | ------ |
