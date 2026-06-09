@@ -49,6 +49,9 @@ jobs:
               run: node test/run-test-config.js --environment node --per-test-logs ${{ runner.temp }}/per-test-logs test/challenges
             - name: Run node tests (local config)
               id: run_node_tests_local
+              # Step timeout below the 35-min job cap: on a Kubo MFS hang this fails the STEP (not the job)
+              # while the backgrounded Kubo daemons are still alive, so the goroutine-dump step below can reach them.
+              timeout-minutes: 28
               run: DEBUG="pkc*" PKC_CONFIGS=local-kubo-rpc node test/run-test-config.js --parallel --environment node --log-prefix test_node_local --per-test-logs "${{ runner.temp }}/per-test-logs" test/node src/rpc/test/node src/rpc/test/node-and-browser
               shell: bash
             # Capture Kubo daemon goroutine dumps FIRST on failure/cancel, while the daemon is still alive.
@@ -104,6 +107,8 @@ jobs:
                   path: |
                       .test-ipfs-*/kubo_*.log
                       kubo-debug
+                  # .test-ipfs-* are dot-prefixed (hidden); upload-artifact skips hidden paths without this.
+                  include-hidden-files: true
                   if-no-files-found: ignore
             - run: cat test_server.log
               if: ${{ always() && job.status != 'success' }}
