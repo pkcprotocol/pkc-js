@@ -39,7 +39,9 @@ import type {
     RpcFetchCidResult,
     ExportCommunityRpcParam,
     CancelExportRpcParam,
-    RpcExportCommunityResult
+    RpcExportCommunityResult,
+    ExportCommunityModLogsRpcParam,
+    RpcExportCommunityModLogsResult
 } from "./types.js";
 import {
     parseRpcCommunityIdentifierParam,
@@ -55,7 +57,9 @@ import {
     parseRpcSubscriptionIdResult,
     parseRpcExportCommunityParam,
     parseRpcCancelExportParam,
-    parseRpcExportCommunityResult
+    parseRpcExportCommunityResult,
+    parseRpcExportCommunityModLogsParam,
+    parseRpcExportCommunityModLogsResult
 } from "./rpc-schema-util.js";
 
 const log = Logger("pkc-js:PKCRpcClient");
@@ -498,6 +502,11 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     async exportCommunity(args: ExportCommunityRpcParam): Promise<RpcExportCommunityResult> {
         const parsedArgs = parseRpcExportCommunityParam(args);
         return parseRpcExportCommunityResult(await this._webSocketClient.call("exportCommunity", [parsedArgs]));
+    }
+
+    async exportCommunityModLogs(args: ExportCommunityModLogsRpcParam): Promise<RpcExportCommunityModLogsResult> {
+        const parsedArgs = parseRpcExportCommunityModLogsParam(args);
+        return parseRpcExportCommunityModLogsResult(await this._webSocketClient.call("exportCommunityModLogs", [parsedArgs]));
     }
 
     async exportsSubscribe(args: CommunityIdentifierRpcParam): Promise<RpcSubscriptionIdResult> {

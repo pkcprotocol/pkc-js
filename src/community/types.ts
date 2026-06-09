@@ -24,6 +24,7 @@ import {
     CommunitySignedPropertyNames,
     CommunityRoleNames,
     ExportCommunityUserOptionsSchema,
+    ExportCommunityModLogsOptionsSchema,
     CommunityExportRecordSchema
 } from "./schema.js";
 import { RpcLocalCommunity } from "./rpc-local-community.js";
@@ -236,6 +237,7 @@ export interface CommunityEvents {
 }
 
 export type ExportCommunityUserOptions = z.infer<typeof ExportCommunityUserOptionsSchema>;
+export type ExportCommunityModLogsOptions = z.infer<typeof ExportCommunityModLogsOptionsSchema>;
 export type CommunityExportRecord = z.infer<typeof CommunityExportRecordSchema>;
 
 // Create a helper type to extract the parameters of each event

@@ -29,8 +29,10 @@ import type {
     CommunityEventArgs,
     CommunityEvents,
     CommunityExportRecord,
-    ExportCommunityUserOptions
+    ExportCommunityUserOptions,
+    ExportCommunityModLogsOptions
 } from "./types.js";
+import type { CommentModerationTableRow } from "../publications/comment-moderation/types.js";
 import * as remeda from "remeda";
 import { ModQueuePages, PostsPages } from "../pages/pages.js";
 import type { PostsPagesTypeIpfs } from "../pages/types.js";
@@ -820,6 +822,13 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     }
 
     async export(options?: ExportCommunityUserOptions): Promise<{ exportId: string }> {
+        throw new PKCError("ERR_COMMUNITY_NOT_LOCAL", { address: this.address });
+    }
+
+    // Read the community moderation log (commentModeration records). Overridden by LocalCommunity
+    // (direct DB read) and RpcLocalCommunity (RPC call). The base rejects because a read-only
+    // RemoteCommunity has no community DB to read mod logs from.
+    async exportCommunityModLogs(opts?: ExportCommunityModLogsOptions): Promise<{ moderations: CommentModerationTableRow[] }> {
         throw new PKCError("ERR_COMMUNITY_NOT_LOCAL", { address: this.address });
     }
 }

@@ -349,6 +349,16 @@ export const ExportCommunityUserOptionsSchema = z
     })
     .strict();
 
+// community.exportCommunityModLogs()
+
+export const ExportCommunityModLogsOptionsSchema = z.object({
+    startTimestamp: z.number().int().optional(),
+    endTimestamp: z.number().int().optional(),
+    commentCid: z.string().min(1).optional(),
+    limit: z.number().int().nonnegative().optional(),
+    order: z.enum(["ASC", "DESC"]).optional() // default "DESC" (newest first), ordered by timestamp
+});
+
 export const CommunityExportRecordErrorSchema = z
     .object({
         code: z.string(),

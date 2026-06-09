@@ -80,7 +80,8 @@ import {
     loadAndPruneExportsFromKeyv
 } from "./local-community/export.js";
 import type { InternalExportHandle } from "./local-community/export.js";
-import type { CommunityExportRecord, ExportCommunityUserOptions } from "../../../community/types.js";
+import type { CommunityExportRecord, ExportCommunityUserOptions, ExportCommunityModLogsOptions } from "../../../community/types.js";
+import type { CommentModerationTableRow } from "../../../publications/comment-moderation/types.js";
 
 // This is a sub we have locally in our pkc datapath, in a NodeJS environment
 export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalCommunityParsedOptions {
@@ -393,6 +394,17 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
     override async export(options?: ExportCommunityUserOptions): Promise<{ exportId: string }> {
         return exportCommunityEmbedded(this, options);
+    }
+
+    override async exportCommunityModLogs(opts?: ExportCommunityModLogsOptions): Promise<{ moderations: CommentModerationTableRow[] }> {
+        await this.initDbHandlerIfNeeded(); // create the handler if missing (never-started community)
+        await this._dbHandler.initDbIfNeeded(); // re-open the connection if a prior stop() closed it
+        try {
+            return { moderations: this._dbHandler.queryAllCommentModerations(opts) };
+        } finally {
+            // Don't leave a DB connection open on a community that isn't running.
+            if (this.state === "stopped") this._dbHandler.destoryConnection();
+        }
     }
 
     async _cancelExport(exportId: string): Promise<void> {
