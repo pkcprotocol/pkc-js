@@ -3,7 +3,13 @@ import * as remeda from "remeda";
 import * as cborg from "cborg";
 import { sha256 } from "js-sha256";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
-import { getIpnsRecordInLocalKuboNode, removeBlocksFromKuboNode, retryKuboIpfsAddAndProvide, timestamp } from "../../../../util.js";
+import {
+    getIpnsRecordInLocalKuboNode,
+    removeBlocksFromKuboNode,
+    retryKuboIpfsAddAndProvide,
+    statMfsPathSafely,
+    timestamp
+} from "../../../../util.js";
 import env from "../../../../version.js";
 import { PKCError } from "../../../../pkc-error.js";
 import { STORAGE_KEYS } from "../../../../constants.js";
@@ -22,10 +28,11 @@ import { providePubsubTopicRoutingCidsIfNeeded } from "./pubsub.js";
 
 export async function calculateNewPostUpdates(community: LocalCommunity): Promise<CommunityIpfsType["postUpdates"]> {
     const postUpdates: CommunityIpfsType["postUpdates"] = {};
-    const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient()._client;
+    const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient();
     for (const timeBucket of community._postUpdatesBuckets) {
         try {
-            const statRes = await kuboRpcClient.files.stat(`/${community.address}/postUpdates/${timeBucket}`);
+            // Retries on transient Kubo connection errors so a daemon blip doesn't silently drop a bucket.
+            const statRes = await statMfsPathSafely({ kuboRpcClient, path: `/${community.address}/postUpdates/${timeBucket}` });
             if (statRes.blocks !== 0) postUpdates[String(timeBucket)] = String(statRes.cid);
         } catch {}
     }

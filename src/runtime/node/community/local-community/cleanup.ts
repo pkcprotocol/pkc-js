@@ -1,6 +1,6 @@
 import pLimit from "p-limit";
 import Logger from "../../../../logger.js";
-import { genToArray, removeMfsFilesSafely } from "../../../../util.js";
+import { genToArray, removeMfsFilesSafely, statMfsPathSafely } from "../../../../util.js";
 import type { DbRepliesSortEntry } from "../../../../publications/comment/types.js";
 import type { PurgedCommentTableRows } from "../db-handler-types.js";
 import type { LocalCommunity } from "../local-community.js";
@@ -108,7 +108,8 @@ export async function repinCommentUpdateIfNeeded(community: LocalCommunity) {
     // Most of the time we run this function, the comment updates are already written to ipfs rpeo
     const kuboRpc = community._clientsManager.getDefaultKuboRpcClient();
     try {
-        await kuboRpc._client.files.stat(`/${community.address}`, { hash: true });
+        // Retries on transient Kubo connection errors so a daemon blip doesn't fail community.start().
+        await statMfsPathSafely({ kuboRpcClient: kuboRpc, path: `/${community.address}`, statOptions: { hash: true }, log });
         return; // if the directory of this community exists, we assume all the comment updates are there
     } catch (e) {
         if (!(<Error>e).message.includes("file does not exist")) throw e;

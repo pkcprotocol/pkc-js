@@ -16,6 +16,8 @@ import type {
     BlockPutOptions,
     BlockRmOptions,
     FilesRmOptions,
+    FilesStatOptions,
+    FilesStatResult,
     FilesWriteOptions,
     PinAddOptions,
     RoutingProvideOptions
@@ -972,6 +974,51 @@ export async function removeMfsFilesSafely({
 
                 if (operation.retry(error as Error)) return;
 
+                reject(operation.mainError() || error);
+            }
+        });
+    });
+}
+
+// Wrap an MFS `files.stat` call with retry on transient Kubo RPC connection failures
+// (e.g. `fetch failed` / ETIMEDOUT / ECONNREFUSED while the daemon is briefly restarting).
+// Without this, a momentary blip during community.start() throws straight out and fails the start.
+// A `"file does not exist"` rejection is the legitimate "MFS path absent" signal, so it is rethrown
+// immediately without retrying — callers branch on it.
+export async function statMfsPathSafely({
+    kuboRpcClient,
+    path,
+    statOptions,
+    log,
+    inputNumOfRetries
+}: {
+    kuboRpcClient: PKC["clients"]["kuboRpcClients"][string];
+    path: string;
+    statOptions?: FilesStatOptions;
+    log?: Logger;
+    inputNumOfRetries?: number;
+}): Promise<FilesStatResult> {
+    const logger = log ?? Logger("pkc-js:util:statMfsPathSafely");
+    const numOfRetries = inputNumOfRetries ?? 3;
+
+    return new Promise<FilesStatResult>((resolve, reject) => {
+        const operation = retry.operation({
+            retries: numOfRetries,
+            factor: 2,
+            minTimeout: 1000
+        });
+
+        operation.attempt(async (currentAttempt) => {
+            try {
+                resolve(await kuboRpcClient._client.files.stat(path, statOptions));
+            } catch (error) {
+                // "file does not exist" is the expected "MFS path absent" signal — don't retry it.
+                if ((error as Error).message?.includes("file does not exist")) {
+                    reject(error);
+                    return;
+                }
+                logger.error(`Failed attempt ${currentAttempt}/${numOfRetries + 1} to stat MFS path ${path}:`, error);
+                if (operation.retry(error as Error)) return;
                 reject(operation.mainError() || error);
             }
         });

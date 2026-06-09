@@ -146,6 +146,53 @@ describe("cleanup: purgeDisapprovedCommentsOlderThan", () => {
     });
 });
 
+describe("cleanup: repinCommentUpdateIfNeeded", () => {
+    // Regression: a transient Kubo RPC connection blip (daemon briefly restarting) used to
+    // throw straight out of community.start(). The files.stat call must now retry on connection
+    // errors (`fetch failed` / ETIMEDOUT / ECONNREFUSED) instead of failing start().
+    it("retries files.stat on a transient Kubo connection error and still succeeds", async () => {
+        const connectionErr = new TypeError("fetch failed"); // mimics undici ETIMEDOUT/ECONNREFUSED wrapper
+        const statSpy = vi.fn().mockRejectedValueOnce(connectionErr).mockResolvedValueOnce({ cid: "QmCommunityDir", blocks: 1 });
+        const forceUpdateOnAllComments = vi.fn();
+        const community = {
+            address: "community.bso",
+            lastCommentCid: "QmLastComment",
+            _clientsManager: { getDefaultKuboRpcClient: () => ({ _client: { files: { stat: statSpy } } }) },
+            _dbHandler: { forceUpdateOnAllComments }
+        } as unknown as LocalCommunity;
+
+        vi.useFakeTimers();
+        try {
+            const promise = repinCommentUpdateIfNeeded(community);
+            await vi.advanceTimersByTimeAsync(5000); // let the retry backoff fire
+            await promise;
+        } finally {
+            vi.useRealTimers();
+        }
+
+        // stat was retried (2 calls), the dir was found on the 2nd attempt, so no forced re-publish.
+        expect(statSpy).toHaveBeenCalledTimes(2);
+        expect(forceUpdateOnAllComments).not.toHaveBeenCalled();
+    });
+
+    it("does NOT retry a 'file does not exist' stat (it is the legitimate empty-dir signal)", async () => {
+        const notExistErr = new Error("file does not exist");
+        const statSpy = vi.fn().mockRejectedValue(notExistErr);
+        const forceUpdateOnAllComments = vi.fn();
+        const community = {
+            address: "community.bso",
+            lastCommentCid: undefined, // no comment updates -> early return without forcing republish
+            _clientsManager: { getDefaultKuboRpcClient: () => ({ _client: { files: { stat: statSpy } } }) },
+            _dbHandler: { forceUpdateOnAllComments }
+        } as unknown as LocalCommunity;
+
+        await repinCommentUpdateIfNeeded(community);
+
+        expect(statSpy).toHaveBeenCalledTimes(1); // not retried
+        expect(forceUpdateOnAllComments).not.toHaveBeenCalled();
+    });
+});
+
 describe("cleanup: cleanUpIpfsRepoRarely", () => {
     it("skips GC when not forced and random gate doesn't fire", async () => {
         const getDefaultKuboRpcClient = vi.fn();
