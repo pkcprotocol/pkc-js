@@ -45,6 +45,12 @@ State types are defined in `src/community/types.ts`.
 ### CommunityUpdatingState (during `update()`)
 `"stopped"` → `"resolving-name"` → `"fetching-ipns"` → `"fetching-ipfs"` → `"succeeded"` / `"failed"` → `"waiting-retry"`
 
+During `"fetching-ipns"` the IPNS name may resolve through a **delegated chain**
+(`/ipns/anchor` → `/ipns/minter` → `/ipfs/cid`). The resolved chain is exposed as
+`RemoteCommunity.ipnsHops`; identity stays the anchor (`ipnsHops[0]`) while the content is
+verified against the terminal/minter name (`ipnsHops.at(-1)`). See
+[delegated-ipns.md](delegated-ipns.md).
+
 ### CommunityStartedState (during `start()`, `LocalCommunity` only)
 `"stopped"` → `"publishing-ipns"` → `"succeeded"` / `"failed"`
 

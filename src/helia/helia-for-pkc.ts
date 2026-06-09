@@ -1,5 +1,7 @@
 import { createHelia, libp2pDefaults } from "helia";
 import { ipns } from "@helia/ipns";
+import { unmarshalIPNSRecord, multihashToIPNSRoutingKey } from "ipns";
+import { ipnsValidator } from "ipns/validator";
 import { gossipsub } from "@libp2p/gossipsub";
 import { identify } from "@libp2p/identify";
 import extraLibp2pTransports from "../runtime/node/libp2p-extra-transports.js";
@@ -182,8 +184,9 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     // Create an async generator function
                     throwIfHeliaIsStoppingOrStopped();
                     async function* generator() {
-                        const ipnsNameAsPeerId = typeof ipnsName === "string" ? peerIdFromString(ipnsName) : ipnsName;
-                        log.trace("Resolving ipns name", ipnsName, "with options", options);
+                        const currentName = typeof ipnsName === "string" ? ipnsName : (ipnsName as { toString(): string }).toString();
+                        const ipnsNameAsPeerId = peerIdFromString(currentName);
+                        log.trace("Resolving ipns name", currentName, "with options", options);
 
                         // @helia/ipns 9.2.x pubsub router throws NotFoundError if zero subscribers exist
                         // for the topic at .get() time. Await peer warmup so the resolver sees a populated
@@ -214,25 +217,74 @@ export async function createLibp2pJsClientOrUseExistingOne(
                             }
                         }
 
-                        try {
-                            const result = await ipnsNameResolver.resolve(ipnsNameAsPeerId.toMultihash(), options);
-                            yield result.record.value;
-                            return;
-                        } catch (err) {
-                            const error = <Error>err;
-                            if (error.name === "NotFoundError" || error.name === "RecordNotFoundError")
-                                throw new PKCError("ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED", {
-                                    heliaError: err,
-                                    ipnsName,
-                                    ipnsPubsubTopic,
-                                    ipnsResolveOptions: options,
-                                    warmupOutcome,
-                                    subscribersAtResolveTime: helia.libp2p.services.pubsub.getSubscribers(ipnsPubsubTopic).length,
-                                    httpRouters: pkcOptions.httpRoutersOptions,
-                                    ...getHeliaDebugContext(helia)
-                                });
-                            else throw err;
+                        // We resolve a SINGLE hop here (the immediate value of this name's record),
+                        // rather than @helia/ipns' resolve() which recurses the whole chain. Recursion
+                        // is driven by the caller (resolveIpnsToCidP2P), one hop per call, so that each
+                        // IPNS name in a delegated chain gets its own pubsub topic warmed before its
+                        // record is fetched — @helia's internal recursion would otherwise try to fetch a
+                        // deeper hop's record before its topic has any subscribers and throw NotFoundError.
+                        // See docs/protocol/delegated-ipns.md.
+                        //
+                        // Why call routers directly instead of ipnsNameResolver.resolve():
+                        // - @helia/ipns 9.2.x has no public single-hop / non-recursive resolve API.
+                        //   resolve() always recurses until it reaches an /ipfs/ value, and its single-hop
+                        //   primitive (#findIpnsRecord) is private — so the router layer is the only public
+                        //   way to fetch exactly one record.
+                        // - resolve()'s ResolveProgressEvents type declares ipns:resolve:success (carrying
+                        //   the per-hop IPNSRecord), but those events are never emitted in 9.2.x — only
+                        //   routing-level events fire, none carrying a record value or next-hop name. So an
+                        //   onProgress listener cannot reconstruct the hop chain either. Empirically pinned
+                        //   in test/node/community/helia-ipns-resolve-equivalence.unit.test.ts.
+                        // Upstream main has since reworked resolve() into an async generator that yields each
+                        // hop's IPNSRecord (ipfs/helia#1041) — that would replace this manual walk and even let
+                        // us warm each pubsub topic between yields — but it's unreleased; npm latest 9.2.1 still
+                        // collapses the chain to the terminal CID. So the per-hop walk stays for now.
+                        // TODO: after the @helia/ipns upgrade, re-check this — once the generator resolve() is
+                        // released, replace this router.get + ipnsValidator loop with
+                        // `for await (const { record } of ipnsNameResolver.resolve(...))`.
+                        // This does NOT bypass an active cache/TTL: all cache-read + TTL logic lives in the
+                        // resolver's #findIpnsRecord and is gated on `nocache !== true`, but pkc always
+                        // resolves IPNS with nocache:true (see resolveIpnsToCidP2P in base-client-manager),
+                        // so that path is inert — the old resolve()-based code skipped it too. IPNS here is
+                        // pubsub-only (HTTP routers have getIPNS disabled in getDelegatedRoutingFields), and
+                        // the pubsub router's get() never serves from cache; it always queries peers. Record
+                        // caching + ipnsSelector still happen inside the pubsub router's handleRecord
+                        // regardless of whether we go through resolve() or call router.get directly.
+                        const routingKey = multihashToIPNSRoutingKey(ipnsNameAsPeerId.toMultihash());
+                        let recordBytes: Uint8Array | undefined;
+                        const routerErrors: Error[] = [];
+                        for (const router of ipnsNameResolver.routers) {
+                            try {
+                                // validate: false then validate ourselves below — this mirrors exactly what
+                                // @helia/ipns' #findIpnsRecord does internally (router.get with validate:false
+                                // followed by ipnsValidator), so it is not a deviation from the package.
+                                const got = await router.get(routingKey, { ...options, validate: false });
+                                if (got) {
+                                    recordBytes = got;
+                                    break;
+                                }
+                            } catch (err) {
+                                routerErrors.push(err as Error);
+                            }
                         }
+
+                        if (!recordBytes)
+                            throw new PKCError("ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED", {
+                                ipnsName,
+                                currentName,
+                                ipnsPubsubTopic,
+                                ipnsResolveOptions: options,
+                                warmupOutcome,
+                                routerErrors,
+                                subscribersAtResolveTime: helia.libp2p.services.pubsub.getSubscribers(ipnsPubsubTopic).length,
+                                httpRouters: pkcOptions.httpRoutersOptions,
+                                ...getHeliaDebugContext(helia)
+                            });
+
+                        // Validate the record's signature against its routing key before trusting its value.
+                        await ipnsValidator(routingKey, recordBytes);
+                        const record = unmarshalIPNSRecord(recordBytes);
+                        yield record.value;
                     }
 
                     return generator();

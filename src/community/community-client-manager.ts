@@ -1,5 +1,6 @@
 import retry, { RetryOperation } from "retry";
 import {
+    BaseClientsManager,
     OptionsToLoadFromGateway,
     PreResolveNameResolverOptions,
     PostResolveNameResolverSuccessOptions
@@ -11,16 +12,19 @@ import { NameResolverClient } from "../clients/name-resolver-client.js";
 import type { NameResolveCacheOptions } from "../schema.js";
 import { RemoteCommunity } from "./remote-community.js";
 import * as remeda from "remeda";
-import type { CommunityIpfsType, CommunityJson } from "./types.js";
+import type { CommunityIpfsType } from "./types.js";
 import { getCommunityNameFromWire } from "./community-wire.js";
 import { getPKCAddressFromPublicKeySync } from "../signer/util.js";
 import Logger from "../logger.js";
 
 import {
     areEquivalentCommunityAddresses,
+    fetchAndValidateIpnsRecordFromGateway,
     hideClassPrivateProps,
     ipnsNameToIpnsOverPubsubTopic,
     isAbortError,
+    isIpfsPath,
+    isIpnsPath,
     isStringDomain,
     pubsubTopicToDhtKey,
     throwIfAbortSignalAborted,
@@ -40,17 +44,7 @@ import {
 import { CID } from "kubo-rpc-client";
 import { getAuthorNameFromRuntime } from "../publications/publication-author.js";
 
-type CommunityGatewayFetch = {
-    [gatewayUrl: string]: {
-        abortController: AbortController;
-        promise: Promise<any>;
-        cid?: CommunityJson["updateCid"];
-        communityRecord?: CommunityIpfsType;
-        error?: PKCError;
-        timeoutId: any;
-        ttl?: number; // ttl in seconds of IPNS record
-    };
-};
+import { type CommunityGatewayFetch, selectWinningGatewayCommunity } from "./community-gateway-selection.js";
 
 export const MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS = 1024 * 1024; // 1mb
 
@@ -468,6 +462,9 @@ export class CommunityClientsManager extends PKCClientsManager {
             // even if we fail to load the IPNS record, so that pubsub can work correctly
             if (this._community.ipnsName !== ipnsName) {
                 this._community.ipnsName = ipnsName;
+                // Default to a single-hop chain; the resolution step below replaces this with the
+                // full chain ([anchor, ..., terminal]) once the IPNS record(s) are resolved.
+                this._community.ipnsHops = [ipnsName];
                 this._community.ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(ipnsName);
                 this._community.ipnsPubsubTopicRoutingCid = pubsubTopicToDhtKey(this._community.ipnsPubsubTopic);
             }
@@ -508,14 +505,18 @@ export class CommunityClientsManager extends PKCClientsManager {
             // Community records are verified within _fetchCommunityFromGateways
 
             if (subRes?.community) {
-                // we found a new record that is verified
-                // Compute address from wire record (old records have address, new records derive from name/publicKey)
-                const recordAddress = this._deriveAddressFromWireRecord(subRes.community);
-                this._pkc._memCaches.communityForPublishing.set(recordAddress, {
+                // we found a new record that is verified.
+                // Key the cache by the ANCHOR identity (domain or anchor IPNS name), not by the
+                // record's signature key — for a delegated community the content is signed by the
+                // terminal (minter) key, but the user-facing identity is the anchor. ipnsName here
+                // is the anchor (ipnsHops[0]). For a non-delegated community the anchor equals the
+                // signature-derived address, so this is unchanged.
+                const anchorIdentityAddress = subRes.community.name || ipnsName;
+                this._pkc._memCaches.communityForPublishing.set(anchorIdentityAddress, {
                     encryption: subRes.community.encryption,
                     pubsubTopic: subRes.community.pubsubTopic,
-                    address: recordAddress,
-                    publicKey: getPKCAddressFromPublicKeySync(subRes.community.signature.publicKey),
+                    address: anchorIdentityAddress,
+                    publicKey: ipnsName,
                     name: subRes.community.name
                 });
             }
@@ -529,11 +530,16 @@ export class CommunityClientsManager extends PKCClientsManager {
         if ("_helia" in kuboRpcOrHelia) {
             this.updateLibp2pJsClientState("fetching-ipns", kuboRpcOrHelia._libp2pJsClientsOptions.key);
         } else this.updateKuboRpcState("fetching-ipns", kuboRpcOrHelia.url);
-        const latestCommunityCid = await this.resolveIpnsToCidP2P(ipnsName, {
+        const { cid: latestCommunityCid, ipnsHops } = await this.resolveIpnsToCidP2P(ipnsName, {
             timeoutMs: this._pkc._timeouts["community-ipns"],
             abortSignal: this._community._getStopAbortSignal()
         });
-        log.trace(`Resolved community IPNS`, ipnsName, `to CID`, latestCommunityCid);
+        // ipnsHops[0] is the anchor (== ipnsName), ipnsHops.at(-1) is the terminal name whose
+        // record points at the CID, i.e. the key that signs the community content. For a
+        // non-delegated community the chain has a single element so terminal === anchor.
+        this._community.ipnsHops = ipnsHops;
+        const terminalIpnsName = ipnsHops[ipnsHops.length - 1];
+        log.trace(`Resolved community IPNS`, ipnsName, `to CID`, latestCommunityCid, `via hops`, ipnsHops);
         if (this._updateCidsAlreadyLoaded.has(latestCommunityCid)) {
             log.trace(
                 "Resolved community IPNS",
@@ -575,7 +581,12 @@ export class CommunityClientsManager extends PKCClientsManager {
                 parseJsonWithPKCErrorIfFails(rawCommunityJsonString)
             );
 
-            const errInRecord = await this._findErrorInCommunityRecord(communityIpfs, ipnsName, latestCommunityCid);
+            const errInRecord = await this._findErrorInCommunityRecord({
+                communityJson: communityIpfs,
+                anchorIpnsName: ipnsName,
+                terminalIpnsName,
+                cidOfCommunityIpns: latestCommunityCid
+            });
 
             if (errInRecord) throw errInRecord;
             return { community: communityIpfs, cid: latestCommunityCid };
@@ -643,7 +654,52 @@ export class CommunityClientsManager extends PKCClientsManager {
                     };
                     throw e;
                 }
-                const errorWithinRecord = await this._findErrorInCommunityRecord(communityIpfs, ipnsName, calculatedCommunityCidFromBody);
+                // Determine the terminal IPNS name (two-tier). For a normal (non-delegated) community
+                // the content is signed by the anchor key itself, so no chain walk is needed and the
+                // content signature alone secures the (untrusted) gateway response — Tier 1, a single
+                // plain GET. Only when the record is signed by a DIFFERENT key (the hallmark of
+                // delegation) do we escalate to Tier 2: independently follow & validate the IPNS record
+                // chain (anchor -> ... -> terminal) via the same untrusted gateway's ?format=ipns-record
+                // path, binding it to the anchor. A gateway cannot forge any hop's signature, so it
+                // cannot substitute a different community. See docs/protocol/delegated-ipns.md.
+                let terminalIpnsName = ipnsName;
+                let ipnsHops: string[] = [ipnsName];
+                const recordSignatureAddress = getPKCAddressFromPublicKeySync(communityIpfs.signature.publicKey);
+                if (!this._areEquivalentCommunityAddresses(recordSignatureAddress, ipnsName)) {
+                    const chain = await this._resolveIpnsChainViaGateway(gatewayUrl, ipnsName, abortController.signal);
+                    if (chain.terminalCidV0 !== calculatedCommunityCidFromBody)
+                        throw new PKCError("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID", {
+                            reason: "Terminal IPNS record CID does not match the community record served by the gateway",
+                            terminalCidFromChain: chain.terminalCidV0,
+                            calculatedCommunityCidFromBody,
+                            ipnsHops: chain.ipnsHops,
+                            ipnsName,
+                            gatewayUrl
+                        });
+                    ipnsHops = chain.ipnsHops;
+                    terminalIpnsName = chain.ipnsHops[chain.ipnsHops.length - 1];
+                    // The content must be signed by the terminal key the chain ends at.
+                    if (!this._areEquivalentCommunityAddresses(recordSignatureAddress, terminalIpnsName))
+                        throw new PKCError("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID", {
+                            reason: "Community record signature key does not match the terminal IPNS name of the chain",
+                            recordSignatureAddress,
+                            terminalIpnsName,
+                            ipnsHops,
+                            ipnsName,
+                            gatewayUrl
+                        });
+                }
+                // Keep the resolved hops attached to THIS gateway's result; the winner (and its
+                // matching hops) is chosen later in _findRecentCommunity. Mutating
+                // this._community.ipnsHops here would let a slower/losing gateway overwrite it.
+                gatewayFetches[gatewayUrl].ipnsHops = ipnsHops;
+
+                const errorWithinRecord = await this._findErrorInCommunityRecord({
+                    communityJson: communityIpfs,
+                    anchorIpnsName: ipnsName,
+                    terminalIpnsName,
+                    cidOfCommunityIpns: calculatedCommunityCidFromBody
+                });
                 if (errorWithinRecord) {
                     delete errorWithinRecord["stack"];
                     if (errorWithinRecord.code === "ERR_COMMUNITY_SIGNATURE_IS_INVALID") {
@@ -747,37 +803,23 @@ export class CommunityClientsManager extends PKCClientsManager {
         const _findRecentCommunity = (): { community: CommunityIpfsType; cid: string } | undefined => {
             // Try to find a very recent community
             // If not then go with the most recent community record after fetching from 3 gateways
-            const gatewaysWithCommunity = remeda.keys
-                .strict(gatewayFetches)
-                .filter((gatewayUrl) => gatewayFetches[gatewayUrl].communityRecord);
-            if (gatewaysWithCommunity.length === 0) return undefined;
+            const winner = selectWinningGatewayCommunity({
+                gatewayFetches,
+                currentUpdatedAt: this._community.raw.communityIpfs?.updatedAt || 0,
+                totalGateways: gatewaysSorted.length,
+                fallbackIpnsName: ipnsName
+            });
+            if (!winner) return undefined;
 
-            const currentUpdatedAt = this._community.raw.communityIpfs?.updatedAt || 0;
-
-            const totalGateways = gatewaysSorted.length;
-
-            const gatewaysWithError = remeda.keys.strict(gatewayFetches).filter((gatewayUrl) => gatewayFetches[gatewayUrl].error);
-
-            const bestGatewayUrl = <string>(
-                remeda.maxBy(gatewaysWithCommunity, (gatewayUrl) => gatewayFetches[gatewayUrl].communityRecord!.updatedAt)
+            log(
+                `Gateway (${winner.bestGatewayUrl}) was able to find a very recent community (${this._deriveAddressFromWireRecord(winner.community)}) whose IPNS is (${ipnsName}).  The record has updatedAt (${winner.community.updatedAt}) that's ${winner.recordAgeSeconds}s old with a TTL of ${gatewayFetches[winner.bestGatewayUrl].ttl} seconds`
             );
-            const bestGatewayRecordAge = timestamp() - gatewayFetches[bestGatewayUrl].communityRecord!.updatedAt; // how old is the record, relative to now, in seconds
-
-            if (gatewayFetches[bestGatewayUrl].communityRecord!.updatedAt > currentUpdatedAt) {
-                const bestCommunityRecord = gatewayFetches[bestGatewayUrl].communityRecord!;
-                log(
-                    `Gateway (${bestGatewayUrl}) was able to find a very recent community (${this._deriveAddressFromWireRecord(bestCommunityRecord)}) whose IPNS is (${ipnsName}).  The record has updatedAt (${bestCommunityRecord.updatedAt}) that's ${bestGatewayRecordAge}s old with a TTL of ${gatewayFetches[bestGatewayUrl].ttl} seconds`
-                );
-                return { community: bestCommunityRecord, cid: gatewayFetches[bestGatewayUrl].cid! };
-            }
-
-            // We weren't able to find any new community records
-            if (gatewaysWithError.length + gatewaysWithCommunity.length === totalGateways) return undefined;
+            // Bind ipnsHops to the gateway result we're actually keeping.
+            this._community.ipnsHops = winner.ipnsHops;
+            return { community: winner.community, cid: winner.cid };
         };
 
-        const promisesToIterate = <Promise<{ resText: string; res: Response } | { error: PKCError }>[]>(
-            Object.values(gatewayFetches).map((gatewayFetch) => gatewayFetch.promise)
-        );
+        const promisesToIterate = Object.values(gatewayFetches).map((gatewayFetch) => gatewayFetch.promise);
 
         let suitableCommunity: { community: CommunityIpfsType; cid: string };
         try {
@@ -831,11 +873,81 @@ export class CommunityClientsManager extends PKCClientsManager {
         return suitableCommunity;
     }
 
-    private async _findErrorInCommunityRecord(
-        communityJson: CommunityIpfsType,
-        ipnsNameOfCommunity: string,
-        cidOfCommunityIpns: string
-    ): Promise<PKCError | undefined> {
+    // Walks a (potentially delegated) IPNS chain via an UNTRUSTED gateway, validating each
+    // record's signature against its name (?format=ipns-record). Returns the ordered chain of
+    // IPNS names and the terminal /ipfs/ CID. Used only when a gateway-served community record
+    // is signed by a key other than the anchor (i.e. a possible delegated chain) — for the
+    // common non-delegated case the content signature against the anchor is sufficient and no
+    // extra gateway round-trips are made. Mirrors the P2P resolver's hop cap
+    // (BaseClientsManager.MAX_IPNS_HOPS): a chain longer than a single anchor -> minter hop is
+    // rejected with ERR_IPNS_MAX_HOPS_EXCEEDED, consistent with the kubo RPC / helia paths.
+    // See docs/protocol/delegated-ipns.md.
+    private async _resolveIpnsChainViaGateway(
+        gatewayUrl: string,
+        anchorIpnsName: string,
+        abortSignal?: AbortSignal
+    ): Promise<{ ipnsHops: string[]; terminalCidV0: string }> {
+        const ipnsHops: string[] = [anchorIpnsName];
+        let currentName = anchorIpnsName;
+        // The loop exits only via a return (we hit a terminal /ipfs/ value) or a throw (unsupported
+        // value, or too many hops).
+        while (true) {
+            // Label the hop we're about to validate so any failure (forged/tampered record, bad value,
+            // bad CID) names WHICH record was at fault. hop 0 is the anchor; with MAX_IPNS_HOPS === 1
+            // the only other hop ever fetched is the minter (the cap below throws before a 3rd hop is
+            // fetched), so role is unambiguous: "anchor" or "minter". See docs/protocol/delegated-ipns.md.
+            const hopIndex = ipnsHops.length - 1;
+            const hopRole = hopIndex === 0 ? "anchor" : "minter";
+            const recordContext = { hopRole, hopIndex, anchorIpnsName };
+            const record = await fetchAndValidateIpnsRecordFromGateway(gatewayUrl, currentName, { abortSignal, recordContext });
+            const value = String(record.value);
+            if (isIpnsPath(value)) {
+                currentName = value.split("/")[2];
+                ipnsHops.push(currentName);
+                // ipnsHops.length - 1 is the number of /ipns/ -> /ipns/ hops followed so far.
+                if (ipnsHops.length - 1 > BaseClientsManager.MAX_IPNS_HOPS)
+                    throw new PKCError("ERR_IPNS_MAX_HOPS_EXCEEDED", {
+                        ...recordContext,
+                        ipnsHops,
+                        maxHops: BaseClientsManager.MAX_IPNS_HOPS,
+                        via: "gateway"
+                    });
+                continue;
+            }
+            if (isIpfsPath(value)) {
+                let terminalCidV0: string;
+                try {
+                    terminalCidV0 = CID.parse(value.split("/")[2]).toV0().toString();
+                } catch (e) {
+                    throw new PKCError("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID", {
+                        reason: "Terminal IPNS record value is not a valid CID",
+                        ...recordContext,
+                        terminalValue: value,
+                        ipnsHops
+                    });
+                }
+                return { ipnsHops, terminalCidV0 };
+            }
+            throw new PKCError("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID", {
+                reason: "IPNS record value is neither an /ipfs/ nor an /ipns/ path",
+                ...recordContext,
+                unsupportedValue: value,
+                ipnsHops
+            });
+        }
+    }
+
+    private async _findErrorInCommunityRecord({
+        communityJson,
+        anchorIpnsName,
+        terminalIpnsName,
+        cidOfCommunityIpns
+    }: {
+        communityJson: CommunityIpfsType;
+        anchorIpnsName: string;
+        terminalIpnsName: string;
+        cidOfCommunityIpns: string;
+    }): Promise<PKCError | undefined> {
         const communityInstanceAddress = this._getCommunityAddressFromInstance();
         const recordAddress = this._deriveAddressFromWireRecord(communityJson);
         const addressMatchesInstance = this._areEquivalentCommunityAddresses(recordAddress, communityInstanceAddress);
@@ -844,19 +956,38 @@ export class CommunityClientsManager extends PKCClientsManager {
         const addressMatchesPublicKey = this._community.publicKey
             ? this._areEquivalentCommunityAddresses(recordAddress, this._community.publicKey)
             : false;
-        // Accept when user loaded by raw IPNS key and the record's signature key matches.
+        // Accept when user loaded by raw IPNS key and the record's signature key matches the
+        // TERMINAL name of the resolved chain. For a non-delegated community terminal === anchor,
+        // so this is the original behaviour. For a delegated community the content is signed by the
+        // terminal (minter) key, and the anchor -> terminal binding is guaranteed by the
+        // cryptographically-verified IPNS record chain (see docs/protocol/delegated-ipns.md).
         // Handles: {address: "12D3Koo..."} loads record with name: "plebbit.bso".
-        // NOT applied for domain addresses (Scenario C stays rejected).
+        // NOT applied for domain addresses (Scenario C stays rejected — a domain load must match
+        // the record's name field, not merely its signature key).
         const instanceAddressIsDomain = isStringDomain(communityInstanceAddress);
-        const signatureKeyMatchesIpnsName = !instanceAddressIsDomain
-            ? this._areEquivalentCommunityAddresses(getPKCAddressFromPublicKeySync(communityJson.signature.publicKey), ipnsNameOfCommunity)
+        const signatureKeyMatchesTerminal = !instanceAddressIsDomain
+            ? this._areEquivalentCommunityAddresses(getPKCAddressFromPublicKeySync(communityJson.signature.publicKey), terminalIpnsName)
             : false;
-        if (!addressMatchesInstance && !addressMatchesPublicKey && !signatureKeyMatchesIpnsName) {
+        if (!addressMatchesInstance && !addressMatchesPublicKey && !signatureKeyMatchesTerminal) {
             // Did the gateway supply us with a different community's ipns
 
             const error = new PKCError("ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED", {
+                // The record's signer matches none of the identities we accept: the address we loaded,
+                // the community publicKey (the anchor), or the terminal/minter of the resolved IPNS
+                // chain. Either a different community's record was served, or a delegated chain's content
+                // is signed by an unexpected key (anchor -> terminal binding broken). The booleans below
+                // say which checks failed. For a delegated load the role that should have matched is the
+                // "minter" (terminalIpnsName). See docs/protocol/delegated-ipns.md.
+                reason: "Community record signer does not match the loaded address, the community publicKey (anchor), or the terminal (minter) IPNS name of the resolved chain",
+                recordSignerAddress: recordAddress,
+                expectedAnchorOrInstance: communityInstanceAddress,
+                communityPublicKey: this._community.publicKey,
+                expectedTerminalMinter: terminalIpnsName,
+                matchChecks: { addressMatchesInstance, addressMatchesPublicKey, signatureKeyMatchesTerminal },
+                isDelegatedChain: anchorIpnsName !== terminalIpnsName,
                 addressFromCommunityInstance: communityInstanceAddress,
-                ipnsName: ipnsNameOfCommunity,
+                ipnsName: anchorIpnsName,
+                terminalIpnsName,
                 addressFromGateway: recordAddress,
                 communityIpnsFromGateway: communityJson,
                 ipnsPubsubTopic: this._community.ipnsPubsubTopic,
@@ -865,9 +996,12 @@ export class CommunityClientsManager extends PKCClientsManager {
             });
             return error;
         }
+        // Verify the content signature against the TERMINAL name (the minter key in a delegated
+        // chain, or the anchor itself when not delegated). verifyCommunity hard-checks that
+        // communityIpnsName matches signature.publicKey, so it must receive the terminal name.
         const verificationOpts = {
             community: communityJson,
-            communityIpnsName: ipnsNameOfCommunity,
+            communityIpnsName: terminalIpnsName,
             resolveAuthorNames: this._pkc.resolveAuthorNames,
             clientsManager: this,
             validatePages: this._pkc.validatePages,

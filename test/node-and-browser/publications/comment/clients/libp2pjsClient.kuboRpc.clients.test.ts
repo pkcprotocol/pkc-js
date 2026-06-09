@@ -196,7 +196,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
             const updatingSubInstance = customPKC._updatingCommunities[community.address];
 
-            updatingSubInstance._clientsManager.resolveIpnsToCidP2P = async () => community.updateCid!; // stop it from loading new IPNS
+            updatingSubInstance._clientsManager.resolveIpnsToCidP2P = async () => ({
+                cid: community.updateCid!,
+                ipnsHops: [community.address]
+            }); // stop it from loading new IPNS
 
             const mockPost = await customPKC.createComment({ cid: community.posts.pages.hot.comments[0].cid });
 

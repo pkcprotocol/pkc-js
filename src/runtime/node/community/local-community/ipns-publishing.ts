@@ -60,7 +60,7 @@ export async function resolveIpnsAndLogIfPotentialProblematicSequence(community:
     if (!community.signer.ipnsKeyName) throw Error("IPNS key name is not defined");
     if (!community.updateCid) return;
     try {
-        const ipnsCid = await community._clientsManager.resolveIpnsToCidP2P(community.signer.ipnsKeyName, { timeoutMs: 120000 });
+        const { cid: ipnsCid } = await community._clientsManager.resolveIpnsToCidP2P(community.signer.ipnsKeyName, { timeoutMs: 120000 });
         log.trace("Resolved community", community.address, "IPNS key", community.signer.ipnsKeyName, "to", ipnsCid);
 
         if (ipnsCid && community.updateCid && ipnsCid !== community.updateCid) {

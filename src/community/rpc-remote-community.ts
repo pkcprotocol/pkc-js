@@ -88,6 +88,12 @@ export class RpcRemoteCommunity extends RemoteCommunity {
             return;
         }
 
+        // Apply the resolved IPNS chain BEFORE initializing the community record. For a delegated
+        // community the content is signed by the terminal (minter) key, so publicKey/address must be
+        // derived from ipnsHops[0] (the anchor) inside initCommunityIpfsPropsNoMerge. Merging ipnsHops
+        // afterwards (via deepMergeRuntimeFields) would be too late — publicKey would already have been
+        // derived from the minter signature and address is immutable once set. See docs/protocol/delegated-ipns.md.
+        if (Array.isArray(updateRecord.runtimeFields.ipnsHops)) this._ipnsHops = updateRecord.runtimeFields.ipnsHops;
         this.initCommunityIpfsPropsNoMerge(updateRecord.community!);
         this.updateCid = updateRecord.runtimeFields.updateCid!;
         this._setUpdatingStateNoEmission(updateRecord.runtimeFields.updatingState || "succeeded");
@@ -112,15 +118,19 @@ export class RpcRemoteCommunity extends RemoteCommunity {
             updatingstatechange: (updatingState) => this._setUpdatingStateWithEventEmissionIfNewState.bind(this)(updatingState),
             update: (updatingCommunity) => {
                 const keyChanged = updatingCommunity.publicKey && updatingCommunity.publicKey !== this.publicKey;
+                const nameResolvedBeforeMirror = this.nameResolved;
                 if (!updatingCommunity.raw.communityIpfs || !updatingCommunity.updateCid) {
                     if (updatingCommunity.publicKey) this._clearDataForKeyMigration(updatingCommunity.publicKey);
                 } else {
+                    // Mirror the resolved IPNS chain before initializing the record so publicKey/address
+                    // anchor to ipnsHops[0] rather than the minter signature. See docs/protocol/delegated-ipns.md.
+                    if (Array.isArray(updatingCommunity.ipnsHops)) this._ipnsHops = updatingCommunity.ipnsHops;
                     this.initCommunityIpfsPropsNoMerge(updatingCommunity.raw.communityIpfs);
                     this.updateCid = updatingCommunity.updateCid;
                     if (updatingCommunity.raw.runtimeFieldsFromRpc)
                         deepMergeRuntimeFields(this, updatingCommunity.raw.runtimeFieldsFromRpc);
                 }
-                if (typeof updatingCommunity.nameResolved === "boolean") this.nameResolved = updatingCommunity.nameResolved;
+                this._adoptMirroredNameResolved(updatingCommunity, nameResolvedBeforeMirror);
                 // Only emit when there's actual data or a key migration — avoid spurious updates for empty subs
                 if ((updatingCommunity.raw.communityIpfs && updatingCommunity.updateCid) || keyChanged) {
                     this.emit("update", this);
@@ -178,14 +188,18 @@ export class RpcRemoteCommunity extends RemoteCommunity {
                     this.clients[clientType][clientUrl].mirror(updatingCommunity.clients[clientType][clientUrl]);
 
         this._updatingRpcCommunityInstanceWithListeners.community._numOfListenersForUpdatingInstance++;
+        const nameResolvedBeforeMirror = this.nameResolved;
         if (!updatingCommunity.raw.communityIpfs || !updatingCommunity.updateCid) {
             if (updatingCommunity.publicKey) this._clearDataForKeyMigration(updatingCommunity.publicKey);
         } else {
+            // Mirror the resolved IPNS chain before initializing the record so publicKey/address
+            // anchor to ipnsHops[0] rather than the minter signature. See docs/protocol/delegated-ipns.md.
+            if (Array.isArray(updatingCommunity.ipnsHops)) this._ipnsHops = updatingCommunity.ipnsHops;
             this.initCommunityIpfsPropsNoMerge(updatingCommunity.raw.communityIpfs);
             this.updateCid = updatingCommunity.updateCid;
             if (updatingCommunity.raw.runtimeFieldsFromRpc) deepMergeRuntimeFields(this, updatingCommunity.raw.runtimeFieldsFromRpc);
         }
-        if (typeof updatingCommunity.nameResolved === "boolean") this.nameResolved = updatingCommunity.nameResolved;
+        this._adoptMirroredNameResolved(updatingCommunity, nameResolvedBeforeMirror);
         if (updatingCommunity.raw.communityIpfs || updatingCommunity.updateCid) {
             this.emit("update", this);
         }

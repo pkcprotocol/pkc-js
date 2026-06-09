@@ -12,7 +12,7 @@ import type { CommunityIpfsType } from "../../../dist/node/community/types.js";
 
 describe("Test fetching community record from multiple gateways (isolated)", async () => {
     // Mock gateway ports (chosen to avoid conflicts with test-server.js ports)
-    // test-server.js uses 13415-13418, 14000-14006, 14952-14953, 15001-15006, 18080-18085, 20001, 24001-24006, 30001
+    // test-server.js uses 13415-13418, 14000-14007, 14952-14953, 15001-15006, 18080-18085, 20001, 24001-24006, 30001
     const STALLING_GATEWAY_PORT = 25000;
     const NORMAL_GATEWAY_PORT = 25001;
     const ERROR_GATEWAY_PORT = 25002;

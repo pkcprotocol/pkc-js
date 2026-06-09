@@ -38,6 +38,11 @@ IPNS name (stable) ──points to──> CID of CommunityIpfsType (changes over
                                    └── posts.pages ──> embedded first pages
 ```
 
+An IPNS value may also point to **another IPNS name** (`/ipns/<name>`) rather than directly
+to `/ipfs/<cid>` — a delegated chain. pkc-js follows the chain to the terminal `/ipfs/` CID
+and verifies the content against the terminal name while keeping identity anchored to the
+first (anchor) name. See [delegated-ipns.md](delegated-ipns.md).
+
 ## postUpdates (CommentUpdate Distribution)
 
 CommentUpdates are distributed via a bucket-based mechanism:
