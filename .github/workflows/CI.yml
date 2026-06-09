@@ -51,6 +51,23 @@ jobs:
               id: run_node_tests_local
               run: DEBUG="pkc*" PKC_CONFIGS=local-kubo-rpc node test/run-test-config.js --parallel --environment node --log-prefix test_node_local --per-test-logs "${{ runner.temp }}/per-test-logs" test/node src/rpc/test/node src/rpc/test/node-and-browser
               shell: bash
+            # Capture Kubo daemon goroutine dumps FIRST on failure/cancel, while the daemon is still alive.
+            # An MFS deadlock (ipfs/kubo#10842) leaves the daemon responsive but its files/MFS goroutines
+            # blocked in go-mfs Lock/Flush — visible here but not in client-side timeout logs.
+            - name: Dump Kubo daemon goroutines (node local)
+              if: ${{ always() && job.status != 'success' }}
+              shell: bash
+              run: |
+                  mkdir -p kubo-debug
+                  for port in 15001 15002 15003 15004 15005 15006; do
+                      if curl -sS --max-time 20 "http://127.0.0.1:$port/debug/pprof/goroutine?debug=2" -o "kubo-debug/goroutine-$port.txt"; then
+                          echo "saved kubo-debug/goroutine-$port.txt ($(wc -l < kubo-debug/goroutine-$port.txt) lines)"
+                      else
+                          echo "kubo api port $port not reachable"
+                      fi
+                  done
+                  echo "== MFS/lock-related goroutines across dumps =="
+                  grep -nE "boxo/mfs|go-mfs|files\.|Flush|\)\.Lock\(" kubo-debug/goroutine-*.txt 2>/dev/null | head -60 || echo "none found"
             - name: Print failed node tests (local)
               if: ${{ !success() && (steps.run_node_tests_local.outcome == 'failure' || steps.run_node_tests_local.outcome == 'cancelled') }}
               run: node .github/workflows/print-vitest-failures.cjs
@@ -75,6 +92,18 @@ jobs:
               with:
                   name: test-server-log-node-local-${{ matrix.os }}
                   path: test_server.log
+                  if-no-files-found: ignore
+            # Kubo daemon's own logs (stdout/stderr + GOLOG debug-level) live inside each repo dir
+            # (test/server/test-server.js writes kubo_<node>_{stdout,stderr,golog}_*.log there), plus the
+            # goroutine dumps from the step above. These are what reveal the daemon-side MFS hang.
+            - name: Upload Kubo daemon logs (node local)
+              if: ${{ always() && job.status != 'success' }}
+              uses: actions/upload-artifact@v4
+              with:
+                  name: kubo-logs-node-local-${{ matrix.os }}
+                  path: |
+                      .test-ipfs-*/kubo_*.log
+                      kubo-debug
                   if-no-files-found: ignore
             - run: cat test_server.log
               if: ${{ always() && job.status != 'success' }}
