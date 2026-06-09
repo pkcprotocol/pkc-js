@@ -9,13 +9,16 @@ import {
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
     mockPKC,
+    mockPKCNoDataPathWithOnlyKuboClient,
+    mockRpcRemotePKC,
     getAvailablePKCConfigsToTestAgainst
 } from "../../../dist/node/test/test-util.js";
-import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
+import { describeSkipIfRpc, itSkipIfRpc, itIfRpc } from "../../helpers/conditional-tests.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
-import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
+import { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
+import { RpcExportCommunityModLogsParamSchema } from "../../../dist/node/clients/rpc-client/schema.js";
 import type { SignerWithPublicKeyAddress } from "../../../dist/node/signer/index.js";
 
 type AnyLocalCommunity = LocalCommunity | RpcLocalCommunity;
@@ -149,5 +152,87 @@ describeSkipIfRpc("community.exportCommunityModLogs() DB connection lifecycle (e
         expect(mod!.commentModeration.removed).to.equal(true);
         // No DB handle should be left open on a stopped community.
         expect(isDbOpen(community)).to.equal(false);
+    });
+
+    it.sequential("exports mod logs on a never-started community, opening then closing the DB it created", async () => {
+        // Fresh community instance for the same owned address, created but never start()ed: this is the
+        // initDbHandlerIfNeeded "create the handler if missing" branch the started/stopped tests don't hit.
+        const neverStarted = (await pkc.createCommunity({ address: community.address })) as LocalCommunity;
+        expect(neverStarted).to.be.instanceOf((community as LocalCommunity).constructor);
+        expect(neverStarted.state).to.equal("stopped");
+        const { moderations } = await neverStarted.exportCommunityModLogs({ commentCid: postCid });
+        const mod = moderations.find((m) => m.commentCid === postCid);
+        expect(mod, "moderation should be readable from a never-started community").to.exist;
+        expect(mod!.commentModeration.removed).to.equal(true);
+        // The handler was created on demand purely for this read; it must not be left open.
+        expect(isDbOpen(neverStarted)).to.equal(false);
+    });
+});
+
+// Error paths for the base RemoteCommunity.exportCommunityModLogs() stub. Mirrors export.test.ts:
+// the embedded variant builds a read-only RemoteCommunity from a second dataPath-less PKC; the RPC
+// variant asks the daemon for an address it doesn't host so the client returns an RpcRemoteCommunity.
+// Both inherit the base stub that rejects with ERR_COMMUNITY_NOT_LOCAL.
+describe("community.exportCommunityModLogs() — error paths", () => {
+    itSkipIfRpc("a read-only RemoteCommunity rejects with ERR_COMMUNITY_NOT_LOCAL", async () => {
+        const pkc1 = await mockPKC({});
+        const localComm = (await createSubWithNoChallenge({}, pkc1)) as LocalCommunity;
+        await localComm.start();
+        await resolveWhenConditionIsTrue({ toUpdate: localComm, predicate: async () => typeof localComm.updatedAt === "number" });
+
+        const pkc2 = await mockPKCNoDataPathWithOnlyKuboClient();
+        const remoteComm = await pkc2.createCommunity({ address: localComm.address });
+        try {
+            await expect(remoteComm.exportCommunityModLogs()).rejects.toMatchObject({ code: "ERR_COMMUNITY_NOT_LOCAL" });
+        } finally {
+            await localComm.stop();
+            await pkc1.destroy();
+            await pkc2.destroy();
+        }
+    });
+
+    itIfRpc("an RpcRemoteCommunity rejects with ERR_COMMUNITY_NOT_LOCAL", async () => {
+        const pkc = await mockRpcRemotePKC();
+        try {
+            // Fresh signer → address the RPC server has never hosted, so pkc-with-rpc-client.ts returns an
+            // RpcRemoteCommunity (no exportCommunityModLogs override) and the call hits the base stub client-side.
+            const freshSigner = await pkc.createSigner();
+            const remoteComm = await pkc.createCommunity({ address: freshSigner.address });
+            expect(remoteComm).not.toBeInstanceOf(RpcLocalCommunity);
+            await expect(remoteComm.exportCommunityModLogs()).rejects.toMatchObject({ code: "ERR_COMMUNITY_NOT_LOCAL" });
+        } finally {
+            await pkc.destroy();
+        }
+    });
+});
+
+// RPC wire-param contract for exportCommunityModLogs. The param schema is pure validation (no server),
+// so it runs in any config; the ERR_COMMUNITY_NOT_FOUND path needs a live daemon and is RPC-only.
+describe("community.exportCommunityModLogs() — RPC param contract", () => {
+    it("param schema requires at least one of name / publicKey", () => {
+        // No identity → refinement fails.
+        expect(RpcExportCommunityModLogsParamSchema.safeParse({}).success).to.equal(false);
+        expect(RpcExportCommunityModLogsParamSchema.safeParse({ limit: 1 }).success).to.equal(false);
+        // Either identifier alone is enough.
+        expect(RpcExportCommunityModLogsParamSchema.safeParse({ name: "some-community.eth" }).success).to.equal(true);
+        expect(RpcExportCommunityModLogsParamSchema.safeParse({ publicKey: "12D3KooWSomePublicKey" }).success).to.equal(true);
+        // Filter options still flow through alongside identity.
+        expect(
+            RpcExportCommunityModLogsParamSchema.safeParse({ name: "some-community.eth", commentCid: "Qm...", order: "ASC" }).success
+        ).to.equal(true);
+    });
+
+    itIfRpc("the RPC server rejects with ERR_COMMUNITY_NOT_FOUND for an address it does not host", async () => {
+        const pkc = await mockRpcRemotePKC();
+        try {
+            const freshSigner = await pkc.createSigner();
+            // Call the raw client so we bypass RpcLocalCommunity (which only exists for owned communities)
+            // and exercise the server's _findCommunityAddress → not-found branch directly.
+            await expect(pkc._pkcRpcClient!.exportCommunityModLogs({ name: freshSigner.address })).rejects.toMatchObject({
+                code: "ERR_COMMUNITY_NOT_FOUND"
+            });
+        } finally {
+            await pkc.destroy();
+        }
     });
 });

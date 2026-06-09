@@ -1311,7 +1311,7 @@ An object which may have the following keys:
 | startTimestamp | `number` or `undefined` | Only include moderations with `timestamp >= startTimestamp` (unix seconds) |
 | endTimestamp | `number` or `undefined` | Only include moderations with `timestamp <= endTimestamp` (unix seconds) |
 | commentCid | `string` or `undefined` | Only include moderations targeting this comment CID |
-| limit | `number` or `undefined` | Maximum number of rows to return. Omit to return all matching rows |
+| limit | `number` or `undefined` | Maximum number of rows to return. Must be a positive integer (`>= 1`) when provided. Omit to return all matching rows |
 | order | `'ASC'` or `'DESC'` or `undefined` | Sort by `timestamp`. Defaults to `'DESC'` (newest first) |
 
 #### Returns

@@ -6,6 +6,7 @@ import { CommentModerationPubsubMessagePublicationSchema } from "../../../dist/n
 import { cleanWireAuthor } from "../../../dist/node/publications/publication-author.js";
 import type { CommentModerationsTableRowInsert } from "../../../dist/node/publications/comment-moderation/types.js";
 import { JsonSignatureSchema } from "../../../dist/node/schema/schema.js";
+import { ExportCommunityModLogsOptionsSchema } from "../../../dist/node/community/schema.js";
 import type { z } from "zod";
 
 type JsonSignature = z.infer<typeof JsonSignatureSchema>;
@@ -46,6 +47,7 @@ describeSkipIfRpc("dbHandler.queryAllCommentModerations (exportCommunityModLogs 
         timestamp: number;
         removed?: boolean;
         reason?: string;
+        extraProps?: Record<string, unknown>;
     }): CommentModerationsTableRowInsert {
         const raw = {
             author: { name: "mod-author.eth" },
@@ -62,7 +64,8 @@ describeSkipIfRpc("dbHandler.queryAllCommentModerations (exportCommunityModLogs 
         return {
             ...stripped,
             modSignerAddress: "12D3KooWModSigner",
-            insertedAt: opts.timestamp
+            insertedAt: opts.timestamp,
+            ...(opts.extraProps ? { extraProps: opts.extraProps } : {})
         } as CommentModerationsTableRowInsert;
     }
 
@@ -143,5 +146,58 @@ describeSkipIfRpc("dbHandler.queryAllCommentModerations (exportCommunityModLogs 
     it("returns an empty array when there are no moderations", () => {
         assert(_dbHandler);
         expect(_dbHandler.queryAllCommentModerations()).to.deep.equal([]);
+    });
+
+    it("composes commentCid + timestamp window + order + limit filters in a single query (AND semantics)", () => {
+        assert(_dbHandler);
+        // Extra CID_A rows at timestamps 150 and 250 so the window can slice within one CID.
+        _dbHandler.insertCommentModerations([
+            buildModRow({ commentCid: CID_A, timestamp: 100, reason: "a-100" }),
+            buildModRow({ commentCid: CID_B, timestamp: 150, reason: "b-150" }), // excluded by commentCid
+            buildModRow({ commentCid: CID_A, timestamp: 200, reason: "a-200" }),
+            buildModRow({ commentCid: CID_A, timestamp: 300, reason: "a-300" }), // excluded by endTimestamp
+            buildModRow({ commentCid: CID_A, timestamp: 250, reason: "a-250" })
+        ]);
+        // CID_A AND 150 <= timestamp <= 250, ASC → [200, 250]; CID_B@150 and CID_A@{100,300} all excluded.
+        const rows = _dbHandler.queryAllCommentModerations({
+            commentCid: CID_A,
+            startTimestamp: 150,
+            endTimestamp: 250,
+            order: "ASC"
+        });
+        expect(rows.map((r) => r.timestamp)).to.deep.equal([200, 250]);
+        rows.forEach((r) => expect(r.commentCid).to.equal(CID_A));
+        // limit applies after the combined WHERE + ORDER BY.
+        const limited = _dbHandler.queryAllCommentModerations({
+            commentCid: CID_A,
+            startTimestamp: 150,
+            endTimestamp: 250,
+            order: "ASC",
+            limit: 1
+        });
+        expect(limited.map((r) => r.timestamp)).to.deep.equal([200]);
+    });
+
+    it("round-trips extraProps as a parsed object (not a string)", () => {
+        assert(_dbHandler);
+        _dbHandler.insertCommentModerations([
+            buildModRow({ commentCid: CID_A, timestamp: 100, extraProps: { customField: "hello", nested: { n: 1 } } })
+        ]);
+        const rows = _dbHandler.queryAllCommentModerations();
+        expect(rows.length).to.equal(1);
+        expect(rows[0].extraProps).to.be.an("object");
+        expect(rows[0].extraProps).to.not.be.a("string");
+        expect(rows[0].extraProps).to.deep.equal({ customField: "hello", nested: { n: 1 } });
+    });
+
+    // limit is a runtime option, so the public ExportCommunityModLogsOptionsSchema is what guards it.
+    it("schema rejects non-positive limit and accepts a positive integer or omission", () => {
+        // omit → unlimited (valid)
+        expect(ExportCommunityModLogsOptionsSchema.safeParse({}).success).to.equal(true);
+        expect(ExportCommunityModLogsOptionsSchema.safeParse({ limit: 1 }).success).to.equal(true);
+        // 0 used to be accepted (nonnegative) and silently returned zero rows via SQL LIMIT 0 — now rejected.
+        expect(ExportCommunityModLogsOptionsSchema.safeParse({ limit: 0 }).success).to.equal(false);
+        expect(ExportCommunityModLogsOptionsSchema.safeParse({ limit: -5 }).success).to.equal(false);
+        expect(ExportCommunityModLogsOptionsSchema.safeParse({ limit: 1.5 }).success).to.equal(false);
     });
 });

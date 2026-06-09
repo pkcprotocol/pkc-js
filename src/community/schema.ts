@@ -355,7 +355,7 @@ export const ExportCommunityModLogsOptionsSchema = z.object({
     startTimestamp: z.number().int().optional(),
     endTimestamp: z.number().int().optional(),
     commentCid: z.string().min(1).optional(),
-    limit: z.number().int().nonnegative().optional(),
+    limit: z.number().int().positive().optional(), // omit for unlimited; must be >= 1 when provided
     order: z.enum(["ASC", "DESC"]).optional() // default "DESC" (newest first), ordered by timestamp
 });
 
