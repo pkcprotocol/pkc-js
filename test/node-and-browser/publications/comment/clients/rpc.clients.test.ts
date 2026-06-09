@@ -48,7 +48,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
             mockPost.clients.pkcRpcClients[rpcUrl].on("statechange", (newState: string) => actualStates.push(newState));
 
             mockPost.once("challenge", async (challengeMsg) => {
-                await mockPost.publishChallengeAnswers(["2"]); // hardcode answer here
+                await mockPost.publishChallengeAnswers({ challengeAnswers: ["2"] }); // hardcode answer here
             });
 
             await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });

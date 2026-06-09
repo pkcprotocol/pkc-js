@@ -82,7 +82,7 @@ describe(`Pending approval modqueue functionality`, async () => {
             // it should fail because vote is not applicable for pendingApproval AND it published the wrong answers
             const vote = await generateMockVote(regularPublishedComment as CommentIpfsWithCidDefined, 1, pkc);
 
-            vote.once("challenge", async () => await vote.publishChallengeAnswers(["1234 " + Math.random()])); // wrong answers
+            vote.once("challenge", async () => await vote.publishChallengeAnswers({ challengeAnswers: ["1234 " + Math.random()] })); // wrong answers
 
             const challengeVerificationPromise = new Promise<DecryptedChallengeVerificationMessageType>((resolve) =>
                 vote.once("challengeverification", resolve)
@@ -104,7 +104,7 @@ describe(`Pending approval modqueue functionality`, async () => {
                 content: "text to edit on pending comment",
                 signer: regularPublishedComment.signer
             });
-            edit.once("challenge", async () => await edit.publishChallengeAnswers(["1234 " + Math.random()])); // wrong answers
+            edit.once("challenge", async () => await edit.publishChallengeAnswers({ challengeAnswers: ["1234 " + Math.random()] })); // wrong answers
 
             const challengeVerificationPromise = new Promise<DecryptedChallengeVerificationMessageType>((resolve) =>
                 edit.once("challengeverification", resolve)

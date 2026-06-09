@@ -448,7 +448,7 @@ PubsubSignature {
   - [`startedstatechange`](#startedstatechange)
 - [Comment API](#comment-api)
   - [`comment.publish()`](#commentpublish)
-  - [`comment.publishChallengeAnswers()`](#commentpublishchallengeanswerschallengeanswers)
+  - [`comment.publishChallengeAnswers()`](#commentpublishchallengeanswers-challengeanswers)
   - [`comment.update()`](#commentupdate)
   - [`comment.stop()`](#commentstop)
   - `comment.author`
@@ -854,7 +854,7 @@ const createCommunityEditOptions = {communityName: 'news.bso', communityEdit: {t
 const communityEdit = await pkc.createCommunityEdit(createCommunityEditOptions)
 communityEdit.on('challenge', async (challengeMessage) => {
   const challengeAnswers = await askUserForChallengeAnswers(challengeMessage.challenges)
-  communityEdit.publishChallengeAnswers(challengeAnswers)
+  communityEdit.publishChallengeAnswers({ challengeAnswers })
 })
 communityEdit.on('challengeverification', console.log)
 await communityEdit.publish()
@@ -913,7 +913,7 @@ An object which may have the following keys:
 const comment = await pkc.createComment(createCommentOptions)
 comment.on('challenge', async (challengeMessage) => {
   const challengeAnswers = await askUserForChallengeAnswers(challengeMessage.challenges)
-  comment.publishChallengeAnswers(challengeAnswers)
+  comment.publishChallengeAnswers({ challengeAnswers })
 })
 comment.on('challengeverification', console.log)
 await comment.publish()
@@ -991,7 +991,7 @@ An object which may have the following keys:
 const commentEdit = await pkc.createCommentEdit(createCommentEditOptions)
 commentEdit.on('challenge', async (challengeMessage) => {
   const challengeAnswers = await askUserForChallengeAnswers(challengeMessage.challenges)
-  commentEdit.publishChallengeAnswers(challengeAnswers)
+  commentEdit.publishChallengeAnswers({ challengeAnswers })
 })
 commentEdit.on('challengeverification', console.log)
 await commentEdit.publish()
@@ -1062,7 +1062,7 @@ An object which may have the following keys:
 const commentModeration = await pkc.createCommentModeration(createCommentModerationOptions)
 commentModeration.on('challenge', async (challengeMessage) => {
   const challengeAnswers = await askUserForChallengeAnswers(challengeMessage.challenges)
-  commentModeration.publishChallengeAnswers(challengeAnswers)
+  commentModeration.publishChallengeAnswers({ challengeAnswers })
 })
 commentModeration.on('challengeverification', console.log)
 await commentModeration.publish()
@@ -1115,7 +1115,7 @@ An object which may have the following keys:
 const vote = await pkc.createVote(createVoteOptions)
 vote.on('challenge', async (challengeMessage) => {
   const challengeAnswers = await askUserForChallengeAnswers(challengeMessage.challenges)
-  vote.publishChallengeAnswers(challengeAnswers)
+  vote.publishChallengeAnswers({ challengeAnswers })
 })
 vote.on('challengeverification', console.log)
 await vote.publish()
@@ -1399,13 +1399,13 @@ The comment API for publishing a comment as an author, or getting comment update
 const comment = await pkc.createComment(commentObject)
 comment.on('challenge', async (challengeMessage) => {
   const challengeAnswers = await askUserForChallengeAnswers(challengeMessage.challenges)
-  comment.publishChallengeAnswers(challengeAnswers)
+  comment.publishChallengeAnswers({ challengeAnswers })
 })
 comment.on('challengeverification', console.log)
 await comment.publish()
 ```
 
-### `comment.publishChallengeAnswers(challengeAnswers)`
+### `comment.publishChallengeAnswers({ challengeAnswers })`
 
 > Publish your answers to the challenges e.g. the captcha answers.
 
@@ -1421,7 +1421,7 @@ await comment.publish()
 const comment = await pkc.createComment(commentObject)
 comment.on('challenge', async (challengeMessage) => {
   const challengeAnswers = await askUserForChallengeAnswers(challengeMessage.challenges)
-  comment.publishChallengeAnswers(challengeAnswers)
+  comment.publishChallengeAnswers({ challengeAnswers })
 })
 comment.on('challengeverification', console.log)
 await comment.publish()
@@ -1512,7 +1512,7 @@ Object is of the form:
 const comment = await pkc.createComment(commentObject)
 comment.on('challenge', async (challengeMessage) => {
   const challengeAnswers = await askUserForChallengeAnswers(challengeMessage.challenges)
-  comment.publishChallengeAnswers(challengeAnswers)
+  comment.publishChallengeAnswers({ challengeAnswers })
 })
 comment.on('challengeverification', console.log)
 await comment.publish()
@@ -1541,7 +1541,7 @@ Object is of the form:
 const comment = await pkc.createComment(commentObject)
 comment.on('challenge', async (challengeMessage) => {
   const challengeAnswers = await askUserForChallengeAnswers(challengeMessage.challenges)
-  comment.publishChallengeAnswers(challengeAnswers)
+  comment.publishChallengeAnswers({ challengeAnswers })
 })
 comment.on('challengeverification', (challengeVerification) => console.log('published post cid is', challengeVerification?.publication?.cid))
 await comment.publish()

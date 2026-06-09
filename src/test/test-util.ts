@@ -1052,7 +1052,7 @@ export async function generatePostToAnswerMathQuestion(props: Partial<CreateComm
     const mockPost = await generateMockPost({ communityAddress: props.communityAddress, pkc, postProps: props });
     mockPost.removeAllListeners("challenge");
     mockPost.once("challenge", (challengeMessage) => {
-        mockPost.publishChallengeAnswers(["2"]);
+        mockPost.publishChallengeAnswers({ challengeAnswers: ["2"] });
     });
 
     return mockPost;

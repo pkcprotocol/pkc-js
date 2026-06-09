@@ -205,7 +205,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             const challengeVerificationPromise = new Promise<ChallengeVerification>((resolve) =>
                 comment.once("challengeverification", resolve as (msg: unknown) => void)
             );
-            await comment.publishChallengeAnswers(["12345"]); // wrong answer here
+            await comment.publishChallengeAnswers({ challengeAnswers: ["12345"] }); // wrong answer here
             const challengeVerifcation = await challengeVerificationPromise;
             expect(challengeVerifcation.challengeRequestId.constructor.name).to.equal("Uint8Array");
             expect(challengeVerifcation.challengeRequestId.length).to.equal(38);
