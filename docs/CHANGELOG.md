@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.44](https://github.com/pkcprotocol/pkc-js/compare/v0.0.43...v0.0.44) (2026-06-09)
+
+### Bug Fixes
+
+* **community:** retry MFS files.stat on transient Kubo connection errors ([#122](https://github.com/pkcprotocol/pkc-js/issues/122)) ([d909552](https://github.com/pkcprotocol/pkc-js/commit/d90955222ef724ab4511cfb1530b744f2a06b7ea))
+
 ## [0.0.43](https://github.com/pkcprotocol/pkc-js/compare/v0.0.42...v0.0.43) (2026-06-09)
 
 ## [0.0.42](https://github.com/pkcprotocol/pkc-js/compare/v0.0.41...v0.0.42) (2026-06-09)
