@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.45](https://github.com/pkcprotocol/pkc-js/compare/v0.0.44...v0.0.45) (2026-06-09)
+
+### Features
+
+* **community:** add exportCommunityModLogs to expose CommentModerations ([#89](https://github.com/pkcprotocol/pkc-js/issues/89)) ([#123](https://github.com/pkcprotocol/pkc-js/issues/123)) ([7cd8c1f](https://github.com/pkcprotocol/pkc-js/commit/7cd8c1f821d3e57207f97d8fc2747adc5d44466d))
+
 ## [0.0.44](https://github.com/pkcprotocol/pkc-js/compare/v0.0.43...v0.0.44) (2026-06-09)
 
 ### Bug Fixes
