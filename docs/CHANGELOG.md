@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.42](https://github.com/pkcprotocol/pkc-js/compare/v0.0.41...v0.0.42) (2026-06-09)
+
+### Features
+
+* **community:** load delegated IPNS communities (anchor → minter) ([#117](https://github.com/pkcprotocol/pkc-js/issues/117)) ([c8ef36d](https://github.com/pkcprotocol/pkc-js/commit/c8ef36d6e53cf3672721e8c13141e4cdd2a9b7cf)), closes [#93](https://github.com/pkcprotocol/pkc-js/issues/93) [ipfs/kubo#11351](https://github.com/ipfs/kubo/issues/11351) [#findIpnsRecord](https://github.com/pkcprotocol/pkc-js/issues/findIpnsRecord) [ipfs/helia#1041](https://github.com/ipfs/helia/issues/1041) [#118](https://github.com/pkcprotocol/pkc-js/issues/118) [#119](https://github.com/pkcprotocol/pkc-js/issues/119) [#119](https://github.com/pkcprotocol/pkc-js/issues/119) [#119](https://github.com/pkcprotocol/pkc-js/issues/119) [#119](https://github.com/pkcprotocol/pkc-js/issues/119)
+
 ## [0.0.41](https://github.com/pkcprotocol/pkc-js/compare/v0.0.40...v0.0.41) (2026-06-06)
 
 ### Features
