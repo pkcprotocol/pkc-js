@@ -7,9 +7,11 @@ import {
 } from "../../../publications/comment/schema.js";
 import { CommentEditsTableRowSchema } from "../../../publications/comment-edit/schema.js";
 import { VoteTablesRowSchema } from "../../../publications/vote/schema.js";
+import { CommentModerationsTableRowSchema } from "../../../publications/comment-moderation/schema.js";
 import type { CommentUpdateType, CommentsTableRow, CommentUpdatesRow, CommentIpfsType } from "../../../publications/comment/types.js";
 import type { CommentEditsTableRow } from "../../../publications/comment-edit/types.js";
 import type { VotesTableRow } from "../../../publications/vote/types.js";
+import type { CommentModerationTableRow } from "../../../publications/comment-moderation/types.js";
 
 // Types for query results with prefixed columns
 export type CommentIpfsPrefixedColumns = {
@@ -33,6 +35,7 @@ const parseCommentsTableRowSchema = createSchemaRowParser(CommentsTableRowSchema
 const parseCommentUpdatesTableRowSchema = createSchemaRowParser(CommentUpdateTableRowSchema, { validate: false });
 const parseCommentEditsTableRowSchema = createSchemaRowParser(CommentEditsTableRowSchema, { validate: false });
 const parseVotesTableRowSchema = createSchemaRowParser(VoteTablesRowSchema, { validate: false });
+const parseCommentModerationRowSchema = createSchemaRowParser(CommentModerationsTableRowSchema, { validate: false });
 
 export function parsePrefixedComment(row: PrefixedCommentRow): {
     comment: CommentIpfsType;
@@ -69,4 +72,9 @@ export function parseCommentEditsRow(row: unknown): CommentEditsTableRow {
 export function parseVoteRow(row: unknown): VotesTableRow {
     const { data } = parseVotesTableRowSchema(row as Record<string, unknown>);
     return data as VotesTableRow;
+}
+
+export function parseCommentModerationRow(row: unknown): CommentModerationTableRow {
+    const { data } = parseCommentModerationRowSchema(row as Record<string, unknown>);
+    return data as CommentModerationTableRow;
 }

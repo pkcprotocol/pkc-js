@@ -21,7 +21,8 @@ import type { PageOptions } from "./page-generator.js";
 import type {
     InternalCommunityRecordAfterFirstUpdateType,
     InternalCommunityRecordBeforeFirstUpdateType,
-    CommunityStats
+    CommunityStats,
+    ExportCommunityModLogsOptions
 } from "../../../community/types.js";
 import { LocalCommunity } from "./local-community.js";
 import { isDefaultChallengeStructure } from "./local-community/defaults.js";
@@ -65,6 +66,7 @@ import {
     parseCommentsTableRow,
     parsePrefixedComment,
     parseVoteRow,
+    parseCommentModerationRow,
     type PrefixedCommentRow
 } from "./db-row-parser.js";
 import { ZodError } from "zod";
@@ -142,6 +144,11 @@ export class DbHandler {
     private _parseVoteRow(row: unknown): VotesTableRow {
         const parsed = parseVoteRow(row);
         return removeNullUndefinedValues(parsed) as VotesTableRow;
+    }
+
+    private _parseCommentModerationRow(row: unknown): CommentModerationTableRow {
+        const parsed = parseCommentModerationRow(row);
+        return removeNullUndefinedValues(parsed) as CommentModerationTableRow;
     }
 
     async initDbConfigIfNeeded() {
@@ -2705,6 +2712,32 @@ export class DbHandler {
         if (banAuthor?.banExpiresAt) aggregateAuthor.banExpiresAt = banAuthor.banExpiresAt;
         if (authorFlairsByMod?.flairs) aggregateAuthor.flairs = authorFlairsByMod.flairs;
         return aggregateAuthor;
+    }
+
+    queryAllCommentModerations(opts?: ExportCommunityModLogsOptions): CommentModerationTableRow[] {
+        const conditions: string[] = [];
+        const params: (string | number)[] = [];
+        if (opts?.startTimestamp !== undefined) {
+            conditions.push(`timestamp >= ?`);
+            params.push(opts.startTimestamp);
+        }
+        if (opts?.endTimestamp !== undefined) {
+            conditions.push(`timestamp <= ?`);
+            params.push(opts.endTimestamp);
+        }
+        if (opts?.commentCid !== undefined) {
+            conditions.push(`commentCid = ?`);
+            params.push(opts.commentCid);
+        }
+        const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+        const direction = opts?.order === "ASC" ? "ASC" : "DESC"; // explicit map so only ASC/DESC reach the SQL
+        let sql = `SELECT * FROM ${TABLES.COMMENT_MODERATIONS} ${whereClause} ORDER BY timestamp ${direction}, rowid ${direction}`;
+        if (opts?.limit !== undefined) {
+            sql += ` LIMIT ?`;
+            params.push(opts.limit);
+        }
+        const results = this._db.prepare(sql).all(...params) as Record<string, unknown>[];
+        return results.map((r) => this._parseCommentModerationRow(r));
     }
 
     queryAuthorPublicationCounts(authorSignerAddress: string): { postCount: number; replyCount: number } {

@@ -86,7 +86,8 @@ import {
     parseRpcPublishChallengeAnswersParam,
     parseRpcUnsubscribeParam,
     parseRpcExportCommunityParam,
-    parseRpcCancelExportParam
+    parseRpcCancelExportParam,
+    parseRpcExportCommunityModLogsParam
 } from "../../clients/rpc-client/rpc-schema-util.js";
 import type {
     CommunityIdentifierRpcParam,
@@ -97,7 +98,8 @@ import type {
     RpcCommentPageResult,
     RpcCommunityPageResult,
     RpcLocalCommunityUpdateResultType,
-    RpcExportCommunityResult
+    RpcExportCommunityResult,
+    RpcExportCommunityModLogsResult
 } from "../../clients/rpc-client/types.js";
 import type { CommunityExportRecord } from "../../community/types.js";
 import { findStartedCommunity } from "../../pkc/tracked-instance-registry-util.js";
@@ -292,6 +294,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         this.rpcWebsocketsRegister("exportCommunity", this.exportCommunity.bind(this));
         this.rpcWebsocketsRegister("exportsSubscribe", this.exportsSubscribe.bind(this));
         this.rpcWebsocketsRegister("cancelExport", this.cancelExport.bind(this));
+        this.rpcWebsocketsRegister("exportCommunityModLogs", this.exportCommunityModLogs.bind(this));
 
         hideClassPrivateProps(this);
     }
@@ -1623,6 +1626,22 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             throw new PKCError("ERR_PRIVATE_KEY_EXPORT_NOT_ALLOWED", {});
         const community = await this._resolveLocalCommunityForExport(parsedArgs);
         return community.export({ includePrivateKey: parsedArgs.includePrivateKey });
+    }
+
+    async exportCommunityModLogs(params: any): Promise<RpcExportCommunityModLogsResult> {
+        // No private-key gate like exportCommunity: comment moderations are public, signed,
+        // pubsub-published data. Resolve the owned community the same way editCommunity does.
+        const { name, publicKey, startTimestamp, endTimestamp, commentCid, limit, order } = parseRpcExportCommunityModLogsParam(params[0]);
+        const address = this._findCommunityAddress({ name, publicKey });
+        if (!address) throw new PKCError("ERR_COMMUNITY_NOT_FOUND", { name, publicKey });
+        let community: LocalCommunity;
+        if (this._startedCommunities[address] instanceof LocalCommunity) community = <LocalCommunity>this._startedCommunities[address];
+        else {
+            const created = await (await this._getPKCInstance()).createCommunity({ address });
+            if (!(created instanceof LocalCommunity)) throw new PKCError("ERR_COMMUNITY_NOT_LOCAL", { address });
+            community = created;
+        }
+        return community.exportCommunityModLogs({ startTimestamp, endTimestamp, commentCid, limit, order });
     }
 
     async exportsSubscribe(params: any, connectionId: string): Promise<RpcSubscriptionIdResult> {

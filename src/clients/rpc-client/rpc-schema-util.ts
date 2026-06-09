@@ -15,7 +15,9 @@ import {
     RpcExportCommunityParamSchema,
     RpcCancelExportParamSchema,
     RpcExportCommunityResultSchema,
-    RpcExportschangeResultSchema
+    RpcExportschangeResultSchema,
+    RpcExportCommunityModLogsParamSchema,
+    RpcExportCommunityModLogsResultSchema
 } from "./schema.js";
 
 // Param parsers — all use .loose() so newer clients can send extra fields
@@ -40,3 +42,7 @@ export const parseRpcExportCommunityParam = (params: unknown) => RpcExportCommun
 export const parseRpcCancelExportParam = (params: unknown) => RpcCancelExportParamSchema.loose().parse(params);
 export const parseRpcExportCommunityResult = (result: unknown) => RpcExportCommunityResultSchema.loose().parse(result);
 export const parseRpcExportschangeResult = (result: unknown) => RpcExportschangeResultSchema.loose().parse(result);
+
+// community.exportCommunityModLogs() — wire param/result parsers
+export const parseRpcExportCommunityModLogsParam = (params: unknown) => RpcExportCommunityModLogsParamSchema.loose().parse(params);
+export const parseRpcExportCommunityModLogsResult = (result: unknown) => RpcExportCommunityModLogsResultSchema.loose().parse(result);

@@ -8,8 +8,10 @@ import type {
     CommunityExportRecord,
     CommunityIpfsType,
     CommunityStartedState,
-    ExportCommunityUserOptions
+    ExportCommunityUserOptions,
+    ExportCommunityModLogsOptions
 } from "./types.js";
+import type { CommentModerationTableRow } from "../publications/comment-moderation/types.js";
 import { RpcRemoteCommunity } from "./rpc-remote-community.js";
 import { z } from "zod";
 import { messages } from "../errors.js";
@@ -389,6 +391,10 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
             }
         }
         return { exportId };
+    }
+
+    override async exportCommunityModLogs(opts?: ExportCommunityModLogsOptions): Promise<{ moderations: CommentModerationTableRow[] }> {
+        return this._pkc._pkcRpcClient!.exportCommunityModLogs({ name: this.name, publicKey: this.publicKey, ...opts });
     }
 
     async _attachExportsSubscription(): Promise<void> {

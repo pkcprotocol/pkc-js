@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { CommentIpfsSchema, CommentUpdateSchema } from "../../publications/comment/schema.js";
 import { AuthorAddressSchema, ChallengeAnswersSchema, CidStringSchema } from "../../schema/schema.js";
-import { CommunityEditOptionsSchema, CommunityExportRecordsSchema } from "../../community/schema.js";
+import { CommunityEditOptionsSchema, CommunityExportRecordsSchema, ExportCommunityModLogsOptionsSchema } from "../../community/schema.js";
+import { CommentModerationsTableRowSchema } from "../../publications/comment-moderation/schema.js";
 import { NameResolveCacheOptionsSchema } from "../../schema.js";
 import type { EncodedDecryptedChallengeVerificationMessageType } from "../../pubsub-messages/types.js";
 export const SubscriptionIdSchema = z.number().positive().int();
@@ -79,3 +80,13 @@ export const RpcCancelExportParamSchema = z.object({ exportId: z.string().uuid()
 export const RpcExportCommunityResultSchema = z.object({ exportId: z.string().uuid() });
 
 export const RpcExportschangeResultSchema = z.object({ records: CommunityExportRecordsSchema });
+
+// community.exportCommunityModLogs() — wire params and results
+export const RpcExportCommunityModLogsParamSchema = ExportCommunityModLogsOptionsSchema.extend({
+    name: z.string().min(1).optional(),
+    publicKey: z.string().min(1).optional()
+}).refine((args) => args.name || args.publicKey, "At least one of name or publicKey must be provided");
+
+export const RpcExportCommunityModLogsResultSchema = z.object({
+    moderations: z.array(CommentModerationsTableRowSchema.loose()) // .loose() element preserves extraProps / future fields
+});

@@ -416,6 +416,7 @@ PubsubSignature {
   - [`community.stop()`](#communitystop)
   - [`community.update()`](#communityupdate)
   - `community.delete()`
+  - [`community.exportCommunityModLogs(opts?)`](#communityexportcommunitymodlogsopts)
   - `community.address`
   - `community.shortAddress`
   - `community.roles`
@@ -1289,6 +1290,46 @@ community.on('update', (updatedCommunityInstance) => {
   community.stop()
 })
 community.update()
+```
+
+### `community.exportCommunityModLogs(opts?)`
+
+> Read the community moderation log — the `commentModeration` records (removals, approvals, locks, spoilers, pins, bans, flairs, etc.) stored in your local community database. Only usable if the community database corresponding to `community.address` exists locally (ie. you are the community owner); a read-only `RemoteCommunity` throws `ERR_COMMUNITY_NOT_LOCAL`. Works whether the community is started or stopped.
+
+#### Parameters
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
+| opts | `ExportCommunityModLogsOptions` or `undefined` | Optional filters and ordering |
+
+##### ExportCommunityModLogsOptions
+
+An object which may have the following keys:
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
+| startTimestamp | `number` or `undefined` | Only include moderations with `timestamp >= startTimestamp` (unix seconds) |
+| endTimestamp | `number` or `undefined` | Only include moderations with `timestamp <= endTimestamp` (unix seconds) |
+| commentCid | `string` or `undefined` | Only include moderations targeting this comment CID |
+| limit | `number` or `undefined` | Maximum number of rows to return. Must be a positive integer (`>= 1`) when provided. Omit to return all matching rows |
+| order | `'ASC'` or `'DESC'` or `undefined` | Sort by `timestamp`. Defaults to `'DESC'` (newest first) |
+
+#### Returns
+
+`Promise<{ moderations: CommentModerationTableRow[] }>` — the matching moderation rows, with JSON columns (`signature`, `author`, `commentModeration`, `extraProps`) parsed into objects. The `{ moderations }` wrapper leaves room to add totals/pagination later without breaking callers.
+
+#### Example
+
+```js
+const community = await pkc.createCommunity({ address: '12D3KooW...' })
+// newest 100 moderation actions targeting a specific comment
+const { moderations } = await community.exportCommunityModLogs({
+  commentCid: 'Qm...',
+  limit: 100
+})
+for (const mod of moderations) {
+  console.log(mod.timestamp, mod.modSignerAddress, mod.commentModeration)
+}
 ```
 
 ## Community Events
