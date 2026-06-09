@@ -334,13 +334,21 @@ function defineExportTests(getCtx: () => { pkc: PKCType; community: AnyLocalComm
             const { exportId } = await community.export();
             await waitForCompleteRecord({ community, exportId });
 
+            // The community is shared across this suite and `exportschange` broadcasts the FULL
+            // export list. Under RPC, events arrive asynchronously over the websocket, so a
+            // lagging emission from a previous test's export can land in our listener before
+            // this export's record is registered server-side — that snapshot won't contain this
+            // exportId. Restrict the assertions to emissions that actually carry this exportId;
+            // those are exactly this export's transitions, which is what the test verifies.
+            const relevant = seen.filter((records) => records.some((r) => r.exportId === exportId));
+
             // At least: initial 0-progress emission + complete emission. Progress emissions may
             // be throttled to 0 if the DB is small enough that the backup finishes in one transfer.
-            expect(seen.length).to.be.greaterThanOrEqual(2);
+            expect(relevant.length).to.be.greaterThanOrEqual(2);
 
-            // Every emission is an array containing a record for this exportId with the
+            // Every relevant emission is an array containing a record for this exportId with the
             // identity-level fields populated.
-            for (const records of seen) {
+            for (const records of relevant) {
                 expect(Array.isArray(records)).to.equal(true);
                 const rec = records.find((r) => r.exportId === exportId);
                 expect(rec).toBeDefined();
@@ -353,16 +361,16 @@ function defineExportTests(getCtx: () => { pkc: PKCType; community: AnyLocalComm
                 expect(rec!.progress).to.be.lessThanOrEqual(1);
             }
 
-            // The first emission is the initial enqueue: progress=0 and no terminal fields.
-            const first = seen[0].find((r) => r.exportId === exportId)!;
+            // The first relevant emission is the initial enqueue: progress=0 and no terminal fields.
+            const first = relevant[0].find((r) => r.exportId === exportId)!;
             expect(first.progress).to.equal(0);
             expect(first.url).to.equal(undefined);
             expect(first.size).to.equal(undefined);
             expect(first.sha256).to.equal(undefined);
             expect(first.error).to.equal(undefined);
 
-            // The last emission for this exportId is terminal-complete with all output fields.
-            const last = seen[seen.length - 1].find((r) => r.exportId === exportId)!;
+            // The last relevant emission for this exportId is terminal-complete with all output fields.
+            const last = relevant[relevant.length - 1].find((r) => r.exportId === exportId)!;
             expect(last.progress).to.equal(1);
             expect(typeof last.url).to.equal("string");
             expect(last.url!.length).to.be.greaterThan(0);
@@ -377,6 +385,44 @@ function defineExportTests(getCtx: () => { pkc: PKCType; community: AnyLocalComm
             last.progress = 0.42;
             const live = community.exports.find((r) => r.exportId === exportId);
             expect(live?.progress).to.equal(1);
+        } finally {
+            community.removeListener("exportschange", listener);
+        }
+    });
+
+    // Regression for the flaky failure at export.test.ts:346 (run 27196010884): because the
+    // community is shared across this suite and `exportschange` carries the FULL export list, a
+    // lagging broadcast from a previous test's export — delivered asynchronously over the RPC
+    // websocket — could land in the listener before this export's record existed, so its snapshot
+    // didn't contain this exportId and `expect(rec).toBeDefined()` blew up. We reproduce that
+    // ordering deterministically by emitting a stale full-list snapshot (without our exportId)
+    // right after attaching the listener, then assert the per-transition checks only consider
+    // emissions that actually carry this exportId.
+    it("ignores lagging exportschange broadcasts that predate this export", async () => {
+        const { community } = getCtx();
+        const seen: CommunityExportRecord[][] = [];
+        const listener = (records: CommunityExportRecord[]) => seen.push(records);
+        community.on("exportschange", listener);
+        // A valid-but-unrelated record, standing in for a previous export still flushing events.
+        const stalePriorId = "00000000-0000-4000-8000-000000000000";
+        try {
+            community.emit("exportschange", [{ exportId: stalePriorId, publicKey: "stale", includePrivateKey: false, progress: 1 }]);
+
+            const { exportId } = await community.export();
+            await waitForCompleteRecord({ community, exportId });
+
+            // The stale snapshot is captured...
+            expect(seen.some((records) => records.some((r) => r.exportId === stalePriorId))).to.equal(true);
+
+            // ...but the per-transition assertions must only consider this export's emissions.
+            const relevant = seen.filter((records) => records.some((r) => r.exportId === exportId));
+            expect(relevant.length).to.be.greaterThanOrEqual(2);
+            for (const records of relevant) {
+                const rec = records.find((r) => r.exportId === exportId);
+                expect(rec).toBeDefined();
+            }
+            // The first relevant emission is this export's enqueue (progress 0), never the stale one.
+            expect(relevant[0].find((r) => r.exportId === exportId)!.progress).to.equal(0);
         } finally {
             community.removeListener("exportschange", listener);
         }
