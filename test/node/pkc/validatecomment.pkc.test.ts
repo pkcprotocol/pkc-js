@@ -5,8 +5,10 @@ import {
     mockPKC,
     createSubWithNoChallenge,
     publishRandomPost,
+    publishRandomReply,
     forceLocalSubPagesToAlwaysGenerateMultipleChunks
 } from "../../../dist/node/test/test-util.js";
+import type { CommentIpfsWithCidDefined } from "../../../dist/node/publications/comment/types.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { PKCError } from "../../../dist/node/pkc-error.js";
 import signers from "../../fixtures/signers.js";
@@ -499,7 +501,26 @@ async function createValidateCommentTestEnvironment(): Promise<ValidateCommentTe
         predicate: async () => typeof postWithReplies.updatedAt === "number"
     });
 
-    await ensureCommentHasPaginatedReplies({ community, comment: postWithReplies });
+    // The forced chunking must stay active for the whole suite (cleaned up in the env cleanup below).
+    // If it is removed earlier, any later recalculation of the post's CommentUpdate regenerates the
+    // replies pages with normal page sizes, the tiny replies fit the preloaded page again, and
+    // replies.pageCids disappears from the newest community record. Remote clients connecting after
+    // that wait forever on replies.pageCids.newFlat (the Windows CI beforeAll hook-timeout flake).
+    const { cleanup: cleanupForcedChunking } = await ensureCommentHasPaginatedReplies({ community, comment: postWithReplies });
+
+    // Regression guard: publish an extra reply so the community recalculates the post's CommentUpdate
+    // at least once more before any remote client connects. Without the long-lived forced chunking
+    // above, this recalculation deterministically drops pageCids and hangs the suite's beforeAll.
+    await publishRandomReply({
+        parentComment: postWithReplies as CommentIpfsWithCidDefined,
+        pkc: publisherPKC
+    });
+    await resolveWhenConditionIsTrue({
+        toUpdate: postWithReplies,
+        predicate: async () =>
+            (postWithReplies.replyCount ?? 0) >= 2 &&
+            Boolean(postWithReplies.replies.pageCids?.newFlat && postWithReplies.replies.pageCids?.best)
+    });
 
     await postForInstance.stop();
     await postWithReplies.stop();
@@ -509,13 +530,20 @@ async function createValidateCommentTestEnvironment(): Promise<ValidateCommentTe
         postCid: postForInstance.cid!,
         repliesPostCid: postWithReplies.cid!,
         cleanup: async () => {
+            cleanupForcedChunking();
             await community.delete().catch(() => {});
             await publisherPKC.destroy().catch(() => {});
         }
     };
 }
 
-async function ensureCommentHasPaginatedReplies({ community, comment }: { community: LocalCommunity; comment: Comment }): Promise<void> {
+async function ensureCommentHasPaginatedReplies({
+    community,
+    comment
+}: {
+    community: LocalCommunity;
+    comment: Comment;
+}): Promise<{ cleanup: () => void }> {
     const { cleanup: cleanupForcedChunking } = await forceLocalSubPagesToAlwaysGenerateMultipleChunks({
         community,
         parentComment: comment,
@@ -527,21 +555,26 @@ async function ensureCommentHasPaginatedReplies({ community, comment }: { commun
             toUpdate: comment,
             predicate: async () => Boolean(comment.replies.pageCids?.newFlat && comment.replies.pageCids?.best)
         });
-    } finally {
+
+        const hasFlatPage = Boolean(comment.replies.pageCids?.newFlat);
+        const hasBestPage = Boolean(comment.replies.pageCids?.best);
+        if (!hasFlatPage || !hasBestPage) throw new Error("Forced pagination did not create the expected reply pageCids");
+
+        const flatPageCid = comment.replies.pageCids?.newFlat;
+        if (!flatPageCid) throw new Error("Failed to generate flat replies page for validateComment test");
+        const flatPage = await comment.replies.getPage({ cid: flatPageCid });
+        if (!flatPage.comments?.length) throw new Error("Flat replies page is empty");
+
+        const bestPageCid = comment.replies.pageCids?.best;
+        if (!bestPageCid) throw new Error("Failed to generate best replies page for validateComment test");
+        const bestPage = await comment.replies.getPage({ cid: bestPageCid });
+        if (!bestPage.comments?.length) throw new Error("Best replies page is empty");
+    } catch (error) {
         cleanupForcedChunking();
+        throw error;
     }
 
-    const hasFlatPage = Boolean(comment.replies.pageCids?.newFlat);
-    const hasBestPage = Boolean(comment.replies.pageCids?.best);
-    if (!hasFlatPage || !hasBestPage) throw new Error("Forced pagination did not create the expected reply pageCids");
-
-    const flatPageCid = comment.replies.pageCids?.newFlat;
-    if (!flatPageCid) throw new Error("Failed to generate flat replies page for validateComment test");
-    const flatPage = await comment.replies.getPage({ cid: flatPageCid });
-    if (!flatPage.comments?.length) throw new Error("Flat replies page is empty");
-
-    const bestPageCid = comment.replies.pageCids?.best;
-    if (!bestPageCid) throw new Error("Failed to generate best replies page for validateComment test");
-    const bestPage = await comment.replies.getPage({ cid: bestPageCid });
-    if (!bestPage.comments?.length) throw new Error("Best replies page is empty");
+    // Intentionally NOT cleaning up here: the caller keeps the forced chunking alive until the
+    // publisher env is torn down, so recalculated CommentUpdates keep the reply pageCids.
+    return { cleanup: cleanupForcedChunking };
 }
