@@ -108,10 +108,11 @@ the graph size, not a hotspot — which is why bundling and loading fewer module
 
 ## Optimization directions
 
-Ranked by effort/payoff. Each is a follow-up PR; tick it and add a [history](#benchmark-history) row
-when it lands.
+Ranked by effort/payoff. Tick each item and add a [history](#benchmark-history) row when it lands.
+The first three landed together in PR #126 (one commit each; the originally stacked #124 and #125
+were consolidated into it).
 
--   [x] **Lazy-load the local-node runtime off the RPC-client path** (done in #124) — the two
+-   [x] **Lazy-load the local-node runtime off the RPC-client path** (done in #126) — the two
         heaviest leaves are now deferred behind dynamic `import()` on the code paths that actually
         start/run a local node, instead of being statically imported by the base `PKC` class:
 
@@ -131,7 +132,7 @@ when it lands.
         saves only ~10ms for real churn/risk. The residual ~88ms is the many-small-modules tail,
         which only bundling addresses.
 
--   [x] **V8 compile cache** (done in #125) — the `"."` → `import` export condition now points at a
+-   [x] **V8 compile cache** (done in #126) — the `"."` → `import` export condition now points at a
         thin bootstrap, [`src/index-with-compile-cache.ts`](../../src/index-with-compile-cache.ts),
         that calls `module.enableCompileCache()` (via
         [`src/runtime/node/compile-cache.ts`](../../src/runtime/node/compile-cache.ts), no-op on
@@ -207,6 +208,6 @@ row here so each change shows its delta against the prior one. (Fast 8-core host
 | Change                           | index cold | index warm-cache | rpc-client only | pkc-with-rpc | dominant cost              | Notes / PR                  |
 | -------------------------------- | ---------- | ---------------- | --------------- | ------------ | -------------------------- | --------------------------- |
 | baseline                         | ~535ms     | ~395ms           | ~173ms          | ~475ms       | ~65% node ESM resolve/link | #120 (measurement only)     |
-| lazy-load helia + LocalCommunity | ~290ms     | ~206ms           | ~164ms          | ~249ms       | ~64% node ESM resolve/link | #124 (~46% faster index.js) |
-| self-enabled compile cache       | ~272ms     | ~208ms (now the default) | ~185ms  | ~257ms       | ~66% node ESM resolve/link | #125 (warm-by-default ESM entry) |
+| lazy-load helia + LocalCommunity | ~290ms     | ~206ms           | ~164ms          | ~249ms       | ~64% node ESM resolve/link | #126 (~46% faster index.js) |
+| self-enabled compile cache       | ~272ms     | ~208ms (now the default) | ~185ms  | ~257ms       | ~66% node ESM resolve/link | #126 (warm-by-default ESM entry) |
 | bundle dist (our files; deps external) | ~245ms | ~196ms          | ~173ms (unbundled) | ~258ms (unbundled) | node_modules ESM closure  | #126 (rolldown -> dist/bundled)  |
