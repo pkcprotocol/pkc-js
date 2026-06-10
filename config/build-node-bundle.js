@@ -69,7 +69,9 @@ const { output } = await bundle.write({
 await bundle.close();
 
 // Manifest for config/verify-bundle.js: which inputs each output contains and what it
-// imports statically vs dynamically. Paths are relative to the repo root / outDir.
+// imports statically vs dynamically. Paths are relative to the repo root / outDir, always
+// with posix separators - path.relative yields backslashes on Windows, which would break
+// verify-bundle.js's forward-slash lookups (chunk.fileName/imports already use "/").
 const manifest = { outputs: {} };
 for (const chunk of output) {
     if (chunk.type !== "chunk") continue;
@@ -77,7 +79,7 @@ for (const chunk of output) {
         isEntry: chunk.isEntry,
         imports: chunk.imports,
         dynamicImports: chunk.dynamicImports,
-        inputs: Object.keys(chunk.modules).map((id) => path.relative(root, id))
+        inputs: Object.keys(chunk.modules).map((id) => path.relative(root, id).split(path.sep).join("/"))
     };
 }
 fs.writeFileSync(path.join(outDir, "bundle-manifest.json"), JSON.stringify(manifest, null, 4));
