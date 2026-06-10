@@ -1,10 +1,15 @@
 // Bundles the tsc per-file output (dist/node/*.js) into dist/bundled/ with rolldown.
 //
 // Why: ~65% of the package's Node import time is ESM resolve/link overhead across the
-// ~157-file dist/node graph, not our code bodies (see docs/protocol/import-performance.md).
-// Collapsing our own modules into a few chunks removes most of that overhead. All bare
-// imports (node_modules) stay external in this step, so dependency resolution, npm dedupe
-// and instanceof identity (zod, libp2p types) are untouched.
+// module graph, not code bodies (see docs/protocol/import-performance.md). Collapsing
+// modules into a few chunks removes most of that overhead. Pure-JS dependencies are
+// INLINED into the chunks too - after bundling our own ~157 files, the remaining import
+// cost on slow hosts was the external node_modules ESM closure. What stays external (and
+// why each does) lives in config/bundle-externals.js: node builtins, native deps
+// (better-sqlite3), the lazy helia/libp2p subtree, the multiformats/uint8arrays/ipns
+// identity layer shared with it, and rpc-websockets. Inlining zod is safe: zod v4
+// instanceof is structural (Symbol.hasInstance checks _zod.traits), and external
+// challenge plugins are loaded by path with their own node_modules anyway.
 //
 // The bundler input is the already-compiled JS, not the TS source: tsc stays the only
 // compiler (NodeNext semantics, .d.ts emit), and dist/node + dist/browser are byte-identical
@@ -37,6 +42,7 @@ import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
 import { rolldown } from "rolldown";
+import { isExternalImport } from "./bundle-externals.js";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -51,8 +57,9 @@ const bundle = await rolldown({
         "rpc/src/index": "dist/node/rpc/src/index.js"
     },
     platform: "node",
-    // every bare import stays external (see header comment); relative + absolute ids are ours
-    external: (id) => !id.startsWith(".") && !path.isAbsolute(id),
+    // bare imports are inlined unless config/bundle-externals.js says otherwise; relative +
+    // absolute ids are always ours (never external)
+    external: (id) => !id.startsWith(".") && !path.isAbsolute(id) && isExternalImport(id),
     onwarn(warning, defaultHandler) {
         // text-math intentionally evals its own generated arithmetic expression; not a bundling problem
         if (warning.code === "EVAL" && String(warning.id).includes("text-math")) return;

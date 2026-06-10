@@ -15,13 +15,19 @@
 //      loads the external native better-sqlite3 from the installed layout.
 //   4. tsc --noEmit on a tiny moduleResolution=nodenext consumer - proves the types condition
 //      (dist/node/*.d.ts) resolves against the bundled runtime entries.
+//   5. Self-containment: with every INLINED dependency's directory renamed away inside the
+//      consumer's node_modules (the dependency list minus config/bundle-externals.js), the
+//      imports and the createCommunity() lifecycle still work - proves the Node bundle never
+//      resolves the inlined packages at runtime. They stay in package.json dependencies only
+//      for the per-file dist/browser path, which consumers' bundlers resolve themselves.
 //
 // Scratch lives under .tmp/ (gitignored), never /tmp (RAM-backed tmpfs on Linux).
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync, readdirSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync, readdirSync, readFileSync, renameSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { inlinedDependencyNames } from "../config/bundle-externals.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const smokeDir = path.join(root, ".tmp", "pack-smoke");
@@ -80,9 +86,9 @@ for (const subpath of ["@pkcprotocol/pkc-js", "@pkcprotocol/pkc-js/rpc"]) {
 
 // 4. Real work: createCommunity() through the installed bundle. This crosses the lazy
 // local-community chunk boundary and opens a better-sqlite3 database on disk.
-const lifecycleScript = `
+const lifecycleScript = (dataPath) => `
 import PKC from "@pkcprotocol/pkc-js";
-const dataPath = ${JSON.stringify(path.join(smokeDir, "pkc-data"))};
+const dataPath = ${JSON.stringify(dataPath)};
 // httpRoutersOptions: [] so the smoke test never reconfigures a local Kubo or calls out to
 // production routers (see AGENTS.md).
 const pkc = await PKC({ dataPath, httpRoutersOptions: [] });
@@ -98,7 +104,7 @@ try {
 run(
     "createCommunity via installed bundle (lazy chunk + native better-sqlite3)",
     process.execPath,
-    ["--input-type=module", "-e", lifecycleScript],
+    ["--input-type=module", "-e", lifecycleScript(path.join(smokeDir, "pkc-data"))],
     { cwd: consumerDir }
 );
 
@@ -137,5 +143,39 @@ writeFileSync(
     )
 );
 run("tsc --noEmit (nodenext consumer)", path.join(root, "node_modules", ".bin", "tsc"), ["-p", consumerDir]);
+
+// 6. Self-containment: hide every inlined dependency from the consumer's node_modules and
+// prove the Node runtime never resolves them (they are only installed for the browser path).
+const packageJson = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
+const inlinedDeps = inlinedDependencyNames(packageJson);
+const consumerModules = path.join(consumerDir, "node_modules");
+const hidden = [];
+for (const dep of inlinedDeps) {
+    const depDir = path.join(consumerModules, dep);
+    if (!existsSync(depDir)) continue; // not installed (e.g. platform-specific optional)
+    renameSync(depDir, depDir + ".hidden-by-smoke");
+    hidden.push(depDir);
+}
+console.log(`hid ${hidden.length} inlined dependencies from the consumer's node_modules`);
+try {
+    for (const subpath of ["@pkcprotocol/pkc-js", "@pkcprotocol/pkc-js/challenges", "@pkcprotocol/pkc-js/rpc"]) {
+        run(
+            `esm import ${subpath} (inlined deps hidden)`,
+            process.execPath,
+            ["--input-type=module", "-e", `await import(${JSON.stringify(subpath)});`],
+            {
+                cwd: consumerDir
+            }
+        );
+    }
+    run(
+        "createCommunity via installed bundle (inlined deps hidden)",
+        process.execPath,
+        ["--input-type=module", "-e", lifecycleScript(path.join(smokeDir, "pkc-data-self-contained"))],
+        { cwd: consumerDir }
+    );
+} finally {
+    for (const depDir of hidden) renameSync(depDir + ".hidden-by-smoke", depDir);
+}
 
 console.log("\nsmoke-pack-install: all checks passed");

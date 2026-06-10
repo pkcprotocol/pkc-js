@@ -14,11 +14,16 @@
 //      flavors are never loaded into one process (module-level state would duplicate).
 //   4. require(esm): the require-condition entries load via createRequire - catches
 //      top-level await leaking into the index or rpc graphs (ERR_REQUIRE_ASYNC_MODULE).
+//   5. External allowlist: every import id in the manifest is either another bundled
+//      output or matches config/bundle-externals.js - proves no bare import of a dep that
+//      should be inlined survived bundling (the bundle is self-contained modulo the
+//      declared externals).
 
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
 import { execFileSync } from "node:child_process";
+import { isExternalImport } from "./bundle-externals.js";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -66,6 +71,20 @@ for (const lazyInput of lazyInputs) {
             `${lazyInput} (in ${fileName}) is in the STATIC import closure of dist/bundled/index.js - ` +
                 `a lazy boundary from the import-time work (issue #120) was lost.`
         );
+    }
+}
+
+// --- 1b. External allowlist: only declared externals may stay bare ---------------------------
+
+for (const [fileName, out] of Object.entries(outputs)) {
+    for (const imported of [...out.imports, ...out.dynamicImports]) {
+        if (imported in outputs) continue; // another bundled chunk/entry
+        if (!isExternalImport(imported)) {
+            problems.push(
+                `${fileName} imports "${imported}", which is neither a bundled output nor an allowed ` +
+                    `external (config/bundle-externals.js) - an inlinable dep escaped the bundle.`
+            );
+        }
     }
 }
 
@@ -128,4 +147,4 @@ if (problems.length) {
     process.exit(1);
 }
 
-console.log("verify-bundle: ok (lazy chunks intact, exports match dist/node, require(esm) works)");
+console.log("verify-bundle: ok (lazy chunks intact, externals allowlisted, exports match dist/node, require(esm) works)");
