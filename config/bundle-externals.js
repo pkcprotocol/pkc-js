@@ -20,9 +20,18 @@
 //   - rpc-websockets: pre-bundled CJS dist whose `ws` dependency does optional native
 //     requires (bufferutil, utf-8-validate) inside try/catch; rolldown would hoist those
 //     into hard imports. It is a handful of modules anyway - negligible win.
-//   - kubo-rpc-client + its IPFS plumbing: planned for a follow-up inlining pass (the
-//     largest remaining module-count graph in the index static closure); kept external
-//     in this step so each pass lands with its own measurements.
+//   - typestub-ipfs-only-hash: its ipfs-only-hash graph is legacy CJS carrying its own
+//     NESTED uint8arrays 2.x/3.x copies. Inlining it rewrites those requires to the root
+//     ESM-only uint8arrays v5 (ERR_PACKAGE_PATH_NOT_EXPORTED), and its protobufjs dep
+//     does optional eval("require") loads that silently degrade inside an ESM bundle.
+//     It computes CIDs for signatures, so correctness beats the ~92-file CJS closure win.
+//
+// kubo-rpc-client and ipfs-unixfs-importer are deliberately INLINED even though they are
+// IPFS plumbing: kubo-rpc-client alone was the largest remaining module graph in the
+// index static closure (~371 modules), both are modern ESM with no nested copies of the
+// identity layer, and only type imports of them cross the public API. Their
+// multiformats/uint8arrays/ipns imports stay external per the list above, so the
+// identity layer remains single-copy.
 
 import { isBuiltin } from "node:module";
 
@@ -40,9 +49,7 @@ const externalPackages = new Set([
     "ipns",
     // ws optional-native-deps hazard
     "rpc-websockets",
-    // follow-up inlining pass (see header comment)
-    "kubo-rpc-client",
-    "ipfs-unixfs-importer",
+    // legacy CJS graph with nested uint8arrays copies (see header comment)
     "typestub-ipfs-only-hash"
 ]);
 
