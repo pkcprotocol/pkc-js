@@ -278,3 +278,20 @@ So the import side still dominates: ~2.9s is the pkc-js graph (almost entirely t
 node_modules ESM closure — our own files are already one bundle), ~1.2s is the CLI's own
 uncached graph + oclif (the CLI does not enable a compile cache for modules compiled before
 pkc-js's bootstrap runs — tracked as a bitsocial-cli issue), and ~2s is actual RPC work.
+
+#### After inlining dependencies into the bundle (same host, same method)
+
+Re-deployed this branch's `dist/` + `package.json` after the dep-inlining commits and re-timed
+(3-4 runs, median, steady state):
+
+| Layer                                 | before (deps-external bundle) | after (deps inlined)        |
+| ------------------------------------- | ----------------------------- | --------------------------- |
+| `import("@pkcprotocol/pkc-js")` alone | ~2.9s                         | **~1.8s** (~38% faster)     |
+| full `bitsocial community list`       | ~5.8s                         | **~4.9s**                   |
+
+Output verified correct (full community table). Of the remaining ~4.9s: ~1.8s pkc-js import
+(now mostly the kept externals — typestub-ipfs-only-hash's CJS closure, rpc-websockets, the
+multiformats identity layer — plus link/exec of the bundle itself), ~1.2s the CLI's own
+uncached graph (bitsocial-cli compile-cache issue), ~2s RPC work (daemon-side; next lever
+would be batching the per-community `createCommunity` round trips or including `started` in
+the communities subscription).
