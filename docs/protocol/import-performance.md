@@ -192,13 +192,42 @@ were consolidated into it).
         (~8%). Modest, because with all deps external the remaining ESM overhead is dominated by
         the node_modules closure, not our 157 files — which sets up the next step.
 
--   [ ] **Inline pure-JS dependencies into the bundle** — the measured big lever now. A throwaway
-        experiment (single-entry rolldown bundle of `index.js` with everything except
-        `better-sqlite3` inlined) built and imported cleanly: cold ~165ms (vs 245ms shipped, 266ms
-        per-file) and ~115ms with a warm compile cache (vs 196ms shipped). Before shipping it:
-        audit which dep types cross the public API boundary (a consumer catching
-        `instanceof ZodError` against its own zod copy would break), keep `better-sqlite3`
-        external (native), and re-check the lazy chunks still split.
+-   [x] **Inline pure-JS dependencies into the bundle** (done in #126, two commits) — bare imports
+        are now inlined into `dist/bundled` unless the shared denylist
+        ([`config/bundle-externals.js`](../../config/bundle-externals.js), used by both the build
+        and the verify gate) keeps them external. What stays external, and why: node builtins
+        (checked first so the npm `assert`/`buffer` browser polyfills never shadow them),
+        `better-sqlite3` (native), the helia/libp2p subtree (lazy-chunk-only so zero index win,
+        plus native subdeps), `multiformats`/`uint8arrays`/`ipns` (imported by both our static
+        graph and the external helia graph — keeping them external preserves a single runtime
+        copy for CID/peer-id identity), `rpc-websockets` (its `ws` does optional native requires
+        that rolldown would hoist), and `typestub-ipfs-only-hash` (legacy CJS graph with nested
+        `uint8arrays` 2.x/3.x copies that break when rewritten to the root ESM-only v5, plus a
+        protobufjs `eval("require")` hazard — and it computes CIDs for signatures, so correctness
+        wins). `kubo-rpc-client` (~371 modules, the largest remaining graph) and
+        `ipfs-unixfs-importer` ARE inlined.
+
+    The zod audit came out safe: zod v4 `instanceof` is structural (`Symbol.hasInstance` checks
+    `_zod.traits`), so a consumer's own zod copy still recognizes our errors, and external
+    challenge plugins load by path with their own `node_modules` anyway. Guards added:
+    verify-bundle gained an external-allowlist gate (no inlinable dep may survive as a bare
+    import) and smoke-pack-install a self-containment pass (hides every inlined dep from the
+    consumer's `node_modules` and re-runs imports + the createCommunity lifecycle). Inlined deps
+    stay in `dependencies` because browser consumers still resolve the per-file `dist/browser`;
+    the same commit declared six deps `dist/browser` imported but `package.json` omitted (cborg,
+    ipfs-unixfs-importer, ipns, multiformats, node-forge, uint8arrays — previously worked only
+    via hoisting).
+
+    Bundle sourcemaps are no longer emitted: with deps inlined they were ~16MB of the tarball,
+    Node ignores maps without `--enable-source-maps`, and the per-file `dist/node` ships anyway
+    as the readable reference. Net tarball: 2.8MB packed / 14.8MB unpacked, smaller than before
+    inlining (4.7MB / 23.6MB). (Possible follow-up: the `dist/node`/`dist/browser` tsc maps that
+    still ship are dead weight too — they reference `../src` paths that are not in the tarball
+    and carry no `sourcesContent`.)
+
+    Result on the reference host: bundled index cold 245ms → ~205ms and the warm-compile-cache
+    npm entry 196ms → ~155ms (~21%). The throwaway experiment's ~165/~115ms assumed inlining
+    everything; the gap is the externals kept for identity/correctness above.
 
 ## Benchmark history
 
@@ -211,6 +240,8 @@ row here so each change shows its delta against the prior one. (Fast 8-core host
 | lazy-load helia + LocalCommunity | ~290ms     | ~206ms           | ~164ms          | ~249ms       | ~64% node ESM resolve/link | #126 (~46% faster index.js) |
 | self-enabled compile cache       | ~272ms     | ~208ms (now the default) | ~185ms  | ~257ms       | ~66% node ESM resolve/link | #126 (warm-by-default ESM entry) |
 | bundle dist (our files; deps external) | ~245ms | ~196ms          | ~173ms (unbundled) | ~258ms (unbundled) | node_modules ESM closure  | #126 (rolldown -> dist/bundled)  |
+| inline pure-JS deps (zod, undici, ...) | ~253ms | ~195ms          | ~179ms (unbundled) | ~256ms (unbundled) | kubo-rpc-client closure   | #126 (config/bundle-externals.js) |
+| inline kubo-rpc-client + unixfs-importer | ~205ms | ~155ms        | ~176ms (unbundled) | ~256ms (unbundled) | remaining externals + link | #126 (~21% vs deps-external bundle) |
 
 ### Production validation (2026-06-10)
 
@@ -227,3 +258,23 @@ timed an RPC-only command end to end with `time bitsocial community list`:
 Output verified correct (full community table). The remaining ~5.5s is the node_modules ESM
 closure plus the actual RPC round trip, which is what the "inline pure-JS dependencies into the
 bundle" item above targets next.
+
+#### Decomposition of the remaining ~5.5s (same host, steady state, warm compile cache)
+
+Measured by timing each layer in isolation (3 runs, median). `community list --help` was not
+usable as a layer: oclif help reads `oclif.manifest.json` and never loads the command module, so
+the command graph was instead imported directly with `node --input-type=module -e 'await
+import("./dist/cli/commands/community/list.js")'` from the CLI install dir.
+
+| Layer                                              | Median  | Marginal share                       |
+| -------------------------------------------------- | ------- | ------------------------------------ |
+| bare `node -e 0`                                   | ~0.05s  | process boot                         |
+| `import("@pkcprotocol/pkc-js")` alone              | ~2.9s   | **pkc-js import (~50%)**             |
+| command graph (list.js → BaseCommand → pkc-js)     | ~3.6s   | +0.7s CLI's own dist graph           |
+| oclif boot (`bitsocial --version`)                 | ~0.5s   | oclif framework (no pkc-js)          |
+| full `bitsocial community list`                    | ~5.8s   | +~2s RPC round trips + table         |
+
+So the import side still dominates: ~2.9s is the pkc-js graph (almost entirely the external
+node_modules ESM closure — our own files are already one bundle), ~1.2s is the CLI's own
+uncached graph + oclif (the CLI does not enable a compile cache for modules compiled before
+pkc-js's bootstrap runs — tracked as a bitsocial-cli issue), and ~2s is actual RPC work.
