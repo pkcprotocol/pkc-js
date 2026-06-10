@@ -211,3 +211,19 @@ row here so each change shows its delta against the prior one. (Fast 8-core host
 | lazy-load helia + LocalCommunity | ~290ms     | ~206ms           | ~164ms          | ~249ms       | ~64% node ESM resolve/link | #126 (~46% faster index.js) |
 | self-enabled compile cache       | ~272ms     | ~208ms (now the default) | ~185ms  | ~257ms       | ~66% node ESM resolve/link | #126 (warm-by-default ESM entry) |
 | bundle dist (our files; deps external) | ~245ms | ~196ms          | ~173ms (unbundled) | ~258ms (unbundled) | node_modules ESM closure  | #126 (rolldown -> dist/bundled)  |
+
+### Production validation (2026-06-10)
+
+Tested out on production: deployed this branch's `dist/` plus `package.json` (the bundled
+entries are activated by the `main`/`exports` fields, so copying `dist/` alone changes nothing)
+into the bitsocial CLI's pkc-js install on a production server (slow host, Node v22.22.2), then
+timed an RPC-only command end to end with `time bitsocial community list`:
+
+| Run                          | before (v0.0.45 from npm) | after (#120 bundled dist)        |
+| ---------------------------- | ------------------------- | -------------------------------- |
+| first run (cold)             | ~22.1s                    | ~7.4s (populates compile cache)  |
+| steady state (repeat runs)   | ~12.2-13.6s               | **~5.5-6.0s** (~55% faster)      |
+
+Output verified correct (full community table). The remaining ~5.5s is the node_modules ESM
+closure plus the actual RPC round trip, which is what the "inline pure-JS dependencies into the
+bundle" item above targets next.
