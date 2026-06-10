@@ -60,9 +60,11 @@ The benchmark prints three sections:
 > Absolute milliseconds are hardware-dependent (fast machine ~0.5s, slow machine ~9s); the **ratios
 > between layers** and the **bucket shares** are the portable signal — they hold across machines.
 
-## Baseline measurements
+## Baseline measurements (before any optimization)
 
-Captured on a fast 8-core host, Node v22.22.0, warm OS cache. Reproduce with `node scripts/bench-import-time.js`.
+Captured on `master` before the fixes below, on a fast 8-core host, Node v22.22.0, warm OS cache.
+Reproduce with `node scripts/bench-import-time.js`. For the current numbers see
+[Benchmark history](#benchmark-history).
 
 ### Per-layer cold import (no V8 compile cache)
 
@@ -106,14 +108,32 @@ the graph size, not a hotspot — which is why bundling and loading fewer module
 Ranked by effort/payoff. Each is a follow-up PR; tick it and add a [history](#benchmark-history) row
 when it lands.
 
+-   [x] **Lazy-load the local-node runtime off the RPC-client path** (done in #124) — the two
+        heaviest leaves are now deferred behind dynamic `import()` on the code paths that actually
+        start/run a local node, instead of being statically imported by the base `PKC` class:
+
+    -   **helia/libp2p** (~683ms standalone, the single biggest subgraph) — loaded inside
+        `_initLibp2pJsClientsIfNeeded()` in [`src/pkc/pkc.ts`](../../src/pkc/pkc.ts); `Libp2pJsClient`
+        is now a type-only import.
+    -   **LocalCommunity → db-handler → `better-sqlite3`** (~283ms standalone) — loaded inside
+        `_createLocalCommunity()`; the class is now a type-only import at module scope.
+
+        Result: `index.js` cold ~535ms → ~290ms and warm ~395ms → ~206ms on the reference host
+        (~46% faster import); the `pkc core` jump collapsed from +310ms to +88ms. The same ratio
+        takes the issue's ~9s slow-host import to roughly ~5s. Verified with the `helia` (17),
+        local `create.community` (15) and `pkc` (6) test suites.
+
+        Not pursued (measured ~free): lazy-loading `better-sqlite3`-via-`util`/`Storage` and the
+        challenges subsystem — each imports in ≈ the bare-Node baseline (~165ms), so deferring them
+        saves only ~10ms for real churn/risk. The residual ~88ms is the many-small-modules tail,
+        which only bundling addresses.
+
 -   [ ] **V8 compile cache** — `module.enableCompileCache()` on the Node entry (Node ≥ 22.8), or
-        document `NODE_COMPILE_CACHE`. Recovers the ~26% parse/compile portion. Cheap, low-risk.
--   [ ] **Lazy-load the local-node runtime off the RPC-client path** — the RPC client should not
-        statically import `better-sqlite3`, IPFS/helia helpers, the challenges subsystem, or local
-        community classes. Defer them behind dynamic `import()` on the code paths that actually start
-        or run a local node. This is the structural fix for the ~310ms (≈ ~7s on slow hardware) jump.
+        document `NODE_COMPILE_CACHE`. Recovers the ~29% parse/compile portion (~83ms after the
+        lazy-load above). Cheap, low-risk, orthogonal to lazy-loading.
 -   [ ] **Thin client entry point** — e.g. a `./client` export that pulls a minimal graph so RPC-only
-        consumers never resolve/link the local-node modules at all.
+        consumers never resolve/link the local-node modules at all. Likely unnecessary now that the
+        heavy leaves are lazy; revisit only if the residual is still too high on slow hardware.
 -   [ ] **Bundle the published `dist`** — collapse the 157-file `dist/node` graph (and as much of the
         dependency closure as practical) into a small number of files to cut the ~65% ESM
         resolve/link overhead. Biggest engineering lift; must not break the browser build or tree-shaking.
@@ -123,6 +143,7 @@ when it lands.
 After every optimization, re-run `node scripts/bench-import-time.js` on the same/comparable hardware and append a
 row here so each change shows its delta against the prior one. (Fast 8-core host, Node v22.22.0.)
 
-| Change   | index cold | index warm-cache | rpc-client only | pkc-with-rpc | dominant cost              | Notes / PR              |
-| -------- | ---------- | ---------------- | --------------- | ------------ | -------------------------- | ----------------------- |
-| baseline | ~535ms     | ~395ms           | ~173ms          | ~475ms       | ~65% node ESM resolve/link | #120 (measurement only) |
+| Change                           | index cold | index warm-cache | rpc-client only | pkc-with-rpc | dominant cost              | Notes / PR                  |
+| -------------------------------- | ---------- | ---------------- | --------------- | ------------ | -------------------------- | --------------------------- |
+| baseline                         | ~535ms     | ~395ms           | ~173ms          | ~475ms       | ~65% node ESM resolve/link | #120 (measurement only)     |
+| lazy-load helia + LocalCommunity | ~290ms     | ~206ms           | ~164ms          | ~249ms       | ~64% node ESM resolve/link | #124 (~46% faster index.js) |
