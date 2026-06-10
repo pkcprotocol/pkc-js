@@ -45,7 +45,10 @@ const targets = [
     { label: "challenges subsystem", file: "runtime/node/community/challenges/index.js" },
     { label: "pkc core class", file: "pkc/pkc.js" },
     { label: "pkc-with-rpc-client (extends PKC)", file: "pkc/pkc-with-rpc-client.js" },
-    { label: "index.js (public entry)", file: "index.js" }
+    { label: "index.js (public entry)", file: "index.js" },
+    // cache disabled in cold runs (NODE_DISABLE_COMPILE_CACHE=1), so this row isolates the
+    // bootstrap wrapper's own overhead vs index.js — it should be ~0
+    { label: "index-with-compile-cache.js (npm import entry, cache disabled)", file: "index-with-compile-cache.js" }
 ];
 
 const median = (xs) => {
@@ -60,8 +63,15 @@ const median = (xs) => {
 function measureOnce(absFile, compileCacheDir) {
     const code = `const t=performance.now();await import(${JSON.stringify(absFile)});process.stderr.write(String(performance.now()-t));process.exit(0);`;
     const env = { ...process.env, TMPDIR: benchTmpBase };
-    if (compileCacheDir) env.NODE_COMPILE_CACHE = compileCacheDir;
-    else delete env.NODE_COMPILE_CACHE;
+    if (compileCacheDir) {
+        env.NODE_COMPILE_CACHE = compileCacheDir;
+        delete env.NODE_DISABLE_COMPILE_CACHE;
+    } else {
+        // Genuinely cold: index-with-compile-cache.js self-enables the cache (defaulting to
+        // os.tmpdir()), so without this a "cold" run would silently warm up across iterations.
+        delete env.NODE_COMPILE_CACHE;
+        env.NODE_DISABLE_COMPILE_CACHE = "1";
+    }
     const res = spawnSync(process.execPath, ["--input-type=module", "-e", code], { env, encoding: "utf8" });
     if (res.status !== 0) {
         throw new Error(`import of ${absFile} failed:\n${res.stderr}`);
@@ -109,7 +119,28 @@ try {
     rmSync(cacheDir, { recursive: true, force: true });
 }
 
-// 3) Per-file self-time attribution — the "where in our code is it slow" answer. We run the import
+// 3) The npm "import"-condition entry (index-with-compile-cache.js): it enables Node's compile
+// cache itself before dynamic-importing index.js, so consumers get the warm-cache speedup by
+// default — no NODE_COMPILE_CACHE env needed. First run with an empty cache dir populates it
+// (and pays a small write cost); subsequent runs reuse the bytecode. We point NODE_COMPILE_CACHE
+// at a scratch dir under .tmp/ so the benchmark controls (and cleans up) where the entry's
+// self-enabled cache lands, instead of polluting the real os.tmpdir().
+console.log(`\n## index-with-compile-cache.js (npm import entry) — self-enabled compile cache\n`);
+const bootstrapAbs = path.join(distNode, "index-with-compile-cache.js");
+const bootstrapCacheDir = mkdtempSync(path.join(benchTmpBase, "pkc-bench-bootstrap-cc-"));
+try {
+    const first = measureOnce(bootstrapAbs, bootstrapCacheDir);
+    const warm = measureMedian(bootstrapAbs, bootstrapCacheDir);
+    console.log(`| Run | Time |`);
+    console.log(`| --- | --- |`);
+    console.log(`| first (self-populates bytecode cache) | ${first.toFixed(0)}ms |`);
+    console.log(`| warm (bytecode reused) | ${warm.toFixed(0)}ms |`);
+    console.log(`\nThis is the default experience for Node ESM consumers importing the package.`);
+} finally {
+    rmSync(bootstrapCacheDir, { recursive: true, force: true });
+}
+
+// 4) Per-file self-time attribution — the "where in our code is it slow" answer. We run the import
 // once under V8's CPU sampling profiler (--cpu-prof), then aggregate self-time per source file from
 // the .cpuprofile. Self-time per profiler node = sum of the sample timeDeltas attributed to that
 // node id; we map each node to its callFrame.url (the source file) and sum across all nodes sharing

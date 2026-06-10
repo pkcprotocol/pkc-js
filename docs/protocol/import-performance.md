@@ -45,13 +45,16 @@ Tune iterations with `BENCH_IMPORT_ITERATIONS` (default 5). Each measurement run
 process** (ESM caches a graph after the first import), and the median is reported. Scratch files go
 to `.tmp/` (never `/tmp`, which is RAM-backed tmpfs on Linux).
 
-The benchmark prints three sections:
+The benchmark prints four sections:
 
 -   **Per-layer cold import** — imports each layer in isolation; the marginal jump between rows
     attributes cost. The leanest layer (`rpc-client`) vs the full `index.js` shows what the RPC-only
     path is forced to over-pay.
 -   **Cold vs warm V8 compile cache** — sizes the parse/compile portion (recoverable via
     `NODE_COMPILE_CACHE` / `module.enableCompileCache()`) separately from linking + execution.
+-   **npm import entry, self-enabled compile cache** — measures `index-with-compile-cache.js`
+    (the `"."` → `import` export condition), which enables the compile cache itself: first run
+    (populates the cache) vs warm runs. This is the default experience for Node ESM consumers.
 -   **Per-file self-time attribution** — runs the import under V8's native sampling profiler
     (`--cpu-prof`) and aggregates the resulting `.cpuprofile` into self-time per source file, plus a
     coarse bucket breakdown (our code / deps / node internals / runtime). This is the
@@ -128,9 +131,25 @@ when it lands.
         saves only ~10ms for real churn/risk. The residual ~88ms is the many-small-modules tail,
         which only bundling addresses.
 
--   [ ] **V8 compile cache** — `module.enableCompileCache()` on the Node entry (Node ≥ 22.8), or
-        document `NODE_COMPILE_CACHE`. Recovers the ~29% parse/compile portion (~83ms after the
-        lazy-load above). Cheap, low-risk, orthogonal to lazy-loading.
+-   [x] **V8 compile cache** (done in #125) — the `"."` → `import` export condition now points at a
+        thin bootstrap, [`src/index-with-compile-cache.ts`](../../src/index-with-compile-cache.ts),
+        that calls `module.enableCompileCache()` (via
+        [`src/runtime/node/compile-cache.ts`](../../src/runtime/node/compile-cache.ts), no-op on
+        Node < 22.8 and in browsers) and only then dynamic-imports the real `index.js`.
+
+    The bootstrap exists because the cache only covers modules compiled _after_ the call, and
+    Node's ESM loader compiles the whole static graph before any module body runs — so calling
+    it from inside `index.ts` would always be too late; the dynamic `import()` is what delays
+    the graph's compilation until the cache is on. The `require` condition keeps pointing at
+    plain `index.js` since `require(esm)` rejects graphs with top-level await; CJS consumers
+    keep the previous (uncached) behavior.
+
+    Result: Node ESM consumers get the warm-cache import by default — ~272ms cold → ~208ms on
+    every run after the first (~24% faster) on the reference host, no consumer config needed.
+    The wrapper itself adds ~0ms (272ms vs 272ms with the cache disabled), and the first run
+    pays a one-time ~30ms cache-population cost. Cache dir is Node's default
+    (`os.tmpdir()/node-compile-cache`), overridable with `NODE_COMPILE_CACHE`; opt out with
+    `NODE_DISABLE_COMPILE_CACHE=1`.
 -   [ ] **Thin client entry point** — e.g. a `./client` export that pulls a minimal graph so RPC-only
         consumers never resolve/link the local-node modules at all. Likely unnecessary now that the
         heavy leaves are lazy; revisit only if the residual is still too high on slow hardware.
@@ -147,3 +166,4 @@ row here so each change shows its delta against the prior one. (Fast 8-core host
 | -------------------------------- | ---------- | ---------------- | --------------- | ------------ | -------------------------- | --------------------------- |
 | baseline                         | ~535ms     | ~395ms           | ~173ms          | ~475ms       | ~65% node ESM resolve/link | #120 (measurement only)     |
 | lazy-load helia + LocalCommunity | ~290ms     | ~206ms           | ~164ms          | ~249ms       | ~64% node ESM resolve/link | #124 (~46% faster index.js) |
+| self-enabled compile cache       | ~272ms     | ~208ms (now the default) | ~185ms  | ~257ms       | ~66% node ESM resolve/link | #125 (warm-by-default ESM entry) |
