@@ -119,20 +119,6 @@ async function _setHttpRouterOptionsOnKuboNode(kuboClient: PKC["clients"]["kuboR
     }
 }
 
-// Remove proxy URL mappings persisted by the address rewriter proxy that older versions of
-// pkc-js used to put between kubo and the http routers (removed since kubo >= 0.41 publishes
-// resolved addresses in provider records itself, see ipfs/kubo#11213)
-async function _removeLegacyAddressRewriterStorageKeys(pkc: PKC, httpRouterUrls: string[]) {
-    for (const httpRouterUrl of httpRouterUrls) {
-        if (pkc.destroyed) return;
-        try {
-            await pkc._storage.removeItem(`httprouter_proxy_${httpRouterUrl}`);
-        } catch {
-            // best-effort cleanup, storage may already be closed during destroy
-        }
-    }
-}
-
 export async function setupKuboHttpRouters(pkc: PKC): Promise<void> {
     if (pkc.destroyed) return;
     if (!Array.isArray(pkc.kuboRpcClientsOptions) || pkc.kuboRpcClientsOptions.length <= 0)
@@ -140,9 +126,6 @@ export async function setupKuboHttpRouters(pkc: PKC): Promise<void> {
     if (!Array.isArray(pkc.httpRoutersOptions) || pkc.httpRoutersOptions.length <= 0) throw Error("Need http router options to defined");
 
     const httpRouterUrls = [...pkc.httpRoutersOptions].sort(); // make sure it's always the same order
-
-    await _removeLegacyAddressRewriterStorageKeys(pkc, httpRouterUrls);
-    if (pkc.destroyed) return;
 
     // Set up http routers directly on the kubo nodes
     const kuboClients = pkc.clients.kuboRpcClients;
