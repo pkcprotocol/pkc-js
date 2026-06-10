@@ -153,9 +153,51 @@ when it lands.
 -   [ ] **Thin client entry point** — e.g. a `./client` export that pulls a minimal graph so RPC-only
         consumers never resolve/link the local-node modules at all. Likely unnecessary now that the
         heavy leaves are lazy; revisit only if the residual is still too high on slow hardware.
--   [ ] **Bundle the published `dist`** — collapse the 157-file `dist/node` graph (and as much of the
-        dependency closure as practical) into a small number of files to cut the ~65% ESM
-        resolve/link overhead. Biggest engineering lift; must not break the browser build or tree-shaking.
+-   [x] **Bundle the published `dist` (our files; deps external)** (done in #126) — a rolldown step
+        ([`config/build-node-bundle.js`](../../config/build-node-bundle.js)) collapses the compiled
+        `dist/node/*.js` graph into a few ESM chunks under `dist/bundled/`, and the package.json
+        Node runtime conditions (`import`/`require` for `.`, `./challenges`, `./rpc`) now point
+        there. The dist layout after this change:
+
+    -   `dist/node` — per-file tsc output. Still the source of truth for the `types` condition,
+        for tests (they deep-import individual files), and as the input to both the browser copy
+        step and the bundler.
+    -   `dist/browser` — unchanged per-file output; downstream bundlers (e.g. vite apps) keep
+        tree-shaking it. `browser` conditions untouched.
+    -   `dist/bundled` — what npm consumers on Node actually load: 4 entries plus shared chunks,
+        with the lazy boundaries (helia/libp2p, LocalCommunity → `better-sqlite3`, the
+        compile-cache bootstrap's dynamic `import("./index.js")`) preserved as real lazy chunks.
+
+    Rule: **one dist flavor per process.** Never import `dist/node` files and `dist/bundled`
+    entries into the same process — module-level state (the nativeFunctions registry, caches,
+    zod schema identity) would duplicate. Tests use per-file `dist/node` only; the build gates
+    ([`config/verify-bundle.js`](../../config/verify-bundle.js)) and
+    [`scripts/smoke-pack-install.js`](../../scripts/smoke-pack-install.js) exercise the bundle in
+    fresh child processes.
+
+    Notes from landing it:
+
+    -   **rolldown, not esbuild.** esbuild's code splitting does not guarantee Node-like
+        evaluation order across chunks shared by multiple entries; with our import cycles
+        (comment schema ↔ pages schema, clients ↔ pkc managers) it evaluated a cycle in the
+        wrong order ("Class extends value undefined"), and it cannot combine top-level await
+        with splitting at all (which the compile-cache bootstrap needs). rolldown orders module
+        bodies topologically like Node and handled both.
+    -   One real cycle bug surfaced and was fixed in `src`: `CommentUpdateSchema`'s `replies`
+        shape getter dereferenced `RepliesPagesIpfsSchema` at module-eval time (`.strict()`
+        materializes the shape); it now wraps the reference in `z.lazy` inside the getter, so it
+        is robust to any evaluation order.
+    -   Result on the reference host: cold import 266ms → 245ms and warm-cache 208ms → 196ms
+        (~8%). Modest, because with all deps external the remaining ESM overhead is dominated by
+        the node_modules closure, not our 157 files — which sets up the next step.
+
+-   [ ] **Inline pure-JS dependencies into the bundle** — the measured big lever now. A throwaway
+        experiment (single-entry rolldown bundle of `index.js` with everything except
+        `better-sqlite3` inlined) built and imported cleanly: cold ~165ms (vs 245ms shipped, 266ms
+        per-file) and ~115ms with a warm compile cache (vs 196ms shipped). Before shipping it:
+        audit which dep types cross the public API boundary (a consumer catching
+        `instanceof ZodError` against its own zod copy would break), keep `better-sqlite3`
+        external (native), and re-check the lazy chunks still split.
 
 ## Benchmark history
 
@@ -167,3 +209,4 @@ row here so each change shows its delta against the prior one. (Fast 8-core host
 | baseline                         | ~535ms     | ~395ms           | ~173ms          | ~475ms       | ~65% node ESM resolve/link | #120 (measurement only)     |
 | lazy-load helia + LocalCommunity | ~290ms     | ~206ms           | ~164ms          | ~249ms       | ~64% node ESM resolve/link | #124 (~46% faster index.js) |
 | self-enabled compile cache       | ~272ms     | ~208ms (now the default) | ~185ms  | ~257ms       | ~66% node ESM resolve/link | #125 (warm-by-default ESM entry) |
+| bundle dist (our files; deps external) | ~245ms | ~196ms          | ~173ms (unbundled) | ~258ms (unbundled) | node_modules ESM closure  | #126 (rolldown -> dist/bundled)  |

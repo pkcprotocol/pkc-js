@@ -31,6 +31,7 @@ import path from "node:path";
 
 const ITERATIONS = Number(process.env.BENCH_IMPORT_ITERATIONS ?? 5);
 const distNode = fileURLToPath(new URL("../dist/node/", import.meta.url));
+const distBundled = fileURLToPath(new URL("../dist/bundled/", import.meta.url));
 
 // Scratch lives under the project's .tmp/ (gitignored, on real disk), NEVER os.tmpdir() — on Linux
 // /tmp is RAM-backed tmpfs, and the compile-cache section writes one file per module (~14k files),
@@ -101,6 +102,26 @@ for (const t of targets) {
     prev = ms;
 }
 
+// 1b) The bundled entries (dist/bundled, what npm consumers load since the bundling change) vs
+// their per-file dist/node counterparts. Same files, same deps (all external), same lazy chunks —
+// the only difference is the number of modules Node has to resolve/link/compile, which is exactly
+// the overhead bundling is meant to remove.
+console.log(`\n## Bundled entries (dist/bundled) vs per-file (dist/node) — cold import\n`);
+console.log(`| Entry | per-file | bundled | delta |`);
+console.log(`| --- | --- | --- | --- |`);
+const bundledTargets = [
+    { label: "index.js (public entry)", file: "index.js" },
+    { label: "index-with-compile-cache.js (npm import entry, cache disabled)", file: "index-with-compile-cache.js" },
+    { label: "challenges.js", file: "challenges.js" },
+    { label: "rpc/src/index.js (RPC server)", file: "rpc/src/index.js" }
+];
+for (const t of bundledTargets) {
+    const perFileMs = measureMedian(path.join(distNode, t.file), null);
+    const bundledMs = measureMedian(path.join(distBundled, t.file), null);
+    const delta = (((bundledMs - perFileMs) / perFileMs) * 100).toFixed(0);
+    console.log(`| ${t.label} | ${perFileMs.toFixed(0)}ms | ${bundledMs.toFixed(0)}ms | ${delta}% |`);
+}
+
 // 2) Full index.js: cold vs warm V8 compile cache, to size the parse/compile portion.
 console.log(`\n## index.js — cold vs warm V8 compile cache\n`);
 const indexAbs = path.join(distNode, "index.js");
@@ -126,18 +147,28 @@ try {
 // at a scratch dir under .tmp/ so the benchmark controls (and cleans up) where the entry's
 // self-enabled cache lands, instead of polluting the real os.tmpdir().
 console.log(`\n## index-with-compile-cache.js (npm import entry) — self-enabled compile cache\n`);
-const bootstrapAbs = path.join(distNode, "index-with-compile-cache.js");
-const bootstrapCacheDir = mkdtempSync(path.join(benchTmpBase, "pkc-bench-bootstrap-cc-"));
-try {
-    const first = measureOnce(bootstrapAbs, bootstrapCacheDir);
-    const warm = measureMedian(bootstrapAbs, bootstrapCacheDir);
-    console.log(`| Run | Time |`);
-    console.log(`| --- | --- |`);
-    console.log(`| first (self-populates bytecode cache) | ${first.toFixed(0)}ms |`);
-    console.log(`| warm (bytecode reused) | ${warm.toFixed(0)}ms |`);
-    console.log(`\nThis is the default experience for Node ESM consumers importing the package.`);
-} finally {
-    rmSync(bootstrapCacheDir, { recursive: true, force: true });
+console.log(`| Run | per-file | bundled |`);
+console.log(`| --- | --- | --- |`);
+{
+    const rows = { first: {}, warm: {} };
+    for (const [flavor, base] of [
+        ["per-file", distNode],
+        ["bundled", distBundled]
+    ]) {
+        const bootstrapAbs = path.join(base, "index-with-compile-cache.js");
+        const bootstrapCacheDir = mkdtempSync(path.join(benchTmpBase, "pkc-bench-bootstrap-cc-"));
+        try {
+            rows.first[flavor] = measureOnce(bootstrapAbs, bootstrapCacheDir);
+            rows.warm[flavor] = measureMedian(bootstrapAbs, bootstrapCacheDir);
+        } finally {
+            rmSync(bootstrapCacheDir, { recursive: true, force: true });
+        }
+    }
+    console.log(
+        `| first (self-populates bytecode cache) | ${rows.first["per-file"].toFixed(0)}ms | ${rows.first["bundled"].toFixed(0)}ms |`
+    );
+    console.log(`| warm (bytecode reused) | ${rows.warm["per-file"].toFixed(0)}ms | ${rows.warm["bundled"].toFixed(0)}ms |`);
+    console.log(`\nThe bundled column is the default experience for Node ESM consumers importing the package.`);
 }
 
 // 4) Per-file self-time attribution — the "where in our code is it slow" answer. We run the import

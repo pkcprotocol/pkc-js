@@ -1,0 +1,85 @@
+// Bundles the tsc per-file output (dist/node/*.js) into dist/bundled/ with rolldown.
+//
+// Why: ~65% of the package's Node import time is ESM resolve/link overhead across the
+// ~157-file dist/node graph, not our code bodies (see docs/protocol/import-performance.md).
+// Collapsing our own modules into a few chunks removes most of that overhead. All bare
+// imports (node_modules) stay external in this step, so dependency resolution, npm dedupe
+// and instanceof identity (zod, libp2p types) are untouched.
+//
+// The bundler input is the already-compiled JS, not the TS source: tsc stays the only
+// compiler (NodeNext semantics, .d.ts emit), and dist/node + dist/browser are byte-identical
+// to before. Only the package.json Node runtime conditions point at dist/bundled/.
+//
+// Output dir is dist/bundled/ on purpose - NOT dist/node-bundled/: config/build-browser.js
+// filters watched paths with a startsWith(dist/node) prefix check, which a dist/node-bundled
+// dir would falsely match.
+//
+// Why rolldown and not esbuild: this graph has import cycles (e.g. comment schema <->
+// pages schema, clients <-> pkc client managers). esbuild's code splitting does not
+// guarantee Node-like evaluation order across shared chunks of multiple entries, and with
+// our 3 public entries it evaluated a cycle in the wrong order ("Class extends value
+// undefined"). rolldown orders module bodies topologically like Node's ESM loader, and it
+// supports top-level await together with splitting, so the compile-cache bootstrap can be
+// part of the same build (esbuild cannot combine TLA + splitting at all).
+//
+// Code splitting keeps the lazy boundaries from the import-time work as real lazy chunks:
+//   - src/pkc/pkc.ts -> await import("../helia/helia-for-pkc.js")         (helia/libp2p)
+//   - src/pkc/pkc.ts -> await import(".../community/local-community.js")  (db-handler graph)
+//   - index-with-compile-cache.js -> await import("./index.js")           (compile cache)
+// The user-supplied challenge plugin import (await import(pathToFileURL(path).href)) is a
+// non-analyzable runtime expression and passes through verbatim.
+//
+// Writes dist/bundled/bundle-manifest.json (per-output static/dynamic imports + input files);
+// config/verify-bundle.js uses it to assert the lazy subgraphs really ended up in
+// dynamically-imported chunks.
+
+import fs from "node:fs";
+import path from "node:path";
+import url from "node:url";
+import { rolldown } from "rolldown";
+
+const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
+const root = path.resolve(__dirname, "..");
+const outDir = path.join(root, "dist", "bundled");
+
+const bundle = await rolldown({
+    cwd: root,
+    input: {
+        index: "dist/node/index.js",
+        "index-with-compile-cache": "dist/node/index-with-compile-cache.js",
+        challenges: "dist/node/challenges.js",
+        "rpc/src/index": "dist/node/rpc/src/index.js"
+    },
+    platform: "node",
+    // every bare import stays external (see header comment); relative + absolute ids are ours
+    external: (id) => !id.startsWith(".") && !path.isAbsolute(id),
+    onwarn(warning, defaultHandler) {
+        // text-math intentionally evals its own generated arithmetic expression; not a bundling problem
+        if (warning.code === "EVAL" && String(warning.id).includes("text-math")) return;
+        defaultHandler(warning);
+    }
+});
+
+const { output } = await bundle.write({
+    dir: outDir,
+    format: "esm",
+    chunkFileNames: "chunks/[name]-[hash].js",
+    sourcemap: true
+});
+await bundle.close();
+
+// Manifest for config/verify-bundle.js: which inputs each output contains and what it
+// imports statically vs dynamically. Paths are relative to the repo root / outDir.
+const manifest = { outputs: {} };
+for (const chunk of output) {
+    if (chunk.type !== "chunk") continue;
+    manifest.outputs[chunk.fileName] = {
+        isEntry: chunk.isEntry,
+        imports: chunk.imports,
+        dynamicImports: chunk.dynamicImports,
+        inputs: Object.keys(chunk.modules).map((id) => path.relative(root, id))
+    };
+}
+fs.writeFileSync(path.join(outDir, "bundle-manifest.json"), JSON.stringify(manifest, null, 4));
+
+console.log(`build-node-bundle: ok (${Object.keys(manifest.outputs).length} files under dist/bundled)`);
