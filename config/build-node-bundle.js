@@ -48,6 +48,11 @@ const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 const outDir = path.join(root, "dist", "bundled");
 
+// Chunk names are content-hashed, so a standalone re-run (outside `npm run build`, which
+// rimrafs dist/) would otherwise accumulate stale chunks from previous builds and ship
+// them in the tarball.
+fs.rmSync(outDir, { recursive: true, force: true });
+
 const bundle = await rolldown({
     cwd: root,
     input: {
@@ -71,7 +76,11 @@ const { output } = await bundle.write({
     dir: outDir,
     format: "esm",
     chunkFileNames: "chunks/[name]-[hash].js",
-    sourcemap: true
+    // No sourcemaps: with deps inlined they are ~16MB of the tarball, Node ignores them
+    // without --enable-source-maps, and the per-file dist/node (which ships anyway) is the
+    // readable reference for any bundled frame. Rebuild locally with sourcemap: true when
+    // a bundled stack trace genuinely needs mapping.
+    sourcemap: false
 });
 await bundle.close();
 
