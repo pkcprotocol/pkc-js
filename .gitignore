@@ -134,3 +134,5 @@ src/generated-version.ts
 
 # Test logs
 .tmp/
+pkc-js-rinse*/
+.pkc*/
