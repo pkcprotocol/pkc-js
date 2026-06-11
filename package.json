@@ -4,8 +4,10 @@
     "type": "module",
     "scripts": {
         "prebuild": "node config/generate-version.js",
-        "build": "npm run clean && run-s build:node build:browser verify:browser-imports",
+        "build": "npm run clean && run-s build:node build:browser verify:browser-imports build:node:bundle verify:bundle",
         "build:node": "tsc --project config/tsconfig.json",
+        "build:node:bundle": "node config/build-node-bundle.js",
+        "verify:bundle": "node config/verify-bundle.js",
         "build:node:watch": "tsc --project config/tsconfig.json --watch",
         "build:browser": "node config/build-browser",
         "build:browser:watch": "node config/build-browser --watch",
@@ -36,7 +38,7 @@
         "release": "HUSKY=0 release-it --config config/.release-it.json",
         "prepare": "husky"
     },
-    "main": "dist/node/index.js",
+    "main": "dist/bundled/index.js",
     "types": "dist/node/index.d.ts",
     "browser": {
         ".": "dist/browser/index.js"
@@ -48,19 +50,19 @@
         ".": {
             "types": "./dist/node/index.d.ts",
             "browser": "./dist/browser/index.js",
-            "import": "./dist/node/index.js",
-            "require": "./dist/node/index.js"
+            "import": "./dist/bundled/index-with-compile-cache.js",
+            "require": "./dist/bundled/index.js"
         },
         "./challenges": {
             "types": "./dist/node/challenges.d.ts",
             "browser": null,
-            "import": "./dist/node/challenges.js"
+            "import": "./dist/bundled/challenges.js"
         },
         "./rpc": {
             "types": "./dist/node/rpc/src/index.d.ts",
             "browser": null,
-            "import": "./dist/node/rpc/src/index.js",
-            "require": "./dist/node/rpc/src/index.js"
+            "import": "./dist/bundled/rpc/src/index.js",
+            "require": "./dist/bundled/rpc/src/index.js"
         }
     },
     "dependencies": {
@@ -83,10 +85,13 @@
         "blockstore-core": "6.1.2",
         "buffer": "6.0.3",
         "cbor": "10.0.11",
+        "cborg": "4.5.8",
         "debounce": "1.2.1",
         "ext-name": "5.0.0",
         "helia": "6.1.4",
         "hpagent": "1.2.0",
+        "ipfs-unixfs-importer": "16.1.4",
+        "ipns": "10.1.3",
         "it-all": "3.0.6",
         "js-sha256": "0.11.1",
         "js-sha512": "0.9.0",
@@ -95,6 +100,8 @@
         "localforage": "1.10.0",
         "lodash.merge": "4.6.2",
         "lru-cache": "10.1.0",
+        "multiformats": "13.4.2",
+        "node-forge": "1.4.0",
         "open-graph-scraper": "6.11.0",
         "p-limit": "7.3.0",
         "p-retry": "8.0.0",
@@ -108,6 +115,7 @@
         "tinycache": "1.1.2",
         "ts-custom-error": "3.3.1",
         "typestub-ipfs-only-hash": "4.0.0",
+        "uint8arrays": "5.1.0",
         "uuid": "13.0.0",
         "zod": "4.3.6"
     },
@@ -139,6 +147,7 @@
         "prettier": "3.2.4",
         "release-it": "19.2.4",
         "rimraf": "6.1.3",
+        "rolldown": "1.1.0",
         "socket.io": "4.8.1",
         "socket.io-client": "4.8.1",
         "tcp-port-used": "1.0.2",

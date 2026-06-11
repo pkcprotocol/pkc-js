@@ -59,11 +59,10 @@ import LRUStorage from "../runtime/node/lru-storage.js";
 import { RemoteCommunity } from "../community/remote-community.js";
 import { RpcRemoteCommunity } from "../community/rpc-remote-community.js";
 import { RpcLocalCommunity } from "../community/rpc-local-community.js";
-import {
-    LocalCommunity,
-    createNewLocalCommunityDb,
-    updateInstancePropsWithStartedCommunityOrDb
-} from "../runtime/node/community/local-community.js";
+// LocalCommunity pulls in the db-handler -> better-sqlite3 graph (issue #120). It is only
+// instantiated when a local community is created (_createLocalCommunity), so the class and its
+// helper functions are loaded dynamically there; here we keep only the type (erased at build time).
+import type { LocalCommunity } from "../runtime/node/community/local-community.js";
 import { extractCommunityRuntimeFieldsFromParsedPages } from "../pages/util.js";
 import pTimeout, { TimeoutError } from "p-timeout";
 import * as remeda from "remeda";
@@ -130,8 +129,11 @@ import type {
 import { LRUCache } from "lru-cache";
 import { PKCTypedEmitter } from "../clients/pkc-typed-emitter.js";
 import type { PageTypeJson } from "../pages/types.js";
-import { createLibp2pJsClientOrUseExistingOne } from "../helia/helia-for-pkc.js";
-import { Libp2pJsClient } from "../helia/libp2pjsClient.js";
+// helia/libp2p is the single heaviest subgraph to import (issue #120). It is only needed when the
+// caller actually starts a libp2p-js node, so it is loaded dynamically inside
+// _initLibp2pJsClientsIfNeeded() rather than statically here. Libp2pJsClient is used only as a type,
+// so it stays a type-only import (erased at build time, no runtime cost).
+import type { Libp2pJsClient } from "../helia/libp2pjsClient.js";
 import type { AuthorNameRpcParam, CidRpcParam, RpcFetchCidResult } from "../clients/rpc-client/types.js";
 import { parseRpcAuthorNameParam, parseRpcCidParam } from "../clients/rpc-client/rpc-schema-util.js";
 import { cleanWireAuthor, normalizeCreatePublicationAuthor } from "../publications/publication-author.js";
@@ -364,6 +366,9 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         this.clients.libp2pJsClients = {};
         if (!this.libp2pJsClientsOptions) return;
         if (!this.httpRoutersOptions) throw Error("httpRoutersOptions is required for libp2pJsClient");
+        // Loaded here (not at the top of the file) so the large helia/libp2p graph is only imported
+        // when a libp2p-js node is actually started — RPC-only and gateway consumers never pay it.
+        const { createLibp2pJsClientOrUseExistingOne } = await import("../helia/helia-for-pkc.js");
         for (const clientOptions of this.libp2pJsClientsOptions) {
             const heliaNode = await createLibp2pJsClientOrUseExistingOne({
                 ...clientOptions,
@@ -741,6 +746,12 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
 
         const canCreateLocalCommunity = this._canCreateNewLocalCommunity();
         if (!canCreateLocalCommunity) throw new PKCError("ERR_CAN_NOT_CREATE_A_LOCAL_COMMUNITY", { pkcOptions: this._userPKCOptions });
+
+        // Loaded here (not at the top of the file) so the local-community -> better-sqlite3 graph is
+        // only imported when a local community is actually created — see issue #120.
+        const { LocalCommunity, createNewLocalCommunityDb, updateInstancePropsWithStartedCommunityOrDb } = await import(
+            "../runtime/node/community/local-community.js"
+        );
 
         const localCommunities = await nodeListCommunities(this);
         const isLocalCommunity = localCommunities.includes(options.address); // Community exists already, only pass address so we don't override other props

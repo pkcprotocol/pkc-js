@@ -146,8 +146,14 @@ export const CommentUpdateSchema = z
         lastReplyTimestamp: PKCTimestampSchema.optional(), // The timestamp of the most recent direct or indirect child of the comment
         signature: JsonSignatureSchema, // signature of the CommentUpdate by the community owner to protect against malicious gateway
         protocolVersion: ProtocolVersionSchema,
+        // The getter defers TypeScript inference of the comment-schema <-> pages-schema cycle; the
+        // z.lazy inside defers the *runtime* dereference too: .strict() materializes the shape (and
+        // thus runs this getter) at module-eval time, and a bundler that orders the cycle
+        // differently than Node's per-file ESM loader would otherwise read RepliesPagesIpfsSchema
+        // before its module body ran. Same idiom as PageIpfsSchema's comments field in
+        // src/pages/schema.ts.
         get replies() {
-            return RepliesPagesIpfsSchema.optional();
+            return z.lazy(() => RepliesPagesIpfsSchema).optional();
         }
     })
     .strict();

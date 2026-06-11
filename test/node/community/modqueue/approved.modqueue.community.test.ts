@@ -29,10 +29,12 @@ for (let i = 0; i < depthsToTest.length; i += batchSize) {
 }
 
 for (const batch of depthBatches) {
-    // Sequential between batches — limits concurrent communities to 3 at a time
+    // Depth suites run sequentially: each one starts its own local community whose sync loop writes
+    // postUpdates to Kubo MFS. Running them concurrently (on top of vitest file parallelism) wedges
+    // Kubo's MFS on slow Windows CI runners (ipfs/kubo#10842) and times out the whole node-local job.
     describe(`Approved modqueue batch [${batch.join(",")}]`, () => {
         for (const pendingCommentDepth of batch) {
-            describeSkipIfRpc.concurrent(`Approved comments after pending approval, with depth ` + pendingCommentDepth, async () => {
+            describeSkipIfRpc.sequential(`Approved comments after pending approval, with depth ` + pendingCommentDepth, async () => {
                 let pkc: PKCType;
                 let community: LocalCommunity | RpcLocalCommunity;
                 let approvedComment: Comment;
