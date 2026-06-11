@@ -945,7 +945,18 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
                 if (!connectionHandlers) continue;
                 for (const subscriptionId of remeda.keys.strict(connectionHandlers)) {
                     const handler = connectionHandlers[subscriptionId];
-                    if (handler) await handler({ newPKC });
+                    if (!handler) continue;
+                    try {
+                        await handler({ newPKC });
+                    } catch (error) {
+                        // One failing handler must not abort the loop: the remaining subscriptions
+                        // would never migrate to the new pkc and would die silently when the old
+                        // pkc is destroyed (issue #129)
+                        log.error(
+                            `Failed to apply settings change to subscription ${subscriptionId} of connection ${connectionId}, continuing with remaining subscriptions`,
+                            error
+                        );
+                    }
                 }
             }
 
