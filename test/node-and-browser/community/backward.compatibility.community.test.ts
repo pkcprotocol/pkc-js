@@ -94,11 +94,19 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 });
             } else {
                 // Attach error listener BEFORE update() to avoid race where error arrives
-                // during update() initialization via emitAllPendingMessages
-                const errorPromise = new Promise<PKCError>((resolve) => community.once("error", resolve as (err: Error) => void));
+                // during update() initialization via emitAllPendingMessages.
+                // Collect errors instead of asserting on the first one: under libp2pjs the first
+                // attempt can transiently emit ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED before the record
+                // propagates to the fresh Helia node, then the retry emits the signature error (issue #138)
+                const errors: PKCError[] = [];
+                community.on("error", (err: PKCError | Error) => errors.push(err as PKCError));
                 await community.update();
-                const error = await errorPromise;
-                expect(error.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
+                await resolveWhenConditionIsTrue({
+                    toUpdate: community,
+                    predicate: async () => errors.some((err) => err.code === "ERR_COMMUNITY_SIGNATURE_IS_INVALID"),
+                    eventName: "error"
+                });
+                const error = errors.find((err) => err.code === "ERR_COMMUNITY_SIGNATURE_IS_INVALID")!;
                 expect(error.details.signatureValidity.valid).to.be.false;
                 expect(error.details.signatureValidity.reason).to.equal(
                     messages.ERR_COMMUNITY_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES

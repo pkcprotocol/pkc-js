@@ -253,6 +253,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await ipnsObj.publishToIpns(JSON.stringify(communityRecord));
             const tempCommunity = await pkc.createCommunity({ address: ipnsObj.signer.address });
 
+            // Collect errors instead of asserting on the first one: under libp2pjs the first attempt
+            // can transiently emit ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED before the record propagates
+            // to the fresh Helia node, then the retry emits the signature error (issue #138)
+            const errors: PKCError[] = [];
+            tempCommunity.on("error", (err: PKCError | Error) => errors.push(err as PKCError));
+
             await tempCommunity.update();
 
             if (isPKCFetchingUsingGateways(pkc)) {
@@ -263,8 +269,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     eventName: "updatingstatechange"
                 });
             } else {
-                const error = await new Promise<PKCError>((resolve) => tempCommunity.once("error", resolve as (err: Error) => void));
-                expect(error.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
+                await resolveWhenConditionIsTrue({
+                    toUpdate: tempCommunity,
+                    predicate: async () => errors.some((err) => err.code === "ERR_COMMUNITY_SIGNATURE_IS_INVALID"),
+                    eventName: "error"
+                });
+                expect(errors.some((err) => err.code === "ERR_COMMUNITY_SIGNATURE_IS_INVALID")).to.be.true;
             }
 
             await tempCommunity.stop();
