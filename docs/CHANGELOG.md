@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.46](https://github.com/pkcprotocol/pkc-js/compare/v0.0.45...v0.0.46) (2026-06-11)
+
+### Bug Fixes
+
+* **rpc:** don't let one failing settings-change handler strand other subscriptions ([#129](https://github.com/pkcprotocol/pkc-js/issues/129)) ([#130](https://github.com/pkcprotocol/pkc-js/issues/130)) ([13ca91d](https://github.com/pkcprotocol/pkc-js/commit/13ca91d320f06353ee1b090f3e76ee3135e08e46))
+
+### Performance
+
+* optimize package import/startup time - lazy-load, compile cache, bundled dist ([#120](https://github.com/pkcprotocol/pkc-js/issues/120)) ([#126](https://github.com/pkcprotocol/pkc-js/issues/126)) ([51e3a87](https://github.com/pkcprotocol/pkc-js/commit/51e3a8714617d9ddc9ec8a6ca1c0f2ce35cb8770)), closes [#124](https://github.com/pkcprotocol/pkc-js/issues/124) [#125](https://github.com/pkcprotocol/pkc-js/issues/125) [ipfs/kubo#10842](https://github.com/ipfs/kubo/issues/10842)
+
 ## [0.0.45](https://github.com/pkcprotocol/pkc-js/compare/v0.0.44...v0.0.45) (2026-06-09)
 
 ### Features

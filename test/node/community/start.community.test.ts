@@ -23,7 +23,11 @@ import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-c
 import type { PKCError } from "../../../dist/node/pkc-error.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 
-describe(`community.start`, async () => {
+// Suites run sequentially: each one starts local communities whose sync loops write postUpdates to
+// Kubo MFS, and teardowns rm/mv community MFS dirs. Running them concurrently (on top of vitest file
+// parallelism) wedges Kubo's MFS on slow Windows CI runners (ipfs/kubo#10842) and times out the
+// whole node-local job.
+describe.sequential(`community.start`, async () => {
     let pkc: PKCType;
     let community: LocalCommunity | RpcLocalCommunity;
     beforeAll(async () => {
@@ -146,7 +150,7 @@ describe(`community.start`, async () => {
     });
 });
 
-describe(`community.started`, async () => {
+describe.sequential(`community.started`, async () => {
     let pkc: PKCType;
     let community: LocalCommunity | RpcLocalCommunity;
     beforeAll(async () => {
@@ -194,7 +198,7 @@ describe(`community.started`, async () => {
         expect(anotherCommunity.started).to.be.false;
     });
 });
-describe(`Start lock`, async () => {
+describe.sequential(`Start lock`, async () => {
     let pkc: PKCType;
     let dataPath: string;
     beforeAll(async () => {
@@ -447,7 +451,7 @@ describe(`Start lock`, async () => {
     });
 });
 
-describe(`Publish loop resiliency`, async () => {
+describe.sequential(`Publish loop resiliency`, async () => {
     let pkc: PKCType;
     let community: LocalCommunity | RpcLocalCommunity;
     let remotePKC: PKCType;
