@@ -1,5 +1,7 @@
 # Changelog
 
+## [0.0.47](https://github.com/pkcprotocol/pkc-js/compare/v0.0.46...v0.0.47) (2026-06-12)
+
 ## [0.0.46](https://github.com/pkcprotocol/pkc-js/compare/v0.0.45...v0.0.46) (2026-06-11)
 
 ### Bug Fixes
