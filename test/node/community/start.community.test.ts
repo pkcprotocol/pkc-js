@@ -524,7 +524,12 @@ describe.sequential(`Publish loop resiliency`, async () => {
         // Force the probabilistic gate in shouldResolveDomainForVerification (Math.random() < 0.005)
         // so the publish-time verification path runs deterministically. The gate is private to throttle
         // resolver calls in production.
-        const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+        // MUST NOT mock to a value < 0.00001: cleanUpIpfsRepoRarely gates repo.gc on
+        // Math.random() < 0.00001, and this process-wide mock spans whole sync loops. Mocking to 0
+        // force-fired a full repo.gc on EVERY sync of the shared Kubo daemon, which races concurrent
+        // MFS writes from parallel test files and permanently wedges the daemon (ipfs/kubo#10842) —
+        // the root cause of the node-local CI 28-min timeouts. See issue #136.
+        const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.004);
         try {
             const community = (await createSubWithNoChallenge({}, customPkc)) as LocalCommunity;
             community.on("error", () => {}); // expected: resolver returns undefined, verification emits an error
@@ -550,7 +555,9 @@ describe.sequential(`Publish loop resiliency`, async () => {
                 ]
             }
         });
-        const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+        // 0.004 fires the shouldResolveDomainForVerification gate (< 0.005) WITHOUT firing the
+        // cleanUpIpfsRepoRarely repo.gc gate (< 0.00001) — see the comment in the test above (issue #136).
+        const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.004);
         try {
             const community = (await createSubWithNoChallenge({}, customPkc)) as LocalCommunity;
             community.on("error", () => {}); // expected: resolver throws, verification emits an error

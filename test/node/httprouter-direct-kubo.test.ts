@@ -1,10 +1,22 @@
 // Regression test for kubo#11213 (Routing.Type=custom publishing unresolved/empty/0.0.0.0
 // addresses in IPIP-526 provider records), fixed in Kubo >= 0.41. The removed address rewriter
 // proxy (#128) existed solely to work around that bug. Complements test/node/httprouter.test.ts:
-// here Kubo's Routing config is set DIRECTLY over its RPC API (bypassing pkc's
+// here Kubo's Routing config is set DIRECTLY in the repo config (bypassing pkc's
 // _setupHttpRoutersWithKuboNodeInBackground entirely) and the provider records Kubo publishes
 // natively to a MockHttpRouter are asserted valid, with Provide.DHT.SweepEnabled both off and on.
+//
+// This file spawns its OWN throwaway Kubo daemon (pattern copied from
+// test/node/community/mfs-unflushed-limit.community.test.ts) instead of restarting the shared
+// test-server daemon on port 15006. Restarting the shared daemon raced with
+// test/node/httprouter.test.ts in parallel runs: that file's httpRoutersOptions flow also
+// config-changes + bounces the 15006 daemon, and the two files' restart cycles interleaved until
+// this file's tcp-port-used polling timed out in beforeAll/afterAll (see issue #136).
 import { beforeAll, afterAll, describe } from "vitest";
+import { spawn, execFileSync, type ChildProcess } from "child_process";
+import path from "path";
+import fs from "fs";
+import { v4 as uuidv4 } from "uuid";
+import { path as getKuboBinaryPath } from "kubo";
 import PKC from "../../dist/node/index.js";
 import { createSubWithNoChallenge, resolveWhenConditionIsTrue } from "../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../helpers/conditional-tests.js";
@@ -14,8 +26,12 @@ import type { LocalCommunity } from "../../dist/node/runtime/node/community/loca
 
 import tcpPortUsed from "tcp-port-used";
 
-const kuboApiUrl = "http://localhost:15006/api/v0";
-const kuboApiPort = 15006;
+// Ports chosen to not collide with the test server daemons (API 15001-15006, swarm 24001-24006)
+// or the isolated daemon of mfs-unflushed-limit.community.test.ts (25090-25092)
+const ISOLATED_KUBO_API_PORT = 25190;
+const ISOLATED_KUBO_GATEWAY_PORT = 25191;
+const ISOLATED_KUBO_SWARM_PORT = 25192;
+const kuboApiUrl = `http://localhost:${ISOLATED_KUBO_API_PORT}/api/v0`;
 const legacyRewriterProxyPort = 19575; // first port the removed address rewriter proxy used to listen on
 
 async function getKuboConfig(key: string): Promise<unknown> {
@@ -25,34 +41,75 @@ async function getKuboConfig(key: string): Promise<unknown> {
     return json.Value;
 }
 
-async function setKuboConfig(key: string, value: unknown): Promise<void> {
-    const res = await fetch(
-        `${kuboApiUrl}/config?arg=${encodeURIComponent(key)}&arg=${encodeURIComponent(JSON.stringify(value))}&json=true`,
-        {
-            method: "POST"
-        }
-    );
-    if (!res.ok) throw new Error(`Failed to set kubo config ${key}: ${res.status} ${await res.text()}`);
+// Edits the throwaway daemon's on-disk config. Only call while the daemon is down — the daemon
+// reads the config once on startup
+function setIsolatedKuboConfig(repoDir: string, key: string, value: unknown): void {
+    execFileSync(getKuboBinaryPath(), ["config", "--json", key, JSON.stringify(value)], {
+        env: { ...process.env, IPFS_PATH: repoDir }
+    });
 }
 
-// The test server (test/server/test-server.js) respawns the kubo daemon when it exits, same
-// mechanism setupKuboHttpRouters relies on after changing Routing config
-async function shutdownKuboAndWaitForRestart(): Promise<void> {
-    await fetch(`${kuboApiUrl}/shutdown`, { method: "POST" });
-    await tcpPortUsed.waitUntilFree(kuboApiPort, 500, 60000);
-    await tcpPortUsed.waitUntilUsed(kuboApiPort, 500, 120000);
-    // port being open doesn't mean the RPC API is ready yet, poll /id until it responds
-    const deadline = Date.now() + 60000;
-    while (true) {
-        try {
-            const res = await fetch(`${kuboApiUrl}/id`, { method: "POST" });
-            if (res.ok) return;
-        } catch {
-            // daemon not ready yet
-        }
-        if (Date.now() > deadline) throw new Error("kubo RPC did not come back up after restart");
-        await new Promise((resolve) => setTimeout(resolve, 500));
+function initIsolatedKuboRepo(repoDir: string): void {
+    const ipfsBin = getKuboBinaryPath();
+    fs.mkdirSync(repoDir, { recursive: true });
+    const env = { ...process.env, IPFS_PATH: repoDir };
+
+    execFileSync(ipfsBin, ["init"], { stdio: "ignore", env });
+
+    execFileSync(ipfsBin, ["config", "Addresses.API", `/ip4/127.0.0.1/tcp/${ISOLATED_KUBO_API_PORT}`], { env });
+    execFileSync(ipfsBin, ["config", "Addresses.Gateway", `/ip4/127.0.0.1/tcp/${ISOLATED_KUBO_GATEWAY_PORT}`], { env });
+    execFileSync(ipfsBin, ["config", "--json", "Addresses.Swarm", `["/ip4/127.0.0.1/tcp/${ISOLATED_KUBO_SWARM_PORT}"]`], { env });
+    execFileSync(ipfsBin, ["config", "--json", "API.HTTPHeaders.Access-Control-Allow-Origin", '["*"]'], { env });
+    execFileSync(ipfsBin, ["bootstrap", "rm", "--all"], { stdio: "ignore", env });
+    execFileSync(ipfsBin, ["config", "--json", "Discovery.MDNS.Enabled", "false"], { env });
+}
+
+async function spawnIsolatedKuboDaemon(repoDir: string): Promise<ChildProcess> {
+    const proc = spawn(getKuboBinaryPath(), ["daemon", "--enable-namesys-pubsub"], {
+        env: { ...process.env, IPFS_PATH: repoDir },
+        stdio: ["ignore", "pipe", "pipe"]
+    });
+
+    try {
+        await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error("Kubo daemon failed to become ready within 30s")), 30_000);
+            const onStdout = (data: Buffer) => {
+                if (data.toString().includes("Daemon is ready")) {
+                    proc.stdout?.off("data", onStdout);
+                    clearTimeout(timer);
+                    resolve();
+                }
+            };
+            proc.stdout?.on("data", onStdout);
+            proc.on("error", (err) => {
+                clearTimeout(timer);
+                reject(err);
+            });
+            proc.on("exit", (code) => {
+                clearTimeout(timer);
+                reject(new Error(`Kubo daemon exited early with code ${code}`));
+            });
+        });
+        return proc;
+    } catch (error) {
+        // the caller only assigns kuboProcess after this resolves, so a failed startup must kill
+        // the spawned daemon here or it leaks past afterAll. SIGKILL directly: the daemon never
+        // became ready, and killKuboDaemon awaits an "exit" event that may never fire after a
+        // spawn error
+        if (proc.exitCode === null && !proc.killed) proc.kill("SIGKILL");
+        throw error;
     }
+}
+
+async function killKuboDaemon(proc: ChildProcess): Promise<void> {
+    if (proc.killed || proc.exitCode !== null) return;
+    await new Promise<void>((resolve) => {
+        proc.once("exit", () => resolve());
+        proc.kill("SIGTERM");
+        setTimeout(() => {
+            if (proc.exitCode === null) proc.kill("SIGKILL");
+        }, 5_000);
+    });
 }
 
 // Same Routing config shape that setupKuboHttpRouters builds, set manually so pkc's own setup
@@ -78,33 +135,30 @@ function buildDirectRoutingConfig(httpRouterUrl: string) {
     };
 }
 
-// Cannot run under RPC: this test reconfigures the Kubo node's Routing config directly over
-// its RPC API and restarts the daemon. Under remote-pkc-rpc the RPC server owns the Kubo node and
-// applies the http router config itself, so the config changes and daemon restarts cannot be
-// driven from the test process.
+// Cannot run under RPC: this test asserts against its own throwaway Kubo daemon and the mock
+// http router traffic it receives. Under remote-pkc-rpc the RPC server owns the Kubo node and
+// applies the http router config itself, so the raw Routing config under test would never be
+// exercised by the RPC server's node, and the daemon lifecycle cannot be driven from the test
+// process.
 describeSkipIfRpc(`kubo#11213 regression: Kubo provides valid addresses directly to HTTP router (raw Routing config)`, () => {
+    const repoDir = path.join(process.cwd(), `.tmp/kubo-direct-router-test-${uuidv4()}`);
     let mockHttpRouter: MockHttpRouter;
-    let originalRouting: unknown;
-    let originalSweepEnabled: unknown;
+    let kuboProcess: ChildProcess | undefined;
 
     beforeAll(async () => {
         mockHttpRouter = new MockHttpRouter();
         await mockHttpRouter.start();
-        originalRouting = await getKuboConfig("Routing");
-        try {
-            originalSweepEnabled = await getKuboConfig("Provide.DHT.SweepEnabled");
-        } catch {
-            originalSweepEnabled = undefined;
-        }
-    });
+        initIsolatedKuboRepo(repoDir);
+        setIsolatedKuboConfig(repoDir, "Routing", buildDirectRoutingConfig(mockHttpRouter.url));
+    }, 60_000);
 
     afterAll(async () => {
-        // restore the kubo node to its pre-experiment config so other test files are unaffected
-        await setKuboConfig("Routing", originalRouting);
-        if (originalSweepEnabled !== undefined) await setKuboConfig("Provide.DHT.SweepEnabled", originalSweepEnabled);
-        await shutdownKuboAndWaitForRestart();
+        if (kuboProcess) await killKuboDaemon(kuboProcess);
+        try {
+            fs.rmSync(repoDir, { recursive: true, force: true });
+        } catch {}
         if (mockHttpRouter) await mockHttpRouter.destroy();
-    });
+    }, 60_000);
 
     // run once with the sweep provider disabled (current production config set by
     // setupKuboHttpRouters) and once enabled, in case the kubo#11213 fix behaves differently
@@ -116,9 +170,11 @@ describeSkipIfRpc(`kubo#11213 regression: Kubo provides valid addresses directly
 
             beforeAll(async () => {
                 mockHttpRouter.clearRequests();
-                await setKuboConfig("Routing", buildDirectRoutingConfig(mockHttpRouter.url));
-                await setKuboConfig("Provide.DHT.SweepEnabled", sweepEnabled);
-                await shutdownKuboAndWaitForRestart();
+                // apply the variant config while the daemon is down, then start it — full
+                // control over the restart, no dependence on the test server's respawn behavior
+                if (kuboProcess) await killKuboDaemon(kuboProcess);
+                setIsolatedKuboConfig(repoDir, "Provide.DHT.SweepEnabled", sweepEnabled);
+                kuboProcess = await spawnIsolatedKuboDaemon(repoDir);
                 // httpRoutersOptions: [] prevents the Zod default production routers AND makes
                 // _setupHttpRoutersWithKuboNodeInBackground a no-op, so the Routing config we
                 // just set is left untouched
@@ -126,7 +182,7 @@ describeSkipIfRpc(`kubo#11213 regression: Kubo provides valid addresses directly
                 pkc.on("error", (err) => {
                     console.log("Received an error on PKC instance", err);
                 });
-            });
+            }, 120_000);
 
             afterAll(async () => {
                 try {
@@ -135,7 +191,7 @@ describeSkipIfRpc(`kubo#11213 regression: Kubo provides valid addresses directly
                 try {
                     if (pkc) await pkc.destroy();
                 } catch {}
-            });
+            }, 60_000);
 
             it(`no legacy address rewriter proxy is running`, async () => {
                 expect(await tcpPortUsed.check(legacyRewriterProxyPort)).to.be.false;
