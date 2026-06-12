@@ -1,0 +1,40 @@
+{
+    "$schema": "https://unpkg.com/knip@5/schema.json",
+    "entry": [
+        // package.json "exports" point at dist/, knip auto-detects the other src entries
+        "src/index-with-compile-cache.ts",
+        // standalone bootstrap for running the RPC server directly
+        "src/rpc/start.js",
+        // the browser build is a post-build text replacement of /runtime/node/ -> /runtime/browser/
+        // (config/build-browser.js), so knip cannot see these imports
+        "src/runtime/browser/**/*.ts",
+        // hanging-test scenarios are dynamically loaded by base name via child_process spawn
+        "src/test/node/hanging-test/scenarios/*.scenario.ts",
+        // vitest configs, custom reporters (referenced by string path) and setup files
+        "config/vitest*.{js,ts}",
+        "test/vitest-*-setup.js",
+        // standalone benchmark/utility scripts run manually with node
+        "scripts/*.js",
+        // test files (vitest include globs live in config/vitest.config.ts)
+        "test/**/*.test.{js,ts}",
+        "src/rpc/test/**/*.test.{js,ts}"
+    ],
+    "project": ["src/**/*.{js,ts}", "test/**/*.{js,ts}", "config/**/*.{js,ts}", "scripts/**/*.js"],
+    "ignore": [
+        // ambient declarations for generated test fixtures
+        "test/fixtures/signers.d.ts"
+    ],
+    // vitest reporter paths in config/vitest.config.ts are resolved by vitest relative to the
+    // project root, but knip resolves them relative to the config file
+    "ignoreUnresolved": ["./config/vitest-stderr-json-reporter.js"],
+    // assert and buffer are imported with bare specifiers that knip resolves to Node builtins,
+    // but they are real dependencies: browser bundlers of downstream apps resolve them to these
+    // npm polyfills
+    "ignoreDependencies": ["assert", "buffer"],
+    "release-it": {
+        "config": ["config/.release-it.json"]
+    },
+    "vitest": {
+        "config": ["config/vitest.config.ts", "config/vitest.launch.config.js"]
+    }
+}
