@@ -6,7 +6,7 @@ const configs = getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOn
 const DEFAULT_MAX_MS = 100;
 // remote-libp2pjs constructs a Helia/libp2p node (keypair generation, transports), measured at 40-110ms
 // on Firefox CI runners, so it gets a higher budget than the thin kubo-rpc/gateway clients
-const MAX_MS_PER_CONFIG: Partial<Record<string, number>> = { "remote-libp2pjs": 200 };
+const MAX_MS_PER_CONFIG: Partial<Record<(typeof configs)[number]["testConfigCode"], number>> = { "remote-libp2pjs": 200 };
 const TIMED_RUNS = 5;
 
 // not describe.concurrent: timing runs must not overlap with the other configs constructing/destroying
