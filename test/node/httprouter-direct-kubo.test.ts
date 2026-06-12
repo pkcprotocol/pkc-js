@@ -70,21 +70,35 @@ async function spawnIsolatedKuboDaemon(repoDir: string): Promise<ChildProcess> {
         stdio: ["ignore", "pipe", "pipe"]
     });
 
-    await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error("Kubo daemon failed to become ready within 30s")), 30_000);
-        const onStdout = (data: Buffer) => {
-            if (data.toString().includes("Daemon is ready")) {
-                proc.stdout?.off("data", onStdout);
+    try {
+        await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error("Kubo daemon failed to become ready within 30s")), 30_000);
+            const onStdout = (data: Buffer) => {
+                if (data.toString().includes("Daemon is ready")) {
+                    proc.stdout?.off("data", onStdout);
+                    clearTimeout(timer);
+                    resolve();
+                }
+            };
+            proc.stdout?.on("data", onStdout);
+            proc.on("error", (err) => {
                 clearTimeout(timer);
-                resolve();
-            }
-        };
-        proc.stdout?.on("data", onStdout);
-        proc.on("error", reject);
-        proc.on("exit", (code) => reject(new Error(`Kubo daemon exited early with code ${code}`)));
-    });
-
-    return proc;
+                reject(err);
+            });
+            proc.on("exit", (code) => {
+                clearTimeout(timer);
+                reject(new Error(`Kubo daemon exited early with code ${code}`));
+            });
+        });
+        return proc;
+    } catch (error) {
+        // the caller only assigns kuboProcess after this resolves, so a failed startup must kill
+        // the spawned daemon here or it leaks past afterAll. SIGKILL directly: the daemon never
+        // became ready, and killKuboDaemon awaits an "exit" event that may never fire after a
+        // spawn error
+        if (proc.exitCode === null && !proc.killed) proc.kill("SIGKILL");
+        throw error;
+    }
 }
 
 async function killKuboDaemon(proc: ChildProcess): Promise<void> {
