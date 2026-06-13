@@ -256,13 +256,24 @@ export async function syncPostUpdatesWithIpfs(
     if (commentUpdatesWithLocalPath.length === 0)
         throw Error("No comment updates of posts to publish to postUpdates directory. This is a critical bug");
 
+    // Drop post updates whose comment was purged after this sync cycle captured it. A concurrent
+    // purge (storeCommentModeration) deletes the comment from the DB and removes its postUpdates MFS
+    // entry; writing the captured update back here would resurrect the purged post in postUpdates, and
+    // since it is gone from the DB nothing would ever clean it up again. See pkc-js issue #142.
+    const liveCommentUpdates = commentUpdatesWithLocalPath.filter((row) =>
+        community._dbHandler.commentExistsInDb(row.newCommentUpdate.cid)
+    );
+    const purgedMidSyncCount = commentUpdatesWithLocalPath.length - liveCommentUpdates.length;
+    if (purgedMidSyncCount > 0)
+        log(`Skipping ${purgedMidSyncCount} post CommentUpdate(s) for community ${community.address} whose comment was purged mid-sync`);
+
     const kuboRpc = community._clientsManager.getDefaultKuboRpcClient();
     const removedMfsPaths: string[] = await rmUnneededMfsPaths(community);
     let postUpdatesDirectoryCid: Awaited<ReturnType<typeof kuboRpc._client.files.flush>> | undefined;
 
     const BATCH_SIZE = 50;
-    for (let index = 0; index < commentUpdatesWithLocalPath.length; index += BATCH_SIZE) {
-        const batch = commentUpdatesWithLocalPath.slice(index, index + BATCH_SIZE);
+    for (let index = 0; index < liveCommentUpdates.length; index += BATCH_SIZE) {
+        const batch = liveCommentUpdates.slice(index, index + BATCH_SIZE);
 
         await Promise.all(
             batch.map(async (row) => {
@@ -297,7 +308,7 @@ export async function syncPostUpdatesWithIpfs(
         "Community",
         community.address,
         "Synced",
-        commentUpdatesWithLocalPath.length,
+        liveCommentUpdates.length,
         "post CommentUpdates",
         "with MFS postUpdates directory",
         postUpdatesDirectoryCidString

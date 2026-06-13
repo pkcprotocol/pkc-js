@@ -2143,6 +2143,10 @@ export class DbHandler {
         return this._parseCommentsTableRow(row);
     }
 
+    commentExistsInDb(cid: string): boolean {
+        return this._db.prepare(`SELECT 1 FROM ${TABLES.COMMENTS} WHERE cid = ? LIMIT 1`).get(cid) !== undefined;
+    }
+
     queryPseudonymityAliasByCommentCid(commentCid: string): PseudonymityAliasRow | undefined {
         const row = this._db
             .prepare(
