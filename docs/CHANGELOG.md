@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.48](https://github.com/pkcprotocol/pkc-js/compare/v0.0.47...v0.0.48) (2026-06-13)
+
+### Bug Fixes
+
+* **community:** skip purged comments in postUpdates MFS sync ([#143](https://github.com/pkcprotocol/pkc-js/issues/143)) ([8b68b7f](https://github.com/pkcprotocol/pkc-js/commit/8b68b7ff4825178c42a47f66a50df9b0842f4a2d)), closes [#142](https://github.com/pkcprotocol/pkc-js/issues/142)
+
+### Build
+
+* **deps:** upgrade helia and libp2p dependencies ([#140](https://github.com/pkcprotocol/pkc-js/issues/140)) ([7f4304e](https://github.com/pkcprotocol/pkc-js/commit/7f4304ece6d25cbb31e50e5d47609a1d60f81bb3)), closes [#139](https://github.com/pkcprotocol/pkc-js/issues/139) [#139](https://github.com/pkcprotocol/pkc-js/issues/139)
+
 ## [0.0.47](https://github.com/pkcprotocol/pkc-js/compare/v0.0.46...v0.0.47) (2026-06-12)
 
 ## [0.0.46](https://github.com/pkcprotocol/pkc-js/compare/v0.0.45...v0.0.46) (2026-06-11)
