@@ -15,12 +15,6 @@ import { CID } from "multiformats/cid";
 import { bases } from "multiformats/basics";
 import Logger from "../logger.js";
 
-// @libp2p/peer-id 6.0.10+ types against multiformats 14 while helia 6 (and therefore our
-// top-level multiformats) is still on 13 — see the longer note in src/helia/util.ts. The
-// difference is type-level only, so bridging with a cast is sound. Revisit when helia moves
-// to multiformats 14.
-type Libp2pMultihashDigest = Parameters<typeof peerIdFromMultihash>[0];
-
 export const generatePrivateKey = async (): Promise<string> => {
     const privateKeyBuffer = ed25519.utils.randomSecretKey();
     const privateKeyBase64 = uint8ArrayToString(privateKeyBuffer, "base64");
@@ -151,7 +145,7 @@ export const convertBase58IpnsNameToBase36Cid = (ipnsName: string): string => {
 export function convertBase32ToBase58btc(base32String: string) {
     // Decode base32 to bytes
     const cid = CID.parse(base32String);
-    const peerId = peerIdFromMultihash(cid.multihash as Libp2pMultihashDigest);
+    const peerId = peerIdFromMultihash(cid.multihash);
     return peerId.toString().trim();
 }
 
@@ -182,6 +176,6 @@ export const getPKCAddressFromPublicKeySync = (publicKeyBase64: string): string 
     multihash.set(publicKeyBytes, 2); // the public key bytes themselves
 
     // Create PeerId from the multihash bytes and return as base58 string
-    const peerId = peerIdFromMultihash(Digest.decode(multihash) as Libp2pMultihashDigest);
+    const peerId = peerIdFromMultihash(Digest.decode(multihash));
     return peerId.toString().trim();
 };

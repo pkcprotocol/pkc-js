@@ -143,6 +143,21 @@ export async function createLibp2pJsClientOrUseExistingOne(
 
         const heliaFs = unixfs(helia);
 
+        // @helia/unixfs 7.x (and its ipfs-unixfs-exporter) still run multiformats 13 while our
+        // top-level multiformats is 14. The exporter strict-checks CID class identity
+        // (`CID.asCID(path) === path || path instanceof CID`), so a multiformats-14 CID instance
+        // from our CID.parse is rejected at runtime with "Path must be string or CID". We
+        // therefore hand heliaFs.cat the CID *string*: @helia/unixfs's resolve() only template-
+        // interpolates the cid when a sub-path is given, and the exporter's string branch parses
+        // it with its own multiformats copy, keeping the whole DAG walk self-consistent. The
+        // CID.parse calls below stay as input validation only. Remove this once helia ships on
+        // multiformats 14.
+        type HeliaCatCid = Parameters<(typeof heliaFs)["cat"]>[0];
+        const asHeliaCatCid = (cidString: string): HeliaCatCid => {
+            CID.parse(cidString); // throws on malformed input, mirroring the previous behavior
+            return cidString as unknown as HeliaCatCid;
+        };
+
         const ipnsNameResolver = ipns(helia, {
             routers: [createIpnsPubusubRouter(helia)]
         });
@@ -310,10 +325,10 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     const rootCid = ipfsPath.split("/")[0];
                     const path = ipfsPath.split("/").slice(1).join("/");
 
-                    return heliaFs.cat(CID.parse(rootCid), { ...options, path });
+                    return heliaFs.cat(asHeliaCatCid(rootCid), { ...options, path });
                 } else {
                     // a cid string
-                    return heliaFs.cat(CID.parse(ipfsPath), options);
+                    return heliaFs.cat(asHeliaCatCid(ipfsPath), options);
                 }
             },
             pubsub: {
