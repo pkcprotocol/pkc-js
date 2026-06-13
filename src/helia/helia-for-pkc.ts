@@ -9,7 +9,8 @@ import { CID } from "multiformats/cid";
 import { peerIdFromString } from "@libp2p/peer-id";
 import { bitswap } from "@helia/block-brokers";
 import { MemoryBlockstore } from "blockstore-core";
-import { delegatedRoutingV1HttpApiClient } from "@helia/delegated-routing-v1-http-api-client";
+import { delegatedRoutingV1HttpApiClientContentRouting } from "@helia/delegated-routing-v1-http-api-client";
+import { NotFoundError } from "@libp2p/interface";
 import { unixfs } from "@helia/unixfs";
 import { fetch as libp2pFetch } from "@libp2p/fetch";
 import { pubsub as createIpnsPubusubRouter } from "@helia/ipns/routing";
@@ -34,14 +35,25 @@ const creatingLibp2pJsClients: Partial<Record<string, Promise<Libp2pJsClient>>> 
 
 // TODO can you verify if we're already content who has a specific and we fetch the CID even though http router says it has no providers, it should be able to load the CID
 function getDelegatedRoutingFields(routers: string[]) {
-    const routersObj: Record<string, ReturnType<typeof delegatedRoutingV1HttpApiClient>> = {};
+    // @helia/delegated-routing-v1-http-api-client 8.x: the raw client returned by
+    // delegatedRoutingV1HttpApiClient() no longer exposes the libp2p contentRouting/peerRouting
+    // symbols, so putting it in `services` would silently register zero content routers
+    // (libp2p then throws NoContentRoutersError on findProviders). Use the dedicated
+    // delegatedRoutingV1HttpApiClientContentRouting() factory instead — content routing only,
+    // so the peer-routing path (client.getPeers) is never registered.
+    const routersObj: Record<string, ReturnType<typeof delegatedRoutingV1HttpApiClientContentRouting>> = {};
     for (let i = 0; i < routers.length; i++) {
-        const factory = delegatedRoutingV1HttpApiClient({ url: routers[i] });
+        const factory = delegatedRoutingV1HttpApiClientContentRouting({ url: routers[i] });
         routersObj["delegatedRouting" + i] = (components) => {
-            const client = factory(components);
-            //@ts-expect-error - our routers don't support any of these
-            client.getIPNS = client.getPeers = client.putIPNS = undefined;
-            return client;
+            const routing = factory(components);
+            // Our HTTP routers only serve provider records — they don't support IPNS get/put.
+            // The default implementations would issue doomed HTTP requests (the pre-8.x code
+            // prevented this by undefining client.getIPNS/putIPNS), so fail fast instead.
+            routing.get = async () => {
+                throw new NotFoundError("pkc HTTP routers do not serve IPNS records");
+            };
+            routing.put = async () => {};
+            return routing;
         };
     }
     return routersObj;
@@ -130,6 +142,28 @@ export async function createLibp2pJsClientOrUseExistingOne(
         });
 
         const heliaFs = unixfs(helia);
+
+        // @helia/unixfs 7.x (and its ipfs-unixfs-exporter) still run multiformats 13 while our
+        // top-level multiformats is 14. The exporter strict-checks CID class identity
+        // (`CID.asCID(path) === path || path instanceof CID`), so a CID instance from a different
+        // multiformats copy is rejected at runtime with "Path must be string or CID". We therefore
+        // never hand heliaFs.cat a CID *object* — only the *string* form. The exporter's string
+        // branch (walkPath) parses and walks the whole `<root-cid>/sub/path` with its own
+        // multiformats copy in a single pass, so no foreign-copy CID ever crosses the identity
+        // check.
+        //
+        // Crucially we must NOT also pass a sub-path via the `path` option (see cat() below):
+        // @helia/unixfs's cat() would then resolve() the sub-path to an intermediate CID *object*
+        // and re-enter the exporter with it, tripping the same identity check — which broke every
+        // CommentUpdate fetch from a community's postUpdates (`<root>/<bucket>/update`). Passing the
+        // full path as one string keeps it on the exporter's string branch. CID.parse of the root
+        // segment stays as input validation only. Remove this whole shim once helia ships on
+        // multiformats 14.
+        type HeliaCatCid = Parameters<(typeof heliaFs)["cat"]>[0];
+        const asHeliaCatCid = (ipfsPathOrCid: string): HeliaCatCid => {
+            CID.parse(ipfsPathOrCid.split("/")[0]); // validate the root CID; throws on malformed input
+            return ipfsPathOrCid as unknown as HeliaCatCid;
+        };
 
         const ipnsNameResolver = ipns(helia, {
             routers: [createIpnsPubusubRouter(helia)]
@@ -292,17 +326,10 @@ export async function createLibp2pJsClientOrUseExistingOne(
             },
             cat(ipfsPath: string, options) {
                 throwIfHeliaIsStoppingOrStopped();
-                // ipfsPath could be a string of cid or ipfs path
-                if (ipfsPath.includes("/")) {
-                    // it's a path <root-cid>/<path>/
-                    const rootCid = ipfsPath.split("/")[0];
-                    const path = ipfsPath.split("/").slice(1).join("/");
-
-                    return heliaFs.cat(CID.parse(rootCid), { ...options, path });
-                } else {
-                    // a cid string
-                    return heliaFs.cat(CID.parse(ipfsPath), options);
-                }
+                // ipfsPath is either a bare cid or a `<root-cid>/sub/path`. Hand the whole thing to
+                // heliaFs.cat as one string and never split out a `path` option — see asHeliaCatCid
+                // above for why the `path` option would re-trip the exporter's CID identity check.
+                return heliaFs.cat(asHeliaCatCid(ipfsPath), options);
             },
             pubsub: {
                 ls: async () => helia.libp2p.services.pubsub.getTopics(),

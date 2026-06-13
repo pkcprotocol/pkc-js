@@ -13,6 +13,7 @@ import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { IpfsHttpClientPubsubMessage } from "../../../dist/node/types.js";
 import { ipnsNameToIpnsOverPubsubTopic } from "../../../dist/node/util.js";
+import { importer } from "ipfs-unixfs-importer";
 
 async function firstFromAsyncIterable<T>(iterable: AsyncIterable<T>): Promise<T> {
     for await (const value of iterable) return value;
@@ -459,6 +460,62 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 await pkc.destroy();
             }
         }, 15000);
+    });
+
+    // Regression test for the helia cat() wrapper (helia-for-pkc.ts). A CommentUpdate is fetched
+    // from a community's postUpdates via a multi-segment IPFS path (`<root>/<bucket>/update`), not a
+    // bare CID. With multiformats 14 at our top level but @helia/unixfs + ipfs-unixfs-exporter still
+    // on 13, @helia/unixfs's cat() resolves a sub-path to an intermediate CID *object* and re-enters
+    // the exporter with it; the exporter's strict `CID.asCID(path) === path` identity check rejects
+    // that foreign-multiformats-copy CID with "Path must be string or CID". Bare-CID fetches dodge
+    // this (the string flows straight to the exporter's string branch), which is why only sub-path
+    // fetches broke. See PR #140.
+    describe(`Helia cat() resolves a directory sub-path - ${config.name}`, () => {
+        it("fetches <dirCid>/<file> via _fetchCidP2P (postUpdates-style path)", async () => {
+            const pkc = await config.pkcInstancePromise({ forceMockPubsub: true });
+            try {
+                const heliaClient = Object.values(pkc.clients.libp2pJsClients)[0];
+                const blockstore = heliaClient._helia.blockstore;
+
+                // Build a unixfs directory { update: <bytes> } directly in the client's own
+                // blockstore — exactly what @helia/unixfs does internally — so the fetch is a local
+                // blockstore read with no network dependency.
+                const payload = JSON.stringify({ updated: true, nonce: Math.random() });
+                let dirCid: string | undefined;
+                let fileCid: string | undefined;
+                for await (const entry of importer(
+                    [{ path: "update", content: new TextEncoder().encode(payload) }],
+                    // helia's blockstore and the top-level importer reference different multiformats
+                    // copies (14 vs the nested 13 helia 6 still uses), so their CID types differ at
+                    // the type level only — the same mf-copy split this test exists to cover. The
+                    // runtime contract (put/get by multihash) is identical, mirroring the
+                    // `as unknown as` bridge in helia-for-pkc.ts.
+                    blockstore as unknown as Parameters<typeof importer>[1],
+                    { wrapWithDirectory: true }
+                )) {
+                    if (entry.path === "") dirCid = entry.cid.toString();
+                    else if (entry.path === "update") fileCid = entry.cid.toString();
+                }
+                expect(dirCid, "importer should yield a wrapping directory CID").to.be.a("string");
+                expect(fileCid, "importer should yield the file CID").to.be.a("string");
+
+                // Sub-path fetch (the regression): this is how a CommentUpdate is loaded from postUpdates.
+                const fetchedViaSubPath = await pkc._clientsManager._fetchCidP2P(`${dirCid}/update`, {
+                    maxFileSizeBytes: 1024 * 1024,
+                    timeoutMs: 15000
+                });
+                expect(fetchedViaSubPath).to.equal(payload);
+
+                // Bare-CID fetch must keep working too (guards the unified code path).
+                const fetchedViaBareCid = await pkc._clientsManager._fetchCidP2P(fileCid!, {
+                    maxFileSizeBytes: 1024 * 1024,
+                    timeoutMs: 15000
+                });
+                expect(fetchedViaBareCid).to.equal(payload);
+            } finally {
+                await pkc.destroy();
+            }
+        }, 30000);
     });
 
     // Regression test for helia-for-pkc.ts:277-291: pubsub.subscribe() must honor the caller's
