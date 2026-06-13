@@ -145,17 +145,24 @@ export async function createLibp2pJsClientOrUseExistingOne(
 
         // @helia/unixfs 7.x (and its ipfs-unixfs-exporter) still run multiformats 13 while our
         // top-level multiformats is 14. The exporter strict-checks CID class identity
-        // (`CID.asCID(path) === path || path instanceof CID`), so a multiformats-14 CID instance
-        // from our CID.parse is rejected at runtime with "Path must be string or CID". We
-        // therefore hand heliaFs.cat the CID *string*: @helia/unixfs's resolve() only template-
-        // interpolates the cid when a sub-path is given, and the exporter's string branch parses
-        // it with its own multiformats copy, keeping the whole DAG walk self-consistent. The
-        // CID.parse calls below stay as input validation only. Remove this once helia ships on
+        // (`CID.asCID(path) === path || path instanceof CID`), so a CID instance from a different
+        // multiformats copy is rejected at runtime with "Path must be string or CID". We therefore
+        // never hand heliaFs.cat a CID *object* — only the *string* form. The exporter's string
+        // branch (walkPath) parses and walks the whole `<root-cid>/sub/path` with its own
+        // multiformats copy in a single pass, so no foreign-copy CID ever crosses the identity
+        // check.
+        //
+        // Crucially we must NOT also pass a sub-path via the `path` option (see cat() below):
+        // @helia/unixfs's cat() would then resolve() the sub-path to an intermediate CID *object*
+        // and re-enter the exporter with it, tripping the same identity check — which broke every
+        // CommentUpdate fetch from a community's postUpdates (`<root>/<bucket>/update`). Passing the
+        // full path as one string keeps it on the exporter's string branch. CID.parse of the root
+        // segment stays as input validation only. Remove this whole shim once helia ships on
         // multiformats 14.
         type HeliaCatCid = Parameters<(typeof heliaFs)["cat"]>[0];
-        const asHeliaCatCid = (cidString: string): HeliaCatCid => {
-            CID.parse(cidString); // throws on malformed input, mirroring the previous behavior
-            return cidString as unknown as HeliaCatCid;
+        const asHeliaCatCid = (ipfsPathOrCid: string): HeliaCatCid => {
+            CID.parse(ipfsPathOrCid.split("/")[0]); // validate the root CID; throws on malformed input
+            return ipfsPathOrCid as unknown as HeliaCatCid;
         };
 
         const ipnsNameResolver = ipns(helia, {
@@ -319,17 +326,10 @@ export async function createLibp2pJsClientOrUseExistingOne(
             },
             cat(ipfsPath: string, options) {
                 throwIfHeliaIsStoppingOrStopped();
-                // ipfsPath could be a string of cid or ipfs path
-                if (ipfsPath.includes("/")) {
-                    // it's a path <root-cid>/<path>/
-                    const rootCid = ipfsPath.split("/")[0];
-                    const path = ipfsPath.split("/").slice(1).join("/");
-
-                    return heliaFs.cat(asHeliaCatCid(rootCid), { ...options, path });
-                } else {
-                    // a cid string
-                    return heliaFs.cat(asHeliaCatCid(ipfsPath), options);
-                }
+                // ipfsPath is either a bare cid or a `<root-cid>/sub/path`. Hand the whole thing to
+                // heliaFs.cat as one string and never split out a `path` option — see asHeliaCatCid
+                // above for why the `path` option would re-trip the exporter's CID identity check.
+                return heliaFs.cat(asHeliaCatCid(ipfsPath), options);
             },
             pubsub: {
                 ls: async () => helia.libp2p.services.pubsub.getTopics(),
