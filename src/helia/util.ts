@@ -8,6 +8,14 @@ import { pubsubTopicToDhtKeyCid } from "../util.js";
 const TOPIC_SUBSCRIBER_WAIT_TIMEOUT_MS = 10_000;
 const MESH_PEER_WAIT_TIMEOUT_MS = 3_000;
 
+// @libp2p/interface 3.2.3+ types against multiformats 14 while helia 6 (and therefore our
+// top-level multiformats) is still on 13. We deliberately stay on 13 at runtime because
+// ipfs-unixfs-exporter (inside @helia/unixfs) does a strict same-class CID identity check
+// (`CID.asCID(path) === path`) that a multiformats-14 CID instance fails. The 13 vs 14
+// difference is type-level only (Uint8Array<ArrayBuffer> vs ArrayBufferLike), so bridging
+// the libp2p-facing call sites with a cast is sound. Revisit when helia moves to multiformats 14.
+type Libp2pCid = Parameters<HeliaWithLibp2pPubsub["libp2p"]["contentRouting"]["findProviders"]>[0];
+
 export interface HeliaDebugContext {
     heliaPeerId: string;
     heliaStatus: HeliaWithLibp2pPubsub["libp2p"]["status"];
@@ -207,7 +215,10 @@ export async function connectToPubsubPeers({
     const inflightDialPromises: Promise<void>[] = [];
     const dialOptions = { ...options };
     try {
-        for await (const peer of helia.libp2p.contentRouting.findProviders(contentCid, { ...options, signal: findProvidersSignal })) {
+        for await (const peer of helia.libp2p.contentRouting.findProviders(contentCid as Libp2pCid, {
+            ...options,
+            signal: findProvidersSignal
+        })) {
             peersWithContent.push(peer as PeerInfo);
             const dialPromise = (async () => {
                 try {

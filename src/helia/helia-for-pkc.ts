@@ -9,7 +9,8 @@ import { CID } from "multiformats/cid";
 import { peerIdFromString } from "@libp2p/peer-id";
 import { bitswap } from "@helia/block-brokers";
 import { MemoryBlockstore } from "blockstore-core";
-import { delegatedRoutingV1HttpApiClient } from "@helia/delegated-routing-v1-http-api-client";
+import { delegatedRoutingV1HttpApiClientContentRouting } from "@helia/delegated-routing-v1-http-api-client";
+import { NotFoundError } from "@libp2p/interface";
 import { unixfs } from "@helia/unixfs";
 import { fetch as libp2pFetch } from "@libp2p/fetch";
 import { pubsub as createIpnsPubusubRouter } from "@helia/ipns/routing";
@@ -34,14 +35,25 @@ const creatingLibp2pJsClients: Partial<Record<string, Promise<Libp2pJsClient>>> 
 
 // TODO can you verify if we're already content who has a specific and we fetch the CID even though http router says it has no providers, it should be able to load the CID
 function getDelegatedRoutingFields(routers: string[]) {
-    const routersObj: Record<string, ReturnType<typeof delegatedRoutingV1HttpApiClient>> = {};
+    // @helia/delegated-routing-v1-http-api-client 8.x: the raw client returned by
+    // delegatedRoutingV1HttpApiClient() no longer exposes the libp2p contentRouting/peerRouting
+    // symbols, so putting it in `services` would silently register zero content routers
+    // (libp2p then throws NoContentRoutersError on findProviders). Use the dedicated
+    // delegatedRoutingV1HttpApiClientContentRouting() factory instead — content routing only,
+    // so the peer-routing path (client.getPeers) is never registered.
+    const routersObj: Record<string, ReturnType<typeof delegatedRoutingV1HttpApiClientContentRouting>> = {};
     for (let i = 0; i < routers.length; i++) {
-        const factory = delegatedRoutingV1HttpApiClient({ url: routers[i] });
+        const factory = delegatedRoutingV1HttpApiClientContentRouting({ url: routers[i] });
         routersObj["delegatedRouting" + i] = (components) => {
-            const client = factory(components);
-            //@ts-expect-error - our routers don't support any of these
-            client.getIPNS = client.getPeers = client.putIPNS = undefined;
-            return client;
+            const routing = factory(components);
+            // Our HTTP routers only serve provider records — they don't support IPNS get/put.
+            // The default implementations would issue doomed HTTP requests (the pre-8.x code
+            // prevented this by undefining client.getIPNS/putIPNS), so fail fast instead.
+            routing.get = async () => {
+                throw new NotFoundError("pkc HTTP routers do not serve IPNS records");
+            };
+            routing.put = async () => {};
+            return routing;
         };
     }
     return routersObj;
