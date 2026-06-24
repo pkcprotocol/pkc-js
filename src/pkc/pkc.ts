@@ -118,7 +118,7 @@ import type {
     CommentModerationTypeJson,
     CreateCommentModerationOptions
 } from "../publications/comment-moderation/types.js";
-import { setupKuboHttpRouters } from "../runtime/node/setup-kubo-http-routers.js";
+import { setupKuboHttpRouters, syncKuboAppendAnnounce } from "../runtime/node/setup-kubo-http-routers.js";
 import CommunityEdit from "../publications/community-edit/community-edit.js";
 import type {
     CreateCommunityEditPublicationOptions,
@@ -197,6 +197,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     private _destroyAbortController?: AbortController;
 
     private _httpRouterSetupPromise?: Promise<void>;
+    private _appendAnnounceTimer?: ReturnType<typeof setTimeout>;
     destroyed = false;
     private _promiseToWaitForFirstCommunitieschangeEvent: Promise<string[]>;
 
@@ -399,9 +400,14 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         if (this.httpRoutersOptions?.length && this.kuboRpcClientsOptions?.length && this._canCreateNewLocalCommunity()) {
             // only for node
             const setupPromise = setupKuboHttpRouters(this)
-                .then(() => {
+                .then(async () => {
                     if (this.destroyed) return;
                     log("Set http router options successfully on all connected ipfs", Object.keys(this.clients.kuboRpcClients));
+                    // Workaround for ipfs/kubo#11369: force-announce the node's browser-dialable
+                    // addresses (webrtc-direct + AutoTLS WSS) via AppendAnnounce so they reach the
+                    // HTTP routers. Runs once here; the AutoTLS WSS may not be provisioned yet, so
+                    // _scheduleAppendAnnounceSync re-checks every 10 min until it lands.
+                    await this._runAppendAnnounceSyncAndReschedule();
                 })
                 .catch((e: Error) => {
                     if (this.destroyed) return;
@@ -411,6 +417,27 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
 
             this._httpRouterSetupPromise = setupPromise;
         }
+    }
+
+    // Workaround for ipfs/kubo#11369. Sync browser-dialable addresses into the kubo nodes'
+    // AppendAnnounce, then re-check every 10 minutes until the (slow-to-provision) AutoTLS WSS
+    // has landed — then stop. The timer is unref'd and cleared on destroy().
+    private async _runAppendAnnounceSyncAndReschedule(): Promise<void> {
+        const log = Logger("pkc-js:pkc:_runAppendAnnounceSyncAndReschedule");
+        const RECHECK_MS = 10 * 60 * 1000;
+        if (this.destroyed) return;
+        let allDone = false;
+        try {
+            ({ allDone } = await syncKuboAppendAnnounce(this));
+        } catch (e) {
+            log.error("AppendAnnounce sync failed; will retry", e);
+        }
+        if (this.destroyed || allDone) return;
+        this._appendAnnounceTimer = setTimeout(() => {
+            this._runAppendAnnounceSyncAndReschedule().catch((e) => log.error("AppendAnnounce re-sync failed", e));
+        }, RECHECK_MS);
+        // Don't keep the Node event loop alive solely for this re-check timer.
+        this._appendAnnounceTimer.unref?.();
     }
 
     async _init() {
@@ -1168,6 +1195,10 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
 
         if (this._communityFsWatchAbort) this._communityFsWatchAbort.abort();
 
+        if (this._appendAnnounceTimer) {
+            clearTimeout(this._appendAnnounceTimer);
+            this._appendAnnounceTimer = undefined;
+        }
         if (this._httpRouterSetupPromise) {
             await this._httpRouterSetupPromise;
             this._httpRouterSetupPromise = undefined;
