@@ -880,16 +880,32 @@ export class BaseClientsManager {
             try {
                 throwIfAbortSignalAborted(abortSignal);
                 const resolvePromise = nameResolver.resolve({ name, abortSignal });
-                // Race resolve() against abort signal so resolvers that ignore the signal still get interrupted
-                const result = abortSignal
-                    ? await Promise.race([
-                          resolvePromise,
-                          new Promise<never>((_, reject) => {
-                              if (abortSignal.aborted) reject(createAbortError());
-                              else abortSignal.addEventListener("abort", () => reject(createAbortError()), { once: true });
-                          })
-                      ])
-                    : await resolvePromise;
+                // Race resolve() against abort signal so resolvers that ignore the signal still get interrupted.
+                // The abort listener MUST be detached once the race settles, regardless of who wins — `{ once: true }`
+                // only removes it when `abort` actually fires, so in the common case (resolve wins) it would otherwise
+                // leak on the long-lived stop signal, one listener per successful resolution (see issue #144). Mirror
+                // the `onParentAbort` cleanup pattern used in fetchFromMultipleGateways.
+                let result: Awaited<typeof resolvePromise>;
+                if (abortSignal) {
+                    let onAbort: (() => void) | undefined;
+                    try {
+                        result = await Promise.race([
+                            resolvePromise,
+                            new Promise<never>((_, reject) => {
+                                if (abortSignal.aborted) {
+                                    reject(createAbortError());
+                                    return;
+                                }
+                                onAbort = () => reject(createAbortError());
+                                abortSignal.addEventListener("abort", onAbort, { once: true });
+                            })
+                        ]);
+                    } finally {
+                        if (onAbort) abortSignal.removeEventListener("abort", onAbort);
+                    }
+                } else {
+                    result = await resolvePromise;
+                }
                 throwIfAbortSignalAborted(abortSignal);
                 value = result?.publicKey;
             } catch (e) {
