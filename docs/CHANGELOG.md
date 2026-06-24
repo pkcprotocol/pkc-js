@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.49](https://github.com/pkcprotocol/pkc-js/compare/v0.0.48...v0.0.49) (2026-06-24)
+
+### Bug Fixes
+
+* eliminate abort-listener and pending-map memory leaks ([#144](https://github.com/pkcprotocol/pkc-js/issues/144)–[#148](https://github.com/pkcprotocol/pkc-js/issues/148)) ([#149](https://github.com/pkcprotocol/pkc-js/issues/149)) ([e7b0697](https://github.com/pkcprotocol/pkc-js/commit/e7b0697c663dd595d9e97329dd67fba2cc57e6e9)), closes [#145](https://github.com/pkcprotocol/pkc-js/issues/145) [#145](https://github.com/pkcprotocol/pkc-js/issues/145) [#146](https://github.com/pkcprotocol/pkc-js/issues/146) [#146](https://github.com/pkcprotocol/pkc-js/issues/146) [#147](https://github.com/pkcprotocol/pkc-js/issues/147) [#147](https://github.com/pkcprotocol/pkc-js/issues/147) [#145](https://github.com/pkcprotocol/pkc-js/issues/145) [#146](https://github.com/pkcprotocol/pkc-js/issues/146) [#147](https://github.com/pkcprotocol/pkc-js/issues/147)
+* **test:** make rpc comment-update state assertion robust to cache skips ([789b427](https://github.com/pkcprotocol/pkc-js/commit/789b427fbd0ffb436d686ccd41a526cc030e7fe2))
+
 ## [0.0.48](https://github.com/pkcprotocol/pkc-js/compare/v0.0.47...v0.0.48) (2026-06-13)
 
 ### Bug Fixes
