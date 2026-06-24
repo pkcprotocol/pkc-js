@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.50](https://github.com/pkcprotocol/pkc-js/compare/v0.0.49...v0.0.50) (2026-06-24)
+
+### Features
+
+* **kubo:** force-announce browser-dialable addrs via AppendAnnounce (workaround kubo[#11369](https://github.com/pkcprotocol/pkc-js/issues/11369)) ([#151](https://github.com/pkcprotocol/pkc-js/issues/151)) ([3a5fbfe](https://github.com/pkcprotocol/pkc-js/commit/3a5fbfe9c57780f944204013996d13ac44c8a151)), closes [#150](https://github.com/pkcprotocol/pkc-js/issues/150)
+
 ## [0.0.49](https://github.com/pkcprotocol/pkc-js/compare/v0.0.48...v0.0.49) (2026-06-24)
 
 ### Bug Fixes
