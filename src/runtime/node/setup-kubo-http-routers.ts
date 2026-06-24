@@ -4,6 +4,18 @@ import Logger from "../../logger.js";
 import { PKCError } from "../../pkc-error.js";
 import * as remeda from "remeda";
 
+// fetch() resolves even on HTTP 4xx/5xx — it only rejects on a network failure — so a kubo RPC
+// error response would otherwise be treated as success and skip our retries. POST to the kubo
+// RPC and throw on a non-2xx status (reading the body for kubo's own error message). Each caller
+// wraps the throw into its specific PKCError. Shared by every kubo RPC POST in this file.
+async function _postToKuboRpc(kuboClient: PKC["clients"]["kuboRpcClients"][string], url: string): Promise<void> {
+    const res = await fetch(url, { method: "POST", headers: kuboClient._clientOptions.headers });
+    if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw Error(`kubo RPC responded with non-2xx status ${res.status} ${res.statusText}${body ? `: ${body}` : ""}`);
+    }
+}
+
 function _mergeRouterConfigs(existingConfig: any, newConfig: any) {
     if (!existingConfig?.Routers) return newConfig;
 
@@ -40,7 +52,7 @@ async function _setProvideDhtSweepEnabledOnKuboNode(kuboClient: PKC["clients"]["
     const configKey = "Provide.DHT.SweepEnabled";
     const url = `${kuboClient._clientOptions.url}/config?arg=${configKey}&arg=${JSON.stringify(sweepEnabled)}&json=true`;
     try {
-        await fetch(url, { method: "POST", headers: kuboClient._clientOptions.headers });
+        await _postToKuboRpc(kuboClient, url);
     } catch (e) {
         const error = new PKCError("ERR_FAILED_TO_SET_CONFIG_ON_KUBO_NODE", {
             fullUrl: url,
@@ -76,7 +88,7 @@ async function _setHttpRouterOptionsOnKuboNode(kuboClient: PKC["clients"]["kuboR
 
     const url = `${kuboClient._clientOptions.url}/config?arg=${routingKey}&arg=${JSON.stringify(mergedRoutingValue)}&json=true`;
     try {
-        await fetch(url, { method: "POST", headers: kuboClient._clientOptions.headers });
+        await _postToKuboRpc(kuboClient, url);
     } catch (e) {
         const error = new PKCError("ERR_FAILED_TO_SET_CONFIG_ON_KUBO_NODE", {
             fullUrl: url,
@@ -106,7 +118,7 @@ async function _setHttpRouterOptionsOnKuboNode(kuboClient: PKC["clients"]["kuboR
         );
         const shutdownUrl = `${kuboClient._clientOptions.url}/shutdown`;
         try {
-            await fetch(shutdownUrl, { method: "POST", headers: kuboClient._clientOptions.headers });
+            await _postToKuboRpc(kuboClient, shutdownUrl);
         } catch (e) {
             const error = new PKCError("ERR_FAILED_TO_SHUTDOWN_KUBO_NODE", {
                 actualError: e,
@@ -119,14 +131,24 @@ async function _setHttpRouterOptionsOnKuboNode(kuboClient: PKC["clients"]["kuboR
     }
 }
 
-// ---- Workaround for ipfs/kubo#11369 ----
-// A publicly-reachable kubo node advertises its browser-dialable transports (AutoTLS
-// Secure-WebSocket `/tls/ws` and `webrtc-direct/certhash`) in `ipfs id`, but kubo does NOT
-// announce those two address types to delegated HTTP routers once AutoNAT v2 has confirmed
+// ============================================================================================
+// TODO(kubo#11369): DELETE THIS ENTIRE WORKAROUND once ipfs/kubo#11369 is fixed.
+// Everything from here to the end of this file that concerns AppendAnnounce — the IP/host
+// helpers (_isPrivateOrLoopbackIpv4/Ipv6, _hasPublicHost), selectBrowserDialableAddrsToAppendAnnounce,
+// _setKuboConfigJson, _syncAppendAnnounceOnKuboNode, syncKuboAppendAnnounce — plus the
+// browser stub (src/runtime/browser/setup-kubo-http-routers.ts), the scheduler/timer wiring in
+// src/pkc/pkc.ts (_appendAnnounceTimer, _runAppendAnnounceSyncAndReschedule, the destroy()
+// cleanup), and test/node/kubo-append-announce.unit.test.ts exist ONLY to compensate for that
+// kubo bug. When kubo#11369 ships a fix, remove all of it.
+// --------------------------------------------------------------------------------------------
+// Why it exists: a publicly-reachable kubo node advertises its browser-dialable transports
+// (AutoTLS Secure-WebSocket `/tls/ws` and `webrtc-direct/certhash`) in `ipfs id`, but kubo does
+// NOT announce those two address types to delegated HTTP routers once AutoNAT v2 has confirmed
 // reachability — it only announces tcp/quic-v1/webtransport. Browser libp2p/helia clients
 // therefore never learn a dialable address. We force-announce the node's own browser-dialable
 // addresses via `Addresses.AppendAnnounce`, which go-libp2p applies AFTER the reachability
-// filter, so they survive into provider records. Remove once kubo#11369 is fixed.
+// filter, so they survive into provider records.
+// ============================================================================================
 
 function _isPrivateOrLoopbackIpv4(ip: string): boolean {
     if (/^(10|127|0)\./.test(ip) || /^169\.254\./.test(ip) || /^192\.168\./.test(ip)) return true;
@@ -170,7 +192,12 @@ export function selectBrowserDialableAddrsToAppendAnnounce(idAddrs: string[]): {
         const addr = String(raw).replace(/\/p2p\/[^/]+$/, "");
         if (!_hasPublicHost(addr)) continue;
         if (addr.includes("/webrtc-direct/") && addr.includes("/certhash/")) webrtcDirect.add(addr);
-        else if (addr.includes("/tls/ws") || addr.includes("libp2p.direct")) wss.add(addr);
+        // Only real browser-dialable Secure-WebSocket forms: the plain `.../tls/ws` and the
+        // AutoTLS IP+SNI `.../tls/sni/<*.libp2p.direct>/ws`. Matching any `libp2p.direct` substring
+        // would be too broad — a non-`/ws` address on that domain could falsely satisfy `wssPresent`
+        // and stop the retry loop before the WSS address actually lands.
+        else if (addr.endsWith("/ws") && (addr.includes("/tls/ws") || (addr.includes("/tls/sni/") && addr.includes("libp2p.direct"))))
+            wss.add(addr);
     }
     return { webrtcDirect: [...webrtcDirect], wss: [...wss], all: [...webrtcDirect, ...wss] };
 }
@@ -179,7 +206,7 @@ async function _setKuboConfigJson(kuboClient: PKC["clients"]["kuboRpcClients"][s
     const log = Logger("pkc-js:pkc:_init:syncKuboAppendAnnounce:setConfig");
     const url = `${kuboClient._clientOptions.url}/config?arg=${configKey}&arg=${JSON.stringify(value)}&json=true`;
     try {
-        await fetch(url, { method: "POST", headers: kuboClient._clientOptions.headers });
+        await _postToKuboRpc(kuboClient, url);
     } catch (e) {
         const error = new PKCError("ERR_FAILED_TO_SET_CONFIG_ON_KUBO_NODE", {
             fullUrl: url,
@@ -197,6 +224,7 @@ async function _setKuboConfigJson(kuboClient: PKC["clients"]["kuboRpcClients"][s
 // Sync one kubo node's AppendAnnounce. Returns whether it changed, whether the AutoTLS WSS is
 // now present, and whether AutoTLS is enabled (so the caller can decide when to stop re-checking).
 async function _syncAppendAnnounceOnKuboNode(
+    pkc: PKC,
     kuboClient: PKC["clients"]["kuboRpcClients"][string]
 ): Promise<{ changed: boolean; wssPresent: boolean; autoTlsEnabled: boolean }> {
     const log = Logger("pkc-js:pkc:_init:syncKuboAppendAnnounce");
@@ -226,7 +254,9 @@ async function _syncAppendAnnounceOnKuboNode(
             changed = true;
         }
 
-    if (changed) {
+    // Don't mutate the node (config write + shutdown) if pkc was destroyed while we were reading
+    // its `ipfs id` / config above — destroy() must stop the sync from touching kubo any further.
+    if (changed && !pkc.destroyed) {
         await _setKuboConfigJson(kuboClient, "Addresses.AppendAnnounce", merged);
         // AppendAnnounce is only read at kubo startup (verified: a running daemon ignores a live
         // config.set until restart). Shut down so the operator's supervisor restarts the node and
@@ -239,7 +269,7 @@ async function _syncAppendAnnounceOnKuboNode(
         );
         const shutdownUrl = `${kuboClient._clientOptions.url}/shutdown`;
         try {
-            await fetch(shutdownUrl, { method: "POST", headers: kuboClient._clientOptions.headers });
+            await _postToKuboRpc(kuboClient, shutdownUrl);
         } catch (e) {
             const error = new PKCError("ERR_FAILED_TO_SHUTDOWN_KUBO_NODE", {
                 actualError: e,
@@ -263,8 +293,9 @@ export async function syncKuboAppendAnnounce(pkc: PKC): Promise<{ allDone: boole
     if (pkc.destroyed) return { allDone: true };
     let allDone = true;
     for (const kuboClient of Object.values(pkc.clients.kuboRpcClients)) {
+        if (pkc.destroyed) return { allDone: true }; // destroyed mid-sync — stop touching nodes
         try {
-            const { wssPresent, autoTlsEnabled } = await _syncAppendAnnounceOnKuboNode(kuboClient);
+            const { wssPresent, autoTlsEnabled } = await _syncAppendAnnounceOnKuboNode(pkc, kuboClient);
             // Keep re-checking while AutoTLS is enabled but its (slow to provision) /tls/ws hasn't
             // landed in AppendAnnounce yet. When AutoTLS is off there is no WSS to wait for.
             if (autoTlsEnabled && !wssPresent) allDone = false;

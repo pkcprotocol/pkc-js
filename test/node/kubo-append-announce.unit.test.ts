@@ -48,6 +48,18 @@ describe("selectBrowserDialableAddrsToAppendAnnounce (kubo#11369 workaround)", (
         expect(r.wss).to.deep.equal([addr]);
     });
 
+    it("does not classify a non-/ws libp2p.direct address as WSS (would falsely satisfy wssPresent)", () => {
+        // Only `.../tls/ws` and `.../tls/sni/<*.libp2p.direct>/ws` are browser-dialable WSS. A
+        // libp2p.direct address that isn't a websocket must not be picked, or it would prematurely
+        // stop the retry loop before the real AutoTLS /ws address lands.
+        const r = selectBrowserDialableAddrsToAppendAnnounce([
+            `/dns4/peer.libp2p.direct/tcp/4001/p2p/${PEER}`,
+            `/dnsaddr/peer.libp2p.direct/p2p/${PEER}`
+        ]);
+        expect(r.wss).to.deep.equal([]);
+        expect(r.all).to.deep.equal([]);
+    });
+
     it("returns empty when there are no browser-dialable public addresses", () => {
         const r = selectBrowserDialableAddrsToAppendAnnounce([
             `/ip4/89.36.231.48/tcp/4001`,

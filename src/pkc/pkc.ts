@@ -197,6 +197,9 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     private _destroyAbortController?: AbortController;
 
     private _httpRouterSetupPromise?: Promise<void>;
+    // Part of the kubo#11369 workaround (see src/runtime/node/setup-kubo-http-routers.ts).
+    // Delete this field, _runAppendAnnounceSyncAndReschedule, and the destroy() cleanup once
+    // ipfs/kubo#11369 is fixed.
     private _appendAnnounceTimer?: ReturnType<typeof setTimeout>;
     destroyed = false;
     private _promiseToWaitForFirstCommunitieschangeEvent: Promise<string[]>;
