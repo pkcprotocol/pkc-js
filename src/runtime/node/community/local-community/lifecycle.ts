@@ -323,16 +323,18 @@ export async function updateLoop(community: LocalCommunity) {
             community.emit("error", e as PKCError | Error);
         } finally {
             await new Promise<void>((resolve) => {
-                if (community._updateLoopAbortController?.signal.aborted) return resolve();
-                const timer = setTimeout(resolve, community._pkc.updateInterval);
-                community._updateLoopAbortController?.signal.addEventListener(
-                    "abort",
-                    () => {
-                        clearTimeout(timer);
-                        resolve();
-                    },
-                    { once: true }
-                );
+                const signal = community._updateLoopAbortController?.signal;
+                if (signal?.aborted) return resolve();
+                // Detach the abort listener on BOTH outcomes (timer elapsed or aborted). `{ once: true }`
+                // alone only removes it when abort fires, so the normal timer-elapsed path would otherwise
+                // leak one listener per iteration on the long-lived update-loop signal (see issue #146).
+                const onAbortOrTimeout = () => {
+                    clearTimeout(timer);
+                    signal?.removeEventListener("abort", onAbortOrTimeout);
+                    resolve();
+                };
+                const timer = setTimeout(onAbortOrTimeout, community._pkc.updateInterval);
+                signal?.addEventListener("abort", onAbortOrTimeout, { once: true });
             });
         }
     }
