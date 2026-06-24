@@ -170,6 +170,8 @@ const commentUpdateCache = new TinyCache();
 type CommentUpdateCacheType = { author: Pick<Comment["author"], "community"> };
 const commentUpdateCacheTime = 1000 * 60 * 60;
 const getCommentPending: Record<string, boolean> = {}; // cid -> boolean if it's loading or not
+// Test-only: lets the issue #148 regression test verify finished entries are pruned, not left behind.
+export const _getCommentPendingKeyCountForTesting = (): number => Object.keys(getCommentPending).length;
 const shouldExcludeChallengeCommentCids = async (
     communityChallenge: CommunityChallenge,
     challengeRequestMessage: DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
@@ -262,7 +264,10 @@ const shouldExcludeChallengeCommentCids = async (
         } catch (e) {
             throw e;
         } finally {
-            getCommentPending[pendingKey] = false;
+            // Delete (not set to false) so finished entries are pruned — the `=== true` guard above
+            // treats a missing key the same as false, and leaving keys behind grows this module-level
+            // map unboundedly over the process lifetime (see issue #148).
+            delete getCommentPending[pendingKey];
         }
     };
 
