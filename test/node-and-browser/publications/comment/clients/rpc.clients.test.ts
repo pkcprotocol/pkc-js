@@ -75,20 +75,27 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
             expect(postToUpdate.depth).to.be.a("number");
             expect(postToUpdate.updatedAt).to.be.a("number");
 
-            if (recordedStates.length === 2) expect(recordedStates).to.deep.equal(["fetching-ipfs", "stopped"]);
-            else {
-                expect(recordedStates.slice(0, 4)).to.deep.equal([
-                    "fetching-ipfs",
-                    "stopped",
-                    "fetching-community-ipns",
-                    "fetching-community-ipfs"
-                ]);
+            // The RPC server emits one "fetching-*" state per remote fetch it actually performs, each
+            // followed by the client returning to "stopped". Which fetches happen depends on what the
+            // server already has cached when update() runs, so the exact sequence is non-deterministic:
+            //   - CommentIpfs found in the community's cached pages -> skips "fetching-ipfs"
+            //   - community already cached                          -> skips the "fetching-community-*" pair
+            //   - CommentUpdate already cached                      -> skips "fetching-update-ipfs"
+            // Asserting an exact sequence keyed on length is therefore inherently racy (e.g. a warm
+            // pages cache yields ["fetching-update-ipfs", "stopped"]). Instead assert the recorded
+            // "fetching-*" states appear in canonical order and the stream ends with "stopped".
+            const canonicalFetchOrder = ["fetching-ipfs", "fetching-community-ipns", "fetching-community-ipfs", "fetching-update-ipfs"];
 
-                if (recordedStates.length === 5)
-                    // the rpc server did not fetch update-ipfs
-                    expect(recordedStates.slice(4)).to.deep.equal(["stopped"]);
-                else expect(recordedStates.slice(4)).to.deep.equal(["fetching-update-ipfs", "stopped"]);
-            }
+            expect(recordedStates.length, "should record at least one state").to.be.greaterThan(0);
+            expect(recordedStates[recordedStates.length - 1], "last recorded state should be stopped").to.equal("stopped");
+
+            const fetchStates = recordedStates.filter((state) => state !== "stopped");
+            for (const state of fetchStates) expect(canonicalFetchOrder, `unexpected state: ${state}`).to.include(state);
+
+            const fetchOrderIndices = fetchStates.map((state) => canonicalFetchOrder.indexOf(state));
+            expect(fetchOrderIndices, "fetching states should be emitted in canonical order").to.deep.equal(
+                [...fetchOrderIndices].sort((a, b) => a - b)
+            );
         });
     });
 });
