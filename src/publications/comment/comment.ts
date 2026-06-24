@@ -709,7 +709,12 @@ export class Comment
     private _scheduleParallelCommunityConnect(log: Logger) {
         if (!this.communityName && !this.communityPublicKey) return;
         const stopSignal = this._getStopAbortSignal();
+        // Detach onAbort when the timer fires normally too. `{ once: true }` only removes it when abort
+        // fires, so without this it would leak one listener per call on the long-lived comment stop
+        // signal (see issue #147).
+        const onAbort = () => clearTimeout(timer);
         const timer = setTimeout(async () => {
+            stopSignal?.removeEventListener("abort", onAbort);
             if (this.raw.comment) return;
             if (this._isStopAbortRequested() || this._pkc.destroyed) return;
             log("Starting parallel pkc.getCommunity for", this.cid, "so bitswap can fetch the comment block from community peers");
@@ -721,7 +726,7 @@ export class Comment
         }, 5_000);
         if (stopSignal) {
             if (stopSignal.aborted) clearTimeout(timer);
-            else stopSignal.addEventListener("abort", () => clearTimeout(timer), { once: true });
+            else stopSignal.addEventListener("abort", onAbort, { once: true });
         }
     }
 
