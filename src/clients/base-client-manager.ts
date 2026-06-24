@@ -2,7 +2,6 @@ import { PKC } from "../pkc/pkc.js";
 import assert from "assert";
 import {
     calculateIpfsCidV0,
-    createAbortError,
     extractNetworkErrorDetails,
     hideClassPrivateProps,
     isAbortError,
@@ -10,6 +9,7 @@ import {
     isIpfsPath,
     isIpnsPath,
     isStringDomain,
+    raceAgainstAbort,
     throwIfAbortSignalAborted
 } from "../util.js";
 import { sha256 } from "js-sha256";
@@ -879,33 +879,10 @@ export class BaseClientsManager {
             this.preResolveNameResolver({ address: name, resolveType, resolverKey: nameResolver.key });
             try {
                 throwIfAbortSignalAborted(abortSignal);
-                const resolvePromise = nameResolver.resolve({ name, abortSignal });
-                // Race resolve() against abort signal so resolvers that ignore the signal still get interrupted.
-                // The abort listener MUST be detached once the race settles, regardless of who wins — `{ once: true }`
-                // only removes it when `abort` actually fires, so in the common case (resolve wins) it would otherwise
-                // leak on the long-lived stop signal, one listener per successful resolution (see issue #144). Mirror
-                // the `onParentAbort` cleanup pattern used in fetchFromMultipleGateways.
-                let result: Awaited<typeof resolvePromise>;
-                if (abortSignal) {
-                    let onAbort: (() => void) | undefined;
-                    try {
-                        result = await Promise.race([
-                            resolvePromise,
-                            new Promise<never>((_, reject) => {
-                                if (abortSignal.aborted) {
-                                    reject(createAbortError());
-                                    return;
-                                }
-                                onAbort = () => reject(createAbortError());
-                                abortSignal.addEventListener("abort", onAbort, { once: true });
-                            })
-                        ]);
-                    } finally {
-                        if (onAbort) abortSignal.removeEventListener("abort", onAbort);
-                    }
-                } else {
-                    result = await resolvePromise;
-                }
+                // Race resolve() against the abort signal so resolvers that ignore the signal still get
+                // interrupted. raceAgainstAbort detaches its abort listener once the race settles regardless
+                // of who wins, so it never leaks on the long-lived stop signal (see issue #144).
+                const result = await raceAgainstAbort(nameResolver.resolve({ name, abortSignal }), abortSignal);
                 throwIfAbortSignalAborted(abortSignal);
                 value = result?.publicKey;
             } catch (e) {

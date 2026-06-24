@@ -3,7 +3,7 @@ import * as remeda from "remeda";
 import { LRUCache } from "lru-cache";
 import { PKCError } from "../../../../pkc-error.js";
 import env from "../../../../version.js";
-import { removeMfsFilesSafely } from "../../../../util.js";
+import { removeMfsFilesSafely, sleepUntilTimeoutOrAbort } from "../../../../util.js";
 import { moveCommunityDbToDeletedDirectory } from "../../util.js";
 import { getCommunityChallengeFromCommunityChallengeSettings } from "../challenges/index.js";
 import {
@@ -322,20 +322,9 @@ export async function updateLoop(community: LocalCommunity) {
             log.error("Error in update loop", e);
             community.emit("error", e as PKCError | Error);
         } finally {
-            await new Promise<void>((resolve) => {
-                const signal = community._updateLoopAbortController?.signal;
-                if (signal?.aborted) return resolve();
-                // Detach the abort listener on BOTH outcomes (timer elapsed or aborted). `{ once: true }`
-                // alone only removes it when abort fires, so the normal timer-elapsed path would otherwise
-                // leak one listener per iteration on the long-lived update-loop signal (see issue #146).
-                const onAbortOrTimeout = () => {
-                    clearTimeout(timer);
-                    signal?.removeEventListener("abort", onAbortOrTimeout);
-                    resolve();
-                };
-                const timer = setTimeout(onAbortOrTimeout, community._pkc.updateInterval);
-                signal?.addEventListener("abort", onAbortOrTimeout, { once: true });
-            });
+            // Re-read the update-loop signal each iteration; sleepUntilTimeoutOrAbort detaches its abort
+            // listener on both outcomes so it never leaks on the long-lived signal (see issue #146).
+            await sleepUntilTimeoutOrAbort(community._pkc.updateInterval, community._updateLoopAbortController?.signal);
         }
     }
 }

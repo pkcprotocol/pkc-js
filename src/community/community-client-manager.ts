@@ -27,6 +27,7 @@ import {
     isIpnsPath,
     isStringDomain,
     pubsubTopicToDhtKey,
+    sleepUntilTimeoutOrAbort,
     throwIfAbortSignalAborted,
     timestamp
 } from "../util.js";
@@ -295,20 +296,9 @@ export class CommunityClientsManager extends PKCClientsManager {
             } catch (e) {
                 log.error(`Failed to update community ${this._community.address} for this iteration, will retry later`, e);
             } finally {
-                await new Promise<void>((resolve) => {
-                    const stopSignal = this._community._getStopAbortSignal();
-                    if (stopSignal?.aborted) return resolve();
-                    // Detach the abort listener on BOTH outcomes (timer elapsed or aborted). `{ once: true }`
-                    // alone only removes it when abort fires, so the normal timer-elapsed path would otherwise
-                    // leak one listener per iteration on the long-lived stop signal (see issue #145).
-                    const onAbortOrTimeout = () => {
-                        clearTimeout(timer);
-                        stopSignal?.removeEventListener("abort", onAbortOrTimeout);
-                        resolve();
-                    };
-                    const timer = setTimeout(onAbortOrTimeout, updateInterval);
-                    stopSignal?.addEventListener("abort", onAbortOrTimeout, { once: true });
-                });
+                // Re-read the stop signal each iteration; sleepUntilTimeoutOrAbort detaches its abort
+                // listener on both outcomes so it never leaks on the long-lived signal (see issue #145).
+                await sleepUntilTimeoutOrAbort(updateInterval, this._community._getStopAbortSignal());
             }
         }
 

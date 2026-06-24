@@ -75,6 +75,49 @@ export function throwIfAbortSignalAborted(signal?: AbortSignal): void {
     throw createAbortError();
 }
 
+// Sleep for `ms`, resolving early if `signal` aborts. The abort listener is detached on BOTH
+// outcomes (timer elapsed or aborted), so it never leaks on a long-lived signal — `{ once: true }`
+// alone only removes it when abort fires, which leaks one listener per call on the normal
+// timer-elapsed path (see issues #145, #146). Used by the community update loops' inter-iteration
+// sleep and the comment parallel-connect timer.
+export function sleepUntilTimeoutOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise<void>((resolve) => {
+        if (signal?.aborted) return resolve();
+        const onAbortOrTimeout = () => {
+            clearTimeout(timer);
+            signal?.removeEventListener("abort", onAbortOrTimeout);
+            resolve();
+        };
+        const timer = setTimeout(onAbortOrTimeout, ms);
+        signal?.addEventListener("abort", onAbortOrTimeout, { once: true });
+    });
+}
+
+// Race `promise` against `signal` aborting, rejecting with an AbortError if the signal fires first.
+// The abort listener is detached once the race settles regardless of who wins, so it never leaks on
+// a long-lived signal — `{ once: true }` alone only removes it when abort fires, which leaks one
+// listener per call in the common case (the promise wins; see issue #144). Mirrors the onParentAbort
+// cleanup pattern in fetchFromMultipleGateways.
+export async function raceAgainstAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (!signal) return promise;
+    let onAbort: (() => void) | undefined;
+    try {
+        return await Promise.race([
+            promise,
+            new Promise<never>((_, reject) => {
+                if (signal.aborted) {
+                    reject(createAbortError());
+                    return;
+                }
+                onAbort = () => reject(createAbortError());
+                signal.addEventListener("abort", onAbort, { once: true });
+            })
+        ]);
+    } finally {
+        if (onAbort) signal.removeEventListener("abort", onAbort);
+    }
+}
+
 export function replaceXWithY(obj: Record<string, any>, x: any, y: any): any {
     // obj is a JS object
     if (!remeda.isPlainObject(obj)) return obj;
