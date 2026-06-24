@@ -5,7 +5,8 @@ import {
     hideClassPrivateProps,
     isAbortError,
     retryKuboIpfsAdd,
-    shortifyCid
+    shortifyCid,
+    sleepUntilTimeoutOrAbort
 } from "../../util.js";
 import Publication from "../publication.js";
 import { getCommunityAddressFromRecord, getCommunityPublicKeyFromWire, getCommunityNameFromWire } from "../publication-community.js";
@@ -709,7 +710,10 @@ export class Comment
     private _scheduleParallelCommunityConnect(log: Logger) {
         if (!this.communityName && !this.communityPublicKey) return;
         const stopSignal = this._getStopAbortSignal();
-        const timer = setTimeout(async () => {
+        // Fire-and-forget: wait 5s (or until stopped), then connect. sleepUntilTimeoutOrAbort detaches its
+        // abort listener on both outcomes so it never leaks on the long-lived stop signal (see issue #147).
+        void (async () => {
+            await sleepUntilTimeoutOrAbort(5_000, stopSignal);
             if (this.raw.comment) return;
             if (this._isStopAbortRequested() || this._pkc.destroyed) return;
             log("Starting parallel pkc.getCommunity for", this.cid, "so bitswap can fetch the comment block from community peers");
@@ -718,11 +722,7 @@ export class Comment
             } catch (err) {
                 if (!isAbortError(err as Error)) log.error("Parallel pkc.getCommunity failed for", this.cid, err);
             }
-        }, 5_000);
-        if (stopSignal) {
-            if (stopSignal.aborted) clearTimeout(timer);
-            else stopSignal.addEventListener("abort", () => clearTimeout(timer), { once: true });
-        }
+        })();
     }
 
     async _attemptToFetchCommentIpfsIfNeeded(log: Logger) {

@@ -3,7 +3,7 @@ import * as remeda from "remeda";
 import { LRUCache } from "lru-cache";
 import { PKCError } from "../../../../pkc-error.js";
 import env from "../../../../version.js";
-import { removeMfsFilesSafely } from "../../../../util.js";
+import { removeMfsFilesSafely, sleepUntilTimeoutOrAbort } from "../../../../util.js";
 import { moveCommunityDbToDeletedDirectory } from "../../util.js";
 import { getCommunityChallengeFromCommunityChallengeSettings } from "../challenges/index.js";
 import {
@@ -322,18 +322,9 @@ export async function updateLoop(community: LocalCommunity) {
             log.error("Error in update loop", e);
             community.emit("error", e as PKCError | Error);
         } finally {
-            await new Promise<void>((resolve) => {
-                if (community._updateLoopAbortController?.signal.aborted) return resolve();
-                const timer = setTimeout(resolve, community._pkc.updateInterval);
-                community._updateLoopAbortController?.signal.addEventListener(
-                    "abort",
-                    () => {
-                        clearTimeout(timer);
-                        resolve();
-                    },
-                    { once: true }
-                );
-            });
+            // Re-read the update-loop signal each iteration; sleepUntilTimeoutOrAbort detaches its abort
+            // listener on both outcomes so it never leaks on the long-lived signal (see issue #146).
+            await sleepUntilTimeoutOrAbort(community._pkc.updateInterval, community._updateLoopAbortController?.signal);
         }
     }
 }
