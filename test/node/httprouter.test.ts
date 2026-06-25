@@ -8,16 +8,12 @@ import type { LocalCommunity } from "../../dist/node/runtime/node/community/loca
 
 import tcpPortUsed from "tcp-port-used";
 
-// Cannot run under RPC: the RPC server owns the kubo node and applies the http router config
-// itself, so this test process can't observe the config changes or the mock http router traffic
-describeSkipIfRpc(`Testing HTTP router settings`, async () => {
+describeSkipIfRpc(`Testing HTTP router settings and address rewriter`, async () => {
     const kuboNodeForHttpRouter = "http://localhost:15006/api/v0";
     let mockHttpRouter: MockHttpRouter;
     let httpRouterUrls: string[] = [];
 
-    // first port the removed address rewriter proxy used to listen on. Kubo >= 0.41 publishes
-    // resolved addresses in provider records itself (ipfs/kubo#11213) so no proxy should ever spawn
-    const legacyAddressRewriterStartPort = 19575;
+    const startPort = 19575;
 
     let pkc: PKCType;
 
@@ -34,6 +30,10 @@ describeSkipIfRpc(`Testing HTTP router settings`, async () => {
         if (mockHttpRouter) {
             await mockHttpRouter.destroy();
         }
+    });
+
+    it(`address rewriter proxy should not be taken before we start pkc`, async () => {
+        for (let i = 0; i < httpRouterUrls.length; i++) expect(await tcpPortUsed.check(startPort + i)).to.be.false;
     });
 
     it(`PKC({kuboRpcClientsOptions, httpRoutersOptions}) will change config of ipfs node`, async () => {
@@ -56,7 +56,11 @@ describeSkipIfRpc(`Testing HTTP router settings`, async () => {
         expect(configValueRouters?.["HttpRouter1"]).to.be.a("object");
     });
 
-    it(`Routing.Routers should be set to the http router urls directly (no address rewriter proxy)`, async () => {
+    it(`Should start up address rewriter proxy`, async () => {
+        for (let i = 0; i < httpRouterUrls.length; i++) expect(await tcpPortUsed.check(startPort + i)).to.be.true;
+    });
+
+    it(`Routing.Routers should be set to proxy`, async () => {
         const kuboRpcClient = pkc.clients.kuboRpcClients[kuboNodeForHttpRouter]._client;
         const configValueRouters = (await kuboRpcClient.config.get("Routing.Routers")) as Record<
             string,
@@ -64,12 +68,8 @@ describeSkipIfRpc(`Testing HTTP router settings`, async () => {
         >;
         for (let i = 0; i < httpRouterUrls.length; i++) {
             const endpoint = configValueRouters[`HttpRouter${i + 1}`].Parameters.Endpoint;
-            expect(endpoint).to.equal(httpRouterUrls[i]);
+            expect(endpoint).to.equal(`http://127.0.0.1:${startPort + i}`);
         }
-    });
-
-    it(`No address rewriter proxy is spawned`, async () => {
-        for (let i = 0; i < httpRouterUrls.length; i++) expect(await tcpPortUsed.check(legacyAddressRewriterStartPort + i)).to.be.false;
     });
 
     it(`Can create another pkc instance with same configs with no problem`, async () => {
@@ -88,13 +88,13 @@ describeSkipIfRpc(`Testing HTTP router settings`, async () => {
         >;
         for (let i = 0; i < httpRouterUrls.length; i++) {
             const endpoint = configValueRouters[`HttpRouter${i + 1}`].Parameters.Endpoint;
-            expect(endpoint).to.equal(httpRouterUrls[i]);
+            expect(endpoint).to.equal(`http://127.0.0.1:${startPort + i}`);
         }
 
         await anotherInstance.destroy();
     });
 
-    it(`Kubo provides directly to the http router with valid addresses (kubo#11213 regression)`, async () => {
+    it(`The proxy proxies requests to http router properly`, async () => {
         const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity; // an online community
 
         await community.start();
@@ -108,13 +108,6 @@ describeSkipIfRpc(`Testing HTTP router settings`, async () => {
             { label: "community.pubsubTopicRoutingCid", cid: community.pubsubTopicRoutingCid! },
             { label: "community.ipnsPubsubTopicRoutingCid", cid: community.ipnsPubsubTopicRoutingCid! }
         ];
-
-        // provides happen in the background during community.start(), poll instead of asserting instantly
-        const deadline = Date.now() + 120000;
-        while (Date.now() < deadline) {
-            if (provideToTestAgainst.every(({ cid }) => mockHttpRouter.hasProvidersFor(cid))) break;
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-        }
 
         const providerStatuses = provideToTestAgainst.map(({ cid, label }) => ({
             label,
@@ -164,8 +157,23 @@ describeSkipIfRpc(`Testing HTTP router settings`, async () => {
         await community.delete();
     });
 
-    it(`pkc.destroy() works with http routers configured and never spawned a proxy`, async () => {
+    it(`Calling pkc.destroy() on original pkc instance that started address rewriter proxy frees up the proxy server`, async () => {
         await pkc.destroy();
-        for (let i = 0; i < httpRouterUrls.length; i++) expect(await tcpPortUsed.check(legacyAddressRewriterStartPort + i)).to.be.false;
+        for (let i = 0; i < httpRouterUrls.length; i++) expect(await tcpPortUsed.check(startPort + i)).to.be.false;
+    });
+
+    it(`Creating a new pkc instance will start a new proxy server after destroying the previous one`, async () => {
+        const anotherInstance = await PKC({
+            kuboRpcClientsOptions: [kuboNodeForHttpRouter],
+            httpRoutersOptions: httpRouterUrls,
+            dataPath: pkc.dataPath
+        });
+
+        await new Promise((resolve) => setTimeout(resolve, 5000)); // wait unti pkc is done changing config and restarting
+        for (let i = 0; i < httpRouterUrls.length; i++) expect(await tcpPortUsed.check(startPort + i)).to.be.true;
+
+        await anotherInstance.destroy();
+
+        for (let i = 0; i < httpRouterUrls.length; i++) expect(await tcpPortUsed.check(startPort + i)).to.be.false;
     });
 });

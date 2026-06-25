@@ -22,9 +22,7 @@ The new directory layout:
   lru-storage/            # LRU cache storage
   rpc-server/             # RPC server state (if running as RPC server)
     rpc-state.db
-  .address-rewriter/      # legacy address rewriter cache (no longer written; the address
-                          # rewriter proxy was removed once the ipfs-tracker bug behind the
-                          # provider-record addresses was fixed)
+  .address-rewriter/      # address rewriter cache
 ```
 
 ## What pkc-js Handles Automatically
