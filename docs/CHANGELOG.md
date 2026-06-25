@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.52](https://github.com/pkcprotocol/pkc-js/compare/v0.0.51...v0.0.52) (2026-06-25)
+
+### Features
+
+* **routers:** add routerofbitsocial.xyz and bsotracker.online to default HTTP routers ([f81506d](https://github.com/pkcprotocol/pkc-js/commit/f81506d2104e00945573193861a49247b7635ea4))
+
 ## [0.0.51](https://github.com/pkcprotocol/pkc-js/compare/v0.0.50...v0.0.51) (2026-06-25)
 
 ### Features
