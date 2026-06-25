@@ -1,4 +1,5 @@
 import pLimit from "p-limit";
+import pTimeout from "p-timeout";
 import Logger from "../../../../logger.js";
 import { genToArray, removeMfsFilesSafely, statMfsPathSafely } from "../../../../util.js";
 import type { DbRepliesSortEntry } from "../../../../publications/comment/types.js";
@@ -128,6 +129,26 @@ export async function cleanUpIpfsRepoRarely(community: LocalCommunity, force = f
     if (Math.random() < 0.00001 || force) {
         let gcCids = 0;
         const kuboRpc = community._clientsManager.getDefaultKuboRpcClient();
+
+        // Workaround for ipfs/kubo#10842: repo.gc walks the live set from the *persisted* MFS
+        // root, so any MFS dir-node block boxo still holds in memory (not yet flushed to disk)
+        // looks unreferenced and gets collected. The next MFS traversal then tries to fetch a
+        // now-deleted block with no timeout while holding the MFS mutex, wedging every files.*
+        // op on the daemon. Flushing the whole MFS first persists those in-memory nodes so the
+        // GC live-walk sees them as referenced. We flush "/" (not a single community subtree)
+        // because GC walks the entire MFS, so the whole tree must be on disk. If the flush
+        // itself times out the daemon is already unhealthy — skip GC rather than risk arming
+        // the race. Note: with many communities writing concurrently, a write during the GC
+        // walk can still mutate MFS, so this narrows the window rather than closing it 100%.
+        try {
+            await pTimeout(kuboRpc._client.files.flush("/"), {
+                milliseconds: 15_000,
+                message: "Timed out flushing MFS root before repo.gc"
+            });
+        } catch (e) {
+            log.error("Skipping repo.gc: failed to flush MFS root beforehand (ipfs/kubo#10842 safeguard)", e);
+            return;
+        }
 
         try {
             for await (const res of kuboRpc._client.repo.gc({ quiet: true })) {

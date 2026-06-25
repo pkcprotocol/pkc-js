@@ -211,6 +211,45 @@ describe("cleanup: cleanUpIpfsRepoRarely", () => {
 
         expect(getDefaultKuboRpcClient).not.toHaveBeenCalled();
     });
+
+    // Regression for ipfs/kubo#10842: repo.gc must be preceded by a full MFS flush so the GC
+    // live-walk doesn't collect MFS dir-node blocks boxo still holds in memory.
+    it("flushes the MFS root ('/') before running repo.gc", async () => {
+        const callOrder: string[] = [];
+        const flush = vi.fn(async (path: string) => {
+            callOrder.push(`flush:${path}`);
+        });
+        // repo.gc returns an async iterable.
+        const gc = vi.fn(() => {
+            callOrder.push("gc");
+            return (async function* () {
+                yield { cid: "QmCollected" };
+            })();
+        });
+        const community = {
+            _clientsManager: { getDefaultKuboRpcClient: () => ({ _client: { files: { flush }, repo: { gc } } }) }
+        } as unknown as LocalCommunity;
+
+        await cleanUpIpfsRepoRarely(community, true); // force=true bypasses the random gate
+
+        expect(flush).toHaveBeenCalledWith("/");
+        expect(gc).toHaveBeenCalledTimes(1);
+        // Flush must happen strictly before GC.
+        expect(callOrder).to.deep.equal(["flush:/", "gc"]);
+    });
+
+    it("skips repo.gc when the MFS root flush fails (daemon already unhealthy)", async () => {
+        const flush = vi.fn().mockRejectedValue(new Error("Timed out flushing MFS root before repo.gc"));
+        const gc = vi.fn();
+        const community = {
+            _clientsManager: { getDefaultKuboRpcClient: () => ({ _client: { files: { flush }, repo: { gc } } }) }
+        } as unknown as LocalCommunity;
+
+        await cleanUpIpfsRepoRarely(community, true);
+
+        expect(flush).toHaveBeenCalledWith("/");
+        expect(gc).not.toHaveBeenCalled(); // GC skipped because the flush safeguard failed
+    });
 });
 
 describe("cleanup: unpinStaleCids", () => {
