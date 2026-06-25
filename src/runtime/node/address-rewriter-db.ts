@@ -1,6 +1,7 @@
 import path from "node:path";
 import fs from "node:fs/promises";
 import Database from "better-sqlite3";
+import type { EndpointConfig } from "kubo-rpc-client";
 import Logger from "../../logger.js";
 
 const debug = Logger("pkc-js:address-rewriter-db");
@@ -30,11 +31,11 @@ export class AddressRewriterDatabase {
     private _db: Database.Database | null = null;
     private _dbPath: string;
 
-    constructor(dataPath: string, kuboConfig: any, proxyTarget: URL) {
+    constructor(dataPath: string, kuboConfig: EndpointConfig | undefined, proxyTarget: URL) {
         this._dbPath = this._initializeDbPath(dataPath, kuboConfig, proxyTarget);
     }
 
-    private _initializeDbPath(dataPath: string, kuboConfig: any, proxyTarget: URL): string {
+    private _initializeDbPath(dataPath: string, kuboConfig: EndpointConfig | undefined, proxyTarget: URL): string {
         if (!dataPath) {
             throw new Error("dataPath must be defined for request logging");
         }

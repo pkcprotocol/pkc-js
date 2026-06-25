@@ -39,6 +39,7 @@ export class AddressesRewriterProxyServer {
     // Failed keys retry logic
     private _failedKeys: Set<string> = new Set();
     private _retryInterval?: ReturnType<typeof setInterval>;
+    private _isRetrying = false;
 
     private _updateAddressesInterval?: ReturnType<typeof setInterval>;
 
@@ -227,7 +228,10 @@ export class AddressesRewriterProxyServer {
             method: req.method,
             headers: {
                 ...req.headers,
-                "Content-Length": Buffer.byteLength(rewrittenBody),
+                // Node lowercases all incoming header names, so req.headers always carries
+                // `content-length` regardless of the casing kubo used on the wire. Overriding the
+                // lowercase key alone covers every case; a second uppercase key would only emit a
+                // duplicate Content-Length header that some routers reject.
                 "content-length": Buffer.byteLength(rewrittenBody),
                 host: this.proxyTarget.host
             },
@@ -351,8 +355,10 @@ export class AddressesRewriterProxyServer {
     async _startUpdateAddressesLoop() {
         if (!this.kuboClients?.length) throw Error("should have a defined kubo rpc client option to start the address rewriter");
 
-        const isRetriableError = (error: any): boolean => {
-            return error?.response?.status === 500 || error?.status === 500 || error?.statusCode === 500;
+        const isRetriableError = (error: unknown): boolean => {
+            if (typeof error !== "object" || error === null) return false;
+            const err = error as { status?: unknown; statusCode?: unknown; response?: { status?: unknown } };
+            return err.response?.status === 500 || err.status === 500 || err.statusCode === 500;
         };
 
         const tryUpdateAddressesForClient = async (kuboClient: PKC["clients"]["kuboRpcClients"][string]["_client"]): Promise<void> => {
@@ -477,7 +483,18 @@ export class AddressesRewriterProxyServer {
         // Start 2-minute interval for retrying failed keys
         const retryInterval = 2 * 60 * 1000; // 2 minutes
         this._retryInterval = setInterval(async () => {
-            await this._retryFailedKeys();
+            // Skip if a previous run is still going; the per-key provide loop can exceed the
+            // interval, and overlapping runs would race on _failedKeys and double-provide.
+            if (this._isRetrying) {
+                debug.trace("Previous failed-keys retry still running, skipping this tick");
+                return;
+            }
+            this._isRetrying = true;
+            try {
+                await this._retryFailedKeys();
+            } finally {
+                this._isRetrying = false;
+            }
         }, retryInterval);
 
         debug(`Started failed keys retry with ${this._failedKeys.size} keys from previous sessions`);
