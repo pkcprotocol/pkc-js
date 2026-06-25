@@ -125,7 +125,9 @@ export const PKCUserOptionsSchema = PKCUserOptionBaseSchema.extend({
         "https://peers.pleb.bot",
         "https://routing.lol",
         "https://peers.forumindex.com",
-        "https://peers.plebpubsub.xyz"
+        "https://peers.plebpubsub.xyz",
+        "https://routerofbitsocial.xyz",
+        "https://bsotracker.online"
     ]),
     resolveAuthorNames: PKCUserOptionBaseSchema.shape.resolveAuthorNames.default(true),
     publishInterval: PKCUserOptionBaseSchema.shape.publishInterval.default(20000),
