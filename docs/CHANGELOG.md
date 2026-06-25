@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.51](https://github.com/pkcprotocol/pkc-js/compare/v0.0.50...v0.0.51) (2026-06-25)
+
+### Features
+
+* **kubo:** restore address rewriter proxy for HTTP-router provider records ([#152](https://github.com/pkcprotocol/pkc-js/issues/152)) ([d3a0fa7](https://github.com/pkcprotocol/pkc-js/commit/d3a0fa7f34426ec7edd64825f25d133062a3e5b1)), closes [#128](https://github.com/pkcprotocol/pkc-js/issues/128) [kubo#11369](https://github.com/pkcprotocol/kubo/issues/11369) [#151](https://github.com/pkcprotocol/pkc-js/issues/151)
+
+### Bug Fixes
+
+* **kubo:** flush MFS root before repo.gc (ipfs/kubo[#10842](https://github.com/pkcprotocol/pkc-js/issues/10842) wedge) ([#153](https://github.com/pkcprotocol/pkc-js/issues/153)) ([889532b](https://github.com/pkcprotocol/pkc-js/commit/889532b60dfb14126d4f8397f032329f2b723e4e)), closes [#128](https://github.com/pkcprotocol/pkc-js/issues/128) [kubo#11369](https://github.com/pkcprotocol/kubo/issues/11369) [#151](https://github.com/pkcprotocol/pkc-js/issues/151)
+
 ## [0.0.50](https://github.com/pkcprotocol/pkc-js/compare/v0.0.49...v0.0.50) (2026-06-24)
 
 ### Features
