@@ -150,7 +150,7 @@ describeSkipIfRpc(`nameResolver resolution`, async () => {
         await pkc.destroy();
     });
 
-    it(`nameResolver resolves plebbit-author-address correctly`, async () => {
+    it(`nameResolver resolves bitsocial text record for authors correctly`, async () => {
         const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false
