@@ -1,5 +1,7 @@
 # Changelog
 
+## [0.0.53](https://github.com/pkcprotocol/pkc-js/compare/v0.0.52...v0.0.53) (2026-06-25)
+
 ## [0.0.52](https://github.com/pkcprotocol/pkc-js/compare/v0.0.51...v0.0.52) (2026-06-25)
 
 ### Features
