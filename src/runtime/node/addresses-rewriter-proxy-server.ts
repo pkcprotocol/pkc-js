@@ -11,6 +11,16 @@ import { AddressRewriterDatabase, RequestLogEntry } from "./address-rewriter-db.
 const debug = Logger("pkc-js:addresses-rewriter");
 const MAX_BODY_PREVIEW_BYTES = 4096;
 
+// `ipfs id` returns self-addresses with a trailing `/p2p/<peerId>` while `swarm addrs`
+// returns the same transports without it, so unioning them yields each address twice plus
+// non-standard `/p2p`-suffixed entries. The `/routing/v1` provider schema carries the peer id
+// in the separate `ID` field and expects transport-only `Addrs`, so strip the trailing
+// `/p2p/<peerId>` and dedupe before announcing.
+export function normalizeSelfAddrsForProvider(addrs: string[], peerId: string): string[] {
+    const suffix = `/p2p/${peerId}`;
+    return remeda.unique(addrs.map((addr) => (addr.endsWith(suffix) ? addr.slice(0, -suffix.length) : addr)));
+}
+
 type AddressesRewriterOptions = {
     kuboClients: PKC["clients"]["kuboRpcClients"][string]["_client"][];
     port: number;
@@ -380,10 +390,15 @@ export class AddressesRewriterProxyServer {
 
                         const swarmListeningAddresses = swarmAddrsRes.filter((swarmAddr) => swarmAddr.id.toString() === peerId);
 
-                        const addresses: string[] = remeda.unique([
-                            ...idRes.addresses.map((addr) => addr.toString()),
-                            ...remeda.flatten(swarmListeningAddresses.map((swarmAddr) => swarmAddr.addrs.map((addr) => addr.toString())))
-                        ]);
+                        const addresses: string[] = normalizeSelfAddrsForProvider(
+                            [
+                                ...idRes.addresses.map((addr) => addr.toString()),
+                                ...remeda.flatten(
+                                    swarmListeningAddresses.map((swarmAddr) => swarmAddr.addrs.map((addr) => addr.toString()))
+                                )
+                            ],
+                            peerId
+                        );
 
                         if (addresses.length === 0) {
                             throw Error(`Failed to get any addresses for peer ${peerId}`);
