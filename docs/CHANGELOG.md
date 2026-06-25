@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.54](https://github.com/pkcprotocol/pkc-js/compare/v0.0.53...v0.0.54) (2026-06-25)
+
+### Features
+
+* **kubo:** restore address rewriter proxy for provider records ([#155](https://github.com/pkcprotocol/pkc-js/issues/155)) ([5409134](https://github.com/pkcprotocol/pkc-js/commit/5409134b04284ac37580360765a763ff928889d8)), closes [#154](https://github.com/pkcprotocol/pkc-js/issues/154) [ipfs/kubo#11369](https://github.com/ipfs/kubo/issues/11369)
+
 ## [0.0.53](https://github.com/pkcprotocol/pkc-js/compare/v0.0.52...v0.0.53) (2026-06-25)
 
 ## [0.0.52](https://github.com/pkcprotocol/pkc-js/compare/v0.0.51...v0.0.52) (2026-06-25)
