@@ -112,8 +112,8 @@ async function killKuboDaemon(proc: ChildProcess): Promise<void> {
     });
 }
 
-// Same Routing config shape that setupKuboAddressesRewriterAndHttpRouters builds, set manually so
-// pkc's own setup stays out of the path entirely
+// Same Routing config shape that setupKuboHttpRouters builds, set manually so pkc's own setup
+// stays out of the path entirely
 function buildDirectRoutingConfig(httpRouterUrl: string) {
     return {
         Type: "custom",
@@ -161,7 +161,7 @@ describeSkipIfRpc(`kubo#11213 regression: Kubo provides valid addresses directly
     }, 60_000);
 
     // run once with the sweep provider disabled (current production config set by
-    // setupKuboAddressesRewriterAndHttpRouters) and once enabled, in case the kubo#11213 fix behaves differently
+    // setupKuboHttpRouters) and once enabled, in case the kubo#11213 fix behaves differently
     // between the legacy and sweep provide paths
     for (const sweepEnabled of [false, true]) {
         describe(`Provide.DHT.SweepEnabled=${sweepEnabled}`, () => {
