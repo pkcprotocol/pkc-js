@@ -1,22 +1,38 @@
 import { PKC } from "../../pkc/pkc.js";
-import retry from "retry";
+import retry, { RetryOperation } from "retry";
+import { AddressesRewriterProxyServer } from "./addresses-rewriter-proxy-server.js";
 import Logger from "../../logger.js";
 import { PKCError } from "../../pkc-error.js";
 import * as remeda from "remeda";
+import tcpPortUsed from "tcp-port-used";
 
-function _mergeRouterConfigs(existingConfig: any, newConfig: any) {
+type KuboRouterEntry = {
+    Type: string;
+    Parameters: {
+        Endpoint?: string;
+        Routers?: Array<{ RouterName: string; IgnoreErrors: boolean; Timeout: string }>;
+    };
+};
+type KuboRoutersMap = Record<string, KuboRouterEntry>;
+type KuboRoutingConfig = {
+    Type?: string;
+    Methods?: Record<string, { RouterName: string }>;
+    Routers: KuboRoutersMap;
+};
+
+function _mergeRouterConfigs(existingConfig: KuboRoutingConfig | undefined, newConfig: KuboRoutingConfig): KuboRoutingConfig {
     if (!existingConfig?.Routers) return newConfig;
 
-    const existingRoutersByEndpoint = new Map();
-    Object.entries(existingConfig.Routers).forEach(([routerName, router]: [string, any]) => {
+    const existingRoutersByEndpoint = new Map<string, { routerName: string; router: KuboRouterEntry }>();
+    Object.entries(existingConfig.Routers).forEach(([routerName, router]) => {
         if (router.Parameters?.Endpoint) {
             existingRoutersByEndpoint.set(router.Parameters.Endpoint, { routerName, router });
         }
     });
 
-    const mergedRouters = { ...newConfig.Routers };
+    const mergedRouters: KuboRoutersMap = { ...newConfig.Routers };
 
-    Object.entries(newConfig.Routers).forEach(([newRouterName, newRouter]: [string, any]) => {
+    Object.entries(newConfig.Routers).forEach(([newRouterName, newRouter]) => {
         if (newRouter.Parameters?.Endpoint) {
             const existing = existingRoutersByEndpoint.get(newRouter.Parameters.Endpoint);
             if (existing) {
@@ -55,13 +71,13 @@ async function _setProvideDhtSweepEnabledOnKuboNode(kuboClient: PKC["clients"]["
     log.trace("Succeeded in setting config key", configKey, "on node", kuboClient._clientOptions.url, "to be", sweepEnabled);
 }
 
-async function _setHttpRouterOptionsOnKuboNode(kuboClient: PKC["clients"]["kuboRpcClients"][string], routingValue: any) {
+async function _setHttpRouterOptionsOnKuboNode(kuboClient: PKC["clients"]["kuboRpcClients"][string], routingValue: KuboRoutingConfig) {
     const log = Logger("pkc-js:pkc:_init:retrySettingHttpRoutersOnIpfsNodes:setHttpRouterOptionsOnIpfsNode");
     const routingKey = "Routing";
 
-    let routingConfigBeforeChanging: typeof routingValue | undefined;
+    let routingConfigBeforeChanging: KuboRoutingConfig | undefined;
     try {
-        routingConfigBeforeChanging = await kuboClient._client.config.get(routingKey);
+        routingConfigBeforeChanging = <KuboRoutingConfig>await kuboClient._client.config.get(routingKey);
     } catch (e) {
         const error = new PKCError("ERR_FAILED_TO_GET_CONFIG_ON_KUBO_NODE", {
             actualError: e,
@@ -92,12 +108,12 @@ async function _setHttpRouterOptionsOnKuboNode(kuboClient: PKC["clients"]["kuboR
 
     await _setProvideDhtSweepEnabledOnKuboNode(kuboClient, false);
 
-    const endpointsBefore: string[] = Object.values(routingConfigBeforeChanging?.["Routers"] || {}).map(
-        //@ts-expect-error
-        (router) => router["Parameters"]["Endpoint"]
-    );
-    //@ts-expect-error
-    const endpointsAfter = Object.values(mergedRoutingValue.Routers).map((router) => router["Parameters"]["Endpoint"]);
+    const endpointsBefore: string[] = Object.values(routingConfigBeforeChanging?.Routers || {})
+        .map((router) => router.Parameters?.Endpoint)
+        .filter((endpoint): endpoint is string => endpoint !== undefined);
+    const endpointsAfter: string[] = Object.values(mergedRoutingValue.Routers)
+        .map((router) => router.Parameters?.Endpoint)
+        .filter((endpoint): endpoint is string => endpoint !== undefined);
     if (!remeda.isDeepEqual(endpointsBefore.sort(), endpointsAfter.sort())) {
         log(
             "Config on kubo node has been changed. PKC-js will send shutdown command to node",
@@ -119,21 +135,92 @@ async function _setHttpRouterOptionsOnKuboNode(kuboClient: PKC["clients"]["kuboR
     }
 }
 
-export async function setupKuboHttpRouters(pkc: PKC): Promise<void> {
-    if (pkc.destroyed) return;
+async function _getStartedProxyUrl(pkc: PKC, httpRouterUrl: string) {
+    if (pkc.destroyed) return undefined;
+    const mappingKeyName = `httprouter_proxy_${httpRouterUrl}`;
+    try {
+        const urlOfProxyOfHttpRouter = <string | undefined>await pkc._storage.getItem(mappingKeyName);
+        if (pkc.destroyed) return undefined;
+        if (urlOfProxyOfHttpRouter) {
+            const proxyHttpUrl = new URL(urlOfProxyOfHttpRouter);
+            if (await tcpPortUsed.check(Number(proxyHttpUrl.port), "127.0.0.1")) return urlOfProxyOfHttpRouter;
+            if (pkc.destroyed) return undefined;
+            await pkc._storage.removeItem(mappingKeyName);
+        }
+        return undefined;
+    } catch (error) {
+        if (pkc.destroyed && error instanceof Error && error.message.includes("database connection is not open")) {
+            return undefined;
+        }
+        throw error;
+    }
+}
+
+export async function setupKuboAddressesRewriterAndHttpRouters(pkc: PKC): Promise<{ destroy: () => Promise<void> }> {
+    if (pkc.destroyed) {
+        return {
+            destroy: async () => {}
+        };
+    }
     if (!Array.isArray(pkc.kuboRpcClientsOptions) || pkc.kuboRpcClientsOptions.length <= 0)
         throw Error("need ipfs http client to be defined");
     if (!Array.isArray(pkc.httpRoutersOptions) || pkc.httpRoutersOptions.length <= 0) throw Error("Need http router options to defined");
 
-    const httpRouterUrls = [...pkc.httpRoutersOptions].sort(); // make sure it's always the same order
+    const log = Logger("pkc-js:node:setupKuboAddressesRewriterAndHttpRouters");
+    // Set up http proxies first to rewrite addresses
 
-    // Set up http routers directly on the kubo nodes
+    const httpRouterProxyUrls: string[] = [];
+    const proxyServers: AddressesRewriterProxyServer[] = [];
+    let addressesRewriterStartPort = 19575; // use port 19575 as first port, looks like IPRTR (IPFS ROUTER)
+    for (const httpRouter of pkc.httpRoutersOptions) {
+        if (pkc.destroyed) break;
+        const startedProxyUrl = await _getStartedProxyUrl(pkc, httpRouter);
+        if (startedProxyUrl) {
+            // Intentionally not tracked in proxyServers: this proxy was started by a previous PKC
+            // instance in the same process and persisted via storage. We have no server handle to it
+            // and must not destroy() it on teardown, since another instance may still rely on it. It
+            // is bounded (one proxy per httpRouter, reusing the same stored URL) and lives until the
+            // process exits, so this is reuse by design, not a leak.
+            httpRouterProxyUrls.push(startedProxyUrl);
+            continue;
+        }
+        // launch the proxy server
+
+        let port = addressesRewriterStartPort;
+        const hostname = "127.0.0.1";
+        while (await tcpPortUsed.check(port, hostname))
+            // keep increasing port till we find an empty port
+            port++;
+
+        const addressesRewriterProxyServer = new AddressesRewriterProxyServer({
+            kuboClients: Object.values(pkc.clients.kuboRpcClients).map((kubo) => kubo._client),
+            port,
+            hostname,
+            proxyTargetUrl: httpRouter,
+            pkc
+        });
+        await addressesRewriterProxyServer.listen();
+        if (pkc.destroyed) {
+            await addressesRewriterProxyServer.destroy();
+            break;
+        }
+        proxyServers.push(addressesRewriterProxyServer);
+
+        // save the proxy urls to use them later
+
+        const httpRouterProxyUrl = `http://${hostname}:${port}`;
+        httpRouterProxyUrls.push(httpRouterProxyUrl);
+    }
+    httpRouterProxyUrls.sort(); // make sure it's always the same order
+
+    // Set up http routers to use proxies
     const kuboClients = pkc.clients.kuboRpcClients;
-    const httpRoutersConfig: any = {
-        HttpRoutersParallel: { Type: "parallel", Parameters: { Routers: [] } },
+    const parallelRouters: NonNullable<KuboRouterEntry["Parameters"]["Routers"]> = [];
+    const httpRoutersConfig: KuboRoutersMap = {
+        HttpRoutersParallel: { Type: "parallel", Parameters: { Routers: parallelRouters } },
         HttpRouterNotSupported: { Type: "http", Parameters: { Endpoint: "http://kubohttprouternotsupported" } }
     };
-    for (const [i, httpRouterUrl] of httpRouterUrls.entries()) {
+    for (const [i, httpRouterUrl] of httpRouterProxyUrls.entries()) {
         const RouterName = `HttpRouter${i + 1}`;
         httpRoutersConfig[RouterName] = {
             Type: "http",
@@ -141,7 +228,7 @@ export async function setupKuboHttpRouters(pkc: PKC): Promise<void> {
                 Endpoint: httpRouterUrl
             }
         };
-        httpRoutersConfig.HttpRoutersParallel.Parameters.Routers[i] = {
+        parallelRouters[i] = {
             RouterName: RouterName,
             IgnoreErrors: true,
             Timeout: "10s"
@@ -163,14 +250,12 @@ export async function setupKuboHttpRouters(pkc: PKC): Promise<void> {
         Routers: httpRoutersConfig
     };
 
-    const settingOptionRetryOption = retry.operation({ forever: true, factor: 2 });
+    // Cap the backoff: with forever:true and no maxTimeout the exponential delay grows unbounded
+    // (hours between attempts after enough failures), which would stall router setup indefinitely.
+    const settingOptionRetryOption = retry.operation({ forever: true, factor: 2, maxTimeout: 60 * 1000 });
 
     const setHttpRouterOnAllNodes = new Promise((resolve) => {
         settingOptionRetryOption.attempt(async (curAttempt) => {
-            if (pkc.destroyed) {
-                resolve(1);
-                return;
-            }
             for (const kuboClient of Object.values(kuboClients)) {
                 try {
                     await _setHttpRouterOptionsOnKuboNode(kuboClient, routingValue);
@@ -185,4 +270,11 @@ export async function setupKuboHttpRouters(pkc: PKC): Promise<void> {
 
     await setHttpRouterOnAllNodes;
     settingOptionRetryOption.stop();
+    return {
+        destroy: async () => {
+            for (const proxyServer of proxyServers) {
+                await proxyServer.destroy();
+            }
+        }
+    };
 }
