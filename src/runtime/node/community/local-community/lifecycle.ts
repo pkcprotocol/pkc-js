@@ -20,6 +20,7 @@ import { LocalCommunity } from "../local-community.js";
 import { processStartedCommunities } from "./registry.js";
 import { pubsubTopicWithfallback } from "./comment-updates.js";
 import { providePubsubTopicRoutingCidsIfNeeded } from "./pubsub.js";
+import { reprovideOnAddressChangeIfDue } from "./reprovide-on-address-change.js";
 import { repinCommentUpdateIfNeeded, unpinStaleCids } from "./cleanup.js";
 import {
     importCommunitySignerIntoIpfsIfNeeded,
@@ -58,6 +59,12 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
     while (!shouldStopPublishLoop()) {
         try {
             await syncIpnsWithDb(community);
+            // Re-announce browser-dialable (WSS/WebRTC) addresses to HTTP routers when they rotate, so browsers
+            // don't hit NoValidAddressesError against stale addresses. Throttled internally; runs inside the
+            // publish loop so it's torn down with the loop on stop(). Its own failures must not break publishing.
+            await reprovideOnAddressChangeIfDue(community).catch((e) =>
+                log.error("Failed to re-provide connection CIDs on address change", e)
+            );
         } catch (e) {
             community.emit("error", e as Error);
         } finally {
@@ -102,6 +109,9 @@ export async function start(community: LocalCommunity) {
         throw new PKCError("ERR_NEED_TO_STOP_UPDATING_COMMUNITY_BEFORE_STARTING", { address: community.address });
     community._stopHasBeenCalled = false;
     community._firstUpdateAfterStart = true;
+    // Re-baseline address-change re-provide for this run (start() provides everything fresh below).
+    community._lastProvidedBrowserDialableSelfAddrs = undefined;
+    community._lastAddressReprovideCheckAt = undefined;
     if (!community._clientsManager.getDefaultKuboRpcClientOrHelia())
         throw Error("You need to define an IPFS client in your pkc instance to be able to start a local community");
     await community.initDbHandlerIfNeeded();
@@ -129,6 +139,8 @@ export async function start(community: LocalCommunity) {
         await setChallengesToDefaultIfNotDefined(community, log);
         // Import community keys onto ipfs node
         await importCommunitySignerIntoIpfsIfNeeded(community);
+        // Force-provides the never-changing pubsub-topic routing CIDs (the connection-critical CIDs the
+        // address-change re-provide watches) with the node's current browser-dialable addresses on start.
         await providePubsubTopicRoutingCidsIfNeeded(community, true);
 
         community._communityUpdateTrigger = true;

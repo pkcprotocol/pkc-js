@@ -20,7 +20,7 @@ export async function listenToIncomingRequests(community: LocalCommunity) {
 
 export async function providePubsubTopicRoutingCidsIfNeeded(community: LocalCommunity, force = false) {
     const log = Logger("pkc-js:local-community:_providePubsubTopicRoutingCidsIfNeeded");
-    const reprovideIntervalMs = 6 * 60 * 60 * 1000;
+    const reprovideIntervalMs = 1 * 60 * 60 * 1000; // re-provide the pubsub-topic routing CIDs hourly so their HTTP-router records keep fresh addresses
     const now = Date.now();
     if (!force && community._lastPubsubTopicRoutingProvideAt && now - community._lastPubsubTopicRoutingProvideAt < reprovideIntervalMs)
         return;
