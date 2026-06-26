@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.55](https://github.com/pkcprotocol/pkc-js/compare/v0.0.54...v0.0.55) (2026-06-26)
+
+### Bug Fixes
+
+* **kubo:** strip /p2p suffix and dedupe addrs in rewriter proxy ([#156](https://github.com/pkcprotocol/pkc-js/issues/156)) ([0ad83da](https://github.com/pkcprotocol/pkc-js/commit/0ad83dae0dde1017577eeb3f6adb87f8720d7f76))
+
 ## [0.0.54](https://github.com/pkcprotocol/pkc-js/compare/v0.0.53...v0.0.54) (2026-06-25)
 
 ### Features
