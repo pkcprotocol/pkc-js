@@ -1,4 +1,5 @@
 import pLimit from "p-limit";
+import pRetry from "p-retry";
 import { Server as RpcWebsocketsServer } from "rpc-websockets";
 import { createReadStream, existsSync, mkdirSync, promises as fsPromises, statSync } from "fs";
 import http, { type Server as HTTPServer, type ServerResponse } from "http";
@@ -108,6 +109,29 @@ import { findStartedCommunity } from "../../pkc/tracked-instance-registry-util.j
 // store as a singleton because not possible to start the same community twice at the same time
 
 const log = Logger("pkc-js-rpc:pkc-ws-server");
+
+// Max retries when an auto-start hits a transient Kubo network blip (e.g. a boot-time restart).
+// With factor=2, minTimeout=2s, maxTimeout=15s this spans ~89s of backoff, comfortably covering a
+// ~30-60s embedded-Kubo restart window observed in production (issue #158).
+const AUTO_START_TRANSIENT_RETRIES = 8;
+
+// Transient errors thrown when a request hits a Kubo node that is restarting or briefly unreachable.
+// These are safe to retry; anything else (e.g. a bad signature, a missing community) is not.
+const _isTransientKuboError = (error: unknown): boolean => {
+    const markers = ["fetch failed", "other side closed", "socket hang up", "econnrefused", "econnreset", "und_err"];
+    const seen = new Set<unknown>();
+    let current: unknown = error;
+    // Walk the error chain (cause / details.actualError) since the network error is often wrapped.
+    while (current && typeof current === "object" && !seen.has(current)) {
+        seen.add(current);
+        const err = current as { message?: unknown; code?: unknown; cause?: unknown; details?: { actualError?: unknown } };
+        const haystack =
+            `${typeof err.message === "string" ? err.message : ""} ${typeof err.code === "string" ? err.code : ""}`.toLowerCase();
+        if (markers.some((marker) => haystack.includes(marker))) return true;
+        current = err.cause ?? err.details?.actualError;
+    }
+    return false;
+};
 
 // TODO need to think how to update PKC instance of publication after setSettings?
 
@@ -386,6 +410,13 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         }[];
 
         const pkc = await this._getPKCInstance();
+
+        // Bug 1 (issue #158): the background HTTP-router / address-rewriter reconcile may POST
+        // /shutdown to the embedded Kubo to force a restart. If auto-start dispatches community
+        // starts while that restart is in flight, those starts hit the dying Kubo socket and throw
+        // `fetch failed`. Wait for the reconcile to settle before touching the node.
+        await pkc._waitForHttpRoutersSetupToSettle();
+
         const localCommunities = pkc.communities;
 
         // Filter phase: determine which communities need starting
@@ -419,7 +450,24 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
                 limit(async () => {
                     autoStartLog(`Auto-starting community: ${address}`);
                     try {
-                        await this._internalStartCommunity(address);
+                        // Bug 2 (issue #158): a community whose start hits a transient Kubo blip
+                        // (e.g. a boot-time restart window) must not be left permanently stopped.
+                        // Retry transient network errors with backoff; non-transient errors abort
+                        // immediately so we don't mask real failures.
+                        await pRetry(() => this._internalStartCommunity(address), {
+                            retries: AUTO_START_TRANSIENT_RETRIES,
+                            factor: 2,
+                            minTimeout: 2000,
+                            maxTimeout: 15000,
+                            shouldRetry: ({ error }) => _isTransientKuboError(error),
+                            onFailedAttempt: ({ error, attemptNumber, retriesLeft }) => {
+                                if (_isTransientKuboError(error))
+                                    autoStartLog(
+                                        `Transient failure auto-starting ${address} (attempt ${attemptNumber}, ${retriesLeft} retries left), retrying`,
+                                        error.message
+                                    );
+                            }
+                        });
                         autoStartLog(`Successfully auto-started: ${address}`);
                     } catch (e) {
                         autoStartLog.error(`Failed to auto-start community ${address}`, e);

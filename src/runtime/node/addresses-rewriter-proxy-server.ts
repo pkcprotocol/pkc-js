@@ -261,6 +261,7 @@ export class AddressesRewriterProxyServer {
                 requestLogEntry.success = false;
                 requestLogEntry.statusCode = 504;
                 requestLogEntry.error = "Request timeout";
+                requestLogEntry.completed = true;
                 // Add failed keys to retry set
                 if (requestLogEntry.keys) {
                     const sizeBefore = this._failedKeys.size;
@@ -288,6 +289,7 @@ export class AddressesRewriterProxyServer {
                 requestLogEntry.success = false;
                 requestLogEntry.statusCode = 500;
                 requestLogEntry.error = `Proxy error: ${e.message}`;
+                requestLogEntry.completed = true;
                 debug.trace(`Updated log entry with error for keys: ${requestLogEntry.keys.join(", ")}`);
                 // Add failed keys to retry set
                 if (requestLogEntry.keys) {
@@ -316,6 +318,7 @@ export class AddressesRewriterProxyServer {
             if (requestLogEntry) {
                 requestLogEntry.success = isSuccess;
                 requestLogEntry.statusCode = statusCode;
+                requestLogEntry.completed = true;
                 if (!isSuccess) {
                     requestLogEntry.error = `HTTP ${statusCode}`;
                     // Add failed keys to retry set
@@ -342,6 +345,7 @@ export class AddressesRewriterProxyServer {
                     requestLogEntry.success = false;
                     requestLogEntry.statusCode = 500;
                     requestLogEntry.error = `Proxy response error: ${err.message}`;
+                    requestLogEntry.completed = true;
                 }
                 proxyRes.destroy(err);
             });
@@ -466,8 +470,17 @@ export class AddressesRewriterProxyServer {
         }
 
         this._isWritingLogs = true;
-        const logsToWrite = [...this._requestLogBuffer];
-        this._requestLogBuffer = []; // Clear buffer immediately to prevent duplicates
+        // Only persist entries whose terminal callback has run; entries still in flight keep their
+        // initial `success: false` placeholder and would be persisted (and never corrected) if
+        // flushed now, so leave them buffered for a later tick. The 10s request timeout guarantees
+        // every entry eventually completes, so nothing is buffered forever. See issue #157.
+        const logsToWrite = this._requestLogBuffer.filter((entry) => entry.completed);
+        if (logsToWrite.length === 0) {
+            this._isWritingLogs = false;
+            return;
+        }
+        const inFlightLogs = this._requestLogBuffer.filter((entry) => !entry.completed);
+        this._requestLogBuffer = inFlightLogs; // Keep in-flight entries; clear flushed ones to prevent duplicates
 
         try {
             this._db.insertRequestLogs(logsToWrite);

@@ -17,6 +17,10 @@ export type RequestLogEntry = {
     error?: string;
     retryCount?: number;
     bodyPreview?: string;
+    // Set true by the terminal callback (response/error/timeout) once the real outcome is known.
+    // Until then the entry is in flight and must not be flushed, otherwise its initial
+    // `success: false` placeholder would be persisted permanently (see issue #157).
+    completed?: boolean;
 };
 
 export type ReprovideLogEntry = {
