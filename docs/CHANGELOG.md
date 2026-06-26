@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.57](https://github.com/pkcprotocol/pkc-js/compare/v0.0.56...v0.0.57) (2026-06-26)
+
+### Features
+
+* **local-community:** re-provide connection CIDs when browser-dialable addresses rotate ([#162](https://github.com/pkcprotocol/pkc-js/issues/162)) ([7143ee3](https://github.com/pkcprotocol/pkc-js/commit/7143ee32bcf9156220fb5e80eced4c474299568c)), closes [#161](https://github.com/pkcprotocol/pkc-js/issues/161)
+
 ## [0.0.56](https://github.com/pkcprotocol/pkc-js/compare/v0.0.55...v0.0.56) (2026-06-26)
 
 ### Bug Fixes
