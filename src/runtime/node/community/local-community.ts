@@ -116,6 +116,11 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     _firstUpdateAfterStart: boolean = true;
     _internalStateUpdateId: InternalCommunityRecordBeforeFirstUpdateType["_internalStateUpdateId"] = "";
     _lastPubsubTopicRoutingProvideAt?: number = undefined;
+    // Browser-dialable (WSS/WebRTC) self-addresses last announced for the connection-critical CIDs.
+    // When this set changes (checked once per publish-loop cycle, throttled) we re-provide so HTTP routers
+    // stop serving stale addresses (see reprovide-on-address-change.ts).
+    _lastProvidedBrowserDialableSelfAddrs?: string[] = undefined;
+    _lastAddressReprovideCheckAt?: number = undefined;
     _mirroredStartedOrUpdatingCommunity?: { community: LocalCommunity } & Pick<
         CommunityEvents,
         | "error"
