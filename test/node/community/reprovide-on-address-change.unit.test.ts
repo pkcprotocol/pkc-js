@@ -12,9 +12,12 @@ import type {
 // connect: when the node's browser-dialable (WSS/WebRTC) self-addresses rotate, the connection-critical
 // CIDs must be re-provided so the address-rewriter proxy re-injects the fresh addresses into the HTTP
 // routers. A pure-TCP/quic address change must NOT trigger a re-provide (browsers can't dial those).
+//
+// The connection-critical CIDs are the two *never-changing* pubsub-topic routing CIDs (challenge topic +
+// ipns-over-pubsub topic). updateCid is intentionally NOT here: it rotates every <=15 min and is re-provided
+// with fresh addresses on every publish, so it is already self-healing.
 
-// Three valid CIDv1 strings standing in for updateCid / pubsubTopicRoutingCid / ipnsPubsubTopicRoutingCid.
-const UPDATE_CID = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
+// Two valid CIDv1 strings standing in for pubsubTopicRoutingCid / ipnsPubsubTopicRoutingCid.
 const PUBSUB_ROUTING_CID = "bafybeihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku";
 const IPNS_PUBSUB_ROUTING_CID = "bafybeiczsscdsbs7ffqz55asqdf3smv6klcw3gofszvwlyarci47bgf354";
 
@@ -52,7 +55,6 @@ function makeClient(initialIdAddrs: string[]): {
 function makeCommunity(client: ReprovideKuboRpcClient): AddressChangeReprovidable {
     return {
         address: "test.community",
-        updateCid: UPDATE_CID,
         pubsubTopicRoutingCid: PUBSUB_ROUTING_CID,
         ipnsPubsubTopicRoutingCid: IPNS_PUBSUB_ROUTING_CID,
         _lastProvidedBrowserDialableSelfAddrs: undefined,
@@ -98,12 +100,12 @@ describe("reprovideConnectionCidsIfBrowserAddrsChanged", () => {
         expect(provideCalls).toEqual([]);
     });
 
-    it("re-provides the connection-critical CIDs when a WSS address rotates", async () => {
+    it("re-provides the pubsub routing CIDs when a WSS address rotates", async () => {
         await reprovideConnectionCidsIfBrowserAddrsChanged(community); // baseline with WSS_ADDR_A
         setIdAddrs([TCP_ADDR, WSS_ADDR_B]); // AutoTLS WSS rotated
         const res = await reprovideConnectionCidsIfBrowserAddrsChanged(community);
         expect(res.reprovided).toBe(true);
-        expect(provideCalls).toEqual([UPDATE_CID, PUBSUB_ROUTING_CID, IPNS_PUBSUB_ROUTING_CID]);
+        expect(provideCalls).toEqual([PUBSUB_ROUTING_CID, IPNS_PUBSUB_ROUTING_CID]);
         expect(community._lastProvidedBrowserDialableSelfAddrs).toEqual([WSS_ADDR_B]);
     });
 
@@ -112,7 +114,7 @@ describe("reprovideConnectionCidsIfBrowserAddrsChanged", () => {
         setIdAddrs([TCP_ADDR, WSS_ADDR_A, WEBRTC_ADDR]);
         const res = await reprovideConnectionCidsIfBrowserAddrsChanged(community);
         expect(res.reprovided).toBe(true);
-        expect(provideCalls).toEqual([UPDATE_CID, PUBSUB_ROUTING_CID, IPNS_PUBSUB_ROUTING_CID]);
+        expect(provideCalls).toEqual([PUBSUB_ROUTING_CID, IPNS_PUBSUB_ROUTING_CID]);
     });
 
     it("does NOT re-provide when only a non-browser-dialable (TCP) address changes", async () => {
@@ -123,19 +125,12 @@ describe("reprovideConnectionCidsIfBrowserAddrsChanged", () => {
         expect(provideCalls).toEqual([]);
     });
 
-    it("skips CIDs that are not yet known (e.g. updateCid before first publish)", async () => {
-        community.updateCid = undefined;
+    it("skips routing CIDs that are not yet known", async () => {
+        community.pubsubTopicRoutingCid = undefined;
         await reprovideConnectionCidsIfBrowserAddrsChanged(community); // baseline
         setIdAddrs([TCP_ADDR, WSS_ADDR_B]);
         const res = await reprovideConnectionCidsIfBrowserAddrsChanged(community);
         expect(res.reprovided).toBe(true);
-        expect(provideCalls).toEqual([PUBSUB_ROUTING_CID, IPNS_PUBSUB_ROUTING_CID]);
-    });
-
-    it("force re-provides even when addresses are unchanged", async () => {
-        await reprovideConnectionCidsIfBrowserAddrsChanged(community); // baseline
-        const res = await reprovideConnectionCidsIfBrowserAddrsChanged(community, true);
-        expect(res.reprovided).toBe(true);
-        expect(provideCalls).toEqual([UPDATE_CID, PUBSUB_ROUTING_CID, IPNS_PUBSUB_ROUTING_CID]);
+        expect(provideCalls).toEqual([IPNS_PUBSUB_ROUTING_CID]);
     });
 });

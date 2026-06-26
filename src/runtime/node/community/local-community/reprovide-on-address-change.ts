@@ -20,7 +20,6 @@ export type ReprovideKuboRpcClient = {
 // LocalCommunity satisfies this, and it keeps the function testable in isolation.
 export type AddressChangeReprovidable = {
     address: string;
-    updateCid?: string;
     pubsubTopicRoutingCid?: string;
     ipnsPubsubTopicRoutingCid?: string;
     _lastProvidedBrowserDialableSelfAddrs?: string[];
@@ -56,12 +55,13 @@ export async function getBrowserDialableSelfAddrs(client: ReprovideKuboRpcClient
 }
 
 // The CIDs a browser needs a fresh provider record for in order to bootstrap a connection to the community:
-// the community record itself, plus the pubsub-topic routing blocks used to find challenge / ipns-over-pubsub peers.
+// the pubsub-topic routing blocks used to find challenge / ipns-over-pubsub peers. These are derived
+// deterministically from the (never-changing) topics, so their router records are exactly what goes stale
+// when the node's addresses rotate. updateCid is intentionally excluded: it rotates every <=15 min and is
+// re-provided with fresh addresses on every publish, so it is already self-healing.
 function connectionCriticalCids(community: AddressChangeReprovidable): string[] {
     return remeda.unique(
-        [community.updateCid, community.pubsubTopicRoutingCid, community.ipnsPubsubTopicRoutingCid].filter(
-            (cid): cid is string => typeof cid === "string"
-        )
+        [community.pubsubTopicRoutingCid, community.ipnsPubsubTopicRoutingCid].filter((cid): cid is string => typeof cid === "string")
     );
 }
 
@@ -70,26 +70,24 @@ function connectionCriticalCids(community: AddressChangeReprovidable): string[] 
  * have changed since the last provide. This pushes the current addresses to the HTTP routers (via the
  * address-rewriter proxy) so browsers don't get NoValidAddressesError against stale/dead addresses.
  *
- * The first observation only establishes a baseline (start() already provided everything with fresh
- * addresses); subsequent changes trigger a re-provide. Pass force=true to provide regardless.
+ * The first observation only establishes a baseline (start() already force-provides these CIDs with fresh
+ * addresses via providePubsubTopicRoutingCidsIfNeeded); subsequent changes trigger a re-provide.
  */
 export async function reprovideConnectionCidsIfBrowserAddrsChanged(
-    community: AddressChangeReprovidable,
-    force = false
+    community: AddressChangeReprovidable
 ): Promise<{ reprovided: boolean; providedCids: string[]; browserAddrs: string[] }> {
     const log = Logger("pkc-js:local-community:_reprovideConnectionCidsIfBrowserAddrsChanged");
     const client = community._clientsManager.getDefaultKuboRpcClient()._client;
     const current = await getBrowserDialableSelfAddrs(client);
     const previous = community._lastProvidedBrowserDialableSelfAddrs;
 
-    const baselineOnly = previous === undefined && !force;
-    if (baselineOnly) {
+    if (previous === undefined) {
+        // First observation: just establish the baseline; start() already provided these CIDs with fresh addresses.
         community._lastProvidedBrowserDialableSelfAddrs = current;
         return { reprovided: false, providedCids: [], browserAddrs: current };
     }
 
-    const changed = previous === undefined || !remeda.isDeepEqual(previous, current);
-    if (!force && !changed) return { reprovided: false, providedCids: [], browserAddrs: current };
+    if (remeda.isDeepEqual(previous, current)) return { reprovided: false, providedCids: [], browserAddrs: current };
 
     // Record the snapshot before providing so a slow/failing provide doesn't make us re-announce every tick.
     community._lastProvidedBrowserDialableSelfAddrs = current;

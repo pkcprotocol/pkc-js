@@ -139,6 +139,8 @@ export async function start(community: LocalCommunity) {
         await setChallengesToDefaultIfNotDefined(community, log);
         // Import community keys onto ipfs node
         await importCommunitySignerIntoIpfsIfNeeded(community);
+        // Force-provides the never-changing pubsub-topic routing CIDs (the connection-critical CIDs the
+        // address-change re-provide watches) with the node's current browser-dialable addresses on start.
         await providePubsubTopicRoutingCidsIfNeeded(community, true);
 
         community._communityUpdateTrigger = true;
