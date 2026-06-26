@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.56](https://github.com/pkcprotocol/pkc-js/compare/v0.0.55...v0.0.56) (2026-06-26)
+
+### Bug Fixes
+
+* **rewriter:** only persist request logs once their outcome is known ([#157](https://github.com/pkcprotocol/pkc-js/issues/157)) ([#159](https://github.com/pkcprotocol/pkc-js/issues/159)) ([3330f7f](https://github.com/pkcprotocol/pkc-js/commit/3330f7f5b78fb1fe3026e4fe172fe83669fa003b))
+* **rpc:** survive boot-time Kubo restart during auto-start ([#158](https://github.com/pkcprotocol/pkc-js/issues/158)) ([#160](https://github.com/pkcprotocol/pkc-js/issues/160)) ([1113736](https://github.com/pkcprotocol/pkc-js/commit/111373692ce08def45915ead1f1e71dfb950f344)), closes [#157](https://github.com/pkcprotocol/pkc-js/issues/157)
+
 ## [0.0.55](https://github.com/pkcprotocol/pkc-js/compare/v0.0.54...v0.0.55) (2026-06-26)
 
 ### Bug Fixes
