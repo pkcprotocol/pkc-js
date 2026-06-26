@@ -422,6 +422,15 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         }
     }
 
+    // Resolves once the background HTTP-router / address-rewriter reconcile has finished. On Node
+    // with an embedded Kubo this reconcile may POST /shutdown to the node to force a restart (see
+    // setup-kubo-address-rewriter-and-http-router.ts), so callers that need to talk to a stable
+    // Kubo immediately after boot (e.g. RPC auto-start) should await this first to avoid racing the
+    // restart window. No-op when there is no router setup in flight.
+    async _waitForHttpRoutersSetupToSettle(): Promise<void> {
+        if (this._addressRewriterSetupPromise) await this._addressRewriterSetupPromise;
+    }
+
     async _init() {
         const log = Logger("pkc-js:pkc:_init");
         // Init storage
