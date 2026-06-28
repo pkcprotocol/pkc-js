@@ -23,6 +23,7 @@ import type { HeliaWithLibp2pPubsub } from "./types.js";
 import { PKCError } from "../pkc-error.js";
 import { Libp2pJsClient } from "./libp2pjsClient.js";
 import { connectToPubsubPeers, getHeliaDebugContext } from "./util.js";
+import { createDefaultDialTransportGater } from "./dial-transport-filter.js";
 import { ipnsNameToIpnsOverPubsubTopic } from "../util.js";
 
 const log = Logger("pkc-js:libp2p-js");
@@ -91,6 +92,12 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 // traffic and gets timed out, killing connections mid-fetch. Disable the abort
                 // (ping still runs as an RTT signal).
                 connectionMonitor: { abortConnectionOnPingFailure: false },
+                // By default reject WebRTC + WebTransport dials so browser nodes connect over
+                // WebSocket(/WSS). Helia's libp2p defaults set no connectionGater, so nothing
+                // upstream is clobbered. Placed BEFORE the spread so a caller can fully override
+                // it via libp2pJsClientsOptions[].libp2pOptions.connectionGater (e.g. to re-enable
+                // WebRTC/WebTransport, or allow-all in tests).
+                connectionGater: createDefaultDialTransportGater(),
                 ...pkcOptions.libp2pOptions,
                 // Configure connection manager to handle more concurrent streams
 
