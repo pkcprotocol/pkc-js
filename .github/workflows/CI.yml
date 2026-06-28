@@ -39,7 +39,18 @@ jobs:
                   node-version: 22
                   cache: "npm"
 
-            - run: npm ci
+            # Retry: the kubo postinstall downloads its binary from dist.ipfs.tech,
+            # which intermittently returns 5xx and aborts the install with no retry
+            # of its own.
+            - name: npm ci (with retry)
+              shell: bash
+              run: |
+                  for attempt in 1 2 3; do
+                    npm ci && exit 0
+                    echo "npm ci attempt $attempt failed; retrying in 15s..."
+                    sleep 15
+                  done
+                  exit 1
             - run: npm run build
 
             - run: DEBUG="pkc*" npm run test:server:node 2>&1 | tee test_server.log & npm run test:server:wait-on
@@ -129,7 +140,18 @@ jobs:
                   node-version: 22
                   cache: "npm"
 
-            - run: npm ci
+            # Retry: the kubo postinstall downloads its binary from dist.ipfs.tech,
+            # which intermittently returns 5xx and aborts the install with no retry
+            # of its own.
+            - name: npm ci (with retry)
+              shell: bash
+              run: |
+                  for attempt in 1 2 3; do
+                    npm ci && exit 0
+                    echo "npm ci attempt $attempt failed; retrying in 15s..."
+                    sleep 15
+                  done
+                  exit 1
             - run: npm run build
 
             - run: DEBUG="pkc*" npm run test:server:node 2>&1 | tee test_server.log & npm run test:server:wait-on
@@ -189,7 +211,18 @@ jobs:
                   node-version: 22
                   cache: "npm"
 
-            - run: npm ci
+            # Retry: the kubo postinstall downloads its binary from dist.ipfs.tech,
+            # which intermittently returns 5xx and aborts the install with no retry
+            # of its own.
+            - name: npm ci (with retry)
+              shell: bash
+              run: |
+                  for attempt in 1 2 3; do
+                    npm ci && exit 0
+                    echo "npm ci attempt $attempt failed; retrying in 15s..."
+                    sleep 15
+                  done
+                  exit 1
             - run: npm run build
 
             - run: DEBUG="pkc*" npm run test:server:node 2>&1 | tee test_server.log & npm run test:server:wait-on
@@ -246,7 +279,18 @@ jobs:
                   cache: "npm"
 
             # Setup pkc-js deps
-            - run: npm ci
+            # Retry: the kubo postinstall downloads its binary from dist.ipfs.tech,
+            # which intermittently returns 5xx and aborts the install with no retry
+            # of its own.
+            - name: npm ci (with retry)
+              shell: bash
+              run: |
+                  for attempt in 1 2 3; do
+                    npm ci && exit 0
+                    echo "npm ci attempt $attempt failed; retrying in 15s..."
+                    sleep 15
+                  done
+                  exit 1
             - run: npm run build
             # Setup tests for pkc-js using rpc here
             - run: DEBUG="pkc*" npm run test:server:node:rpc 2>&1 | tee test_server.log & npm run test:server:wait-on
